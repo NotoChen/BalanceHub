@@ -1,0 +1,125 @@
+.panel {
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-panel);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+
+.provider-panel {
+  min-height: 380px;
+}
+
+.provider-board {
+  --provider-grid-card-min: 272px;
+  width: 100%;
+  align-content: start;
+}
+
+.overview-provider-grid {
+  display: grid;
+  min-width: 0;
+  align-items: stretch;
+  justify-content: start;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--provider-grid-card-min)), 1fr)
+  );
+  gap: 14px;
+}
+
+.overview-provider-grid > * {
+  min-width: 0;
+}
+
+.provider-board-section {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.provider-board-divider {
+  height: 1px;
+  background: var(--glass-border);
+  margin: 2px 0 4px;
+}
+
+.provider-load-error {
+  align-self: start;
+}
+
+.provider-load-error-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-load-error-content span {
+  min-width: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.provider-load-error-content .arco-btn {
+  flex: 0 0 auto;
+}
+
+.provider-grid-move {
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.empty-state {
+  display: grid;
+  min-height: 220px;
+  grid-column: 1 / -1;
+  place-items: center;
+  border: 1px dashed #c9cdd4;
+  border-radius: 8px;
+  color: #86909c;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.empty-state h3 {
+  margin: 0;
+  color: #1d2129;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.empty-state p {
+  max-width: 360px;
+  margin: 6px 0 14px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--glass-border);
+  padding: 14px 16px;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.provider-logo {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px var(--glass-border);
+  overflow: hidden;
+}
+
+.provider-logo img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}

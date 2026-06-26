@@ -1,0 +1,78 @@
+.api-key-manager {
+  display: grid;
+  gap: 14px;
+}
+
+.api-key-manager-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.api-key-create-form {
+  display: grid;
+  gap: 8px;
+}
+
+.api-key-create-label {
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.api-key-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.api-key-empty {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  color: #86909c;
+}
+
+.api-key-list {
+  display: grid;
+  gap: 10px;
+}
+
+.api-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+}
+
+.api-key-info {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.api-key-info strong,
+.api-key-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-key-info span {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.api-key-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}

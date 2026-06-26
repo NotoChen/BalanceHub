@@ -1,0 +1,190 @@
+.usage-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.usage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-dashboard {
+  display: grid;
+  gap: 14px;
+}
+
+.usage-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.usage-summary-cards > div {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card-muted);
+}
+
+.usage-summary-cards span {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.usage-summary-cards strong {
+  color: #1d2129;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.usage-chart {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+}
+
+.usage-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.usage-chart-header > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.usage-chart-header strong {
+  color: #1d2129;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.usage-chart-header span,
+.usage-chart-legend {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.usage-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.usage-chart-legend i {
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: #f53f3f;
+}
+
+.usage-chart svg {
+  display: block;
+  width: 100%;
+  height: 260px;
+  overflow: visible;
+}
+
+.usage-grid line {
+  stroke: #eef0f5;
+  stroke-width: 1;
+}
+
+.usage-grid text {
+  fill: #86909c;
+  font-size: 10px;
+  text-anchor: end;
+}
+
+.usage-area {
+  fill: url("#usageAreaGradient");
+}
+
+.usage-line {
+  fill: none;
+  stroke: #f53f3f;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.usage-column {
+  stroke: rgba(245, 63, 63, 0.2);
+  stroke-linecap: round;
+  stroke-width: 5;
+}
+
+.usage-dot {
+  fill: #ffffff;
+  stroke: #f53f3f;
+  stroke-width: 2.2;
+}
+
+.usage-peak circle {
+  fill: #f53f3f;
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.usage-peak text {
+  fill: #f53f3f;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.usage-axis-labels text {
+  fill: #86909c;
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.usage-list {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.usage-row {
+  display: grid;
+  grid-template-columns: 92px minmax(100px, 1fr) 96px 132px;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(245, 63, 63, 0.035);
+}
+
+.usage-date,
+.usage-meta {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.usage-bar-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e6eb;
+}
+
+.usage-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: #f53f3f;
+}
+
+.usage-row strong {
+  color: #f53f3f;
+  text-align: right;
+}

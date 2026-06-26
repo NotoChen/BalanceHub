@@ -1,0 +1,200 @@
+import { reactive } from "vue";
+import { storeToRefs } from "pinia";
+import { useProviderStore, type Provider } from "../stores/providers";
+import { useApiKeyManager } from "./useApiKeyManager";
+import { useAppDataTransfer } from "./useAppDataTransfer";
+import { useAppLifecycle } from "./useAppLifecycle";
+import { useAppUpdater } from "./useAppUpdater";
+import { useAppVersion } from "./useAppVersion";
+import { useCheckInActions } from "./useCheckInActions";
+import { useCheckInRecords } from "./useCheckInRecords";
+import { usePasswordChange } from "./usePasswordChange";
+import { useOnboardingController } from "./useOnboardingController";
+import { useProviderEditor } from "./useProviderEditor";
+import { useProviderMenuActions } from "./useProviderMenuActions";
+import { useProviderWorkspaceController } from "./useProviderWorkspaceController";
+import { useRequestLogs } from "./useRequestLogs";
+import { useSettingsController } from "./useSettingsController";
+import { useSystemNotification } from "./useSystemNotification";
+import { useUsageSummary } from "./useUsageSummary";
+import { useWindowDrag } from "./useWindowDrag";
+
+export function useAppController() {
+  const providerStore = useProviderStore();
+  const {
+    initialized,
+    loadError,
+    loading,
+    providers,
+    refreshInProgress,
+    settings,
+  } = storeToRefs(providerStore);
+
+  const { startWindowDrag } = useWindowDrag();
+
+  const settingsController = useSettingsController({
+    providers,
+    settings,
+    initialSettings: providerStore.settings,
+    saveSettings: (value) => providerStore.saveSettings(value),
+    probeCodexCli: (input) => providerStore.probeCodexCli(input),
+  });
+
+  const { notifySystem, sendTestNotification } = useSystemNotification(
+    settingsController.settingsForm,
+  );
+  const { appVersion } = useAppVersion();
+  const { checkingForUpdate, checkForUpdate } = useAppUpdater();
+
+  const appDataTransfer = useAppDataTransfer({
+    exportAppData: (path) => providerStore.exportAppData(path),
+    importAppData: (path) => providerStore.importAppData(path),
+    afterImport: () => {
+      settingsController.syncFromSettings();
+    },
+  });
+
+  const checkIn = useCheckInActions({
+    providers,
+    reload: () => providerStore.reload(),
+    notifySystem,
+  });
+
+  const checkInRecords = useCheckInRecords({
+    providers,
+    loadRecords: (providerId, month) => providerStore.getCheckInRecords(providerId, month),
+  });
+
+  const usage = useUsageSummary({
+    loadUsage: (providerId, period) => providerStore.getUsage(providerId, period),
+  });
+
+  const requestLogs = useRequestLogs({
+    providers,
+    loadLogs: (providerId, query) => providerStore.getRequestLogs(providerId, query),
+  });
+
+  const passwordChange = usePasswordChange({
+    providers,
+    changePassword: (providerId, originalPassword, password) =>
+      providerStore.changePassword(providerId, originalPassword, password),
+  });
+
+  const apiKeyManager = useApiKeyManager({
+    listKeys: (providerId) => providerStore.listApiKeys(providerId),
+    createKey: (providerId, name) => providerStore.createApiKey(providerId, name),
+    deleteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),
+    saveProvider: (input) => providerStore.saveProvider(input),
+  });
+
+  async function removeProvider(provider: Provider) {
+    await providerStore.removeProvider(provider.identity.id);
+  }
+
+  async function toggleProvider(provider: Provider, enabled: boolean) {
+    await providerStore.toggleProvider(provider.identity.id, enabled);
+  }
+
+  const providerEditor = useProviderEditor({ store: providerStore });
+
+  const onboarding = useOnboardingController({
+    initialized,
+    loadError,
+    providers,
+    settings,
+    settingsForm: settingsController.settingsForm,
+    saveSettings: (value) => providerStore.saveSettings(value),
+    syncFromSettings: settingsController.syncFromSettings,
+    importAppData: appDataTransfer.importAppData,
+    openAddProvider: providerEditor.openAddProvider,
+    openSettings: () => {
+      settingsController.settingsDrawerVisible.value = true;
+    },
+    probeCodexCliPath: settingsController.probeCodexCliPath,
+  });
+
+  const providerMenu = useProviderMenuActions({
+    providers,
+    refreshByIds: (ids) => providerStore.refreshByIds(ids),
+    testLiveness: (id) => providerStore.testLiveness(id),
+    syncCapabilities: (id) => providerStore.syncCapabilities(id),
+    getInviteLink: (id) => providerStore.getInviteLink(id),
+    reload: () => providerStore.reload(),
+    openEditProvider: providerEditor.openEditProvider,
+    checkInProviderAction: checkIn.checkInProviderAction,
+    openApiKeyManager: apiKeyManager.openApiKeyManager,
+    openUsage: usage.openUsage,
+    openRequestLogs: requestLogs.openRequestLogs,
+    openPasswordChange: passwordChange.openPasswordChange,
+    openCheckInRecords: checkInRecords.openCheckInRecords,
+    toggleProvider,
+    removeProvider,
+  });
+
+  const workspace = useProviderWorkspaceController({
+    providers,
+    settings: settingsController.settingsForm,
+    checkingInProviderId: checkIn.checkingInProviderId,
+    syncingCapabilitiesProviderId: providerMenu.syncingCapabilitiesProviderId,
+    editingProviderId: providerEditor.editingProviderId,
+    probingSite: providerEditor.probingSite,
+    testingConnection: providerEditor.testingConnection,
+    completingCredentials: providerEditor.completingCredentials,
+    reorderProviders: (ids) => providerStore.reorderProviders(ids),
+    removeProvider: (id) => providerStore.removeProvider(id),
+    toggleProvider: (id, enabled) => providerStore.toggleProvider(id, enabled),
+    checkInProvider: (provider) => checkIn.checkInProviderAction(provider),
+    closeProviderContextMenu: providerMenu.closeProviderContextMenu,
+  });
+
+  useAppLifecycle({
+    loadError,
+    settings,
+    settingsForm: settingsController.settingsForm,
+    settingsDrawerVisible: settingsController.settingsDrawerVisible,
+    usageVisible: usage.usageVisible,
+    usageProvider: usage.usageProvider,
+    usagePeriod: usage.usagePeriod,
+    checkInRecordsVisible: checkInRecords.checkInRecordsVisible,
+    checkInRecordsProviderId: checkInRecords.checkInRecordsProviderId,
+    checkInRecordsMonth: checkInRecords.checkInRecordsMonth,
+    initialize: () => providerStore.initialize(),
+    syncFromSettings: settingsController.syncFromSettings,
+    setupThemeListener: settingsController.setupThemeListener,
+    cleanupThemeListener: settingsController.cleanupThemeListener,
+    syncLaunchAtLogin: settingsController.syncLaunchAtLogin,
+    autoProbeCodexCliPath: settingsController.autoProbeCodexCliPath,
+    reloadProviders: () => providerStore.reload().catch(() => {}),
+    applyTheme: settingsController.applyTheme,
+    resetSettingsDraft: settingsController.resetDraftOnClose,
+    resetProviderPointerDrag: workspace.resetProviderPointerDrag,
+    refreshUsageSummary: usage.refreshUsageSummary,
+    loadCheckInRecords: checkInRecords.loadCheckInRecords,
+  });
+
+  return reactive({
+    initialized,
+    loadError,
+    loading,
+    providers,
+    refreshInProgress,
+    startWindowDrag,
+    ...settingsController,
+    ...onboarding,
+    sendTestNotification,
+    appVersion,
+    checkingForUpdate,
+    checkForUpdate,
+    ...appDataTransfer,
+    ...checkIn,
+    ...checkInRecords,
+    ...usage,
+    ...requestLogs,
+    ...passwordChange,
+    ...apiKeyManager,
+    ...providerEditor,
+    ...providerMenu,
+    ...workspace,
+    refreshAllProviders: providerStore.refreshAll,
+  });
+}

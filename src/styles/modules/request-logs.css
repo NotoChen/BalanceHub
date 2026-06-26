@@ -1,0 +1,454 @@
+.request-logs-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.request-logs-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 104px auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.request-logs-page-size {
+  width: 104px;
+}
+
+.request-logs-table-wrap {
+  max-height: 56vh;
+  overflow: auto;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+}
+
+.request-logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.request-logs-table-usage {
+  min-width: 0;
+}
+
+.request-logs-table-simple {
+  min-width: 0;
+}
+
+.request-logs-table th,
+.request-logs-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--glass-border);
+  color: #4e5969;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  vertical-align: top;
+}
+
+.request-logs-table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: rgba(247, 248, 250, 0.96);
+  color: #86909c;
+  font-weight: 650;
+}
+
+.request-logs-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.request-log-col-time {
+  width: 15%;
+}
+
+.request-log-col-type {
+  width: 7%;
+}
+
+.request-log-col-token {
+  width: 13%;
+}
+
+.request-log-col-model {
+  width: 16%;
+}
+
+.request-log-col-timing {
+  width: 9%;
+}
+
+.request-log-col-tokens {
+  width: 11%;
+}
+
+.request-log-col-cost {
+  width: 12%;
+}
+
+.request-log-col-details {
+  width: 17%;
+}
+
+.request-logs-table-simple .request-log-col-time {
+  width: 25%;
+}
+
+.request-logs-table-simple .request-log-col-type {
+  width: 12%;
+}
+
+.request-logs-table-simple .request-log-col-details {
+  width: 63%;
+}
+
+.request-log-time {
+  color: #86909c;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+
+.request-log-token,
+.request-log-model,
+.request-log-tokens,
+.request-log-cost,
+.request-log-details {
+  min-width: 0;
+}
+
+.request-log-detail-button {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  gap: 2px;
+  text-align: left;
+}
+
+.request-log-detail-button:hover > span {
+  text-decoration: underline;
+}
+
+.request-log-detail-button > span {
+  display: block;
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-log-detail-button > small,
+.request-log-token > span,
+.request-log-model > span,
+.request-log-tokens > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #86909c;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-log-token > strong,
+.request-log-model > strong,
+.request-log-tokens > strong,
+.request-log-cost > strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-log-cost > strong {
+  color: #f53f3f;
+}
+
+.request-log-timing {
+  color: #4e5969;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.request-log-empty {
+  color: #c9cdd4;
+}
+
+.request-log-status {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  height: 20px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-log-status-ok {
+  background: rgba(0, 180, 42, 0.1);
+  color: #00a870;
+}
+
+.request-log-status-error {
+  background: rgba(245, 63, 63, 0.1);
+  color: #f53f3f;
+}
+
+.request-log-status-info {
+  background: rgba(22, 93, 255, 0.1);
+  color: #165dff;
+}
+
+.request-log-status-refund {
+  background: rgba(14, 186, 197, 0.12);
+  color: #0e9fa8;
+}
+
+.request-log-status-neutral {
+  background: rgba(134, 144, 156, 0.12);
+  color: #4e5969;
+}
+
+.request-logs-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #86909c;
+  font-size: 12px;
+}
+
+.request-logs-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.request-log-detail-modal {
+  display: grid;
+  gap: 12px;
+}
+
+.request-log-detail-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+}
+
+.request-log-detail-section h4 {
+  margin: 0;
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.request-log-detail-section p,
+.request-log-detail-section pre {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  color: #4e5969;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.request-log-detail-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.request-log-detail-row > span {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.request-log-detail-row > strong {
+  min-width: 0;
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.password-change-form {
+  display: grid;
+  gap: 12px;
+}
+
+.password-change-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.password-change-form span {
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.password-change-form small {
+  color: #86909c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.password-change-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+:root.theme-dark .arco-modal,
+:root.theme-dark .arco-modal-header,
+:root.theme-dark .arco-modal-body {
+  background: var(--glass-panel);
+  color: #f2f3f5;
+}
+
+:root.theme-dark .arco-modal-header {
+  border-color: var(--glass-border);
+}
+
+:root.theme-dark .api-key-row {
+  border-color: var(--glass-border);
+  background: var(--glass-card);
+}
+
+:root.theme-dark .usage-summary-cards > div,
+:root.theme-dark .usage-chart {
+  border-color: var(--glass-border);
+  background: var(--glass-card);
+}
+
+:root.theme-dark .usage-chart-header strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .api-key-create-label {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .usage-summary-cards strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .api-key-info span,
+:root.theme-dark .api-key-empty {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .usage-date,
+:root.theme-dark .usage-meta {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .usage-bar-track {
+  background: #343743;
+}
+
+:root.theme-dark .usage-grid line {
+  stroke: #343743;
+}
+
+:root.theme-dark .usage-grid text,
+:root.theme-dark .usage-axis-labels text,
+:root.theme-dark .usage-chart-header span,
+:root.theme-dark .usage-chart-legend {
+  fill: #a9aeb8;
+  color: #a9aeb8;
+}
+
+:root.theme-dark .usage-row {
+  background: rgba(245, 63, 63, 0.08);
+}
+
+:root.theme-dark .request-logs-table-wrap {
+  border-color: var(--glass-border);
+  background: var(--glass-card);
+}
+
+:root.theme-dark .request-logs-table th {
+  background: rgba(37, 39, 48, 0.96);
+  color: #a9aeb8;
+}
+
+:root.theme-dark .request-logs-table td {
+  border-color: var(--glass-border);
+  color: #c9cdd4;
+}
+
+:root.theme-dark .request-log-detail-button > span,
+:root.theme-dark .request-log-token > strong,
+:root.theme-dark .request-log-model > strong,
+:root.theme-dark .request-log-tokens > strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .request-log-detail-button > small,
+:root.theme-dark .request-log-token > span,
+:root.theme-dark .request-log-model > span,
+:root.theme-dark .request-log-tokens > span,
+:root.theme-dark .request-log-time {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .request-log-timing {
+  color: #c9cdd4;
+}
+
+:root.theme-dark .request-log-status-neutral {
+  background: rgba(169, 174, 184, 0.14);
+  color: #c9cdd4;
+}
+
+:root.theme-dark .request-logs-pagination {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .request-log-detail-section h4,
+:root.theme-dark .request-log-detail-row > strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .request-log-detail-section p,
+:root.theme-dark .request-log-detail-section pre {
+  color: #c9cdd4;
+}
+
+:root.theme-dark .password-change-form span {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .password-change-form small {
+  color: #a9aeb8;
+}
