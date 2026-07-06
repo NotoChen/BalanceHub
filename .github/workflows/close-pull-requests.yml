@@ -1,0 +1,23 @@
+name: 关闭 Pull Request
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 说明协作规则
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr comment "$PR_URL" --body "感谢关注 BalanceHub。当前项目暂不接受 Pull Request，只通过 Issue 收集问题反馈和需求建议。这个 PR 会按仓库协作规则关闭。"
+          gh pr close "$PR_URL"

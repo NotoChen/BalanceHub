@@ -1,0 +1,133 @@
+.checkin-calendar-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.checkin-calendar-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.checkin-calendar-toolbar strong {
+  color: #1d2129;
+  font-size: 16px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.checkin-calendar-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.checkin-calendar-summary > div,
+.checkin-calendar-summary > p {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card-muted);
+  padding: 10px 12px;
+}
+
+.checkin-calendar-summary > div {
+  display: grid;
+  gap: 4px;
+}
+
+.checkin-calendar-summary span,
+.checkin-calendar-summary p {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.checkin-calendar-summary strong {
+  color: #1d2129;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.checkin-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.checkin-calendar-weekday {
+  color: #86909c;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.checkin-calendar-day {
+  display: grid;
+  min-height: 72px;
+  align-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+  padding: 9px;
+}
+
+.checkin-calendar-day > span {
+  color: #4e5969;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.checkin-calendar-day > strong {
+  overflow: hidden;
+  color: #00a870;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checkin-calendar-day-checked {
+  border-color: rgba(0, 180, 42, 0.35);
+  background: rgba(0, 180, 42, 0.07);
+}
+
+.checkin-calendar-day-today {
+  box-shadow: inset 0 0 0 1px rgba(22, 93, 255, 0.55);
+}
+
+.checkin-calendar-day-empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+@media (max-width: 640px) {
+  .checkin-calendar-toolbar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .checkin-calendar-toolbar > .arco-btn {
+    grid-column: 1 / -1;
+  }
+
+  .checkin-calendar-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .checkin-calendar-grid {
+    gap: 5px;
+  }
+
+  .checkin-calendar-day {
+    min-height: 58px;
+    padding: 7px;
+  }
+
+  .checkin-calendar-day > strong {
+    font-size: 10px;
+  }
+}

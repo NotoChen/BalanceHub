@@ -1,0 +1,98 @@
+.onboarding-modal .arco-modal-body {
+  padding: 0;
+}
+
+.onboarding-panel {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+}
+
+.onboarding-header {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.onboarding-logo {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 12px;
+  background: #165dff;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.onboarding-header h2,
+.onboarding-step h3 {
+  margin: 0;
+  color: #1d2129;
+}
+
+.onboarding-header h2 {
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.onboarding-header p,
+.onboarding-step p {
+  margin: 6px 0 0;
+  color: #4e5969;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.onboarding-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card-muted);
+  padding: 14px;
+}
+
+.onboarding-step-index {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(22, 93, 255, 0.12);
+  color: #165dff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.onboarding-step-index .arco-icon {
+  color: #00b42a;
+  font-size: 18px;
+}
+
+.onboarding-actions,
+.onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.onboarding-actions {
+  margin-top: 12px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.onboarding-footer {
+  border-top: 1px solid var(--glass-border);
+  padding-top: 16px;
+}
