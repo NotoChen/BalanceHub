@@ -1,0 +1,150 @@
+.settings-body {
+  max-width: 500px;
+  padding: 18px 16px;
+}
+
+.arco-drawer,
+.arco-drawer-body,
+.arco-drawer-footer,
+.arco-drawer-header,
+.arco-modal,
+.arco-modal-header,
+.arco-modal-body {
+  background: var(--glass-panel);
+}
+
+.arco-drawer-header,
+.arco-drawer-footer,
+.arco-modal-header {
+  border-color: var(--glass-border);
+}
+
+.settings-section {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card-muted);
+  overflow: hidden;
+}
+
+.settings-section + .settings-section {
+  margin-top: 10px;
+}
+
+.settings-section .arco-form-item {
+  margin-bottom: 6px;
+}
+
+.settings-section-title {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.settings-section-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-section-content {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--glass-border);
+  padding: 12px;
+}
+
+.settings-section-title strong {
+  color: #1d2129;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settings-section-title span {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.settings-section-arrow {
+  flex: 0 0 auto;
+  color: #4080ff;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-section-expanded {
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.settings-version {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.46);
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 0 10px;
+}
+
+.setting-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.notification-channel-list {
+  display: grid;
+  gap: 10px;
+}
+
+.notification-channel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.36);
+  padding: 10px;
+}
+
+.notification-channel-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-preview {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card-muted);
+  padding: 10px 12px;
+}
+
+.settings-preview span {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.settings-preview strong {
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,102 @@
+.topbar {
+  position: relative;
+  z-index: 10;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--glass-border);
+  background: var(--glass-topbar);
+  box-shadow: var(--glass-highlight);
+  min-height: 64px;
+  padding: 14px 22px 12px 92px;
+}
+
+:root.platform-windows .topbar,
+:root.platform-linux .topbar {
+  padding-left: 22px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-drag-region {
+  cursor: default;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.topbar-actions {
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.topbar-actions * {
+  -webkit-app-region: no-drag;
+}
+
+.topbar-drag-region {
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+.topbar-icon-button.arco-btn {
+  width: 38px;
+  height: 38px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--topbar-action-color, #4e5969);
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.topbar-icon-button.arco-btn .arco-icon,
+.topbar-icon-button.arco-btn .arco-btn-loading-icon {
+  font-size: 21px;
+  stroke-width: 3;
+}
+
+.topbar-icon-add {
+  --topbar-action-color: #00a870;
+  --topbar-action-bg: rgba(0, 180, 42, 0.12);
+  --topbar-action-shadow: rgba(0, 180, 42, 0.16);
+}
+
+.topbar-icon-refresh {
+  --topbar-action-color: #165dff;
+  --topbar-action-bg: rgba(22, 93, 255, 0.11);
+  --topbar-action-shadow: rgba(22, 93, 255, 0.16);
+}
+
+.topbar-icon-checkin {
+  --topbar-action-color: #00a870;
+  --topbar-action-bg: rgba(0, 168, 112, 0.12);
+  --topbar-action-shadow: rgba(0, 168, 112, 0.16);
+}
+
+.topbar-icon-settings {
+  --topbar-action-color: #722ed1;
+  --topbar-action-bg: rgba(114, 46, 209, 0.11);
+  --topbar-action-shadow: rgba(114, 46, 209, 0.16);
+}
+
+.topbar-icon-button.arco-btn:hover,
+.topbar-icon-button.arco-btn:focus-visible {
+  border-color: transparent;
+  background: var(--topbar-action-bg, #f2f3f5);
+  color: var(--topbar-action-color, #165dff);
+  box-shadow: 0 8px 18px var(--topbar-action-shadow, rgba(22, 93, 255, 0.12));
+  transform: translateY(-1px);
+}
+
+.topbar-icon-button.arco-btn:active {
+  transform: translateY(0) scale(0.96);
+}

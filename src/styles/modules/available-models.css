@@ -1,0 +1,128 @@
+.available-models-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.available-models-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.available-models-empty {
+  display: flex;
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  color: #86909c;
+}
+
+.available-models-body {
+  display: grid;
+  gap: 12px;
+}
+
+.available-models-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card-muted);
+}
+
+.available-models-summary span {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.available-models-summary strong {
+  color: #1d2129;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.available-models-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.available-model-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+  color: #1d2129;
+  cursor: pointer;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.available-model-item:hover,
+.available-model-item:focus-visible {
+  border-color: rgba(22, 93, 255, 0.42);
+  background: rgba(22, 93, 255, 0.06);
+  outline: none;
+}
+
+.available-model-item span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.available-model-item svg {
+  width: 14px;
+  height: 14px;
+  color: #86909c;
+}
+
+@media (max-width: 640px) {
+  .available-models-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .available-models-toolbar .arco-btn {
+    width: 100%;
+  }
+
+  .available-models-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+:root.theme-dark .available-models-empty,
+:root.theme-dark .available-models-summary span,
+:root.theme-dark .available-model-item svg {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .available-models-summary,
+:root.theme-dark .available-model-item {
+  border-color: var(--glass-border);
+  background: var(--glass-card);
+}
+
+:root.theme-dark .available-models-summary strong,
+:root.theme-dark .available-model-item {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .available-model-item:hover,
+:root.theme-dark .available-model-item:focus-visible {
+  background: rgba(64, 128, 255, 0.14);
+}

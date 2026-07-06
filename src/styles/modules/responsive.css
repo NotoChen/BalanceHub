@@ -1,0 +1,32 @@
+@media (max-width: 720px) {
+  .api-key-manager-toolbar,
+  .usage-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .request-logs-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .request-logs-page-size {
+    width: 100%;
+  }
+
+  .request-logs-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .usage-summary-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .usage-row {
+    grid-template-columns: 86px minmax(80px, 1fr) 86px;
+  }
+
+  .usage-meta {
+    grid-column: 2 / 4;
+  }
+}

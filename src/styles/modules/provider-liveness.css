@@ -1,0 +1,91 @@
+.provider-liveness-timeline {
+  position: relative;
+  height: 48px;
+  margin-top: 2px;
+}
+
+.provider-liveness-timeline::before {
+  position: absolute;
+  right: 2px;
+  left: 2px;
+  top: 50%;
+  height: 2px;
+  border-radius: 999px;
+  background: #e5e6eb;
+  content: "";
+  transform: translateY(-50%);
+}
+
+.provider-liveness-tick {
+  position: absolute;
+  left: var(--tick-left);
+  top: 50%;
+  color: #c9cdd4;
+  font-size: 8px;
+  line-height: 1;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.provider-liveness-hour-mark {
+  position: absolute;
+  left: var(--tick-left);
+  top: 50%;
+  width: 1px;
+  height: 6px;
+  background: #dfe1e6;
+  transform: translate(-50%, -50%);
+}
+
+.provider-liveness-hour-tick {
+  transform: translate(-50%, 9px);
+}
+
+.provider-liveness-age-tick {
+  color: #a9aeb8;
+  font-size: 9px;
+  transform: translate(-50%, -18px);
+}
+
+.provider-liveness-tick::before {
+  position: absolute;
+  left: 50%;
+  width: 1px;
+  height: 5px;
+  background: #dfe1e6;
+  content: "";
+}
+
+.provider-liveness-hour-tick::before {
+  top: -8px;
+}
+
+.provider-liveness-age-tick::before {
+  top: 12px;
+}
+
+.provider-liveness-node {
+  position: absolute;
+  top: 50%;
+  left: var(--point-left);
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -50%);
+}
+
+.provider-liveness-point {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--glass-card);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(29, 33, 41, 0.08);
+}
+
+.provider-liveness-node-ok .provider-liveness-point {
+  background: #00b42a;
+}
+
+.provider-liveness-node-error .provider-liveness-point {
+  background: #f53f3f;
+}

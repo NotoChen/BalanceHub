@@ -1,0 +1,379 @@
+.usage-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.usage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-dashboard {
+  display: grid;
+  gap: 14px;
+}
+
+.usage-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+}
+
+.usage-summary-card {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 14px 16px;
+  border-right: 1px solid var(--glass-border);
+}
+
+.usage-summary-card:last-child {
+  border-right: 0;
+}
+
+.usage-summary-cards span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: #86909c;
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.usage-summary-cards svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.usage-summary-cards strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 22px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-summary-cards small {
+  overflow: hidden;
+  color: #86909c;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-chart {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+}
+
+.usage-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.usage-chart-header > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.usage-chart-header strong {
+  color: #1d2129;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.usage-chart-header span,
+.usage-chart-legend {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.usage-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.usage-chart-legend i {
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: #f53f3f;
+}
+
+.usage-chart svg {
+  display: block;
+  width: 100%;
+  height: 260px;
+  overflow: visible;
+}
+
+.usage-grid line {
+  stroke: #eef0f5;
+  stroke-width: 1;
+}
+
+.usage-grid text {
+  fill: #86909c;
+  font-size: 10px;
+  text-anchor: end;
+}
+
+.usage-area {
+  fill: url("#usageAreaGradient");
+}
+
+.usage-line {
+  fill: none;
+  stroke: #f53f3f;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.usage-column {
+  stroke: rgba(245, 63, 63, 0.2);
+  stroke-linecap: round;
+  stroke-width: 5;
+}
+
+.usage-dot {
+  fill: #ffffff;
+  stroke: #f53f3f;
+  stroke-width: 2.2;
+}
+
+.usage-peak circle {
+  fill: #f53f3f;
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.usage-peak text {
+  fill: #f53f3f;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.usage-axis-labels text {
+  fill: #86909c;
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.usage-list {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.usage-row {
+  display: grid;
+  grid-template-columns: 92px minmax(100px, 1fr) 96px 132px;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(245, 63, 63, 0.035);
+}
+
+.usage-date,
+.usage-meta {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.usage-bar-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e6eb;
+}
+
+.usage-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: #f53f3f;
+}
+
+.usage-row strong {
+  color: #f53f3f;
+  text-align: right;
+}
+
+.usage-model-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.usage-model-panel {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+}
+
+.usage-model-panel-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.usage-model-panel-header strong {
+  color: #1d2129;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.usage-model-panel-header span {
+  color: #86909c;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.usage-model-list {
+  display: grid;
+  gap: 10px;
+}
+
+.usage-model-row {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.usage-model-row-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-model-row-head strong,
+.usage-model-row-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-model-row-head strong {
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.usage-model-row-head span,
+.usage-model-row small {
+  color: #86909c;
+  font-size: 11px;
+}
+
+.usage-model-bar-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e6eb;
+}
+
+.usage-model-bar {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.usage-model-bar-quota {
+  background: #f53f3f;
+}
+
+.usage-model-bar-call {
+  background: #165dff;
+}
+
+@media (max-width: 860px) {
+  .usage-summary-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .usage-summary-card {
+    border-right: 0;
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .usage-summary-card:nth-last-child(-n + 1) {
+    border-bottom: 0;
+  }
+
+  .usage-model-dashboard {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .usage-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .usage-chart-header,
+  .usage-model-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .usage-model-panel-header span {
+    white-space: normal;
+  }
+}
+
+:root.theme-dark .usage-summary-cards,
+:root.theme-dark .usage-model-panel {
+  border-color: var(--glass-border);
+  background: var(--glass-card);
+}
+
+:root.theme-dark .usage-summary-card {
+  border-color: var(--glass-border);
+}
+
+:root.theme-dark .usage-summary-cards strong,
+:root.theme-dark .usage-model-panel-header strong,
+:root.theme-dark .usage-model-row-head strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .usage-summary-cards span,
+:root.theme-dark .usage-summary-cards small,
+:root.theme-dark .usage-model-panel-header span,
+:root.theme-dark .usage-model-row-head span,
+:root.theme-dark .usage-model-row small {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .usage-model-bar-track {
+  background: #343743;
+}

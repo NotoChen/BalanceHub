@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BalanceHub",
+  "version": "0.1.0",
+  "identifier": "com.zangbai.balancehub",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "BalanceHub",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 760,
+        "minHeight": 560,
+        "transparent": false,
+        "backgroundColor": "#F2F3F5",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 26
+        }
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": ["'self'", "ipc:", "http://ipc.localhost"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "img-src": ["'self'", "data:", "asset:", "http://asset.localhost", "https:", "http:"],
+        "font-src": ["'self'", "data:"],
+        "connect-src": ["ipc:", "http://ipc.localhost"],
+        "object-src": ["'none'"],
+        "base-uri": ["'self'"],
+        "frame-ancestors": ["'none'"]
+      },
+      "devCsp": {
+        "default-src": ["'self'", "ipc:", "http://ipc.localhost", "http://localhost:1420"],
+        "script-src": ["'self'", "'unsafe-eval'", "http://localhost:1420"],
+        "style-src": ["'self'", "'unsafe-inline'", "http://localhost:1420"],
+        "img-src": ["'self'", "data:", "asset:", "http://asset.localhost", "https:", "http:"],
+        "font-src": ["'self'", "data:"],
+        "connect-src": ["ipc:", "http://ipc.localhost", "http://localhost:1420", "ws://localhost:1420"],
+        "object-src": ["'none'"],
+        "base-uri": ["'self'"],
+        "frame-ancestors": ["'none'"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/NotoChen/BalanceHub/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

@@ -1,0 +1,50 @@
+name: 问题反馈
+description: 反馈 BalanceHub 使用中的异常、崩溃或兼容性问题。
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+      description: 说明你遇到的问题，以及它对使用流程的影响。
+      placeholder: 例如：刷新某个中转站额度时失败，错误提示为...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量提供稳定复现路径。
+      placeholder: |
+        1. 打开...
+        2. 点击...
+        3. 出现...
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: BalanceHub 版本
+      placeholder: 例如：0.1.0
+    validations:
+      required: false
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 系统
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - 其他
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他信息
+      description: 可以补充截图、日志、相关 NewAPI 兼容站点或网络环境。
+    validations:
+      required: false

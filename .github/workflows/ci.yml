@@ -1,0 +1,87 @@
+name: 持续集成
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "CHANGELOG.md"
+      - "LICENSE"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pull_request_template.md"
+  workflow_dispatch:
+
+jobs:
+  quality:
+    name: 质量检查（${{ matrix.label }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-latest
+          - label: Linux ARM64
+            os: ubuntu-24.04-arm
+          - label: macOS Apple Silicon
+            os: macos-latest
+          - label: Windows x64
+            os: windows-latest
+          - label: Windows ARM64
+            os: windows-11-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 设置 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: 缓存 Rust 依赖
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: 安装 Linux 构建依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            rpm \
+            xdg-utils \
+            patchelf
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建前端
+        run: npm run build
+
+      - name: 检查 Rust 格式
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: 运行 Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: 运行 Rust 测试
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: 编译 Tauri 应用
+        run: npm run tauri build -- --no-bundle

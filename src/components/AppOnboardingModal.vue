@@ -1,0 +1,97 @@
+<script setup lang="ts">
+import {
+  IconCheckCircleFill,
+  IconPlus,
+  IconRefresh,
+  IconSettings,
+  IconUpload,
+} from "@arco-design/web-vue/es/icon";
+
+defineProps<{
+  visible: boolean;
+  providerCount: number;
+  cliConfigured: boolean;
+  importingAppData: boolean;
+  probingCodexCli: boolean;
+}>();
+
+const emit = defineEmits<{
+  addProvider: [];
+  importData: [];
+  openSettings: [];
+  probeCodexCli: [];
+  finish: [];
+}>();
+</script>
+
+<template>
+  <a-modal
+    :visible="visible"
+    :footer="false"
+    :width="700"
+    unmount-on-close
+    modal-class="onboarding-modal"
+    @update:visible="(value) => { if (!value) emit('finish'); }"
+  >
+    <div class="onboarding-panel">
+      <div class="onboarding-header">
+        <div class="onboarding-logo">BH</div>
+        <div>
+          <h2>初始化 BalanceHub</h2>
+          <p>先完成账号来源和本机环境配置，之后就可以进入主界面。</p>
+        </div>
+      </div>
+
+      <div class="onboarding-steps">
+        <section class="onboarding-step">
+          <div class="onboarding-step-index">
+            <icon-check-circle-fill v-if="providerCount > 0" />
+            <span v-else>1</span>
+          </div>
+          <div>
+            <h3>中转站配置</h3>
+            <p v-if="providerCount > 0">已配置 {{ providerCount }} 个中转站。</p>
+            <p v-else>可以导入已有配置，也可以新建第一个中转站。</p>
+            <div class="onboarding-actions">
+              <a-button :loading="importingAppData" @click="emit('importData')">
+                <template #icon><icon-upload /></template>
+                导入配置
+              </a-button>
+              <a-button type="primary" @click="emit('addProvider')">
+                <template #icon><icon-plus /></template>
+                添加中转站
+              </a-button>
+            </div>
+          </div>
+        </section>
+
+        <section class="onboarding-step">
+          <div class="onboarding-step-index">
+            <icon-check-circle-fill v-if="cliConfigured" />
+            <span v-else>2</span>
+          </div>
+          <div>
+            <h3>本机测活环境</h3>
+            <p v-if="cliConfigured">已检测到 CLI 路径。</p>
+            <p v-else>如果需要自动测活，先检查 Codex 或 Claude Code CLI。</p>
+            <div class="onboarding-actions">
+              <a-button :loading="probingCodexCli" @click="emit('probeCodexCli')">
+                <template #icon><icon-refresh /></template>
+                自动查找 CLI
+              </a-button>
+              <a-button @click="emit('openSettings')">
+                <template #icon><icon-settings /></template>
+                打开设置
+              </a-button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="onboarding-footer">
+        <a-button @click="emit('finish')">跳过引导</a-button>
+        <a-button type="primary" @click="emit('finish')">进入应用</a-button>
+      </div>
+    </div>
+  </a-modal>
+</template>
