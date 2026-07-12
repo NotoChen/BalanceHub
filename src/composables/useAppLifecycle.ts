@@ -77,6 +77,11 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   });
 
   watch(options.settings, (value) => {
+    // 抽屉打开时不回灌草稿：后台 reload / 授权确认 / CLI 探测都会替换 store.settings，
+    // 无脑同步会清空用户未保存的编辑；抽屉关闭时 resetSettingsDraft 会重新对齐。
+    if (options.settingsDrawerVisible.value) {
+      return;
+    }
     options.syncFromSettings(value);
   });
 

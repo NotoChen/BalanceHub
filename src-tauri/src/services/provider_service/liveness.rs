@@ -160,11 +160,8 @@ impl<'a> ProviderService<'a> {
                     Some((current_timestamp_millis() + next_after as u128 * 1000).to_string());
                 updated_provider = stored_provider.clone();
             }
-            if data.settings.codex_cli_path.trim().is_empty() {
-                if let Ok(result) = LivenessRunner::find_codex_cli("") {
-                    data.settings.codex_cli_path = result.path;
-                }
-            }
+            // 注意：mutate 闭包持有状态写锁，严禁在这里做磁盘扫描/子进程探测之类的
+            // 阻塞操作。CLI 路径的自动发现由启动时的 probe_codex_cli（锁外）负责。
             (data.providers.clone(), updated_provider)
         })?;
 

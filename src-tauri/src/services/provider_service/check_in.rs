@@ -11,7 +11,7 @@ use crate::{
     util::unix_millis as current_timestamp_millis,
 };
 
-use super::{find_provider, ProviderService};
+use super::{find_provider, refresh::apply_refresh_owned_fields, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn check_in_records(
@@ -90,7 +90,7 @@ impl<'a> ProviderService<'a> {
                     .find(|stored| stored.identity.id == id)
                 {
                     if let Some(refreshed) = refreshed_provider {
-                        apply_refreshed_quota(stored_provider, refreshed);
+                        apply_refresh_owned_fields(stored_provider, refreshed);
                     }
                     stored_provider.automation.last_checked_in_at = Some(stored_checked_in_at);
                     stored_provider.automation.last_check_in_user = stored_user;
@@ -276,17 +276,6 @@ fn check_in_quota_delta(before: &Provider, after: &Provider) -> Option<f64> {
 
 fn is_successful_quota_refresh(provider: &Provider) -> bool {
     !matches!(provider.runtime.status, ProviderStatus::Error)
-}
-
-fn apply_refreshed_quota(provider: &mut Provider, refreshed: Provider) {
-    provider.quota = refreshed.quota;
-    provider.identity.display_name = refreshed.identity.display_name;
-    provider.identity.username = refreshed.identity.username;
-    provider.identity.user_id = refreshed.identity.user_id;
-    provider.identity.site_logo = refreshed.identity.site_logo;
-    provider.automation.last_synced_at = refreshed.automation.last_synced_at;
-    provider.runtime.status = refreshed.runtime.status;
-    provider.runtime.error_message = refreshed.runtime.error_message;
 }
 
 fn local_date_from_timestamp(value: &str) -> Option<String> {

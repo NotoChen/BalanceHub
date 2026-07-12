@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
 
 use crate::{
-    models::{provider_domain, AppSettings, Provider},
+    models::{provider_domain, AppSettings, Provider, ProviderStatus},
     providers::newapi_http::provider_is_anyrouter,
     services::{notifications, provider_service::ProviderService},
     tray,
@@ -19,8 +20,33 @@ const LIVENESS_CONCURRENCY: usize = 3;
 /// 首轮执行前的等待：给前端 webview 注册 `providers-changed` 监听留出时间，
 /// 确保启动后的首次刷新/签到结果能通过事件回流到界面。
 const INITIAL_DELAY_SECS: u64 = 5;
+/// 自动签到当日尝试上限：签到接口按天发奖，失败大多是凭据/站点问题，重试太多没有意义。
+const CHECK_IN_MAX_ATTEMPTS_PER_DAY: u32 = 3;
+/// 自动签到两次尝试之间的退避间隔。
+const CHECK_IN_RETRY_BACKOFF_SECS: u64 = 30 * 60;
 /// 前端监听此事件后重新拉取内存状态刷新视图。
 pub const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
+
+/// 单个中转站当日自动签到的尝试记录。
+///
+/// 「失败后何时重试、何时放弃」的状态只活在调度器内存里，与展示用的
+/// `runtime.error_message` 彻底解耦 —— 旧实现把重试抑制寄生在错误文案前缀上，
+/// 刷新成功清空文案就会意外解除抑制，形成「重签→失败→再通知」的全天循环。
+#[derive(Debug, Clone, PartialEq)]
+struct CheckInAttemptState {
+    /// 本地日期（YYYY-MM-DD），跨天后视为全新一天。
+    date: String,
+    attempts: u32,
+    last_attempt_secs: u64,
+}
+
+/// 调度器跨 tick 的内存状态。进程重启后清零：代价只是重启后允许重新尝试一轮，可接受。
+#[derive(Default)]
+struct SchedulerState {
+    /// 每个中转站「上次发起刷新」的时刻（秒），避免刷新失败时每 tick 重试。
+    refresh_attempts: HashMap<String, u64>,
+    check_in_attempts: HashMap<String, CheckInAttemptState>,
+}
 
 /// 启动后台调度任务。
 ///
@@ -32,17 +58,16 @@ pub const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
 pub fn start(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        // 记录每个中转站「上次发起刷新」的时刻（秒），跨 tick 复用，避免失败时每 tick 重试。
-        let mut refresh_attempts: HashMap<String, u64> = HashMap::new();
+        let mut state = SchedulerState::default();
         tokio::time::sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
         loop {
-            run_tick(&app, &mut refresh_attempts).await;
+            run_tick(&app, &mut state).await;
             tokio::time::sleep(Duration::from_secs(TICK_SECS)).await;
         }
     });
 }
 
-async fn run_tick(app: &AppHandle, refresh_attempts: &mut HashMap<String, u64>) {
+async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
     let service = ProviderService::new(app);
     // 配置加载失败（storage 保护态）时暂停所有自动化，避免基于残缺状态误操作。
     let Ok(data) = service.load_app_data() else {
@@ -51,6 +76,8 @@ async fn run_tick(app: &AppHandle, refresh_attempts: &mut HashMap<String, u64>) 
     let settings = &data.settings;
     let now_secs = unix_secs();
     let now_millis = unix_millis();
+    let today = local_date_today();
+    prune_state(state, &data.providers, &today);
     let mut changed = false;
 
     // ---- 自动刷新余额 ----
@@ -64,17 +91,31 @@ async fn run_tick(app: &AppHandle, refresh_attempts: &mut HashMap<String, u64>) 
                     provider,
                     settings,
                     now_secs,
-                    refresh_attempts,
+                    &state.refresh_attempts,
                 )
             })
             .map(|provider| provider.identity.id.clone())
             .collect();
         if !due.is_empty() {
-            for id in &due {
-                refresh_attempts.insert(id.clone(), now_secs);
-            }
-            if service.refresh_by_ids(due).await.is_ok() {
-                changed = true;
+            // 闸门被手动刷新占用时跳过本轮且不记尝试，下个 tick 重新评估到期。
+            match service.try_refresh_by_ids(due.clone()).await {
+                None => {}
+                Some(outcome) => {
+                    for id in &due {
+                        state.refresh_attempts.insert(id.clone(), now_secs);
+                    }
+                    if let Ok(result) = outcome {
+                        changed = true;
+                        notify_refresh_failures(
+                            app,
+                            settings,
+                            &data.providers,
+                            &due,
+                            &result.providers,
+                        )
+                        .await;
+                    }
+                }
             }
         }
     }
@@ -88,30 +129,36 @@ async fn run_tick(app: &AppHandle, refresh_attempts: &mut HashMap<String, u64>) 
                 let is_anyrouter = provider_is_anyrouter(provider);
                 provider.runtime.enabled
                     && provider_domain::capabilities::supports_check_in(provider, is_anyrouter)
-                    && !has_auto_check_in_error(provider)
                     && !provider_domain::capabilities::checked_in_today(provider, is_anyrouter)
                     && provider_domain::automation::check_in_due_now(provider, settings)
+                    && check_in_attempt_allowed(
+                        state.check_in_attempts.get(&provider.identity.id),
+                        &today,
+                        now_secs,
+                    )
             })
             .cloned()
             .collect();
         for provider in due {
-            if run_auto_check_in(app, &service, &provider, settings).await {
+            let attempt =
+                record_check_in_attempt(&mut state.check_in_attempts, &provider, &today, now_secs);
+            if run_auto_check_in(app, &service, &provider, settings, attempt).await {
                 changed = true;
             }
         }
     }
 
     // ---- 自动测活 ----
-    let due_liveness: Vec<String> = data
+    let due_liveness: Vec<Provider> = data
         .providers
         .iter()
         .filter(|provider| {
             provider_domain::liveness::automatic_enabled(provider, settings)
                 && provider_domain::liveness::is_due(provider, now_millis)
         })
-        .map(|provider| provider.identity.id.clone())
+        .cloned()
         .collect();
-    if run_due_liveness(app, due_liveness).await {
+    if run_due_liveness(app, settings, due_liveness).await {
         changed = true;
     }
 
@@ -121,96 +168,216 @@ async fn run_tick(app: &AppHandle, refresh_attempts: &mut HashMap<String, u64>) 
     }
 }
 
+/// 清理调度器内存状态：删掉已不存在的中转站与过期日期的记录，避免无界增长。
+fn prune_state(state: &mut SchedulerState, providers: &[Provider], today: &str) {
+    let exists =
+        |id: &str| providers.iter().any(|provider| provider.identity.id == id);
+    state.refresh_attempts.retain(|id, _| exists(id));
+    state
+        .check_in_attempts
+        .retain(|id, attempt| exists(id) && attempt.date == today);
+}
+
+/// 是否允许发起（又一次）自动签到尝试：当日未达上限，且距上次尝试已过退避间隔。
+fn check_in_attempt_allowed(
+    attempt: Option<&CheckInAttemptState>,
+    today: &str,
+    now_secs: u64,
+) -> bool {
+    match attempt {
+        None => true,
+        Some(state) if state.date != today => true,
+        Some(state) => {
+            state.attempts < CHECK_IN_MAX_ATTEMPTS_PER_DAY
+                && now_secs >= state.last_attempt_secs.saturating_add(CHECK_IN_RETRY_BACKOFF_SECS)
+        }
+    }
+}
+
+/// 在发起请求前登记本次尝试（失败或挂起都算一次），返回这是今天的第几次。
+fn record_check_in_attempt(
+    attempts: &mut HashMap<String, CheckInAttemptState>,
+    provider: &Provider,
+    today: &str,
+    now_secs: u64,
+) -> u32 {
+    let entry = attempts
+        .entry(provider.identity.id.clone())
+        .and_modify(|state| {
+            if state.date == today {
+                state.attempts += 1;
+            } else {
+                state.date = today.to_string();
+                state.attempts = 1;
+            }
+            state.last_attempt_secs = now_secs;
+        })
+        .or_insert_with(|| CheckInAttemptState {
+            date: today.to_string(),
+            attempts: 1,
+            last_attempt_secs: now_secs,
+        });
+    entry.attempts
+}
+
 /// 自动签到，返回是否产生了需要刷新视图的状态变更。
+///
+/// 失败仍写入 `error_message` 供界面展示，但重试与否只由调度器的尝试记录决定；
+/// 通知只在当日首次失败时发送一条，后续静默重试，避免轰炸。
 async fn run_auto_check_in(
     app: &AppHandle,
     service: &ProviderService<'_>,
     provider: &Provider,
     settings: &AppSettings,
+    attempt: u32,
 ) -> bool {
+    let retry_hint = if attempt < CHECK_IN_MAX_ATTEMPTS_PER_DAY {
+        format!(
+            "，约 {} 分钟后自动重试（今日最多 {} 次）",
+            CHECK_IN_RETRY_BACKOFF_SECS / 60,
+            CHECK_IN_MAX_ATTEMPTS_PER_DAY
+        )
+    } else {
+        "，今日已达重试上限，明天再试".to_string()
+    };
     match service.check_in(provider.identity.id.clone()).await {
         Ok(result) if result.ok => {
-            notify_check_in(
+            notify_provider_event(
                 app,
                 settings,
                 provider,
                 "BalanceHub 签到成功",
-                &provider.identity.name,
                 non_empty(&result.message, "签到成功"),
             )
             .await;
             true
         }
         Ok(result) => {
-            let message = format!("自动签到失败：{}", non_empty(&result.message, "签到失败"));
+            let display = format!("自动签到失败：{}", non_empty(&result.message, "签到失败"));
             let _ =
-                service.mark_auto_check_in_failure(provider.identity.id.clone(), message.clone());
-            notify_check_in(
-                app,
-                settings,
-                provider,
-                "BalanceHub 签到失败",
-                &provider.identity.name,
-                &message,
-            )
-            .await;
+                service.mark_auto_check_in_failure(provider.identity.id.clone(), display.clone());
+            if attempt == 1 {
+                notify_provider_event(
+                    app,
+                    settings,
+                    provider,
+                    "BalanceHub 签到失败",
+                    &format!("{display}{retry_hint}"),
+                )
+                .await;
+            }
             true
         }
         Err(message) => {
-            let message = format!("自动签到异常：{}", non_empty(&message, "签到异常"));
+            let display = format!("自动签到异常：{}", non_empty(&message, "签到异常"));
             let _ =
-                service.mark_auto_check_in_failure(provider.identity.id.clone(), message.clone());
-            notify_check_in(
-                app,
-                settings,
-                provider,
-                "BalanceHub 签到异常",
-                &provider.identity.name,
-                &message,
-            )
-            .await;
+                service.mark_auto_check_in_failure(provider.identity.id.clone(), display.clone());
+            if attempt == 1 {
+                notify_provider_event(
+                    app,
+                    settings,
+                    provider,
+                    "BalanceHub 签到异常",
+                    &format!("{display}{retry_hint}"),
+                )
+                .await;
+            }
             true
         }
     }
 }
 
-/// 按并发上限批量跑到期测活，返回是否有成功（需要刷新视图）。
-async fn run_due_liveness(app: &AppHandle, due: Vec<String>) -> bool {
-    let mut changed = false;
-    let mut index = 0;
-    while index < due.len() {
-        let end = (index + LIVENESS_CONCURRENCY).min(due.len());
-        let mut handles = Vec::with_capacity(end - index);
-        for id in &due[index..end] {
-            let app = app.clone();
-            let id = id.clone();
-            // 测活是阻塞型（spawn 子进程并等待），必须放到 spawn_blocking，避免占用 async 线程。
-            handles.push(tauri::async_runtime::spawn_blocking(move || {
-                ProviderService::new(&app).test_liveness(id, None, true)
-            }));
+/// 自动刷新的边沿触发通知：只对「本轮刷新中从非 Error 翻转为 Error」的中转站各发一条。
+/// 持续失败的站点在下一次翻转（恢复后再失败）前不会重复通知。
+async fn notify_refresh_failures(
+    app: &AppHandle,
+    settings: &AppSettings,
+    before: &[Provider],
+    refreshed_ids: &[String],
+    after: &[Provider],
+) {
+    for id in refreshed_ids {
+        let was_error = before
+            .iter()
+            .find(|provider| provider.identity.id == *id)
+            .is_some_and(|provider| matches!(provider.runtime.status, ProviderStatus::Error));
+        let Some(current) = after.iter().find(|provider| provider.identity.id == *id) else {
+            continue;
+        };
+        let is_error = matches!(current.runtime.status, ProviderStatus::Error);
+        if is_error && !was_error {
+            let message = current
+                .runtime
+                .error_message
+                .as_deref()
+                .unwrap_or("刷新失败");
+            notify_provider_event(app, settings, current, "BalanceHub 刷新失败", message).await;
         }
-        for handle in handles {
-            if matches!(handle.await, Ok(Ok(_))) {
-                changed = true;
+    }
+}
+
+/// 滚动并发跑到期测活（最多 3 个在飞，一个完成下一个立刻补位），返回是否有状态变更。
+/// 测活从「上次成功」翻转为「本次失败」时发一条边沿触发通知。
+async fn run_due_liveness(app: &AppHandle, settings: &AppSettings, due: Vec<Provider>) -> bool {
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(LIVENESS_CONCURRENCY));
+    let mut handles = Vec::with_capacity(due.len());
+    for provider in &due {
+        // 在 async 侧先拿许可再 spawn_blocking，许可随任务结束释放，形成滚动窗口。
+        let Ok(permit) = Arc::clone(&semaphore).acquire_owned().await else {
+            break;
+        };
+        let app = app.clone();
+        let id = provider.identity.id.clone();
+        // 测活是阻塞型（spawn 子进程并等待），必须放到 spawn_blocking，避免占用 async 线程。
+        handles.push(tauri::async_runtime::spawn_blocking(move || {
+            let _permit = permit;
+            ProviderService::new(&app).test_liveness(id, None, true)
+        }));
+    }
+
+    let mut changed = false;
+    for (provider, handle) in due.iter().zip(handles) {
+        if let Ok(Ok(result)) = handle.await {
+            changed = true;
+            let previously_ok = provider
+                .liveness
+                .records
+                .last()
+                .map(|record| record.ok)
+                .unwrap_or(true);
+            if previously_ok && !result.record.ok {
+                notify_provider_event(
+                    app,
+                    settings,
+                    provider,
+                    "BalanceHub 测活失败",
+                    non_empty(&result.record.message, "测活失败"),
+                )
+                .await;
             }
         }
-        index = end;
     }
     changed
 }
 
-async fn notify_check_in(
+async fn notify_provider_event(
     app: &AppHandle,
     settings: &AppSettings,
     provider: &Provider,
     title: &str,
-    provider_name: &str,
     message: &str,
 ) {
-    let markdown = format!("**中转站**：{provider_name}\n\n**结果**：{message}");
+    let markdown = format!(
+        "**中转站**：{}\n\n**结果**：{message}",
+        provider.identity.name
+    );
     let _ =
         notifications::send_provider_notification(app, settings, provider, title, markdown, false)
             .await;
+}
+
+fn local_date_today() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
 fn non_empty<'a>(value: &'a str, fallback: &'a str) -> &'a str {
@@ -221,27 +388,90 @@ fn non_empty<'a>(value: &'a str, fallback: &'a str) -> &'a str {
     }
 }
 
-fn has_auto_check_in_error(provider: &Provider) -> bool {
-    provider
-        .runtime
-        .error_message
-        .as_deref()
-        .is_some_and(is_auto_check_in_error)
-}
-
-fn is_auto_check_in_error(message: &str) -> bool {
-    message.starts_with("自动签到失败：") || message.starts_with("自动签到异常：")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ProviderInput;
+
+    fn provider(id: &str) -> Provider {
+        Provider::from_input(ProviderInput::default(), id.to_string())
+    }
+
+    fn attempt(date: &str, attempts: u32, last_attempt_secs: u64) -> CheckInAttemptState {
+        CheckInAttemptState {
+            date: date.to_string(),
+            attempts,
+            last_attempt_secs,
+        }
+    }
 
     #[test]
-    fn detects_auto_check_in_error_markers() {
-        assert!(is_auto_check_in_error("自动签到失败：cookie 已过期"));
-        assert!(is_auto_check_in_error("自动签到异常：网络错误"));
-        assert!(!is_auto_check_in_error("刷新额度失败：网络错误"));
-        assert!(!is_auto_check_in_error("签到失败：cookie 已过期"));
+    fn allows_first_attempt_and_new_day() {
+        assert!(check_in_attempt_allowed(None, "2026-07-10", 1_000));
+        assert!(check_in_attempt_allowed(
+            Some(&attempt("2026-07-09", 3, 900)),
+            "2026-07-10",
+            1_000
+        ));
+    }
+
+    #[test]
+    fn blocks_attempt_within_backoff_window() {
+        let state = attempt("2026-07-10", 1, 1_000);
+        assert!(!check_in_attempt_allowed(Some(&state), "2026-07-10", 1_000 + 60));
+        assert!(check_in_attempt_allowed(
+            Some(&state),
+            "2026-07-10",
+            1_000 + CHECK_IN_RETRY_BACKOFF_SECS
+        ));
+    }
+
+    #[test]
+    fn blocks_attempt_after_daily_limit() {
+        let state = attempt("2026-07-10", CHECK_IN_MAX_ATTEMPTS_PER_DAY, 1_000);
+        assert!(!check_in_attempt_allowed(
+            Some(&state),
+            "2026-07-10",
+            1_000 + CHECK_IN_RETRY_BACKOFF_SECS * 10
+        ));
+    }
+
+    #[test]
+    fn record_attempt_counts_per_day_and_resets_across_days() {
+        let mut attempts = HashMap::new();
+        let provider = provider("p1");
+        assert_eq!(
+            record_check_in_attempt(&mut attempts, &provider, "2026-07-10", 1_000),
+            1
+        );
+        assert_eq!(
+            record_check_in_attempt(&mut attempts, &provider, "2026-07-10", 2_000),
+            2
+        );
+        assert_eq!(
+            record_check_in_attempt(&mut attempts, &provider, "2026-07-11", 3_000),
+            1
+        );
+    }
+
+    #[test]
+    fn prune_drops_removed_providers_and_stale_dates() {
+        let mut state = SchedulerState::default();
+        state.refresh_attempts.insert("kept".to_string(), 1);
+        state.refresh_attempts.insert("removed".to_string(), 1);
+        state
+            .check_in_attempts
+            .insert("kept".to_string(), attempt("2026-07-10", 1, 1));
+        state
+            .check_in_attempts
+            .insert("stale-date".to_string(), attempt("2026-07-09", 1, 1));
+
+        let providers = vec![provider("kept"), provider("stale-date")];
+        prune_state(&mut state, &providers, "2026-07-10");
+
+        assert!(state.refresh_attempts.contains_key("kept"));
+        assert!(!state.refresh_attempts.contains_key("removed"));
+        assert!(state.check_in_attempts.contains_key("kept"));
+        assert!(!state.check_in_attempts.contains_key("stale-date"));
     }
 }

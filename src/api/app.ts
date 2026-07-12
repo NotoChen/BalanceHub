@@ -129,10 +129,6 @@ export function probeCodexCli(input?: Partial<CodexCliProbeInput>) {
   });
 }
 
-export function previewLivenessCommand(id: string) {
-  return invoke<LivenessRunResult>("preview_liveness_command", { id });
-}
-
 export function previewLivenessPrompts(settings: AppSettings, count = 10) {
   return invoke<string[]>("preview_liveness_prompts", { settings, count });
 }
@@ -159,10 +155,6 @@ export function createProviderApiKey(id: string, name: string) {
 
 export function createProviderApiKeyForInput(input: ProviderInput, name: string) {
   return invoke<ProviderApiKeyOption>("create_provider_api_key_for_input", { input, name });
-}
-
-export function generateProviderAccessToken(id: string) {
-  return invoke<Provider[]>("generate_provider_access_token", { id });
 }
 
 export function generateProviderAccessTokenForInput(input: ProviderInput) {

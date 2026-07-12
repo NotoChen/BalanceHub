@@ -119,7 +119,11 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     if (!provider?.runtime.enabled) {
       return;
     }
-    void options.store.refreshByIds([provider.identity.id]);
+    void options.store.refreshByIds([provider.identity.id]).then((error) => {
+      if (error) {
+        Message.error(`保存后刷新失败：${error}`);
+      }
+    });
     void options.store.probeCapabilities(provider.identity.id).catch(() => undefined);
   }
 

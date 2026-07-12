@@ -196,6 +196,8 @@ impl LivenessRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // 独立进程组：超时才能连 CLI 拉起的 helper 子进程一起杀灭（见 process.rs）。
+        process::configure_process_group(&mut command);
 
         let output_path = if matches!(context.cli_kind, LivenessCliKind::Codex) {
             Some(unique_output_path(provider))
