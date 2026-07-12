@@ -10,7 +10,6 @@ import {
   createProviderApiKeyForInput as createProviderApiKeyForInputCommand,
   deleteProviderApiKey as deleteProviderApiKeyCommand,
   exportAppData as exportAppDataCommand,
-  generateProviderAccessToken as generateProviderAccessTokenCommand,
   generateProviderAccessTokenForInput as generateProviderAccessTokenForInputCommand,
   getProviderCheckInRecords as getProviderCheckInRecordsCommand,
   getProviderInviteLink as getProviderInviteLinkCommand,
@@ -20,7 +19,6 @@ import {
   launchTemporaryCli as launchTemporaryCliCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
-  previewLivenessCommand as previewLivenessCommandCommand,
   probeCodexCli as probeCodexCliCommand,
   probeProviderSite as probeProviderSiteCommand,
   refreshAllProviders,
@@ -58,27 +56,7 @@ export const useProviderStore = defineStore("providers", {
     providers: [] as Provider[],
     settings: defaultSettings(),
   }),
-  getters: {
-    activeProviders: (state) => state.providers.filter((provider) => provider.runtime.enabled),
-    failedProviders: (state) =>
-      state.providers.filter((provider) => provider.runtime.enabled && provider.runtime.status === "error"),
-    totalAvailable: (state) =>
-      state.providers
-        .filter((provider) => provider.runtime.enabled && !provider.quota.unlimited)
-        .reduce((total, provider) => total + provider.quota.available, 0),
-    totalUsed: (state) =>
-      state.providers
-        .filter((provider) => provider.runtime.enabled)
-        .reduce((total, provider) => total + provider.quota.used, 0),
-    lastSyncedAt: (state) => {
-      const syncedValues = state.providers
-        .map((provider) => provider.automation.lastSyncedAt)
-        .filter((value): value is string => Boolean(value))
-        .sort();
-
-      return syncedValues.length === 0 ? null : syncedValues[syncedValues.length - 1];
-    },
-  },
+  getters: {},
   actions: {
     async initialize() {
       if (this.initialized || this.loading) {
@@ -138,7 +116,11 @@ export const useProviderStore = defineStore("providers", {
         this.settings = data.settings;
         this.loadError = null;
       } catch (error) {
-        this.loadError = errorToMessage(error);
+        // 看板已有数据时，后台 tick 的一次瞬时失败不值得把整个界面切到全屏错误态；
+        // 只有从未成功加载过才进入错误态。调用方可自行 catch 决定是否提示。
+        if (this.providers.length === 0) {
+          this.loadError = errorToMessage(error);
+        }
         throw error;
       }
     },
@@ -160,9 +142,6 @@ export const useProviderStore = defineStore("providers", {
       const data = await loadAppData();
       this.settings = data.settings;
       return result;
-    },
-    async previewLivenessCommand(id: string) {
-      return previewLivenessCommandCommand(id);
     },
     async checkCliPath(kind: LivenessCliKind, path: string) {
       return checkCliPathCommand(kind, path);
@@ -195,10 +174,6 @@ export const useProviderStore = defineStore("providers", {
     async createApiKeyForInput(input: ProviderInput, name: string) {
       return createProviderApiKeyForInputCommand(input, name);
     },
-    async generateAccessToken(id: string) {
-      this.providers = await generateProviderAccessTokenCommand(id);
-      return this.providers.find((provider) => provider.identity.id === id) ?? null;
-    },
     async generateAccessTokenForInput(input: ProviderInput) {
       return generateProviderAccessTokenForInputCommand(input);
     },
@@ -230,9 +205,10 @@ export const useProviderStore = defineStore("providers", {
     async getInviteLink(id: string) {
       return getProviderInviteLinkCommand(id);
     },
-    async refreshAll() {
+    /** 全量刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
+    async refreshAll(): Promise<string | null> {
       if (this.refreshInProgress) {
-        return;
+        return null;
       }
 
       this.refreshInProgress = true;
@@ -246,6 +222,7 @@ export const useProviderStore = defineStore("providers", {
       try {
         const result = await refreshAllProviders();
         this.providers = result.providers;
+        return null;
       } catch (error) {
         this.providers = previousProviders.map((provider) =>
           provider.runtime.enabled
@@ -259,14 +236,16 @@ export const useProviderStore = defineStore("providers", {
               }
             : provider,
         );
+        return errorToMessage(error);
       } finally {
         this.refreshInProgress = false;
       }
     },
-    async refreshByIds(ids: string[]) {
+    /** 按 id 刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
+    async refreshByIds(ids: string[]): Promise<string | null> {
       const todo = ids.filter((id) => !this.refreshingIds.has(id));
       if (todo.length === 0) {
-        return;
+        return null;
       }
 
       todo.forEach((id) => this.refreshingIds.add(id));
@@ -281,6 +260,7 @@ export const useProviderStore = defineStore("providers", {
       try {
         const result = await refreshProviders(todo);
         this.providers = result.providers;
+        return null;
       } catch (error) {
         this.providers = previousProviders.map((provider) =>
           provider.runtime.enabled && idSet.has(provider.identity.id)
@@ -294,6 +274,7 @@ export const useProviderStore = defineStore("providers", {
               }
             : provider,
         );
+        return errorToMessage(error);
       } finally {
         todo.forEach((id) => this.refreshingIds.delete(id));
       }

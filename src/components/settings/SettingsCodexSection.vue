@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { Message, Modal } from "@arco-design/web-vue";
 import SettingsCodexCommandPreview from "./SettingsCodexCommandPreview.vue";
 import SettingsCodexPromptSection from "./SettingsCodexPromptSection.vue";
 import SettingsCliManager from "./SettingsCliManager.vue";
@@ -13,6 +14,7 @@ import {
   temporaryCliTerminalOptionsForPlatform,
 } from "../../utils/liveness-options";
 import { useLivenessConsent } from "../../composables/useLivenessConsent";
+import { useProviderStore } from "../../stores/providers";
 import { hostPlatform } from "../../api/app";
 import type { AppSettings } from "../../stores/providers";
 
@@ -33,7 +35,8 @@ const emit = defineEmits<{
   "probe-codex-cli": [];
 }>();
 
-const { ensureConsent } = useLivenessConsent();
+const { ensureConsent, consented } = useLivenessConsent();
+const store = useProviderStore();
 const platform = ref("macos");
 
 // 开启自动测活前先取得「会消耗真实额度」的一次性授权；取消则开关回弹。
@@ -45,6 +48,32 @@ async function onToggleAutoLiveness(value: boolean | string | number) {
   if (await ensureConsent()) {
     props.settings.livenessEnabled = true;
   }
+}
+
+// 授权弹窗承诺「可在设置中重置」，这里就是那个入口。重置后调度器立即停跑，
+// 同时把草稿开关拨回关，保存后状态自洽；再次开启时会重新弹授权。
+function onRevokeConsent() {
+  Modal.confirm({
+    title: "重置自动测活授权",
+    content:
+      "重置后后台自动测活立即停止（手动测活不受影响）；再次开启自动测活开关时会重新弹出授权确认。",
+    okText: "重置授权",
+    cancelText: "取消",
+    onOk: async () => {
+      try {
+        await store.revokeLivenessCost();
+        props.settings.livenessEnabled = false;
+        Message.success("已重置授权，自动测活开关已关闭，保存设置后生效");
+      } catch (error) {
+        Message.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+  });
+}
+
+// 修复「开关已开但授权缺失」的卡死态：此状态下自动测活静默不跑，给出重新授权入口。
+async function onReconsent() {
+  await ensureConsent();
 }
 
 const codexModelSelectOptions = computed(() =>
@@ -136,7 +165,17 @@ onMounted(async () => {
       </template>
     </a-form-item>
     <a-form-item label="自动测活">
-      <a-switch :model-value="settings.livenessEnabled" @change="onToggleAutoLiveness" />
+      <a-space>
+        <a-switch :model-value="settings.livenessEnabled" @change="onToggleAutoLiveness" />
+        <a-button v-if="consented" size="mini" @click="onRevokeConsent">重置授权</a-button>
+      </a-space>
+      <template #extra>
+        <span v-if="settings.livenessEnabled && !consented">
+          尚未授权消耗真实额度，自动测活不会运行。
+          <a-link @click="onReconsent">重新授权</a-link>
+        </span>
+        <span v-else-if="consented">已授权自动测活消耗真实额度；可随时重置授权。</span>
+      </template>
     </a-form-item>
     <a-form-item label="默认模型">
       <a-select

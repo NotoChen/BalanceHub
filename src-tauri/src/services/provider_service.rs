@@ -121,7 +121,7 @@ impl<'a> ProviderService<'a> {
 
     pub fn save_settings(&self, settings: AppSettings) -> Result<AppSettings, String> {
         self.mutate(|data| {
-            data.settings = settings;
+            data.settings = merge_saved_settings(&data.settings, settings);
             data.settings.clone()
         })
     }
@@ -176,4 +176,48 @@ fn find_provider(data: &AppData, id: &str) -> Result<Provider, String> {
         .find(|provider| provider.identity.id == id)
         .cloned()
         .ok_or_else(|| "中转站不存在".to_string())
+}
+
+/// 合并前端整份提交的设置：后端拥有的字段以存量为准。
+///
+/// 测活授权时间戳只能经 acknowledge/revoke 命令变更 —— 设置抽屉的草稿可能是在
+/// 授权动作之前克隆的旧副本，直接放行会把刚写入的授权静默抹掉（或把已重置的授权复活）。
+fn merge_saved_settings(current: &AppSettings, mut incoming: AppSettings) -> AppSettings {
+    incoming.liveness_consent_accepted_at = current.liveness_consent_accepted_at.clone();
+    incoming
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_settings_preserves_backend_owned_consent() {
+        let mut current = AppSettings::default();
+        current.liveness_consent_accepted_at = Some("1700000000000".to_string());
+        let mut incoming = AppSettings::default();
+        incoming.liveness_consent_accepted_at = None;
+        incoming.check_in_time = "09:00".to_string();
+
+        let merged = merge_saved_settings(&current, incoming);
+
+        // 旧草稿带不走已写入的授权……
+        assert_eq!(
+            merged.liveness_consent_accepted_at,
+            Some("1700000000000".to_string())
+        );
+        // ……但用户可编辑字段照常生效。
+        assert_eq!(merged.check_in_time, "09:00");
+    }
+
+    #[test]
+    fn save_settings_cannot_resurrect_revoked_consent() {
+        let current = AppSettings::default();
+        let mut incoming = AppSettings::default();
+        incoming.liveness_consent_accepted_at = Some("1700000000000".to_string());
+
+        let merged = merge_saved_settings(&current, incoming);
+
+        assert_eq!(merged.liveness_consent_accepted_at, None);
+    }
 }

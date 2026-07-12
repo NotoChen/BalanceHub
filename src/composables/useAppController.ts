@@ -1,5 +1,6 @@
 import { reactive } from "vue";
 import { storeToRefs } from "pinia";
+import { Message } from "@arco-design/web-vue";
 import { useProviderStore, type Provider } from "../stores/providers";
 import { useApiKeyManager } from "./useApiKeyManager";
 import { useAppDataTransfer } from "./useAppDataTransfer";
@@ -42,6 +43,7 @@ export function useAppController() {
   });
 
   const { notifySystem, sendTestNotification } = useSystemNotification(
+    settings,
     settingsController.settingsForm,
   );
   const { appVersion } = useAppVersion();
@@ -121,7 +123,12 @@ export function useAppController() {
 
   const providerMenu = useProviderMenuActions({
     providers,
-    refreshByIds: (ids) => providerStore.refreshByIds(ids),
+    refreshByIds: async (ids) => {
+      const error = await providerStore.refreshByIds(ids);
+      if (error) {
+        Message.error(`刷新失败：${error}`);
+      }
+    },
     testLiveness: (id) => providerStore.testLiveness(id),
     launchTemporaryCli: (id, cliKind, workdir) => providerStore.launchTemporaryCli(id, cliKind, workdir),
     probeCapabilities: (id) => providerStore.probeCapabilities(id),
@@ -141,7 +148,7 @@ export function useAppController() {
 
   const workspace = useProviderWorkspaceController({
     providers,
-    settings: settingsController.settingsForm,
+    settings,
     checkingInProviderIds: checkIn.checkingInProviderIds,
     probingCapabilitiesProviderId: providerMenu.probingCapabilitiesProviderId,
     editingProviderId: providerEditor.editingProviderId,
@@ -180,6 +187,14 @@ export function useAppController() {
     loadCheckInRecords: checkInRecords.loadCheckInRecords,
   });
 
+  // 全量刷新失败此前只把卡片染红、无任何提示，用户无从得知失败原因。
+  async function refreshAllProviders() {
+    const error = await providerStore.refreshAll();
+    if (error) {
+      Message.error(`刷新失败：${error}`);
+    }
+  }
+
   return reactive({
     initialized,
     loadError,
@@ -204,6 +219,6 @@ export function useAppController() {
     ...providerEditor,
     ...providerMenu,
     ...workspace,
-    refreshAllProviders: providerStore.refreshAll,
+    refreshAllProviders,
   });
 }

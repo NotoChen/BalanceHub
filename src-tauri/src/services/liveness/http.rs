@@ -102,7 +102,7 @@ async fn perform_http_request(
                 response_text: String::new(),
                 raw_body: String::new(),
                 usage: ParsedTokenUsage::default(),
-                message: format!("测活请求失败: {err}"),
+                message: format!("测活请求失败（网络异常，不代表账号失效）: {err}"),
             };
         }
     };
@@ -114,7 +114,7 @@ async fn perform_http_request(
             ok: false,
             response_text: String::new(),
             usage: ParsedTokenUsage::default(),
-            message: format!("HTTP {}: {}", status.as_u16(), trim_message(&body_text)),
+            message: classify_http_failure(status, &body_text),
             raw_body: body_text,
         };
     }
@@ -302,6 +302,19 @@ fn api_error_message(value: &Value) -> String {
         .to_string()
 }
 
+/// 区分「账号/凭据问题」与「瞬时故障」：自动测活的价值在于判断账号死活，
+/// 限流和站点 5xx 不该被读成死号。
+fn classify_http_failure(status: reqwest::StatusCode, body: &str) -> String {
+    let code = status.as_u16();
+    let detail = trim_message(body);
+    match code {
+        401 | 403 => format!("HTTP {code}: 凭据或权限被拒绝，API Key 可能已失效: {detail}"),
+        429 => format!("HTTP {code}: 请求被限流（瞬时问题，不代表账号失效）: {detail}"),
+        500..=599 => format!("HTTP {code}: 站点服务异常（不代表账号失效）: {detail}"),
+        _ => format!("HTTP {code}: {detail}"),
+    }
+}
+
 fn http_kind_value(protocol: LivenessHttpProtocol) -> String {
     match protocol {
         LivenessHttpProtocol::OpenaiChat => "httpOpenaiChat",
@@ -309,4 +322,19 @@ fn http_kind_value(protocol: LivenessHttpProtocol) -> String {
         LivenessHttpProtocol::Anthropic => "httpAnthropic",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn classifies_credential_failures_and_transient_failures() {
+        assert!(classify_http_failure(StatusCode::UNAUTHORIZED, "bad key").contains("凭据或权限被拒绝"));
+        assert!(classify_http_failure(StatusCode::FORBIDDEN, "").contains("凭据或权限被拒绝"));
+        assert!(classify_http_failure(StatusCode::TOO_MANY_REQUESTS, "").contains("不代表账号失效"));
+        assert!(classify_http_failure(StatusCode::BAD_GATEWAY, "").contains("不代表账号失效"));
+        assert!(classify_http_failure(StatusCode::NOT_FOUND, "no route").starts_with("HTTP 404"));
+    }
 }

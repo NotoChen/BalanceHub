@@ -543,6 +543,10 @@ pub fn run() {
             // 自动刷新 / 签到 / 测活的调度运行在 Rust 后台任务里，独立于窗口存活。
             services::scheduler::start(app.app_handle());
 
+            // 清扫历史残留的临时 CLI 目录/测活隔离 HOME（可能含明文凭据）。
+            // 磁盘扫描放后台线程，不阻塞启动。
+            std::thread::spawn(services::temporary_cli::cleanup_stale);
+
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = window.app_handle().clone();
                 window.on_window_event(move |event| {

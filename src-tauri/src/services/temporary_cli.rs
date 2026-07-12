@@ -210,7 +210,7 @@ fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
     let auth_block = match input.cli_kind {
         LivenessCliKind::Codex => format!(
             "set CODEX_API_KEY=\r\nset CODEX_ACCESS_TOKEN=\r\nset \"OPENAI_API_KEY={api_key}\"\r\n",
-            api_key = input.api_key
+            api_key = escape_cmd_value(input.api_key)
         ),
         LivenessCliKind::ClaudeCode => {
             "set ANTHROPIC_API_KEY=\r\nset ANTHROPIC_AUTH_TOKEN=\r\nset ANTHROPIC_BASE_URL=\r\n"
@@ -224,18 +224,18 @@ fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
         .unwrap_or_else(env::temp_dir);
     let text = format!(
         "@echo off\r\ncd /d \"{workdir}\"\r\n{color_block}{auth_block}\"{cli}\" {args}\r\nset STATUS=%ERRORLEVEL%\r\ndel \"%~f0\"\r\n{cleanup_settings}rmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n",
-        workdir = input.workdir.display(),
+        workdir = escape_cmd_value(&input.workdir.display().to_string()),
         color_block = windows_color_block(),
-        cli = input.cli_path,
+        cli = escape_cmd_value(input.cli_path),
         args = args
             .iter()
             .map(|arg| windows_quote(arg))
             .collect::<Vec<_>>()
             .join(" "),
-        script_dir = script_dir.display(),
+        script_dir = escape_cmd_value(&script_dir.display().to_string()),
         cleanup_settings = claude_settings_path
             .as_ref()
-            .map(|path| format!("del \"{}\" 2>nul\r\n", path.display()))
+            .map(|path| format!("del \"{}\" 2>nul\r\n", escape_cmd_value(&path.display().to_string())))
             .unwrap_or_default(),
     );
 
@@ -261,7 +261,68 @@ fn write_claude_settings(path: &Path, api_key: &str, base_url: &str) -> Result<(
     });
     let text = serde_json::to_string_pretty(&config)
         .map_err(|err| format!("生成 Claude 配置失败: {err}"))?;
-    fs::write(path, text).map_err(|err| format!("写入 Claude 临时配置失败: {err}"))
+    fs::write(path, text).map_err(|err| format!("写入 Claude 临时配置失败: {err}"))?;
+    restrict_to_owner(path)
+}
+
+/// 临时配置里有明文 API Key，权限收紧到仅属主可读写（脚本本身已是 0700）。
+#[cfg(not(target_os = "windows"))]
+fn restrict_to_owner(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = fs::metadata(path)
+        .map_err(|err| format!("读取 Claude 临时配置权限失败: {err}"))?
+        .permissions();
+    permissions.set_mode(0o600);
+    fs::set_permissions(path, permissions)
+        .map_err(|err| format!("设置 Claude 临时配置权限失败: {err}"))
+}
+
+#[cfg(target_os = "windows")]
+fn restrict_to_owner(_path: &Path) -> Result<(), String> {
+    // %TEMP% 位于用户目录下，默认 ACL 已限制为本用户可见。
+    Ok(())
+}
+
+/// 清理历史残留的临时文件：启动脚本目录（终端从未执行脚本时不会自清）、
+/// 测活的隔离 HOME 与输出文件（超时/崩溃路径可能泄漏）。这些目录里可能包含
+/// 明文凭据，启动时兜底清扫一次；只清超过 24 小时的，避免碰到正在使用的会话。
+pub fn cleanup_stale() {
+    const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+    const PREFIXES: [&str; 4] = [
+        "balancehub-temporary-cli-",
+        "balancehub-codex-home-",
+        "balancehub-claude-home-",
+        "balancehub-codex-",
+    ];
+
+    let Ok(entries) = fs::read_dir(env::temp_dir()) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !PREFIXES.iter().any(|prefix| name.starts_with(prefix)) {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_AFTER);
+        if !stale {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            let _ = fs::remove_dir_all(&path);
+        } else {
+            let _ = fs::remove_file(&path);
+        }
+    }
 }
 
 fn cli_args(
@@ -825,6 +886,17 @@ fn user_shell() -> String {
     env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn escape_cmd_value(value: &str) -> String {
+    // cmd 批处理里 % 触发变量展开（%% 才是字面 %）；引号会截断 set "VAR=…" 的
+    // 引号上下文，换行能直接注入新命令行，一律剔除。
+    value
+        .chars()
+        .filter(|ch| !matches!(ch, '"' | '\r' | '\n'))
+        .collect::<String>()
+        .replace('%', "%%")
+}
+
 #[cfg(target_os = "windows")]
 fn windows_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\\\""))
@@ -1223,6 +1295,16 @@ done
     #[test]
     fn shell_quote_handles_single_quotes() {
         assert_eq!(shell_quote("/tmp/a'b"), "'/tmp/a'\\''b'");
+    }
+
+    #[test]
+    fn escape_cmd_value_neutralizes_batch_metacharacters() {
+        assert_eq!(escape_cmd_value("sk-abc%TEMP%def"), "sk-abc%%TEMP%%def");
+        assert_eq!(
+            escape_cmd_value("sk-a\"b\r\ndel C:\\*"),
+            "sk-abdel C:\\*",
+        );
+        assert_eq!(escape_cmd_value("sk-normal-key"), "sk-normal-key");
     }
 
     #[cfg(target_os = "macos")]

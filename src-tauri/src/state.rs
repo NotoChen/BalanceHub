@@ -9,6 +9,10 @@ use std::sync::RwLock;
 #[derive(Default)]
 pub struct AppState {
     pub data: RwLock<AppData>,
+    /// 刷新互斥闸门：手动刷新与调度刷新并发时会对同一批站点重复打请求，
+    /// 结果又按 id 合并互相覆盖。手动路径 `lock().await` 排队，调度器 `try_lock`
+    /// 拿不到直接跳过本 tick（下个 tick 重新评估到期），两边都不会饿死。
+    pub refresh_gate: tokio::sync::Mutex<()>,
     load_error: RwLock<Option<String>>,
 }
 
@@ -20,6 +24,7 @@ impl AppState {
     pub fn with_load_error(data: AppData, load_error: Option<String>) -> Self {
         Self {
             data: RwLock::new(data),
+            refresh_gate: tokio::sync::Mutex::new(()),
             load_error: RwLock::new(load_error),
         }
     }

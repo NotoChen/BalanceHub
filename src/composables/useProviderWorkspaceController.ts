@@ -8,7 +8,8 @@ import { useProviderDragSort } from "./useProviderDragSort";
 
 interface UseProviderWorkspaceControllerOptions {
   providers: Ref<Provider[]>;
-  settings: AppSettings;
+  /** 已保存的 store 配置：看板分组依据保存生效的设置，而非抽屉里未保存的草稿。 */
+  settings: Ref<AppSettings>;
   checkingInProviderIds: Ref<string[]>;
   probingCapabilitiesProviderId: Ref<string | null>;
   editingProviderId: Ref<string | null>;
@@ -24,7 +25,7 @@ interface UseProviderWorkspaceControllerOptions {
 
 export function useProviderWorkspaceController(options: UseProviderWorkspaceControllerOptions) {
   function showProviderLivenessTimeline(provider: Provider) {
-    return providerLivenessEnabled(provider, options.settings);
+    return providerLivenessEnabled(provider, options.settings.value);
   }
 
   const dragSort = useProviderDragSort({

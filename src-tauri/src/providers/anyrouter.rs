@@ -9,6 +9,7 @@ use reqwest::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+use super::newapi_http::build_url;
 use super::newapi_response::trim_message;
 
 const DEFAULT_UPSTREAM: &str = "https://anyrouter.top";
@@ -433,11 +434,8 @@ fn normalize_session_value(raw: &str) -> String {
     text.to_string()
 }
 
-fn build_url(upstream: &str, path: &str) -> Result<Url, String> {
-    let base = Url::parse(upstream).map_err(|err| format!("AnyRouter 地址无效: {err}"))?;
-    base.join(path)
-        .map_err(|err| format!("AnyRouter 中转站地址无效: {err}"))
-}
+// build_url 统一复用 newapi_http 的实现：Url::join 对以 "/" 开头的 path 会
+// 整段替换 base 的 path，子路径部署（如 https://host/relay）会被截断到根路径。
 
 #[cfg(test)]
 mod tests {
