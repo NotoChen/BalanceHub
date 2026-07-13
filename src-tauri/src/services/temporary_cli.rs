@@ -868,20 +868,17 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn script_command(script: &Path) -> String {
     format!("exec {}", script_command_without_exec(script))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn script_command_without_exec(script: &Path) -> String {
     format!("/bin/sh {}", shell_quote(&script.to_string_lossy()))
 }
 
-#[cfg(any(
-    target_os = "macos",
-    all(not(target_os = "macos"), not(target_os = "windows"))
-))]
+#[cfg(target_os = "macos")]
 fn user_shell() -> String {
     env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }

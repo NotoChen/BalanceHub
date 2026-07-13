@@ -66,6 +66,8 @@ impl LivenessRunner {
         cli::enumerate_claude_cli(preferred_path)
     }
 
+    /// 仅供非 Windows 的临时 CLI 脚本生成注入 PATH；Windows 启动脚本不导出 PATH。
+    #[cfg(not(target_os = "windows"))]
     pub fn runtime_path_for_cli(cli_path: &std::path::Path) -> Option<std::ffi::OsString> {
         cli::runtime_path_for(cli_path)
     }
