@@ -114,10 +114,7 @@ pub(super) async fn refresh_providers_concurrently(
         let semaphore = Arc::clone(&semaphore);
         handles.push(tauri::async_runtime::spawn(async move {
             // 信号量只在本函数生命周期内使用、从不 close，acquire 不会失败。
-            let _permit = semaphore
-                .acquire()
-                .await
-                .expect("refresh semaphore closed");
+            let _permit = semaphore.acquire().await.expect("refresh semaphore closed");
             NewApiAdapter
                 .refresh_provider(settings.as_ref(), &provider)
                 .await
@@ -165,7 +162,10 @@ mod tests {
         // 刷新拥有的字段：跟随刷新结果。
         assert_eq!(merged.identity.name, "站点自报名");
         assert_eq!(merged.quota.available, 42.0);
-        assert_eq!(merged.automation.last_synced_at, Some("1700000000".to_string()));
+        assert_eq!(
+            merged.automation.last_synced_at,
+            Some("1700000000".to_string())
+        );
         // 用户拥有的字段：并发编辑不被覆盖。
         assert_eq!(merged.auth.api_key, "sk-user-edited");
         assert_eq!(merged.automation.check_in_time, "09:30");

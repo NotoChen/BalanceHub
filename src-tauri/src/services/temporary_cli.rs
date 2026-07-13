@@ -1300,10 +1300,7 @@ done
     #[test]
     fn escape_cmd_value_neutralizes_batch_metacharacters() {
         assert_eq!(escape_cmd_value("sk-abc%TEMP%def"), "sk-abc%%TEMP%%def");
-        assert_eq!(
-            escape_cmd_value("sk-a\"b\r\ndel C:\\*"),
-            "sk-abdel C:\\*",
-        );
+        assert_eq!(escape_cmd_value("sk-a\"b\r\ndel C:\\*"), "sk-abdel C:\\*",);
         assert_eq!(escape_cmd_value("sk-normal-key"), "sk-normal-key");
     }
 
