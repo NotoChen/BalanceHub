@@ -15,6 +15,7 @@ export const defaultSettings = (): AppSettings => ({
   onboardingCompleted: false,
   refreshInterval: 300,
   launchAtLogin: false,
+  launchAtLoginMinimized: false,
   proxyMode: "system",
   proxyUrl: "",
   themeMode: "system",

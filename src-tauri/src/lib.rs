@@ -497,9 +497,12 @@ async fn list_cli_candidates(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 自启动项固定携带 --silent-start 标记启动来源；是否真的静默由
+        // launch_at_login_minimized 设置决定。前端每次保存设置调用 enable()
+        // 时都会按这里的参数重写系统启动项。
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec!["--silent-start"]),
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -538,6 +541,15 @@ pub fn run() {
                 Ok(data) => AppState::new(data),
                 Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
             };
+            // 自启动（--silent-start）且用户勾选了“自启后最小化”时静默启动：
+            // 窗口在配置里默认不可见，走到 setup 末尾再决定是否显示。
+            let silent_start = std::env::args().any(|arg| arg == "--silent-start")
+                && app_state
+                    .data
+                    .read()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .settings
+                    .launch_at_login_minimized;
             app.manage(app_state);
 
             // 自动刷新 / 签到 / 测活的调度运行在 Rust 后台任务里，独立于窗口存活。
@@ -597,6 +609,15 @@ pub fn run() {
 
             tray_builder.build(app)?;
             tray::refresh_from_state(app.app_handle());
+
+            if silent_start {
+                // 静默启动不显示窗口；macOS 同步隐藏 Dock 图标（事件循环启动前
+                // 直接设置，避免 Dock 图标闪现）。
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            } else {
+                tray::show_main_window(app.app_handle());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

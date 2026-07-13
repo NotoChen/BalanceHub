@@ -12,6 +12,9 @@ pub struct AppSettings {
     pub onboarding_completed: bool,
     pub refresh_interval: u64,
     pub launch_at_login: bool,
+    /// 仅对携带 `--silent-start` 参数的自启动生效；手动启动始终弹出主窗口。
+    #[serde(default)]
+    pub launch_at_login_minimized: bool,
     #[serde(default)]
     pub proxy_mode: ProxyMode,
     #[serde(default)]
@@ -82,6 +85,7 @@ impl Default for AppSettings {
             onboarding_completed: false,
             refresh_interval: 300,
             launch_at_login: false,
+            launch_at_login_minimized: false,
             proxy_mode: ProxyMode::System,
             proxy_url: String::new(),
             theme_mode: ThemeMode::System,

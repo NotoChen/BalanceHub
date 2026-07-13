@@ -56,6 +56,13 @@ const proxyModeOptions: SelectOption<ProxyMode>[] = [
       <a-switch v-model="settings.launchAtLogin" />
       <template #extra>保存后会写入系统开机启动项。</template>
     </a-form-item>
+    <a-form-item label="自启后最小化">
+      <a-switch
+        v-model="settings.launchAtLoginMinimized"
+        :disabled="!settings.launchAtLogin"
+      />
+      <template #extra>开机自启动时不弹出主窗口，仅保留托盘图标，点击托盘随时打开。</template>
+    </a-form-item>
     <a-form-item label="当前版本">
       <span class="settings-version">{{ appVersion ? `v${appVersion}` : "开发环境" }}</span>
       <template #extra>版本号与 GitHub Release tag 保持一致。</template>
