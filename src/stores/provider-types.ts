@@ -384,6 +384,7 @@ export interface AppSettings {
   onboardingCompleted: boolean;
   refreshInterval: number;
   launchAtLogin: boolean;
+  launchAtLoginMinimized: boolean;
   proxyMode: ProxyMode;
   proxyUrl: string;
   themeMode: ThemeMode;

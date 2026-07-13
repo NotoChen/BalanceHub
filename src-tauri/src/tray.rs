@@ -61,6 +61,10 @@ pub fn refresh_from_state(app: &AppHandle) {
 }
 
 pub fn show_main_window(app: &AppHandle) {
+    // macOS 关窗后应用退成纯托盘形态（Accessory），重新打开时必须先切回
+    // Regular 再 show/focus，否则窗口无法激活到前台。
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -72,6 +76,10 @@ pub fn hide_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
+    // 关窗即隐藏 Dock 图标，只留菜单栏托盘；Windows/Linux 隐藏窗口后
+    // 任务栏本就没有按钮，无需处理。
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 }
 
 fn full_provider_identity(provider: &Provider) -> String {
