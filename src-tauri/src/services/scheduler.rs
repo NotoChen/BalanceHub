@@ -170,8 +170,7 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
 
 /// 清理调度器内存状态：删掉已不存在的中转站与过期日期的记录，避免无界增长。
 fn prune_state(state: &mut SchedulerState, providers: &[Provider], today: &str) {
-    let exists =
-        |id: &str| providers.iter().any(|provider| provider.identity.id == id);
+    let exists = |id: &str| providers.iter().any(|provider| provider.identity.id == id);
     state.refresh_attempts.retain(|id, _| exists(id));
     state
         .check_in_attempts
@@ -189,7 +188,10 @@ fn check_in_attempt_allowed(
         Some(state) if state.date != today => true,
         Some(state) => {
             state.attempts < CHECK_IN_MAX_ATTEMPTS_PER_DAY
-                && now_secs >= state.last_attempt_secs.saturating_add(CHECK_IN_RETRY_BACKOFF_SECS)
+                && now_secs
+                    >= state
+                        .last_attempt_secs
+                        .saturating_add(CHECK_IN_RETRY_BACKOFF_SECS)
         }
     }
 }
@@ -418,7 +420,11 @@ mod tests {
     #[test]
     fn blocks_attempt_within_backoff_window() {
         let state = attempt("2026-07-10", 1, 1_000);
-        assert!(!check_in_attempt_allowed(Some(&state), "2026-07-10", 1_000 + 60));
+        assert!(!check_in_attempt_allowed(
+            Some(&state),
+            "2026-07-10",
+            1_000 + 60
+        ));
         assert!(check_in_attempt_allowed(
             Some(&state),
             "2026-07-10",

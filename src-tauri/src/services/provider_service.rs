@@ -193,11 +193,15 @@ mod tests {
 
     #[test]
     fn save_settings_preserves_backend_owned_consent() {
-        let mut current = AppSettings::default();
-        current.liveness_consent_accepted_at = Some("1700000000000".to_string());
-        let mut incoming = AppSettings::default();
-        incoming.liveness_consent_accepted_at = None;
-        incoming.check_in_time = "09:00".to_string();
+        let current = AppSettings {
+            liveness_consent_accepted_at: Some("1700000000000".to_string()),
+            ..AppSettings::default()
+        };
+        let incoming = AppSettings {
+            liveness_consent_accepted_at: None,
+            check_in_time: "09:00".to_string(),
+            ..AppSettings::default()
+        };
 
         let merged = merge_saved_settings(&current, incoming);
 
@@ -213,8 +217,10 @@ mod tests {
     #[test]
     fn save_settings_cannot_resurrect_revoked_consent() {
         let current = AppSettings::default();
-        let mut incoming = AppSettings::default();
-        incoming.liveness_consent_accepted_at = Some("1700000000000".to_string());
+        let incoming = AppSettings {
+            liveness_consent_accepted_at: Some("1700000000000".to_string()),
+            ..AppSettings::default()
+        };
 
         let merged = merge_saved_settings(&current, incoming);
 

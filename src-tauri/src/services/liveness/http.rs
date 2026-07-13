@@ -331,7 +331,9 @@ mod tests {
 
     #[test]
     fn classifies_credential_failures_and_transient_failures() {
-        assert!(classify_http_failure(StatusCode::UNAUTHORIZED, "bad key").contains("凭据或权限被拒绝"));
+        assert!(
+            classify_http_failure(StatusCode::UNAUTHORIZED, "bad key").contains("凭据或权限被拒绝")
+        );
         assert!(classify_http_failure(StatusCode::FORBIDDEN, "").contains("凭据或权限被拒绝"));
         assert!(classify_http_failure(StatusCode::TOO_MANY_REQUESTS, "").contains("不代表账号失效"));
         assert!(classify_http_failure(StatusCode::BAD_GATEWAY, "").contains("不代表账号失效"));

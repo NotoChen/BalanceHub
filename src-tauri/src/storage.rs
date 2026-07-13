@@ -127,8 +127,7 @@ fn read_app_data_file(
 
 /// 只解析 schemaVersion 字段，避免整体反序列化时 serde 默认值掩盖真实存储版本。
 fn stored_schema_version(text: &str) -> Result<u32, String> {
-    let value =
-        serde_json::from_str::<serde_json::Value>(text).map_err(|err| err.to_string())?;
+    let value = serde_json::from_str::<serde_json::Value>(text).map_err(|err| err.to_string())?;
     Ok(value
         .get("schemaVersion")
         .and_then(serde_json::Value::as_u64)
@@ -361,8 +360,8 @@ mod tests {
 
     #[test]
     fn migrate_rejects_unknown_version_zero() {
-        let err = migrate_app_data("{\"providers\":[]}", 0)
-            .expect_err("version 0 has no migration path");
+        let err =
+            migrate_app_data("{\"providers\":[]}", 0).expect_err("version 0 has no migration path");
         assert!(err.contains("没有从 schemaVersion 0"));
     }
 
