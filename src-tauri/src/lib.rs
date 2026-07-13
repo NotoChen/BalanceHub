@@ -42,10 +42,8 @@ fn user_home_dir() -> Option<String> {
     {
         std::env::var_os("USERPROFILE")
             .or_else(|| {
-                let drive = std::env::var_os("HOMEDRIVE")?;
-                let path = std::env::var_os("HOMEPATH")?;
-                let mut home = std::ffi::OsString::from(drive);
-                home.push(path);
+                let mut home = std::env::var_os("HOMEDRIVE")?;
+                home.push(std::env::var_os("HOMEPATH")?);
                 Some(home)
             })
             .map(|path| std::path::PathBuf::from(path).to_string_lossy().to_string())
