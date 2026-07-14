@@ -128,12 +128,11 @@ fn find_cli(preferred_path: &str, spec: &CliSpec) -> Result<CodexCliProbeResult,
 
     let mut seen = Vec::new();
     for candidate in cli_candidates(&preferred_path, spec) {
-        let candidate = normalize_path(candidate);
         if seen.iter().any(|item: &PathBuf| item == &candidate) {
             continue;
         }
         seen.push(candidate.clone());
-        if is_unsupported_cli_path(&candidate, spec) {
+        if is_unsupported_cli_path(&normalize_path(candidate.clone()), spec) {
             continue;
         }
         if !candidate.is_file() {
@@ -156,12 +155,12 @@ fn enumerate_cli(preferred_path: &str, spec: &CliSpec) -> Vec<CliCandidate> {
     let mut result = Vec::new();
     let path_default = resolve_path_default(spec.binary);
     for candidate in cli_candidates(preferred_path, spec) {
-        let candidate = normalize_path(candidate);
         if seen.iter().any(|item: &PathBuf| item == &candidate) {
             continue;
         }
         seen.push(candidate.clone());
-        if is_unsupported_cli_path(&candidate, spec) {
+        let normalized_candidate = normalize_path(candidate.clone());
+        if is_unsupported_cli_path(&normalized_candidate, spec) {
             continue;
         }
         if !candidate.is_file() {
@@ -170,7 +169,7 @@ fn enumerate_cli(preferred_path: &str, spec: &CliSpec) -> Vec<CliCandidate> {
         let version = cli_version(&candidate, spec.require_version_substring).ok();
         let path = candidate.to_string_lossy().to_string();
         let source = infer_cli_source(&path);
-        let is_path_default = path_default.as_ref() == Some(&candidate);
+        let is_path_default = path_default.as_ref() == Some(&normalized_candidate);
         result.push(CliCandidate {
             valid: version.is_some(),
             version,
@@ -529,6 +528,9 @@ fn windows_npm_candidates(binary: &str) -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
     #[test]
     fn preferred_path_trims_wrapping_quotes() {
         assert_eq!(
@@ -591,6 +593,46 @@ mod tests {
             Path::new("/opt/homebrew/bin/codex"),
             &CODEX_SPEC
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_probe_keeps_symlink_entrypoint_runtime_path() {
+        fn no_home_candidates(_: &Path) -> Vec<PathBuf> {
+            Vec::new()
+        }
+
+        let root = env::temp_dir().join(format!("balancehub-cli-symlink-{}", std::process::id()));
+        let bin = root.join("bin");
+        let lib = root.join("lib");
+        let entrypoint = bin.join("balancehub-test-cli");
+        let runtime = bin.join("balancehub-test-runtime");
+        let target = lib.join("cli");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(&runtime, "#!/bin/sh\nprintf 'test-cli 1.0\\n'\n").unwrap();
+        fs::write(&target, "#!/usr/bin/env balancehub-test-runtime\n").unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&target, &entrypoint).unwrap();
+
+        let result = find_cli(
+            entrypoint.to_str().unwrap(),
+            &CliSpec {
+                env_keys: &[],
+                binary: "balancehub-test-cli",
+                global_dirs: &[],
+                home_candidates: no_home_candidates,
+                require_version_substring: None,
+                not_found_message: "not found",
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.path, entrypoint.to_string_lossy());
+        assert_eq!(result.version, "test-cli 1.0");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
