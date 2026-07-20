@@ -571,12 +571,19 @@ pub fn run() {
                 .paste_with_text("粘贴")
                 .select_all_with_text("全选")
                 .build()?;
+            #[cfg(target_os = "macos")]
+            let view_menu = SubmenuBuilder::new(handle, "显示")
+                .fullscreen_with_text("切换全屏")
+                .build()?;
 
-            MenuBuilder::new(handle)
+            let menu = MenuBuilder::new(handle)
                 .item(&app_menu)
                 .item(&file_menu)
-                .item(&edit_menu)
-                .build()
+                .item(&edit_menu);
+            #[cfg(target_os = "macos")]
+            let menu = menu.item(&view_menu);
+
+            menu.build()
         })
         .setup(|app| {
             let app_state = match storage::load_app_data(app.app_handle()) {

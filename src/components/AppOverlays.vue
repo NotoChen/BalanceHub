@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppOnboardingModal from "./AppOnboardingModal.vue";
+import AppUpdateModal from "./AppUpdateModal.vue";
 import ApiKeyManagerModal from "./ApiKeyManagerModal.vue";
 import AvailableModelsModal from "./AvailableModelsModal.vue";
 import CheckInCalendarModal from "./CheckInCalendarModal.vue";
@@ -43,6 +44,13 @@ defineProps<{
   checkInRecordsLoading: boolean;
   checkInRecordsResult: ProviderCheckInRecordsResult | null;
   checkInRecordsError: string;
+  updateDialogVisible: boolean;
+  availableUpdateCurrentVersion: string;
+  availableUpdateVersion: string;
+  availableUpdateReleaseNotes: string;
+  installingUpdate: boolean;
+  updateDownloadProgress: number | null;
+  updateInstallStatus: string;
 }>();
 
 const emit = defineEmits<{
@@ -67,6 +75,8 @@ const emit = defineEmits<{
   setRequestLogsPageSize: [pageSize: number];
   submitPasswordChange: [originalPassword: string, password: string];
   loadCheckInRecords: [options?: { force?: boolean }];
+  dismissUpdate: [];
+  installUpdate: [];
 }>();
 
 const apiKeyManagerVisible = defineModel<boolean>("apiKeyManagerVisible", { required: true });
@@ -94,6 +104,18 @@ const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { require
     @open-settings="emit('openOnboardingSettings')"
     @probe-codex-cli="emit('probeOnboardingCodexCli')"
     @finish="emit('completeOnboarding')"
+  />
+
+  <AppUpdateModal
+    :visible="updateDialogVisible"
+    :current-version="availableUpdateCurrentVersion"
+    :version="availableUpdateVersion"
+    :release-notes="availableUpdateReleaseNotes"
+    :installing="installingUpdate"
+    :download-progress="updateDownloadProgress"
+    :install-status="updateInstallStatus"
+    @dismiss="emit('dismissUpdate')"
+    @install="emit('installUpdate')"
   />
 
   <ApiKeyManagerModal

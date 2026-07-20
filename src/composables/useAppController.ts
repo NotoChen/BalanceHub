@@ -50,7 +50,7 @@ export function useAppController() {
     settingsController.settingsForm,
   );
   const { appVersion } = useAppVersion();
-  const { checkingForUpdate, checkForUpdate } = useAppUpdater();
+  const appUpdater = useAppUpdater();
 
   const appDataTransfer = useAppDataTransfer({
     exportAppData: (path) => providerStore.exportAppData(path),
@@ -222,8 +222,7 @@ export function useAppController() {
     ...onboarding,
     sendTestNotification,
     appVersion,
-    checkingForUpdate,
-    checkForUpdate,
+    ...appUpdater,
     ...appDataTransfer,
     ...checkIn,
     ...checkInRecords,

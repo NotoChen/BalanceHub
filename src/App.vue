@@ -101,6 +101,13 @@ const app = useAppController();
       :check-in-records-loading="app.checkInRecordsLoading"
       :check-in-records-result="app.checkInRecordsResult"
       :check-in-records-error="app.checkInRecordsError"
+      :update-dialog-visible="app.updateDialogVisible"
+      :available-update-current-version="app.availableUpdateCurrentVersion"
+      :available-update-version="app.availableUpdateVersion"
+      :available-update-release-notes="app.availableUpdateReleaseNotes"
+      :installing-update="app.installingUpdate"
+      :update-download-progress="app.updateDownloadProgress"
+      :update-install-status="app.updateInstallStatus"
       @open-onboarding-add-provider="app.openOnboardingAddProvider"
       @import-onboarding-data="app.importOnboardingData"
       @open-onboarding-settings="app.openOnboardingSettings"
@@ -122,6 +129,8 @@ const app = useAppController();
       @set-request-logs-page-size="app.setRequestLogsPageSize"
       @submit-password-change="app.submitPasswordChange"
       @load-check-in-records="app.loadCheckInRecords"
+      @dismiss-update="app.dismissUpdate"
+      @install-update="app.installUpdate"
     />
 
     <AppDrawers
