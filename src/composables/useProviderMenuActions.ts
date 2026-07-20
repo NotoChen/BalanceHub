@@ -2,7 +2,7 @@ import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openCcSwitchDeeplink, userHomeDir } from "../api/app";
-import type { LivenessCliKind, Provider } from "../stores/providers";
+import type { LivenessCliKind, Provider, TemporaryCliInstance } from "../stores/providers";
 import { useProviderContextMenu } from "./useProviderContextMenu";
 import { useProviderCopyActions } from "./useProviderCopyActions";
 import {
@@ -16,7 +16,11 @@ interface UseProviderMenuActionsOptions {
   providers: { value: Provider[] };
   refreshByIds: (ids: string[]) => Promise<unknown>;
   testLiveness: (id: string) => Promise<{ record: { ok: boolean; responsePreview: string; message: string } }>;
-  launchTemporaryCli: (id: string, cliKind: LivenessCliKind, workdir: string) => Promise<string>;
+  launchTemporaryCli: (
+    id: string,
+    cliKind: LivenessCliKind,
+    workdir: string,
+  ) => Promise<TemporaryCliInstance>;
   probeCapabilities: (id: string) => Promise<{ provider: Provider; message: string }>;
   getInviteLink: (id: string) => Promise<string>;
   reload: () => Promise<unknown>;
@@ -121,8 +125,8 @@ export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
     }
 
     try {
-      const message = await options.launchTemporaryCli(provider.identity.id, cliKind, selected);
-      Message.success(message);
+      await options.launchTemporaryCli(provider.identity.id, cliKind, selected);
+      Message.success(`已启动 ${cliKind === "codex" ? "Codex" : "Claude Code"}`);
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
     }

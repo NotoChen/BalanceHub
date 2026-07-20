@@ -10,6 +10,7 @@ import { useAppVersion } from "./useAppVersion";
 import { useAvailableModels } from "./useAvailableModels";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
+import { useCliRuntime } from "./useCliRuntime";
 import { usePasswordChange } from "./usePasswordChange";
 import { useOnboardingController } from "./useOnboardingController";
 import { useProviderEditor } from "./useProviderEditor";
@@ -25,6 +26,8 @@ export function useAppController() {
   const providerStore = useProviderStore();
   const {
     initialized,
+    cliRuntime,
+    cliRuntimeLoading,
     loadError,
     loading,
     providers,
@@ -93,6 +96,14 @@ export function useAppController() {
   const availableModels = useAvailableModels({
     providers,
     syncModels: (providerId) => providerStore.syncCodexModels(providerId),
+  });
+
+  const cliRuntimeController = useCliRuntime({
+    providers,
+    cliRuntime,
+    refresh: () => providerStore.refreshCliRuntime(),
+    activate: (instanceId) => providerStore.activateTemporaryCli(instanceId),
+    relaunch: (instanceId) => providerStore.relaunchTemporaryCli(instanceId),
   });
 
   async function removeProvider(provider: Provider) {
@@ -189,7 +200,10 @@ export function useAppController() {
 
   // 全量刷新失败此前只把卡片染红、无任何提示，用户无从得知失败原因。
   async function refreshAllProviders() {
-    const error = await providerStore.refreshAll();
+    const [error] = await Promise.all([
+      providerStore.refreshAll(),
+      providerStore.refreshCliRuntime().catch(() => null),
+    ]);
     if (error) {
       Message.error(`刷新失败：${error}`);
     }
@@ -200,6 +214,8 @@ export function useAppController() {
     loadError,
     loading,
     providers,
+    cliRuntime,
+    cliRuntimeLoading,
     refreshInProgress,
     startWindowDrag,
     ...settingsController,
@@ -216,6 +232,7 @@ export function useAppController() {
     ...passwordChange,
     ...apiKeyManager,
     ...availableModels,
+    ...cliRuntimeController,
     ...providerEditor,
     ...providerMenu,
     ...workspace,

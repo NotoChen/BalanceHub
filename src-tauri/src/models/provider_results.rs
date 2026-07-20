@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use serde_json::Value;
 
-use super::{Provider, ProviderInput, ProviderQuotaDisplay};
+use super::{
+    LivenessCliKind, Provider, ProviderInput, ProviderQuotaDisplay, TemporaryCliTerminalKind,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -234,4 +236,46 @@ pub struct ProviderRequestLogStats {
     pub quota: f64,
     pub rpm: f64,
     pub tpm: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliConfigSnapshot {
+    pub configured: bool,
+    pub provider_id: Option<String>,
+    pub modified_at: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TemporaryCliInstanceStatus {
+    Starting,
+    Running,
+    Exited,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporaryCliInstance {
+    pub id: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub cli_kind: LivenessCliKind,
+    pub workdir: String,
+    pub terminal_kind: TemporaryCliTerminalKind,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub pid: Option<u32>,
+    pub status: TemporaryCliInstanceStatus,
+    pub exit_code: Option<i32>,
+    pub can_activate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliRuntimeSnapshot {
+    pub codex: CliConfigSnapshot,
+    pub claude_code: CliConfigSnapshot,
+    pub instances: Vec<TemporaryCliInstance>,
 }

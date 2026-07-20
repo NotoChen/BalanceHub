@@ -34,13 +34,30 @@
 .provider-board-section {
   display: grid;
   min-width: 0;
-  gap: 10px;
+  gap: 8px;
 }
 
-.provider-board-divider {
-  height: 1px;
-  background: var(--glass-border);
-  margin: 2px 0 4px;
+.provider-board-section-header {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0 2px;
+}
+
+.provider-board-section-header h2 {
+  margin: 0;
+  color: #4e5969;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.provider-board-section-header span {
+  color: #a9aeb8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
 }
 
 .provider-load-error {

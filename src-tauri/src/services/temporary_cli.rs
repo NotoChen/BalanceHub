@@ -1,6 +1,11 @@
 use crate::{
-    models::{AppSettings, LivenessCliKind, Provider, TemporaryCliTerminalKind},
-    services::liveness::{anthropic_base_url, openai_base_url, LivenessRunner},
+    models::{
+        AppSettings, LivenessCliKind, Provider, TemporaryCliInstance, TemporaryCliTerminalKind,
+    },
+    services::{
+        cli_runtime,
+        liveness::{anthropic_base_url, openai_base_url, LivenessRunner},
+    },
     util::unix_millis as now_millis,
 };
 use std::{
@@ -9,12 +14,36 @@ use std::{
     process::Command,
 };
 
+struct TerminalLaunch {
+    terminal_kind: TemporaryCliTerminalKind,
+    locator: Option<cli_runtime::CliTerminalLocator>,
+}
+
+impl TerminalLaunch {
+    fn untracked(terminal_kind: TemporaryCliTerminalKind) -> Self {
+        Self {
+            terminal_kind,
+            locator: None,
+        }
+    }
+
+    fn tracked(
+        terminal_kind: TemporaryCliTerminalKind,
+        locator: cli_runtime::CliTerminalLocator,
+    ) -> Self {
+        Self {
+            terminal_kind,
+            locator: Some(locator),
+        }
+    }
+}
+
 pub fn launch(
     settings: &AppSettings,
     provider: &Provider,
     cli_kind: LivenessCliKind,
     workdir: &Path,
-) -> Result<String, String> {
+) -> Result<TemporaryCliInstance, String> {
     if !workdir.is_dir() {
         return Err("工作目录不存在".to_string());
     }
@@ -35,10 +64,21 @@ pub fn launch(
         LivenessCliKind::ClaudeCode => anthropic_base_url(provider),
     };
 
+    let registered = cli_runtime::register_instance(
+        provider,
+        cli_kind,
+        workdir,
+        settings.temporary_cli_terminal_kind,
+    )?;
     let script = temporary_script_path(provider, cli_kind);
     if let Some(parent) = script.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("创建临时 CLI 启动目录失败({}): {err}", parent.display()))?;
+        if let Err(err) = fs::create_dir_all(parent) {
+            cli_runtime::mark_instance_exited(&registered.status_path, None);
+            return Err(format!(
+                "创建临时 CLI 启动目录失败({}): {err}",
+                parent.display()
+            ));
+        }
     }
 
     let launch_script = LaunchScriptInput {
@@ -50,27 +90,62 @@ pub fn launch(
         api_key: &provider.auth.api_key,
         base_url: &base_url,
         model: &model,
+        status_path: &registered.status_path,
     };
-    write_launch_script(&launch_script)?;
-
-    if let Err(err) = open_script_in_terminal(settings, &script, workdir) {
-        let _ = fs::remove_file(&script);
-        if let Some(settings_path) = temporary_claude_settings_path(&script, cli_kind) {
-            let _ = fs::remove_file(settings_path);
-        }
-        if let Some(parent) = script.parent() {
-            let _ = fs::remove_dir(parent);
-        }
+    if let Err(err) = write_launch_script(&launch_script) {
+        cli_runtime::mark_instance_exited(&registered.status_path, None);
+        cleanup_launch_files(&script, cli_kind);
         return Err(err);
     }
 
-    Ok(format!(
-        "已启动 {}",
-        match cli_kind {
-            LivenessCliKind::Codex => "Codex",
-            LivenessCliKind::ClaudeCode => "Claude Code",
+    let terminal_launch = match open_script_in_terminal(settings, &script, workdir) {
+        Ok(terminal_launch) => terminal_launch,
+        Err(err) => {
+            cli_runtime::mark_instance_exited(&registered.status_path, None);
+            cleanup_launch_files(&script, cli_kind);
+            return Err(err);
         }
-    ))
+    };
+
+    Ok(cli_runtime::record_terminal_launch(
+        &registered.instance.id,
+        terminal_launch.terminal_kind,
+        terminal_launch.locator,
+    )
+    .unwrap_or(registered.instance))
+}
+
+pub fn activate(instance_id: &str) -> Result<(), String> {
+    let target = cli_runtime::activation_target(instance_id)?;
+    activate_terminal_target(&target)
+}
+
+#[cfg(target_os = "macos")]
+fn activate_terminal_target(target: &cli_runtime::CliTerminalLocator) -> Result<(), String> {
+    match target {
+        cli_runtime::CliTerminalLocator::Ghostty { terminal_id } => {
+            let script = build_macos_ghostty_activation_applescript(terminal_id);
+            run_command(
+                Command::new("osascript").arg("-e").arg(script),
+                "无法打开对应的 Ghostty CLI 窗口，窗口可能已关闭",
+            )
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn activate_terminal_target(_target: &cli_runtime::CliTerminalLocator) -> Result<(), String> {
+    Err("当前系统暂不支持精确定位临时 CLI 窗口".to_string())
+}
+
+fn cleanup_launch_files(script: &Path, cli_kind: LivenessCliKind) {
+    let _ = fs::remove_file(script);
+    if let Some(settings_path) = temporary_claude_settings_path(script, cli_kind) {
+        let _ = fs::remove_file(settings_path);
+    }
+    if let Some(parent) = script.parent() {
+        let _ = fs::remove_dir(parent);
+    }
 }
 
 fn effective_model(settings: &AppSettings, provider: &Provider) -> String {
@@ -138,6 +213,7 @@ struct LaunchScriptInput<'a> {
     api_key: &'a str,
     base_url: &'a str,
     model: &'a str,
+    status_path: &'a Path,
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -177,7 +253,32 @@ fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
         .unwrap_or_default();
 
     let text = format!(
-        "#!/bin/sh\nset -u\ncd {workdir}\n{path_export}{color_block}{auth_block}{cli} {args}\nstatus=$?\nrm -f \"$0\"\n{cleanup_settings}rmdir {script_dir} 2>/dev/null || true\nexit \"$status\"\n",
+        r#"#!/bin/sh
+set -u
+bh_status_file={status_path}
+bh_write_status() {{
+  bh_tmp="$bh_status_file.tmp.$$"
+  printf '{{"status":"%s","pid":%s,"endedAt":%s,"exitCode":%s}}\n' "$1" "$2" "$3" "$4" > "$bh_tmp"
+  mv -f "$bh_tmp" "$bh_status_file"
+}}
+bh_now_ms() {{
+  echo $(( $(date +%s) * 1000 ))
+}}
+bh_write_status running "$$" null null
+cd {workdir}
+status=$?
+if [ "$status" -ne 0 ]; then
+  bh_write_status exited null "$(bh_now_ms)" "$status"
+  exit "$status"
+fi
+{path_export}{color_block}{auth_block}{cli} {args}
+status=$?
+bh_write_status exited null "$(bh_now_ms)" "$status"
+rm -f "$0"
+{cleanup_settings}rmdir {script_dir} 2>/dev/null || true
+exit "$status"
+"#,
+        status_path = shell_quote(&input.status_path.to_string_lossy()),
         workdir = shell_quote(&input.workdir.to_string_lossy()),
         color_block = unix_color_block(),
         cli = shell_quote(input.cli_path),
@@ -223,7 +324,8 @@ fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
     let text = format!(
-        "@echo off\r\ncd /d \"{workdir}\"\r\n{color_block}{auth_block}\"{cli}\" {args}\r\nset STATUS=%ERRORLEVEL%\r\ndel \"%~f0\"\r\n{cleanup_settings}rmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n",
+        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_PID=null\"\r\nfor /f %%P in ('powershell -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncall :BH_WRITE_STATUS running %BH_PID% null null\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\n{color_block}{auth_block}\"{cli}\" {args}\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset STATUS=%ERRORLEVEL%\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nfor /f %%T in ('powershell -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %STATUS%\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
+        status_path = escape_cmd_value(&input.status_path.display().to_string()),
         workdir = escape_cmd_value(&input.workdir.display().to_string()),
         color_block = windows_color_block(),
         cli = escape_cmd_value(input.cli_path),
@@ -384,63 +486,76 @@ fn open_script_in_terminal(
     settings: &AppSettings,
     script: &Path,
     workdir: &Path,
-) -> Result<(), String> {
+) -> Result<TerminalLaunch, String> {
     match settings.temporary_cli_terminal_kind {
         TemporaryCliTerminalKind::Auto => open_macos_auto(script, workdir),
-        TemporaryCliTerminalKind::SystemDefault => open_macos_system_default(script),
-        TemporaryCliTerminalKind::Terminal => open_macos_terminal(script),
-        TemporaryCliTerminalKind::ITerm2 => open_macos_iterm2(script),
-        TemporaryCliTerminalKind::Warp => open_macos_warp(script, workdir),
+        TemporaryCliTerminalKind::SystemDefault => open_macos_system_default(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::SystemDefault)),
+        TemporaryCliTerminalKind::Terminal => open_macos_terminal(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Terminal)),
+        TemporaryCliTerminalKind::ITerm2 => open_macos_iterm2(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::ITerm2)),
+        TemporaryCliTerminalKind::Warp => open_macos_warp(script, workdir)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Warp)),
         TemporaryCliTerminalKind::WezTerm => {
             open_macos_wezterm_compatible("WezTerm", script, workdir)
+                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WezTerm))
         }
-        TemporaryCliTerminalKind::Kaku => open_macos_wezterm_compatible("Kaku", script, workdir),
+        TemporaryCliTerminalKind::Kaku => open_macos_wezterm_compatible("Kaku", script, workdir)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Kaku)),
         TemporaryCliTerminalKind::Ghostty => open_macos_ghostty(script),
-        TemporaryCliTerminalKind::Kitty => open_macos_shell_app("kitty", &["-e"], script),
-        TemporaryCliTerminalKind::Alacritty => open_macos_shell_app("Alacritty", &["-e"], script),
+        TemporaryCliTerminalKind::Kitty => open_macos_shell_app("kitty", &["-e"], script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Kitty)),
+        TemporaryCliTerminalKind::Alacritty => open_macos_shell_app("Alacritty", &["-e"], script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Alacritty)),
         TemporaryCliTerminalKind::Custom => {
             open_unix_custom_terminal(&settings.temporary_cli_terminal_command, script, workdir)
+                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Custom))
         }
         _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
     }
 }
 
 #[cfg(target_os = "macos")]
-fn open_macos_auto(script: &Path, workdir: &Path) -> Result<(), String> {
+fn open_macos_auto(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
     let mut errors = Vec::new();
 
     if app_exists_macos("Warp") {
         match open_macos_warp(script, workdir) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::Warp)),
             Err(err) => errors.push(err),
         }
     }
     if app_exists_macos("iTerm") {
         match open_macos_iterm2(script) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::ITerm2)),
             Err(err) => errors.push(err),
         }
     }
     if app_exists_macos("WezTerm") {
         match open_macos_wezterm_compatible("WezTerm", script, workdir) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::WezTerm)),
             Err(err) => errors.push(err),
         }
     }
     if app_exists_macos("Kaku") {
         match open_macos_wezterm_compatible("Kaku", script, workdir) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::Kaku)),
             Err(err) => errors.push(err),
         }
     }
     if app_exists_macos("Ghostty") {
         match open_macos_ghostty(script) {
-            Ok(()) => return Ok(()),
+            Ok(terminal_launch) => return Ok(terminal_launch),
             Err(err) => errors.push(err),
         }
     }
     match open_macos_terminal(script) {
-        Ok(()) => return Ok(()),
+        Ok(()) => {
+            return Ok(TerminalLaunch::untracked(
+                TemporaryCliTerminalKind::Terminal,
+            ))
+        }
         Err(err) => errors.push(err),
     }
 
@@ -527,13 +642,23 @@ end tell"#,
 }
 
 #[cfg(target_os = "macos")]
-fn open_macos_ghostty(script: &Path) -> Result<(), String> {
+fn open_macos_ghostty(script: &Path) -> Result<TerminalLaunch, String> {
     let script_text = build_macos_ghostty_applescript(script);
-    run_command(
+    match run_command_text(
         Command::new("osascript").arg("-e").arg(script_text),
         "无法调用 Ghostty",
-    )
-    .or_else(|_| open_macos_ghostty_initial_command(script))
+    ) {
+        Ok(terminal_id) if !terminal_id.trim().is_empty() => Ok(TerminalLaunch::tracked(
+            TemporaryCliTerminalKind::Ghostty,
+            cli_runtime::CliTerminalLocator::Ghostty {
+                terminal_id: terminal_id.trim().to_string(),
+            },
+        )),
+        Ok(_) => Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::Ghostty)),
+        Err(primary_error) => open_macos_ghostty_initial_command(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Ghostty))
+            .map_err(|fallback_error| format!("{primary_error}；{fallback_error}")),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -541,15 +666,27 @@ fn build_macos_ghostty_applescript(script: &Path) -> String {
     let launcher = apple_script_launcher_command(script);
     format!(
         r#"set launcher_command to {launcher}
-set was_running to application "Ghostty" is running
-if was_running then
-    tell application "Ghostty"
-        new window with configuration {{command:launcher_command}}
-        activate
-    end tell
-else
-    do shell script "open -na Ghostty --args --quit-after-last-window-closed=true " & quoted form of ("--initial-command=" & launcher_command)
-end if"#,
+tell application "Ghostty"
+    set target_window to new window with configuration {{command:launcher_command}}
+    set target_tab to selected tab of target_window
+    set target_terminal to focused terminal of target_tab
+    activate
+    return id of target_terminal
+end tell"#,
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_ghostty_activation_applescript(terminal_id: &str) -> String {
+    let target_id = apple_script_quote(terminal_id);
+    format!(
+        r#"set target_id to {target_id}
+tell application "Ghostty"
+    set matching_terminals to every terminal whose id is target_id
+    if (count of matching_terminals) is 0 then error "terminal not found"
+    focus item 1 of matching_terminals
+    activate
+end tell"#,
     )
 }
 
@@ -646,26 +783,35 @@ fn open_script_in_terminal(
     settings: &AppSettings,
     script: &Path,
     workdir: &Path,
-) -> Result<(), String> {
+) -> Result<TerminalLaunch, String> {
     match settings.temporary_cli_terminal_kind {
         TemporaryCliTerminalKind::Auto => open_windows_auto(script, workdir),
         TemporaryCliTerminalKind::SystemDefault | TemporaryCliTerminalKind::WindowsTerminal => {
             open_windows_terminal(script, workdir)
+                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WindowsTerminal))
         }
         TemporaryCliTerminalKind::CommandPrompt | TemporaryCliTerminalKind::Terminal => {
             open_windows_command_prompt(script)
+                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::CommandPrompt))
         }
-        TemporaryCliTerminalKind::PowerShell => open_windows_powershell(script),
+        TemporaryCliTerminalKind::PowerShell => open_windows_powershell(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::PowerShell)),
         TemporaryCliTerminalKind::Custom => {
             open_windows_custom_terminal(&settings.temporary_cli_terminal_command, script, workdir)
+                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Custom))
         }
         _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
     }
 }
 
 #[cfg(target_os = "windows")]
-fn open_windows_auto(script: &Path, workdir: &Path) -> Result<(), String> {
-    open_windows_terminal(script, workdir).or_else(|_| open_windows_command_prompt(script))
+fn open_windows_auto(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_windows_terminal(script, workdir)
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WindowsTerminal))
+        .or_else(|_| {
+            open_windows_command_prompt(script)
+                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::CommandPrompt))
+        })
 }
 
 #[cfg(target_os = "windows")]
@@ -709,17 +855,22 @@ fn open_script_in_terminal(
     settings: &AppSettings,
     script: &Path,
     workdir: &Path,
-) -> Result<(), String> {
+) -> Result<TerminalLaunch, String> {
     match settings.temporary_cli_terminal_kind {
-        TemporaryCliTerminalKind::Auto
-        | TemporaryCliTerminalKind::SystemDefault
-        | TemporaryCliTerminalKind::Terminal => open_linux_default(script),
-        TemporaryCliTerminalKind::Warp => open_linux_command("warp-terminal", &[], script),
+        TemporaryCliTerminalKind::Auto => open_linux_default(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Auto)),
+        TemporaryCliTerminalKind::SystemDefault => open_linux_default(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::SystemDefault)),
+        TemporaryCliTerminalKind::Terminal => open_linux_default(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Terminal)),
+        TemporaryCliTerminalKind::Warp => open_linux_command("warp-terminal", &[], script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Warp)),
         TemporaryCliTerminalKind::WezTerm => open_linux_command(
             "wezterm",
             &["start", "--cwd", &workdir.to_string_lossy()],
             script,
-        ),
+        )
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WezTerm)),
         TemporaryCliTerminalKind::Ghostty => open_linux_command(
             "ghostty",
             &[
@@ -729,12 +880,14 @@ fn open_script_in_terminal(
                 "/bin/sh",
             ],
             script,
-        ),
+        )
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Ghostty)),
         TemporaryCliTerminalKind::Kitty => open_linux_command(
             "kitty",
             &["--directory", &workdir.to_string_lossy(), "/bin/sh"],
             script,
-        ),
+        )
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Kitty)),
         TemporaryCliTerminalKind::Alacritty => open_linux_command(
             "alacritty",
             &[
@@ -744,9 +897,11 @@ fn open_script_in_terminal(
                 "/bin/sh",
             ],
             script,
-        ),
+        )
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Alacritty)),
         TemporaryCliTerminalKind::Custom => {
             open_unix_custom_terminal(&settings.temporary_cli_terminal_command, script, workdir)
+                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Custom))
         }
         _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
     }
@@ -848,6 +1003,18 @@ fn run_command(command: &mut Command, context: &str) -> Result<(), String> {
 
     if output.status.success() {
         Ok(())
+    } else {
+        Err(format!("{context}: {}", command_error_message(output)))
+    }
+}
+
+fn run_command_text(command: &mut Command, context: &str) -> Result<String, String> {
+    let output = command
+        .output()
+        .map_err(|err| format!("{context}: {err}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
         Err(format!("{context}: {}", command_error_message(output)))
     }
@@ -1150,8 +1317,9 @@ fi
         let mut provider = provider_with_liveness_model("");
         provider.identity.name = "Relay Site".to_string();
 
-        let message = launch(&settings, &provider, LivenessCliKind::Codex, &workdir).unwrap();
-        assert_eq!(message, "已启动 Codex");
+        let instance = launch(&settings, &provider, LivenessCliKind::Codex, &workdir).unwrap();
+        assert_eq!(instance.cli_kind, LivenessCliKind::Codex);
+        assert_eq!(instance.provider_id, provider.identity.id);
 
         let captured = fs::read_to_string(&capture).unwrap();
         let args_line = captured
@@ -1170,6 +1338,17 @@ fi
         );
         assert!(!args_line.contains("balancehub"));
 
+        let stored = cli_runtime::instance_by_id(&instance.id).unwrap();
+        assert_eq!(
+            stored.status,
+            crate::models::TemporaryCliInstanceStatus::Exited
+        );
+        let _ = fs::remove_dir_all(
+            env::temp_dir()
+                .join("balancehub-cli-runtime-v1")
+                .join("instances")
+                .join(instance.id),
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1234,8 +1413,9 @@ done
         };
         let provider = provider_with_liveness_model("");
 
-        let message = launch(&settings, &provider, LivenessCliKind::ClaudeCode, &workdir).unwrap();
-        assert_eq!(message, "已启动 Claude Code");
+        let instance = launch(&settings, &provider, LivenessCliKind::ClaudeCode, &workdir).unwrap();
+        assert_eq!(instance.cli_kind, LivenessCliKind::ClaudeCode);
+        assert_eq!(instance.provider_id, provider.identity.id);
 
         let captured = fs::read_to_string(&capture).unwrap();
         let args_line = captured
@@ -1254,6 +1434,17 @@ done
         assert!(captured.contains("\"ANTHROPIC_BASE_URL\": \"https://relay.example.com\""));
         assert!(!captured.contains("\"ANTHROPIC_API_KEY\""));
 
+        let stored = cli_runtime::instance_by_id(&instance.id).unwrap();
+        assert_eq!(
+            stored.status,
+            crate::models::TemporaryCliInstanceStatus::Exited
+        );
+        let _ = fs::remove_dir_all(
+            env::temp_dir()
+                .join("balancehub-cli-runtime-v1")
+                .join("instances")
+                .join(instance.id),
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1303,14 +1494,24 @@ done
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn ghostty_launch_uses_initial_command_instead_of_e_flag() {
+    fn ghostty_launch_returns_the_created_terminal_id() {
         let script = build_macos_ghostty_applescript(Path::new("/tmp/launch test.command"));
 
-        assert!(script.contains(r#"set was_running to application "Ghostty" is running"#));
-        assert!(script.contains("new window with configuration {command:launcher_command}"));
-        assert!(script.contains("--initial-command="));
-        assert!(!script.contains(" --args -e"));
+        assert!(script.contains("set target_window to new window with configuration"));
+        assert!(script.contains("set target_terminal to focused terminal of target_tab"));
+        assert!(script.contains("return id of target_terminal"));
+        assert!(script.contains("/bin/sh '/tmp/launch test.command'"));
         assert!(!script.contains("/bin/zsh"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ghostty_activation_targets_the_stored_terminal_id() {
+        let script = build_macos_ghostty_activation_applescript("terminal-123");
+
+        assert!(script.contains(r#"set target_id to "terminal-123""#));
+        assert!(script.contains("every terminal whose id is target_id"));
+        assert!(script.contains("focus item 1 of matching_terminals"));
     }
 
     #[cfg(target_os = "macos")]

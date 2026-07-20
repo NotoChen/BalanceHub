@@ -4,6 +4,7 @@
 @import "./modules/provider-card.css";
 @import "./modules/provider-liveness.css";
 @import "./modules/provider-context-menu.css";
+@import "./modules/temporary-cli.css";
 @import "./modules/editor-codex.css";
 @import "./modules/settings.css";
 @import "./modules/theme-dark.css";

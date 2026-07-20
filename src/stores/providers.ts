@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import {
+  activateTemporaryCli as activateTemporaryCliCommand,
   acknowledgeLivenessCost as acknowledgeLivenessCostCommand,
   revokeLivenessCost as revokeLivenessCostCommand,
   checkCliPath as checkCliPathCommand,
@@ -11,6 +12,7 @@ import {
   deleteProviderApiKey as deleteProviderApiKeyCommand,
   exportAppData as exportAppDataCommand,
   generateProviderAccessTokenForInput as generateProviderAccessTokenForInputCommand,
+  getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
   getProviderCheckInRecords as getProviderCheckInRecordsCommand,
   getProviderInviteLink as getProviderInviteLinkCommand,
   getProviderRequestLogs as getProviderRequestLogsCommand,
@@ -25,6 +27,7 @@ import {
   refreshProviders,
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
+  relaunchTemporaryCli as relaunchTemporaryCliCommand,
   saveProvider as saveProviderCommand,
   saveSettings as saveSettingsCommand,
   syncCodexModels as syncCodexModelsCommand,
@@ -37,10 +40,12 @@ import { providerToInput } from "../utils/provider-input";
 import { defaultSettings } from "./provider-defaults";
 import type {
   AppSettings,
+  CliRuntimeSnapshot,
   LivenessCliKind,
   Provider,
   ProviderInput,
   ProviderRequestLogsQuery,
+  TemporaryCliInstance,
 } from "./provider-types";
 
 export { defaultSettings } from "./provider-defaults";
@@ -52,9 +57,11 @@ export const useProviderStore = defineStore("providers", {
     loading: false,
     loadError: null as string | null,
     refreshInProgress: false,
+    cliRuntimeLoading: false,
     refreshingIds: new Set<string>(),
     providers: [] as Provider[],
     settings: defaultSettings(),
+    cliRuntime: emptyCliRuntimeSnapshot(),
   }),
   getters: {},
   actions: {
@@ -69,6 +76,11 @@ export const useProviderStore = defineStore("providers", {
         this.providers = data.providers;
         this.settings = data.settings;
         this.loadError = null;
+        try {
+          this.cliRuntime = await getCliRuntimeSnapshotCommand();
+        } catch {
+          this.cliRuntime = emptyCliRuntimeSnapshot();
+        }
       } catch (error) {
         this.providers = [];
         this.loadError = errorToMessage(error);
@@ -79,10 +91,12 @@ export const useProviderStore = defineStore("providers", {
     },
     async saveProvider(input: ProviderInput) {
       this.providers = await saveProviderCommand(input);
+      await this.refreshCliRuntime().catch(() => {});
       return this.providers;
     },
     async removeProvider(id: string) {
       this.providers = await removeProviderCommand(id);
+      await this.refreshCliRuntime().catch(() => {});
     },
     async reorderProviders(ids: string[]) {
       this.providers = await reorderProvidersCommand(ids);
@@ -107,6 +121,7 @@ export const useProviderStore = defineStore("providers", {
       this.providers = data.providers;
       this.settings = data.settings;
       this.loadError = null;
+      await this.refreshCliRuntime().catch(() => {});
       return result;
     },
     async reload() {
@@ -155,7 +170,26 @@ export const useProviderStore = defineStore("providers", {
       return result;
     },
     async launchTemporaryCli(id: string, cliKind: LivenessCliKind, workdir: string) {
-      return launchTemporaryCliCommand(id, cliKind, workdir);
+      const instance = await launchTemporaryCliCommand(id, cliKind, workdir);
+      await this.refreshCliRuntime().catch(() => {});
+      return instance;
+    },
+    async activateTemporaryCli(instanceId: string) {
+      await activateTemporaryCliCommand(instanceId);
+    },
+    async relaunchTemporaryCli(instanceId: string): Promise<TemporaryCliInstance> {
+      const instance = await relaunchTemporaryCliCommand(instanceId);
+      await this.refreshCliRuntime().catch(() => {});
+      return instance;
+    },
+    async refreshCliRuntime(): Promise<CliRuntimeSnapshot> {
+      this.cliRuntimeLoading = true;
+      try {
+        this.cliRuntime = await getCliRuntimeSnapshotCommand();
+        return this.cliRuntime;
+      } finally {
+        this.cliRuntimeLoading = false;
+      }
     },
     async acknowledgeLivenessCost() {
       this.settings = await acknowledgeLivenessCostCommand();
@@ -284,4 +318,18 @@ export const useProviderStore = defineStore("providers", {
 
 function errorToMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function emptyCliRuntimeSnapshot(): CliRuntimeSnapshot {
+  const emptyConfig = () => ({
+    configured: false,
+    providerId: null,
+    modifiedAt: null,
+    errorMessage: null,
+  });
+  return {
+    codex: emptyConfig(),
+    claudeCode: emptyConfig(),
+    instances: [],
+  };
 }
