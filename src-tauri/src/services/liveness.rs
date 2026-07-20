@@ -1,6 +1,5 @@
 mod cli;
 mod command;
-mod http;
 mod output;
 mod process;
 mod prompt;
@@ -10,24 +9,21 @@ pub use prompt::{anthropic_base_url, effective_interval, openai_base_url, previe
 use crate::{
     models::{
         provider_domain, AppSettings, CliCandidate, CodexCliProbeResult, LivenessCliKind,
-        LivenessHttpProtocol, LivenessMethod, LivenessRecord, Provider,
+        LivenessRecord, Provider,
     },
     network,
     util::unix_millis as now_millis,
 };
 use command::{
     apply_claude_isolated_home, apply_codex_isolated_home, build_claude_command,
-    build_codex_command, build_command_preview, build_http_command_preview,
-    unique_claude_home_path, unique_codex_home_path, unique_output_path,
+    build_codex_command, build_command_preview, unique_claude_home_path, unique_codex_home_path,
+    unique_output_path,
 };
 use output::{
     cli_kind_value, failure_record, parse_liveness_output, parse_token_usage, sanitize_output,
 };
 use process::wait_with_output_timeout;
-use prompt::{
-    effective_cli_kind, effective_http_protocol, effective_method, effective_model,
-    effective_timeout, select_prompt,
-};
+use prompt::{effective_cli_kind, effective_model, effective_timeout, select_prompt};
 use std::{
     fs,
     process::{Command, Stdio},
@@ -38,9 +34,7 @@ pub struct LivenessRunner;
 
 #[derive(Debug, Clone)]
 pub struct LivenessContext {
-    pub method: LivenessMethod,
     pub cli_kind: LivenessCliKind,
-    pub http_protocol: LivenessHttpProtocol,
     pub cli_path: String,
     pub model: String,
     pub base_url: String,
@@ -81,7 +75,6 @@ impl LivenessRunner {
             return Err("缺少 API Key，测活需要 API Key".to_string());
         }
 
-        let method = effective_method(settings, provider);
         let model = effective_model(settings, provider);
         let prompt = prompt_override
             .and_then(|value| {
@@ -91,56 +84,27 @@ impl LivenessRunner {
             .unwrap_or_else(|| select_prompt(settings, provider));
         let timeout_seconds = effective_timeout(settings, provider);
 
-        match method {
-            LivenessMethod::Cli => {
-                let cli_kind = effective_cli_kind(settings, provider);
-                let cli = match cli_kind {
-                    LivenessCliKind::Codex => Self::find_codex_cli(&settings.codex_cli_path)?,
-                    LivenessCliKind::ClaudeCode => {
-                        Self::find_claude_cli(&settings.claude_cli_path)?
-                    }
-                };
-                let base_url = match cli_kind {
-                    LivenessCliKind::Codex => openai_base_url(provider),
-                    LivenessCliKind::ClaudeCode => anthropic_base_url(provider),
-                };
-                let command_preview =
-                    build_command_preview(cli_kind, &cli.path, &model, &base_url, &prompt);
+        let cli_kind = effective_cli_kind(settings, provider);
+        let cli = match cli_kind {
+            LivenessCliKind::Codex => Self::find_codex_cli(&settings.codex_cli_path)?,
+            LivenessCliKind::ClaudeCode => Self::find_claude_cli(&settings.claude_cli_path)?,
+        };
+        let base_url = match cli_kind {
+            LivenessCliKind::Codex => openai_base_url(provider),
+            LivenessCliKind::ClaudeCode => anthropic_base_url(provider),
+        };
+        let command_preview =
+            build_command_preview(cli_kind, &cli.path, &model, &base_url, &prompt);
 
-                Ok(LivenessContext {
-                    method,
-                    cli_kind,
-                    http_protocol: LivenessHttpProtocol::default(),
-                    cli_path: cli.path,
-                    model,
-                    base_url,
-                    prompt,
-                    timeout_seconds,
-                    command_preview,
-                })
-            }
-            LivenessMethod::Http => {
-                let http_protocol = effective_http_protocol(settings, provider);
-                let base_url = match http_protocol {
-                    LivenessHttpProtocol::Anthropic => anthropic_base_url(provider),
-                    _ => openai_base_url(provider),
-                };
-                let command_preview =
-                    build_http_command_preview(http_protocol, &base_url, &model, &prompt);
-
-                Ok(LivenessContext {
-                    method,
-                    cli_kind: LivenessCliKind::Codex,
-                    http_protocol,
-                    cli_path: String::new(),
-                    model,
-                    base_url,
-                    prompt,
-                    timeout_seconds,
-                    command_preview,
-                })
-            }
-        }
+        Ok(LivenessContext {
+            cli_kind,
+            cli_path: cli.path,
+            model,
+            base_url,
+            prompt,
+            timeout_seconds,
+            command_preview,
+        })
     }
 
     pub fn run(
@@ -157,10 +121,6 @@ impl LivenessRunner {
                 return failure_record(checked_at, source, message, String::new(), String::new());
             }
         };
-
-        if matches!(context.method, LivenessMethod::Http) {
-            return http::run_http_liveness(settings, provider, &context, checked_at, source);
-        }
 
         let isolated_home = match context.cli_kind {
             LivenessCliKind::Codex => Some(unique_codex_home_path(provider)),

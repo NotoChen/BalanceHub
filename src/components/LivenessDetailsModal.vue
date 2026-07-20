@@ -48,9 +48,6 @@ function sourceLabel(source: string | undefined) {
 function cliLabel(record: LivenessRecord) {
   if (record.cliKind === "claudeCode") return "Claude Code CLI";
   if (record.cliKind === "codex") return "Codex CLI";
-  if (record.cliKind === "httpOpenaiChat") return "HTTP · OpenAI Chat";
-  if (record.cliKind === "httpOpenaiResponses") return "HTTP · OpenAI Responses";
-  if (record.cliKind === "httpAnthropic") return "HTTP · Anthropic";
   const command = record.commandPreview.toLowerCase();
   if (command.includes("anthropic_api_key") || command.includes("claude")) {
     return "Claude Code CLI";

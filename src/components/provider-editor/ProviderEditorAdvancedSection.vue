@@ -3,8 +3,6 @@ import { computed, ref } from "vue";
 import type {
   AppSettings,
   LivenessCliKind,
-  LivenessHttpProtocol,
-  LivenessMethod,
   ProviderInput,
   ProviderNotificationMode,
 } from "../../stores/providers";
@@ -19,8 +17,6 @@ import {
   codexIntervalModeOptions,
   codexPromptModeOptions,
   livenessCliKindOptions,
-  livenessHttpProtocolOptions,
-  livenessMethodOptions,
   providerProxyModeOptions,
   type SelectOption,
 } from "./options";
@@ -120,20 +116,6 @@ const livenessCliKindModel = computed({
   },
 });
 
-const livenessMethodModel = computed({
-  get: () => props.draft.liveness.method || props.settings.livenessMethod,
-  set: (value: LivenessMethod) => {
-    props.draft.liveness.method = value;
-  },
-});
-
-const livenessHttpProtocolModel = computed({
-  get: () => props.draft.liveness.httpProtocol || props.settings.livenessHttpProtocol,
-  set: (value: LivenessHttpProtocol) => {
-    props.draft.liveness.httpProtocol = value;
-  },
-});
-
 const fixedLivenessAmount = computed({
   get: () => secondsToDurationValue(props.draft.liveness.interval, fixedLivenessUnit.value),
   set: (value: number | undefined) => {
@@ -228,14 +210,8 @@ function minLivenessAmount(unit: DurationUnit) {
           <a-select :model-value="livenessMode" :options="livenessModeOptions" @change="onLivenessModeChange" />
         </a-form-item>
         <template v-if="livenessMode === 'custom'">
-          <a-form-item label="方式">
-            <a-select v-model="livenessMethodModel" :options="livenessMethodOptions" />
-          </a-form-item>
-          <a-form-item v-if="livenessMethodModel === 'cli'" label="CLI">
+          <a-form-item label="测活 CLI">
             <a-select v-model="livenessCliKindModel" :options="livenessCliKindOptions" />
-          </a-form-item>
-          <a-form-item v-else label="HTTP 协议">
-            <a-select v-model="livenessHttpProtocolModel" :options="livenessHttpProtocolOptions" />
           </a-form-item>
           <a-form-item label="模型">
             <a-input v-model="draft.liveness.model" placeholder="留空则使用全局模型" />

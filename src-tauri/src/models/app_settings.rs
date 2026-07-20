@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::enums::{
-    LivenessCliKind, LivenessHttpProtocol, LivenessIntervalMode, LivenessMethod,
-    LivenessPromptMode, ProxyMode, TemporaryCliTerminalKind, ThemeMode,
+    LivenessCliKind, LivenessIntervalMode, LivenessPromptMode, ProxyMode, TemporaryCliTerminalKind,
+    ThemeMode,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,10 +35,6 @@ pub struct AppSettings {
     pub glass_transparency: u8,
     #[serde(default)]
     pub liveness_cli_kind: LivenessCliKind,
-    #[serde(default)]
-    pub liveness_method: LivenessMethod,
-    #[serde(default)]
-    pub liveness_http_protocol: LivenessHttpProtocol,
     #[serde(default)]
     pub codex_cli_path: String,
     #[serde(default)]
@@ -96,8 +92,6 @@ impl Default for AppSettings {
             notification_channels: default_notification_channels(),
             glass_transparency: default_glass_transparency(),
             liveness_cli_kind: LivenessCliKind::Codex,
-            liveness_method: LivenessMethod::Cli,
-            liveness_http_protocol: LivenessHttpProtocol::OpenaiChat,
             codex_cli_path: String::new(),
             claude_cli_path: String::new(),
             temporary_cli_terminal_kind: TemporaryCliTerminalKind::Auto,

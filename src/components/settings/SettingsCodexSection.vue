@@ -9,8 +9,6 @@ import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
 import {
   codexIntervalModeOptions,
   livenessCliKindOptions,
-  livenessHttpProtocolOptions,
-  livenessMethodOptions,
   temporaryCliTerminalOptionsForPlatform,
 } from "../../utils/liveness-options";
 import { useLivenessConsent } from "../../composables/useLivenessConsent";
@@ -116,52 +114,38 @@ onMounted(async () => {
     :expanded="expanded"
     @toggle="emit('toggle')"
   >
-    <a-form-item label="测活方式">
-      <a-select v-model="settings.livenessMethod" :options="livenessMethodOptions" />
+    <a-form-item label="测活 CLI">
+      <a-select v-model="settings.livenessCliKind" :options="livenessCliKindOptions" />
       <template #extra>
-        CLI 走本地 codex/claude 命令；HTTP 直接调用中转站接口（更轻量、跨机一致）。
+        测活通过真实 CLI 作为调用媒介；Claude Code 的 Anthropic Base URL 不会自动追加 /v1。
       </template>
     </a-form-item>
-    <template v-if="settings.livenessMethod === 'cli'">
-      <a-form-item label="测活 CLI">
-        <a-select v-model="settings.livenessCliKind" :options="livenessCliKindOptions" />
-        <template #extra>
-          测活通过真实 CLI 作为调用媒介；Claude Code 的 Anthropic Base URL 不会自动追加 /v1。
-        </template>
-      </a-form-item>
-      <a-form-item label="CLI 管理">
-        <SettingsCliManager :settings="settings" />
-        <template #extra>
-          codex 与 claude 各自的路径与状态；留空自动查找，可「浏览…」选择文件或「重新扫描」。
-        </template>
-      </a-form-item>
-      <a-form-item label="临时 CLI 终端">
-        <a-select
-          v-model="settings.temporaryCliTerminalKind"
-          :options="temporaryCliTerminalSelectOptions"
-        />
-        <template #extra>
-          仅影响右键菜单里的临时启动 CLI；自动测活仍在后台静默执行。
-        </template>
-      </a-form-item>
-      <a-form-item
-        v-if="settings.temporaryCliTerminalKind === 'custom'"
-        label="自定义终端命令"
-      >
-        <a-input
-          v-model="settings.temporaryCliTerminalCommand"
-          placeholder="例如：open -a Warp {script}"
-          allow-clear
-        />
-        <template #extra>
-          支持 {script} 和 {workdir} 占位符；未写 {script} 时会自动追加脚本路径。
-        </template>
-      </a-form-item>
-    </template>
-    <a-form-item v-else label="HTTP 协议">
-      <a-select v-model="settings.livenessHttpProtocol" :options="livenessHttpProtocolOptions" />
+    <a-form-item label="CLI 管理">
+      <SettingsCliManager :settings="settings" />
       <template #extra>
-        OpenAI 用 Authorization: Bearer 调 /v1/chat/completions 或 /v1/responses；Anthropic 用 x-api-key + anthropic-version 调 /v1/messages。
+        codex 与 claude 各自的路径与状态；留空自动查找，可「浏览…」选择文件或「重新扫描」。
+      </template>
+    </a-form-item>
+    <a-form-item label="临时 CLI 终端">
+      <a-select
+        v-model="settings.temporaryCliTerminalKind"
+        :options="temporaryCliTerminalSelectOptions"
+      />
+      <template #extra>
+        仅影响右键菜单里的临时启动 CLI；自动测活仍在后台静默执行。
+      </template>
+    </a-form-item>
+    <a-form-item
+      v-if="settings.temporaryCliTerminalKind === 'custom'"
+      label="自定义终端命令"
+    >
+      <a-input
+        v-model="settings.temporaryCliTerminalCommand"
+        placeholder="例如：open -a Warp {script}"
+        allow-clear
+      />
+      <template #extra>
+        支持 {script} 和 {workdir} 占位符；未写 {script} 时会自动追加脚本路径。
       </template>
     </a-form-item>
     <a-form-item label="自动测活">

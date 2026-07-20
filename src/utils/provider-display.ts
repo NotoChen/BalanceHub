@@ -100,7 +100,15 @@ export function providerCheckInUser(provider: Provider) {
 }
 
 export function providerIdentityName(provider: Provider) {
-  return provider.identity.displayName?.trim() || provider.identity.username?.trim() || "";
+  return providerIdentityDisplayName(provider) || providerIdentityUsername(provider);
+}
+
+export function providerIdentityDisplayName(provider: Provider) {
+  return provider.identity.displayName?.trim() || "";
+}
+
+export function providerIdentityUsername(provider: Provider) {
+  return provider.identity.username?.trim() || "";
 }
 
 export function providerIdentityId(provider: Provider) {

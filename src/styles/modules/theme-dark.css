@@ -50,6 +50,7 @@
   color: #f2f3f5;
 }
 
+:root.theme-dark .provider-card-user-username,
 :root.theme-dark .provider-card-user-id {
   color: #a9aeb8;
 }
@@ -362,6 +363,7 @@
 :root.theme-dark .provider-card-disabled .provider-logo,
 :root.theme-dark .provider-card-disabled .provider-card-title,
 :root.theme-dark .provider-card-disabled .provider-card-user-name,
+:root.theme-dark .provider-card-disabled .provider-card-user-username,
 :root.theme-dark .provider-card-disabled .provider-card-user-id,
 :root.theme-dark .provider-card-disabled .quota-percent,
 :root.theme-dark .provider-card-disabled .provider-card-total strong,

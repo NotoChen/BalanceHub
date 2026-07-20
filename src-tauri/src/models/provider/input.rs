@@ -52,8 +52,6 @@ impl Default for ProviderInput {
                 openai_base_url: String::new(),
                 anthropic_base_url: String::new(),
                 cli_kind: None,
-                method: None,
-                http_protocol: None,
                 interval_mode: LivenessIntervalMode::default(),
                 interval: default_liveness_interval(),
                 random_min_interval: default_liveness_random_min_interval(),
@@ -121,8 +119,6 @@ impl Provider {
                 openai_base_url: input.liveness.openai_base_url,
                 anthropic_base_url: input.liveness.anthropic_base_url,
                 cli_kind: input.liveness.cli_kind,
-                method: input.liveness.method,
-                http_protocol: input.liveness.http_protocol,
                 interval_mode: input.liveness.interval_mode,
                 interval: input.liveness.interval,
                 random_min_interval: input.liveness.random_min_interval,
@@ -186,8 +182,6 @@ impl Provider {
         self.liveness.openai_base_url = input.liveness.openai_base_url;
         self.liveness.anthropic_base_url = input.liveness.anthropic_base_url;
         self.liveness.cli_kind = input.liveness.cli_kind;
-        self.liveness.method = input.liveness.method;
-        self.liveness.http_protocol = input.liveness.http_protocol;
         self.liveness.interval_mode = input.liveness.interval_mode;
         self.liveness.interval = input.liveness.interval;
         self.liveness.random_min_interval = input.liveness.random_min_interval;

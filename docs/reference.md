@@ -19,7 +19,6 @@
 | 修改密码 | 在支持的 NewAPI 站点上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/providers/newapi_account.rs` | 仅在站点能力和认证信息满足要求时展示操作入口。 |
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
 | CLI 测活 | 使用 Codex / Claude Code CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness/command.rs`、`src-tauri/src/services/liveness/process.rs` | 测活会消耗真实额度，首次开启自动测活前会要求确认。 |
-| HTTP 测活 | 不依赖本机 CLI，直接通过接口完成轻量验证。 | `src-tauri/src/services/liveness/` | 适合验证站点、Key、模型和网络是否可用。 |
 | CLI 候选扫描 | 扫描本机 Codex / Claude Code 可执行文件。 | `src-tauri/src/services/liveness/cli.rs`、`src/components/settings/SettingsCliManager.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
 | 临时 CLI 启动 | 使用当前中转站临时启动 Codex / Claude Code CLI。 | `src-tauri/src/services/temporary_cli.rs`、`src/components/ProviderContextMenu.vue`、`src/composables/useProviderMenuActions.ts` | 仅覆盖 API Key、Base URL 和模型，工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
 | CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/lib.rs` | 支持 Codex、Claude Code、OpenCode、OpenClaw、Hermes 目标；不声明 Gemini 支持。 |
@@ -61,7 +60,7 @@ Vue 3 UI
       -> src-tauri/src/lib.rs command
         -> services/provider_service 调度业务
           -> providers/newapi_* 访问中转站
-          -> services/liveness 执行 CLI / HTTP 测活
+          -> services/liveness 执行 CLI 测活
           -> services/notifications 发送通知
           -> storage.rs 读写本地配置
 ```
