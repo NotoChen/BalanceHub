@@ -2,8 +2,6 @@ import type {
   LivenessIntervalMode,
   LivenessPromptMode,
   LivenessCliKind,
-  LivenessHttpProtocol,
-  LivenessMethod,
   TemporaryCliTerminalKind,
 } from "../stores/providers";
 
@@ -26,17 +24,6 @@ export const codexPromptModeOptions: SelectOption<LivenessPromptMode>[] = [
 export const livenessCliKindOptions: SelectOption<LivenessCliKind>[] = [
   { label: "Codex CLI", value: "codex" },
   { label: "Claude Code CLI", value: "claudeCode" },
-];
-
-export const livenessMethodOptions: SelectOption<LivenessMethod>[] = [
-  { label: "本地 CLI", value: "cli" },
-  { label: "HTTP 调用", value: "http" },
-];
-
-export const livenessHttpProtocolOptions: SelectOption<LivenessHttpProtocol>[] = [
-  { label: "OpenAI Chat Completions", value: "openaiChat" },
-  { label: "OpenAI Responses", value: "openaiResponses" },
-  { label: "Anthropic Messages", value: "anthropic" },
 ];
 
 export const temporaryCliTerminalOptions: SelectOption<TemporaryCliTerminalKind>[] = [

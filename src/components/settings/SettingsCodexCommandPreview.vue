@@ -13,33 +13,6 @@ const previewPrompt = computed(() =>
       "Explain: ls -la",
 );
 
-const isHttp = computed(() => props.settings.livenessMethod === "http");
-
-const httpCommandPreview = computed(() => {
-  const model = props.settings.livenessModel.trim() || "<model>";
-  const content = JSON.stringify(previewPrompt.value);
-  switch (props.settings.livenessHttpProtocol) {
-    case "anthropic":
-      return [
-        "POST <provider-anthropic-base-url>/v1/messages",
-        "x-api-key: ***   anthropic-version: 2023-06-01",
-        `{ "model": "${model}", "max_tokens": 64, "messages": [{"role":"user","content":${content}}] }`,
-      ].join("\n");
-    case "openaiResponses":
-      return [
-        "POST <provider-openai-base-url>/v1/responses",
-        "Authorization: Bearer ***",
-        `{ "model": "${model}", "max_output_tokens": 64, "input": ${content} }`,
-      ].join("\n");
-    default:
-      return [
-        "POST <provider-openai-base-url>/v1/chat/completions",
-        "Authorization: Bearer ***",
-        `{ "model": "${model}", "max_tokens": 64, "messages": [{"role":"user","content":${content}}] }`,
-      ].join("\n");
-  }
-});
-
 const codexCommandPreview = computed(() => {
   const cliPath =
     props.settings.livenessCliKind === "claudeCode"
@@ -90,13 +63,9 @@ function quote(value: string) {
 
 <template>
   <div class="codex-command-preview">
-    <span>{{ isHttp ? "请求模板" : "命令模板" }}</span>
-    <code>{{ isHttp ? httpCommandPreview : codexCommandPreview }}</code>
-    <p v-if="isHttp">
-      运行时 <strong>API Key</strong> 注入到鉴权头（OpenAI 用 <strong>Authorization: Bearer</strong>，Anthropic 用
-      <strong>x-api-key</strong>）；<strong>base_url</strong> 替换为当前中转站对应地址；按有效代理设置走 HTTP 代理。
-    </p>
-    <p v-else-if="settings.livenessCliKind === 'claudeCode'">
+    <span>命令模板</span>
+    <code>{{ codexCommandPreview }}</code>
+    <p v-if="settings.livenessCliKind === 'claudeCode'">
       <strong>ANTHROPIC_API_KEY</strong> 使用当前中转站 API Key 环境变量注入；
       <strong>ANTHROPIC_BASE_URL</strong> 运行时替换为当前中转站 Anthropic Base URL；
       <strong>HTTPS_PROXY</strong> 按有效代理设置注入。

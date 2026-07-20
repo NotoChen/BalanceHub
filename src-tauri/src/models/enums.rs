@@ -42,25 +42,6 @@ pub enum LivenessCliKind {
     ClaudeCode,
 }
 
-/// 测活方式：本地 CLI 调用，或直接 HTTP 调用。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum LivenessMethod {
-    #[default]
-    Cli,
-    Http,
-}
-
-/// HTTP 测活使用的协议：OpenAI Chat Completions / OpenAI Responses / Anthropic Messages。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum LivenessHttpProtocol {
-    #[default]
-    OpenaiChat,
-    OpenaiResponses,
-    Anthropic,
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TemporaryCliTerminalKind {

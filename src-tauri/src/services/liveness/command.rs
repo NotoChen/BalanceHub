@@ -1,7 +1,7 @@
 use crate::{models::Provider, util::unix_millis as now_millis};
 
 use super::LivenessContext;
-use crate::models::{LivenessCliKind, LivenessHttpProtocol};
+use crate::models::LivenessCliKind;
 use std::{env, path::Path, path::PathBuf, process::Command};
 
 pub(super) fn build_codex_command(
@@ -128,34 +128,6 @@ pub(super) fn build_command_preview(
             shell_quote(model)
         ),
     }
-}
-
-pub(super) fn build_http_command_preview(
-    protocol: LivenessHttpProtocol,
-    base_url: &str,
-    model: &str,
-    prompt: &str,
-) -> String {
-    let base = base_url.trim_end_matches('/');
-    let prompt = preview_escape(prompt);
-    match protocol {
-        LivenessHttpProtocol::OpenaiChat => format!(
-            "POST {base}/chat/completions  Authorization: Bearer ***\n{{\"model\":\"{model}\",\"max_tokens\":64,\"messages\":[{{\"role\":\"user\",\"content\":\"{prompt}\"}}]}}"
-        ),
-        LivenessHttpProtocol::OpenaiResponses => format!(
-            "POST {base}/responses  Authorization: Bearer ***\n{{\"model\":\"{model}\",\"max_output_tokens\":64,\"input\":\"{prompt}\"}}"
-        ),
-        LivenessHttpProtocol::Anthropic => format!(
-            "POST {base}/v1/messages  x-api-key: *** anthropic-version: 2023-06-01\n{{\"model\":\"{model}\",\"max_tokens\":64,\"messages\":[{{\"role\":\"user\",\"content\":\"{prompt}\"}}]}}"
-        ),
-    }
-}
-
-fn preview_escape(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', " ")
 }
 
 pub(super) fn unique_output_path(provider: &Provider) -> PathBuf {

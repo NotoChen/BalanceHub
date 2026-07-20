@@ -1,8 +1,7 @@
 use crate::{
     models::{
-        default_liveness_placeholder_pools, AppSettings, LivenessCliKind, LivenessHttpProtocol,
-        LivenessIntervalMode, LivenessMethod, LivenessPlaceholderPool, LivenessPromptMode,
-        Provider,
+        default_liveness_placeholder_pools, AppSettings, LivenessCliKind, LivenessIntervalMode,
+        LivenessPlaceholderPool, LivenessPromptMode, Provider,
     },
     util::unix_millis as now_millis,
 };
@@ -72,20 +71,6 @@ pub(super) fn effective_cli_kind(settings: &AppSettings, provider: &Provider) ->
         .liveness
         .cli_kind
         .unwrap_or(settings.liveness_cli_kind)
-}
-
-pub(super) fn effective_method(settings: &AppSettings, provider: &Provider) -> LivenessMethod {
-    provider.liveness.method.unwrap_or(settings.liveness_method)
-}
-
-pub(super) fn effective_http_protocol(
-    settings: &AppSettings,
-    provider: &Provider,
-) -> LivenessHttpProtocol {
-    provider
-        .liveness
-        .http_protocol
-        .unwrap_or(settings.liveness_http_protocol)
 }
 
 pub(super) fn effective_timeout(settings: &AppSettings, provider: &Provider) -> u64 {

@@ -6,8 +6,6 @@ export {
   codexIntervalModeOptions,
   codexPromptModeOptions,
   livenessCliKindOptions,
-  livenessHttpProtocolOptions,
-  livenessMethodOptions,
 } from "../../utils/liveness-options";
 
 export const authModeOptions: SelectOption<AuthMode>[] = [

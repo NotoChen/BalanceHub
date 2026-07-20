@@ -35,8 +35,6 @@ export const defaultSettings = (): AppSettings => ({
   ],
   glassTransparency: 58,
   livenessCliKind: "codex",
-  livenessMethod: "cli",
-  livenessHttpProtocol: "openaiChat",
   codexCliPath: "",
   claudeCliPath: "",
   temporaryCliTerminalKind: "auto",

@@ -8,8 +8,6 @@ export type ThemeMode = "system" | "light" | "dark";
 export type LivenessIntervalMode = "fixed" | "random";
 export type LivenessPromptMode = "fixed" | "random" | "roundRobin";
 export type LivenessCliKind = "codex" | "claudeCode";
-export type LivenessMethod = "cli" | "http";
-export type LivenessHttpProtocol = "openaiChat" | "openaiResponses" | "anthropic";
 export type TemporaryCliTerminalKind =
   | "auto"
   | "systemDefault"
@@ -113,8 +111,6 @@ export interface ProviderLiveness {
   openaiBaseUrl: string;
   anthropicBaseUrl: string;
   cliKind?: LivenessCliKind | null;
-  method?: LivenessMethod | null;
-  httpProtocol?: LivenessHttpProtocol | null;
   intervalMode: LivenessIntervalMode;
   interval: number;
   randomMinInterval: number;
@@ -139,8 +135,6 @@ export interface ProviderLivenessInput {
   openaiBaseUrl: string;
   anthropicBaseUrl: string;
   cliKind?: LivenessCliKind | null;
-  method?: LivenessMethod | null;
-  httpProtocol?: LivenessHttpProtocol | null;
   intervalMode: LivenessIntervalMode;
   interval: number;
   randomMinInterval: number;
@@ -395,8 +389,6 @@ export interface AppSettings {
   notificationChannels: NotificationChannel[];
   glassTransparency: number;
   livenessCliKind: LivenessCliKind;
-  livenessMethod: LivenessMethod;
-  livenessHttpProtocol: LivenessHttpProtocol;
   codexCliPath: string;
   claudeCliPath: string;
   temporaryCliTerminalKind: TemporaryCliTerminalKind;

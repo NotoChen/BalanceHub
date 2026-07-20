@@ -5,8 +5,10 @@ import type { Provider } from "../stores/providers";
 import {
   formatProviderQuota,
   providerAvailableQuotaLabel,
+  providerIdentityDisplayName,
   providerIdentityId,
   providerIdentityName,
+  providerIdentityUsername,
   providerQuotaScopeLabel,
   providerTotalQuotaLabel,
   quotaPercent,
@@ -124,13 +126,39 @@ function handleEnter(event: KeyboardEvent) {
         <h3 class="provider-card-title">{{ provider.identity.name }}</h3>
       </div>
       <div class="provider-card-user">
-        <div v-if="providerIdentityName(provider) || providerIdentityId(provider)" class="provider-card-user-info">
-          <strong v-if="providerIdentityName(provider)" class="provider-card-user-name">
+        <div
+          v-if="providerIdentityName(provider) || providerIdentityId(provider)"
+          class="provider-card-user-info"
+        >
+          <strong
+            v-if="providerIdentityName(provider)"
+            class="provider-card-user-name"
+            :title="providerIdentityName(provider)"
+          >
             {{ providerIdentityName(provider) }}
           </strong>
-          <span v-if="providerIdentityId(provider)" class="provider-card-user-id">
-            ID: {{ providerIdentityId(provider) }}
-          </span>
+          <div
+            v-if="
+              (providerIdentityDisplayName(provider) && providerIdentityUsername(provider)) ||
+              providerIdentityId(provider)
+            "
+            class="provider-card-user-meta"
+          >
+            <span
+              v-if="providerIdentityDisplayName(provider) && providerIdentityUsername(provider)"
+              class="provider-card-user-username"
+              :title="providerIdentityUsername(provider)"
+            >
+              @{{ providerIdentityUsername(provider) }}
+            </span>
+            <span
+              v-if="providerIdentityId(provider)"
+              class="provider-card-user-id"
+              :title="providerIdentityId(provider)"
+            >
+              ID: {{ providerIdentityId(provider) }}
+            </span>
+          </div>
         </div>
       </div>
     </div>

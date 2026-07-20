@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use super::defaults;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
-    default_true, AuthMode, LivenessCliKind, LivenessHttpProtocol, LivenessIntervalMode,
-    LivenessMethod, LivenessPromptMode, LivenessRecord, ProviderCheckInRecord,
-    ProviderNotificationMode, ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
+    default_true, AuthMode, LivenessCliKind, LivenessIntervalMode, LivenessPromptMode,
+    LivenessRecord, ProviderCheckInRecord, ProviderNotificationMode, ProviderProxyMode,
+    ProviderQuotaScope, ProviderStatus,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,10 +140,6 @@ pub struct ProviderLiveness {
     #[serde(default)]
     pub cli_kind: Option<LivenessCliKind>,
     #[serde(default)]
-    pub method: Option<LivenessMethod>,
-    #[serde(default)]
-    pub http_protocol: Option<LivenessHttpProtocol>,
-    #[serde(default)]
     pub interval_mode: LivenessIntervalMode,
     #[serde(default = "default_liveness_interval")]
     pub interval: u64,
@@ -191,10 +187,6 @@ pub struct ProviderLivenessInput {
     pub anthropic_base_url: String,
     #[serde(default)]
     pub cli_kind: Option<LivenessCliKind>,
-    #[serde(default)]
-    pub method: Option<LivenessMethod>,
-    #[serde(default)]
-    pub http_protocol: Option<LivenessHttpProtocol>,
     #[serde(default)]
     pub interval_mode: LivenessIntervalMode,
     #[serde(default = "default_liveness_interval")]

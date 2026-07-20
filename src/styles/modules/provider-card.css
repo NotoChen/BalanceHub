@@ -147,6 +147,7 @@
 .provider-card-disabled .provider-logo,
 .provider-card-disabled .provider-card-title,
 .provider-card-disabled .provider-card-user-name,
+.provider-card-disabled .provider-card-user-username,
 .provider-card-disabled .provider-card-user-id,
 .provider-card-disabled .quota-percent,
 .provider-card-disabled .provider-card-total strong,
@@ -219,7 +220,7 @@
   max-width: 100%;
   flex-direction: column;
   align-items: flex-end;
-  gap: 1px;
+  gap: 2px;
 }
 
 .provider-card-user-name {
@@ -234,15 +235,37 @@
   white-space: nowrap;
 }
 
+.provider-card-user-meta {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.provider-card-user-username,
 .provider-card-user-id {
   display: block;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   color: #86909c;
   font-size: 11px;
-  line-height: 1.2;
+  letter-spacing: 0;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.provider-card-user-username {
+  color: #4e5969;
+  font-weight: 550;
+}
+
+.provider-card-user-id {
+  flex: 0 0 auto;
 }
 
 .provider-card-logo {
