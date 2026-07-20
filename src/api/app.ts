@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
+  CliRuntimeSnapshot,
   CliCandidate,
   CodexCliProbeResult,
   LivenessRunResult,
@@ -17,6 +18,7 @@ import type {
   ProviderRequestLogsResult,
   ProviderSiteProbeResult,
   ProviderUsageSummary,
+  TemporaryCliInstance,
 } from "../stores/providers";
 
 export type CodexCliProbeInput = Pick<
@@ -138,7 +140,19 @@ export function testLiveness(id: string, prompt?: string, automatic = false) {
 }
 
 export function launchTemporaryCli(id: string, cliKind: LivenessCliKind, workdir: string) {
-  return invoke<string>("launch_temporary_cli", { id, cliKind, workdir });
+  return invoke<TemporaryCliInstance>("launch_temporary_cli", { id, cliKind, workdir });
+}
+
+export function getCliRuntimeSnapshot() {
+  return invoke<CliRuntimeSnapshot>("get_cli_runtime_snapshot");
+}
+
+export function activateTemporaryCli(instanceId: string) {
+  return invoke<void>("activate_temporary_cli", { instanceId });
+}
+
+export function relaunchTemporaryCli(instanceId: string) {
+  return invoke<TemporaryCliInstance>("relaunch_temporary_cli", { instanceId });
 }
 
 export function syncCodexModels(id: string) {

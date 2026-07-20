@@ -2,7 +2,7 @@
 import { type CSSProperties } from "vue";
 import ProviderCard from "./ProviderCard.vue";
 import ProviderContextMenu from "./ProviderContextMenu.vue";
-import type { LivenessCliKind, Provider } from "../stores/providers";
+import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 
@@ -18,13 +18,14 @@ interface ProviderDragState {
   dragging: boolean;
 }
 
-defineProps<{
+const props = defineProps<{
   loading: boolean;
   initialized: boolean;
   loadError: string | null;
   providers: Provider[];
   livenessProviders: Provider[];
   regularProviders: Provider[];
+  cliRuntime: CliRuntimeSnapshot;
   providerContextMenu: ProviderContextMenuState;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
@@ -63,7 +64,18 @@ const emit = defineEmits<{
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
+  openCliInstances: [provider: Provider];
 }>();
+
+function providerIsCliDefault(provider: Provider, cliKind: LivenessCliKind) {
+  return props.cliRuntime[cliKind].providerId === provider.identity.id;
+}
+
+function providerActiveCliCount(provider: Provider) {
+  return props.cliRuntime.instances.filter(
+    (instance) => instance.providerId === provider.identity.id && instance.status !== "exited",
+  ).length;
+}
 </script>
 
 <template>
@@ -79,6 +91,10 @@ const emit = defineEmits<{
     </a-alert>
 
     <section v-if="!loadError && livenessProviders.length > 0" class="provider-board-section">
+      <div class="provider-board-section-header">
+        <h2>自动测活</h2>
+        <span>{{ livenessProviders.length }}</span>
+      </div>
       <TransitionGroup name="provider-grid" tag="div" class="overview-provider-grid">
         <ProviderCard
           v-for="provider in livenessProviders"
@@ -89,16 +105,23 @@ const emit = defineEmits<{
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="true"
+          :codex-default="providerIsCliDefault(provider, 'codex')"
+          :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :active-cli-count="providerActiveCliCount(provider)"
           @click="emit('cardClick', $event)"
           @contextmenu="(provider, event) => emit('cardContextmenu', provider, event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
           @enter="emit('cardClick', $event)"
+          @open-cli-instances="emit('openCliInstances', $event)"
         />
       </TransitionGroup>
     </section>
 
     <section v-if="!loadError && (regularProviders.length > 0 || (providers.length === 0 && !loading))" class="provider-board-section">
-      <div v-if="regularProviders.length > 0 && livenessProviders.length > 0" class="provider-board-divider" />
+      <div v-if="regularProviders.length > 0" class="provider-board-section-header">
+        <h2>{{ livenessProviders.length > 0 ? "其他中转站" : "中转站" }}</h2>
+        <span>{{ regularProviders.length }}</span>
+      </div>
       <TransitionGroup name="provider-grid" tag="div" class="overview-provider-grid">
         <ProviderCard
           v-for="provider in regularProviders"
@@ -109,10 +132,14 @@ const emit = defineEmits<{
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="false"
+          :codex-default="providerIsCliDefault(provider, 'codex')"
+          :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :active-cli-count="providerActiveCliCount(provider)"
           @click="emit('cardClick', $event)"
           @contextmenu="(provider, event) => emit('cardContextmenu', provider, event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
           @enter="emit('cardClick', $event)"
+          @open-cli-instances="emit('openCliInstances', $event)"
         />
       <div v-if="providers.length === 0 && !loading" key="empty-state" class="empty-state">
         <h3>还没有中转站</h3>
@@ -159,6 +186,9 @@ const emit = defineEmits<{
       :interactive="false"
       :drag-style="dragStyle"
       :show-liveness-timeline="showLivenessTimeline(draggedProvider)"
+      :codex-default="providerIsCliDefault(draggedProvider, 'codex')"
+      :claude-default="providerIsCliDefault(draggedProvider, 'claudeCode')"
+      :active-cli-count="providerActiveCliCount(draggedProvider)"
       aria-hidden
     />
   </section>

@@ -2,7 +2,7 @@
 import { type CSSProperties } from "vue";
 import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
-import type { LivenessCliKind, Provider } from "../stores/providers";
+import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 
@@ -25,6 +25,7 @@ defineProps<{
   providers: Provider[];
   livenessProviders: Provider[];
   regularProviders: Provider[];
+  cliRuntime: CliRuntimeSnapshot;
   refreshInProgress: boolean;
   globalCheckInInProgress: boolean;
   providerContextMenu: ProviderContextMenuState;
@@ -69,6 +70,7 @@ const emit = defineEmits<{
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
+  openCliInstances: [provider: Provider];
 }>();
 </script>
 
@@ -90,6 +92,7 @@ const emit = defineEmits<{
     :providers="providers"
     :liveness-providers="livenessProviders"
     :regular-providers="regularProviders"
+    :cli-runtime="cliRuntime"
     :provider-context-menu="providerContextMenu"
     :checking-in-provider-ids="checkingInProviderIds"
     :probing-capabilities-provider-id="probingCapabilitiesProviderId"
@@ -125,5 +128,6 @@ const emit = defineEmits<{
     @copy-invite="emit('copyInvite', $event)"
     @copy-secret="(provider, field) => emit('copySecret', provider, field)"
     @remove="emit('remove', $event)"
+    @open-cli-instances="emit('openCliInstances', $event)"
   />
 </template>

@@ -9,12 +9,12 @@ mod tray;
 mod util;
 
 use models::{
-    AppData, AppDataTransferResult, AppSettings, CliCandidate, CodexCliProbeResult,
-    CodexModelSyncResult, LivenessCliKind, LivenessRunResult, Provider, ProviderApiKeyOption,
-    ProviderCapabilityProbeResult, ProviderCheckInRecordsResult, ProviderCheckInResult,
-    ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
-    ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
-    ProviderUsageSummary, RefreshResult,
+    AppData, AppDataTransferResult, AppSettings, CliCandidate, CliRuntimeSnapshot,
+    CodexCliProbeResult, CodexModelSyncResult, LivenessCliKind, LivenessRunResult, Provider,
+    ProviderApiKeyOption, ProviderCapabilityProbeResult, ProviderCheckInRecordsResult,
+    ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
+    ProviderInput, ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
+    ProviderUsageSummary, RefreshResult, TemporaryCliInstance,
 };
 use services::liveness::preview_prompts;
 use services::notifications::NotificationSendResult;
@@ -72,7 +72,7 @@ fn launch_temporary_cli(
     id: String,
     cli_kind: LivenessCliKind,
     workdir: String,
-) -> Result<String, String> {
+) -> Result<TemporaryCliInstance, String> {
     let data = app
         .state::<AppState>()
         .data
@@ -91,6 +91,50 @@ fn launch_temporary_cli(
         &provider,
         cli_kind,
         std::path::Path::new(&workdir),
+    )
+}
+
+#[tauri::command]
+fn get_cli_runtime_snapshot(app: AppHandle) -> CliRuntimeSnapshot {
+    let providers = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|err| err.into_inner())
+        .providers
+        .clone();
+    services::cli_runtime::snapshot(&providers)
+}
+
+#[tauri::command]
+fn activate_temporary_cli(instance_id: String) -> Result<(), String> {
+    services::temporary_cli::activate(&instance_id)
+}
+
+#[tauri::command]
+fn relaunch_temporary_cli(
+    app: AppHandle,
+    instance_id: String,
+) -> Result<TemporaryCliInstance, String> {
+    let instance = services::cli_runtime::instance_by_id(&instance_id)?;
+    let data = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|err| err.into_inner())
+        .clone();
+    let provider = data
+        .providers
+        .iter()
+        .find(|provider| provider.identity.id == instance.provider_id)
+        .cloned()
+        .ok_or_else(|| "实例对应的中转站已不存在".to_string())?;
+
+    services::temporary_cli::launch(
+        &data.settings,
+        &provider,
+        instance.cli_kind,
+        std::path::Path::new(&instance.workdir),
     )
 }
 
@@ -624,6 +668,9 @@ pub fn run() {
             user_home_dir,
             open_ccswitch_deeplink,
             launch_temporary_cli,
+            get_cli_runtime_snapshot,
+            activate_temporary_cli,
+            relaunch_temporary_cli,
             load_app_data,
             save_provider,
             remove_provider,

@@ -1,64 +1,74 @@
 <script setup lang="ts">
-import { computed, type CSSProperties } from "vue";
+import { computed } from "vue";
 import type { LivenessRecord } from "../stores/providers";
 
 const props = defineProps<{
   records: LivenessRecord[];
 }>();
 
+const dayMs = 24 * 60 * 60 * 1000;
+const hourMs = 60 * 60 * 1000;
+
 const livenessRecords = computed(() => {
   const now = Date.now();
-  const dayMs = 24 * 60 * 60 * 1000;
   return props.records
     .filter((record) => record.source === "automatic")
     .filter((record) => {
-      const time = Number(record.checkedAt);
-      return Number.isFinite(time) && now - time >= 0 && now - time <= dayMs;
+      const checkedAt = Number(record.checkedAt);
+      return Number.isFinite(checkedAt) && now - checkedAt >= 0 && now - checkedAt <= dayMs;
     })
     .slice(-24);
 });
 
-const livenessHourTicks = computed(() => {
-  const now = new Date();
-  return Array.from({ length: 8 }, (_, index) => index * 3).map((hoursAgo) => {
-    const date = new Date(now.getTime() - hoursAgo * 60 * 60 * 1000);
-    return {
-      label: String(date.getHours()),
-      style: livenessTickStyle(hoursAgo),
-    };
-  });
+const livenessSlots = computed(() => {
+  const slots: Array<LivenessRecord | null> = Array.from({ length: 24 }, () => null);
+  const now = Date.now();
+
+  for (const record of livenessRecords.value) {
+    const checkedAt = Number(record.checkedAt);
+    const hoursAgo = Math.floor((now - checkedAt) / hourMs);
+    if (hoursAgo < 0 || hoursAgo >= 24) {
+      continue;
+    }
+
+    const slotIndex = 23 - hoursAgo;
+    const previous = slots[slotIndex];
+    if (!previous || Number(previous.checkedAt) < checkedAt) {
+      slots[slotIndex] = record;
+    }
+  }
+
+  return slots;
 });
 
-const livenessHourMarks = computed(() =>
-  Array.from({ length: 25 }, (_, hoursAgo) => ({
-    style: livenessTickStyle(hoursAgo),
-  })),
-);
+const successfulCount = computed(() => livenessRecords.value.filter((record) => record.ok).length);
 
-const livenessAgeTicks = computed(() =>
-  [1, 4, 7, 10, 13, 16, 19, 22].map((hoursAgo) => ({
-    label: `${hoursAgo}h前`,
-    style: livenessTickStyle(hoursAgo),
-  })),
-);
+const latestRecord = computed(() => {
+  return [...livenessRecords.value].sort((a, b) => Number(b.checkedAt) - Number(a.checkedAt))[0] || null;
+});
+
+const latestLatencyLabel = computed(() => {
+  const latency = latestRecord.value?.latencyMs;
+  return Number.isFinite(latency) ? `${latency} ms` : "";
+});
+
+const summaryLabel = computed(() => {
+  if (livenessRecords.value.length === 0) {
+    return "暂无记录";
+  }
+  return `${successfulCount.value}/${livenessRecords.value.length} 成功`;
+});
+
+const ariaLabel = computed(() => {
+  const latest = latestLatencyLabel.value ? `，最近延迟 ${latestLatencyLabel.value}` : "";
+  return `近24小时自动测活：${summaryLabel.value}${latest}`;
+});
 
 function livenessPointTitle(record: LivenessRecord) {
   const date = new Date(Number(record.checkedAt));
   const time = Number.isNaN(date.getTime()) ? record.checkedAt : date.toLocaleString();
-  return `${record.ok ? "成功" : "失败"} · ${time} · ${record.latencyMs}ms · ${record.message}`;
-}
-
-function livenessPointStyle(index: number) {
-  const checkedAt = Number(livenessRecords.value[index]?.checkedAt);
-  const ageMs = Date.now() - checkedAt;
-  const left = Number.isFinite(ageMs)
-    ? Math.max(0, Math.min(100, 100 - (ageMs / (24 * 60 * 60 * 1000)) * 100))
-    : 100;
-  return { "--point-left": `${left}%` } as CSSProperties;
-}
-
-function livenessTickStyle(hoursAgo: number) {
-  return { "--tick-left": `${100 - (hoursAgo / 24) * 100}%` } as CSSProperties;
+  const result = record.ok ? "成功" : "失败";
+  return `${result}，${time}，${record.latencyMs} ms，${record.message}`;
 }
 </script>
 
@@ -67,42 +77,27 @@ function livenessTickStyle(hoursAgo: number) {
     class="provider-liveness-timeline"
     :class="{ 'provider-liveness-timeline-empty': livenessRecords.length === 0 }"
   >
-    <span
-      v-for="(tick, index) in livenessHourMarks"
-      :key="`mark-${index}`"
-      class="provider-liveness-hour-mark"
-      :style="tick.style"
-    />
-    <span
-      v-for="(tick, index) in livenessAgeTicks"
-      :key="`age-${index}-${tick.label}`"
-      class="provider-liveness-tick provider-liveness-age-tick"
-      :style="tick.style"
-    >
-      {{ tick.label }}
-    </span>
-    <span
-      v-for="(tick, index) in livenessHourTicks"
-      :key="`hour-${index}-${tick.label}`"
-      class="provider-liveness-tick provider-liveness-hour-tick"
-      :style="tick.style"
-    >
-      {{ tick.label }}
-    </span>
-    <template v-if="livenessRecords.length > 0">
-      <span
-        v-for="(record, index) in livenessRecords"
-        :key="`${record.checkedAt}-${record.ok}`"
-        class="provider-liveness-node"
-        :class="[
-          record.ok ? 'provider-liveness-node-ok' : 'provider-liveness-node-error',
-          index % 2 === 0 ? 'provider-liveness-node-top' : 'provider-liveness-node-bottom',
-        ]"
-        :style="livenessPointStyle(index)"
-        :title="livenessPointTitle(record)"
-      >
-        <span class="provider-liveness-point" />
+    <div class="provider-liveness-summary">
+      <span>近24小时</span>
+      <strong>{{ summaryLabel }}</strong>
+      <span v-if="latestLatencyLabel" class="provider-liveness-latency">
+        {{ latestLatencyLabel }}
       </span>
-    </template>
+    </div>
+    <div class="provider-liveness-strip" role="img" :aria-label="ariaLabel">
+      <span
+        v-for="(record, index) in livenessSlots"
+        :key="record ? `${record.checkedAt}-${record.ok}` : `empty-${index}`"
+        class="provider-liveness-segment"
+        :class="[
+          record
+            ? record.ok
+              ? 'provider-liveness-segment-ok'
+              : 'provider-liveness-segment-error'
+            : 'provider-liveness-segment-empty',
+        ]"
+        :title="record ? livenessPointTitle(record) : '该时段暂无测活记录'"
+      />
+    </div>
   </div>
 </template>

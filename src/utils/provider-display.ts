@@ -1,9 +1,30 @@
 // 注意：本文件的额度/货币/邀请链接/anyrouter 判定等格式化逻辑，与 Rust 端
 // （src-tauri/src/tray.rs、providers/newapi_site.rs、models.rs）存在同源镜像实现。
 // 修改任一侧的格式化规则时，请同步另一侧，避免两处显示不一致。
-import type { Provider, ProviderQuotaDisplay } from "../stores/providers";
+import type { AuthMode, Provider, ProviderQuotaDisplay } from "../stores/providers";
 
 export type ProviderCardTone = "disabled" | "error" | "warning" | "empty" | "ok" | "syncing";
+
+const providerAuthModeLabels: Record<AuthMode, string> = {
+  session: "Cookie",
+  accessToken: "访问令牌",
+  apiKey: "API Key",
+};
+
+export function providerAuthModeLabel(provider: Provider) {
+  return providerAuthModeLabels[provider.auth.mode];
+}
+
+export function providerAuthModeDescription(provider: Provider) {
+  switch (provider.auth.mode) {
+    case "session":
+      return "当前优先使用 Cookie 获取账号额度和账号能力";
+    case "accessToken":
+      return "当前优先使用 Access Token 获取账号额度和账号能力";
+    case "apiKey":
+      return "当前优先使用 API Key 获取该 Key 的额度";
+  }
+}
 
 export function formatNumberCompact(value: number, fractionDigits = 2) {
   return new Intl.NumberFormat("en-US", {
@@ -63,9 +84,7 @@ export function providerQuotaUnlimited(provider: Provider) {
 }
 
 export function providerQuotaScopeLabel(provider: Provider) {
-  if (provider.quota.scope === "token") return "令牌额度";
-  if (providerQuotaUnlimited(provider)) return "账号额度";
-  return availablePercentLabel(provider);
+  return provider.quota.scope === "token" ? "API Key 可用额度" : "账号可用额度";
 }
 
 export function providerTotalQuotaLabel(provider: Provider) {
@@ -109,6 +128,15 @@ export function providerIdentityDisplayName(provider: Provider) {
 
 export function providerIdentityUsername(provider: Provider) {
   return provider.identity.username?.trim() || "";
+}
+
+export function providerIdentitySecondaryUsername(provider: Provider) {
+  const displayName = providerIdentityDisplayName(provider);
+  const username = providerIdentityUsername(provider);
+  if (!displayName || !username || displayName.toLocaleLowerCase() === username.toLocaleLowerCase()) {
+    return "";
+  }
+  return username;
 }
 
 export function providerIdentityId(provider: Provider) {
@@ -198,14 +226,6 @@ export function providerCheckedInToday(provider: Provider) {
   }
 
   return checkedUser === providerCheckInUser(provider);
-}
-
-export function quotaPercent(provider: Provider) {
-  if (provider.quota.unlimited === true) {
-    return 1;
-  }
-  const total = provider.quota.available + provider.quota.used;
-  return total === 0 ? 0 : provider.quota.used / total;
 }
 
 export function availablePercent(provider: Provider) {

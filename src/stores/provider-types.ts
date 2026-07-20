@@ -8,6 +8,7 @@ export type ThemeMode = "system" | "light" | "dark";
 export type LivenessIntervalMode = "fixed" | "random";
 export type LivenessPromptMode = "fixed" | "random" | "roundRobin";
 export type LivenessCliKind = "codex" | "claudeCode";
+export type TemporaryCliInstanceStatus = "starting" | "running" | "exited";
 export type TemporaryCliTerminalKind =
   | "auto"
   | "systemDefault"
@@ -372,6 +373,34 @@ export interface ProviderSiteProbeResult {
   systemName: string | null;
   logo: string | null;
   quotaDisplay: ProviderQuotaDisplay;
+}
+
+export interface CliConfigSnapshot {
+  configured: boolean;
+  providerId: string | null;
+  modifiedAt: string | null;
+  errorMessage: string | null;
+}
+
+export interface TemporaryCliInstance {
+  id: string;
+  providerId: string;
+  providerName: string;
+  cliKind: LivenessCliKind;
+  workdir: string;
+  terminalKind: TemporaryCliTerminalKind;
+  startedAt: string;
+  endedAt: string | null;
+  pid: number | null;
+  status: TemporaryCliInstanceStatus;
+  exitCode: number | null;
+  canActivate: boolean;
+}
+
+export interface CliRuntimeSnapshot {
+  codex: CliConfigSnapshot;
+  claudeCode: CliConfigSnapshot;
+  instances: TemporaryCliInstance[];
 }
 
 export interface AppSettings {
