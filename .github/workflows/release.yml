@@ -8,12 +8,88 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: 准备 Draft Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 生成发布说明
+        id: release_notes
+        run: node .github/scripts/release-notes.mjs ${{ github.ref_name }}
+
+      - name: 创建 Draft Release
+        id: release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_BODY: ${{ steps.release_notes.outputs.release_body }}
+        with:
+          script: |
+            const tag = context.ref.replace("refs/tags/", "");
+            let existing = null;
+            try {
+              existing = (await github.rest.repos.getReleaseByTag({
+                ...context.repo,
+                tag,
+              })).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            if (existing && !existing.draft) {
+              core.setFailed(`Release ${tag} 已发布，拒绝覆盖现有版本`);
+              return;
+            }
+
+            if (existing) {
+              for (const asset of existing.assets) {
+                await github.rest.repos.deleteReleaseAsset({
+                  ...context.repo,
+                  asset_id: asset.id,
+                });
+              }
+            }
+
+            const release = existing
+              ? await github.rest.repos.updateRelease({
+                  ...context.repo,
+                  release_id: existing.id,
+                  name: tag,
+                  body: process.env.RELEASE_BODY,
+                  draft: true,
+                  prerelease: false,
+                })
+              : await github.rest.repos.createRelease({
+                  ...context.repo,
+                  tag_name: tag,
+                  name: tag,
+                  body: process.env.RELEASE_BODY,
+                  draft: true,
+                  prerelease: false,
+                  generate_release_notes: false,
+                });
+
+            core.setOutput("release_id", String(release.data.id));
+
   build:
     name: 构建 ${{ matrix.label }}
+    needs: prepare
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 6
       matrix:
         include:
           - label: macOS Apple Silicon
@@ -58,6 +134,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          shared-key: balancehub-tauri
+          save-if: false
 
       - name: 添加 Rust 目标平台
         if: matrix.rust-target != ''
@@ -78,10 +156,6 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
-      - name: 生成发布说明
-        id: release_notes
-        run: node .github/scripts/release-notes.mjs ${{ github.ref_name }}
-
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
@@ -89,9 +163,43 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          releaseId: ${{ needs.prepare.outputs.release_id }}
           tagName: ${{ github.ref_name }}
-          releaseName: ${{ github.ref_name }}
-          releaseBody: ${{ steps.release_notes.outputs.release_body }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish:
+    name: 发布完整版本
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 发布 Release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+        with:
+          script: |
+            const releaseId = Number(process.env.RELEASE_ID);
+            if (!Number.isSafeInteger(releaseId)) {
+              throw new Error("缺少有效的 Draft Release ID");
+            }
+
+            const release = (await github.rest.repos.getRelease({
+              ...context.repo,
+              release_id: releaseId,
+            })).data;
+            const tag = context.ref.replace("refs/tags/", "");
+            if (release.tag_name !== tag || !release.draft) {
+              throw new Error(`Draft Release 状态异常: ${release.tag_name}`);
+            }
+
+            await github.rest.repos.updateRelease({
+              ...context.repo,
+              release_id: releaseId,
+              draft: false,
+              prerelease: false,
+              make_latest: "true",
+            });

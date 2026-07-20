@@ -23,11 +23,11 @@ jobs:
       matrix:
         include:
           - label: Linux x64
-            os: ubuntu-latest
+            os: ubuntu-22.04
           - label: Linux ARM64
             os: ubuntu-24.04-arm
           - label: macOS Apple Silicon
-            os: macos-latest
+            os: macos-15
           - label: Windows x64
             os: windows-latest
           - label: Windows ARM64
@@ -52,6 +52,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          shared-key: balancehub-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: 安装 Linux 构建依赖
         if: runner.os == 'Linux'
