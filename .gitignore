@@ -27,6 +27,7 @@ src-tauri/gen
 *.AppImage
 *.deb
 *.rpm
+latest.json
 
 # Editor directories and files
 .claude/
