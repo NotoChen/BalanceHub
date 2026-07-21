@@ -26,6 +26,7 @@ defineProps<{
   livenessProviders: Provider[];
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
+  switchingCliConfig: { providerId: string; cliKind: LivenessCliKind } | null;
   refreshInProgress: boolean;
   globalCheckInInProgress: boolean;
   providerContextMenu: ProviderContextMenuState;
@@ -55,7 +56,7 @@ const emit = defineEmits<{
   refresh: [provider: Provider];
   probeCapabilities: [provider: Provider];
   testLiveness: [provider: Provider];
-  launchTemporaryCli: [provider: Provider, cliKind: LivenessCliKind];
+  launchTemporaryCli: [provider: Provider, cliKind?: LivenessCliKind];
   edit: [provider: Provider];
   checkIn: [provider: Provider];
   openApiKeyManager: [provider: Provider];
@@ -71,6 +72,7 @@ const emit = defineEmits<{
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
   openCliInstances: [provider: Provider];
+  switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
 }>();
 </script>
 
@@ -93,6 +95,7 @@ const emit = defineEmits<{
     :liveness-providers="livenessProviders"
     :regular-providers="regularProviders"
     :cli-runtime="cliRuntime"
+    :switching-cli-config="switchingCliConfig"
     :provider-context-menu="providerContextMenu"
     :checking-in-provider-ids="checkingInProviderIds"
     :probing-capabilities-provider-id="probingCapabilitiesProviderId"
@@ -129,5 +132,6 @@ const emit = defineEmits<{
     @copy-secret="(provider, field) => emit('copySecret', provider, field)"
     @remove="emit('remove', $event)"
     @open-cli-instances="emit('openCliInstances', $event)"
+    @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
   />
 </template>

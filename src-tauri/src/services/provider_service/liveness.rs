@@ -26,28 +26,14 @@ impl<'a> ProviderService<'a> {
         if let Some(path) = claude_cli_path {
             settings.settings.claude_cli_path = path;
         }
-        if settings.settings.codex_cli_path.trim().is_empty() {
-            if let Ok(result) = LivenessRunner::find_codex_cli("") {
-                settings.settings.codex_cli_path = result.path;
-            }
+        let codex_result = LivenessRunner::find_codex_cli(&settings.settings.codex_cli_path);
+        if let Ok(result) = &codex_result {
+            settings.settings.codex_cli_path = result.path.clone();
         }
-        if settings.settings.claude_cli_path.trim().is_empty() {
-            if let Ok(result) = LivenessRunner::find_claude_cli("") {
-                settings.settings.claude_cli_path = result.path;
-            }
+        let claude_result = LivenessRunner::find_claude_cli(&settings.settings.claude_cli_path);
+        if let Ok(result) = &claude_result {
+            settings.settings.claude_cli_path = result.path.clone();
         }
-        let result = match settings.settings.liveness_cli_kind {
-            LivenessCliKind::Codex => {
-                let result = LivenessRunner::find_codex_cli(&settings.settings.codex_cli_path)?;
-                settings.settings.codex_cli_path = result.path.clone();
-                result
-            }
-            LivenessCliKind::ClaudeCode => {
-                let result = LivenessRunner::find_claude_cli(&settings.settings.claude_cli_path)?;
-                settings.settings.claude_cli_path = result.path.clone();
-                result
-            }
-        };
 
         let codex_path = settings.settings.codex_cli_path.clone();
         let claude_path = settings.settings.claude_cli_path.clone();
@@ -55,7 +41,10 @@ impl<'a> ProviderService<'a> {
             data.settings.codex_cli_path = codex_path;
             data.settings.claude_cli_path = claude_path;
         })?;
-        Ok(result)
+        match settings.settings.liveness_cli_kind {
+            LivenessCliKind::Codex => codex_result,
+            LivenessCliKind::ClaudeCode => claude_result,
+        }
     }
 
     pub fn liveness_command_preview(&self, id: String) -> Result<LivenessRunResult, String> {

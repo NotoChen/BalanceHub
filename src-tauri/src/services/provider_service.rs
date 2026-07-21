@@ -8,6 +8,7 @@ mod liveness;
 mod quota;
 mod refresh;
 mod usage;
+mod workspaces;
 
 use crate::{
     models::{
@@ -97,6 +98,8 @@ impl<'a> ProviderService<'a> {
     pub fn remove_provider(&self, id: String) -> Result<Vec<Provider>, String> {
         self.mutate(|data| {
             data.providers.retain(|provider| provider.identity.id != id);
+            data.temporary_cli_preferences
+                .retain(|preference| preference.provider_id != id);
             data.providers.clone()
         })
     }

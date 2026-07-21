@@ -24,6 +24,21 @@
   box-sizing: border-box;
 }
 
+.brand-icon {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.brand-icon-codex {
+  filter: none;
+}
+
+:root.theme-dark .brand-icon-codex,
+:root.theme-dark .brand-icon-opencode {
+  filter: invert(1);
+}
+
 body {
   min-width: 0;
   min-height: 0;

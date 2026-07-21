@@ -3,6 +3,8 @@ import zhCN from "@arco-design/web-vue/es/locale/lang/zh-cn";
 import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
+import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
+import WorkspacePickerModal from "./components/WorkspacePickerModal.vue";
 import { useAppController } from "./composables/useAppController";
 
 const app = useAppController();
@@ -19,6 +21,7 @@ const app = useAppController();
         :liveness-providers="app.livenessProviders"
         :regular-providers="app.regularProviders"
         :cli-runtime="app.cliRuntime"
+        :switching-cli-config="app.switchingCliConfig"
         :refresh-in-progress="app.refreshInProgress"
         :global-check-in-in-progress="app.globalCheckInInProgress"
         :provider-context-menu="app.providerContextMenu"
@@ -61,7 +64,36 @@ const app = useAppController();
         @copy-secret="app.copyProviderSecretFromMenu"
         @remove="app.removeProviderFromMenu"
         @open-cli-instances="app.openCliInstances"
+        @switch-cli-config="app.switchProviderCliConfig"
       />
+
+    <WorkspacePickerModal
+      v-model:visible="app.workspacePickerVisible"
+      v-model:path-draft="app.workspacePathDraft"
+      v-model:cli-kind="app.workspacePickerCliKind"
+      v-model:api-key-token-id="app.workspaceApiKeyTokenId"
+      v-model:selected-model="app.workspaceSelectedModel"
+      :provider="app.workspacePickerProvider"
+      :api-keys="app.workspaceApiKeys"
+      :api-key-loading="app.workspaceApiKeyLoading"
+      :api-key-error="app.workspaceApiKeyError"
+      :workspaces="app.workspaces"
+      :directory="app.workspaceDirectory"
+      :browsing="app.workspaceBrowsing"
+      :launching-path="app.workspaceLaunchingPath"
+      :forgetting-path="app.workspaceForgettingPath"
+      :error="app.workspaceBrowserError"
+      @browse="app.browseWorkspaceDirectory"
+      @launch="app.launchWorkspace"
+      @forget="app.forgetWorkspace"
+    />
+
+    <CliConfigPreviewModal
+      v-model:visible="app.cliConfigPreviewVisible"
+      :preview="app.cliConfigPreview"
+      :confirming="Boolean(app.switchingCliConfig)"
+      @confirm="app.confirmCliConfigSwitch"
+    />
 
     <AppOverlays
       v-model:api-key-manager-visible="app.apiKeyManagerVisible"
@@ -146,11 +178,10 @@ const app = useAppController();
       :importing-app-data="app.importingAppData"
       :app-version="app.appVersion"
       :checking-for-update="app.checkingForUpdate"
-      :cli-runtime-loading="app.cliRuntimeLoading"
+      :cli-runtime-loading="app.cliInstancesRefreshing"
       :cli-instances-provider="app.cliInstancesProvider"
       :cli-instances="app.providerCliInstances"
       :activating-cli-instance-id="app.activatingCliInstanceId"
-      :relaunching-cli-instance-id="app.relaunchingCliInstanceId"
       :provider-editor-title="app.drawerTitle"
       :draft-provider="app.draftProvider"
       :testing-connection="app.testingConnection"
@@ -168,7 +199,6 @@ const app = useAppController();
       @check-for-update="app.checkForUpdate"
       @refresh-cli-runtime="app.refreshCliRuntime"
       @activate-cli-instance="app.activateCliInstance"
-      @relaunch-cli-instance="app.relaunchCliInstance"
       @copy-api-key="app.copyDraftApiKey"
       @run-credential-assistant="app.runCredentialAssistant"
       @test-connection="app.testConnection"

@@ -31,7 +31,6 @@ defineProps<{
   cliInstancesProvider: Provider | null;
   cliInstances: TemporaryCliInstance[];
   activatingCliInstanceId: string | null;
-  relaunchingCliInstanceId: string | null;
   providerEditorTitle: string;
   draftProvider: ProviderInput;
   testingConnection: boolean;
@@ -52,7 +51,6 @@ const emit = defineEmits<{
   checkForUpdate: [];
   refreshCliRuntime: [];
   activateCliInstance: [instance: TemporaryCliInstance];
-  relaunchCliInstance: [instance: TemporaryCliInstance];
   copyApiKey: [];
   runCredentialAssistant: [];
   testConnection: [];
@@ -110,9 +108,7 @@ const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { requir
     :loading="cliRuntimeLoading"
     :instances="cliInstances"
     :activating-id="activatingCliInstanceId"
-    :relaunching-id="relaunchingCliInstanceId"
     @refresh="emit('refreshCliRuntime')"
     @activate="emit('activateCliInstance', $event)"
-    @relaunch="emit('relaunchCliInstance', $event)"
   />
 </template>

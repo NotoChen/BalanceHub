@@ -1,24 +1,50 @@
 <script setup lang="ts">
-import { computed, type CSSProperties } from "vue";
-import { IconCode } from "@arco-design/web-vue/es/icon";
+import { computed, ref, type CSSProperties } from "vue";
+import {
+  IconApps,
+  IconBarChart,
+  IconCalendar,
+  IconCopy,
+  IconFile,
+  IconLink,
+  IconLoading,
+  IconLock,
+  IconSafe,
+  IconSettings,
+  IconSync,
+  IconSwap,
+  IconThunderbolt,
+} from "@arco-design/web-vue/es/icon";
+import { Bot, GitCompareArrows } from "@lucide/vue";
 import ProviderLivenessTimeline from "./ProviderLivenessTimeline.vue";
-import type { Provider } from "../stores/providers";
+import ProviderModelPreview from "./ProviderModelPreview.vue";
+import BrandIcon, { type BrandIconName } from "./BrandIcon.vue";
+import ProviderAuthIcon from "./ProviderAuthIcon.vue";
+import type { LivenessCliKind, Provider } from "../stores/providers";
 import {
   availablePercent,
   availablePercentLabel,
-  formatProviderQuota,
   providerAvailableQuotaLabel,
   providerAuthModeDescription,
-  providerAuthModeLabel,
+  providerIdentityDisplayName,
   providerIdentityId,
-  providerIdentityName,
   providerIdentitySecondaryUsername,
+  providerIdentityUsername,
   providerQuotaScopeLabel,
   providerQuotaUnlimited,
-  providerTotalQuotaLabel,
+  supportsApiKeyManagement,
+  supportsCheckIn,
+  supportsInvitation,
   type ProviderCardTone,
 } from "../utils/provider-display";
+import {
+  canBuildCcSwitchDeeplink,
+  ccSwitchTargetLabels,
+  ccSwitchTargets,
+  type CcSwitchAppTarget,
+} from "../utils/ccswitch-deeplink";
 import newApiLogo from "../assets/logos/new-api.png";
+import ccSwitchLogo from "../assets/logos/cc-switch.png";
 
 const props = withDefaults(
   defineProps<{
@@ -34,6 +60,9 @@ const props = withDefaults(
     codexDefault?: boolean;
     claudeDefault?: boolean;
     activeCliCount?: number;
+    switchingCliKind?: LivenessCliKind | null;
+    cliConfigSwitching?: boolean;
+    probingCapabilities?: boolean;
     ariaHidden?: boolean;
   }>(),
   {
@@ -47,6 +76,9 @@ const props = withDefaults(
     codexDefault: false,
     claudeDefault: false,
     activeCliCount: 0,
+    switchingCliKind: null,
+    cliConfigSwitching: false,
+    probingCapabilities: false,
     ariaHidden: false,
   },
 );
@@ -57,23 +89,130 @@ const emit = defineEmits<{
   pointerdown: [provider: Provider, event: PointerEvent];
   enter: [provider: Provider, event: KeyboardEvent];
   openCliInstances: [provider: Provider];
+  switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
+  probeCapabilities: [provider: Provider];
+  openApiKeyManager: [provider: Provider];
+  openAvailableModels: [provider: Provider];
+  openUsage: [provider: Provider];
+  openRequestLogs: [provider: Provider];
+  openPasswordChange: [provider: Provider];
+  openLivenessDetails: [provider: Provider];
+  openCheckInRecords: [provider: Provider];
+  addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
+  launchTemporaryCli: [provider: Provider];
+  copyUrl: [provider: Provider];
+  copyInvite: [provider: Provider];
+  copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
 }>();
 
-const toneLabels: Partial<Record<ProviderCardTone, string>> = {
-  syncing: "同步",
+const toneLabels: Record<Exclude<ProviderCardTone, "disabled">, string> = {
+  ok: "正常",
+  pending: "待同步",
+  syncing: "同步中",
   warning: "待签到",
   empty: "无余额",
   error: "异常",
 };
 
-const authModeLabel = computed(() => providerAuthModeLabel(props.provider));
 const authModeDescription = computed(() => providerAuthModeDescription(props.provider));
+const cliSwitchVisible = ref(false);
+const copyMenuVisible = ref(false);
+const dataMenuVisible = ref(false);
+const siteMenuVisible = ref(false);
+const ccSwitchMenuVisible = ref(false);
+const identityDisplayName = computed(
+  () => providerIdentityDisplayName(props.provider) || providerIdentityUsername(props.provider),
+);
+const identityUsername = computed(() => providerIdentitySecondaryUsername(props.provider));
+const identityId = computed(() => providerIdentityId(props.provider));
+const quotaTone = computed(() => {
+  if (providerQuotaUnlimited(props.provider)) {
+    return "unlimited";
+  }
+  if (!props.provider.automation.lastSyncedAt) {
+    return "neutral";
+  }
+  const percent = availablePercent(props.provider);
+  if (props.provider.quota.available <= 0 || percent <= 0) {
+    return "empty";
+  }
+  return percent <= 0.2 ? "warning" : "normal";
+});
+const canSwitchCliConfig = computed(() =>
+  Boolean(props.provider.identity.baseUrl.trim() && props.provider.auth.apiKey.trim()),
+);
+const canLaunchTemporaryCli = computed(() =>
+  Boolean(
+    props.provider.identity.baseUrl.trim() &&
+      (props.provider.auth.apiKey.trim() || supportsApiKeyManagement(props.provider)),
+  ),
+);
+const hasCopyActions = computed(() =>
+  Boolean(
+    props.provider.identity.baseUrl.trim() ||
+      props.provider.auth.apiKey.trim() ||
+      props.provider.auth.accessToken.trim() ||
+      props.provider.auth.sessionCookie.trim() ||
+      (props.provider.runtime.enabled && supportsInvitation(props.provider)),
+  ),
+);
+const canViewAvailableModels = computed(() =>
+  Boolean(
+    props.provider.auth.apiKey.trim() ||
+      (props.provider.capabilities.availableModels || []).length > 0,
+  ),
+);
+const canAddCcSwitchConfig = computed(() => canBuildCcSwitchDeeplink(props.provider));
+const hasCredential = computed(() =>
+  Boolean(
+    props.provider.auth.apiKey.trim() ||
+      props.provider.auth.accessToken.trim() ||
+      props.provider.auth.sessionCookie.trim(),
+  ),
+);
+const canViewUsage = computed(() => props.provider.runtime.enabled && hasCredential.value);
+const canViewRequestLogs = computed(() => props.provider.runtime.enabled && hasCredential.value);
+const canViewLiveness = computed(
+  () => props.provider.liveness.enabled || props.provider.liveness.records.length > 0,
+);
+const canViewCheckInRecords = computed(
+  () => supportsCheckIn(props.provider) || props.provider.automation.checkInRecords.length > 0,
+);
+const hasDataActions = computed(
+  () =>
+    canViewUsage.value ||
+    canViewRequestLogs.value ||
+    canViewLiveness.value ||
+    canViewCheckInRecords.value,
+);
+const canProbeSite = computed(() => props.provider.runtime.enabled && hasCredential.value);
+const canChangePassword = computed(
+  () =>
+    Boolean(
+      props.provider.auth.apiUser.trim() &&
+        (props.provider.auth.accessToken.trim() || props.provider.auth.sessionCookie.trim()),
+    ),
+);
+const hasSiteActions = computed(
+  () =>
+    canProbeSite.value ||
+    supportsApiKeyManagement(props.provider) ||
+    canViewAvailableModels.value ||
+    canChangePassword.value,
+);
+const showCliConfigAction = computed(
+  () => canSwitchCliConfig.value && !(props.codexDefault && props.claudeDefault),
+);
+
+function ccSwitchTargetBrand(target: CcSwitchAppTarget): BrandIconName {
+  return target === "claude" ? "claude" : target;
+}
 
 function providerStatusLabel() {
   if (props.tone === "disabled") {
-    return props.provider.runtime.enabled ? "待同步" : "已停用";
+    return "已停用";
   }
-  return toneLabels[props.tone] || "";
+  return toneLabels[props.tone];
 }
 
 function providerLogoSrc(provider: Provider) {
@@ -114,6 +253,69 @@ function handleEnter(event: KeyboardEvent) {
 function openCliInstances() {
   emit("openCliInstances", props.provider);
 }
+
+function switchCliConfig(cliKind: LivenessCliKind) {
+  const isCurrent = cliKind === "codex" ? props.codexDefault : props.claudeDefault;
+  cliSwitchVisible.value = false;
+  if (!isCurrent && !props.cliConfigSwitching) {
+    emit("switchCliConfig", props.provider, cliKind);
+  }
+}
+
+function openDataAction(action: "usage" | "requestLogs" | "liveness" | "checkInRecords") {
+  dataMenuVisible.value = false;
+  if (action === "usage") {
+    emit("openUsage", props.provider);
+  } else if (action === "requestLogs") {
+    emit("openRequestLogs", props.provider);
+  } else if (action === "liveness") {
+    emit("openLivenessDetails", props.provider);
+  } else {
+    emit("openCheckInRecords", props.provider);
+  }
+}
+
+function openSiteAction(action: "probe" | "keys" | "models" | "password") {
+  siteMenuVisible.value = false;
+  if (action === "probe") {
+    if (!props.provider.runtime.enabled || props.probingCapabilities) {
+      return;
+    }
+    emit("probeCapabilities", props.provider);
+  } else if (action === "keys") {
+    emit("openApiKeyManager", props.provider);
+  } else if (action === "models") {
+    emit("openAvailableModels", props.provider);
+  } else {
+    emit("openPasswordChange", props.provider);
+  }
+}
+
+function addCcSwitchConfig(target: CcSwitchAppTarget) {
+  ccSwitchMenuVisible.value = false;
+  emit("addCcSwitchConfig", props.provider, target);
+}
+
+function launchTemporaryCli() {
+  if (canLaunchTemporaryCli.value) {
+    emit("launchTemporaryCli", props.provider);
+  }
+}
+
+function copyProviderUrl() {
+  copyMenuVisible.value = false;
+  emit("copyUrl", props.provider);
+}
+
+function copyProviderInvite() {
+  copyMenuVisible.value = false;
+  emit("copyInvite", props.provider);
+}
+
+function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
+  copyMenuVisible.value = false;
+  emit("copySecret", props.provider, field);
+}
 </script>
 
 <template>
@@ -129,9 +331,10 @@ function openCliInstances() {
         'provider-card-dragging': dragging,
       },
     ]"
-    :role="interactive ? 'button' : undefined"
+    :role="interactive ? 'group' : undefined"
     :aria-disabled="interactive ? !provider.runtime.enabled : undefined"
     :aria-hidden="ariaHidden || undefined"
+    :aria-label="interactive ? `${provider.identity.name} 中转站卡片` : undefined"
     :tabindex="interactive ? 0 : undefined"
     :title="title"
     :style="dragStyle"
@@ -141,120 +344,401 @@ function openCliInstances() {
     @pointerdown="handlePointerDown"
     @keydown.enter="handleEnter"
   >
-    <div class="provider-card-header">
+    <header class="provider-card-header">
       <div class="provider-card-brand">
         <div class="provider-logo provider-card-logo">
-          <img :src="providerLogoSrc(provider)" alt="NewAPI" draggable="false" @error="handleProviderLogoError" />
+          <img
+            :src="providerLogoSrc(provider)"
+            :alt="provider.identity.name"
+            draggable="false"
+            @error="handleProviderLogoError"
+          />
         </div>
-        <h3 class="provider-card-title">{{ provider.identity.name }}</h3>
+        <div class="provider-card-brand-copy">
+          <h3 class="provider-card-title">{{ provider.identity.name }}</h3>
+          <span class="provider-card-type">NewAPI</span>
+        </div>
       </div>
-      <span v-if="providerStatusLabel()" class="provider-card-status">
-        {{ providerStatusLabel() }}
-      </span>
-    </div>
+      <div class="provider-card-header-meta">
+        <div v-if="codexDefault || claudeDefault" class="provider-card-default-signals" aria-label="默认 CLI 配置">
+          <span
+            v-if="codexDefault"
+            class="provider-card-default-signal"
+            title="Codex 当前使用此中转站"
+            aria-label="Codex 当前使用此中转站"
+          >
+            <BrandIcon brand="codex" :size="14" />
+          </span>
+          <span
+            v-if="claudeDefault"
+            class="provider-card-default-signal"
+            title="Claude Code 当前使用此中转站"
+            aria-label="Claude Code 当前使用此中转站"
+          >
+            <BrandIcon brand="claude" :size="14" />
+          </span>
+        </div>
+        <div class="provider-card-status" :title="title">
+          <i aria-hidden="true"></i>
+          <span>{{ providerStatusLabel() }}</span>
+        </div>
+      </div>
+    </header>
 
-    <div
-      v-if="providerIdentityName(provider) || providerIdentityId(provider)"
-      class="provider-card-identity"
-    >
-      <strong
-        v-if="providerIdentityName(provider)"
-        class="provider-card-user-name"
-        :title="providerIdentityName(provider)"
+    <div class="provider-card-content">
+      <section class="provider-card-identity" aria-label="账号信息">
+        <strong
+          v-if="identityDisplayName"
+          class="provider-card-user-name"
+          :title="identityDisplayName"
+        >
+          {{ identityDisplayName }}
+        </strong>
+        <span v-else class="provider-card-user-name provider-card-user-name-muted">
+          用户信息未同步
+        </span>
+        <div v-if="identityUsername || identityId" class="provider-card-user-meta">
+          <span v-if="identityUsername" :title="identityUsername">{{ identityUsername }}</span>
+          <span v-if="identityId" :title="identityId">{{ identityId }}</span>
+        </div>
+      </section>
+
+      <section
+        class="provider-card-quota"
+        :class="`provider-card-quota-${quotaTone}`"
+        aria-label="账户余额"
       >
-        {{ providerIdentityName(provider) }}
-      </strong>
-      <div
-        v-if="providerIdentitySecondaryUsername(provider) || providerIdentityId(provider)"
-        class="provider-card-user-meta"
-      >
-        <span
-          v-if="providerIdentitySecondaryUsername(provider)"
-          class="provider-card-user-username"
-          :title="providerIdentitySecondaryUsername(provider)"
-        >
-          {{ providerIdentitySecondaryUsername(provider) }}
-        </span>
-        <span
-          v-if="providerIdentityId(provider)"
-          class="provider-card-user-id"
-          :title="providerIdentityId(provider)"
-        >
-          ID {{ providerIdentityId(provider) }}
-        </span>
-      </div>
-    </div>
+        <div class="provider-card-balance">
+          <span>{{ providerQuotaScopeLabel(provider) }}</span>
+          <strong :title="providerAvailableQuotaLabel(provider)">
+            {{ providerAvailableQuotaLabel(provider) }}
+          </strong>
+        </div>
+        <div v-if="!providerQuotaUnlimited(provider)" class="provider-card-progress-row">
+          <span>可用 {{ availablePercentLabel(provider) }}</span>
+          <a-progress
+            class="provider-quota-progress"
+            :percent="availablePercent(provider)"
+            :show-text="false"
+            size="small"
+          />
+        </div>
+        <div v-else class="provider-card-unlimited">无限额度</div>
+      </section>
 
-    <div class="provider-card-auth">
-      <span class="provider-card-auth-mode" :title="authModeDescription">
-        {{ authModeLabel }}
-      </span>
-      <div class="provider-card-cli-context">
-        <span
-          v-if="codexDefault"
-          class="provider-card-cli-default provider-card-cli-default-codex"
-          title="当前 Codex 配置文件使用此中转站"
-        >
-          Codex 默认
-        </span>
-        <span
-          v-if="claudeDefault"
-          class="provider-card-cli-default provider-card-cli-default-claude"
-          title="当前 Claude Code 配置文件使用此中转站"
-        >
-          Claude 默认
-        </span>
-        <button
-          v-if="activeCliCount > 0"
-          type="button"
-          class="provider-card-cli-button"
-          :title="`查看 ${activeCliCount} 个临时 CLI 实例`"
-          @click.stop="openCliInstances"
-          @pointerdown.stop
-          @keydown.enter.stop="openCliInstances"
-        >
-          <icon-code />
-          CLI {{ activeCliCount }}
-        </button>
-      </div>
-    </div>
+      <ProviderModelPreview :models="provider.capabilities.availableModels" />
 
-    <div class="provider-card-balance">
-      <span>{{ providerQuotaScopeLabel(provider) }}</span>
-      <strong :title="providerAvailableQuotaLabel(provider)">
-        {{ providerAvailableQuotaLabel(provider) }}
-      </strong>
-    </div>
-
-    <div v-if="!providerQuotaUnlimited(provider)" class="provider-card-progress-row">
-      <span>剩余 {{ availablePercentLabel(provider) }}</span>
-      <a-progress
-        class="provider-quota-progress"
-        :percent="availablePercent(provider)"
-        :show-text="false"
-        size="small"
+      <ProviderLivenessTimeline
+        v-if="showLivenessTimeline"
+        :records="provider.liveness.records"
       />
-    </div>
-    <div v-else class="provider-card-unlimited">无限额度</div>
 
-    <div v-if="!providerQuotaUnlimited(provider)" class="provider-card-quota-row">
-      <span class="provider-card-quota-item">
-        <small>已用</small>
-        <strong :title="formatProviderQuota(provider, provider.quota.used)">
-          {{ formatProviderQuota(provider, provider.quota.used) }}
-        </strong>
-      </span>
-      <span class="provider-card-quota-item provider-card-quota-total">
-        <small>总额</small>
-        <strong :title="providerTotalQuotaLabel(provider)">
-          {{ providerTotalQuotaLabel(provider) }}
-        </strong>
-      </span>
-    </div>
+      <footer class="provider-card-footer" @click.stop @pointerdown.stop>
+        <div class="provider-card-footer-meta">
+          <span
+            class="provider-card-auth-summary"
+            :title="authModeDescription"
+            :aria-label="authModeDescription"
+          >
+            <ProviderAuthIcon :mode="provider.auth.mode" />
+          </span>
+          <button
+            v-if="activeCliCount > 0 && interactive"
+            type="button"
+            class="provider-card-cli-instance-trigger"
+            :title="`查看 ${activeCliCount} 个活动 CLI`"
+            :aria-label="`查看 ${activeCliCount} 个活动 CLI`"
+            @click="openCliInstances"
+            @pointerdown.stop
+          >
+            <Bot :size="15" :stroke-width="1.8" />
+            <strong>{{ activeCliCount }}</strong>
+          </button>
+          <span v-else-if="activeCliCount > 0" class="provider-card-cli-instance-trigger">
+            <Bot :size="15" :stroke-width="1.8" />
+            <strong>{{ activeCliCount }}</strong>
+          </span>
+        </div>
 
-    <ProviderLivenessTimeline
-      v-if="showLivenessTimeline"
-      :records="provider.liveness.records"
-    />
+        <div v-if="interactive" class="provider-card-quick-actions" aria-label="快捷操作">
+          <a-popover
+            v-if="hasCopyActions"
+            v-model:popup-visible="copyMenuVisible"
+            trigger="click"
+            position="rt"
+            content-class="provider-card-action-popover"
+          >
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-copy-action"
+              title="复制中转站信息"
+              aria-label="复制中转站信息"
+              @click.stop
+              @pointerdown.stop
+            >
+              <icon-copy />
+            </button>
+            <template #content>
+              <div class="provider-card-action-panel provider-card-copy-panel" @click.stop @pointerdown.stop>
+                <div class="provider-card-action-panel-title">复制</div>
+                <div class="provider-card-action-list">
+                  <button v-if="provider.identity.baseUrl.trim()" type="button" @click="copyProviderUrl">
+                    <icon-link />
+                    <span>中转站 URL</span>
+                  </button>
+                  <button
+                    v-if="provider.auth.apiKey.trim()"
+                    type="button"
+                    @click="copyProviderSecret('apiKey')"
+                  >
+                    <ProviderAuthIcon mode="apiKey" />
+                    <span>API Key</span>
+                  </button>
+                  <button
+                    v-if="provider.auth.accessToken.trim()"
+                    type="button"
+                    @click="copyProviderSecret('accessToken')"
+                  >
+                    <ProviderAuthIcon mode="accessToken" />
+                    <span>访问令牌</span>
+                  </button>
+                  <button
+                    v-if="provider.auth.sessionCookie.trim()"
+                    type="button"
+                    @click="copyProviderSecret('sessionCookie')"
+                  >
+                    <ProviderAuthIcon mode="session" />
+                    <span>Cookie</span>
+                  </button>
+                  <button
+                    v-if="provider.runtime.enabled && supportsInvitation(provider)"
+                    type="button"
+                    @click="copyProviderInvite"
+                  >
+                    <icon-link />
+                    <span>邀请链接</span>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </a-popover>
+
+          <a-popover
+            v-if="hasDataActions"
+            v-model:popup-visible="dataMenuVisible"
+            trigger="click"
+            position="rt"
+            content-class="provider-card-action-popover"
+          >
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-data-action"
+              title="查看中转站数据"
+              aria-label="查看中转站数据"
+              @click.stop
+              @pointerdown.stop
+            >
+              <icon-bar-chart />
+            </button>
+            <template #content>
+              <div class="provider-card-action-panel" @click.stop @pointerdown.stop>
+                <div class="provider-card-action-panel-title">数据</div>
+                <div class="provider-card-action-list">
+                  <button v-if="canViewUsage" type="button" @click="openDataAction('usage')">
+                    <icon-bar-chart />
+                    <span>用量趋势</span>
+                  </button>
+                  <button v-if="canViewRequestLogs" type="button" @click="openDataAction('requestLogs')">
+                    <icon-file />
+                    <span>请求日志</span>
+                  </button>
+                  <button v-if="canViewLiveness" type="button" @click="openDataAction('liveness')">
+                    <icon-thunderbolt />
+                    <span>测活明细</span>
+                  </button>
+                  <button v-if="canViewCheckInRecords" type="button" @click="openDataAction('checkInRecords')">
+                    <icon-calendar />
+                    <span>签到记录</span>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </a-popover>
+
+          <a-popover
+            v-if="hasSiteActions"
+            v-model:popup-visible="siteMenuVisible"
+            trigger="click"
+            position="rt"
+            content-class="provider-card-action-popover"
+          >
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-site-action"
+              title="管理中转站能力"
+              aria-label="管理中转站能力"
+              @click.stop
+              @pointerdown.stop
+            >
+              <icon-settings />
+            </button>
+            <template #content>
+              <div class="provider-card-action-panel" @click.stop @pointerdown.stop>
+                <div class="provider-card-action-panel-title">站点</div>
+                <div class="provider-card-action-list">
+                  <button
+                    v-if="canProbeSite"
+                    type="button"
+                    :disabled="probingCapabilities"
+                    @click="openSiteAction('probe')"
+                  >
+                    <icon-loading v-if="probingCapabilities" />
+                    <icon-sync v-else />
+                    <span>{{ probingCapabilities ? "探测中" : "探测站点能力" }}</span>
+                  </button>
+                  <button
+                    v-if="supportsApiKeyManagement(provider)"
+                    type="button"
+                    @click="openSiteAction('keys')"
+                  >
+                    <icon-safe />
+                    <span>密钥管理</span>
+                  </button>
+                  <button
+                    v-if="canViewAvailableModels"
+                    type="button"
+                    @click="openSiteAction('models')"
+                  >
+                    <icon-apps />
+                    <span>可用模型</span>
+                  </button>
+                  <button
+                    v-if="canChangePassword"
+                    type="button"
+                    @click="openSiteAction('password')"
+                  >
+                    <icon-lock />
+                    <span>修改密码</span>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </a-popover>
+
+          <a-popover
+            v-if="showCliConfigAction"
+            v-model:popup-visible="cliSwitchVisible"
+            trigger="click"
+            position="rt"
+            content-class="provider-card-action-popover"
+          >
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-cli-config-action"
+              :disabled="cliConfigSwitching || !canSwitchCliConfig"
+              title="预览并切换默认 CLI 配置"
+              aria-label="预览并切换默认 CLI 配置"
+              @click.stop
+              @pointerdown.stop
+            >
+              <icon-loading v-if="switchingCliKind" />
+              <GitCompareArrows v-else :size="16" :stroke-width="1.8" />
+            </button>
+            <template #content>
+              <div class="provider-card-cli-panel" @click.stop @pointerdown.stop>
+                <header class="provider-card-cli-panel-header">
+                  <strong>配置</strong>
+                </header>
+                <div class="provider-card-action-panel-section-title">默认 CLI</div>
+                <div class="provider-card-cli-config-list">
+                  <button
+                    v-if="!codexDefault"
+                    type="button"
+                    :disabled="cliConfigSwitching || !canSwitchCliConfig"
+                    @click="switchCliConfig('codex')"
+                  >
+                    <BrandIcon brand="codex" :size="16" />
+                    <span>
+                      <strong>Codex</strong>
+                      <small>切换到此中转站</small>
+                    </span>
+                    <icon-loading v-if="switchingCliKind === 'codex'" />
+                    <icon-swap v-else />
+                  </button>
+                  <button
+                    v-if="!claudeDefault"
+                    type="button"
+                    :disabled="cliConfigSwitching || !canSwitchCliConfig"
+                    @click="switchCliConfig('claudeCode')"
+                  >
+                    <BrandIcon brand="claude" :size="16" />
+                    <span>
+                      <strong>Claude Code</strong>
+                      <small>切换到此中转站</small>
+                    </span>
+                    <icon-loading v-if="switchingCliKind === 'claudeCode'" />
+                    <icon-swap v-else />
+                  </button>
+                </div>
+              </div>
+            </template>
+          </a-popover>
+
+          <a-popover
+            v-if="canAddCcSwitchConfig"
+            v-model:popup-visible="ccSwitchMenuVisible"
+            trigger="click"
+            position="rt"
+            content-class="provider-card-action-popover"
+          >
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-ccswitch-action"
+              title="添加到 CC Switch"
+              aria-label="添加到 CC Switch"
+              @click.stop
+              @pointerdown.stop
+            >
+              <img :src="ccSwitchLogo" alt="" aria-hidden="true" />
+            </button>
+            <template #content>
+              <div class="provider-card-cli-panel" @click.stop @pointerdown.stop>
+                <header class="provider-card-cli-panel-header">
+                  <strong>添加到 CC Switch</strong>
+                </header>
+                <div class="provider-card-cli-config-list">
+                  <button
+                    v-for="target in ccSwitchTargets"
+                    :key="target"
+                    type="button"
+                    :disabled="!canAddCcSwitchConfig"
+                    @click="addCcSwitchConfig(target)"
+                  >
+                    <BrandIcon :brand="ccSwitchTargetBrand(target)" :size="16" />
+                    <span>
+                      <strong>{{ ccSwitchTargetLabels[target] }}</strong>
+                      <small>添加此中转站配置</small>
+                    </span>
+                    <icon-link />
+                  </button>
+                </div>
+              </div>
+            </template>
+          </a-popover>
+
+          <button
+            v-if="canLaunchTemporaryCli"
+            type="button"
+            class="provider-card-icon-action provider-card-launch-action"
+            title="启动临时 CLI"
+            aria-label="启动临时 CLI"
+            @click="launchTemporaryCli"
+            @pointerdown.stop
+          >
+            <Bot :size="16" :stroke-width="1.8" />
+          </button>
+        </div>
+      </footer>
+    </div>
   </article>
 </template>

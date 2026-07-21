@@ -1,6 +1,6 @@
 [package]
 name = "balancehub"
-version = "0.3.3"
+version = "0.3.4"
 description = "用于集中管理 AI 中转站账号的跨平台桌面应用。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"
@@ -26,6 +26,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+toml_edit = "0.20"
 base64 = "0.22"
 hmac = "0.12"
 sha2 = "0.10"

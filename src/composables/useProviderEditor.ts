@@ -106,13 +106,28 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
       ...draftProvider,
       identity: {
         ...draftProvider.identity,
+        backupUrls: normalizeBackupUrls(draftProvider.identity.backupUrls),
         name:
           normalizeProviderBaseUrl(draftProvider.identity.baseUrl) === siteNameSourceBaseUrl.value
             ? draftProvider.identity.name
             : "",
       },
+      cli: {
+        preferredModel: draftProvider.cli.preferredModel.trim(),
+      },
       id: editingProviderId.value ?? undefined,
     };
+  }
+
+  function normalizeBackupUrls(values: string[]) {
+    const normalized: string[] = [];
+    for (const value of values) {
+      const url = value.trim().replace(/\/+$/, "");
+      if (url && !normalized.includes(url)) {
+        normalized.push(url);
+      }
+    }
+    return normalized;
   }
 
   function refreshAfterSave(provider: Provider | undefined) {

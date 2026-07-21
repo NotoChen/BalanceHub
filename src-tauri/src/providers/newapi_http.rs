@@ -293,6 +293,7 @@ mod tests {
                 identity: crate::models::ProviderIdentityInput {
                     name: "Relay".to_string(),
                     base_url: "https://relay.example.com".to_string(),
+                    ..crate::models::ProviderIdentityInput::default()
                 },
                 auth: crate::models::ProviderAuth {
                     mode: AuthMode::Session,

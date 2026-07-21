@@ -247,6 +247,26 @@ pub struct CliConfigSnapshot {
     pub error_message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliConfigChange {
+    pub file_path: String,
+    pub field_path: String,
+    pub before_value: Option<String>,
+    pub after_value: Option<String>,
+    pub sensitive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliConfigPreview {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub cli_kind: LivenessCliKind,
+    pub revision: String,
+    pub changes: Vec<CliConfigChange>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TemporaryCliInstanceStatus {
@@ -278,4 +298,13 @@ pub struct CliRuntimeSnapshot {
     pub codex: CliConfigSnapshot,
     pub claude_code: CliConfigSnapshot,
     pub instances: Vec<TemporaryCliInstance>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporaryCliLaunchResult {
+    pub instance: TemporaryCliInstance,
+    pub workspaces: Vec<super::Workspace>,
+    pub workspace_error: Option<String>,
+    pub preference: super::TemporaryCliPreference,
 }

@@ -21,6 +21,7 @@ import { useSettingsController } from "./useSettingsController";
 import { useSystemNotification } from "./useSystemNotification";
 import { useUsageSummary } from "./useUsageSummary";
 import { useWindowDrag } from "./useWindowDrag";
+import { useWorkspacePicker } from "./useWorkspacePicker";
 
 export function useAppController() {
   const providerStore = useProviderStore();
@@ -33,6 +34,8 @@ export function useAppController() {
     providers,
     refreshInProgress,
     settings,
+    workspaces,
+    temporaryCliPreferences,
   } = storeToRefs(providerStore);
 
   const { startWindowDrag } = useWindowDrag();
@@ -101,9 +104,11 @@ export function useAppController() {
   const cliRuntimeController = useCliRuntime({
     providers,
     cliRuntime,
-    refresh: () => providerStore.refreshCliRuntime(),
+    refreshInstances: () => providerStore.refreshTemporaryCliInstances(),
     activate: (instanceId) => providerStore.activateTemporaryCli(instanceId),
-    relaunch: (instanceId) => providerStore.relaunchTemporaryCli(instanceId),
+    previewConfig: (providerId, cliKind) => providerStore.previewCliConfig(providerId, cliKind),
+    switchConfig: (providerId, cliKind, revision) =>
+      providerStore.switchCliConfig(providerId, cliKind, revision),
   });
 
   async function removeProvider(provider: Provider) {
@@ -132,6 +137,15 @@ export function useAppController() {
     probeCodexCliPath: settingsController.probeCodexCliPath,
   });
 
+  const workspacePicker = useWorkspacePicker({
+    workspaces,
+    preferences: temporaryCliPreferences,
+    listApiKeys: (providerId) => providerStore.listApiKeys(providerId),
+    browse: (path) => providerStore.browseWorkspaceDirectories(path),
+    forget: (path) => providerStore.forgetWorkspace(path),
+    launch: (input) => providerStore.launchTemporaryCli(input),
+  });
+
   const providerMenu = useProviderMenuActions({
     providers,
     refreshByIds: async (ids) => {
@@ -141,7 +155,7 @@ export function useAppController() {
       }
     },
     testLiveness: (id) => providerStore.testLiveness(id),
-    launchTemporaryCli: (id, cliKind, workdir) => providerStore.launchTemporaryCli(id, cliKind, workdir),
+    openWorkspacePicker: workspacePicker.openWorkspacePicker,
     probeCapabilities: (id) => providerStore.probeCapabilities(id),
     getInviteLink: (id) => providerStore.getInviteLink(id),
     reload: () => providerStore.reload(),
@@ -214,6 +228,8 @@ export function useAppController() {
     loadError,
     loading,
     providers,
+    workspaces,
+    temporaryCliPreferences,
     cliRuntime,
     cliRuntimeLoading,
     refreshInProgress,
@@ -232,6 +248,7 @@ export function useAppController() {
     ...apiKeyManager,
     ...availableModels,
     ...cliRuntimeController,
+    ...workspacePicker,
     ...providerEditor,
     ...providerMenu,
     ...workspace,

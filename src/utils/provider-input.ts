@@ -11,6 +11,7 @@ export function emptyDraft(): ProviderInput {
     identity: {
       name: "",
       baseUrl: "",
+      backupUrls: [],
     },
     auth: {
       mode: "session",
@@ -18,6 +19,9 @@ export function emptyDraft(): ProviderInput {
       accessToken: "",
       sessionCookie: "",
       apiUser: "",
+    },
+    cli: {
+      preferredModel: "",
     },
     automation: {
       refreshInterval: 0,
@@ -64,8 +68,12 @@ export function providerToInput(
     identity: {
       name: provider.identity.name,
       baseUrl: provider.identity.baseUrl,
+      backupUrls: [...(provider.identity.backupUrls || [])],
     },
     auth: { ...provider.auth },
+    cli: {
+      preferredModel: provider.cli?.preferredModel || "",
+    },
     automation: {
       refreshInterval: provider.automation.refreshInterval,
       checkInTime: provider.automation.checkInTime,

@@ -9,6 +9,7 @@ import {
   type CliCandidate,
   type LivenessCliKind,
 } from "../../stores/providers";
+import BrandIcon, { type BrandIconName } from "../BrandIcon.vue";
 
 const props = defineProps<{
   settings: AppSettings;
@@ -109,6 +110,10 @@ function statusTone(kind: LivenessCliKind) {
   return `cli-overview-${state[kind].status}`;
 }
 
+function cliBrand(kind: LivenessCliKind): BrandIconName {
+  return kind === "codex" ? "codex" : "claude";
+}
+
 function normalizedPath(value: string) {
   return value.trim();
 }
@@ -130,6 +135,9 @@ async function validate(kind: LivenessCliKind) {
     card.status = "ok";
     card.version = result.version;
     card.resolvedPath = result.path;
+    if (normalizedPath(result.path) !== normalizedPath(pathFor(kind))) {
+      setPath(kind, result.path);
+    }
   } catch (error) {
     card.status = "error";
     card.version = "";
@@ -301,7 +309,10 @@ onUnmounted(() => {
         class="cli-overview-status"
         :class="statusTone(kind)"
       >
-        <span>{{ cliMeta[kind].label }}</span>
+        <span class="cli-overview-label">
+          <BrandIcon :brand="cliBrand(kind)" :size="14" />
+          <span>{{ cliMeta[kind].label }}</span>
+        </span>
         <strong>{{ statusLabel(kind) }}</strong>
       </div>
     </div>
@@ -314,8 +325,11 @@ onUnmounted(() => {
     >
       <div class="cli-card-head">
         <div class="cli-card-title-group">
-          <span class="cli-card-title">{{ cliMeta[kind].label }}</span>
-          <span class="cli-card-subtitle">{{ candidateSummary(kind) }}</span>
+          <BrandIcon :brand="cliBrand(kind)" :size="22" />
+          <div class="cli-card-title-copy">
+            <span class="cli-card-title">{{ cliMeta[kind].label }}</span>
+            <span class="cli-card-subtitle">{{ candidateSummary(kind) }}</span>
+          </div>
         </div>
         <a-tag v-if="settings.livenessCliKind === kind" color="arcoblue" size="small">当前测活</a-tag>
         <a-button v-else size="mini" @click="setCurrentKind(kind)">设为测活</a-button>
@@ -439,6 +453,17 @@ onUnmounted(() => {
   color: var(--color-text-3);
 }
 
+.cli-overview-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cli-overview-label .brand-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .cli-overview strong {
   overflow: hidden;
   color: var(--color-text-1);
@@ -482,8 +507,20 @@ onUnmounted(() => {
 
 .cli-card-title-group {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
+}
+
+.cli-card-title-group .brand-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.cli-card-title-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
 }
 
 .cli-card-title {

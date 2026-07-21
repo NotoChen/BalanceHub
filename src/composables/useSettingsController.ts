@@ -97,10 +97,6 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
   }
 
   async function autoProbeCodexCliPath() {
-    if (settingsForm.codexCliPath.trim() && settingsForm.claudeCliPath.trim()) {
-      return;
-    }
-
     try {
       await options.probeCodexCli();
       Object.assign(settingsForm, cloneSettings(options.settings.value));

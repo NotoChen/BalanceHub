@@ -27,6 +27,7 @@ impl TerminalLaunch {
         }
     }
 
+    #[cfg(target_os = "macos")]
     fn tracked(
         terminal_kind: TemporaryCliTerminalKind,
         locator: cli_runtime::CliTerminalLocator,
@@ -43,11 +44,18 @@ pub fn launch(
     provider: &Provider,
     cli_kind: LivenessCliKind,
     workdir: &Path,
+    api_key_override: &str,
+    model_override: &str,
 ) -> Result<TemporaryCliInstance, String> {
     if !workdir.is_dir() {
         return Err("工作目录不存在".to_string());
     }
-    if provider.auth.api_key.trim().is_empty() {
+    let api_key = if api_key_override.trim().is_empty() {
+        provider.auth.api_key.trim().to_string()
+    } else {
+        api_key_override.trim().to_string()
+    };
+    if api_key.is_empty() {
         return Err("缺少 API Key，无法启动临时 CLI".to_string());
     }
     if provider.identity.base_url.trim().is_empty() {
@@ -58,7 +66,11 @@ pub fn launch(
         LivenessCliKind::Codex => LivenessRunner::find_codex_cli(&settings.codex_cli_path)?,
         LivenessCliKind::ClaudeCode => LivenessRunner::find_claude_cli(&settings.claude_cli_path)?,
     };
-    let model = effective_model(settings, provider);
+    let model = if model_override.trim().is_empty() {
+        effective_model(settings, provider)
+    } else {
+        model_override.trim().to_string()
+    };
     let base_url = match cli_kind {
         LivenessCliKind::Codex => openai_base_url(provider),
         LivenessCliKind::ClaudeCode => anthropic_base_url(provider),
@@ -87,7 +99,7 @@ pub fn launch(
         cli_path: &cli.path,
         workdir,
         provider_name: &provider.identity.name,
-        api_key: &provider.auth.api_key,
+        api_key: &api_key,
         base_url: &base_url,
         model: &model,
         status_path: &registered.status_path,
@@ -251,11 +263,12 @@ fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
         .as_ref()
         .map(|path| format!("rm -f {}\n", shell_quote(&path.to_string_lossy())))
         .unwrap_or_default();
+    let login_shell_bootstrap = login_shell_bootstrap(input.script);
 
     let text = format!(
         r#"#!/bin/sh
 set -u
-bh_status_file={status_path}
+{login_shell_bootstrap}bh_status_file={status_path}
 bh_write_status() {{
   bh_tmp="$bh_status_file.tmp.$$"
   printf '{{"status":"%s","pid":%s,"endedAt":%s,"exitCode":%s}}\n' "$1" "$2" "$3" "$4" > "$bh_tmp"
@@ -279,6 +292,7 @@ rm -f "$0"
 exit "$status"
 "#,
         status_path = shell_quote(&input.status_path.to_string_lossy()),
+        login_shell_bootstrap = login_shell_bootstrap,
         workdir = shell_quote(&input.workdir.to_string_lossy()),
         color_block = unix_color_block(),
         cli = shell_quote(input.cli_path),
@@ -1008,6 +1022,7 @@ fn run_command(command: &mut Command, context: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn run_command_text(command: &mut Command, context: &str) -> Result<String, String> {
     let output = command
         .output()
@@ -1035,6 +1050,16 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+#[cfg(not(target_os = "windows"))]
+fn login_shell_bootstrap(script: &Path) -> String {
+    let command = format!("exec /bin/sh {}", shell_quote(&script.to_string_lossy()));
+    format!(
+        "if [ \"${{BALANCEHUB_LOGIN_ENV_READY:-}}\" != \"1\" ]; then\n  export BALANCEHUB_LOGIN_ENV_READY=1\n  exec {} -lic {}\nfi\nunset BALANCEHUB_LOGIN_ENV_READY\n",
+        shell_quote(&user_shell()),
+        shell_quote(&command),
+    )
+}
+
 #[cfg(target_os = "macos")]
 fn script_command(script: &Path) -> String {
     format!("exec {}", script_command_without_exec(script))
@@ -1045,9 +1070,15 @@ fn script_command_without_exec(script: &Path) -> String {
     format!("/bin/sh {}", shell_quote(&script.to_string_lossy()))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "windows"))]
 fn user_shell() -> String {
-    env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(target_os = "macos") {
+            "/bin/zsh".to_string()
+        } else {
+            "/bin/sh".to_string()
+        }
+    })
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -1118,6 +1149,7 @@ mod tests {
                 identity: crate::models::ProviderIdentityInput {
                     name: "Relay".to_string(),
                     base_url: "https://relay.example.com".to_string(),
+                    ..crate::models::ProviderIdentityInput::default()
                 },
                 auth: crate::models::ProviderAuth {
                     mode: AuthMode::ApiKey,
@@ -1310,14 +1342,23 @@ fi
         let settings = AppSettings {
             codex_cli_path: fake_codex.to_string_lossy().to_string(),
             temporary_cli_terminal_kind: TemporaryCliTerminalKind::Custom,
-            temporary_cli_terminal_command: "NO_COLOR=1 {script}".to_string(),
+            temporary_cli_terminal_command: "BALANCEHUB_LOGIN_ENV_READY=1 NO_COLOR=1 {script}"
+                .to_string(),
             liveness_model: "gpt-5.5".to_string(),
             ..AppSettings::default()
         };
         let mut provider = provider_with_liveness_model("");
         provider.identity.name = "Relay Site".to_string();
 
-        let instance = launch(&settings, &provider, LivenessCliKind::Codex, &workdir).unwrap();
+        let instance = launch(
+            &settings,
+            &provider,
+            LivenessCliKind::Codex,
+            &workdir,
+            "",
+            "",
+        )
+        .unwrap();
         assert_eq!(instance.cli_kind, LivenessCliKind::Codex);
         assert_eq!(instance.provider_id, provider.identity.id);
 
@@ -1407,13 +1448,22 @@ done
         let settings = AppSettings {
             claude_cli_path: fake_claude.to_string_lossy().to_string(),
             temporary_cli_terminal_kind: TemporaryCliTerminalKind::Custom,
-            temporary_cli_terminal_command: "NO_COLOR=1 {script}".to_string(),
+            temporary_cli_terminal_command: "BALANCEHUB_LOGIN_ENV_READY=1 NO_COLOR=1 {script}"
+                .to_string(),
             liveness_model: "claude-sonnet-4-5".to_string(),
             ..AppSettings::default()
         };
         let provider = provider_with_liveness_model("");
 
-        let instance = launch(&settings, &provider, LivenessCliKind::ClaudeCode, &workdir).unwrap();
+        let instance = launch(
+            &settings,
+            &provider,
+            LivenessCliKind::ClaudeCode,
+            &workdir,
+            "",
+            "",
+        )
+        .unwrap();
         assert_eq!(instance.cli_kind, LivenessCliKind::ClaudeCode);
         assert_eq!(instance.provider_id, provider.identity.id);
 
@@ -1483,6 +1533,17 @@ done
     #[test]
     fn shell_quote_handles_single_quotes() {
         assert_eq!(shell_quote("/tmp/a'b"), "'/tmp/a'\\''b'");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn temporary_script_enters_the_interactive_login_shell_once() {
+        let bootstrap = login_shell_bootstrap(Path::new("/tmp/launch test.command"));
+
+        assert!(bootstrap.contains("BALANCEHUB_LOGIN_ENV_READY"));
+        assert!(bootstrap.contains(" -lic "));
+        assert!(bootstrap.contains("exec /bin/sh"));
+        assert!(bootstrap.contains("/tmp/launch test.command"));
     }
 
     #[test]

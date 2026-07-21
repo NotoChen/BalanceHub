@@ -44,11 +44,14 @@ export function useProviderCardTone(options: UseProviderCardToneOptions) {
   }
 
   function computeProviderCardTone(provider: Provider): ProviderCardTone {
+    if (!provider.runtime.enabled) {
+      return "disabled";
+    }
     if (providerIntermediateLabel(provider)) {
       return "syncing";
     }
-    if (!provider.runtime.enabled || providerIsPendingSync(provider)) {
-      return "disabled";
+    if (providerIsPendingSync(provider)) {
+      return "pending";
     }
     if (provider.runtime.status === "error") {
       return "error";

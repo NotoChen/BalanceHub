@@ -12,6 +12,26 @@
   width: 100%;
 }
 
+.provider-backup-url-list {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+}
+
+.provider-backup-url-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-backup-url-row .arco-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
 .provider-advanced-section {
   overflow: hidden;
   margin-top: 12px;

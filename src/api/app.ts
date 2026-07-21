@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
+  CliConfigPreview,
   CliRuntimeSnapshot,
   CliCandidate,
   CodexCliProbeResult,
@@ -19,6 +20,11 @@ import type {
   ProviderSiteProbeResult,
   ProviderUsageSummary,
   TemporaryCliInstance,
+  TemporaryCliLaunchInput,
+  TemporaryCliLaunchResult,
+  TemporaryCliPreference,
+  Workspace,
+  WorkspaceDirectoryListing,
 } from "../stores/providers";
 
 export type CodexCliProbeInput = Pick<
@@ -30,6 +36,8 @@ export interface AppData {
   schemaVersion: number;
   providers: Provider[];
   settings: AppSettings;
+  workspaces: Workspace[];
+  temporaryCliPreferences: TemporaryCliPreference[];
 }
 
 export interface RefreshResult {
@@ -61,10 +69,6 @@ export function loadAppData() {
 
 export function hostPlatform() {
   return invoke<string>("host_platform");
-}
-
-export function userHomeDir() {
-  return invoke<string | null>("user_home_dir");
 }
 
 export function openCcSwitchDeeplink(url: string) {
@@ -139,20 +143,36 @@ export function testLiveness(id: string, prompt?: string, automatic = false) {
   return invoke<LivenessRunResult>("test_liveness", { id, prompt, automatic });
 }
 
-export function launchTemporaryCli(id: string, cliKind: LivenessCliKind, workdir: string) {
-  return invoke<TemporaryCliInstance>("launch_temporary_cli", { id, cliKind, workdir });
+export function launchTemporaryCli(input: TemporaryCliLaunchInput) {
+  return invoke<TemporaryCliLaunchResult>("launch_temporary_cli", { input });
 }
 
 export function getCliRuntimeSnapshot() {
   return invoke<CliRuntimeSnapshot>("get_cli_runtime_snapshot");
 }
 
+export function getTemporaryCliInstances() {
+  return invoke<TemporaryCliInstance[]>("get_temporary_cli_instances");
+}
+
 export function activateTemporaryCli(instanceId: string) {
   return invoke<void>("activate_temporary_cli", { instanceId });
 }
 
-export function relaunchTemporaryCli(instanceId: string) {
-  return invoke<TemporaryCliInstance>("relaunch_temporary_cli", { instanceId });
+export function browseWorkspaceDirectories(path?: string) {
+  return invoke<WorkspaceDirectoryListing>("browse_workspace_directories", { path });
+}
+
+export function forgetWorkspace(path: string) {
+  return invoke<Workspace[]>("forget_workspace", { path });
+}
+
+export function previewCliConfig(id: string, cliKind: LivenessCliKind) {
+  return invoke<CliConfigPreview>("preview_cli_config", { id, cliKind });
+}
+
+export function switchCliConfig(id: string, cliKind: LivenessCliKind, revision: string) {
+  return invoke<CliRuntimeSnapshot>("switch_cli_config", { id, cliKind, revision });
 }
 
 export function syncCodexModels(id: string) {

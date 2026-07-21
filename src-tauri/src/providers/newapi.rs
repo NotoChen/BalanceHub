@@ -6,7 +6,9 @@ pub use super::newapi_http::{build_client, is_anyrouter_base_url, provider_is_an
 use super::newapi_http::{
     build_url, build_user_request, normalize_base_url, provider_user_management_context,
 };
-use super::newapi_keys::{create_api_key, delete_api_key, fetch_api_key_options};
+use super::newapi_keys::{
+    create_api_key, delete_api_key, fetch_api_key_options, probe_api_key_management,
+};
 pub use super::newapi_logs::fetch_request_logs;
 pub use super::newapi_quota::{refresh_provider, test_connection};
 use super::newapi_response::{extract_string_field, parse_success_data, send_text};
@@ -102,10 +104,22 @@ pub async fn probe_capabilities(
         }
     }
 
-    match list_api_keys(client, provider).await {
-        Ok(_) => {
-            capabilities.api_key_management_known = true;
-            capabilities.api_key_management_supported = true;
+    let api_key_management_context = provider_user_management_context(provider);
+    match api_key_management_context {
+        Ok((base_url, api_user, credential, is_anyrouter)) => {
+            match probe_api_key_management(client, &base_url, &api_user, credential, is_anyrouter)
+                .await
+            {
+                Ok(()) => {
+                    capabilities.api_key_management_known = true;
+                    capabilities.api_key_management_supported = true;
+                }
+                Err(message) => {
+                    capabilities.api_key_management_known = true;
+                    capabilities.api_key_management_supported = false;
+                    errors.push(format!("密钥管理: {message}"));
+                }
+            }
         }
         Err(message) => {
             capabilities.api_key_management_known = true;
