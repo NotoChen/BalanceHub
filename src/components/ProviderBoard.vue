@@ -2,17 +2,9 @@
 import { computed, ref, type CSSProperties } from "vue";
 import { IconRefresh } from "@arco-design/web-vue/es/icon";
 import ProviderCard from "./ProviderCard.vue";
-import ProviderContextMenu from "./ProviderContextMenu.vue";
 import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
-
-interface ProviderContextMenuState {
-  visible: boolean;
-  x: number;
-  y: number;
-  provider: Provider | null;
-}
 
 interface ProviderDragState {
   providerId: string | null;
@@ -28,10 +20,8 @@ const props = defineProps<{
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
   switchingCliConfig: { providerId: string; cliKind: LivenessCliKind } | null;
-  providerContextMenu: ProviderContextMenuState;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
-  testingLivenessProviderId: string | null;
   providerDrag: ProviderDragState;
   dragOverProviderId: string | null;
   draggedProvider: Provider | null;
@@ -45,12 +35,10 @@ const emit = defineEmits<{
   add: [];
   importData: [];
   cardClick: [provider: Provider];
-  cardContextmenu: [provider: Provider, event: MouseEvent];
   cardPointerdown: [provider: Provider, event: PointerEvent];
   toggle: [provider: Provider];
   refresh: [provider: Provider];
   probeCapabilities: [provider: Provider];
-  testLiveness: [provider: Provider];
   launchTemporaryCli: [provider: Provider, cliKind?: LivenessCliKind];
   edit: [provider: Provider];
   checkIn: [provider: Provider];
@@ -225,8 +213,8 @@ function providerSwitchingCliKind(provider: Provider) {
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
+          :checking-in="checkingInProviderIds.includes(provider.identity.id)"
           @click="emit('cardClick', $event)"
-          @contextmenu="(provider, event) => emit('cardContextmenu', provider, event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
           @enter="emit('cardClick', $event)"
           @open-cli-instances="emit('openCliInstances', $event)"
@@ -244,6 +232,11 @@ function providerSwitchingCliKind(provider: Provider) {
           @copy-url="emit('copyUrl', $event)"
           @copy-invite="emit('copyInvite', $event)"
           @copy-secret="(provider, field) => emit('copySecret', provider, field)"
+          @edit="emit('edit', $event)"
+          @toggle="emit('toggle', $event)"
+          @refresh="emit('refresh', $event)"
+          @check-in="emit('checkIn', $event)"
+          @remove="emit('remove', $event)"
         />
       </TransitionGroup>
     </section>
@@ -269,8 +262,8 @@ function providerSwitchingCliKind(provider: Provider) {
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
+          :checking-in="checkingInProviderIds.includes(provider.identity.id)"
           @click="emit('cardClick', $event)"
-          @contextmenu="(provider, event) => emit('cardContextmenu', provider, event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
           @enter="emit('cardClick', $event)"
           @open-cli-instances="emit('openCliInstances', $event)"
@@ -288,6 +281,11 @@ function providerSwitchingCliKind(provider: Provider) {
           @copy-url="emit('copyUrl', $event)"
           @copy-invite="emit('copyInvite', $event)"
           @copy-secret="(provider, field) => emit('copySecret', provider, field)"
+          @edit="emit('edit', $event)"
+          @toggle="emit('toggle', $event)"
+          @refresh="emit('refresh', $event)"
+          @check-in="emit('checkIn', $event)"
+          @remove="emit('remove', $event)"
         />
       </TransitionGroup>
     </section>
@@ -313,8 +311,8 @@ function providerSwitchingCliKind(provider: Provider) {
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
+          :checking-in="checkingInProviderIds.includes(provider.identity.id)"
           @click="emit('cardClick', $event)"
-          @contextmenu="(provider, event) => emit('cardContextmenu', provider, event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
           @enter="emit('cardClick', $event)"
           @open-cli-instances="emit('openCliInstances', $event)"
@@ -332,6 +330,11 @@ function providerSwitchingCliKind(provider: Provider) {
           @copy-url="emit('copyUrl', $event)"
           @copy-invite="emit('copyInvite', $event)"
           @copy-secret="(provider, field) => emit('copySecret', provider, field)"
+          @edit="emit('edit', $event)"
+          @toggle="emit('toggle', $event)"
+          @refresh="emit('refresh', $event)"
+          @check-in="emit('checkIn', $event)"
+          @remove="emit('remove', $event)"
         />
       </TransitionGroup>
     </section>
@@ -350,21 +353,6 @@ function providerSwitchingCliKind(provider: Provider) {
       <p>当前认证方式或状态筛选没有结果。</p>
       <a-button @click="resetFilters">重置筛选</a-button>
     </div>
-
-    <ProviderContextMenu
-      v-if="providerContextMenu.visible && providerContextMenu.provider"
-      :provider="providerContextMenu.provider"
-      :x="providerContextMenu.x"
-      :y="providerContextMenu.y"
-      :checking-in="checkingInProviderIds.includes(providerContextMenu.provider.identity.id)"
-      :testing-liveness="testingLivenessProviderId === providerContextMenu.provider.identity.id"
-      @toggle="emit('toggle', $event)"
-      @refresh="emit('refresh', $event)"
-      @test-liveness="emit('testLiveness', $event)"
-      @edit="emit('edit', $event)"
-      @check-in="emit('checkIn', $event)"
-      @remove="emit('remove', $event)"
-    />
 
     <ProviderCard
       v-if="draggedProvider"

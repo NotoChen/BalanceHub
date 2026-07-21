@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
+      release_body: ${{ steps.release_notes.outputs.release_body }}
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -179,6 +180,7 @@ jobs:
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           tagName: ${{ github.ref_name }}
+          releaseBody: ${{ needs.prepare.outputs.release_body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

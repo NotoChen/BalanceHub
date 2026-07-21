@@ -166,9 +166,7 @@
 .provider-card-disabled .provider-card-auth-summary,
 .provider-card-disabled .provider-card-cli-context,
 .provider-card-disabled .provider-card-cli-instance-trigger,
-.provider-card-disabled .provider-card-cli-default-current,
-.provider-card-disabled .provider-card-quick-actions,
-.provider-card-disabled .provider-card-icon-action {
+.provider-card-disabled .provider-card-cli-default-current {
   color: #86909c;
 }
 
@@ -176,8 +174,7 @@
 .provider-card-disabled .provider-card-auth-summary strong,
 .provider-card-disabled .provider-card-auth-summary span,
 .provider-card-disabled .provider-card-cli-context svg,
-.provider-card-disabled .provider-card-cli-context b,
-.provider-card-disabled .provider-card-quick-actions svg {
+.provider-card-disabled .provider-card-cli-context b {
   color: #86909c;
 }
 
@@ -535,6 +532,21 @@
   color: #86909c;
 }
 
+.provider-card-auth-summary > .provider-auth-icon-session,
+.provider-auth-icon-session {
+  color: #d99000;
+}
+
+.provider-card-auth-summary > .provider-auth-icon-access-token,
+.provider-auth-icon-access-token {
+  color: #0e7490;
+}
+
+.provider-card-auth-summary > .provider-auth-icon-api-key,
+.provider-auth-icon-api-key {
+  color: #00a870;
+}
+
 .provider-card-auth-summary strong {
   flex: 0 0 auto;
   color: #4e5969;
@@ -642,9 +654,9 @@ button.provider-card-cli-instance-trigger:active {
 
 .provider-card-icon-action {
   display: grid;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
   place-items: center;
   border: 0;
   border-radius: 6px;
@@ -722,6 +734,27 @@ button.provider-card-cli-instance-trigger:active {
   color: #165dff;
 }
 
+.provider-card-checkin-action,
+.provider-card-enable-action {
+  color: #168a65;
+}
+
+.provider-card-refresh-action {
+  color: #3f78c5;
+}
+
+.provider-card-edit-action {
+  color: #64748b;
+}
+
+.provider-card-toggle-action {
+  color: #a87322;
+}
+
+.provider-card-delete-action {
+  color: #c7535d;
+}
+
 .provider-card-copy-action:hover,
 .provider-card-copy-action:focus-visible,
 .provider-card-data-action:hover,
@@ -733,7 +766,17 @@ button.provider-card-cli-instance-trigger:active {
 .provider-card-ccswitch-action:hover,
 .provider-card-ccswitch-action:focus-visible,
 .provider-card-launch-action:hover,
-.provider-card-launch-action:focus-visible {
+.provider-card-launch-action:focus-visible,
+.provider-card-checkin-action:hover,
+.provider-card-checkin-action:focus-visible,
+.provider-card-refresh-action:hover,
+.provider-card-refresh-action:focus-visible,
+.provider-card-edit-action:hover,
+.provider-card-edit-action:focus-visible,
+.provider-card-toggle-action:hover,
+.provider-card-toggle-action:focus-visible,
+.provider-card-delete-action:hover,
+.provider-card-delete-action:focus-visible {
   background: color-mix(in srgb, currentColor 11%, transparent);
   color: currentColor;
 }
@@ -962,12 +1005,12 @@ button.provider-card-cli-instance-trigger:active {
   grid-template-areas: none;
   grid-template-columns: none;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
 }
 
 .provider-card-footer-meta {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   gap: 8px;
 }
 
@@ -1006,10 +1049,31 @@ button.provider-card-cli-instance-trigger {
   min-width: 0;
   flex: 0 0 auto;
   grid-area: auto;
+  align-items: center;
   justify-self: auto;
-  gap: 1px;
-  margin-left: 0;
+  gap: 0;
+  margin-left: auto;
   padding-left: 5px;
+}
+
+.provider-card-action-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 1px;
+}
+
+.provider-card-primary-actions,
+.provider-card-secondary-actions {
+  flex: 0 0 auto;
+}
+
+.provider-card-action-divider {
+  width: 1px;
+  height: 16px;
+  flex: 0 0 1px;
+  margin: 0 4px;
+  background: var(--glass-border);
 }
 
 .provider-card-action-panel {
@@ -1062,6 +1126,60 @@ button.provider-card-cli-instance-trigger {
   width: 14px;
   height: 14px;
   color: #86909c;
+}
+
+.provider-card-action-list button .provider-auth-icon-session {
+  color: #d99000;
+}
+
+.provider-card-action-list button .provider-auth-icon-access-token {
+  color: #0e7490;
+}
+
+.provider-card-action-list button .provider-auth-icon-api-key {
+  color: #00a870;
+}
+
+.provider-card-action-list button .provider-card-action-icon-url,
+.provider-card-action-list button .provider-card-action-icon-link {
+  color: #3f78c5;
+}
+
+.provider-card-action-list button .provider-card-action-icon-invite {
+  color: #a87322;
+}
+
+.provider-card-action-list button .provider-card-action-icon-usage,
+.provider-card-action-list button .provider-card-action-icon-probe {
+  color: #3f78c5;
+}
+
+.provider-card-action-list button .provider-card-action-icon-logs {
+  color: #64748b;
+}
+
+.provider-card-action-list button .provider-card-action-icon-liveness {
+  color: #d99000;
+}
+
+.provider-card-action-list button .provider-card-action-icon-checkin-records {
+  color: #00a870;
+}
+
+.provider-card-action-list button .provider-card-action-icon-keys {
+  color: #00a870;
+}
+
+.provider-card-action-list button .provider-card-action-icon-models {
+  color: #7c5cff;
+}
+
+.provider-card-action-list button .provider-card-action-icon-password {
+  color: #e34d59;
+}
+
+.provider-card-cli-config-list button .provider-card-action-icon-switch {
+  color: #218a68;
 }
 
 .provider-card-action-list button span {

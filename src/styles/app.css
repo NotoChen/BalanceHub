@@ -3,7 +3,6 @@
 @import "./modules/provider-layout.css";
 @import "./modules/provider-card.css";
 @import "./modules/provider-liveness.css";
-@import "./modules/provider-context-menu.css";
 @import "./modules/temporary-cli.css";
 @import "./modules/workspace-picker.css";
 @import "./modules/cli-config-preview.css";

@@ -36,15 +36,6 @@ pub struct LivenessRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LivenessRunResult {
-    pub providers: Vec<Provider>,
-    pub provider: Provider,
-    pub record: LivenessRecord,
-    pub codex_path: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CodexCliProbeResult {
     pub path: String,
     pub version: String,

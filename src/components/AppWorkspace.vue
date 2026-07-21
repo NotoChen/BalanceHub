@@ -6,13 +6,6 @@ import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/pr
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 
-interface ProviderContextMenuState {
-  visible: boolean;
-  x: number;
-  y: number;
-  provider: Provider | null;
-}
-
 interface ProviderDragState {
   providerId: string | null;
   dragging: boolean;
@@ -29,10 +22,8 @@ defineProps<{
   switchingCliConfig: { providerId: string; cliKind: LivenessCliKind } | null;
   refreshInProgress: boolean;
   globalCheckInInProgress: boolean;
-  providerContextMenu: ProviderContextMenuState;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
-  testingLivenessProviderId: string | null;
   providerDrag: ProviderDragState;
   dragOverProviderId: string | null;
   draggedProvider: Provider | null;
@@ -50,12 +41,10 @@ const emit = defineEmits<{
   checkInAll: [];
   settings: [];
   cardClick: [provider: Provider];
-  cardContextmenu: [provider: Provider, event: MouseEvent];
   cardPointerdown: [provider: Provider, event: PointerEvent];
   toggle: [provider: Provider];
   refresh: [provider: Provider];
   probeCapabilities: [provider: Provider];
-  testLiveness: [provider: Provider];
   launchTemporaryCli: [provider: Provider, cliKind?: LivenessCliKind];
   edit: [provider: Provider];
   checkIn: [provider: Provider];
@@ -96,10 +85,8 @@ const emit = defineEmits<{
     :regular-providers="regularProviders"
     :cli-runtime="cliRuntime"
     :switching-cli-config="switchingCliConfig"
-    :provider-context-menu="providerContextMenu"
     :checking-in-provider-ids="checkingInProviderIds"
     :probing-capabilities-provider-id="probingCapabilitiesProviderId"
-    :testing-liveness-provider-id="testingLivenessProviderId"
     :provider-drag="providerDrag"
     :drag-over-provider-id="dragOverProviderId"
     :dragged-provider="draggedProvider"
@@ -110,12 +97,10 @@ const emit = defineEmits<{
     @add="emit('add')"
     @import-data="emit('importData')"
     @card-click="emit('cardClick', $event)"
-    @card-contextmenu="(provider, event) => emit('cardContextmenu', provider, event)"
     @card-pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
     @toggle="emit('toggle', $event)"
     @refresh="emit('refresh', $event)"
     @probe-capabilities="emit('probeCapabilities', $event)"
-    @test-liveness="emit('testLiveness', $event)"
     @launch-temporary-cli="(provider, cliKind) => emit('launchTemporaryCli', provider, cliKind)"
     @edit="emit('edit', $event)"
     @check-in="emit('checkIn', $event)"

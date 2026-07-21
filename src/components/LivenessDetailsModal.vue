@@ -41,7 +41,7 @@ function formatDateTime(value: string) {
 
 function sourceLabel(source: string | undefined) {
   if (source === "automatic") return "自动测活";
-  if (source === "manual") return "手动测活";
+  if (source === "manual") return "单次测活";
   return source || "未知来源";
 }
 

@@ -5,7 +5,6 @@ import type {
   CliRuntimeSnapshot,
   CliCandidate,
   CodexCliProbeResult,
-  LivenessRunResult,
   CodexModelSyncResult,
   LivenessCliKind,
   Provider,
@@ -137,10 +136,6 @@ export function probeCodexCli(input?: Partial<CodexCliProbeInput>) {
 
 export function previewLivenessPrompts(settings: AppSettings, count = 10) {
   return invoke<string[]>("preview_liveness_prompts", { settings, count });
-}
-
-export function testLiveness(id: string, prompt?: string, automatic = false) {
-  return invoke<LivenessRunResult>("test_liveness", { id, prompt, automatic });
 }
 
 export function launchTemporaryCli(input: TemporaryCliLaunchInput) {

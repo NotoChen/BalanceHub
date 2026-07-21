@@ -206,13 +206,6 @@ export interface LivenessRecord {
   commandPreview: string;
 }
 
-export interface LivenessRunResult {
-  providers: Provider[];
-  provider: Provider;
-  record: LivenessRecord;
-  codexPath: string;
-}
-
 export interface CodexCliProbeResult {
   path: string;
   version: string;

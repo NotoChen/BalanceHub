@@ -36,11 +36,23 @@ const label = computed(() => {
   }
   return "API Key";
 });
+
+const modeClass = computed(() => {
+  if (props.mode === "accessToken") {
+    return "provider-auth-icon-access-token";
+  }
+  if (props.mode === "apiKey") {
+    return "provider-auth-icon-api-key";
+  }
+  return "provider-auth-icon-session";
+});
 </script>
 
 <template>
   <component
     :is="icon"
+    class="provider-auth-icon"
+    :class="modeClass"
     :size="size"
     :stroke-width="strokeWidth"
     :aria-hidden="decorative || undefined"

@@ -61,9 +61,9 @@ function submit() {
           v-model="originalPassword"
           allow-clear
           autocomplete="current-password"
-          placeholder="已有密码账号必填"
+          placeholder="已有密码账号填写；首次设置可留空"
         />
-        <small>已有密码账号必须填写；第三方登录且未设置过密码的账号可留空尝试。</small>
+        <small>已有密码账号填写原密码；首次设置密码可留空，由中转站校验。</small>
       </label>
       <label>
         <span>新密码</span>

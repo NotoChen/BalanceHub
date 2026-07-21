@@ -1,7 +1,7 @@
 use crate::{
     models::{
         AppSettings, CliCandidate, CodexCliProbeResult, LivenessCliKind, LivenessPromptMode,
-        LivenessRecord, LivenessRunResult,
+        LivenessRecord,
     },
     services::liveness::{effective_interval, LivenessRunner},
     util::unix_millis as current_timestamp_millis,
@@ -47,47 +47,12 @@ impl<'a> ProviderService<'a> {
         }
     }
 
-    pub fn liveness_command_preview(&self, id: String) -> Result<LivenessRunResult, String> {
-        let data = self.snapshot();
-        let provider = find_provider(&data, &id)?;
-        let context = LivenessRunner::build_context(&data.settings, &provider, None)?;
-        let record = LivenessRecord {
-            checked_at: current_timestamp_millis().to_string(),
-            source: "manual".to_string(),
-            cli_kind: match context.cli_kind {
-                LivenessCliKind::Codex => "codex".to_string(),
-                LivenessCliKind::ClaudeCode => "claudeCode".to_string(),
-            },
-            ok: true,
-            latency_ms: 0,
-            model: context.model,
-            base_url: context.base_url,
-            prompt: context.prompt,
-            response_preview: String::new(),
-            response_raw: String::new(),
-            input_tokens: None,
-            cached_input_tokens: None,
-            output_tokens: None,
-            reasoning_output_tokens: None,
-            total_tokens: None,
-            total_cost_usd: None,
-            message: "命令预览".to_string(),
-            command_preview: context.command_preview,
-        };
-        Ok(LivenessRunResult {
-            providers: data.providers,
-            provider,
-            record,
-            codex_path: context.cli_path,
-        })
-    }
-
-    pub fn test_liveness(
+    pub fn run_liveness(
         &self,
         id: String,
         prompt: Option<String>,
         automatic: bool,
-    ) -> Result<LivenessRunResult, String> {
+    ) -> Result<LivenessRecord, String> {
         let snapshot = self.snapshot();
         let provider = find_provider(&snapshot, &id)?;
         if !provider.runtime.enabled {
@@ -95,19 +60,13 @@ impl<'a> ProviderService<'a> {
         }
 
         let record = LivenessRunner::run(&snapshot.settings, &provider, prompt, automatic);
-        let codex_path = match record.cli_kind.as_str() {
-            "claudeCode" => snapshot.settings.claude_cli_path.clone(),
-            _ => snapshot.settings.codex_cli_path.clone(),
-        };
-
         let stored_record = record.clone();
-        // 累计统计（独立于 40 条记录上限）；手动与自动测活都计入实际消耗。
+        // 累计统计独立于 40 条记录上限，每次自动测活都计入实际消耗。
         let run_input_tokens = record.input_tokens.unwrap_or(0);
         let run_output_tokens = record.output_tokens.unwrap_or(0);
         let run_total_tokens = record.total_tokens.unwrap_or(0);
         let run_cost_usd = record.total_cost_usd.unwrap_or(0.0);
-        let (providers, updated_provider) = self.mutate(|data| {
-            let mut updated_provider = provider.clone();
+        self.mutate(|data| {
             if let Some(stored_provider) = data
                 .providers
                 .iter_mut()
@@ -147,19 +106,12 @@ impl<'a> ProviderService<'a> {
                 let next_after = effective_interval(&data.settings, stored_provider);
                 stored_provider.liveness.next_at =
                     Some((current_timestamp_millis() + next_after as u128 * 1000).to_string());
-                updated_provider = stored_provider.clone();
             }
             // 注意：mutate 闭包持有状态写锁，严禁在这里做磁盘扫描/子进程探测之类的
             // 阻塞操作。CLI 路径的自动发现由启动时的 probe_codex_cli（锁外）负责。
-            (data.providers.clone(), updated_provider)
         })?;
 
-        Ok(LivenessRunResult {
-            providers,
-            provider: updated_provider,
-            record,
-            codex_path,
-        })
+        Ok(record)
     }
 
     /// 记录全 App 自动测活（消耗真实额度）的一次性授权。
@@ -171,7 +123,7 @@ impl<'a> ProviderService<'a> {
         })
     }
 
-    /// 重置全 App 自动测活授权（重置后调度器停止自动测活，再次开启时会重新弹窗授权；手动测活不受影响）。
+    /// 重置全 App 自动测活授权（重置后调度器停止自动测活，再次开启时会重新弹窗授权）。
     pub fn revoke_liveness_cost(&self) -> Result<AppSettings, String> {
         self.mutate(|data| {
             data.settings.liveness_consent_accepted_at = None;
