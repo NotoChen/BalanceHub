@@ -179,7 +179,7 @@ pub fn mark_instance_exited(status_path: &Path, exit_code: Option<i32>) {
     let _ = write_json_atomic(status_path, &status);
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "windows")))]
 pub fn instance_by_id(id: &str) -> Result<TemporaryCliInstance, String> {
     let instance_dir = validated_instance_dir(id)?;
     load_instance(&instance_dir).ok_or_else(|| "临时 CLI 实例不存在或记录已损坏".to_string())
