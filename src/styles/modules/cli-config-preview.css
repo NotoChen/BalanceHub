@@ -1,0 +1,175 @@
+.cli-config-preview-modal .arco-modal-body {
+  padding: 0 24px 20px;
+}
+
+.cli-config-preview-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.cli-config-preview-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--glass-border);
+  padding: 13px 0 16px;
+}
+
+.cli-config-preview-summary span,
+.cli-config-preview-summary small {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.cli-config-preview-summary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cli-config-preview-files {
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.cli-config-preview-file + .cli-config-preview-file {
+  border-top: 1px solid var(--glass-border);
+}
+
+.cli-config-preview-file > header {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 15px 2px 10px;
+  color: #4e5969;
+}
+
+.cli-config-preview-file > header > svg {
+  color: #86909c;
+  font-size: 15px;
+}
+
+.cli-config-preview-file > header code {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cli-config-preview-changes {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.cli-config-preview-change {
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+}
+
+.cli-config-preview-field {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(247, 248, 250, 0.82);
+  padding: 7px 11px;
+}
+
+.cli-config-preview-field code {
+  min-width: 0;
+  overflow: hidden;
+  color: #4e5969;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cli-config-preview-field span {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: #86909c;
+  font-size: 10px;
+}
+
+.cli-config-diff-line {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 5px;
+  padding: 8px 11px;
+}
+
+.cli-config-diff-line + .cli-config-diff-line {
+  border-top: 1px solid rgba(229, 230, 235, 0.72);
+}
+
+.cli-config-diff-line b {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.cli-config-diff-line code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+
+.cli-config-diff-before {
+  background: rgba(245, 63, 63, 0.055);
+  color: #b42318;
+}
+
+.cli-config-diff-after {
+  background: rgba(0, 180, 42, 0.06);
+  color: #067647;
+}
+
+:root.theme-dark .cli-config-preview-summary strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .cli-config-preview-field {
+  background: rgba(36, 38, 47, 0.9);
+}
+
+:root.theme-dark .cli-config-preview-file > header,
+:root.theme-dark .cli-config-preview-field code {
+  color: #c9cdd4;
+}
+
+:root.theme-dark .cli-config-diff-before {
+  background: rgba(255, 125, 125, 0.08);
+  color: #ffb3b3;
+}
+
+:root.theme-dark .cli-config-diff-after {
+  background: rgba(79, 209, 161, 0.09);
+  color: #8be4c2;
+}
+
+@media (max-width: 720px) {
+  .cli-config-preview-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .cli-config-preview-summary small {
+    grid-column: 1 / -1;
+  }
+}

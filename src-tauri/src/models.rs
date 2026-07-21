@@ -12,6 +12,8 @@ mod provider;
 pub mod provider_domain;
 #[path = "models/provider_results.rs"]
 mod provider_results;
+#[path = "models/workspace.rs"]
+mod workspace;
 
 pub(crate) use app_settings::{
     default_liveness_interval, default_liveness_placeholder_pools,
@@ -24,8 +26,9 @@ pub use enums::*;
 pub use liveness::*;
 pub use provider::*;
 pub use provider_results::*;
+pub use workspace::*;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +37,10 @@ pub struct AppData {
     pub schema_version: u32,
     pub providers: Vec<Provider>,
     pub settings: AppSettings,
+    #[serde(default)]
+    pub workspaces: Vec<Workspace>,
+    #[serde(default)]
+    pub temporary_cli_preferences: Vec<TemporaryCliPreference>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +57,8 @@ impl AppData {
             schema_version: CURRENT_SCHEMA_VERSION,
             providers,
             settings,
+            workspaces: Vec::new(),
+            temporary_cli_preferences: Vec::new(),
         }
     }
 }

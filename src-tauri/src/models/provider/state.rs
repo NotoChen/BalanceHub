@@ -15,6 +15,8 @@ pub struct Provider {
     pub auth: ProviderAuth,
     pub quota: ProviderQuota,
     pub capabilities: ProviderCapabilities,
+    #[serde(default)]
+    pub cli: ProviderCli,
     pub automation: ProviderAutomation,
     pub liveness: ProviderLiveness,
     pub proxy: ProviderProxy,
@@ -36,13 +38,31 @@ pub struct ProviderIdentity {
     pub user_id: String,
     #[serde(default)]
     pub site_logo: String,
+    #[serde(default)]
+    pub backup_urls: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderIdentityInput {
     pub name: String,
     pub base_url: String,
+    #[serde(default)]
+    pub backup_urls: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCli {
+    #[serde(default)]
+    pub preferred_model: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCliInput {
+    #[serde(default)]
+    pub preferred_model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

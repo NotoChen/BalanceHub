@@ -2,12 +2,11 @@
 import { computed } from "vue";
 import {
   IconClockCircle,
-  IconCode,
   IconLaunch,
-  IconRedo,
   IconRefresh,
 } from "@arco-design/web-vue/es/icon";
 import type { Provider, TemporaryCliInstance } from "../stores/providers";
+import BrandIcon, { type BrandIconName } from "./BrandIcon.vue";
 
 const props = defineProps<{
   visible: boolean;
@@ -15,32 +14,29 @@ const props = defineProps<{
   loading: boolean;
   instances: TemporaryCliInstance[];
   activatingId: string | null;
-  relaunchingId: string | null;
 }>();
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
   refresh: [];
   activate: [instance: TemporaryCliInstance];
-  relaunch: [instance: TemporaryCliInstance];
 }>();
 
 const title = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 临时 CLI` : "临时 CLI",
-);
-
-const activeCount = computed(() =>
-  props.instances.filter((instance) => instance.status !== "exited").length,
+  props.provider ? `${props.provider.identity.name} · 活动 CLI` : "活动 CLI",
 );
 
 function cliLabel(kind: TemporaryCliInstance["cliKind"]) {
   return kind === "codex" ? "Codex" : "Claude Code";
 }
 
+function cliBrand(kind: TemporaryCliInstance["cliKind"]): BrandIconName {
+  return kind === "codex" ? "codex" : "claude";
+}
+
 function statusLabel(status: TemporaryCliInstance["status"]) {
   if (status === "starting") return "正在启动";
-  if (status === "running") return "运行中";
-  return "已退出";
+  return "运行中";
 }
 
 function terminalLabel(kind: TemporaryCliInstance["terminalKind"]) {
@@ -91,9 +87,8 @@ function formatDateTime(value: string | null) {
     <div class="temporary-cli-drawer">
       <div class="temporary-cli-toolbar">
         <div class="temporary-cli-summary">
-          <strong>{{ activeCount }}</strong>
-          <span>个实例运行中</span>
-          <small>共 {{ instances.length }} 条记录</small>
+          <strong>{{ instances.length }}</strong>
+          <span>个 CLI 正在使用</span>
         </div>
         <a-tooltip content="刷新实例状态">
           <a-button
@@ -108,7 +103,7 @@ function formatDateTime(value: string | null) {
       </div>
 
       <a-spin :loading="loading">
-        <a-empty v-if="instances.length === 0" description="暂无临时 CLI 实例" />
+        <a-empty v-if="instances.length === 0" description="暂无正在使用的 CLI" />
         <div v-else class="temporary-cli-list">
           <section
             v-for="instance in instances"
@@ -118,7 +113,9 @@ function formatDateTime(value: string | null) {
           >
             <div class="temporary-cli-instance-header">
               <div class="temporary-cli-instance-name">
-                <span class="temporary-cli-kind-icon"><icon-code /></span>
+                <span class="temporary-cli-kind-icon">
+                  <BrandIcon :brand="cliBrand(instance.cliKind)" :size="20" />
+                </span>
                 <div>
                   <strong>{{ cliLabel(instance.cliKind) }}</strong>
                   <span>{{ terminalLabel(instance.terminalKind) }}</span>
@@ -139,22 +136,15 @@ function formatDateTime(value: string | null) {
                 <dd>{{ formatDateTime(instance.startedAt) }}</dd>
               </div>
               <div>
-                <dt>{{ instance.status === "exited" ? "退出时间" : "进程" }}</dt>
+                <dt>进程</dt>
                 <dd>
-                  {{ instance.status === "exited"
-                    ? formatDateTime(instance.endedAt)
-                    : instance.pid ? `PID ${instance.pid}` : "等待终端启动" }}
+                  {{ instance.pid ? `PID ${instance.pid}` : "等待终端启动" }}
                 </dd>
-              </div>
-              <div v-if="instance.status === 'exited' && instance.exitCode !== null">
-                <dt>退出码</dt>
-                <dd>{{ instance.exitCode }}</dd>
               </div>
             </dl>
 
             <div class="temporary-cli-instance-actions">
               <a-tooltip
-                v-if="instance.status !== 'exited'"
                 :content="instance.canActivate
                   ? '打开对应的终端窗口'
                   : '当前终端未提供可定位的窗口信息'"
@@ -172,14 +162,6 @@ function formatDateTime(value: string | null) {
                   </a-button>
                 </span>
               </a-tooltip>
-              <a-button
-                size="small"
-                :loading="relaunchingId === instance.id"
-                @click="emit('relaunch', instance)"
-              >
-                <template #icon><icon-redo /></template>
-                重新启动
-              </a-button>
             </div>
           </section>
         </div>

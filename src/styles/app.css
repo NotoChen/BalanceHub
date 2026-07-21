@@ -5,6 +5,8 @@
 @import "./modules/provider-liveness.css";
 @import "./modules/provider-context-menu.css";
 @import "./modules/temporary-cli.css";
+@import "./modules/workspace-picker.css";
+@import "./modules/cli-config-preview.css";
 @import "./modules/editor-codex.css";
 @import "./modules/settings.css";
 @import "./modules/theme-dark.css";

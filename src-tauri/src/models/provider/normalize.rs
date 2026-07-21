@@ -91,6 +91,19 @@ pub(super) fn string_list(values: Vec<String>) -> Vec<String> {
     normalized
 }
 
+/// 规范化备用地址时保留用户填写顺序。备用地址的顺序是维护信息，不能像通知渠道一样排序。
+pub(super) fn backup_url_list(values: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for value in values {
+        let value = value.trim().trim_end_matches('/').to_string();
+        if value.is_empty() || normalized.iter().any(|item| item == &value) {
+            continue;
+        }
+        normalized.push(value);
+    }
+    normalized
+}
+
 pub(super) fn provider_name_from_input(name: &str, base_url: &str) -> String {
     let trimmed_name = name.trim();
     if !trimmed_name.is_empty() {

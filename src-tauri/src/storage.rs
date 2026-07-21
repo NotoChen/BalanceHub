@@ -147,11 +147,15 @@ fn migrate_app_data(text: &str, stored_version: u32) -> Result<AppData, String> 
 }
 
 /// 单级迁移：把 `version` 的结构调整为 `version + 1`。
-fn migrate_step(version: u32, _data: &mut serde_json::Value) -> Result<(), String> {
+fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String> {
     match version {
         // v1/v2 只存在于开发期，与 v3 的差异均为「新增带默认值的字段」，
         // 反序列化时 #[serde(default)] 即可兜底，无需 Value 级调整。
         1 | 2 => Ok(()),
+        3 => {
+            data["workspaces"] = serde_json::Value::Array(Vec::new());
+            Ok(())
+        }
         other => Err(format!(
             "没有从 schemaVersion {other} 出发的迁移路径，请重新初始化配置或导入新版配置"
         )),
@@ -307,6 +311,8 @@ mod tests {
             .expect("older schema should migrate");
 
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert!(migrated.workspaces.is_empty());
+        assert!(migrated.temporary_cli_preferences.is_empty());
     }
 
     #[test]

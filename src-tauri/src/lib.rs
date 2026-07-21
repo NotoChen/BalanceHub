@@ -9,12 +9,14 @@ mod tray;
 mod util;
 
 use models::{
-    AppData, AppDataTransferResult, AppSettings, CliCandidate, CliRuntimeSnapshot,
-    CodexCliProbeResult, CodexModelSyncResult, LivenessCliKind, LivenessRunResult, Provider,
-    ProviderApiKeyOption, ProviderCapabilityProbeResult, ProviderCheckInRecordsResult,
-    ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
-    ProviderInput, ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
-    ProviderUsageSummary, RefreshResult, TemporaryCliInstance,
+    AppData, AppDataTransferResult, AppSettings, CliCandidate, CliConfigPreview,
+    CliRuntimeSnapshot, CodexCliProbeResult, CodexModelSyncResult, LivenessCliKind,
+    LivenessRunResult, Provider, ProviderApiKeyOption, ProviderCapabilityProbeResult,
+    ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
+    ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
+    ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, RefreshResult,
+    TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
+    TemporaryCliPreference, Workspace, WorkspaceDirectoryListing,
 };
 use services::liveness::preview_prompts;
 use services::notifications::NotificationSendResult;
@@ -37,26 +39,6 @@ fn host_platform() -> &'static str {
 }
 
 #[tauri::command]
-fn user_home_dir() -> Option<String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::env::var_os("USERPROFILE")
-            .or_else(|| {
-                let mut home = std::env::var_os("HOMEDRIVE")?;
-                home.push(std::env::var_os("HOMEPATH")?);
-                Some(home)
-            })
-            .map(|path| std::path::PathBuf::from(path).to_string_lossy().to_string())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::env::var_os("HOME")
-            .map(|path| std::path::PathBuf::from(path).to_string_lossy().to_string())
-    }
-}
-
-#[tauri::command]
 fn open_ccswitch_deeplink(url: String) -> Result<(), String> {
     let trimmed = url.trim();
     if !trimmed.starts_with("ccswitch://v1/import?") {
@@ -69,10 +51,8 @@ fn open_ccswitch_deeplink(url: String) -> Result<(), String> {
 #[tauri::command]
 fn launch_temporary_cli(
     app: AppHandle,
-    id: String,
-    cli_kind: LivenessCliKind,
-    workdir: String,
-) -> Result<TemporaryCliInstance, String> {
+    input: TemporaryCliLaunchInput,
+) -> Result<TemporaryCliLaunchResult, String> {
     let data = app
         .state::<AppState>()
         .data
@@ -82,16 +62,83 @@ fn launch_temporary_cli(
     let provider = data
         .providers
         .iter()
-        .find(|provider| provider.identity.id == id)
+        .find(|provider| provider.identity.id == input.provider_id)
         .cloned()
         .ok_or_else(|| "中转站不存在".to_string())?;
+    let cli_kind = input.cli_kind;
+    let api_key = if input.api_key.trim().is_empty() {
+        provider.auth.api_key.trim().to_string()
+    } else {
+        input.api_key.trim().to_string()
+    };
+    if api_key.is_empty() {
+        return Err("缺少 API Key，无法启动临时 CLI".to_string());
+    }
+    let saved_preference = data
+        .temporary_cli_preferences
+        .iter()
+        .find(|preference| preference.provider_id == provider.identity.id);
+    let model = [
+        input.model.trim(),
+        saved_preference
+            .map(|preference| preference.model.trim())
+            .unwrap_or_default(),
+        provider.cli.preferred_model.trim(),
+        provider.liveness.model.trim(),
+        data.settings.liveness_model.trim(),
+    ]
+    .into_iter()
+    .find(|value| !value.is_empty())
+    .unwrap_or_default()
+    .to_string();
 
-    services::temporary_cli::launch(
-        &data.settings,
+    let cli = match cli_kind {
+        LivenessCliKind::Codex => {
+            services::liveness::LivenessRunner::find_codex_cli(&data.settings.codex_cli_path)?
+        }
+        LivenessCliKind::ClaudeCode => {
+            services::liveness::LivenessRunner::find_claude_cli(&data.settings.claude_cli_path)?
+        }
+    };
+    let mut launch_settings = data.settings.clone();
+    match cli_kind {
+        LivenessCliKind::Codex => launch_settings.codex_cli_path = cli.path.clone(),
+        LivenessCliKind::ClaudeCode => launch_settings.claude_cli_path = cli.path.clone(),
+    }
+    let workdir = services::workspaces::normalize_directory(std::path::Path::new(&input.workdir))?;
+    let instance = services::temporary_cli::launch(
+        &launch_settings,
         &provider,
         cli_kind,
-        std::path::Path::new(&workdir),
-    )
+        &workdir,
+        &api_key,
+        &model,
+    )?;
+    let fallback_preference = TemporaryCliPreference {
+        provider_id: provider.identity.id.clone(),
+        cli_kind,
+        api_key_token_id: input.api_key_token_id.trim().to_string(),
+        model: model.clone(),
+        workspace_path: workdir.to_string_lossy().to_string(),
+    };
+    let (workspaces, workspace_error, preference) = match ProviderService::new(&app)
+        .record_temporary_cli_launch(
+            &provider.identity.id,
+            cli_kind,
+            &cli.path,
+            &workdir,
+            &input.api_key_token_id,
+            &model,
+        ) {
+        Ok((workspaces, preference)) => (workspaces, None, preference),
+        Err(err) => (data.workspaces, Some(err), fallback_preference),
+    };
+    Ok(TemporaryCliLaunchResult {
+        instance,
+        workspaces,
+        workspace_error,
+        preference,
+    })
 }
 
 #[tauri::command]
@@ -107,16 +154,37 @@ fn get_cli_runtime_snapshot(app: AppHandle) -> CliRuntimeSnapshot {
 }
 
 #[tauri::command]
+async fn get_temporary_cli_instances() -> Result<Vec<TemporaryCliInstance>, String> {
+    tauri::async_runtime::spawn_blocking(services::cli_runtime::active_instances)
+        .await
+        .map_err(|err| format!("临时 CLI 状态读取任务异常: {err}"))
+}
+
+#[tauri::command]
 fn activate_temporary_cli(instance_id: String) -> Result<(), String> {
     services::temporary_cli::activate(&instance_id)
 }
 
 #[tauri::command]
-fn relaunch_temporary_cli(
+fn forget_workspace(app: AppHandle, path: String) -> Result<Vec<Workspace>, String> {
+    ProviderService::new(&app).forget_workspace(path)
+}
+
+#[tauri::command]
+async fn browse_workspace_directories(
+    path: Option<String>,
+) -> Result<WorkspaceDirectoryListing, String> {
+    tauri::async_runtime::spawn_blocking(move || services::workspaces::browse(path.as_deref()))
+        .await
+        .map_err(|err| format!("工作空间目录读取任务异常: {err}"))?
+}
+
+#[tauri::command]
+fn preview_cli_config(
     app: AppHandle,
-    instance_id: String,
-) -> Result<TemporaryCliInstance, String> {
-    let instance = services::cli_runtime::instance_by_id(&instance_id)?;
+    id: String,
+    cli_kind: LivenessCliKind,
+) -> Result<CliConfigPreview, String> {
     let data = app
         .state::<AppState>()
         .data
@@ -126,16 +194,35 @@ fn relaunch_temporary_cli(
     let provider = data
         .providers
         .iter()
-        .find(|provider| provider.identity.id == instance.provider_id)
+        .find(|provider| provider.identity.id == id)
         .cloned()
-        .ok_or_else(|| "实例对应的中转站已不存在".to_string())?;
+        .ok_or_else(|| "中转站不存在".to_string())?;
 
-    services::temporary_cli::launch(
-        &data.settings,
-        &provider,
-        instance.cli_kind,
-        std::path::Path::new(&instance.workdir),
-    )
+    services::cli_runtime::preview_config(&provider, cli_kind)
+}
+
+#[tauri::command]
+fn switch_cli_config(
+    app: AppHandle,
+    id: String,
+    cli_kind: LivenessCliKind,
+    revision: String,
+) -> Result<CliRuntimeSnapshot, String> {
+    let data = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|err| err.into_inner())
+        .clone();
+    let provider = data
+        .providers
+        .iter()
+        .find(|provider| provider.identity.id == id)
+        .cloned()
+        .ok_or_else(|| "中转站不存在".to_string())?;
+
+    services::cli_runtime::switch_config(&provider, cli_kind, Some(&revision))?;
+    Ok(services::cli_runtime::snapshot(&data.providers))
 }
 
 #[cfg(target_os = "macos")]
@@ -672,12 +759,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_status,
             host_platform,
-            user_home_dir,
             open_ccswitch_deeplink,
             launch_temporary_cli,
             get_cli_runtime_snapshot,
+            get_temporary_cli_instances,
             activate_temporary_cli,
-            relaunch_temporary_cli,
+            forget_workspace,
+            browse_workspace_directories,
+            preview_cli_config,
+            switch_cli_config,
             load_app_data,
             save_provider,
             remove_provider,

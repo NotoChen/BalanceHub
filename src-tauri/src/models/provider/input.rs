@@ -1,10 +1,13 @@
 use super::{
     defaults,
-    normalize::{normalize_api_key, provider_name_from_input, session_value, string_list},
+    normalize::{
+        backup_url_list, normalize_api_key, provider_name_from_input, session_value, string_list,
+    },
     state::{
         Provider, ProviderAuth, ProviderAutomation, ProviderAutomationInput, ProviderCapabilities,
-        ProviderIdentity, ProviderIdentityInput, ProviderLiveness, ProviderLivenessInput,
-        ProviderNotification, ProviderProxy, ProviderQuota, ProviderRuntime, ProviderRuntimeInput,
+        ProviderCli, ProviderCliInput, ProviderIdentity, ProviderIdentityInput, ProviderLiveness,
+        ProviderLivenessInput, ProviderNotification, ProviderProxy, ProviderQuota, ProviderRuntime,
+        ProviderRuntimeInput,
     },
 };
 use crate::models::{
@@ -20,6 +23,8 @@ pub struct ProviderInput {
     pub id: Option<String>,
     pub identity: ProviderIdentityInput,
     pub auth: ProviderAuth,
+    #[serde(default)]
+    pub cli: ProviderCliInput,
     pub automation: ProviderAutomationInput,
     pub liveness: ProviderLivenessInput,
     pub proxy: ProviderProxy,
@@ -34,6 +39,7 @@ impl Default for ProviderInput {
             identity: ProviderIdentityInput {
                 name: String::new(),
                 base_url: String::new(),
+                backup_urls: Vec::new(),
             },
             auth: ProviderAuth {
                 mode: AuthMode::Session,
@@ -42,6 +48,7 @@ impl Default for ProviderInput {
                 session_cookie: String::new(),
                 api_user: String::new(),
             },
+            cli: ProviderCliInput::default(),
             automation: ProviderAutomationInput {
                 refresh_interval: 0,
                 check_in_time: String::new(),
@@ -86,6 +93,7 @@ impl Provider {
                 username: String::new(),
                 user_id: String::new(),
                 site_logo: String::new(),
+                backup_urls: backup_url_list(input.identity.backup_urls),
             },
             auth: ProviderAuth {
                 mode: input.auth.mode,
@@ -105,6 +113,9 @@ impl Provider {
                 currency_exchange_rate: defaults::currency_exchange_rate(),
             },
             capabilities: ProviderCapabilities::default(),
+            cli: ProviderCli {
+                preferred_model: input.cli.preferred_model.trim().to_string(),
+            },
             automation: ProviderAutomation {
                 refresh_interval: input.automation.refresh_interval,
                 check_in_time: input.automation.check_in_time,
@@ -165,6 +176,7 @@ impl Provider {
         self.identity.name =
             provider_name_from_input(&input.identity.name, &input.identity.base_url);
         self.identity.base_url = input.identity.base_url;
+        self.identity.backup_urls = backup_url_list(input.identity.backup_urls);
         self.auth = ProviderAuth {
             mode: input.auth.mode,
             api_key: normalize_api_key(&input.auth.api_key),
@@ -172,6 +184,7 @@ impl Provider {
             session_cookie: input.auth.session_cookie,
             api_user: input.auth.api_user,
         };
+        self.cli.preferred_model = input.cli.preferred_model.trim().to_string();
         self.automation.refresh_interval = input.automation.refresh_interval;
         self.automation.check_in_time = input.automation.check_in_time;
         self.proxy = input.proxy;

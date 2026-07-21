@@ -9,6 +9,8 @@ use super::newapi_response::{
 };
 use super::newapi_site::{convert_quota_value, fetch_site_metadata, SiteMetadata};
 
+const API_KEY_PAGE_SIZE: usize = 100;
+
 pub(crate) async fn fetch_api_key_options(
     client: &Client,
     base_url: &str,
@@ -16,19 +18,15 @@ pub(crate) async fn fetch_api_key_options(
     credential: UserCredential,
     is_anyrouter: bool,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    let url = build_url(base_url, "/api/token/?p=0&page_size=100")?;
-    let request = build_user_request(
+    let data = fetch_api_key_page(
         client,
-        Method::GET,
-        url,
         base_url,
         api_user,
         credential.clone(),
         is_anyrouter,
+        0,
     )
     .await?;
-    let (status, body) = send_text(request, "读取 API 密钥列表").await?;
-    let data = parse_success_data(&status, body, "API 密钥列表")?;
     let tokens = extract_token_items(&data);
     let site = fetch_site_metadata(client, base_url, is_anyrouter)
         .await
@@ -71,6 +69,46 @@ pub(crate) async fn fetch_api_key_options(
     }
 
     Ok(options)
+}
+
+pub(crate) async fn probe_api_key_management(
+    client: &Client,
+    base_url: &str,
+    api_user: &str,
+    credential: UserCredential,
+    is_anyrouter: bool,
+) -> Result<(), String> {
+    fetch_api_key_page(client, base_url, api_user, credential, is_anyrouter, 0)
+        .await
+        .map(|_| ())
+}
+
+async fn fetch_api_key_page(
+    client: &Client,
+    base_url: &str,
+    api_user: &str,
+    credential: UserCredential,
+    is_anyrouter: bool,
+    page: usize,
+) -> Result<Value, String> {
+    let mut url = build_url(base_url, "/api/token/")?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("p", &page.to_string());
+        pairs.append_pair("page_size", &API_KEY_PAGE_SIZE.to_string());
+    }
+    let request = build_user_request(
+        client,
+        Method::GET,
+        url,
+        base_url,
+        api_user,
+        credential,
+        is_anyrouter,
+    )
+    .await?;
+    let (status, body) = send_text(request, "读取 API 密钥列表").await?;
+    parse_success_data(&status, body, "API 密钥列表")
 }
 
 pub(crate) async fn create_api_key(

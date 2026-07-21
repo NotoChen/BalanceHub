@@ -37,6 +37,7 @@ export interface Provider {
   auth: ProviderAuth;
   quota: ProviderQuota;
   capabilities: ProviderCapabilities;
+  cli: ProviderCli;
   automation: ProviderAutomation;
   liveness: ProviderLiveness;
   proxy: ProviderProxy;
@@ -52,11 +53,21 @@ export interface ProviderIdentity {
   username: string;
   userId: string;
   siteLogo: string;
+  backupUrls: string[];
 }
 
 export interface ProviderIdentityInput {
   name: string;
   baseUrl: string;
+  backupUrls: string[];
+}
+
+export interface ProviderCli {
+  preferredModel: string;
+}
+
+export interface ProviderCliInput {
+  preferredModel: string;
 }
 
 export interface ProviderAuth {
@@ -166,6 +177,7 @@ export interface ProviderInput {
   id?: string;
   identity: ProviderIdentityInput;
   auth: ProviderAuth;
+  cli: ProviderCliInput;
   automation: ProviderAutomationInput;
   liveness: ProviderLivenessInput;
   proxy: ProviderProxy;
@@ -382,6 +394,22 @@ export interface CliConfigSnapshot {
   errorMessage: string | null;
 }
 
+export interface CliConfigChange {
+  filePath: string;
+  fieldPath: string;
+  beforeValue: string | null;
+  afterValue: string | null;
+  sensitive: boolean;
+}
+
+export interface CliConfigPreview {
+  providerId: string;
+  providerName: string;
+  cliKind: LivenessCliKind;
+  revision: string;
+  changes: CliConfigChange[];
+}
+
 export interface TemporaryCliInstance {
   id: string;
   providerId: string;
@@ -395,6 +423,48 @@ export interface TemporaryCliInstance {
   status: TemporaryCliInstanceStatus;
   exitCode: number | null;
   canActivate: boolean;
+}
+
+export interface Workspace {
+  path: string;
+  useCount: number;
+}
+
+export interface TemporaryCliPreference {
+  providerId: string;
+  cliKind: LivenessCliKind;
+  apiKeyTokenId: string;
+  model: string;
+  workspacePath: string;
+}
+
+export interface TemporaryCliLaunchInput {
+  providerId: string;
+  cliKind: LivenessCliKind;
+  workdir: string;
+  apiKey: string;
+  apiKeyTokenId: string;
+  model: string;
+}
+
+export interface WorkspaceDirectoryEntry {
+  name: string;
+  path: string;
+  hidden: boolean;
+}
+
+export interface WorkspaceDirectoryListing {
+  currentPath: string;
+  parentPath: string | null;
+  homePath: string;
+  entries: WorkspaceDirectoryEntry[];
+}
+
+export interface TemporaryCliLaunchResult {
+  instance: TemporaryCliInstance;
+  workspaces: Workspace[];
+  workspaceError: string | null;
+  preference: TemporaryCliPreference;
 }
 
 export interface CliRuntimeSnapshot {

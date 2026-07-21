@@ -93,6 +93,11 @@
   font-size: 16px;
 }
 
+.temporary-cli-kind-icon .brand-icon {
+  width: 20px;
+  height: 20px;
+}
+
 .temporary-cli-instance-name > div {
   display: grid;
   min-width: 0;

@@ -3,7 +3,14 @@
 // 修改任一侧的格式化规则时，请同步另一侧，避免两处显示不一致。
 import type { AuthMode, Provider, ProviderQuotaDisplay } from "../stores/providers";
 
-export type ProviderCardTone = "disabled" | "error" | "warning" | "empty" | "ok" | "syncing";
+export type ProviderCardTone =
+  | "disabled"
+  | "pending"
+  | "error"
+  | "warning"
+  | "empty"
+  | "ok"
+  | "syncing";
 
 const providerAuthModeLabels: Record<AuthMode, string> = {
   session: "Cookie",

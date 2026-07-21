@@ -85,7 +85,7 @@ jobs:
             core.setOutput("release_id", String(release.data.id));
 
   build:
-    name: 构建 ${{ matrix.label }}
+    name: 质量检查并构建 ${{ matrix.label }}
     needs: prepare
     strategy:
       fail-fast: false
@@ -129,6 +129,8 @@ jobs:
 
       - name: 设置 Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: 缓存 Rust 依赖
         uses: Swatinem/rust-cache@v2
@@ -155,6 +157,18 @@ jobs:
 
       - name: 安装前端依赖
         run: npm ci
+
+      - name: 检查 Rust 格式
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: 运行 Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: 运行 Rust 测试
+        working-directory: src-tauri
+        run: cargo test
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0

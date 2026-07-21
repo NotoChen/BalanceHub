@@ -4,6 +4,7 @@ import {
   acknowledgeLivenessCost as acknowledgeLivenessCostCommand,
   revokeLivenessCost as revokeLivenessCostCommand,
   checkCliPath as checkCliPathCommand,
+  browseWorkspaceDirectories as browseWorkspaceDirectoriesCommand,
   listCliCandidates as listCliCandidatesCommand,
   changeProviderPassword as changeProviderPasswordCommand,
   completeProviderCredentials as completeProviderCredentialsCommand,
@@ -13,39 +14,46 @@ import {
   exportAppData as exportAppDataCommand,
   generateProviderAccessTokenForInput as generateProviderAccessTokenForInputCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
+  getTemporaryCliInstances as getTemporaryCliInstancesCommand,
   getProviderCheckInRecords as getProviderCheckInRecordsCommand,
   getProviderInviteLink as getProviderInviteLinkCommand,
   getProviderRequestLogs as getProviderRequestLogsCommand,
   getProviderUsage as getProviderUsageCommand,
+  forgetWorkspace as forgetWorkspaceCommand,
   importAppData as importAppDataCommand,
   launchTemporaryCli as launchTemporaryCliCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
   probeCodexCli as probeCodexCliCommand,
   probeProviderSite as probeProviderSiteCommand,
+  previewCliConfig as previewCliConfigCommand,
   refreshAllProviders,
   refreshProviders,
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
-  relaunchTemporaryCli as relaunchTemporaryCliCommand,
   saveProvider as saveProviderCommand,
   saveSettings as saveSettingsCommand,
   syncCodexModels as syncCodexModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
   testLiveness as testLivenessCommand,
   testProviderConnection as testProviderConnectionCommand,
+  switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
 import type { CodexCliProbeInput } from "../api/app";
 import { providerToInput } from "../utils/provider-input";
 import { defaultSettings } from "./provider-defaults";
 import type {
   AppSettings,
+  CliConfigPreview,
   CliRuntimeSnapshot,
   LivenessCliKind,
   Provider,
   ProviderInput,
   ProviderRequestLogsQuery,
-  TemporaryCliInstance,
+  TemporaryCliLaunchResult,
+  TemporaryCliLaunchInput,
+  TemporaryCliPreference,
+  Workspace,
 } from "./provider-types";
 
 export { defaultSettings } from "./provider-defaults";
@@ -61,6 +69,8 @@ export const useProviderStore = defineStore("providers", {
     refreshingIds: new Set<string>(),
     providers: [] as Provider[],
     settings: defaultSettings(),
+    workspaces: [] as Workspace[],
+    temporaryCliPreferences: [] as TemporaryCliPreference[],
     cliRuntime: emptyCliRuntimeSnapshot(),
   }),
   getters: {},
@@ -75,6 +85,8 @@ export const useProviderStore = defineStore("providers", {
         const data = await loadAppData();
         this.providers = data.providers;
         this.settings = data.settings;
+        this.workspaces = data.workspaces;
+        this.temporaryCliPreferences = data.temporaryCliPreferences;
         this.loadError = null;
         try {
           this.cliRuntime = await getCliRuntimeSnapshotCommand();
@@ -96,6 +108,9 @@ export const useProviderStore = defineStore("providers", {
     },
     async removeProvider(id: string) {
       this.providers = await removeProviderCommand(id);
+      this.temporaryCliPreferences = this.temporaryCliPreferences.filter(
+        (preference) => preference.providerId !== id,
+      );
       await this.refreshCliRuntime().catch(() => {});
     },
     async reorderProviders(ids: string[]) {
@@ -120,6 +135,8 @@ export const useProviderStore = defineStore("providers", {
       const data = await loadAppData();
       this.providers = data.providers;
       this.settings = data.settings;
+      this.workspaces = data.workspaces;
+      this.temporaryCliPreferences = data.temporaryCliPreferences;
       this.loadError = null;
       await this.refreshCliRuntime().catch(() => {});
       return result;
@@ -129,6 +146,8 @@ export const useProviderStore = defineStore("providers", {
         const data = await loadAppData();
         this.providers = data.providers;
         this.settings = data.settings;
+        this.workspaces = data.workspaces;
+        this.temporaryCliPreferences = data.temporaryCliPreferences;
         this.loadError = null;
       } catch (error) {
         // 看板已有数据时，后台 tick 的一次瞬时失败不值得把整个界面切到全屏错误态；
@@ -169,18 +188,42 @@ export const useProviderStore = defineStore("providers", {
       this.providers = result.providers;
       return result;
     },
-    async launchTemporaryCli(id: string, cliKind: LivenessCliKind, workdir: string) {
-      const instance = await launchTemporaryCliCommand(id, cliKind, workdir);
+    async launchTemporaryCli(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchResult> {
+      const result = await launchTemporaryCliCommand(input);
+      this.workspaces = result.workspaces;
+      this.temporaryCliPreferences = [
+        ...this.temporaryCliPreferences.filter(
+          (preference) => preference.providerId !== result.preference.providerId,
+        ),
+        result.preference,
+      ];
       await this.refreshCliRuntime().catch(() => {});
-      return instance;
+      return result;
     },
     async activateTemporaryCli(instanceId: string) {
       await activateTemporaryCliCommand(instanceId);
     },
-    async relaunchTemporaryCli(instanceId: string): Promise<TemporaryCliInstance> {
-      const instance = await relaunchTemporaryCliCommand(instanceId);
-      await this.refreshCliRuntime().catch(() => {});
-      return instance;
+    async refreshTemporaryCliInstances() {
+      const instances = await getTemporaryCliInstancesCommand();
+      this.cliRuntime = { ...this.cliRuntime, instances };
+      return instances;
+    },
+    async browseWorkspaceDirectories(path?: string) {
+      return browseWorkspaceDirectoriesCommand(path);
+    },
+    async forgetWorkspace(path: string) {
+      this.workspaces = await forgetWorkspaceCommand(path);
+      this.temporaryCliPreferences = this.temporaryCliPreferences.map((preference) =>
+        preference.workspacePath === path ? { ...preference, workspacePath: "" } : preference,
+      );
+      return this.workspaces;
+    },
+    async previewCliConfig(id: string, cliKind: LivenessCliKind): Promise<CliConfigPreview> {
+      return previewCliConfigCommand(id, cliKind);
+    },
+    async switchCliConfig(id: string, cliKind: LivenessCliKind, revision: string) {
+      this.cliRuntime = await switchCliConfigCommand(id, cliKind, revision);
+      return this.cliRuntime;
     },
     async refreshCliRuntime(): Promise<CliRuntimeSnapshot> {
       this.cliRuntimeLoading = true;
@@ -200,10 +243,14 @@ export const useProviderStore = defineStore("providers", {
       return this.settings;
     },
     async listApiKeys(id: string) {
-      return listProviderApiKeysCommand(id);
+      const options = await listProviderApiKeysCommand(id);
+      await this.reload().catch(() => {});
+      return options;
     },
     async createApiKey(id: string, name: string) {
-      return createProviderApiKeyCommand(id, name);
+      const options = await createProviderApiKeyCommand(id, name);
+      await this.reload().catch(() => {});
+      return options;
     },
     async createApiKeyForInput(input: ProviderInput, name: string) {
       return createProviderApiKeyForInputCommand(input, name);
@@ -212,7 +259,9 @@ export const useProviderStore = defineStore("providers", {
       return generateProviderAccessTokenForInputCommand(input);
     },
     async deleteApiKey(id: string, tokenId: string) {
-      return deleteProviderApiKeyCommand(id, tokenId);
+      const options = await deleteProviderApiKeyCommand(id, tokenId);
+      await this.reload().catch(() => {});
+      return options;
     },
     async getUsage(id: string, period = "24h") {
       return getProviderUsageCommand(id, period);

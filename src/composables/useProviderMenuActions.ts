@@ -1,8 +1,8 @@
 import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
-import { open } from "@tauri-apps/plugin-dialog";
-import { openCcSwitchDeeplink, userHomeDir } from "../api/app";
-import type { LivenessCliKind, Provider, TemporaryCliInstance } from "../stores/providers";
+import { openCcSwitchDeeplink } from "../api/app";
+import type { LivenessCliKind, Provider } from "../stores/providers";
+import { supportsApiKeyManagement } from "../utils/provider-display";
 import { useProviderContextMenu } from "./useProviderContextMenu";
 import { useProviderCopyActions } from "./useProviderCopyActions";
 import {
@@ -16,11 +16,7 @@ interface UseProviderMenuActionsOptions {
   providers: { value: Provider[] };
   refreshByIds: (ids: string[]) => Promise<unknown>;
   testLiveness: (id: string) => Promise<{ record: { ok: boolean; responsePreview: string; message: string } }>;
-  launchTemporaryCli: (
-    id: string,
-    cliKind: LivenessCliKind,
-    workdir: string,
-  ) => Promise<TemporaryCliInstance>;
+  openWorkspacePicker: (provider: Provider, cliKind?: LivenessCliKind) => void;
   probeCapabilities: (id: string) => Promise<{ provider: Provider; message: string }>;
   getInviteLink: (id: string) => Promise<string>;
   reload: () => Promise<unknown>;
@@ -100,36 +96,17 @@ export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
     }
   }
 
-  async function launchTemporaryCliFromMenu(provider: Provider, cliKind: LivenessCliKind) {
+  function launchTemporaryCliFromMenu(provider: Provider, cliKind?: LivenessCliKind) {
     closeProviderContextMenu();
-    if (!provider.identity.baseUrl.trim() || !provider.auth.apiKey.trim()) {
-      Message.warning("临时启动 CLI 需要中转站地址和 API Key");
+    if (!provider.identity.baseUrl.trim()) {
+      Message.warning("临时启动 CLI 需要中转站地址");
       return;
     }
-
-    let defaultPath: string | null = null;
-    try {
-      defaultPath = await userHomeDir();
-    } catch {
-      defaultPath = null;
-    }
-
-    const selected = await open({
-      title: "选择 CLI 工作目录",
-      directory: true,
-      multiple: false,
-      defaultPath: defaultPath ?? undefined,
-    });
-    if (!selected || Array.isArray(selected)) {
+    if (!provider.auth.apiKey.trim() && !supportsApiKeyManagement(provider)) {
+      Message.warning("临时启动 CLI 需要可用的 API Key");
       return;
     }
-
-    try {
-      await options.launchTemporaryCli(provider.identity.id, cliKind, selected);
-      Message.success(`已启动 ${cliKind === "codex" ? "Codex" : "Claude Code"}`);
-    } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
-    }
+    options.openWorkspacePicker(provider, cliKind);
   }
 
   function checkInProviderFromMenu(provider: Provider) {

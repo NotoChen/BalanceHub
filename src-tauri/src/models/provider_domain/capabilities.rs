@@ -77,6 +77,7 @@ mod tests {
                 identity: ProviderIdentityInput {
                     name: "站点".to_string(),
                     base_url: "https://example.com".to_string(),
+                    ..ProviderIdentityInput::default()
                 },
                 auth: ProviderAuth {
                     mode: AuthMode::Session,
