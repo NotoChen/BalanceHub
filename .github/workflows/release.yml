@@ -9,10 +9,14 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
+  quality:
+    name: 发布前质量检查
+    uses: ./.github/workflows/quality.yml
+
   prepare:
     name: 准备 Draft Release
     runs-on: ubuntu-latest
@@ -86,8 +90,10 @@ jobs:
             core.setOutput("release_id", String(release.data.id));
 
   build:
-    name: 质量检查并构建 ${{ matrix.label }}
-    needs: prepare
+    name: 构建 ${{ matrix.label }}
+    needs:
+      - prepare
+      - quality
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -118,6 +124,7 @@ jobs:
             rust-target: ""
             args: --bundles appimage,deb,rpm --config src-tauri/tauri.release.conf.json
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -130,8 +137,6 @@ jobs:
 
       - name: 设置 Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
 
       - name: 缓存 Rust 依赖
         uses: Swatinem/rust-cache@v2
@@ -159,18 +164,6 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
-      - name: 检查 Rust 格式
-        working-directory: src-tauri
-        run: cargo fmt --check
-
-      - name: 运行 Clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: 运行 Rust 测试
-        working-directory: src-tauri
-        run: cargo test
-
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
@@ -183,13 +176,40 @@ jobs:
           releaseBody: ${{ needs.prepare.outputs.release_body }}
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: false
+          retryAttempts: 3
           args: ${{ matrix.args }}
+
+  manifest:
+    name: 生成更新清单
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 生成并上传 latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_BODY: ${{ needs.prepare.outputs.release_body }}
+        run: node .github/scripts/generate-updater-json.mjs
 
   publish:
     name: 发布完整版本
     needs:
       - prepare
       - build
+      - manifest
     runs-on: ubuntu-latest
     steps:
       - name: 发布 Release

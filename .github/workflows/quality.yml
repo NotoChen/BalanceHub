@@ -1,55 +1,34 @@
-name: 持续集成
+name: 质量检查
 
 on:
-  push:
-    branches:
-      - main
-      - master
-    paths-ignore:
-      - "README.md"
-      - "CONTRIBUTING.md"
-      - "CHANGELOG.md"
-      - "LICENSE"
-      - "docs/**"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".github/pull_request_template.md"
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   quality:
-    name: 质量检查
-    uses: ./.github/workflows/quality.yml
-
-  platform-build:
-    name: 平台编译（${{ matrix.label }}）
+    name: 质量检查（${{ matrix.label }}）
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: Linux x64
             os: ubuntu-22.04
-          - label: Linux ARM64
-            os: ubuntu-24.04-arm
-          - label: macOS Apple Silicon
-            os: macos-15
+            frontend: true
+            format: true
           - label: Windows x64
             os: windows-latest
-          - label: Windows ARM64
-            os: windows-11-arm
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+            frontend: false
+            format: false
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
 
       - name: 设置 Node.js
+        if: matrix.frontend
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -57,12 +36,14 @@ jobs:
 
       - name: 设置 Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: 缓存 Rust 依赖
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          shared-key: balancehub-tauri
+          shared-key: balancehub-quality
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: 安装 Linux 构建依赖
@@ -78,7 +59,22 @@ jobs:
             patchelf
 
       - name: 安装前端依赖
+        if: matrix.frontend
         run: npm ci
 
-      - name: 编译 Tauri 应用
-        run: npm run tauri build -- --no-bundle
+      - name: 构建前端
+        if: matrix.frontend
+        run: npm run build
+
+      - name: 检查 Rust 格式
+        if: matrix.format
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: 运行 Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: 运行 Rust 测试
+        working-directory: src-tauri
+        run: cargo test
