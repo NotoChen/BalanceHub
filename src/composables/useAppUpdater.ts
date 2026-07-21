@@ -27,6 +27,21 @@ export function useAppUpdater() {
     }
   }
 
+  function releaseNotesFromUpdate(update: Update) {
+    const body = update.body?.trim();
+    if (body) {
+      return body;
+    }
+
+    const rawNotes = update.rawJson?.notes;
+    if (typeof rawNotes === "string") {
+      return rawNotes.trim();
+    }
+
+    const rawBody = update.rawJson?.body;
+    return typeof rawBody === "string" ? rawBody.trim() : "";
+  }
+
   async function checkForUpdate() {
     if (checkingForUpdate.value || installingUpdate.value || updateDialogVisible.value) return;
 
@@ -41,7 +56,7 @@ export function useAppUpdater() {
       pendingUpdate = update;
       availableUpdateCurrentVersion.value = update.currentVersion;
       availableUpdateVersion.value = update.version;
-      availableUpdateReleaseNotes.value = update.body?.trim() ?? "";
+      availableUpdateReleaseNotes.value = releaseNotesFromUpdate(update);
       resetInstallProgress();
       updateDialogVisible.value = true;
     } catch (error) {

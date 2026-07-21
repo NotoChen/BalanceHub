@@ -5,7 +5,7 @@ import { useProviderStore } from "../stores/providers";
 /// 全 App 一次性的「自动测活会消耗真实额度」授权。
 ///
 /// 默认不开启测活；首次开启任意自动测活（全局或单站）时弹窗确认一次，记录到
-/// settings.livenessConsentAcceptedAt，之后不再逐站/逐次询问。手动测活不受此限。
+/// settings.livenessConsentAcceptedAt，之后不再逐站/逐次询问。
 export function useLivenessConsent() {
   const store = useProviderStore();
   const consented = computed(() => Boolean(store.settings.livenessConsentAcceptedAt));

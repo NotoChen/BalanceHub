@@ -13,9 +13,6 @@ pub async fn change_user_password(
 ) -> Result<String, String> {
     let original_password = original_password.trim();
     let password = password.trim();
-    if original_password.is_empty() {
-        return Err("请输入原密码".to_string());
-    }
     if password.is_empty() {
         return Err("请输入新密码".to_string());
     }

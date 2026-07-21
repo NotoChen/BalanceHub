@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import {
-  IconPlus,
-  IconRefresh,
-  IconSettings,
-  IconStamp,
-} from "@arco-design/web-vue/es/icon";
+  CalendarCheck2,
+  RefreshCw,
+  ServerPlus,
+  SlidersHorizontal,
+} from "@lucide/vue";
 
 defineProps<{
   refreshInProgress: boolean;
@@ -25,14 +25,14 @@ const emit = defineEmits<{
     <div class="topbar-drag-region" data-tauri-drag-region />
 
     <div class="topbar-actions">
-      <a-tooltip content="添加">
+      <a-tooltip content="新建中转站">
         <a-button
           class="topbar-icon-button topbar-icon-add"
           shape="circle"
-          aria-label="添加"
+          aria-label="新建中转站"
           @click="emit('add')"
         >
-          <template #icon><icon-plus /></template>
+          <template #icon><ServerPlus :size="20" :stroke-width="1.8" /></template>
         </a-button>
       </a-tooltip>
       <a-tooltip content="刷新">
@@ -43,28 +43,28 @@ const emit = defineEmits<{
           aria-label="刷新"
           @click="emit('refresh')"
         >
-          <template #icon><icon-refresh /></template>
+          <template #icon><RefreshCw :size="20" :stroke-width="1.8" /></template>
         </a-button>
       </a-tooltip>
-      <a-tooltip content="签到">
+      <a-tooltip content="一键签到">
         <a-button
           class="topbar-icon-button topbar-icon-checkin"
           shape="circle"
           :loading="globalCheckInInProgress"
-          aria-label="签到"
+          aria-label="一键签到"
           @click="emit('checkIn')"
         >
-          <template #icon><icon-stamp /></template>
+          <template #icon><CalendarCheck2 :size="20" :stroke-width="1.8" /></template>
         </a-button>
       </a-tooltip>
-      <a-tooltip content="设置">
+      <a-tooltip content="应用设置">
         <a-button
           class="topbar-icon-button topbar-icon-settings"
           shape="circle"
-          aria-label="设置"
+          aria-label="应用设置"
           @click="emit('settings')"
         >
-          <template #icon><icon-settings /></template>
+          <template #icon><SlidersHorizontal :size="20" :stroke-width="1.8" /></template>
         </a-button>
       </a-tooltip>
     </div>

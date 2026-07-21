@@ -35,7 +35,6 @@ import {
   saveSettings as saveSettingsCommand,
   syncCodexModels as syncCodexModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
-  testLiveness as testLivenessCommand,
   testProviderConnection as testProviderConnectionCommand,
   switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
@@ -182,11 +181,6 @@ export const useProviderStore = defineStore("providers", {
     },
     async listCliCandidates(kind: LivenessCliKind, path: string) {
       return listCliCandidatesCommand(kind, path);
-    },
-    async testLiveness(id: string, prompt?: string, automatic = false) {
-      const result = await testLivenessCommand(id, prompt, automatic);
-      this.providers = result.providers;
-      return result;
     },
     async launchTemporaryCli(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchResult> {
       const result = await launchTemporaryCliCommand(input);

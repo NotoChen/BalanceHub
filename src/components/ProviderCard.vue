@@ -5,17 +5,26 @@ import {
   IconBarChart,
   IconCalendar,
   IconCopy,
+  IconDelete,
+  IconEdit,
   IconFile,
   IconLink,
   IconLoading,
   IconLock,
+  IconRefresh,
   IconSafe,
   IconSettings,
   IconSync,
   IconSwap,
   IconThunderbolt,
 } from "@arco-design/web-vue/es/icon";
-import { Bot, GitCompareArrows } from "@lucide/vue";
+import {
+  Bot,
+  CalendarCheck2,
+  GitCompareArrows,
+  Power,
+  PowerOff,
+} from "@lucide/vue";
 import ProviderLivenessTimeline from "./ProviderLivenessTimeline.vue";
 import ProviderModelPreview from "./ProviderModelPreview.vue";
 import BrandIcon, { type BrandIconName } from "./BrandIcon.vue";
@@ -25,6 +34,7 @@ import {
   availablePercent,
   availablePercentLabel,
   providerAvailableQuotaLabel,
+  providerCheckedInToday,
   providerAuthModeDescription,
   providerIdentityDisplayName,
   providerIdentityId,
@@ -63,6 +73,7 @@ const props = withDefaults(
     switchingCliKind?: LivenessCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
+    checkingIn?: boolean;
     ariaHidden?: boolean;
   }>(),
   {
@@ -79,13 +90,13 @@ const props = withDefaults(
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
+    checkingIn: false,
     ariaHidden: false,
   },
 );
 
 const emit = defineEmits<{
   click: [provider: Provider, event: MouseEvent];
-  contextmenu: [provider: Provider, event: MouseEvent];
   pointerdown: [provider: Provider, event: PointerEvent];
   enter: [provider: Provider, event: KeyboardEvent];
   openCliInstances: [provider: Provider];
@@ -103,6 +114,11 @@ const emit = defineEmits<{
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
+  edit: [provider: Provider];
+  toggle: [provider: Provider];
+  refresh: [provider: Provider];
+  checkIn: [provider: Provider];
+  remove: [provider: Provider];
 }>();
 
 const toneLabels: Record<Exclude<ProviderCardTone, "disabled">, string> = {
@@ -203,6 +219,17 @@ const hasSiteActions = computed(
 const showCliConfigAction = computed(
   () => canSwitchCliConfig.value && !(props.codexDefault && props.claudeDefault),
 );
+const hasSecondaryActions = computed(
+  () =>
+    hasCopyActions.value ||
+    hasDataActions.value ||
+    hasSiteActions.value ||
+    showCliConfigAction.value ||
+    canAddCcSwitchConfig.value ||
+    canLaunchTemporaryCli.value,
+);
+const canCheckInAction = computed(() => props.provider.runtime.enabled && supportsCheckIn(props.provider));
+const checkedInToday = computed(() => providerCheckedInToday(props.provider));
 
 function ccSwitchTargetBrand(target: CcSwitchAppTarget): BrandIconName {
   return target === "claude" ? "claude" : target;
@@ -229,12 +256,6 @@ function handleProviderLogoError(event: Event) {
 function handleClick(event: MouseEvent) {
   if (props.interactive) {
     emit("click", props.provider, event);
-  }
-}
-
-function handleContextMenu(event: MouseEvent) {
-  if (props.interactive) {
-    emit("contextmenu", props.provider, event);
   }
 }
 
@@ -316,6 +337,30 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
   copyMenuVisible.value = false;
   emit("copySecret", props.provider, field);
 }
+
+function editProvider() {
+  emit("edit", props.provider);
+}
+
+function toggleProvider() {
+  emit("toggle", props.provider);
+}
+
+function refreshProvider() {
+  if (props.provider.runtime.enabled) {
+    emit("refresh", props.provider);
+  }
+}
+
+function checkInProvider() {
+  if (canCheckInAction.value && !checkedInToday.value && !props.checkingIn) {
+    emit("checkIn", props.provider);
+  }
+}
+
+function removeProvider() {
+  emit("remove", props.provider);
+}
 </script>
 
 <template>
@@ -339,7 +384,6 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
     :title="title"
     :style="dragStyle"
     @click="handleClick"
-    @contextmenu.stop.prevent="handleContextMenu"
     @dragstart.prevent
     @pointerdown="handlePointerDown"
     @keydown.enter="handleEnter"
@@ -461,6 +505,80 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
         </div>
 
         <div v-if="interactive" class="provider-card-quick-actions" aria-label="快捷操作">
+          <div class="provider-card-action-group provider-card-primary-actions" aria-label="中转站管理">
+            <button
+              v-if="canCheckInAction"
+              type="button"
+              class="provider-card-icon-action provider-card-checkin-action"
+              :disabled="checkedInToday || checkingIn"
+              :title="checkingIn ? '签到中' : checkedInToday ? '今日已签到' : '签到'"
+              :aria-label="checkingIn ? '签到中' : checkedInToday ? '今日已签到' : '签到'"
+              @click="checkInProvider"
+              @pointerdown.stop
+            >
+              <icon-loading v-if="checkingIn" />
+              <CalendarCheck2 v-else :size="15" :stroke-width="1.9" />
+            </button>
+
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-refresh-action"
+              :disabled="!provider.runtime.enabled"
+              :title="provider.runtime.enabled ? '刷新额度' : '中转站已停用，无法刷新'"
+              aria-label="刷新额度"
+              @click="refreshProvider"
+              @pointerdown.stop
+            >
+              <icon-refresh />
+            </button>
+
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-edit-action"
+              title="编辑中转站"
+              aria-label="编辑中转站"
+              @click="editProvider"
+              @pointerdown.stop
+            >
+              <icon-edit />
+            </button>
+
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-toggle-action"
+              :class="{ 'provider-card-enable-action': !provider.runtime.enabled }"
+              :title="provider.runtime.enabled ? '停用中转站' : '启用中转站'"
+              :aria-label="provider.runtime.enabled ? '停用中转站' : '启用中转站'"
+              @click="toggleProvider"
+              @pointerdown.stop
+            >
+              <PowerOff v-if="provider.runtime.enabled" :size="15" :stroke-width="1.9" />
+              <Power v-else :size="15" :stroke-width="1.9" />
+            </button>
+
+            <button
+              type="button"
+              class="provider-card-icon-action provider-card-delete-action"
+              title="删除中转站"
+              aria-label="删除中转站"
+              @click="removeProvider"
+              @pointerdown.stop
+            >
+              <icon-delete />
+            </button>
+          </div>
+
+          <span
+            v-if="hasSecondaryActions"
+            class="provider-card-action-divider"
+            aria-hidden="true"
+          ></span>
+
+          <div
+            v-if="hasSecondaryActions"
+            class="provider-card-action-group provider-card-secondary-actions"
+            aria-label="中转站功能"
+          >
           <a-popover
             v-if="hasCopyActions"
             v-model:popup-visible="copyMenuVisible"
@@ -483,7 +601,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                 <div class="provider-card-action-panel-title">复制</div>
                 <div class="provider-card-action-list">
                   <button v-if="provider.identity.baseUrl.trim()" type="button" @click="copyProviderUrl">
-                    <icon-link />
+                    <icon-link class="provider-card-action-icon provider-card-action-icon-url" />
                     <span>中转站 URL</span>
                   </button>
                   <button
@@ -515,7 +633,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                     type="button"
                     @click="copyProviderInvite"
                   >
-                    <icon-link />
+                    <icon-link class="provider-card-action-icon provider-card-action-icon-invite" />
                     <span>邀请链接</span>
                   </button>
                 </div>
@@ -545,19 +663,19 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                 <div class="provider-card-action-panel-title">数据</div>
                 <div class="provider-card-action-list">
                   <button v-if="canViewUsage" type="button" @click="openDataAction('usage')">
-                    <icon-bar-chart />
+                    <icon-bar-chart class="provider-card-action-icon provider-card-action-icon-usage" />
                     <span>用量趋势</span>
                   </button>
                   <button v-if="canViewRequestLogs" type="button" @click="openDataAction('requestLogs')">
-                    <icon-file />
+                    <icon-file class="provider-card-action-icon provider-card-action-icon-logs" />
                     <span>请求日志</span>
                   </button>
                   <button v-if="canViewLiveness" type="button" @click="openDataAction('liveness')">
-                    <icon-thunderbolt />
+                    <icon-thunderbolt class="provider-card-action-icon provider-card-action-icon-liveness" />
                     <span>测活明细</span>
                   </button>
                   <button v-if="canViewCheckInRecords" type="button" @click="openDataAction('checkInRecords')">
-                    <icon-calendar />
+                    <icon-calendar class="provider-card-action-icon provider-card-action-icon-checkin-records" />
                     <span>签到记录</span>
                   </button>
                 </div>
@@ -592,8 +710,11 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                     :disabled="probingCapabilities"
                     @click="openSiteAction('probe')"
                   >
-                    <icon-loading v-if="probingCapabilities" />
-                    <icon-sync v-else />
+                    <icon-loading
+                      v-if="probingCapabilities"
+                      class="provider-card-action-icon provider-card-action-icon-probe"
+                    />
+                    <icon-sync v-else class="provider-card-action-icon provider-card-action-icon-probe" />
                     <span>{{ probingCapabilities ? "探测中" : "探测站点能力" }}</span>
                   </button>
                   <button
@@ -601,7 +722,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                     type="button"
                     @click="openSiteAction('keys')"
                   >
-                    <icon-safe />
+                    <icon-safe class="provider-card-action-icon provider-card-action-icon-keys" />
                     <span>密钥管理</span>
                   </button>
                   <button
@@ -609,7 +730,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                     type="button"
                     @click="openSiteAction('models')"
                   >
-                    <icon-apps />
+                    <icon-apps class="provider-card-action-icon provider-card-action-icon-models" />
                     <span>可用模型</span>
                   </button>
                   <button
@@ -617,7 +738,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                     type="button"
                     @click="openSiteAction('password')"
                   >
-                    <icon-lock />
+                    <icon-lock class="provider-card-action-icon provider-card-action-icon-password" />
                     <span>修改密码</span>
                   </button>
                 </div>
@@ -641,7 +762,10 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
               @click.stop
               @pointerdown.stop
             >
-              <icon-loading v-if="switchingCliKind" />
+              <icon-loading
+                v-if="switchingCliKind"
+                class="provider-card-action-icon provider-card-action-icon-switch"
+              />
               <GitCompareArrows v-else :size="16" :stroke-width="1.8" />
             </button>
             <template #content>
@@ -662,8 +786,11 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                       <strong>Codex</strong>
                       <small>切换到此中转站</small>
                     </span>
-                    <icon-loading v-if="switchingCliKind === 'codex'" />
-                    <icon-swap v-else />
+                    <icon-loading
+                      v-if="switchingCliKind === 'codex'"
+                      class="provider-card-action-icon provider-card-action-icon-switch"
+                    />
+                    <icon-swap v-else class="provider-card-action-icon provider-card-action-icon-switch" />
                   </button>
                   <button
                     v-if="!claudeDefault"
@@ -676,8 +803,11 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                       <strong>Claude Code</strong>
                       <small>切换到此中转站</small>
                     </span>
-                    <icon-loading v-if="switchingCliKind === 'claudeCode'" />
-                    <icon-swap v-else />
+                    <icon-loading
+                      v-if="switchingCliKind === 'claudeCode'"
+                      class="provider-card-action-icon provider-card-action-icon-switch"
+                    />
+                    <icon-swap v-else class="provider-card-action-icon provider-card-action-icon-switch" />
                   </button>
                 </div>
               </div>
@@ -719,7 +849,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
                       <strong>{{ ccSwitchTargetLabels[target] }}</strong>
                       <small>添加此中转站配置</small>
                     </span>
-                    <icon-link />
+                    <icon-link class="provider-card-action-icon provider-card-action-icon-link" />
                   </button>
                 </div>
               </div>
@@ -737,6 +867,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           >
             <Bot :size="16" :stroke-width="1.8" />
           </button>
+          </div>
         </div>
       </footer>
     </div>

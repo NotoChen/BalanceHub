@@ -14,7 +14,7 @@ import { useCliRuntime } from "./useCliRuntime";
 import { usePasswordChange } from "./usePasswordChange";
 import { useOnboardingController } from "./useOnboardingController";
 import { useProviderEditor } from "./useProviderEditor";
-import { useProviderMenuActions } from "./useProviderMenuActions";
+import { useProviderActions } from "./useProviderActions";
 import { useProviderWorkspaceController } from "./useProviderWorkspaceController";
 import { useRequestLogs } from "./useRequestLogs";
 import { useSettingsController } from "./useSettingsController";
@@ -146,7 +146,7 @@ export function useAppController() {
     launch: (input) => providerStore.launchTemporaryCli(input),
   });
 
-  const providerMenu = useProviderMenuActions({
+  const providerActions = useProviderActions({
     providers,
     refreshByIds: async (ids) => {
       const error = await providerStore.refreshByIds(ids);
@@ -154,7 +154,6 @@ export function useAppController() {
         Message.error(`刷新失败：${error}`);
       }
     },
-    testLiveness: (id) => providerStore.testLiveness(id),
     openWorkspacePicker: workspacePicker.openWorkspacePicker,
     probeCapabilities: (id) => providerStore.probeCapabilities(id),
     getInviteLink: (id) => providerStore.getInviteLink(id),
@@ -175,7 +174,7 @@ export function useAppController() {
     providers,
     settings,
     checkingInProviderIds: checkIn.checkingInProviderIds,
-    probingCapabilitiesProviderId: providerMenu.probingCapabilitiesProviderId,
+    probingCapabilitiesProviderId: providerActions.probingCapabilitiesProviderId,
     editingProviderId: providerEditor.editingProviderId,
     probingSite: providerEditor.probingSite,
     testingConnection: providerEditor.testingConnection,
@@ -184,7 +183,6 @@ export function useAppController() {
     removeProvider: (id) => providerStore.removeProvider(id),
     toggleProvider: (id, enabled) => providerStore.toggleProvider(id, enabled),
     checkInProvider: (provider) => checkIn.checkInProviderAction(provider),
-    closeProviderContextMenu: providerMenu.closeProviderContextMenu,
   });
 
   useAppLifecycle({
@@ -250,7 +248,7 @@ export function useAppController() {
     ...cliRuntimeController,
     ...workspacePicker,
     ...providerEditor,
-    ...providerMenu,
+    ...providerActions,
     ...workspace,
     refreshAllProviders,
   });

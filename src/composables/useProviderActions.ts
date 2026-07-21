@@ -3,7 +3,6 @@ import { Message, Modal } from "@arco-design/web-vue";
 import { openCcSwitchDeeplink } from "../api/app";
 import type { LivenessCliKind, Provider } from "../stores/providers";
 import { supportsApiKeyManagement } from "../utils/provider-display";
-import { useProviderContextMenu } from "./useProviderContextMenu";
 import { useProviderCopyActions } from "./useProviderCopyActions";
 import {
   buildCcSwitchProviderDeeplink,
@@ -12,10 +11,9 @@ import {
   type CcSwitchAppTarget,
 } from "../utils/ccswitch-deeplink";
 
-interface UseProviderMenuActionsOptions {
+interface UseProviderActionsOptions {
   providers: { value: Provider[] };
   refreshByIds: (ids: string[]) => Promise<unknown>;
-  testLiveness: (id: string) => Promise<{ record: { ok: boolean; responsePreview: string; message: string } }>;
   openWorkspacePicker: (provider: Provider, cliKind?: LivenessCliKind) => void;
   probeCapabilities: (id: string) => Promise<{ provider: Provider; message: string }>;
   getInviteLink: (id: string) => Promise<string>;
@@ -32,20 +30,14 @@ interface UseProviderMenuActionsOptions {
   removeProvider: (provider: Provider) => Promise<void>;
 }
 
-export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
+export function useProviderActions(options: UseProviderActionsOptions) {
   const probingCapabilitiesProviderId = ref<string | null>(null);
-  const testingLivenessProviderId = ref<string | null>(null);
   const livenessDetailsVisible = ref(false);
   const livenessDetailsProviderId = ref<string | null>(null);
   const {
-    providerContextMenu,
-    closeProviderContextMenu,
-    openProviderContextMenu,
-  } = useProviderContextMenu();
-  const {
     copyProviderUrl,
     copyProviderSecret,
-    copyInviteLink,
+    copyInviteLink: copyInviteLinkValue,
   } = useProviderCopyActions({
     getInviteLink: options.getInviteLink,
     reload: options.reload,
@@ -58,46 +50,18 @@ export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
     options.providers.value.find((provider) => provider.identity.id === livenessDetailsProviderId.value) ?? null,
   );
 
-  function editProviderFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function editProvider(provider: Provider) {
     options.openEditProvider(provider);
   }
 
-  function refreshProviderFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function refreshProvider(provider: Provider) {
     if (!provider.runtime.enabled) {
       return;
     }
     void options.refreshByIds([provider.identity.id]);
   }
 
-  async function testLivenessFromMenu(provider: Provider) {
-    closeProviderContextMenu();
-    if (!provider.runtime.enabled) {
-      return;
-    }
-    if (!provider.auth.apiKey.trim()) {
-      Message.warning("测活需要 API Key");
-      return;
-    }
-
-    testingLivenessProviderId.value = provider.identity.id;
-    try {
-      const result = await options.testLiveness(provider.identity.id);
-      if (result.record.ok) {
-        Message.success(`测活成功：${result.record.responsePreview || result.record.message}`);
-      } else {
-        Message.error(`测活失败：${result.record.message}`);
-      }
-    } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      testingLivenessProviderId.value = null;
-    }
-  }
-
-  function launchTemporaryCliFromMenu(provider: Provider, cliKind?: LivenessCliKind) {
-    closeProviderContextMenu();
+  function launchTemporaryCli(provider: Provider, cliKind?: LivenessCliKind) {
     if (!provider.identity.baseUrl.trim()) {
       Message.warning("临时启动 CLI 需要中转站地址");
       return;
@@ -109,29 +73,25 @@ export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
     options.openWorkspacePicker(provider, cliKind);
   }
 
-  function checkInProviderFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function checkInProvider(provider: Provider) {
     if (!provider.runtime.enabled) {
       return;
     }
     void options.checkInProviderAction(provider);
   }
 
-  async function copyProviderUrlFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  async function copyProviderUrlAction(provider: Provider) {
     await copyProviderUrl(provider);
   }
 
-  async function copyProviderSecretFromMenu(
+  async function copyProviderSecretAction(
     provider: Provider,
     field: "apiKey" | "accessToken" | "sessionCookie",
   ) {
-    closeProviderContextMenu();
     await copyProviderSecret(provider, field);
   }
 
-  async function probeProviderCapabilitiesFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  async function probeProviderCapabilities(provider: Provider) {
     if (!provider.runtime.enabled) {
       return;
     }
@@ -152,49 +112,40 @@ export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
     }
   }
 
-  async function copyInviteLinkFromMenu(provider: Provider) {
-    closeProviderContextMenu();
-    await copyInviteLink(provider);
+  async function copyInviteLinkAction(provider: Provider) {
+    await copyInviteLinkValue(provider);
   }
 
-  function openApiKeyManagerFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function openApiKeyManager(provider: Provider) {
     options.openApiKeyManager(provider);
   }
 
-  function openAvailableModelsFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function openAvailableModels(provider: Provider) {
     options.openAvailableModels(provider);
   }
 
-  function openUsageFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function openUsage(provider: Provider) {
     options.openUsage(provider);
   }
 
-  function openRequestLogsFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function openRequestLogs(provider: Provider) {
     options.openRequestLogs(provider);
   }
 
-  function openPasswordChangeFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function openPasswordChange(provider: Provider) {
     options.openPasswordChange(provider);
   }
 
-  function openLivenessDetailsFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function openLivenessDetails(provider: Provider) {
     livenessDetailsProviderId.value = provider.identity.id;
     livenessDetailsVisible.value = true;
   }
 
-  function openCheckInRecordsFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function openCheckInRecords(provider: Provider) {
     options.openCheckInRecords(provider);
   }
 
-  async function addCcSwitchConfigFromMenu(provider: Provider, target: CcSwitchAppTarget) {
-    closeProviderContextMenu();
+  async function addCcSwitchConfig(provider: Provider, target: CcSwitchAppTarget) {
     if (!canBuildCcSwitchDeeplink(provider)) {
       Message.warning("添加到 CC Switch 需要中转站地址和 API Key");
       return;
@@ -214,13 +165,11 @@ export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
     }
   }
 
-  function toggleProviderFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function toggleProviderAction(provider: Provider) {
     void options.toggleProvider(provider, !provider.runtime.enabled);
   }
 
-  function removeProviderFromMenu(provider: Provider) {
-    closeProviderContextMenu();
+  function removeProviderAction(provider: Provider) {
     Modal.confirm({
       title: "删除中转站",
       content: `确定删除“${provider.identity.name}”吗？`,
@@ -232,31 +181,26 @@ export function useProviderMenuActions(options: UseProviderMenuActionsOptions) {
   }
 
   return {
-    providerContextMenu,
     probingCapabilitiesProviderId,
-    testingLivenessProviderId,
     livenessDetailsVisible,
     livenessDetailsProvider,
-    closeProviderContextMenu,
-    openProviderContextMenu,
-    editProviderFromMenu,
-    refreshProviderFromMenu,
-    testLivenessFromMenu,
-    launchTemporaryCliFromMenu,
-    checkInProviderFromMenu,
-    copyProviderUrlFromMenu,
-    copyProviderSecretFromMenu,
-    probeProviderCapabilitiesFromMenu,
-    copyInviteLinkFromMenu,
-    openApiKeyManagerFromMenu,
-    openAvailableModelsFromMenu,
-    openUsageFromMenu,
-    openRequestLogsFromMenu,
-    openPasswordChangeFromMenu,
-    openLivenessDetailsFromMenu,
-    openCheckInRecordsFromMenu,
-    addCcSwitchConfigFromMenu,
-    toggleProviderFromMenu,
-    removeProviderFromMenu,
+    editProvider,
+    refreshProvider,
+    launchTemporaryCli,
+    checkInProvider,
+    copyProviderUrlAction,
+    copyProviderSecretAction,
+    probeProviderCapabilities,
+    copyInviteLinkAction,
+    openApiKeyManager,
+    openAvailableModels,
+    openUsage,
+    openRequestLogs,
+    openPasswordChange,
+    openLivenessDetails,
+    openCheckInRecords,
+    addCcSwitchConfig,
+    toggleProviderAction,
+    removeProviderAction,
   };
 }

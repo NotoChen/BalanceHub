@@ -54,7 +54,7 @@ function onRevokeConsent() {
   Modal.confirm({
     title: "重置自动测活授权",
     content:
-      "重置后后台自动测活立即停止（手动测活不受影响）；再次开启自动测活开关时会重新弹出授权确认。",
+      "重置后后台自动测活立即停止；再次开启自动测活开关时会重新弹出授权确认。",
     okText: "重置授权",
     cancelText: "取消",
     onOk: async () => {
@@ -132,7 +132,7 @@ onMounted(async () => {
         :options="temporaryCliTerminalSelectOptions"
       />
       <template #extra>
-        仅影响右键菜单里的临时启动 CLI；自动测活仍在后台静默执行。
+        仅影响卡片内的临时启动 CLI；自动测活仍在后台静默执行。
       </template>
     </a-form-item>
     <a-form-item

@@ -10,13 +10,12 @@ mod util;
 
 use models::{
     AppData, AppDataTransferResult, AppSettings, CliCandidate, CliConfigPreview,
-    CliRuntimeSnapshot, CodexCliProbeResult, CodexModelSyncResult, LivenessCliKind,
-    LivenessRunResult, Provider, ProviderApiKeyOption, ProviderCapabilityProbeResult,
-    ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
-    ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
-    ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, RefreshResult,
-    TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
-    TemporaryCliPreference, Workspace, WorkspaceDirectoryListing,
+    CliRuntimeSnapshot, CodexCliProbeResult, CodexModelSyncResult, LivenessCliKind, Provider,
+    ProviderApiKeyOption, ProviderCapabilityProbeResult, ProviderCheckInRecordsResult,
+    ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
+    ProviderInput, ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
+    ProviderUsageSummary, RefreshResult, TemporaryCliInstance, TemporaryCliLaunchInput,
+    TemporaryCliLaunchResult, TemporaryCliPreference, Workspace, WorkspaceDirectoryListing,
 };
 use services::liveness::preview_prompts;
 use services::notifications::NotificationSendResult;
@@ -412,30 +411,8 @@ async fn probe_codex_cli(
 }
 
 #[tauri::command]
-fn preview_liveness_command(app: AppHandle, id: String) -> Result<LivenessRunResult, String> {
-    ProviderService::new(&app).liveness_command_preview(id)
-}
-
-#[tauri::command]
 fn preview_liveness_prompts(settings: AppSettings, count: usize) -> Vec<String> {
     preview_prompts(&settings, count)
-}
-
-#[tauri::command]
-async fn test_liveness(
-    app: AppHandle,
-    id: String,
-    prompt: Option<String>,
-    automatic: Option<bool>,
-) -> Result<LivenessRunResult, String> {
-    let worker_app = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        ProviderService::new(&worker_app).test_liveness(id, prompt, automatic.unwrap_or(false))
-    })
-    .await
-    .map_err(|err| format!("测活任务异常: {err}"))??;
-    tray::refresh_from_state(&app);
-    Ok(result)
 }
 
 #[tauri::command]
@@ -779,9 +756,7 @@ pub fn run() {
             complete_provider_credentials,
             test_provider_connection,
             probe_codex_cli,
-            preview_liveness_command,
             preview_liveness_prompts,
-            test_liveness,
             probe_provider_site,
             list_provider_api_keys,
             create_provider_api_key,

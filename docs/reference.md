@@ -20,7 +20,7 @@
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
 | CLI 测活 | 使用 Codex / Claude Code CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness/command.rs`、`src-tauri/src/services/liveness/process.rs` | 测活会消耗真实额度，首次开启自动测活前会要求确认。 |
 | CLI 候选扫描 | 扫描本机 Codex / Claude Code 可执行文件。 | `src-tauri/src/services/liveness/cli.rs`、`src/components/settings/SettingsCliManager.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
-| 临时 CLI 启动 | 使用当前中转站临时启动 Codex / Claude Code CLI。 | `src-tauri/src/services/temporary_cli.rs`、`src/components/ProviderContextMenu.vue`、`src/composables/useProviderMenuActions.ts` | 仅覆盖 API Key、Base URL 和模型，工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
+| 临时 CLI 启动 | 使用当前中转站临时启动 Codex / Claude Code CLI。 | `src-tauri/src/services/temporary_cli.rs`、`src/components/ProviderCard.vue`、`src/composables/useProviderActions.ts` | 仅覆盖 API Key、Base URL 和模型，工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
 | CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/lib.rs` | 支持 Codex、Claude Code、OpenCode、OpenClaw、Hermes 目标；不声明 Gemini 支持。 |
 | 测活时间线 | 保存并展示每个中转站最近的测活结果。 | `src/components/ProviderLivenessTimeline.vue`、`src/utils/provider-liveness.ts` | 用于区分余额正常但 CLI 不可用、模型不可用或网络异常。 |
 | 系统通知 | 对自动刷新、自动签到等结果发出系统通知。 | `src-tauri/src/services/notifications/adapters/system.rs` | 系统通知使用纯文本内容，避免显示 Markdown 语法。 |

@@ -20,7 +20,6 @@ interface UseProviderWorkspaceControllerOptions {
   removeProvider: (id: string) => Promise<unknown>;
   toggleProvider: (id: string, enabled: boolean) => Promise<unknown>;
   checkInProvider: (provider: Provider) => Promise<unknown>;
-  closeProviderContextMenu: () => void;
 }
 
 export function useProviderWorkspaceController(options: UseProviderWorkspaceControllerOptions) {
@@ -32,7 +31,6 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
     providers: options.providers,
     dragGroup: (provider) => (showProviderLivenessTimeline(provider) ? "liveness" : "regular"),
     reorder: options.reorderProviders,
-    onDragStart: options.closeProviderContextMenu,
     onError: (error) => Message.error(error instanceof Error ? error.message : String(error)),
   });
 

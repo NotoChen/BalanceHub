@@ -23,8 +23,6 @@ interface DragSortOptions {
   dragGroup?: (provider: Provider) => string;
   /** 拖拽结束后持久化新顺序。 */
   reorder: (ids: string[]) => Promise<unknown>;
-  /** 拖拽开始时的回调（例如关闭右键菜单）。 */
-  onDragStart?: () => void;
   /** 持久化失败时的回调。 */
   onError?: (error: unknown) => void;
 }
@@ -92,7 +90,6 @@ export function useProviderDragSort(options: DragSortOptions) {
     }
 
     const rect = event.currentTarget.getBoundingClientRect();
-    options.onDragStart?.();
     const group = options.dragGroup?.(provider) ?? "";
     draggingProviderId.value = provider.identity.id;
     dragOverProviderId.value = null;

@@ -333,7 +333,7 @@ async fn run_due_liveness(app: &AppHandle, settings: &AppSettings, due: Vec<Prov
         // 测活是阻塞型（spawn 子进程并等待），必须放到 spawn_blocking，避免占用 async 线程。
         handles.push(tauri::async_runtime::spawn_blocking(move || {
             let _permit = permit;
-            ProviderService::new(&app).test_liveness(id, None, true)
+            ProviderService::new(&app).run_liveness(id, None, true)
         }));
     }
 
@@ -347,13 +347,13 @@ async fn run_due_liveness(app: &AppHandle, settings: &AppSettings, due: Vec<Prov
                 .last()
                 .map(|record| record.ok)
                 .unwrap_or(true);
-            if previously_ok && !result.record.ok {
+            if previously_ok && !result.ok {
                 notify_provider_event(
                     app,
                     settings,
                     provider,
                     "BalanceHub 测活失败",
-                    non_empty(&result.record.message, "测活失败"),
+                    non_empty(&result.message, "测活失败"),
                 )
                 .await;
             }
