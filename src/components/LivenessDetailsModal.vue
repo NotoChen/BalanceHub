@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { IconExperiment } from "@arco-design/web-vue/es/icon";
 import type { LivenessRecord, Provider } from "../stores/providers";
 
 const props = defineProps<{
@@ -90,12 +91,20 @@ function responseText(record: LivenessRecord) {
 <template>
   <a-modal
     :visible="visible"
-    :title="modalTitle"
+    modal-class="surface-modal liveness-details-modal"
     :footer="false"
     :width="860"
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
+    <template #title>
+      <div class="surface-modal-title liveness-details-title">
+        <span class="surface-modal-title-icon"><icon-experiment /></span>
+        <span class="surface-modal-title-copy">
+          <strong>{{ modalTitle }}</strong>
+        </span>
+      </div>
+    </template>
     <div class="liveness-details">
       <section class="liveness-summary">
         <div class="liveness-summary-stats">

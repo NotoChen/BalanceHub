@@ -9,6 +9,7 @@ interface UseApiKeyManagerOptions {
   createKey: (providerId: string, name: string) => Promise<ProviderApiKeyOption[]>;
   deleteKey: (providerId: string, tokenId: string) => Promise<ProviderApiKeyOption[]>;
   saveProvider: (input: ProviderInput) => Promise<Provider[]>;
+  getProvider: (providerId: string) => Provider | undefined;
 }
 
 export function useApiKeyManager(options: UseApiKeyManagerOptions) {
@@ -38,6 +39,8 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     apiKeyManagerLoading.value = true;
     try {
       apiKeyManagerKeys.value = await options.listKeys(apiKeyManagerProvider.value.identity.id);
+      apiKeyManagerProvider.value =
+        options.getProvider(apiKeyManagerProvider.value.identity.id) ?? apiKeyManagerProvider.value;
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -55,6 +58,8 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     apiKeyManagerLoading.value = true;
     try {
       apiKeyManagerKeys.value = await options.createKey(apiKeyManagerProvider.value.identity.id, name);
+      apiKeyManagerProvider.value =
+        options.getProvider(apiKeyManagerProvider.value.identity.id) ?? apiKeyManagerProvider.value;
       apiKeyCreateName.value = "";
       apiKeyCreateVisible.value = false;
       Message.success("已创建 API 密钥");
@@ -66,6 +71,10 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   }
 
   async function copyManagedApiKey(option: ProviderApiKeyOption) {
+    if (!option.keyAvailable || !option.key.trim()) {
+      Message.warning("该 API Key 未读取到完整值，无法复制");
+      return;
+    }
     try {
       await copyText(option.key);
       Message.success("已复制 API 密钥");
@@ -90,6 +99,8 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
             apiKeyManagerProvider.value.identity.id,
             option.tokenId,
           );
+          apiKeyManagerProvider.value =
+            options.getProvider(apiKeyManagerProvider.value.identity.id) ?? apiKeyManagerProvider.value;
           Message.success("已删除 API 密钥");
         } catch (error) {
           Message.error(error instanceof Error ? error.message : String(error));
@@ -102,9 +113,20 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
 
   async function useManagedApiKey(option: ProviderApiKeyOption) {
     if (!apiKeyManagerProvider.value) return;
+    if (!option.keyAvailable || !option.key.trim()) {
+      Message.warning("该 API Key 未读取到完整值，无法设为主 Key");
+      return;
+    }
     const provider = apiKeyManagerProvider.value;
     const savedProviders = await options.saveProvider(
-      providerToInput(provider, { auth: { ...provider.auth, apiKey: option.key } }),
+      providerToInput(provider, {
+        auth: {
+          ...provider.auth,
+          apiKey: option.key,
+          apiKeyTokenId: option.tokenId,
+          apiKeyOptions: [...provider.auth.apiKeyOptions, option],
+        },
+      }),
     );
     apiKeyManagerProvider.value =
       savedProviders.find((item) => item.identity.id === provider.identity.id) ?? apiKeyManagerProvider.value;

@@ -91,15 +91,23 @@ const effectiveApiKeys = computed(() => {
     keys.push({
       name: "当前配置 API Key",
       key: providerKey,
+      maskedKey: "",
+      keyAvailable: true,
       tokenId: "",
+      userId: "",
       status: "enabled",
       usedQuota: 0,
       remainQuota: 0,
+      usedQuotaRaw: 0,
+      remainQuotaRaw: 0,
       unlimitedQuota: false,
       group: "",
+      crossGroupRetry: false,
       modelLimitsEnabled: false,
       modelLimits: [],
       allowIps: [],
+      quotaDisplayType: "currency",
+      currencySymbol: "$",
     });
   }
   const knownKeys = new Set([providerKey]);
@@ -145,7 +153,7 @@ function browseDraftPath() {
   <a-modal
     :visible="visible"
     width="min(940px, calc(100vw - 32px))"
-    modal-class="workspace-picker-modal"
+    modal-class="surface-modal workspace-picker-modal"
     title-align="start"
     :footer="false"
     :closable="!launching"
@@ -154,7 +162,14 @@ function browseDraftPath() {
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
-    <template #title>{{ modalTitle }}</template>
+    <template #title>
+      <div class="surface-modal-title workspace-picker-title">
+        <span class="surface-modal-title-icon"><icon-folder /></span>
+        <span class="surface-modal-title-copy">
+          <strong>{{ modalTitle }}</strong>
+        </span>
+      </div>
+    </template>
 
     <div class="workspace-picker">
       <aside class="workspace-history">

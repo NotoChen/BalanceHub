@@ -13,7 +13,6 @@ interface UseOnboardingControllerOptions {
   importAppData: () => Promise<unknown>;
   openAddProvider: () => void;
   openSettings: () => void;
-  probeCodexCliPath: () => Promise<unknown>;
 }
 
 export function useOnboardingController(options: UseOnboardingControllerOptions) {
@@ -51,10 +50,6 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
     await options.importAppData();
   }
 
-  async function probeOnboardingCodexCli() {
-    await options.probeCodexCliPath();
-  }
-
   async function completeOnboarding() {
     hiddenForSession.value = true;
     try {
@@ -77,7 +72,6 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
     openOnboardingAddProvider,
     openOnboardingSettings,
     importOnboardingData,
-    probeOnboardingCodexCli,
     completeOnboarding,
   };
 }

@@ -43,6 +43,7 @@ import {
   providerQuotaScopeLabel,
   providerQuotaUnlimited,
   supportsApiKeyManagement,
+  supportsAccountManagement,
   supportsCheckIn,
   supportsInvitation,
   type ProviderCardTone,
@@ -179,20 +180,16 @@ const canViewAvailableModels = computed(() =>
   ),
 );
 const canAddCcSwitchConfig = computed(() => canBuildCcSwitchDeeplink(props.provider));
-const hasCredential = computed(() =>
-  Boolean(
-    props.provider.auth.apiKey.trim() ||
-      props.provider.auth.accessToken.trim() ||
-      props.provider.auth.sessionCookie.trim(),
-  ),
-);
-const canViewUsage = computed(() => props.provider.runtime.enabled && hasCredential.value);
-const canViewRequestLogs = computed(() => props.provider.runtime.enabled && hasCredential.value);
+const accountManagementAvailable = computed(() => supportsAccountManagement(props.provider));
+const canViewUsage = computed(() => props.provider.runtime.enabled && accountManagementAvailable.value);
+const canViewRequestLogs = computed(() => props.provider.runtime.enabled && accountManagementAvailable.value);
 const canViewLiveness = computed(
   () => props.provider.liveness.enabled || props.provider.liveness.records.length > 0,
 );
 const canViewCheckInRecords = computed(
-  () => supportsCheckIn(props.provider) || props.provider.automation.checkInRecords.length > 0,
+  () =>
+    props.provider.auth.mode !== "apiKey" &&
+    (supportsCheckIn(props.provider) || props.provider.automation.checkInRecords.length > 0),
 );
 const hasDataActions = computed(
   () =>
@@ -201,14 +198,8 @@ const hasDataActions = computed(
     canViewLiveness.value ||
     canViewCheckInRecords.value,
 );
-const canProbeSite = computed(() => props.provider.runtime.enabled && hasCredential.value);
-const canChangePassword = computed(
-  () =>
-    Boolean(
-      props.provider.auth.apiUser.trim() &&
-        (props.provider.auth.accessToken.trim() || props.provider.auth.sessionCookie.trim()),
-    ),
-);
+const canProbeSite = computed(() => props.provider.runtime.enabled && accountManagementAvailable.value);
+const canChangePassword = computed(() => accountManagementAvailable.value);
 const hasSiteActions = computed(
   () =>
     canProbeSite.value ||
@@ -613,7 +604,7 @@ function removeProvider() {
                     <span>API Key</span>
                   </button>
                   <button
-                    v-if="provider.auth.accessToken.trim()"
+                    v-if="provider.auth.mode !== 'apiKey' && provider.auth.accessToken.trim()"
                     type="button"
                     @click="copyProviderSecret('accessToken')"
                   >
@@ -621,7 +612,7 @@ function removeProvider() {
                     <span>访问令牌</span>
                   </button>
                   <button
-                    v-if="provider.auth.sessionCookie.trim()"
+                    v-if="provider.auth.mode !== 'apiKey' && provider.auth.sessionCookie.trim()"
                     type="button"
                     @click="copyProviderSecret('sessionCookie')"
                   >

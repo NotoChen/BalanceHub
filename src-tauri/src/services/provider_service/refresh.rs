@@ -1,12 +1,55 @@
 use crate::{
     adapters::newapi::NewApiAdapter,
-    models::{AppData, AppSettings, Provider, RefreshResult},
+    models::{AppData, AppSettings, AuthMode, Provider, ProviderAuth, RefreshResult},
     state::AppState,
 };
 use std::{collections::HashSet, sync::Arc};
 use tauri::Manager;
 
 use super::ProviderService;
+
+/// 网络刷新期间的认证快照。刷新结果只能在认证上下文仍未变化时回填派生凭据，
+/// 避免用户在请求往返期间编辑凭据后被后台结果覆盖。
+#[derive(Clone)]
+pub(super) struct RefreshAuthSnapshot {
+    base_url: String,
+    auth: ProviderAuth,
+}
+
+impl RefreshAuthSnapshot {
+    pub(super) fn capture(provider: &Provider) -> Self {
+        Self {
+            base_url: provider.identity.base_url.clone(),
+            auth: provider.auth.clone(),
+        }
+    }
+
+    fn matches(&self, provider: &Provider) -> bool {
+        self.base_url == provider.identity.base_url
+            && same_auth_mode(self.auth.mode, provider.auth.mode)
+            && self.auth.api_key == provider.auth.api_key
+            && self.auth.access_token == provider.auth.access_token
+            && self.auth.session_cookie == provider.auth.session_cookie
+            && self.auth.api_user == provider.auth.api_user
+            && self.auth.login_username == provider.auth.login_username
+            && self.auth.login_password == provider.auth.login_password
+    }
+}
+
+fn same_auth_mode(left: AuthMode, right: AuthMode) -> bool {
+    matches!(
+        (left, right),
+        (AuthMode::ApiKey, AuthMode::ApiKey)
+            | (AuthMode::AccessToken, AuthMode::AccessToken)
+            | (AuthMode::Session, AuthMode::Session)
+            | (AuthMode::Password, AuthMode::Password)
+    )
+}
+
+pub(super) struct RefreshedProvider {
+    pub(super) provider: Provider,
+    pub(super) auth_snapshot: RefreshAuthSnapshot,
+}
 
 impl<'a> ProviderService<'a> {
     pub async fn refresh_all(&self) -> Result<RefreshResult, String> {
@@ -65,14 +108,18 @@ impl<'a> ProviderService<'a> {
 /// 只合并 [`apply_refresh_owned_fields`] 列出的「刷新拥有」字段，而非整体替换结构体：
 /// 刷新是后台常态操作，网络往返期间用户可能正在编辑凭据/名称/自动化配置并保存，
 /// 整体替换会把这些并发编辑静默回滚。期间被删除的中转站不会重新插入，新增的不受影响。
-pub(super) fn apply_refreshed(data: &mut AppData, refreshed: Vec<Provider>) {
-    for next in refreshed {
+pub(super) fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvider>) {
+    for refreshed in refreshed {
+        let RefreshedProvider {
+            provider: next,
+            auth_snapshot,
+        } = refreshed;
         if let Some(slot) = data
             .providers
             .iter_mut()
             .find(|provider| provider.identity.id == next.identity.id)
         {
-            apply_refresh_owned_fields(slot, next);
+            apply_refresh_owned_fields(slot, next, &auth_snapshot);
         }
     }
 }
@@ -80,13 +127,35 @@ pub(super) fn apply_refreshed(data: &mut AppData, refreshed: Vec<Provider>) {
 /// 刷新流程「拥有」的字段集合，须与 `newapi_quota::refresh_provider` 的写入面保持一致：
 /// 配额全量、站点自报的展示信息（含站点名）、同步时间、运行状态与错误信息。
 /// 签到成功后的静默刷新（check_in.rs）复用同一份清单，避免两处合并语义漂移。
-pub(super) fn apply_refresh_owned_fields(provider: &mut Provider, refreshed: Provider) {
+pub(super) fn apply_refresh_owned_fields(
+    provider: &mut Provider,
+    refreshed: Provider,
+    auth_snapshot: &RefreshAuthSnapshot,
+) {
     provider.quota = refreshed.quota;
     provider.identity.name = refreshed.identity.name;
     provider.identity.display_name = refreshed.identity.display_name;
     provider.identity.username = refreshed.identity.username;
     provider.identity.user_id = refreshed.identity.user_id;
     provider.identity.site_logo = refreshed.identity.site_logo;
+    if auth_snapshot.matches(provider) {
+        // 账号密码模式的登录会在刷新时产生可复用 Session。仅在认证上下文仍与
+        // 请求发出时一致时写回，避免覆盖用户在网络请求期间刚编辑的认证信息。
+        if matches!(provider.auth.mode, AuthMode::Password)
+            && !refreshed.auth.session_cookie.trim().is_empty()
+        {
+            provider.auth.session_cookie = refreshed.auth.session_cookie;
+            provider.auth.api_user = refreshed.auth.api_user;
+        }
+
+        // 用户名由 Cookie/访问令牌认证后的用户信息派生，只补空值，不改用户手动填写的账号。
+        if auth_snapshot.auth.login_username.trim().is_empty()
+            && provider.auth.login_username.trim().is_empty()
+            && !refreshed.auth.login_username.trim().is_empty()
+        {
+            provider.auth.login_username = refreshed.auth.login_username;
+        }
+    }
     provider.automation.last_synced_at = refreshed.automation.last_synced_at;
     provider.runtime.status = refreshed.runtime.status;
     provider.runtime.error_message = refreshed.runtime.error_message;
@@ -101,7 +170,7 @@ pub(super) async fn refresh_providers_concurrently(
     settings: Arc<AppSettings>,
     providers: Vec<Provider>,
     should_refresh: impl Fn(&Provider) -> bool,
-) -> Result<Vec<Provider>, String> {
+) -> Result<Vec<RefreshedProvider>, String> {
     const MAX_CONCURRENT_REFRESH: usize = 6;
 
     let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_REFRESH));
@@ -112,12 +181,17 @@ pub(super) async fn refresh_providers_concurrently(
     {
         let settings = Arc::clone(&settings);
         let semaphore = Arc::clone(&semaphore);
+        let auth_snapshot = RefreshAuthSnapshot::capture(&provider);
         handles.push(tauri::async_runtime::spawn(async move {
             // 信号量只在本函数生命周期内使用、从不 close，acquire 不会失败。
             let _permit = semaphore.acquire().await.expect("refresh semaphore closed");
-            NewApiAdapter
+            let refreshed = NewApiAdapter
                 .refresh_provider(settings.as_ref(), &provider)
-                .await
+                .await;
+            RefreshedProvider {
+                provider: refreshed,
+                auth_snapshot,
+            }
         }));
     }
 
@@ -138,6 +212,13 @@ mod tests {
         Provider::from_input(ProviderInput::default(), id.to_string())
     }
 
+    fn refreshed_provider(provider: &Provider) -> RefreshedProvider {
+        RefreshedProvider {
+            provider: provider.clone(),
+            auth_snapshot: RefreshAuthSnapshot::capture(provider),
+        }
+    }
+
     #[test]
     fn apply_refreshed_merges_only_refresh_owned_fields() {
         let mut stored = provider("p1");
@@ -156,7 +237,7 @@ mod tests {
 
         let mut data = AppData::default();
         data.providers.push(stored);
-        apply_refreshed(&mut data, vec![refreshed]);
+        apply_refreshed(&mut data, vec![refreshed_provider(&refreshed)]);
 
         let merged = &data.providers[0];
         // 刷新拥有的字段：跟随刷新结果。
@@ -176,9 +257,51 @@ mod tests {
         let mut data = AppData::default();
         data.providers.push(provider("kept"));
 
-        apply_refreshed(&mut data, vec![provider("removed")]);
+        let removed = provider("removed");
+        apply_refreshed(&mut data, vec![refreshed_provider(&removed)]);
 
         assert_eq!(data.providers.len(), 1);
         assert_eq!(data.providers[0].identity.id, "kept");
+    }
+
+    #[test]
+    fn refresh_backfills_empty_login_username() {
+        let stored = provider("p1");
+        let mut refreshed = stored.clone();
+        refreshed.auth.login_username = "alice".to_string();
+
+        let mut data = AppData::default();
+        data.providers.push(stored);
+        let auth_snapshot = RefreshAuthSnapshot::capture(&data.providers[0]);
+        apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                auth_snapshot,
+            }],
+        );
+
+        assert_eq!(data.providers[0].auth.login_username, "alice");
+    }
+
+    #[test]
+    fn refresh_does_not_overwrite_concurrent_login_username_edit() {
+        let snapshot_provider = provider("p1");
+        let mut current_provider = snapshot_provider.clone();
+        current_provider.auth.login_username = "manual-account".to_string();
+        let mut refreshed = snapshot_provider.clone();
+        refreshed.auth.login_username = "alice".to_string();
+
+        let mut data = AppData::default();
+        data.providers.push(current_provider);
+        apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                auth_snapshot: RefreshAuthSnapshot::capture(&snapshot_provider),
+            }],
+        );
+
+        assert_eq!(data.providers[0].auth.login_username, "manual-account");
     }
 }

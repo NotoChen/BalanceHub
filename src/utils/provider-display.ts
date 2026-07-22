@@ -16,6 +16,7 @@ const providerAuthModeLabels: Record<AuthMode, string> = {
   session: "Cookie",
   accessToken: "访问令牌",
   apiKey: "API Key",
+  password: "账号密码",
 };
 
 export function providerAuthModeLabel(provider: Provider) {
@@ -24,12 +25,14 @@ export function providerAuthModeLabel(provider: Provider) {
 
 export function providerAuthModeDescription(provider: Provider) {
   switch (provider.auth.mode) {
+    case "password":
+      return "当前优先使用账号密码登录，并建立可复用会话";
     case "session":
-      return "当前优先使用 Cookie 获取账号额度和账号能力";
+      return "当前使用 Cookie 获取账号额度和账号能力";
     case "accessToken":
-      return "当前优先使用 Access Token 获取账号额度和账号能力";
+      return "当前使用访问令牌获取账号额度和账号能力";
     case "apiKey":
-      return "当前优先使用 API Key 获取该 Key 的额度";
+      return "当前使用 API Key 获取该 Key 的额度";
   }
 }
 
@@ -147,10 +150,40 @@ export function providerIdentitySecondaryUsername(provider: Provider) {
 }
 
 export function providerIdentityId(provider: Provider) {
+  if (provider.auth.mode === "apiKey") {
+    return "";
+  }
   return provider.identity.userId?.trim() || provider.auth.apiUser?.trim() || "";
 }
 
+/**
+ * API Key is deliberately a key-scoped mode. Cached account credentials may
+ * remain available for a later mode switch, but they must not broaden the
+ * capabilities of the current card.
+ */
+export function supportsAccountManagement(provider: Provider) {
+  if (provider.auth.mode === "apiKey") {
+    return false;
+  }
+
+  if (provider.auth.mode === "password") {
+    return Boolean(
+      (provider.auth.loginUsername.trim() && provider.auth.loginPassword.trim()) ||
+        (provider.auth.apiUser.trim() &&
+          (provider.auth.accessToken.trim() || provider.auth.sessionCookie.trim())),
+    );
+  }
+
+  return Boolean(
+    provider.auth.apiUser.trim() &&
+      (provider.auth.accessToken.trim() || provider.auth.sessionCookie.trim()),
+  );
+}
+
 export function supportsCheckIn(provider: Provider) {
+  if (provider.auth.mode === "apiKey") {
+    return false;
+  }
   const capabilities = provider.capabilities;
   if (capabilities?.checkInKnown) {
     return capabilities.checkInSupported;
@@ -160,27 +193,31 @@ export function supportsCheckIn(provider: Provider) {
   }
   return (
     (provider.auth.mode === "accessToken" && Boolean(provider.auth.accessToken.trim() && provider.auth.apiUser.trim())) ||
-    (provider.auth.mode === "session" && Boolean(provider.auth.sessionCookie.trim() && provider.auth.apiUser.trim()))
+    (provider.auth.mode === "session" && Boolean(provider.auth.sessionCookie.trim() && provider.auth.apiUser.trim())) ||
+    (provider.auth.mode === "password" && Boolean(provider.auth.sessionCookie.trim() && provider.auth.apiUser.trim()))
   );
 }
 
 export function supportsApiKeyManagement(provider: Provider) {
+  if (!supportsAccountManagement(provider)) {
+    return false;
+  }
   const capabilities = provider.capabilities;
   if (capabilities?.apiKeyManagementKnown) {
     return capabilities.apiKeyManagementSupported;
   }
-  return Boolean(provider.auth.apiUser.trim() && (provider.auth.accessToken.trim() || provider.auth.sessionCookie.trim()));
+  return true;
 }
 
 export function supportsInvitation(provider: Provider) {
+  if (!supportsAccountManagement(provider)) {
+    return false;
+  }
   const capabilities = provider.capabilities;
   if (capabilities?.invitationKnown) {
     return capabilities.invitationSupported;
   }
-  return Boolean(
-    provider.capabilities.inviteLink?.trim() ||
-      (provider.auth.apiUser.trim() && (provider.auth.accessToken.trim() || provider.auth.sessionCookie.trim())),
-  );
+  return Boolean(provider.capabilities.inviteLink?.trim()) || supportsAccountManagement(provider);
 }
 
 export function normalizeInviteLink(value: string) {

@@ -334,6 +334,7 @@ fn validate_check_in_credentials(provider: &Provider) -> Result<(), String> {
             Err("Cookie 签到需要会话 Cookie 和 API User ID".to_string())
         }
         AuthMode::ApiKey => Err("API 密钥不支持用户签到，请改用访问令牌或会话 Cookie".to_string()),
+        AuthMode::Password => Err("账号密码尚未完成登录，请先测试连接或刷新余额".to_string()),
         _ => Ok(()),
     }
 }

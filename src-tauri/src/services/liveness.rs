@@ -8,8 +8,8 @@ pub use prompt::{anthropic_base_url, effective_interval, openai_base_url, previe
 
 use crate::{
     models::{
-        provider_domain, AppSettings, CliCandidate, CodexCliProbeResult, LivenessCliKind,
-        LivenessRecord, Provider,
+        provider_domain, AppSettings, CodexCliProbeResult, LivenessCliKind, LivenessRecord,
+        Provider,
     },
     network,
     util::unix_millis as now_millis,
@@ -50,14 +50,6 @@ impl LivenessRunner {
 
     pub fn find_claude_cli(preferred_path: &str) -> Result<CodexCliProbeResult, String> {
         cli::find_claude_cli(preferred_path)
-    }
-
-    pub fn enumerate_codex_cli(preferred_path: &str) -> Vec<CliCandidate> {
-        cli::enumerate_codex_cli(preferred_path)
-    }
-
-    pub fn enumerate_claude_cli(preferred_path: &str) -> Vec<CliCandidate> {
-        cli::enumerate_claude_cli(preferred_path)
     }
 
     /// 仅供非 Windows 的临时 CLI 脚本生成注入 PATH；Windows 启动脚本不导出 PATH。

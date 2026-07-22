@@ -3,6 +3,9 @@ use chrono::{Datelike, Local};
 use crate::models::{provider_domain::auth, AuthMode, Provider};
 
 pub fn supports_check_in(provider: &Provider, is_anyrouter: bool) -> bool {
+    if matches!(provider.auth.mode, AuthMode::ApiKey) {
+        return false;
+    }
     let capabilities = &provider.capabilities;
     if capabilities.check_in_known {
         return capabilities.check_in_supported;
@@ -15,6 +18,9 @@ pub fn supports_check_in(provider: &Provider, is_anyrouter: bool) -> bool {
         && auth::has_access_token(provider)
         && auth::has_api_user(provider))
         || (matches!(provider.auth.mode, AuthMode::Session)
+            && auth::has_session(provider)
+            && auth::has_api_user(provider))
+        || (matches!(provider.auth.mode, AuthMode::Password)
             && auth::has_session(provider)
             && auth::has_api_user(provider))
 }
@@ -96,6 +102,16 @@ mod tests {
         let mut provider = provider();
         provider.capabilities.check_in_known = true;
         provider.capabilities.check_in_supported = false;
+
+        assert!(!supports_check_in(&provider, false));
+    }
+
+    #[test]
+    fn api_key_mode_never_inherits_cached_check_in_capability() {
+        let mut provider = provider();
+        provider.auth.mode = AuthMode::ApiKey;
+        provider.capabilities.check_in_known = true;
+        provider.capabilities.check_in_supported = true;
 
         assert!(!supports_check_in(&provider, false));
     }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { IconCopy, IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
+import { IconCloud, IconCopy, IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider } from "../stores/providers";
 
 const props = defineProps<{
@@ -53,12 +53,20 @@ const canRefresh = computed(() => Boolean(props.provider?.auth.apiKey.trim()));
 <template>
   <a-modal
     :visible="visible"
-    :title="modalTitle"
+    modal-class="surface-modal available-models-modal"
     :footer="false"
     :width="720"
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
+    <template #title>
+      <div class="surface-modal-title available-models-title">
+        <span class="surface-modal-title-icon"><icon-cloud /></span>
+        <span class="surface-modal-title-copy">
+          <strong>{{ modalTitle }}</strong>
+        </span>
+      </div>
+    </template>
     <div class="available-models-panel">
       <a-alert
         v-if="provider && !provider.auth.apiKey.trim()"

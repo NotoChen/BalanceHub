@@ -35,7 +35,7 @@ function handleVisibleChange(visible: boolean) {
     :visible="visible"
     width="min(600px, calc(100vw - 32px))"
     title-align="start"
-    modal-class="app-update-modal"
+    modal-class="surface-modal app-update-modal"
     :closable="!installing"
     :mask-closable="!installing"
     :esc-to-close="!installing"
@@ -43,9 +43,11 @@ function handleVisibleChange(visible: boolean) {
     @update:visible="handleVisibleChange"
   >
     <template #title>
-      <div class="app-update-title">
-        <span class="app-update-title-icon" aria-hidden="true"><icon-download /></span>
-        <span>BalanceHub {{ version }} 已可用</span>
+      <div class="surface-modal-title app-update-title">
+        <span class="surface-modal-title-icon app-update-title-icon" aria-hidden="true"><icon-download /></span>
+        <span class="surface-modal-title-copy">
+          <strong>BalanceHub {{ version }} 已可用</strong>
+        </span>
       </div>
     </template>
 

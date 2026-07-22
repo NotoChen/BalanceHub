@@ -1,50 +1,73 @@
 use crate::{
     models::{
-        AppSettings, CliCandidate, CodexCliProbeResult, LivenessCliKind, LivenessPromptMode,
-        LivenessRecord,
+        CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult, LivenessPromptMode,
+        LivenessRecord, TemporaryCliTerminalKind,
     },
-    services::liveness::{effective_interval, LivenessRunner},
+    services::{
+        liveness::{effective_interval, LivenessRunner},
+        temporary_cli,
+    },
     util::unix_millis as current_timestamp_millis,
 };
 
 use super::{find_provider, ProviderService};
 
 impl<'a> ProviderService<'a> {
-    pub fn probe_codex_cli(
+    pub fn probe_cli_environment(
         &self,
-        liveness_cli_kind: Option<LivenessCliKind>,
-        codex_cli_path: Option<String>,
-        claude_cli_path: Option<String>,
-    ) -> Result<CodexCliProbeResult, String> {
-        let mut settings = self.snapshot();
-        if let Some(kind) = liveness_cli_kind {
-            settings.settings.liveness_cli_kind = kind;
-        }
-        if let Some(path) = codex_cli_path {
-            settings.settings.codex_cli_path = path;
-        }
-        if let Some(path) = claude_cli_path {
-            settings.settings.claude_cli_path = path;
-        }
-        let codex_result = LivenessRunner::find_codex_cli(&settings.settings.codex_cli_path);
-        if let Ok(result) = &codex_result {
-            settings.settings.codex_cli_path = result.path.clone();
-        }
-        let claude_result = LivenessRunner::find_claude_cli(&settings.settings.claude_cli_path);
-        if let Ok(result) = &claude_result {
-            settings.settings.claude_cli_path = result.path.clone();
-        }
+        terminal_kind: Option<TemporaryCliTerminalKind>,
+        terminal_command: Option<String>,
+    ) -> Result<CliEnvironmentProbeResult, String> {
+        let snapshot = self.snapshot();
+        let codex_path = snapshot.settings.codex_cli_path.clone();
+        let claude_path = snapshot.settings.claude_cli_path.clone();
+        let terminal_kind = terminal_kind.unwrap_or(snapshot.settings.temporary_cli_terminal_kind);
+        let terminal_command = terminal_command
+            .unwrap_or(snapshot.settings.temporary_cli_terminal_command)
+            .trim()
+            .to_string();
 
-        let codex_path = settings.settings.codex_cli_path.clone();
-        let claude_path = settings.settings.claude_cli_path.clone();
+        let (codex, claude_code, terminal) = std::thread::scope(|scope| {
+            let codex_handle = scope.spawn(|| LivenessRunner::find_codex_cli(&codex_path));
+            let claude_handle = scope.spawn(|| LivenessRunner::find_claude_cli(&claude_path));
+            let terminal_handle =
+                scope.spawn(|| temporary_cli::probe_terminal(terminal_kind, &terminal_command));
+
+            let codex = codex_handle
+                .join()
+                .unwrap_or_else(|_| Err("Codex CLI 自动检测异常".to_string()));
+            let claude = claude_handle
+                .join()
+                .unwrap_or_else(|_| Err("Claude Code CLI 自动检测异常".to_string()));
+            let terminal = terminal_handle.join().unwrap_or_else(|_| {
+                crate::models::TemporaryTerminalProbeResult {
+                    available: false,
+                    kind: terminal_kind,
+                    name: "临时终端".to_string(),
+                    version: String::new(),
+                    message: "临时终端自动检测异常".to_string(),
+                }
+            });
+
+            (
+                cli_tool_probe_result(codex),
+                cli_tool_probe_result(claude),
+                terminal,
+            )
+        });
+
+        let stored_codex_path = codex.path.clone();
+        let stored_claude_path = claude_code.path.clone();
         self.mutate(|data| {
-            data.settings.codex_cli_path = codex_path;
-            data.settings.claude_cli_path = claude_path;
+            data.settings.codex_cli_path = stored_codex_path;
+            data.settings.claude_cli_path = stored_claude_path;
         })?;
-        match settings.settings.liveness_cli_kind {
-            LivenessCliKind::Codex => codex_result,
-            LivenessCliKind::ClaudeCode => claude_result,
-        }
+
+        Ok(CliEnvironmentProbeResult {
+            codex,
+            claude_code,
+            terminal,
+        })
     }
 
     pub fn run_liveness(
@@ -108,47 +131,26 @@ impl<'a> ProviderService<'a> {
                     Some((current_timestamp_millis() + next_after as u128 * 1000).to_string());
             }
             // 注意：mutate 闭包持有状态写锁，严禁在这里做磁盘扫描/子进程探测之类的
-            // 阻塞操作。CLI 路径的自动发现由启动时的 probe_codex_cli（锁外）负责。
+            // 阻塞操作。CLI 路径的自动发现由启动时的 probe_cli_environment（锁外）负责。
         })?;
 
         Ok(record)
     }
+}
 
-    /// 记录全 App 自动测活（消耗真实额度）的一次性授权。
-    pub fn acknowledge_liveness_cost(&self) -> Result<AppSettings, String> {
-        let accepted_at = current_timestamp_millis().to_string();
-        self.mutate(|data| {
-            data.settings.liveness_consent_accepted_at = Some(accepted_at);
-            data.settings.clone()
-        })
-    }
-
-    /// 重置全 App 自动测活授权（重置后调度器停止自动测活，再次开启时会重新弹窗授权）。
-    pub fn revoke_liveness_cost(&self) -> Result<AppSettings, String> {
-        self.mutate(|data| {
-            data.settings.liveness_consent_accepted_at = None;
-            data.settings.clone()
-        })
-    }
-
-    /// 校验/发现某种测活 CLI：传入路径则校验该路径（解析 + `--version`），
-    /// 传空则按内置规则自动发现。返回解析到的可执行路径与版本，或失败原因。不落盘。
-    pub fn check_cli_path(
-        &self,
-        kind: LivenessCliKind,
-        path: &str,
-    ) -> Result<CodexCliProbeResult, String> {
-        match kind {
-            LivenessCliKind::Codex => LivenessRunner::find_codex_cli(path),
-            LivenessCliKind::ClaudeCode => LivenessRunner::find_claude_cli(path),
-        }
-    }
-
-    /// 枚举某种测活 CLI 的所有候选可执行文件（含来源/版本/有效性），供「显示所有候选」列表。
-    pub fn list_cli_candidates(&self, kind: LivenessCliKind, path: &str) -> Vec<CliCandidate> {
-        match kind {
-            LivenessCliKind::Codex => LivenessRunner::enumerate_codex_cli(path),
-            LivenessCliKind::ClaudeCode => LivenessRunner::enumerate_claude_cli(path),
-        }
+fn cli_tool_probe_result(result: Result<CodexCliProbeResult, String>) -> CliToolProbeResult {
+    match result {
+        Ok(result) => CliToolProbeResult {
+            available: true,
+            path: result.path,
+            version: result.version,
+            message: String::new(),
+        },
+        Err(message) => CliToolProbeResult {
+            available: false,
+            path: String::new(),
+            version: String::new(),
+            message,
+        },
     }
 }

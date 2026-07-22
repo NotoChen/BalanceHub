@@ -33,7 +33,6 @@ export const defaultSettings = (): AppSettings => ({
       enabled: true,
     },
   ],
-  glassTransparency: 58,
   livenessCliKind: "codex",
   codexCliPath: "",
   claudeCliPath: "",
@@ -52,5 +51,4 @@ export const defaultSettings = (): AppSettings => ({
   livenessPlaceholderPools: defaultLivenessPlaceholderPools(),
   livenessNumberMin: DEFAULT_LIVENESS_NUMBER_MIN,
   livenessNumberMax: DEFAULT_LIVENESS_NUMBER_MAX,
-  livenessConsentAcceptedAt: null,
 });

@@ -4,8 +4,8 @@ use super::defaults;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
     default_true, AuthMode, LivenessCliKind, LivenessIntervalMode, LivenessPromptMode,
-    LivenessRecord, ProviderCheckInRecord, ProviderNotificationMode, ProviderProxyMode,
-    ProviderQuotaScope, ProviderStatus,
+    LivenessRecord, ProviderApiKeyOption, ProviderCheckInRecord, ProviderNotificationMode,
+    ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,14 +65,22 @@ pub struct ProviderCliInput {
     pub preferred_model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAuth {
     pub mode: AuthMode,
     pub api_key: String,
+    #[serde(default)]
+    pub api_key_token_id: String,
+    #[serde(default)]
+    pub api_key_options: Vec<ProviderApiKeyOption>,
     pub access_token: String,
     pub session_cookie: String,
     pub api_user: String,
+    #[serde(default)]
+    pub login_username: String,
+    #[serde(default)]
+    pub login_password: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

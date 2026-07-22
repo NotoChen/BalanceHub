@@ -22,7 +22,6 @@ defineProps<{
   onboardingProviderCount: number;
   onboardingCliConfigured: boolean;
   importingAppData: boolean;
-  probingCodexCliPath: boolean;
   apiKeyManagerProvider: Provider | null;
   apiKeyManagerLoading: boolean;
   apiKeyManagerKeys: ProviderApiKeyOption[];
@@ -57,7 +56,6 @@ const emit = defineEmits<{
   openOnboardingAddProvider: [];
   importOnboardingData: [];
   openOnboardingSettings: [];
-  probeOnboardingCodexCli: [];
   completeOnboarding: [];
   refreshApiKeyManager: [];
   openApiKeyCreateModal: [];
@@ -98,11 +96,9 @@ const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { require
     :provider-count="onboardingProviderCount"
     :cli-configured="onboardingCliConfigured"
     :importing-app-data="importingAppData"
-    :probing-codex-cli="probingCodexCliPath"
     @add-provider="emit('openOnboardingAddProvider')"
     @import-data="emit('importOnboardingData')"
     @open-settings="emit('openOnboardingSettings')"
-    @probe-codex-cli="emit('probeOnboardingCodexCli')"
     @finish="emit('completeOnboarding')"
   />
 

@@ -1,6 +1,6 @@
 [package]
 name = "balancehub"
-version = "0.3.5"
+version = "0.3.6"
 description = "用于集中管理 AI 中转站账号的跨平台桌面应用。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"

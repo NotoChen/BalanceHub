@@ -31,35 +31,145 @@ pub struct ProviderCredentialCompletionStep {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct ProviderApiKeyOption {
     pub name: String,
     pub key: String,
-    #[serde(default)]
+    pub masked_key: String,
+    pub key_available: bool,
     pub token_id: String,
-    #[serde(default)]
+    pub user_id: String,
     pub status: String,
-    #[serde(default)]
     pub used_quota: f64,
-    #[serde(default)]
     pub remain_quota: f64,
-    #[serde(default)]
+    pub used_quota_raw: i64,
+    pub remain_quota_raw: i64,
     pub unlimited_quota: bool,
-    #[serde(default)]
     pub group: String,
-    #[serde(default)]
+    pub cross_group_retry: bool,
     pub model_limits_enabled: bool,
-    #[serde(default)]
     pub model_limits: Vec<String>,
-    #[serde(default)]
     pub allow_ips: Vec<String>,
-    #[serde(default)]
+    pub quota_display_type: String,
+    pub currency_symbol: String,
     pub created_time: Option<i64>,
-    #[serde(default)]
     pub accessed_time: Option<i64>,
-    #[serde(default)]
     pub expired_time: Option<i64>,
+}
+
+impl ProviderApiKeyOption {
+    pub fn current(key: &str) -> Self {
+        let key = super::normalize_api_key(key);
+        Self {
+            name: "当前 API Key".to_string(),
+            masked_key: mask_api_key(&key),
+            key_available: !key.is_empty() && !key.contains('*'),
+            key,
+            status: "1".to_string(),
+            quota_display_type: "currency".to_string(),
+            currency_symbol: "$".to_string(),
+            ..Self::default()
+        }
+    }
+
+    pub fn normalize(mut self) -> Self {
+        self.key = super::normalize_api_key(&self.key);
+        self.masked_key = self.masked_key.trim().to_string();
+        self.status = self.status.trim().to_string();
+        if self.masked_key.is_empty() && !self.key.is_empty() {
+            self.masked_key = mask_api_key(&self.key);
+        }
+        self.key_available = !self.key.is_empty() && !self.key.contains('*');
+        self.name = self.name.trim().to_string();
+        self.token_id = self.token_id.trim().to_string();
+        self.user_id = self.user_id.trim().to_string();
+        self.group = self.group.trim().to_string();
+        self.model_limits = normalize_string_list(self.model_limits);
+        self.allow_ips = normalize_string_list(self.allow_ips);
+        if self.quota_display_type.trim().is_empty() {
+            self.quota_display_type = "currency".to_string();
+        }
+        if self.currency_symbol.trim().is_empty() {
+            self.currency_symbol = "$".to_string();
+        }
+        self
+    }
+
+    /// Merge a previously revealed key into a fresh remote metadata snapshot.
+    /// NewAPI intentionally masks keys in the list response, and older or
+    /// customized deployments may reject the reveal endpoint. Keeping the
+    /// locally revealed value lets a metadata refresh update quotas/limits
+    /// without making an already usable key disappear.
+    pub fn merge_cached_key_material(
+        options: &mut [ProviderApiKeyOption],
+        cached: &[ProviderApiKeyOption],
+    ) {
+        for option in options.iter_mut() {
+            if option.key_available {
+                continue;
+            }
+            let Some(previous) = cached.iter().find(|candidate| {
+                (!option.token_id.is_empty()
+                    && !candidate.token_id.is_empty()
+                    && option.token_id == candidate.token_id)
+                    || (option.token_id.is_empty()
+                        && candidate.token_id.is_empty()
+                        && !option.masked_key.is_empty()
+                        && option.masked_key == candidate.masked_key)
+            }) else {
+                continue;
+            };
+            let key = super::normalize_api_key(&previous.key);
+            if key.is_empty() || key.contains('*') {
+                continue;
+            }
+            option.key = key;
+            option.key_available = true;
+            if option.masked_key.is_empty() {
+                option.masked_key = if previous.masked_key.is_empty() {
+                    mask_api_key(&option.key)
+                } else {
+                    previous.masked_key.clone()
+                };
+            }
+        }
+    }
+}
+
+fn normalize_string_list(values: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for value in values {
+        let value = value.trim().to_string();
+        if value.is_empty() || normalized.contains(&value) {
+            continue;
+        }
+        normalized.push(value);
+    }
+    normalized
+}
+
+fn mask_api_key(key: &str) -> String {
+    let key = key.trim();
+    if key.is_empty() || key.contains('*') {
+        return key.to_string();
+    }
+    let chars = key.chars().collect::<Vec<_>>();
+    if chars.len() <= 4 {
+        return "*".repeat(chars.len());
+    }
+    if chars.len() <= 8 {
+        return format!(
+            "{}****{}",
+            chars[..2].iter().collect::<String>(),
+            chars[chars.len() - 2..].iter().collect::<String>()
+        );
+    }
+    format!(
+        "{}**********{}",
+        chars[..4].iter().collect::<String>(),
+        chars[chars.len() - 4..].iter().collect::<String>()
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]

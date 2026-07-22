@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { IconDownload, IconRefresh, IconUpload } from "@arco-design/web-vue/es/icon";
-import SettingsSection from "./SettingsSection.vue";
+import {
+  IconDownload,
+  IconRefresh,
+  IconStorage,
+  IconUpload,
+  IconWifi,
+} from "@arco-design/web-vue/es/icon";
 import type { AppSettings, ProxyMode } from "../../stores/providers";
 
 interface SelectOption<T extends string = string> {
@@ -10,7 +15,7 @@ interface SelectOption<T extends string = string> {
 
 defineProps<{
   settings: AppSettings;
-  expanded: boolean;
+  expanded?: boolean;
   exportingAppData: boolean;
   importingAppData: boolean;
   appVersion: string;
@@ -29,63 +34,88 @@ const proxyModeOptions: SelectOption<ProxyMode>[] = [
   { label: "不使用代理", value: "noProxy" },
   { label: "自定义代理", value: "custom" },
 ];
+
+function versionLabel(value: unknown) {
+  if (typeof value === "string" && value.trim()) {
+    return `v${value.trim()}`;
+  }
+  return "开发环境";
+}
 </script>
 
 <template>
-  <SettingsSection
-    title="网络与系统"
-    description="配置代理和开机启动。"
-    :expanded="expanded"
-    @toggle="emit('toggle')"
-  >
-    <a-form-item label="代理设置">
-      <a-select v-model="settings.proxyMode" :options="proxyModeOptions" />
-      <template #extra>默认跟随系统代理，适合使用本机代理软件的场景。</template>
-    </a-form-item>
-    <a-form-item
-      v-if="settings.proxyMode === 'custom'"
-      label="自定义代理地址"
-      required
-    >
-      <a-input
-        v-model="settings.proxyUrl"
-        placeholder="http://127.0.0.1:6152 或 socks5://127.0.0.1:6153"
-      />
-    </a-form-item>
-    <a-form-item label="开机启动">
-      <a-switch v-model="settings.launchAtLogin" />
-      <template #extra>保存后会写入系统开机启动项。</template>
-    </a-form-item>
-    <a-form-item label="自启后最小化">
-      <a-switch
-        v-model="settings.launchAtLoginMinimized"
-        :disabled="!settings.launchAtLogin"
-      />
-      <template #extra>开机自启动时不弹出主窗口，仅保留托盘图标，点击托盘随时打开。</template>
-    </a-form-item>
-    <a-form-item label="当前版本">
-      <span class="settings-version">{{ appVersion ? `v${appVersion}` : "开发环境" }}</span>
-      <template #extra>版本号与 GitHub Release tag 保持一致。</template>
-    </a-form-item>
-    <a-form-item label="应用更新">
-      <a-button :loading="checkingForUpdate" @click="emit('check-for-update')">
-        <template #icon><IconRefresh /></template>
-        检查更新
-      </a-button>
-      <template #extra>正式版本会从 GitHub Releases 获取更新说明和当前平台安装包。</template>
-    </a-form-item>
-    <a-form-item label="配置备份">
-      <a-space>
-        <a-button :loading="exportingAppData" @click="emit('export-app-data')">
-          <template #icon><IconDownload /></template>
-          导出配置
+  <div class="settings-page settings-system-page">
+    <section class="settings-card">
+      <header class="settings-card-header">
+        <span class="settings-card-icon"><IconWifi /></span>
+        <div>
+          <strong>网络代理</strong>
+        </div>
+      </header>
+
+      <div class="settings-setting-list">
+        <div class="settings-setting-row">
+          <div class="settings-setting-copy">
+            <strong>代理策略</strong>
+          </div>
+          <a-select v-model="settings.proxyMode" :options="proxyModeOptions" />
+        </div>
+        <div v-if="settings.proxyMode === 'custom'" class="settings-setting-row settings-setting-row-wide">
+          <div class="settings-setting-copy">
+            <strong>代理地址</strong>
+          </div>
+          <a-input
+            v-model="settings.proxyUrl"
+            placeholder="http://127.0.0.1:6152"
+            title="支持 HTTP、HTTPS 和 SOCKS5 地址"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <header class="settings-card-header">
+        <span class="settings-card-icon settings-card-icon-green"><IconRefresh /></span>
+        <div>
+          <strong>版本更新</strong>
+        </div>
+        <span class="settings-version-badge">{{ versionLabel(appVersion) }}</span>
+      </header>
+
+      <div class="settings-setting-row settings-setting-row-action">
+        <div class="settings-setting-copy">
+          <strong>检查新版本</strong>
+        </div>
+        <a-button :loading="checkingForUpdate" @click="emit('check-for-update')">
+          <template #icon><IconRefresh /></template>
+          检查更新
         </a-button>
-        <a-button :loading="importingAppData" @click="emit('import-app-data')">
-          <template #icon><IconUpload /></template>
-          导入配置
-        </a-button>
-      </a-space>
-      <template #extra>导入会完整替换当前中转站和应用设置。</template>
-    </a-form-item>
-  </SettingsSection>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <header class="settings-card-header">
+        <span class="settings-card-icon settings-card-icon-amber"><IconStorage /></span>
+        <div>
+          <strong>配置文件</strong>
+        </div>
+      </header>
+
+      <div class="settings-setting-row settings-setting-row-action">
+        <div class="settings-setting-copy">
+          <strong>导入与导出</strong>
+        </div>
+        <a-space>
+          <a-button :loading="exportingAppData" @click="emit('export-app-data')">
+            <template #icon><IconDownload /></template>
+            导出
+          </a-button>
+          <a-button :loading="importingAppData" @click="emit('import-app-data')">
+            <template #icon><IconUpload /></template>
+            导入
+          </a-button>
+        </a-space>
+      </div>
+    </section>
+  </div>
 </template>

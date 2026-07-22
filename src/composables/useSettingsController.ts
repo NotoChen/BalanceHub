@@ -1,8 +1,7 @@
-import { computed, reactive, ref, type Ref } from "vue";
+import { computed, reactive, ref, watch, type Ref } from "vue";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { Message } from "@arco-design/web-vue";
-import type { AppSettings, Provider } from "../stores/providers";
-import type { CodexCliProbeInput } from "../api/app";
+import type { AppSettings, CliEnvironmentProbeResult, Provider } from "../stores/providers";
 import { durationValueToSeconds, secondsToDurationValue, type DurationUnit } from "../utils/duration";
 import { normalizeLivenessTiming } from "../utils/liveness-defaults";
 import { useThemeMode } from "./useThemeMode";
@@ -13,15 +12,27 @@ interface UseSettingsControllerOptions {
   settings: Ref<AppSettings>;
   initialSettings: AppSettings;
   saveSettings: (settings: AppSettings) => Promise<unknown>;
-  probeCodexCli: (input?: Partial<CodexCliProbeInput>) => Promise<{ path: string; version: string }>;
+  probeCliEnvironment: (
+    terminalKind?: AppSettings["temporaryCliTerminalKind"],
+    terminalCommand?: string,
+  ) => Promise<CliEnvironmentProbeResult>;
 }
+
+export type SettingsSaveState = "saved" | "pending" | "saving" | "error";
 
 export function useSettingsController(options: UseSettingsControllerOptions) {
   const settingsDrawerVisible = ref(false);
-  const probingCodexCliPath = ref(false);
+  const probingCliEnvironment = ref(false);
   const settingsForm = reactive(cloneSettings(options.initialSettings));
+  const settingsSaveState = ref<SettingsSaveState>("saved");
   const globalRefreshUnit = ref<DurationUnit>("minute");
   const { applyTheme, setupThemeListener, cleanupThemeListener } = useThemeMode(settingsForm);
+
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let activeSave: Promise<void> | null = null;
+  let queuedSave = false;
+  let lastPersistedSnapshot = settingsSnapshot(settingsForm);
+  let lastLaunchAtLogin = settingsForm.launchAtLogin;
 
   const livenessModelOptions = computed(() =>
     Array.from(
@@ -59,49 +70,106 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     },
   });
 
-  async function saveSettings() {
-    normalizeLivenessTiming(settingsForm);
-    if (settingsForm.launchAtLogin) {
-      await enable();
-    } else {
-      await disable();
-    }
-    await options.saveSettings(cloneSettings(settingsForm));
-    applyTheme(settingsForm.themeMode);
-    settingsDrawerVisible.value = false;
+  function scheduleSettingsSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void persistSettings();
+    }, 300);
   }
 
-  async function probeCodexCliPath() {
-    if (probingCodexCliPath.value) {
+  async function persistSettings(): Promise<void> {
+    if (activeSave) {
+      queuedSave = true;
+      return activeSave;
+    }
+
+    const task = (async () => {
+      do {
+        queuedSave = false;
+        normalizeLivenessTiming(settingsForm);
+        const payload = cloneSettings(settingsForm);
+        const snapshot = settingsSnapshot(payload);
+        settingsSaveState.value = "saving";
+
+        try {
+          if (lastLaunchAtLogin !== payload.launchAtLogin) {
+            if (payload.launchAtLogin) {
+              await enable();
+            } else {
+              await disable();
+            }
+            lastLaunchAtLogin = payload.launchAtLogin;
+          }
+          await options.saveSettings(payload);
+          if (settingsSnapshot(settingsForm) !== snapshot) {
+            queuedSave = true;
+          } else {
+            lastPersistedSnapshot = snapshot;
+            settingsSaveState.value = "saved";
+          }
+        } catch (error) {
+          settingsSaveState.value = "error";
+          Message.error(error instanceof Error ? error.message : String(error));
+        }
+      } while (queuedSave && settingsSaveState.value !== "error");
+    })();
+
+    activeSave = task;
+    try {
+      await task;
+    } finally {
+      activeSave = null;
+    }
+  }
+
+  async function flushSettingsSave() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    if (activeSave) {
+      await activeSave;
+    }
+    if (settingsSnapshot(settingsForm) !== lastPersistedSnapshot) {
+      await persistSettings();
+    }
+  }
+
+  async function probeCliEnvironment() {
+    if (probingCliEnvironment.value) {
       return;
     }
 
-    probingCodexCliPath.value = true;
+    probingCliEnvironment.value = true;
     try {
-      const result = await options.probeCodexCli({
-        livenessCliKind: settingsForm.livenessCliKind,
-        codexCliPath: settingsForm.codexCliPath,
-        claudeCliPath: settingsForm.claudeCliPath,
-      });
-      if (settingsForm.livenessCliKind === "claudeCode") {
-        settingsForm.claudeCliPath = result.path;
-      } else {
-        settingsForm.codexCliPath = result.path;
-      }
-      Message.success(`已找到测活 CLI：${result.version || result.path}`);
+      const result = await options.probeCliEnvironment(
+        settingsForm.temporaryCliTerminalKind,
+        settingsForm.temporaryCliTerminalCommand,
+      );
+      settingsForm.codexCliPath = result.codex.path;
+      settingsForm.claudeCliPath = result.claudeCode.path;
     } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
+      // 自动探测失败只在设置卡片内呈现，不打断启动流程。
+      if (settingsDrawerVisible.value) {
+        Message.error(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      probingCodexCliPath.value = false;
+      probingCliEnvironment.value = false;
     }
   }
 
-  async function autoProbeCodexCliPath() {
+  async function autoProbeCliEnvironment() {
     try {
-      await options.probeCodexCli();
+      const result = await options.probeCliEnvironment(
+        settingsForm.temporaryCliTerminalKind,
+        settingsForm.temporaryCliTerminalCommand,
+      );
+      settingsForm.codexCliPath = result.codex.path;
+      settingsForm.claudeCliPath = result.claudeCode.path;
       Object.assign(settingsForm, cloneSettings(options.settings.value));
     } catch {
-      // Keep startup quiet; the settings panel still exposes manual path configuration.
+      // Keep startup quiet; the settings panel presents the unavailable state.
     }
   }
 
@@ -115,17 +183,36 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
 
   function syncFromSettings(value = options.settings.value) {
     Object.assign(settingsForm, cloneSettings(value));
+    lastPersistedSnapshot = settingsSnapshot(settingsForm);
+    lastLaunchAtLogin = settingsForm.launchAtLogin;
+    settingsSaveState.value = "saved";
     applyTheme(value.themeMode);
   }
 
-  function resetDraftOnClose() {
+  async function resetDraftOnClose() {
+    await flushSettingsSave();
     Object.assign(settingsForm, cloneSettings(options.settings.value));
+    lastPersistedSnapshot = settingsSnapshot(settingsForm);
+    lastLaunchAtLogin = settingsForm.launchAtLogin;
+    settingsSaveState.value = "saved";
     applyTheme(options.settings.value.themeMode);
   }
 
+  watch(
+    settingsForm,
+    () => {
+      applyTheme(settingsForm.themeMode);
+      if (settingsSnapshot(settingsForm) === lastPersistedSnapshot) return;
+      settingsSaveState.value = "pending";
+      scheduleSettingsSave();
+    },
+    { deep: true },
+  );
+
   return {
     settingsDrawerVisible,
-    probingCodexCliPath,
+    settingsSaveState,
+    probingCliEnvironment,
     settingsForm,
     globalRefreshUnit,
     livenessModelOptions,
@@ -134,9 +221,9 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     applyTheme,
     setupThemeListener,
     cleanupThemeListener,
-    saveSettings,
-    probeCodexCliPath,
-    autoProbeCodexCliPath,
+    flushSettingsSave,
+    probeCliEnvironment,
+    autoProbeCliEnvironment,
     syncLaunchAtLogin,
     syncFromSettings,
     resetDraftOnClose,
@@ -148,4 +235,8 @@ function cloneSettings(settings: AppSettings): AppSettings {
     ...defaultSettings(),
     ...JSON.parse(JSON.stringify(settings)),
   };
+}
+
+function settingsSnapshot(settings: AppSettings) {
+  return JSON.stringify(settings);
 }

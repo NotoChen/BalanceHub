@@ -78,6 +78,8 @@ function formatDateTime(value: string | null) {
 <template>
   <a-drawer
     :visible="visible"
+    class="surface-drawer temporary-cli-surface"
+    body-class="temporary-cli-drawer-body"
     :width="520"
     :title="title"
     :footer="false"

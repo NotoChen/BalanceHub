@@ -1,4 +1,7 @@
-use crate::models::{normalize_api_key, normalize_invite_link, AppData, CURRENT_SCHEMA_VERSION};
+use crate::models::{
+    normalize_api_key, normalize_invite_link, normalize_provider_auth, AppData,
+    CURRENT_SCHEMA_VERSION,
+};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -156,6 +159,54 @@ fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String
             data["workspaces"] = serde_json::Value::Array(Vec::new());
             Ok(())
         }
+        4 => {
+            if let Some(providers) = data
+                .get_mut("providers")
+                .and_then(|value| value.as_array_mut())
+            {
+                for provider in providers {
+                    let auth = provider
+                        .as_object_mut()
+                        .map(|object| {
+                            object
+                                .entry("auth")
+                                .or_insert_with(|| serde_json::json!({}))
+                        })
+                        .and_then(serde_json::Value::as_object_mut);
+                    if let Some(auth) = auth {
+                        auth.entry("loginUsername")
+                            .or_insert_with(|| serde_json::Value::String(String::new()));
+                        auth.entry("loginPassword")
+                            .or_insert_with(|| serde_json::Value::String(String::new()));
+                    }
+                }
+            }
+            Ok(())
+        }
+        5 => {
+            if let Some(providers) = data
+                .get_mut("providers")
+                .and_then(|value| value.as_array_mut())
+            {
+                for provider in providers {
+                    let auth = provider
+                        .as_object_mut()
+                        .map(|object| {
+                            object
+                                .entry("auth")
+                                .or_insert_with(|| serde_json::json!({}))
+                        })
+                        .and_then(serde_json::Value::as_object_mut);
+                    if let Some(auth) = auth {
+                        auth.entry("apiKeyTokenId")
+                            .or_insert_with(|| serde_json::Value::String(String::new()));
+                        auth.entry("apiKeyOptions")
+                            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                    }
+                }
+            }
+            Ok(())
+        }
         other => Err(format!(
             "没有从 schemaVersion {other} 出发的迁移路径，请重新初始化配置或导入新版配置"
         )),
@@ -258,6 +309,12 @@ fn normalize_provider_cached_values(data: &mut AppData) -> bool {
     let mut changed = false;
 
     for provider in &mut data.providers {
+        let current_auth = provider.auth.clone();
+        provider.auth = normalize_provider_auth(current_auth.clone());
+        if provider.auth != current_auth {
+            changed = true;
+        }
+
         let normalized = normalize_api_key(&provider.auth.api_key);
         if normalized != provider.auth.api_key {
             provider.auth.api_key = normalized;
@@ -313,6 +370,62 @@ mod tests {
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
         assert!(migrated.workspaces.is_empty());
         assert!(migrated.temporary_cli_preferences.is_empty());
+    }
+
+    #[test]
+    fn schema_four_migration_adds_password_login_fields() {
+        let mut old = AppData {
+            schema_version: 4,
+            ..AppData::default()
+        };
+        old.providers.push(crate::models::Provider::from_input(
+            crate::models::ProviderInput::default(),
+            "provider-test".to_string(),
+        ));
+        let mut value = serde_json::to_value(old).expect("app data should serialize");
+        let auth = value["providers"][0]["auth"]
+            .as_object_mut()
+            .expect("provider auth should be an object");
+        auth.remove("loginUsername");
+        auth.remove("loginPassword");
+
+        let migrated = migrate_app_data(
+            &serde_json::to_string(&value).expect("legacy app data should serialize"),
+            4,
+        )
+        .expect("schema four should migrate");
+
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(migrated.providers[0].auth.login_username, "");
+        assert_eq!(migrated.providers[0].auth.login_password, "");
+    }
+
+    #[test]
+    fn schema_five_migration_adds_api_key_cache_fields() {
+        let mut old = AppData {
+            schema_version: 5,
+            ..AppData::default()
+        };
+        old.providers.push(crate::models::Provider::from_input(
+            crate::models::ProviderInput::default(),
+            "provider-test".to_string(),
+        ));
+        let mut value = serde_json::to_value(old).expect("app data should serialize");
+        let auth = value["providers"][0]["auth"]
+            .as_object_mut()
+            .expect("provider auth should be an object");
+        auth.remove("apiKeyTokenId");
+        auth.remove("apiKeyOptions");
+
+        let migrated = migrate_app_data(
+            &serde_json::to_string(&value).expect("legacy app data should serialize"),
+            5,
+        )
+        .expect("schema five should migrate");
+
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert!(migrated.providers[0].auth.api_key_token_id.is_empty());
+        assert!(migrated.providers[0].auth.api_key_options.is_empty());
     }
 
     #[test]

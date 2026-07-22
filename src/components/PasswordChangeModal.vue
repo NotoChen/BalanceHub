@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { Message } from "@arco-design/web-vue";
+import { IconLock } from "@arco-design/web-vue/es/icon";
 import type { Provider } from "../stores/providers";
 
 const props = defineProps<{
@@ -49,11 +50,19 @@ function submit() {
 <template>
   <a-modal
     :visible="visible"
-    :title="modalTitle"
+    modal-class="surface-modal password-change-modal"
     :footer="false"
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
+    <template #title>
+      <div class="surface-modal-title password-change-title">
+        <span class="surface-modal-title-icon"><icon-lock /></span>
+        <span class="surface-modal-title-copy">
+          <strong>{{ modalTitle }}</strong>
+        </span>
+      </div>
+    </template>
     <div class="password-change-form">
       <label>
         <span>原密码</span>

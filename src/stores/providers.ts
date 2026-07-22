@@ -1,11 +1,7 @@
 import { defineStore } from "pinia";
 import {
   activateTemporaryCli as activateTemporaryCliCommand,
-  acknowledgeLivenessCost as acknowledgeLivenessCostCommand,
-  revokeLivenessCost as revokeLivenessCostCommand,
-  checkCliPath as checkCliPathCommand,
   browseWorkspaceDirectories as browseWorkspaceDirectoriesCommand,
-  listCliCandidates as listCliCandidatesCommand,
   changeProviderPassword as changeProviderPasswordCommand,
   completeProviderCredentials as completeProviderCredentialsCommand,
   createProviderApiKey as createProviderApiKeyCommand,
@@ -24,7 +20,7 @@ import {
   launchTemporaryCli as launchTemporaryCliCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
-  probeCodexCli as probeCodexCliCommand,
+  probeCliEnvironment as probeCliEnvironmentCommand,
   probeProviderSite as probeProviderSiteCommand,
   previewCliConfig as previewCliConfigCommand,
   refreshAllProviders,
@@ -38,12 +34,12 @@ import {
   testProviderConnection as testProviderConnectionCommand,
   switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
-import type { CodexCliProbeInput } from "../api/app";
 import { providerToInput } from "../utils/provider-input";
 import { defaultSettings } from "./provider-defaults";
 import type {
   AppSettings,
   CliConfigPreview,
+  CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
   LivenessCliKind,
   Provider,
@@ -71,6 +67,8 @@ export const useProviderStore = defineStore("providers", {
     workspaces: [] as Workspace[],
     temporaryCliPreferences: [] as TemporaryCliPreference[],
     cliRuntime: emptyCliRuntimeSnapshot(),
+    cliEnvironmentProbe: null as CliEnvironmentProbeResult | null,
+    cliEnvironmentLoading: false,
   }),
   getters: {},
   actions: {
@@ -170,17 +168,20 @@ export const useProviderStore = defineStore("providers", {
       }
       return result;
     },
-    async probeCodexCli(input?: Partial<CodexCliProbeInput>) {
-      const result = await probeCodexCliCommand(input);
-      const data = await loadAppData();
-      this.settings = data.settings;
-      return result;
-    },
-    async checkCliPath(kind: LivenessCliKind, path: string) {
-      return checkCliPathCommand(kind, path);
-    },
-    async listCliCandidates(kind: LivenessCliKind, path: string) {
-      return listCliCandidatesCommand(kind, path);
+    async probeCliEnvironment(
+      terminalKind?: AppSettings["temporaryCliTerminalKind"],
+      terminalCommand?: string,
+    ) {
+      this.cliEnvironmentLoading = true;
+      try {
+        const result = await probeCliEnvironmentCommand(terminalKind, terminalCommand);
+        this.cliEnvironmentProbe = result;
+        this.settings.codexCliPath = result.codex.path;
+        this.settings.claudeCliPath = result.claudeCode.path;
+        return result;
+      } finally {
+        this.cliEnvironmentLoading = false;
+      }
     },
     async launchTemporaryCli(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchResult> {
       const result = await launchTemporaryCliCommand(input);
@@ -228,14 +229,6 @@ export const useProviderStore = defineStore("providers", {
         this.cliRuntimeLoading = false;
       }
     },
-    async acknowledgeLivenessCost() {
-      this.settings = await acknowledgeLivenessCostCommand();
-      return this.settings;
-    },
-    async revokeLivenessCost() {
-      this.settings = await revokeLivenessCostCommand();
-      return this.settings;
-    },
     async listApiKeys(id: string) {
       const options = await listProviderApiKeysCommand(id);
       await this.reload().catch(() => {});
@@ -264,7 +257,11 @@ export const useProviderStore = defineStore("providers", {
       return getProviderRequestLogsCommand(id, query);
     },
     async changePassword(id: string, originalPassword: string, password: string) {
-      return changeProviderPasswordCommand(id, originalPassword, password);
+      const message = await changeProviderPasswordCommand(id, originalPassword, password);
+      // 用户认证模式下后端会同步本地 loginPassword；重新读取让编辑器拿到最新凭据，
+      // 避免用户随后保存编辑表单时把旧密码写回去。
+      await this.reload().catch(() => {});
+      return message;
     },
     async getCheckInRecords(id: string, month: string) {
       return getProviderCheckInRecordsCommand(id, month);

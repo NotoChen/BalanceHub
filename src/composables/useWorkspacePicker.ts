@@ -65,15 +65,23 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
         uniqueKeys.set(providerKey, {
           name: "当前配置 API Key",
           key: providerKey,
+          maskedKey: "",
+          keyAvailable: true,
           tokenId: "",
+          userId: "",
           status: "enabled",
           usedQuota: 0,
           remainQuota: 0,
+          usedQuotaRaw: 0,
+          remainQuotaRaw: 0,
           unlimitedQuota: false,
           group: "",
+          crossGroupRetry: false,
           modelLimitsEnabled: false,
           modelLimits: [],
           allowIps: [],
+          quotaDisplayType: "currency",
+          currencySymbol: "$",
         });
       }
       for (const option of apiKeys) {

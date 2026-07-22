@@ -3,8 +3,7 @@ import type {
   AppSettings,
   CliConfigPreview,
   CliRuntimeSnapshot,
-  CliCandidate,
-  CodexCliProbeResult,
+  CliEnvironmentProbeResult,
   CodexModelSyncResult,
   LivenessCliKind,
   Provider,
@@ -25,11 +24,6 @@ import type {
   Workspace,
   WorkspaceDirectoryListing,
 } from "../stores/providers";
-
-export type CodexCliProbeInput = Pick<
-  AppSettings,
-  "livenessCliKind" | "codexCliPath" | "claudeCliPath"
->;
 
 export interface AppData {
   schemaVersion: number;
@@ -126,11 +120,13 @@ export function testProviderConnection(input: ProviderInput) {
   return invoke<ProviderConnectionTestResult>("test_provider_connection", { input });
 }
 
-export function probeCodexCli(input?: Partial<CodexCliProbeInput>) {
-  return invoke<CodexCliProbeResult>("probe_codex_cli", {
-    livenessCliKind: input?.livenessCliKind,
-    codexCliPath: input?.codexCliPath,
-    claudeCliPath: input?.claudeCliPath,
+export function probeCliEnvironment(
+  terminalKind?: AppSettings["temporaryCliTerminalKind"],
+  terminalCommand?: string,
+) {
+  return invoke<CliEnvironmentProbeResult>("probe_cli_environment", {
+    terminalKind,
+    terminalCommand,
   });
 }
 
@@ -224,20 +220,4 @@ export function refreshAllProviders() {
 
 export function refreshProviders(ids: string[]) {
   return invoke<RefreshResult>("refresh_providers", { ids });
-}
-
-export function acknowledgeLivenessCost() {
-  return invoke<AppSettings>("acknowledge_liveness_cost");
-}
-
-export function revokeLivenessCost() {
-  return invoke<AppSettings>("revoke_liveness_cost");
-}
-
-export function checkCliPath(kind: LivenessCliKind, path: string) {
-  return invoke<CodexCliProbeResult>("check_cli_path", { kind, path });
-}
-
-export function listCliCandidates(kind: LivenessCliKind, path: string) {
-  return invoke<CliCandidate[]>("list_cli_candidates", { kind, path });
 }
