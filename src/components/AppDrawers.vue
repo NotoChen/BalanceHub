@@ -5,13 +5,16 @@ import TemporaryCliDrawer from "./TemporaryCliDrawer.vue";
 import type {
   AppSettings,
   Provider,
+  ProviderApiKeyOption,
   ProviderInput,
+  ProviderSiteProbeResult,
   TemporaryCliInstance,
 } from "../stores/providers";
 import type {
   CredentialCompletionState,
   CredentialCompletionStep,
 } from "../composables/useProviderCredentialCompletion";
+import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { DurationUnit } from "../utils/duration";
 
 interface ModelProviderIndexItem {
@@ -21,6 +24,7 @@ interface ModelProviderIndexItem {
 
 defineProps<{
   settings: AppSettings;
+  settingsSaveState: SettingsSaveState;
   livenessModelOptions: string[];
   modelProviderIndex: ModelProviderIndexItem[];
   exportingAppData: boolean;
@@ -33,6 +37,11 @@ defineProps<{
   activatingCliInstanceId: string | null;
   providerEditorTitle: string;
   draftProvider: ProviderInput;
+  apiKeyOptions: ProviderApiKeyOption[];
+  availableModels: string[];
+  siteProbeResult: ProviderSiteProbeResult | null;
+  probingSite: boolean;
+  siteNameSourceBaseUrl: string;
   testingConnection: boolean;
   credentialAssistantState: CredentialCompletionState;
   credentialAssistantSteps: CredentialCompletionStep[];
@@ -43,8 +52,6 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  probeCodexCli: [];
-  saveSettings: [];
   testNotification: [];
   exportAppData: [];
   importAppData: [];
@@ -52,8 +59,10 @@ const emit = defineEmits<{
   refreshCliRuntime: [];
   activateCliInstance: [instance: TemporaryCliInstance];
   copyApiKey: [];
+  selectApiKey: [option: ProviderApiKeyOption];
   runCredentialAssistant: [];
   testConnection: [];
+  probeSite: [];
   saveProvider: [];
 }>();
 
@@ -70,14 +79,13 @@ const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { requir
     v-model:global-refresh-amount="globalRefreshAmount"
     v-model:global-refresh-unit="globalRefreshUnit"
     :settings="settings"
+    :settings-save-state="settingsSaveState"
     :liveness-model-options="livenessModelOptions"
     :model-provider-index="modelProviderIndex"
     :exporting-app-data="exportingAppData"
     :importing-app-data="importingAppData"
     :app-version="appVersion"
     :checking-for-update="checkingForUpdate"
-    @probe-codex-cli="emit('probeCodexCli')"
-    @save="emit('saveSettings')"
     @test-notification="emit('testNotification')"
     @export-app-data="emit('exportAppData')"
     @import-app-data="emit('importAppData')"
@@ -88,6 +96,11 @@ const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { requir
     v-model:visible="providerEditorVisible"
     :title="providerEditorTitle"
     :draft="draftProvider"
+    :api-key-options="apiKeyOptions"
+    :available-models="availableModels"
+    :site-probe-result="siteProbeResult"
+    :probing-site="probingSite"
+    :site-name-source-base-url="siteNameSourceBaseUrl"
     :settings="settings"
     :testing-connection="testingConnection"
     :credential-assistant-state="credentialAssistantState"
@@ -97,8 +110,10 @@ const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { requir
     :can-run-credential-assistant="canRunCredentialAssistant"
     :credential-assistant-saved="credentialAssistantSaved"
     @copy-api-key="emit('copyApiKey')"
+    @select-api-key="emit('selectApiKey', $event)"
     @run-credential-assistant="emit('runCredentialAssistant')"
     @test-connection="emit('testConnection')"
+    @probe-site="emit('probeSite')"
     @save="emit('saveProvider')"
   />
 

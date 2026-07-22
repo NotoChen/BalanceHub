@@ -24,6 +24,7 @@ const visible = computed(() => props.draft.auth.mode !== "apiKey");
 
 const titleText = computed(() => {
   if (props.saved) return "配置已完成";
+  if (props.state === "needApiKeySelection") return "选择主 API Key";
   if (props.state === "failed") return "配置未完成";
   if (props.busy) return "正在自动完成配置";
   return "配置助手";
@@ -31,7 +32,10 @@ const titleText = computed(() => {
 
 const descriptionText = computed(() => {
   if (props.saved) {
-    return "已保存本次补全结果，抽屉不会自动关闭。";
+    return "已保存本次补全结果，可继续调整运行策略。";
+  }
+  if (props.state === "needApiKeySelection") {
+    return "已同步多个 API Key，请在凭据列表中选择一个作为主 Key。";
   }
   if (props.state === "failed") {
     return props.message || "处理失败，请按失败步骤调整后重试。";
@@ -40,12 +44,22 @@ const descriptionText = computed(() => {
     if (!props.draft.identity.baseUrl.trim() || !props.draft.auth.sessionCookie.trim()) {
       return "填写中转站地址和会话 Cookie 后，可以解析用户并补全配置。";
     }
-    return "已填写会话 Cookie，可以解析用户并补全访问令牌、API 密钥。";
+    return "已填写会话 Cookie，可以同步用户信息并继续获取访问令牌和 API 密钥。";
+  }
+  if (props.draft.auth.mode === "password") {
+    if (
+      !props.draft.identity.baseUrl.trim() ||
+      !props.draft.auth.loginUsername.trim() ||
+      !props.draft.auth.loginPassword.trim()
+    ) {
+      return "填写中转站地址、账号和密码后，可以登录并补全账号凭据。";
+    }
+    return "账号信息已填写，可以登录并补全会话、访问令牌和 API 密钥。";
   }
   if (!props.draft.identity.baseUrl.trim() || !props.draft.auth.accessToken.trim() || !props.draft.auth.apiUser.trim()) {
     return "填写中转站地址、访问令牌和 API User ID 后，可以补全 API 密钥。";
   }
-  return "已填写访问令牌，可以补全 API 密钥并保存配置。";
+    return "已填写访问令牌，可以解析登录账号、补全 API 密钥并保存配置。";
 });
 
 const actionText = computed(() => {

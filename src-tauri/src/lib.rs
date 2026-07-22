@@ -9,11 +9,11 @@ mod tray;
 mod util;
 
 use models::{
-    AppData, AppDataTransferResult, AppSettings, CliCandidate, CliConfigPreview,
-    CliRuntimeSnapshot, CodexCliProbeResult, CodexModelSyncResult, LivenessCliKind, Provider,
-    ProviderApiKeyOption, ProviderCapabilityProbeResult, ProviderCheckInRecordsResult,
-    ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
-    ProviderInput, ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
+    AppData, AppDataTransferResult, AppSettings, CliConfigPreview, CliEnvironmentProbeResult,
+    CliRuntimeSnapshot, CodexModelSyncResult, LivenessCliKind, Provider, ProviderApiKeyOption,
+    ProviderCapabilityProbeResult, ProviderCheckInRecordsResult, ProviderCheckInResult,
+    ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
+    ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
     ProviderUsageSummary, RefreshResult, TemporaryCliInstance, TemporaryCliLaunchInput,
     TemporaryCliLaunchResult, TemporaryCliPreference, Workspace, WorkspaceDirectoryListing,
 };
@@ -393,18 +393,13 @@ async fn test_provider_connection(
 }
 
 #[tauri::command]
-async fn probe_codex_cli(
+async fn probe_cli_environment(
     app: AppHandle,
-    liveness_cli_kind: Option<LivenessCliKind>,
-    codex_cli_path: Option<String>,
-    claude_cli_path: Option<String>,
-) -> Result<CodexCliProbeResult, String> {
+    terminal_kind: Option<models::TemporaryCliTerminalKind>,
+    terminal_command: Option<String>,
+) -> Result<CliEnvironmentProbeResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        ProviderService::new(&app).probe_codex_cli(
-            liveness_cli_kind,
-            codex_cli_path,
-            claude_cli_path,
-        )
+        ProviderService::new(&app).probe_cli_environment(terminal_kind, terminal_command)
     })
     .await
     .map_err(|err| format!("CLI 探测任务异常: {err}"))?
@@ -556,48 +551,6 @@ async fn refresh_providers(app: AppHandle, ids: Vec<String>) -> Result<RefreshRe
 #[tauri::command]
 async fn check_in_provider(app: AppHandle, id: String) -> Result<ProviderCheckInResult, String> {
     ProviderService::new(&app).check_in(id).await
-}
-
-#[tauri::command]
-fn acknowledge_liveness_cost(app: AppHandle) -> Result<AppSettings, String> {
-    let settings = ProviderService::new(&app).acknowledge_liveness_cost()?;
-    tray::refresh_from_state(&app);
-    Ok(settings)
-}
-
-#[tauri::command]
-fn revoke_liveness_cost(app: AppHandle) -> Result<AppSettings, String> {
-    let settings = ProviderService::new(&app).revoke_liveness_cost()?;
-    tray::refresh_from_state(&app);
-    Ok(settings)
-}
-
-#[tauri::command]
-async fn check_cli_path(
-    app: AppHandle,
-    kind: LivenessCliKind,
-    path: Option<String>,
-) -> Result<CodexCliProbeResult, String> {
-    let path = path.unwrap_or_default().trim().to_string();
-    tauri::async_runtime::spawn_blocking(move || {
-        ProviderService::new(&app).check_cli_path(kind, &path)
-    })
-    .await
-    .map_err(|err| format!("CLI 探测任务异常: {err}"))?
-}
-
-#[tauri::command]
-async fn list_cli_candidates(
-    app: AppHandle,
-    kind: LivenessCliKind,
-    path: Option<String>,
-) -> Result<Vec<CliCandidate>, String> {
-    let path = path.unwrap_or_default().trim().to_string();
-    tauri::async_runtime::spawn_blocking(move || {
-        ProviderService::new(&app).list_cli_candidates(kind, &path)
-    })
-    .await
-    .map_err(|err| format!("CLI 候选扫描任务异常: {err}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -755,7 +708,7 @@ pub fn run() {
             import_app_data,
             complete_provider_credentials,
             test_provider_connection,
-            probe_codex_cli,
+            probe_cli_environment,
             preview_liveness_prompts,
             probe_provider_site,
             list_provider_api_keys,
@@ -774,10 +727,6 @@ pub fn run() {
             refresh_all_providers,
             refresh_providers,
             check_in_provider,
-            acknowledge_liveness_cost,
-            revoke_liveness_cost,
-            check_cli_path,
-            list_cli_candidates
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

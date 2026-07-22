@@ -31,8 +31,6 @@ pub struct AppSettings {
     pub notification_enabled: bool,
     #[serde(default = "default_notification_channels")]
     pub notification_channels: Vec<NotificationChannel>,
-    #[serde(default = "default_glass_transparency")]
-    pub glass_transparency: u8,
     #[serde(default)]
     pub liveness_cli_kind: LivenessCliKind,
     #[serde(default)]
@@ -69,10 +67,6 @@ pub struct AppSettings {
     pub liveness_number_min: u64,
     #[serde(default = "default_liveness_number_max")]
     pub liveness_number_max: u64,
-    /// 自动测活会消耗真实额度。全 App 一次性授权：首次开启任意自动测活（全局或单站）时
-    /// 弹窗确认一次并记录于此；之后不再逐站/逐次询问。为空表示尚未授权。
-    #[serde(default)]
-    pub liveness_consent_accepted_at: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -90,7 +84,6 @@ impl Default for AppSettings {
             check_in_time: default_check_in_time(),
             notification_enabled: true,
             notification_channels: default_notification_channels(),
-            glass_transparency: default_glass_transparency(),
             liveness_cli_kind: LivenessCliKind::Codex,
             codex_cli_path: String::new(),
             claude_cli_path: String::new(),
@@ -109,7 +102,6 @@ impl Default for AppSettings {
             liveness_placeholder_pools: default_liveness_placeholder_pools(),
             liveness_number_min: default_liveness_number_min(),
             liveness_number_max: default_liveness_number_max(),
-            liveness_consent_accepted_at: None,
         }
     }
 }
@@ -156,10 +148,6 @@ fn default_notification_channels() -> Vec<NotificationChannel> {
         secret: String::new(),
         enabled: true,
     }]
-}
-
-pub(crate) fn default_glass_transparency() -> u8 {
-    58
 }
 
 pub(crate) fn default_codex_model() -> String {

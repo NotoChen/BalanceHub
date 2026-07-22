@@ -14,11 +14,15 @@ export function emptyDraft(): ProviderInput {
       backupUrls: [],
     },
     auth: {
-      mode: "session",
+      mode: "password",
       apiKey: "",
+      apiKeyTokenId: "",
+      apiKeyOptions: [],
       accessToken: "",
       sessionCookie: "",
       apiUser: "",
+      loginUsername: "",
+      loginPassword: "",
     },
     cli: {
       preferredModel: "",
@@ -70,7 +74,10 @@ export function providerToInput(
       baseUrl: provider.identity.baseUrl,
       backupUrls: [...(provider.identity.backupUrls || [])],
     },
-    auth: { ...provider.auth },
+    auth: {
+      ...provider.auth,
+      apiKeyOptions: [...(provider.auth.apiKeyOptions || [])],
+    },
     cli: {
       preferredModel: provider.cli?.preferredModel || "",
     },

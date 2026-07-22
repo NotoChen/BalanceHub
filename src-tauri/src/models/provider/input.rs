@@ -42,11 +42,15 @@ impl Default for ProviderInput {
                 backup_urls: Vec::new(),
             },
             auth: ProviderAuth {
-                mode: AuthMode::Session,
+                mode: AuthMode::Password,
                 api_key: String::new(),
+                api_key_token_id: String::new(),
+                api_key_options: Vec::new(),
                 access_token: String::new(),
                 session_cookie: String::new(),
                 api_user: String::new(),
+                login_username: String::new(),
+                login_password: String::new(),
             },
             cli: ProviderCliInput::default(),
             automation: ProviderAutomationInput {
@@ -95,13 +99,7 @@ impl Provider {
                 site_logo: String::new(),
                 backup_urls: backup_url_list(input.identity.backup_urls),
             },
-            auth: ProviderAuth {
-                mode: input.auth.mode,
-                api_key: normalize_api_key(&input.auth.api_key),
-                access_token: input.auth.access_token,
-                session_cookie: input.auth.session_cookie,
-                api_user: input.auth.api_user,
-            },
+            auth: normalize_provider_auth(input.auth),
             quota: ProviderQuota {
                 available: 0.0,
                 used: 0.0,
@@ -162,11 +160,26 @@ impl Provider {
 
     pub fn apply_input(&mut self, input: ProviderInput) {
         let previous_check_in_user = self.auth.api_user.trim();
-        let next_check_in_user = input.auth.api_user.trim();
+        let password_session_invalidated = matches!(self.auth.mode, AuthMode::Password)
+            && matches!(input.auth.mode, AuthMode::Password)
+            && (self.auth.login_username != input.auth.login_username
+                || self.auth.login_password != input.auth.login_password
+                || self.identity.base_url.trim_end_matches('/')
+                    != input.identity.base_url.trim_end_matches('/'));
+        let next_session_cookie = if password_session_invalidated {
+            String::new()
+        } else {
+            input.auth.session_cookie.clone()
+        };
+        let next_api_user = if password_session_invalidated {
+            String::new()
+        } else {
+            input.auth.api_user.clone()
+        };
+        let next_check_in_user = next_api_user.trim();
         let session_changed = previous_check_in_user.is_empty()
             && next_check_in_user.is_empty()
-            && session_value(&self.auth.session_cookie)
-                != session_value(&input.auth.session_cookie);
+            && session_value(&self.auth.session_cookie) != session_value(&next_session_cookie);
         if previous_check_in_user != next_check_in_user || session_changed {
             self.automation.last_checked_in_at = None;
             self.automation.last_check_in_user = String::new();
@@ -177,13 +190,17 @@ impl Provider {
             provider_name_from_input(&input.identity.name, &input.identity.base_url);
         self.identity.base_url = input.identity.base_url;
         self.identity.backup_urls = backup_url_list(input.identity.backup_urls);
-        self.auth = ProviderAuth {
+        self.auth = normalize_provider_auth(ProviderAuth {
             mode: input.auth.mode,
-            api_key: normalize_api_key(&input.auth.api_key),
+            api_key: input.auth.api_key,
+            api_key_token_id: input.auth.api_key_token_id,
+            api_key_options: input.auth.api_key_options,
             access_token: input.auth.access_token,
-            session_cookie: input.auth.session_cookie,
-            api_user: input.auth.api_user,
-        };
+            session_cookie: next_session_cookie,
+            api_user: next_api_user,
+            login_username: input.auth.login_username,
+            login_password: input.auth.login_password,
+        });
         self.cli.preferred_model = input.cli.preferred_model.trim().to_string();
         self.automation.refresh_interval = input.automation.refresh_interval;
         self.automation.check_in_time = input.automation.check_in_time;
@@ -205,4 +222,57 @@ impl Provider {
         self.liveness.fixed_prompt = input.liveness.fixed_prompt;
         self.runtime.enabled = input.runtime.enabled;
     }
+}
+
+pub(crate) fn normalize_provider_auth(mut auth: ProviderAuth) -> ProviderAuth {
+    auth.api_key = normalize_api_key(&auth.api_key);
+    auth.api_key_token_id = auth.api_key_token_id.trim().to_string();
+
+    let mut options = Vec::new();
+    for option in auth.api_key_options {
+        let option = option.normalize();
+        let duplicate = options
+            .iter()
+            .any(|known: &crate::models::ProviderApiKeyOption| {
+                (!option.token_id.is_empty() && option.token_id == known.token_id)
+                    || (!option.key.is_empty() && option.key == known.key)
+            });
+        if !duplicate {
+            options.push(option);
+        }
+    }
+
+    if !auth.api_key.is_empty() {
+        // A list refresh can retain token metadata while the remote endpoint
+        // refuses to reveal the full value. Re-associate the locally selected
+        // key by token id before deciding whether a synthetic entry is needed.
+        if !auth.api_key_token_id.is_empty() {
+            if let Some(option) = options
+                .iter_mut()
+                .find(|option| option.token_id == auth.api_key_token_id)
+            {
+                if !option.key_available {
+                    option.key = auth.api_key.clone();
+                    option.key_available = true;
+                    if option.masked_key.is_empty() {
+                        option.masked_key =
+                            crate::models::ProviderApiKeyOption::current(&auth.api_key).masked_key;
+                    }
+                }
+            }
+        }
+        if !options.iter().any(|option| option.key == auth.api_key) {
+            let mut current = crate::models::ProviderApiKeyOption::current(&auth.api_key);
+            current.token_id = auth.api_key_token_id.clone();
+            options.insert(0, current);
+        }
+    }
+
+    if auth.api_key_token_id.is_empty() {
+        if let Some(option) = options.iter().find(|option| option.key == auth.api_key) {
+            auth.api_key_token_id = option.token_id.clone();
+        }
+    }
+    auth.api_key_options = options;
+    auth
 }

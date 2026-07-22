@@ -1,13 +1,14 @@
 use crate::models::{
-    normalize_api_key, Provider, ProviderApiKeyOption, ProviderCredentialCompletionResult,
-    ProviderCredentialCompletionStep, ProviderInput,
+    normalize_api_key, AuthMode, Provider, ProviderApiKeyOption,
+    ProviderCredentialCompletionResult, ProviderCredentialCompletionStep, ProviderInput,
 };
 use reqwest::{Client, Method};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
 use super::newapi_http::{
-    build_url, build_user_request, is_anyrouter_base_url, normalize_base_url, UserCredential,
+    build_url, build_user_request, is_anyrouter_base_url, login_password_provider,
+    normalize_base_url, UserCredential,
 };
 use super::newapi_keys::fetch_api_key_options;
 use super::newapi_response::{extract_string_field, parse_success_data, send_text};
@@ -24,9 +25,17 @@ pub async fn complete_credentials(
     }
 
     let is_anyrouter = is_anyrouter_base_url(&base_url);
+
+    if matches!(updated.auth.mode, crate::models::AuthMode::Password) {
+        let provider = Provider::from_input(updated.clone(), "credential-completion".to_string());
+        let authenticated = login_password_provider(client, &provider).await?;
+        updated.auth.session_cookie = authenticated.auth.session_cookie;
+        updated.auth.api_user = authenticated.auth.api_user;
+    }
     let mut changed_fields = BTreeSet::new();
     let mut steps = Vec::new();
     let mut api_key_options = Vec::new();
+    let mut user_self_fetched = false;
 
     if fill_api_user_from_session_cookie(&mut updated) {
         changed_fields.insert("apiUser".to_string());
@@ -51,6 +60,7 @@ pub async fn complete_credentials(
                 "缺少 API User ID，NewAPI 用户接口需要 New-Api-User",
             ));
         } else {
+            user_self_fetched = true;
             match fetch_user_self(
                 client,
                 &base_url,
@@ -63,6 +73,14 @@ pub async fn complete_credentials(
                 Ok(data) => {
                     if fill_api_user_from_self(&mut updated, &data) {
                         changed_fields.insert("apiUser".to_string());
+                    }
+                    if fill_login_username_from_self(&mut updated, &data) {
+                        changed_fields.insert("loginUsername".to_string());
+                        steps.push(completion_step(
+                            "用户信息同步",
+                            true,
+                            "已同步用户名/邮箱信息",
+                        ));
                     }
 
                     if let Some(access_token) =
@@ -108,90 +126,181 @@ pub async fn complete_credentials(
         ));
     }
 
-    if updated.auth.api_key.trim().is_empty() {
-        let credential = if !updated.auth.session_cookie.trim().is_empty() {
-            Some(UserCredential::Session(updated.auth.session_cookie.clone()))
-        } else if !updated.auth.access_token.trim().is_empty() {
-            Some(UserCredential::AccessToken(
-                updated.auth.access_token.clone(),
-            ))
-        } else {
-            None
-        };
+    let credential = if !updated.auth.session_cookie.trim().is_empty() {
+        Some(UserCredential::Session(updated.auth.session_cookie.clone()))
+    } else if !updated.auth.access_token.trim().is_empty() {
+        Some(UserCredential::AccessToken(
+            updated.auth.access_token.clone(),
+        ))
+    } else {
+        None
+    };
 
-        if updated.auth.api_user.trim().is_empty() {
+    if updated.auth.api_user.trim().is_empty() {
+        if updated.auth.api_key.trim().is_empty() {
             steps.push(completion_step(
                 "访问令牌 -> API 密钥",
                 false,
                 "缺少 API User ID，无法读取 API 密钥列表",
             ));
-        } else if let Some(credential) = credential {
-            match fetch_api_key_options(
+        }
+    } else if let Some(credential) = credential {
+        match fetch_api_key_options(
+            client,
+            &base_url,
+            &updated.auth.api_user,
+            credential.clone(),
+            is_anyrouter,
+        )
+        .await
+        {
+            Ok(mut options) if !options.is_empty() => {
+                let current_key = normalize_api_key(&updated.auth.api_key);
+                let current_token_id = updated.auth.api_key_token_id.trim().to_string();
+                let mut cached_options = updated.auth.api_key_options.clone();
+                if !current_key.is_empty() {
+                    let mut current = ProviderApiKeyOption::current(&current_key);
+                    current.token_id = current_token_id.clone();
+                    cached_options.push(current);
+                }
+                ProviderApiKeyOption::merge_cached_key_material(&mut options, &cached_options);
+                let selected = options
+                    .iter()
+                    .find(|option| {
+                        option.key_available
+                            && !current_token_id.is_empty()
+                            && option.token_id == current_token_id
+                    })
+                    .or_else(|| {
+                        (!current_key.is_empty())
+                            .then(|| options.iter().find(|option| option.key == current_key))
+                            .flatten()
+                    })
+                    .cloned();
+
+                if let Some(selected) = selected {
+                    if updated.auth.api_key != selected.key {
+                        updated.auth.api_key = selected.key.clone();
+                        changed_fields.insert("apiKey".to_string());
+                    }
+                    if updated.auth.api_key_token_id != selected.token_id {
+                        updated.auth.api_key_token_id = selected.token_id.clone();
+                        changed_fields.insert("apiKeyTokenId".to_string());
+                    }
+                } else if current_key.is_empty() {
+                    let usable = options.iter().filter(|option| option.key_available).count();
+                    if usable == 1 {
+                        if let Some(option) = options.iter().find(|option| option.key_available) {
+                            updated.auth.api_key = option.key.clone();
+                            updated.auth.api_key_token_id = option.token_id.clone();
+                            changed_fields.insert("apiKey".to_string());
+                            changed_fields.insert("apiKeyTokenId".to_string());
+                        }
+                    }
+                }
+
+                if !current_key.is_empty()
+                    && !options.iter().any(|option| option.key == current_key)
+                {
+                    let mut current = ProviderApiKeyOption::current(&current_key);
+                    current.token_id = current_token_id;
+                    options.insert(0, current);
+                }
+                api_key_options = options;
+                updated.auth.api_key_options = api_key_options.clone();
+                changed_fields.insert("apiKeyOptions".to_string());
+                let usable = api_key_options
+                    .iter()
+                    .filter(|option| option.key_available)
+                    .count();
+                let message = if !updated.auth.api_key.trim().is_empty() {
+                    format!(
+                        "已同步 {} 个 API Key，当前使用已选主 Key",
+                        api_key_options.len()
+                    )
+                } else if usable > 1 {
+                    format!(
+                        "已同步 {} 个 API Key，请选择一个作为主 Key",
+                        api_key_options.len()
+                    )
+                } else {
+                    "已同步 API Key 列表，但没有可读取的完整 Key".to_string()
+                };
+                steps.push(completion_step("访问令牌 -> API 密钥", true, message));
+            }
+            Ok(_) => {
+                if !updated.auth.api_key.trim().is_empty() {
+                    let mut option = ProviderApiKeyOption::current(&updated.auth.api_key);
+                    option.token_id = updated.auth.api_key_token_id.clone();
+                    api_key_options.push(option);
+                    updated.auth.api_key_options = api_key_options.clone();
+                    changed_fields.insert("apiKeyOptions".to_string());
+                    steps.push(completion_step(
+                        "访问令牌 -> API 密钥",
+                        true,
+                        "站点没有返回其他 API Key，保留当前填写的 Key",
+                    ));
+                } else {
+                    steps.push(completion_step(
+                        "访问令牌 -> API 密钥",
+                        false,
+                        "站点没有已有 API Key，可确认后创建新的 API Key",
+                    ));
+                }
+            }
+            Err(message) => {
+                steps.push(completion_step(
+                    "访问令牌 -> API 密钥",
+                    false,
+                    format!("读取 API Key 失败: {message}"),
+                ));
+            }
+        }
+    } else if updated.auth.api_key.trim().is_empty() {
+        steps.push(completion_step(
+            "访问令牌 -> API 密钥",
+            false,
+            "缺少访问令牌或会话 Cookie，无法读取 API 密钥",
+        ));
+    } else {
+        let mut option = ProviderApiKeyOption::current(&updated.auth.api_key);
+        option.token_id = updated.auth.api_key_token_id.clone();
+        api_key_options.push(option);
+        updated.auth.api_key_options = api_key_options.clone();
+        changed_fields.insert("apiKeyOptions".to_string());
+        steps.push(completion_step(
+            "访问令牌 -> API 密钥",
+            true,
+            "没有可用的用户凭据，保留当前填写的 API Key",
+        ));
+    }
+
+    // 访问令牌已经存在时，上面的 Cookie -> 用户信息分支不会执行；此时仍可用
+    // 当前账号凭据读取用户名/邮箱，作为以后切换到账号密码模式的登录账号。
+    if !user_self_fetched
+        && updated.auth.login_username.trim().is_empty()
+        && !updated.auth.api_user.trim().is_empty()
+    {
+        if let Some(credential) = user_self_credential(&updated) {
+            if let Ok(data) = fetch_user_self(
                 client,
                 &base_url,
                 &updated.auth.api_user,
-                credential.clone(),
+                credential,
                 is_anyrouter,
             )
             .await
             {
-                Ok(options) if !options.is_empty() => {
-                    api_key_options = options;
-                    updated.auth.api_key = api_key_options[0].key.clone();
-                    changed_fields.insert("apiKey".to_string());
+                if fill_login_username_from_self(&mut updated, &data) {
+                    changed_fields.insert("loginUsername".to_string());
                     steps.push(completion_step(
-                        "访问令牌 -> API 密钥",
+                        "用户信息同步",
                         true,
-                        format!(
-                            "已补全 API 密钥，可选 {} 个，默认使用第一个",
-                            api_key_options.len()
-                        ),
-                    ));
-                }
-                Ok(_) => {
-                    steps.push(completion_step(
-                        "访问令牌 -> API 密钥",
-                        false,
-                        "没有可用 API 密钥，请在密钥管理中创建并填写自定义名称",
-                    ));
-                }
-                Err(message) => {
-                    steps.push(completion_step(
-                        "访问令牌 -> API 密钥",
-                        false,
-                        format!("补全失败: {message}"),
+                        "已同步用户名/邮箱信息",
                     ));
                 }
             }
-        } else {
-            steps.push(completion_step(
-                "访问令牌 -> API 密钥",
-                false,
-                "缺少访问令牌或会话 Cookie，无法读取 API 密钥",
-            ));
         }
-    } else {
-        steps.push(completion_step(
-            "访问令牌 -> API 密钥",
-            true,
-            "API 密钥已存在，未覆盖",
-        ));
-        api_key_options.push(ProviderApiKeyOption {
-            name: "当前 API 密钥".to_string(),
-            key: normalize_api_key(&updated.auth.api_key),
-            token_id: String::new(),
-            status: String::new(),
-            used_quota: 0.0,
-            remain_quota: 0.0,
-            unlimited_quota: false,
-            group: String::new(),
-            model_limits_enabled: false,
-            model_limits: Vec::new(),
-            allow_ips: Vec::new(),
-            created_time: None,
-            accessed_time: None,
-            expired_time: None,
-        });
     }
 
     Ok(ProviderCredentialCompletionResult {
@@ -217,6 +326,42 @@ fn fill_api_user_from_session_cookie(input: &mut ProviderInput) -> bool {
 
     input.auth.api_user = api_user;
     true
+}
+
+fn fill_login_username_from_self(input: &mut ProviderInput, data: &Value) -> bool {
+    if !input.auth.login_username.trim().is_empty() {
+        return false;
+    }
+
+    let Some(login_username) = extract_string_field(data, &["username", "Username"])
+        .or_else(|| extract_string_field(data, &["email", "Email"]))
+    else {
+        return false;
+    };
+
+    input.auth.login_username = login_username;
+    true
+}
+
+fn user_self_credential(input: &ProviderInput) -> Option<UserCredential> {
+    let session_cookie = input.auth.session_cookie.trim();
+    let access_token = input.auth.access_token.trim();
+
+    match input.auth.mode {
+        AuthMode::AccessToken if !access_token.is_empty() => {
+            Some(UserCredential::AccessToken(input.auth.access_token.clone()))
+        }
+        AuthMode::Session | AuthMode::Password if !session_cookie.is_empty() => {
+            Some(UserCredential::Session(input.auth.session_cookie.clone()))
+        }
+        _ if !session_cookie.is_empty() => {
+            Some(UserCredential::Session(input.auth.session_cookie.clone()))
+        }
+        _ if !access_token.is_empty() => {
+            Some(UserCredential::AccessToken(input.auth.access_token.clone()))
+        }
+        _ => None,
+    }
 }
 
 pub async fn create_access_token(client: &Client, provider: &Provider) -> Result<String, String> {
@@ -372,5 +517,36 @@ mod tests {
 
         assert!(!fill_api_user_from_session_cookie(&mut input));
         assert_eq!(input.auth.api_user, "12345");
+    }
+
+    #[test]
+    fn login_username_completion_prefers_username_over_email() {
+        let mut input = provider_input_with_session("12345");
+        let data = serde_json::json!({
+            "username": "alice",
+            "email": "alice@example.com",
+        });
+
+        assert!(fill_login_username_from_self(&mut input, &data));
+        assert_eq!(input.auth.login_username, "alice");
+    }
+
+    #[test]
+    fn login_username_completion_falls_back_to_email() {
+        let mut input = provider_input_with_session("12345");
+        let data = serde_json::json!({"email": "alice@example.com"});
+
+        assert!(fill_login_username_from_self(&mut input, &data));
+        assert_eq!(input.auth.login_username, "alice@example.com");
+    }
+
+    #[test]
+    fn login_username_completion_preserves_manual_value() {
+        let mut input = provider_input_with_session("12345");
+        input.auth.login_username = "manual-account".to_string();
+        let data = serde_json::json!({"username": "alice", "email": "alice@example.com"});
+
+        assert!(!fill_login_username_from_self(&mut input, &data));
+        assert_eq!(input.auth.login_username, "manual-account");
     }
 }

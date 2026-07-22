@@ -51,7 +51,7 @@ function displayValue(value: string | null, sensitive: boolean) {
   <a-modal
     :visible="visible"
     width="min(760px, calc(100vw - 32px))"
-    modal-class="cli-config-preview-modal"
+    modal-class="surface-modal cli-config-preview-modal"
     title-align="start"
     :closable="!confirming"
     :mask-closable="!confirming"
@@ -60,17 +60,19 @@ function displayValue(value: string | null, sensitive: boolean) {
     @update:visible="emit('update:visible', $event)"
   >
     <template #title>
-      <span class="cli-config-preview-title">
-        <BrandIcon :brand="cliBrand" :size="18" />
-        <span>切换 {{ cliLabel }} 默认配置</span>
-      </span>
+      <div class="surface-modal-title cli-config-preview-title">
+        <span class="surface-modal-title-icon"><BrandIcon :brand="cliBrand" :size="18" /></span>
+        <span class="surface-modal-title-copy">
+          <strong>切换 {{ cliLabel }} 默认配置</strong>
+        </span>
+        <span v-if="preview" class="surface-modal-title-meta">{{ preview.changes.length }} 处变更</span>
+      </div>
     </template>
 
     <div v-if="preview" class="cli-config-preview">
       <header class="cli-config-preview-summary">
         <span>目标中转站</span>
         <strong>{{ preview.providerName }}</strong>
-        <small>{{ preview.changes.length }} 处配置将被修改</small>
       </header>
 
       <div v-if="groupedChanges.length > 0" class="cli-config-preview-files">

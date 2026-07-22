@@ -1,4 +1,4 @@
-export type AuthMode = "apiKey" | "accessToken" | "session";
+export type AuthMode = "apiKey" | "accessToken" | "session" | "password";
 export type ProviderQuotaScope = "account" | "token";
 export type ProviderStatus = "ok" | "warning" | "error" | "syncing";
 export type ProxyMode = "system" | "noProxy" | "custom";
@@ -73,9 +73,13 @@ export interface ProviderCliInput {
 export interface ProviderAuth {
   mode: AuthMode;
   apiKey: string;
+  apiKeyTokenId: string;
+  apiKeyOptions: ProviderApiKeyOption[];
   accessToken: string;
   sessionCookie: string;
   apiUser: string;
+  loginUsername: string;
+  loginPassword: string;
 }
 
 export interface ProviderQuota {
@@ -206,17 +210,25 @@ export interface LivenessRecord {
   commandPreview: string;
 }
 
-export interface CodexCliProbeResult {
+export interface CliToolProbeResult {
+  available: boolean;
   path: string;
   version: string;
+  message: string;
 }
 
-export interface CliCandidate {
-  path: string;
-  version: string | null;
-  valid: boolean;
-  source: string;
-  isPathDefault?: boolean;
+export interface TemporaryTerminalProbeResult {
+  available: boolean;
+  kind: TemporaryCliTerminalKind;
+  name: string;
+  version: string;
+  message: string;
+}
+
+export interface CliEnvironmentProbeResult {
+  codex: CliToolProbeResult;
+  claudeCode: CliToolProbeResult;
+  terminal: TemporaryTerminalProbeResult;
 }
 
 export interface CodexModelSyncResult {
@@ -242,15 +254,23 @@ export interface ProviderCredentialCompletionResult {
 export interface ProviderApiKeyOption {
   name: string;
   key: string;
+  maskedKey: string;
+  keyAvailable: boolean;
   tokenId: string;
+  userId: string;
   status: string;
   usedQuota: number;
   remainQuota: number;
+  usedQuotaRaw: number;
+  remainQuotaRaw: number;
   unlimitedQuota: boolean;
   group: string;
+  crossGroupRetry: boolean;
   modelLimitsEnabled: boolean;
   modelLimits: string[];
   allowIps: string[];
+  quotaDisplayType: string;
+  currencySymbol: string;
   createdTime?: number | null;
   accessedTime?: number | null;
   expiredTime?: number | null;
@@ -479,7 +499,6 @@ export interface AppSettings {
   checkInTime: string;
   notificationEnabled: boolean;
   notificationChannels: NotificationChannel[];
-  glassTransparency: number;
   livenessCliKind: LivenessCliKind;
   codexCliPath: string;
   claudeCliPath: string;
@@ -498,7 +517,6 @@ export interface AppSettings {
   livenessPlaceholderPools: LivenessPlaceholderPool[];
   livenessNumberMin: number;
   livenessNumberMax: number;
-  livenessConsentAcceptedAt: string | null;
 }
 
 export interface LivenessPlaceholderPool {

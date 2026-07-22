@@ -7,9 +7,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::newapi_http::{
-    access_token_fallback_provider, apply_auth_headers, build_url, merge_cookie_headers,
-    normalize_base_url, provider_cookie_header, provider_is_anyrouter,
-    should_retry_with_access_token, USER_AGENT_VALUE,
+    access_token_fallback_provider, apply_auth_headers, authenticate_password_provider, build_url,
+    login_password_provider, merge_cookie_headers, normalize_base_url, provider_cookie_header,
+    provider_is_anyrouter, should_retry_with_access_token, USER_AGENT_VALUE,
 };
 use super::newapi_response::{
     cloudflare_challenge_message, extract_bool_field, extract_i64_field, extract_string_field,
@@ -36,6 +36,7 @@ struct NewApiResponse {
 struct UserData {
     id: Option<Value>,
     username: Option<String>,
+    email: Option<String>,
     #[serde(rename = "display_name")]
     display_name: Option<String>,
     quota: i64,
@@ -53,6 +54,7 @@ struct QuotaProfile {
     display_name: String,
     username: String,
     user_id: String,
+    login_username: String,
 }
 
 pub async fn refresh_provider(client: &Client, provider: &Provider) -> Provider {
@@ -62,7 +64,38 @@ pub async fn refresh_provider(client: &Client, provider: &Provider) -> Provider 
         return next;
     }
 
-    match fetch_quota_with_access_token_fallback(client, provider).await {
+    let using_cached_password_session = matches!(provider.auth.mode, AuthMode::Password)
+        && !provider.auth.session_cookie.trim().is_empty()
+        && !provider.auth.api_user.trim().is_empty();
+    let mut effective_provider = match authenticate_password_provider(client, provider).await {
+        Ok(provider) => provider,
+        Err(message) => {
+            next.runtime.status = ProviderStatus::Error;
+            next.runtime.error_message = Some(message);
+            return next;
+        }
+    };
+
+    let mut quota_result =
+        fetch_quota_with_access_token_fallback(client, &effective_provider).await;
+    if using_cached_password_session {
+        if let Err(original_message) = quota_result {
+            match login_password_provider(client, provider).await {
+                Ok(reauthenticated) => {
+                    effective_provider = reauthenticated;
+                    quota_result =
+                        fetch_quota_with_access_token_fallback(client, &effective_provider).await;
+                }
+                Err(login_message) => {
+                    quota_result = Err(format!(
+                        "{original_message}；缓存会话失效，重新登录失败: {login_message}"
+                    ));
+                }
+            }
+        }
+    }
+
+    match quota_result {
         Ok(profile) => {
             next.quota.available = profile.available;
             next.quota.used = profile.used;
@@ -73,7 +106,16 @@ pub async fn refresh_provider(client: &Client, provider: &Provider) -> Provider 
             next.identity.display_name = profile.display_name;
             next.identity.username = profile.username;
             next.identity.user_id = profile.user_id;
+            if next.auth.login_username.trim().is_empty()
+                && !profile.login_username.trim().is_empty()
+            {
+                next.auth.login_username = profile.login_username;
+            }
             apply_site_metadata(&mut next, profile.site);
+            if matches!(provider.auth.mode, AuthMode::Password) {
+                next.auth.session_cookie = effective_provider.auth.session_cookie;
+                next.auth.api_user = effective_provider.auth.api_user;
+            }
             next.runtime.status = if !next.quota.unlimited && next.quota.available <= 20.0 {
                 ProviderStatus::Warning
             } else {
@@ -83,7 +125,11 @@ pub async fn refresh_provider(client: &Client, provider: &Provider) -> Provider 
             next.runtime.error_message = None;
         }
         Err(message) => {
-            next.quota.scope = ProviderQuotaScope::Account;
+            next.quota.scope = if matches!(provider.auth.mode, AuthMode::ApiKey) {
+                ProviderQuotaScope::Token
+            } else {
+                ProviderQuotaScope::Account
+            };
             next.quota.unlimited = false;
             next.runtime.status = ProviderStatus::Error;
             next.runtime.error_message = Some(message);
@@ -115,16 +161,15 @@ async fn fetch_quota_with_access_token_fallback(
 }
 
 async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfile, String> {
-    let provider = effective_quota_provider(provider);
-    validate_credentials(&provider)?;
+    validate_credentials(provider)?;
 
     let base_url = normalize_base_url(&provider.identity.base_url);
-    let is_anyrouter = provider_is_anyrouter(&provider);
+    let is_anyrouter = provider_is_anyrouter(provider);
     let site = fetch_site_metadata(client, &base_url, is_anyrouter)
         .await
-        .unwrap_or_else(|_| site_metadata_from_provider(&provider));
+        .unwrap_or_else(|_| site_metadata_from_provider(provider));
     if matches!(provider.auth.mode, AuthMode::ApiKey) {
-        return fetch_token_quota(client, &provider, &base_url, site).await;
+        return fetch_token_quota(client, provider, &base_url, site).await;
     }
     let url = build_url(&base_url, "/api/user/self")?;
 
@@ -141,7 +186,7 @@ async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfil
         .header(ORIGIN, &base_url)
         .header(REFERER, format!("{base_url}/"));
 
-    request = apply_auth_headers(request, &provider);
+    request = apply_auth_headers(request, provider);
 
     let provider_cookie_header =
         provider_cookie_header(&provider.auth.session_cookie, is_anyrouter);
@@ -190,6 +235,7 @@ async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfil
     let data = decoded
         .data
         .ok_or_else(|| "接口缺少 data 字段".to_string())?;
+    let login_username = preferred_login_username(data.username.as_deref(), data.email.as_deref());
     let (available, quota_display) = convert_quota_value(data.quota, &site);
     let (used, _) = convert_quota_value(data.used_quota, &site);
     Ok(QuotaProfile {
@@ -202,6 +248,7 @@ async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfil
         display_name: data.display_name.unwrap_or_default(),
         username: data.username.unwrap_or_default(),
         user_id: value_to_string(data.id),
+        login_username,
     })
 }
 
@@ -250,36 +297,18 @@ async fn fetch_token_quota(
         display_name: String::new(),
         username: extract_string_field(&data, &["name", "Name"]).unwrap_or_default(),
         user_id: String::new(),
+        login_username: String::new(),
     })
 }
 
-fn effective_quota_provider(provider: &Provider) -> Provider {
-    if !matches!(provider.auth.mode, AuthMode::ApiKey) {
-        return provider.clone();
-    }
-
-    let api_user = provider.auth.api_user.trim();
-    if api_user.is_empty() {
-        return provider.clone();
-    }
-
-    let mut next = provider.clone();
-    if provider_is_anyrouter(provider) && !provider.auth.session_cookie.trim().is_empty() {
-        next.auth.mode = AuthMode::Session;
-        return next;
-    }
-
-    if !provider.auth.session_cookie.trim().is_empty() {
-        next.auth.mode = AuthMode::Session;
-        return next;
-    }
-
-    if !provider.auth.access_token.trim().is_empty() {
-        next.auth.mode = AuthMode::AccessToken;
-        return next;
-    }
-
-    provider.clone()
+fn preferred_login_username(username: Option<&str>, email: Option<&str>) -> String {
+    [username, email]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn validate_credentials(provider: &Provider) -> Result<(), String> {
@@ -299,6 +328,7 @@ fn validate_credentials(provider: &Provider) -> Result<(), String> {
         {
             Err("缺少会话 Cookie 或 API User ID".to_string())
         }
+        AuthMode::Password => Err("账号密码尚未完成登录".to_string()),
         _ => Ok(()),
     }
 }
@@ -328,36 +358,12 @@ mod tests {
                     access_token: access_token.to_string(),
                     session_cookie: session_cookie.to_string(),
                     api_user: api_user.to_string(),
+                    ..ProviderInput::default().auth
                 },
                 ..ProviderInput::default()
             },
             "provider-test".to_string(),
         )
-    }
-
-    #[test]
-    fn api_key_quota_refresh_prefers_cookie_over_access_token() {
-        let provider = provider_with_credentials(
-            AuthMode::ApiKey,
-            "sk-test",
-            "access-token",
-            "session=session-cookie",
-            "1001",
-        );
-
-        let effective = effective_quota_provider(&provider);
-
-        assert!(matches!(effective.auth.mode, AuthMode::Session));
-    }
-
-    #[test]
-    fn api_key_quota_refresh_uses_access_token_when_cookie_missing() {
-        let provider =
-            provider_with_credentials(AuthMode::ApiKey, "sk-test", "access-token", "", "1001");
-
-        let effective = effective_quota_provider(&provider);
-
-        assert!(matches!(effective.auth.mode, AuthMode::AccessToken));
     }
 
     #[test]
@@ -376,9 +382,22 @@ mod tests {
         assert!(provider.auth.access_token.is_empty());
         assert!(provider.auth.session_cookie.is_empty());
         assert!(provider.auth.api_user.is_empty());
-        assert!(matches!(
-            effective_quota_provider(&provider).auth.mode,
-            AuthMode::ApiKey
-        ));
+        assert!(matches!(provider.auth.mode, AuthMode::ApiKey));
+    }
+
+    #[test]
+    fn preferred_login_username_uses_username_before_email() {
+        assert_eq!(
+            preferred_login_username(Some("alice"), Some("alice@example.com")),
+            "alice"
+        );
+    }
+
+    #[test]
+    fn preferred_login_username_uses_email_when_username_is_empty() {
+        assert_eq!(
+            preferred_login_username(Some("  "), Some("alice@example.com")),
+            "alice@example.com"
+        );
     }
 }

@@ -45,7 +45,8 @@ export function useAppController() {
     settings,
     initialSettings: providerStore.settings,
     saveSettings: (value) => providerStore.saveSettings(value),
-    probeCodexCli: (input) => providerStore.probeCodexCli(input),
+    probeCliEnvironment: (terminalKind, terminalCommand) =>
+      providerStore.probeCliEnvironment(terminalKind, terminalCommand),
   });
 
   const { notifySystem, sendTestNotification } = useSystemNotification(
@@ -94,6 +95,7 @@ export function useAppController() {
     createKey: (providerId, name) => providerStore.createApiKey(providerId, name),
     deleteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),
     saveProvider: (input) => providerStore.saveProvider(input),
+    getProvider: (providerId) => providers.value.find((provider) => provider.identity.id === providerId),
   });
 
   const availableModels = useAvailableModels({
@@ -134,7 +136,6 @@ export function useAppController() {
     openSettings: () => {
       settingsController.settingsDrawerVisible.value = true;
     },
-    probeCodexCliPath: settingsController.probeCodexCliPath,
   });
 
   const workspacePicker = useWorkspacePicker({
@@ -201,7 +202,7 @@ export function useAppController() {
     setupThemeListener: settingsController.setupThemeListener,
     cleanupThemeListener: settingsController.cleanupThemeListener,
     syncLaunchAtLogin: settingsController.syncLaunchAtLogin,
-    autoProbeCodexCliPath: settingsController.autoProbeCodexCliPath,
+    autoProbeCliEnvironment: settingsController.autoProbeCliEnvironment,
     reloadProviders: () => providerStore.reload().catch(() => {}),
     applyTheme: settingsController.applyTheme,
     resetSettingsDraft: settingsController.resetDraftOnClose,

@@ -20,11 +20,11 @@ interface UseAppLifecycleOptions {
   setupThemeListener: () => void;
   cleanupThemeListener: () => void;
   syncLaunchAtLogin: () => Promise<unknown>;
-  autoProbeCodexCliPath: () => Promise<unknown>;
+  autoProbeCliEnvironment: () => Promise<unknown>;
   /// 后端调度任务变更状态后会发出 `providers-changed` 事件，前端据此重新拉取内存状态。
   reloadProviders: () => Promise<unknown> | unknown;
   applyTheme: (themeMode: AppSettings["themeMode"]) => void;
-  resetSettingsDraft: () => void;
+  resetSettingsDraft: () => void | Promise<unknown>;
   resetProviderPointerDrag: (suppressClick: boolean, preserveDragOrder?: boolean) => void;
   refreshUsageSummary: () => Promise<unknown> | unknown;
   loadCheckInRecords: () => Promise<unknown> | unknown;
@@ -66,7 +66,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       return;
     }
     await options.syncLaunchAtLogin();
-    await options.autoProbeCodexCliPath();
+    await options.autoProbeCliEnvironment();
   });
 
   onUnmounted(() => {
@@ -77,8 +77,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   });
 
   watch(options.settings, (value) => {
-    // 抽屉打开时不回灌草稿：后台 reload / 授权确认 / CLI 探测都会替换 store.settings，
-    // 无脑同步会清空用户未保存的编辑；抽屉关闭时 resetSettingsDraft 会重新对齐。
+    // 设置草稿会实时写入；设置窗口打开时仍避免后台状态回灌覆盖正在编辑的控件。
     if (options.settingsDrawerVisible.value) {
       return;
     }
@@ -92,7 +91,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
 
   watch(options.settingsDrawerVisible, (visible) => {
     if (!visible) {
-      options.resetSettingsDraft();
+      void options.resetSettingsDraft();
     }
   });
 

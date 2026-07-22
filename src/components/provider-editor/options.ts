@@ -9,6 +9,7 @@ export {
 } from "../../utils/liveness-options";
 
 export const authModeOptions: SelectOption<AuthMode>[] = [
+  { label: "账号密码", value: "password" },
   { label: "会话 Cookie", value: "session" },
   { label: "访问令牌", value: "accessToken" },
   { label: "API 密钥", value: "apiKey" },

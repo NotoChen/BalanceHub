@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { IconLeft, IconRefresh, IconRight } from "@arco-design/web-vue/es/icon";
+import { IconCalendarClock, IconLeft, IconRefresh, IconRight } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderCheckInRecord, ProviderCheckInRecordsResult } from "../stores/providers";
 import { formatQuotaValue } from "../utils/provider-display";
 
@@ -120,12 +120,20 @@ function dayTitle(record: ProviderCheckInRecord | null) {
 <template>
   <a-modal
     :visible="visible"
-    :title="modalTitle"
+    modal-class="surface-modal checkin-calendar-modal"
     :footer="false"
     :width="760"
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
+    <template #title>
+      <div class="surface-modal-title checkin-calendar-title">
+        <span class="surface-modal-title-icon"><icon-calendar-clock /></span>
+        <span class="surface-modal-title-copy">
+          <strong>{{ modalTitle }}</strong>
+        </span>
+      </div>
+    </template>
     <div class="checkin-calendar-panel">
       <div class="checkin-calendar-toolbar">
         <a-button-group>

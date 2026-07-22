@@ -2,7 +2,10 @@ pub use super::newapi_account::change_user_password;
 use super::newapi_checkin::probe_check_in_capability;
 pub use super::newapi_checkin::{check_in_provider, fetch_check_in_records};
 pub use super::newapi_credentials::{complete_credentials, create_access_token};
-pub use super::newapi_http::{build_client, is_anyrouter_base_url, provider_is_anyrouter};
+pub(crate) use super::newapi_http::{
+    authenticate_password_provider, build_client, is_anyrouter_base_url, login_password_provider,
+    provider_is_anyrouter,
+};
 use super::newapi_http::{
     build_url, build_user_request, normalize_base_url, provider_user_management_context,
 };
@@ -87,6 +90,16 @@ pub async fn probe_capabilities(
     }
 
     let is_anyrouter = provider_is_anyrouter(provider);
+    if matches!(provider.auth.mode, AuthMode::ApiKey) {
+        capabilities.check_in_known = true;
+        capabilities.check_in_supported = false;
+        capabilities.api_key_management_known = true;
+        capabilities.api_key_management_supported = false;
+        capabilities.invitation_known = true;
+        capabilities.invitation_supported = false;
+        return (capabilities, invite_link, None);
+    }
+
     if is_anyrouter {
         capabilities.check_in_known = true;
         capabilities.check_in_supported = !provider.auth.session_cookie.trim().is_empty();

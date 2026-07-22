@@ -11,7 +11,11 @@ use crate::{
     util::unix_millis as current_timestamp_millis,
 };
 
-use super::{find_provider, refresh::apply_refresh_owned_fields, ProviderService};
+use super::{
+    find_provider,
+    refresh::{apply_refresh_owned_fields, RefreshAuthSnapshot},
+    ProviderService,
+};
 
 impl<'a> ProviderService<'a> {
     pub async fn check_in_records(
@@ -37,6 +41,7 @@ impl<'a> ProviderService<'a> {
     pub async fn check_in(&self, id: String) -> Result<ProviderCheckInResult, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
+        let refresh_auth_snapshot = RefreshAuthSnapshot::capture(&provider);
         let adapter = NewApiAdapter;
         let mut result = adapter.check_in(&data.settings, &provider).await?;
         let is_anyrouter = provider_is_anyrouter(&provider);
@@ -90,7 +95,11 @@ impl<'a> ProviderService<'a> {
                     .find(|stored| stored.identity.id == id)
                 {
                     if let Some(refreshed) = refreshed_provider {
-                        apply_refresh_owned_fields(stored_provider, refreshed);
+                        apply_refresh_owned_fields(
+                            stored_provider,
+                            refreshed,
+                            &refresh_auth_snapshot,
+                        );
                     }
                     stored_provider.automation.last_checked_in_at = Some(stored_checked_in_at);
                     stored_provider.automation.last_check_in_user = stored_user;

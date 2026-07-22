@@ -25,6 +25,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     connectionTestResult,
     siteProbeResult,
     draftProvider,
+    availableModels,
     siteNameSourceBaseUrl,
     setApiKeyOptions,
   } = state;
@@ -139,7 +140,14 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
         Message.error(`保存后刷新失败：${error}`);
       }
     });
-    void options.store.probeCapabilities(provider.identity.id).catch(() => undefined);
+    void options.store
+      .probeCapabilities(provider.identity.id)
+      .then((result) => {
+        if (editingProviderId.value === provider.identity.id) {
+          availableModels.value = [...(result.provider.capabilities.availableModels || [])];
+        }
+      })
+      .catch(() => undefined);
   }
 
   return {

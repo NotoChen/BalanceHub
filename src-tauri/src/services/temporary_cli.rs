@@ -1,6 +1,7 @@
 use crate::{
     models::{
         AppSettings, LivenessCliKind, Provider, TemporaryCliInstance, TemporaryCliTerminalKind,
+        TemporaryTerminalProbeResult,
     },
     services::{
         cli_runtime,
@@ -130,6 +131,257 @@ pub fn launch(
 pub fn activate(instance_id: &str) -> Result<(), String> {
     let target = cli_runtime::activation_target(instance_id)?;
     activate_terminal_target(&target)
+}
+
+fn terminal_probe_available(
+    kind: TemporaryCliTerminalKind,
+    name: impl Into<String>,
+    version: impl Into<String>,
+) -> TemporaryTerminalProbeResult {
+    TemporaryTerminalProbeResult {
+        available: true,
+        kind,
+        name: name.into(),
+        version: version.into(),
+        message: String::new(),
+    }
+}
+
+fn terminal_probe_unavailable(
+    kind: TemporaryCliTerminalKind,
+    name: impl Into<String>,
+    message: impl Into<String>,
+) -> TemporaryTerminalProbeResult {
+    TemporaryTerminalProbeResult {
+        available: false,
+        kind,
+        name: name.into(),
+        version: String::new(),
+        message: message.into(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn probe_terminal(
+    kind: TemporaryCliTerminalKind,
+    custom_command: &str,
+) -> TemporaryTerminalProbeResult {
+    if matches!(kind, TemporaryCliTerminalKind::Auto) {
+        for candidate in [
+            TemporaryCliTerminalKind::Warp,
+            TemporaryCliTerminalKind::ITerm2,
+            TemporaryCliTerminalKind::WezTerm,
+            TemporaryCliTerminalKind::Kaku,
+            TemporaryCliTerminalKind::Ghostty,
+            TemporaryCliTerminalKind::Terminal,
+        ] {
+            let result = probe_macos_terminal_app(candidate);
+            if result.available {
+                return result;
+            }
+        }
+        return terminal_probe_unavailable(kind, "自动检测", "未检测到可用终端");
+    }
+
+    match kind {
+        TemporaryCliTerminalKind::SystemDefault => {
+            let terminal = probe_macos_terminal_app(TemporaryCliTerminalKind::Terminal);
+            if terminal.available {
+                terminal_probe_available(kind, "系统默认终端", terminal.version)
+            } else {
+                terminal_probe_unavailable(kind, "系统默认终端", terminal.message)
+            }
+        }
+        TemporaryCliTerminalKind::Terminal
+        | TemporaryCliTerminalKind::ITerm2
+        | TemporaryCliTerminalKind::Warp
+        | TemporaryCliTerminalKind::WezTerm
+        | TemporaryCliTerminalKind::Kaku
+        | TemporaryCliTerminalKind::Ghostty
+        | TemporaryCliTerminalKind::Kitty
+        | TemporaryCliTerminalKind::Alacritty => probe_macos_terminal_app(kind),
+        TemporaryCliTerminalKind::Custom => {
+            if custom_command.trim().is_empty() {
+                terminal_probe_unavailable(kind, "自定义终端", "自定义终端命令为空")
+            } else {
+                terminal_probe_available(kind, "自定义终端", "")
+            }
+        }
+        _ => terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn probe_macos_terminal_app(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
+    let (name, app) = match kind {
+        TemporaryCliTerminalKind::Terminal => ("Terminal", "Terminal"),
+        TemporaryCliTerminalKind::ITerm2 => ("iTerm2", "iTerm"),
+        TemporaryCliTerminalKind::Warp => ("Warp", "Warp"),
+        TemporaryCliTerminalKind::WezTerm => ("WezTerm", "WezTerm"),
+        TemporaryCliTerminalKind::Kaku => ("Kaku", "Kaku"),
+        TemporaryCliTerminalKind::Ghostty => ("Ghostty", "Ghostty"),
+        TemporaryCliTerminalKind::Kitty => ("Kitty", "kitty"),
+        TemporaryCliTerminalKind::Alacritty => ("Alacritty", "Alacritty"),
+        _ => return terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
+    };
+    if !app_exists_macos(app) {
+        return terminal_probe_unavailable(kind, name, format!("未检测到 {name}"));
+    }
+    terminal_probe_available(kind, name, macos_app_version(app))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_app_version(app: &str) -> String {
+    let script = format!(
+        "POSIX path of (path to application {})",
+        apple_script_quote(app)
+    );
+    let Ok(output) = Command::new("osascript").arg("-e").arg(script).output() else {
+        return String::new();
+    };
+    if !output.status.success() {
+        return String::new();
+    }
+    let bundle =
+        PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()).join("Contents/Info.plist");
+    for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
+        let Ok(output) = Command::new("plutil")
+            .args(["-extract", key, "raw", "-o", "-"])
+            .arg(&bundle)
+            .output()
+        else {
+            continue;
+        };
+        if output.status.success() {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !version.is_empty() {
+                return version;
+            }
+        }
+    }
+    String::new()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+pub fn probe_terminal(
+    kind: TemporaryCliTerminalKind,
+    custom_command: &str,
+) -> TemporaryTerminalProbeResult {
+    if matches!(kind, TemporaryCliTerminalKind::Custom) {
+        return if custom_command.trim().is_empty() {
+            terminal_probe_unavailable(kind, "自定义终端", "自定义终端命令为空")
+        } else {
+            terminal_probe_available(kind, "自定义终端", "")
+        };
+    }
+
+    let requested = if matches!(
+        kind,
+        TemporaryCliTerminalKind::Auto
+            | TemporaryCliTerminalKind::SystemDefault
+            | TemporaryCliTerminalKind::Terminal
+    ) {
+        env::var("TERMINAL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                let binary = Path::new(value.trim())
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(value.trim())
+                    .to_string();
+                (TemporaryCliTerminalKind::Terminal, "系统终端", binary)
+            })
+            .unwrap_or((
+                TemporaryCliTerminalKind::Terminal,
+                "系统终端",
+                "x-terminal-emulator".to_string(),
+            ))
+    } else {
+        match kind {
+            TemporaryCliTerminalKind::Warp => (kind, "Warp", "warp-terminal".to_string()),
+            TemporaryCliTerminalKind::WezTerm => (kind, "WezTerm", "wezterm".to_string()),
+            TemporaryCliTerminalKind::Ghostty => (kind, "Ghostty", "ghostty".to_string()),
+            TemporaryCliTerminalKind::Kitty => (kind, "Kitty", "kitty".to_string()),
+            TemporaryCliTerminalKind::Alacritty => (kind, "Alacritty", "alacritty".to_string()),
+            _ => return terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
+        }
+    };
+
+    probe_terminal_command(requested.0, requested.1, &requested.2, &["--version"])
+}
+
+#[cfg(target_os = "windows")]
+pub fn probe_terminal(
+    kind: TemporaryCliTerminalKind,
+    custom_command: &str,
+) -> TemporaryTerminalProbeResult {
+    if matches!(kind, TemporaryCliTerminalKind::Custom) {
+        return if custom_command.trim().is_empty() {
+            terminal_probe_unavailable(kind, "自定义终端", "自定义终端命令为空")
+        } else {
+            terminal_probe_available(kind, "自定义终端", "")
+        };
+    }
+
+    match kind {
+        TemporaryCliTerminalKind::Auto
+        | TemporaryCliTerminalKind::SystemDefault
+        | TemporaryCliTerminalKind::WindowsTerminal => {
+            let terminal = probe_terminal_command(
+                TemporaryCliTerminalKind::WindowsTerminal,
+                "Windows Terminal",
+                "wt",
+                &["--version"],
+            );
+            if terminal.available || matches!(kind, TemporaryCliTerminalKind::WindowsTerminal) {
+                terminal
+            } else {
+                probe_terminal_command(
+                    TemporaryCliTerminalKind::CommandPrompt,
+                    "命令提示符",
+                    "cmd",
+                    &["/C", "ver"],
+                )
+            }
+        }
+        TemporaryCliTerminalKind::CommandPrompt | TemporaryCliTerminalKind::Terminal => {
+            probe_terminal_command(kind, "命令提示符", "cmd", &["/C", "ver"])
+        }
+        TemporaryCliTerminalKind::PowerShell => probe_terminal_command(
+            kind,
+            "PowerShell",
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                "$PSVersionTable.PSVersion.ToString()",
+            ],
+        ),
+        _ => terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn probe_terminal_command(
+    kind: TemporaryCliTerminalKind,
+    name: &str,
+    binary: &str,
+    args: &[&str],
+) -> TemporaryTerminalProbeResult {
+    let Ok(output) = Command::new(binary).args(args).output() else {
+        return terminal_probe_unavailable(kind, name, format!("未检测到 {name}"));
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let version = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_string();
+    terminal_probe_available(kind, name, version)
 }
 
 #[cfg(target_os = "macos")]

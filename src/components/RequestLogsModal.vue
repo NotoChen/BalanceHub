@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { IconLeft, IconRefresh, IconRight, IconSearch } from "@arco-design/web-vue/es/icon";
+import { IconFile, IconLeft, IconRefresh, IconRight, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderRequestLog, ProviderRequestLogsResult } from "../stores/providers";
 import { formatNumberCompact } from "../utils/provider-display";
 
@@ -308,12 +308,20 @@ function rawJson(log: ProviderRequestLog) {
 <template>
   <a-modal
     :visible="visible"
-    :title="modalTitle"
+    modal-class="surface-modal request-logs-modal"
     :footer="false"
     width="min(1180px, calc(100vw - 32px))"
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
+    <template #title>
+      <div class="surface-modal-title request-logs-title">
+        <span class="surface-modal-title-icon"><icon-file /></span>
+        <span class="surface-modal-title-copy">
+          <strong>{{ modalTitle }}</strong>
+        </span>
+      </div>
+    </template>
     <div class="request-logs-panel">
       <div class="request-logs-toolbar">
         <a-input
@@ -435,6 +443,7 @@ function rawJson(log: ProviderRequestLog) {
 
   <a-modal
     :visible="Boolean(selectedLog)"
+    modal-class="surface-modal request-log-detail-modal-surface"
     title="日志详情"
     :footer="false"
     width="min(720px, calc(100vw - 32px))"

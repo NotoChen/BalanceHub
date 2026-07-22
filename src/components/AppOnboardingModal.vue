@@ -2,7 +2,6 @@
 import {
   IconCheckCircleFill,
   IconPlus,
-  IconRefresh,
   IconSettings,
   IconUpload,
 } from "@arco-design/web-vue/es/icon";
@@ -12,14 +11,12 @@ defineProps<{
   providerCount: number;
   cliConfigured: boolean;
   importingAppData: boolean;
-  probingCodexCli: boolean;
 }>();
 
 const emit = defineEmits<{
   addProvider: [];
   importData: [];
   openSettings: [];
-  probeCodexCli: [];
   finish: [];
 }>();
 </script>
@@ -72,13 +69,9 @@ const emit = defineEmits<{
           </div>
           <div>
             <h3>本机测活环境</h3>
-            <p v-if="cliConfigured">已检测到 CLI 路径。</p>
-            <p v-else>如果需要自动测活，先检查 Codex 或 Claude Code CLI。</p>
+            <p v-if="cliConfigured">已检测到可用的 CLI 环境。</p>
+            <p v-else>进入应用后会分别检测 Agent 与终端。</p>
             <div class="onboarding-actions">
-              <a-button :loading="probingCodexCli" @click="emit('probeCodexCli')">
-                <template #icon><icon-refresh /></template>
-                自动查找 CLI
-              </a-button>
               <a-button @click="emit('openSettings')">
                 <template #icon><icon-settings /></template>
                 打开设置

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Cookie, Fingerprint, KeyRound } from "@lucide/vue";
+import { Cookie, Fingerprint, KeyRound, UserRoundKey } from "@lucide/vue";
 import type { AuthMode } from "../stores/providers";
 
 const props = withDefaults(
@@ -24,6 +24,9 @@ const icon = computed(() => {
   if (props.mode === "accessToken") {
     return Fingerprint;
   }
+  if (props.mode === "password") {
+    return UserRoundKey;
+  }
   return KeyRound;
 });
 
@@ -34,6 +37,9 @@ const label = computed(() => {
   if (props.mode === "accessToken") {
     return "访问令牌";
   }
+  if (props.mode === "password") {
+    return "账号密码";
+  }
   return "API Key";
 });
 
@@ -43,6 +49,9 @@ const modeClass = computed(() => {
   }
   if (props.mode === "apiKey") {
     return "provider-auth-icon-api-key";
+  }
+  if (props.mode === "password") {
+    return "provider-auth-icon-password";
   }
   return "provider-auth-icon-session";
 });

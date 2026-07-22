@@ -1,10 +1,7 @@
 use crate::models::{provider_domain::auth, AppSettings, Provider};
 
 pub fn automatic_enabled(provider: &Provider, settings: &AppSettings) -> bool {
-    provider.runtime.enabled
-        && auth::has_api_key(provider)
-        && settings.liveness_consent_accepted_at.is_some()
-        && effective_enabled(provider, settings)
+    provider.runtime.enabled && auth::has_api_key(provider) && effective_enabled(provider, settings)
 }
 
 pub fn effective_enabled(provider: &Provider, settings: &AppSettings) -> bool {

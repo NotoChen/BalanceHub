@@ -5,12 +5,72 @@ use crate::models::{
 use reqwest::Client;
 
 use super::fetch_quota;
+use crate::providers::newapi_http::login_password_provider;
 
 pub async fn test_connection(
     client: &Client,
     provider: &Provider,
 ) -> Result<ProviderConnectionTestResult, String> {
     let mut steps = Vec::new();
+
+    if matches!(provider.auth.mode, AuthMode::Password) {
+        let step = match login_password_provider(client, provider).await {
+            Ok(authenticated) => match fetch_quota(client, &authenticated).await {
+                Ok(profile) => ProviderConnectionTestStep {
+                    name: "账号密码".to_string(),
+                    ok: true,
+                    message: "登录和余额接口可用".to_string(),
+                    available: Some(profile.available),
+                    used: Some(profile.used),
+                    quota_display: profile.quota_display,
+                },
+                Err(message) => ProviderConnectionTestStep {
+                    name: "账号密码".to_string(),
+                    ok: false,
+                    message,
+                    available: None,
+                    used: None,
+                    quota_display: ProviderQuotaDisplay::default(),
+                },
+            },
+            Err(message) => ProviderConnectionTestStep {
+                name: "账号密码".to_string(),
+                ok: false,
+                message,
+                available: None,
+                used: None,
+                quota_display: ProviderQuotaDisplay::default(),
+            },
+        };
+        return Ok(ProviderConnectionTestResult {
+            ok: step.ok,
+            message: if step.ok {
+                "账号密码测试通过".to_string()
+            } else {
+                "测试未通过".to_string()
+            },
+            available: step.available,
+            used: step.used,
+            quota_display: step.quota_display.clone(),
+            steps: vec![step],
+        });
+    }
+
+    if matches!(provider.auth.mode, AuthMode::ApiKey) {
+        let step = test_connection_with_auth(client, provider, AuthMode::ApiKey).await;
+        return Ok(ProviderConnectionTestResult {
+            ok: step.ok,
+            message: if step.ok {
+                "API 密钥测试通过".to_string()
+            } else {
+                "测试未通过".to_string()
+            },
+            available: step.available,
+            used: step.used,
+            quota_display: step.quota_display.clone(),
+            steps: vec![step],
+        });
+    }
 
     if !provider.auth.session_cookie.trim().is_empty() {
         steps.push(test_connection_with_auth(client, provider, AuthMode::Session).await);
@@ -75,6 +135,7 @@ async fn test_connection_with_auth(
         AuthMode::Session => "会话 Cookie",
         AuthMode::AccessToken => "访问令牌",
         AuthMode::ApiKey => "API 密钥",
+        AuthMode::Password => "账号密码",
     }
     .to_string();
 
@@ -112,6 +173,10 @@ pub(super) fn isolate_test_credentials(provider: &mut Provider, auth_mode: AuthM
             provider.auth.session_cookie.clear();
             provider.auth.access_token.clear();
             provider.auth.api_user.clear();
+        }
+        AuthMode::Password => {
+            provider.auth.access_token.clear();
+            provider.auth.api_key.clear();
         }
     }
 }

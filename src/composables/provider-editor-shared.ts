@@ -1,6 +1,7 @@
 import type {
   Provider,
   ProviderApiKeyOption,
+  ProviderCapabilityProbeResult,
   ProviderConnectionTestResult,
   ProviderInput,
   ProviderSiteProbeResult,
@@ -19,7 +20,7 @@ export interface ProviderEditorStore {
   createApiKeyForInput: (input: ProviderInput, name: string) => Promise<ProviderApiKeyOption>;
   generateAccessTokenForInput: (input: ProviderInput) => Promise<string>;
   refreshByIds: (ids: string[]) => Promise<unknown>;
-  probeCapabilities: (id: string) => Promise<unknown>;
+  probeCapabilities: (id: string) => Promise<ProviderCapabilityProbeResult>;
 }
 
 export function normalizeProviderBaseUrl(value: string) {
@@ -42,7 +43,10 @@ export function fieldLabel(field: string) {
   const labels: Record<string, string> = {
     accessToken: "访问令牌",
     apiKey: "API 密钥",
+    apiKeyTokenId: "主 API Key",
+    apiKeyOptions: "API Key 列表",
     apiUser: "API User ID",
+    loginUsername: "登录账号",
   };
   return labels[field] ?? field;
 }

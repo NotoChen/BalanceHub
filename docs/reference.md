@@ -7,7 +7,7 @@
 | 功能 | 定义 | 实现位置 | 说明 |
 | --- | --- | --- | --- |
 | 中转站账号管理 | 把多个 NewAPI 兼容站点集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`src-tauri/src/services/provider_service/` | 当前 UI 只展示 NewAPI 类型；AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
-| 认证方式管理 | 按站点保存 Cookie、访问令牌、API Key 等认证信息。 | `src/stores/provider-types.ts`、`src-tauri/src/models/`、`src-tauri/src/providers/newapi_http.rs` | 默认优先级是 Cookie > 访问令牌 > API Key。 |
+| 认证方式管理 | 按站点保存账号密码、Cookie、访问令牌、API Key 等认证信息。 | `src/stores/provider-types.ts`、`src-tauri/src/models/`、`src-tauri/src/providers/newapi_http.rs` | 默认优先级是账号密码 > Cookie > 访问令牌 > API Key。 |
 | 站点探测 | 从中转站读取名称、图标、额度单位和货币符号。 | `src-tauri/src/providers/newapi_site.rs` | 用于减少手动填写，并保证余额、日志、签到记录单位显示一致。 |
 | 余额刷新 | 查询账号或 API Key 当前额度、已用额度和可用额度。 | `src-tauri/src/providers/newapi_quota.rs`、`src-tauri/src/services/provider_service/quota.rs` | API Key 查询明确按 Key 维度展示；无限额度按无限状态处理。 |
 | 自动刷新 | 按用户配置周期刷新中转站状态。 | `src-tauri/src/services/scheduler.rs` | 适合多站点长期挂后台观察余额和异常状态。 |
@@ -65,7 +65,7 @@ Vue 3 UI
           -> storage.rs 读写本地配置
 ```
 
-前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。Cookie、Token、API Key 不需要交给远端服务，也不依赖浏览器页面直接访问中转站。
+前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。账号密码、Cookie、Token、API Key 不需要交给远端服务，也不依赖浏览器页面直接访问中转站。
 
 ## 目录说明
 

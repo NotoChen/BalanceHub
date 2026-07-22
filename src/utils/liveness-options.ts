@@ -22,8 +22,8 @@ export const codexPromptModeOptions: SelectOption<LivenessPromptMode>[] = [
 ];
 
 export const livenessCliKindOptions: SelectOption<LivenessCliKind>[] = [
-  { label: "Codex CLI", value: "codex" },
-  { label: "Claude Code CLI", value: "claudeCode" },
+  { label: "Codex", value: "codex" },
+  { label: "Claude Code", value: "claudeCode" },
 ];
 
 export const temporaryCliTerminalOptions: SelectOption<TemporaryCliTerminalKind>[] = [

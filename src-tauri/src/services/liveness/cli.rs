@@ -1,4 +1,4 @@
-use crate::models::{CliCandidate, CodexCliProbeResult};
+use crate::models::CodexCliProbeResult;
 
 use super::process::cli_version;
 use std::{
@@ -24,7 +24,7 @@ const CODEX_SPEC: CliSpec = CliSpec {
     global_dirs: &["/opt/homebrew/bin", "/usr/local/bin"],
     home_candidates: codex_home_candidates,
     require_version_substring: None,
-    not_found_message: "未找到可用的 codex CLI，请在设置中指定 codex 可执行文件路径",
+    not_found_message: "未自动检测到可用的 Codex CLI",
 };
 
 const CLAUDE_SPEC: CliSpec = CliSpec {
@@ -33,7 +33,7 @@ const CLAUDE_SPEC: CliSpec = CliSpec {
     global_dirs: &["/opt/homebrew/bin", "/usr/local/bin"],
     home_candidates: claude_home_candidates,
     require_version_substring: Some("claude"),
-    not_found_message: "未找到可用的 Claude Code CLI，请在设置中指定 claude 可执行文件路径",
+    not_found_message: "未自动检测到可用的 Claude Code CLI",
 };
 
 pub(super) fn find_codex_cli(preferred_path: &str) -> Result<CodexCliProbeResult, String> {
@@ -147,84 +147,6 @@ fn find_cli(preferred_path: &str, spec: &CliSpec) -> Result<CodexCliProbeResult,
     }
 
     Err(spec.not_found_message.to_string())
-}
-
-/// 枚举所有存在的候选可执行文件，标注版本/有效性/来源（不止首个）。
-fn enumerate_cli(preferred_path: &str, spec: &CliSpec) -> Vec<CliCandidate> {
-    let mut seen = Vec::new();
-    let mut result = Vec::new();
-    let path_default = resolve_path_default(spec.binary);
-    for candidate in cli_candidates(preferred_path, spec) {
-        if seen.iter().any(|item: &PathBuf| item == &candidate) {
-            continue;
-        }
-        seen.push(candidate.clone());
-        let normalized_candidate = normalize_path(candidate.clone());
-        if is_unsupported_cli_path(&normalized_candidate, spec) {
-            continue;
-        }
-        if !candidate.is_file() {
-            continue;
-        }
-        let version = cli_version(&candidate, spec.require_version_substring).ok();
-        let path = candidate.to_string_lossy().to_string();
-        let source = infer_cli_source(&path);
-        let is_path_default = path_default.as_ref() == Some(&normalized_candidate);
-        result.push(CliCandidate {
-            valid: version.is_some(),
-            version,
-            source,
-            path,
-            is_path_default,
-        });
-    }
-    result.sort_by_key(|candidate| std::cmp::Reverse(candidate.is_path_default));
-    result
-}
-
-pub(super) fn enumerate_codex_cli(preferred_path: &str) -> Vec<CliCandidate> {
-    enumerate_cli(preferred_path, &CODEX_SPEC)
-}
-
-pub(super) fn enumerate_claude_cli(preferred_path: &str) -> Vec<CliCandidate> {
-    enumerate_cli(preferred_path, &CLAUDE_SPEC)
-}
-
-/// 从可执行文件路径粗略推断来源（node 版本管理器 / 包管理器 / 系统目录），用于 UI 标注。
-fn infer_cli_source(path: &str) -> String {
-    let lower = path.to_lowercase();
-    let has = |needle: &str| lower.contains(needle);
-    if has("/.nvm/") {
-        "nvm".to_string()
-    } else if has("/.fnm/") || has("/fnm/") {
-        "fnm".to_string()
-    } else if has("/.volta/") {
-        "Volta".to_string()
-    } else if has("/.asdf/") {
-        "asdf".to_string()
-    } else if has("/mise/") {
-        "mise".to_string()
-    } else if has("/.bun/") || has("/bun/") {
-        "bun".to_string()
-    } else if has("/opt/homebrew/") || has("/homebrew/") {
-        "Homebrew".to_string()
-    } else if has("pnpm") {
-        "pnpm".to_string()
-    } else if has("\\npm\\") || has("/npm/") {
-        "npm".to_string()
-    } else if has("/.local/") {
-        "~/.local".to_string()
-    } else if has("/usr/local/bin") {
-        "/usr/local/bin".to_string()
-    } else if has("/usr/bin") || lower.starts_with("/bin/") {
-        "系统".to_string()
-    } else {
-        Path::new(path)
-            .parent()
-            .and_then(|parent| parent.to_str())
-            .unwrap_or("其他")
-            .to_string()
-    }
 }
 
 fn is_unsupported_cli_path(path: &Path, spec: &CliSpec) -> bool {
@@ -359,37 +281,6 @@ fn shell_command_candidates(binary: &str) -> Vec<PathBuf> {
         }
     }
     candidates
-}
-
-fn resolve_path_default(binary: &str) -> Option<PathBuf> {
-    if cfg!(target_os = "windows") {
-        return Command::new("cmd")
-            .arg("/C")
-            .arg(format!("where {binary}"))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| {
-                String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .map(str::trim)
-                    .find(|line| !line.is_empty())
-                    .map(PathBuf::from)
-            })
-            .map(normalize_path);
-    }
-
-    login_shell_output(&format!("command -v {}", shell_escape_word(binary)))
-        .and_then(|output| {
-            output
-                .lines()
-                .map(str::trim)
-                .find(|line| line.starts_with('/'))
-                .map(PathBuf::from)
-        })
-        .map(normalize_path)
 }
 
 fn login_shell_path() -> Option<OsString> {

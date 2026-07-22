@@ -65,35 +65,30 @@ const usageStatCards = computed(() => [
     key: "count",
     title: "总请求",
     value: formatNumberCompact(usageRequestTotal.value, 0),
-    description: "统计请求次数",
     icon: IconBarChart,
   },
   {
     key: "quota",
     title: "总消耗",
     value: props.summary ? formatQuotaValue(usageTotal.value, props.summary.quotaDisplay) : "-",
-    description: "统计额度消耗",
     icon: IconFire,
   },
   {
     key: "tokens",
     title: "总 Tokens",
     value: formatNumberCompact(usageTokenTotal.value, 0),
-    description: "统计 Tokens",
     icon: IconLayers,
   },
   {
     key: "rpm",
     title: "平均 RPM",
     value: formatNumberCompact(usageAverageRpm.value, 3),
-    description: "每分钟请求数",
     icon: IconThunderbolt,
   },
   {
     key: "tpm",
     title: "平均 TPM",
     value: formatNumberCompact(usageAverageTpm.value, 3),
-    description: "每分钟 Tokens",
     icon: IconThunderbolt,
   },
 ]);
@@ -119,12 +114,20 @@ function barPercent(value: number, max: number) {
 <template>
   <a-modal
     :visible="visible"
-    :title="modalTitle"
+    modal-class="surface-modal usage-trend-modal"
     :footer="false"
     :width="980"
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
+    <template #title>
+      <div class="surface-modal-title usage-trend-title">
+        <span class="surface-modal-title-icon"><icon-bar-chart /></span>
+        <span class="surface-modal-title-copy">
+          <strong>{{ modalTitle }}</strong>
+        </span>
+      </div>
+    </template>
     <div class="usage-panel">
       <div class="usage-toolbar">
         <a-radio-group v-model="periodModel" type="button" :options="usagePeriodOptions" />
@@ -145,7 +148,6 @@ function barPercent(value: number, max: number) {
                 {{ card.title }}
               </span>
               <strong>{{ card.value }}</strong>
-              <small>{{ card.description }}</small>
             </div>
           </div>
           <div class="usage-chart">

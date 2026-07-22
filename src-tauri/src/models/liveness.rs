@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::Provider;
+use super::{Provider, TemporaryCliTerminalKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,15 +41,31 @@ pub struct CodexCliProbeResult {
     pub version: String,
 }
 
-/// 一个测活 CLI 候选可执行文件：枚举所有存在的候选时用于在 UI 标注来源/版本/有效性。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CliCandidate {
+pub struct CliToolProbeResult {
+    pub available: bool,
     pub path: String,
-    pub version: Option<String>,
-    pub valid: bool,
-    pub source: String,
-    pub is_path_default: bool,
+    pub version: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporaryTerminalProbeResult {
+    pub available: bool,
+    pub kind: TemporaryCliTerminalKind,
+    pub name: String,
+    pub version: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliEnvironmentProbeResult {
+    pub codex: CliToolProbeResult,
+    pub claude_code: CliToolProbeResult,
+    pub terminal: TemporaryTerminalProbeResult,
 }
 
 #[derive(Debug, Clone, Serialize)]
