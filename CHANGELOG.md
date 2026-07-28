@@ -2,6 +2,13 @@
 
 BalanceHub 的重要变更会记录在这里。
 
+## 0.4.1
+
+### 修复
+
+- 修复 macOS 专用终端辅助函数在 Linux 和 Windows 发布检查中触发 Clippy `dead_code`，导致 `0.4.0` 未通过质量门禁的问题。
+- 更新 Rust 网络传递依赖，修复 `quinn-proto` 已知高危安全问题。
+
 ## 0.4.0
 
 ### 新增

@@ -1273,6 +1273,7 @@ fn spawn_command(command: &mut Command, context: &str) -> Result<(), String> {
         .map_err(|err| format!("{context}: {err}"))
 }
 
+#[cfg(target_os = "macos")]
 fn run_command(command: &mut Command, context: &str) -> Result<(), String> {
     let output = command
         .output()
@@ -1387,6 +1388,7 @@ fn escape_toml_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+#[cfg(target_os = "macos")]
 fn command_error_message(output: std::process::Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if stderr.is_empty() {
