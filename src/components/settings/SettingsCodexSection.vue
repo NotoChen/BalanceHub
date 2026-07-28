@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { IconCommand, IconDesktop, IconExperiment } from "@arco-design/web-vue/es/icon";
+import CliIconSelector from "../CliIconSelector.vue";
 import SettingsCodexPromptSection from "./SettingsCodexPromptSection.vue";
 import SettingsCliManager from "./SettingsCliManager.vue";
 import SettingsTerminalManager from "./SettingsTerminalManager.vue";
+import { availableCliOptions } from "../../utils/cli-environment";
 import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
-import { codexIntervalModeOptions, livenessCliKindOptions } from "../../utils/liveness-options";
-import type { AppSettings } from "../../stores/providers";
+import { codexIntervalModeOptions } from "../../utils/liveness-options";
+import { useProviderStore, type AppSettings } from "../../stores/providers";
 
 interface ModelProviderIndexItem {
   model: string;
@@ -19,6 +21,22 @@ const props = defineProps<{
   livenessModelOptions: string[];
   modelProviderIndex: ModelProviderIndexItem[];
 }>();
+
+const store = useProviderStore();
+const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe));
+
+watch(
+  cliOptions,
+  (options) => {
+    if (
+      options.length > 0 &&
+      !options.some((option) => option.value === props.settings.livenessCliKind)
+    ) {
+      props.settings.livenessCliKind = options[0].value;
+    }
+  },
+  { immediate: true },
+);
 
 const codexModelSelectOptions = computed(() =>
   Array.from(
@@ -48,7 +66,7 @@ const minimumRandomMaxInterval = computed(() =>
         <span class="settings-card-icon"><IconCommand /></span>
         <div><strong>Agent</strong></div>
       </header>
-      <SettingsCliManager />
+      <SettingsCliManager :settings="settings" />
     </section>
 
     <section class="settings-card settings-terminal-card">
@@ -78,7 +96,11 @@ const minimumRandomMaxInterval = computed(() =>
       <div v-if="settings.livenessEnabled" class="settings-liveness-config">
         <div class="settings-field-grid">
           <a-form-item label="执行 Agent">
-            <a-select v-model="settings.livenessCliKind" :options="livenessCliKindOptions" />
+            <CliIconSelector
+              v-model="settings.livenessCliKind"
+              :options="cliOptions"
+              :loading="store.cliEnvironmentLoading && !store.cliEnvironmentProbe"
+            />
           </a-form-item>
           <a-form-item label="默认模型">
             <a-select

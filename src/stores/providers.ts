@@ -7,6 +7,7 @@ import {
   createProviderApiKey as createProviderApiKeyCommand,
   createProviderApiKeyForInput as createProviderApiKeyForInputCommand,
   deleteProviderApiKey as deleteProviderApiKeyCommand,
+  detectProviderProtocol as detectProviderProtocolCommand,
   exportAppData as exportAppDataCommand,
   generateProviderAccessTokenForInput as generateProviderAccessTokenForInputCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
@@ -35,6 +36,10 @@ import {
   switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
 import { providerToInput } from "../utils/provider-input";
+import {
+  applyCliEnvironmentProbeResult,
+  captureCliEnvironmentSettings,
+} from "../utils/cli-environment";
 import { defaultSettings } from "./provider-defaults";
 import type {
   AppSettings,
@@ -158,6 +163,9 @@ export const useProviderStore = defineStore("providers", {
     async probeProviderSite(input: ProviderInput) {
       return probeProviderSiteCommand(input);
     },
+    async detectProviderProtocol(input: ProviderInput) {
+      return detectProviderProtocolCommand(input);
+    },
     async completeProviderCredentials(input: ProviderInput) {
       return completeProviderCredentialsCommand(input);
     },
@@ -168,16 +176,13 @@ export const useProviderStore = defineStore("providers", {
       }
       return result;
     },
-    async probeCliEnvironment(
-      terminalKind?: AppSettings["temporaryCliTerminalKind"],
-      terminalCommand?: string,
-    ) {
+    async probeCliEnvironment() {
+      const settingsAtStart = captureCliEnvironmentSettings(this.settings);
       this.cliEnvironmentLoading = true;
       try {
-        const result = await probeCliEnvironmentCommand(terminalKind, terminalCommand);
+        const result = await probeCliEnvironmentCommand();
         this.cliEnvironmentProbe = result;
-        this.settings.codexCliPath = result.codex.path;
-        this.settings.claudeCliPath = result.claudeCode.path;
+        applyCliEnvironmentProbeResult(this.settings, result, settingsAtStart);
         return result;
       } finally {
         this.cliEnvironmentLoading = false;

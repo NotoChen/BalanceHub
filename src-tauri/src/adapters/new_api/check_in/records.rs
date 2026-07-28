@@ -2,7 +2,7 @@ use crate::models::{Provider, ProviderCheckInRecord};
 use crate::util::DEFAULT_QUOTA_PER_UNIT;
 use serde_json::Value;
 
-use super::super::newapi_response::{extract_bool_field, extract_string_field};
+use super::super::response::{extract_bool_field, extract_string_field};
 
 pub(super) fn normalize_month(month: &str) -> Result<String, String> {
     let value = month.trim();

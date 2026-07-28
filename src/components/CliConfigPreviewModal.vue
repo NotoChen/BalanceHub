@@ -115,7 +115,6 @@ function displayValue(value: string | null, sensitive: boolean) {
     </div>
 
     <template #footer>
-      <a-button :disabled="confirming" @click="emit('update:visible', false)">取消</a-button>
       <a-button
         type="primary"
         :loading="confirming"

@@ -26,7 +26,6 @@ const emit = defineEmits<{
   refresh: [];
   "show-create": [];
   create: [];
-  use: [option: ProviderApiKeyOption];
   copy: [option: ProviderApiKeyOption];
   delete: [option: ProviderApiKeyOption];
 }>();
@@ -106,15 +105,6 @@ function displayMaskedKey(option: ProviderApiKeyOption) {
   return option.maskedKey?.trim() || maskApiKey(option.key) || "完整 Key 不可读取";
 }
 
-function isPrimary(option: ProviderApiKeyOption) {
-  const provider = props.provider;
-  if (!provider) return false;
-  if (provider.auth.apiKeyTokenId.trim() && option.tokenId.trim()) {
-    return provider.auth.apiKeyTokenId === option.tokenId;
-  }
-  return Boolean(provider.auth.apiKey.trim()) && provider.auth.apiKey === option.key;
-}
-
 function keyIdentity(option: ProviderApiKeyOption) {
   const parts = [];
   if (option.userId) parts.push(`用户 ${option.userId}`);
@@ -189,7 +179,6 @@ function keyIdentity(option: ProviderApiKeyOption) {
                   <span class="api-key-status" :class="`api-key-status-${apiKeyStatusTone(option.status)}`">
                     {{ apiKeyStatusLabel(option.status) }}
                   </span>
-                  <span v-if="isPrimary(option)" class="api-key-primary-mark">主 Key</span>
                 </td>
                 <td class="api-key-quota-cell">
                   <strong>{{ apiKeyQuotaDisplay(option).label }}</strong>
@@ -217,20 +206,22 @@ function keyIdentity(option: ProviderApiKeyOption) {
                 </td>
                 <td>
                   <div class="api-key-actions">
-                    <a-button size="small" :disabled="!option.keyAvailable" @click="emit('use', option)">
-                      {{ isPrimary(option) ? "主 Key" : "设为主 Key" }}
-                    </a-button>
-                    <a-button size="small" :disabled="!option.keyAvailable" @click="emit('copy', option)">
+                    <a-tooltip content="复制 API Key">
+                    <a-button size="small" :disabled="!option.keyAvailable" aria-label="复制 API Key" @click="emit('copy', option)">
                       <template #icon><icon-copy /></template>
                     </a-button>
+                    </a-tooltip>
+                    <a-tooltip content="删除 API Key">
                     <a-button
                       size="small"
                       status="danger"
                       :disabled="!option.tokenId"
+                      aria-label="删除 API Key"
                       @click="emit('delete', option)"
                     >
                       <template #icon><icon-delete /></template>
                     </a-button>
+                    </a-tooltip>
                   </div>
                 </td>
               </tr>
@@ -246,7 +237,6 @@ function keyIdentity(option: ProviderApiKeyOption) {
                 <span class="api-key-status" :class="`api-key-status-${apiKeyStatusTone(option.status)}`">
                   {{ apiKeyStatusLabel(option.status) }}
                 </span>
-                <span v-if="isPrimary(option)" class="api-key-primary-mark">主 Key</span>
               </div>
               <div class="api-key-quota-cell">
                 <strong>{{ apiKeyQuotaDisplay(option).label }}</strong>
@@ -262,20 +252,22 @@ function keyIdentity(option: ProviderApiKeyOption) {
                 <span>过期 {{ formatUnixTime(option.expiredTime) }}</span>
               </div>
               <div class="api-key-actions">
-                <a-button size="small" :disabled="!option.keyAvailable" @click="emit('use', option)">
-                  {{ isPrimary(option) ? "主 Key" : "设为主 Key" }}
-                </a-button>
-                <a-button size="small" :disabled="!option.keyAvailable" @click="emit('copy', option)">
+                <a-tooltip content="复制 API Key">
+                <a-button size="small" :disabled="!option.keyAvailable" aria-label="复制 API Key" @click="emit('copy', option)">
                   <template #icon><icon-copy /></template>
                 </a-button>
+                </a-tooltip>
+                <a-tooltip content="删除 API Key">
                 <a-button
                   size="small"
                   status="danger"
                   :disabled="!option.tokenId"
+                  aria-label="删除 API Key"
                   @click="emit('delete', option)"
                 >
                   <template #icon><icon-delete /></template>
                 </a-button>
+                </a-tooltip>
               </div>
             </div>
           </div>
@@ -305,7 +297,6 @@ function keyIdentity(option: ProviderApiKeyOption) {
         />
       </div>
       <div class="api-key-create-actions">
-        <a-button @click="emit('update:createVisible', false)">取消</a-button>
         <a-button
           type="primary"
           :loading="loading"

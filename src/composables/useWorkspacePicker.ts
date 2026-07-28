@@ -1,20 +1,25 @@
-import { ref, type Ref } from "vue";
+import { computed, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type {
+  CliEnvironmentProbeResult,
   LivenessCliKind,
   Provider,
   ProviderApiKeyOption,
   TemporaryCliLaunchInput,
   TemporaryCliLaunchResult,
   TemporaryCliPreference,
+  TemporaryCliTerminalKind,
   Workspace,
   WorkspaceDirectoryListing,
 } from "../stores/providers";
+import { availableCliOptions, availableTerminalOptions } from "../utils/cli-environment";
 import { supportsApiKeyManagement } from "../utils/provider-display";
 
 interface UseWorkspacePickerOptions {
   workspaces: Ref<Workspace[]>;
   preferences: Ref<TemporaryCliPreference[]>;
+  terminalKind: Ref<TemporaryCliTerminalKind>;
+  cliEnvironmentProbe: Ref<CliEnvironmentProbeResult | null>;
   listApiKeys: (providerId: string) => Promise<ProviderApiKeyOption[]>;
   browse: (path?: string) => Promise<WorkspaceDirectoryListing>;
   forget: (path: string) => Promise<Workspace[]>;
@@ -30,6 +35,11 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceApiKeyError = ref("");
   const workspaceApiKeyTokenId = ref("");
   const workspaceSelectedModel = ref("");
+  const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(options.terminalKind.value);
+  const workspaceCliOptions = computed(() => availableCliOptions(options.cliEnvironmentProbe.value));
+  const workspaceTerminalOptions = computed(() =>
+    availableTerminalOptions(options.cliEnvironmentProbe.value),
+  );
   const workspaceDirectory = ref<WorkspaceDirectoryListing | null>(null);
   const workspacePathDraft = ref("");
   const workspaceBrowsing = ref(false);
@@ -38,6 +48,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceBrowserError = ref("");
   let browseRequestId = 0;
   let apiKeyRequestId = 0;
+  let pickerRequestId = 0;
 
   async function loadWorkspaceApiKeys(provider: Provider) {
     const requestId = ++apiKeyRequestId;
@@ -140,11 +151,22 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   }
 
   async function openWorkspacePicker(provider: Provider, cliKind?: LivenessCliKind) {
+    const requestId = ++pickerRequestId;
     workspacePickerProvider.value = provider;
     const preference = options.preferences.value.find(
       (item) => item.providerId === provider.identity.id,
     );
-    workspacePickerCliKind.value = cliKind ?? preference?.cliKind ?? "codex";
+    const preferredCliKind = cliKind ?? preference?.cliKind ?? "codex";
+    workspacePickerCliKind.value = workspaceCliOptions.value.some(
+      (option) => option.value === preferredCliKind,
+    )
+      ? preferredCliKind
+      : (workspaceCliOptions.value[0]?.value ?? preferredCliKind);
+    workspaceTerminalKind.value = workspaceTerminalOptions.value.some(
+      (option) => option.value === options.terminalKind.value,
+    )
+      ? options.terminalKind.value
+      : (workspaceTerminalOptions.value[0]?.value ?? options.terminalKind.value);
     workspaceApiKeyTokenId.value = preference?.apiKeyTokenId ?? "";
     workspaceSelectedModel.value =
       provider.cli.preferredModel?.trim() ||
@@ -154,11 +176,22 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspacePickerVisible.value = true;
     workspaceDirectory.value = null;
     workspacePathDraft.value = "";
-
     const initialPath = preference?.workspacePath || options.workspaces.value[0]?.path;
     const loaded = await browseWorkspaceDirectory(initialPath);
+    if (
+      requestId !== pickerRequestId
+      || workspacePickerProvider.value?.identity.id !== provider.identity.id
+    ) {
+      return;
+    }
     if (!loaded && initialPath && workspacePickerVisible.value) {
       await browseWorkspaceDirectory();
+    }
+    if (
+      requestId !== pickerRequestId
+      || workspacePickerProvider.value?.identity.id !== provider.identity.id
+    ) {
+      return;
     }
     void loadWorkspaceApiKeys(provider);
   }
@@ -169,6 +202,17 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     if (!provider || !workdir || workspaceLaunchingPath.value) {
       return;
     }
+    if (
+      !workspaceCliOptions.value.some((option) => option.value === workspacePickerCliKind.value) ||
+      !workspaceTerminalOptions.value.some(
+        (option) => option.value === workspaceTerminalKind.value,
+      )
+    ) {
+      const message = "未检测到可用的 Agent 或终端";
+      workspaceBrowserError.value = message;
+      Message.warning(message);
+      return;
+    }
 
     workspaceLaunchingPath.value = workdir;
     workspaceBrowserError.value = "";
@@ -177,8 +221,8 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     );
     const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
     const model =
-      provider.cli.preferredModel.trim() ||
-      workspaceSelectedModel.value.trim();
+      workspaceSelectedModel.value.trim() ||
+      provider.cli.preferredModel.trim();
     if (!apiKey) {
       const message = "请选择一个可用的 API Key";
       workspaceBrowserError.value = message;
@@ -195,6 +239,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
         apiKey,
         apiKeyTokenId: workspaceApiKeyTokenId.value,
         model,
+        terminalKind: workspaceTerminalKind.value,
       });
       const cliLabel = workspacePickerCliKind.value === "codex" ? "Codex" : "Claude Code";
       if (result.workspaceError) {
@@ -226,15 +271,50 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     }
   }
 
+  watch(workspaceCliOptions, (available) => {
+    if (
+      workspacePickerVisible.value &&
+      available.length > 0 &&
+      !available.some((option) => option.value === workspacePickerCliKind.value)
+    ) {
+      workspacePickerCliKind.value = available[0].value;
+    }
+  });
+
+  watch(workspaceTerminalOptions, (available) => {
+    if (
+      workspacePickerVisible.value &&
+      available.length > 0 &&
+      !available.some((option) => option.value === workspaceTerminalKind.value)
+    ) {
+      workspaceTerminalKind.value = available[0].value;
+    }
+  });
+
+  watch(workspacePickerVisible, (visible) => {
+    if (visible) return;
+
+    // 关闭选择器后，正在返回的目录与 API Key 请求均属于过期界面，不能再写回状态。
+    // 同时复位 loading，避免用户关闭后快速重开时看到上一轮请求残留的忙碌状态。
+    pickerRequestId += 1;
+    browseRequestId += 1;
+    apiKeyRequestId += 1;
+    workspaceBrowsing.value = false;
+    workspaceApiKeyLoading.value = false;
+  });
+
   return {
     workspacePickerVisible,
     workspacePickerProvider,
     workspacePickerCliKind,
+    workspaceCliOptions,
     workspaceApiKeys,
     workspaceApiKeyLoading,
     workspaceApiKeyError,
     workspaceApiKeyTokenId,
     workspaceSelectedModel,
+    workspaceTerminalKind,
+    workspaceTerminalOptions,
     workspaceDirectory,
     workspacePathDraft,
     workspaceBrowsing,

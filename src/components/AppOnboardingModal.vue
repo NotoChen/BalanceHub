@@ -27,7 +27,7 @@ const emit = defineEmits<{
     :footer="false"
     :width="700"
     unmount-on-close
-    modal-class="onboarding-modal"
+    modal-class="surface-modal onboarding-modal"
     @update:visible="(value) => { if (!value) emit('finish'); }"
   >
     <div class="onboarding-panel">
@@ -82,7 +82,6 @@ const emit = defineEmits<{
       </div>
 
       <div class="onboarding-footer">
-        <a-button @click="emit('finish')">跳过引导</a-button>
         <a-button type="primary" @click="emit('finish')">进入应用</a-button>
       </div>
     </div>

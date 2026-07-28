@@ -1,41 +1,61 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { IconLoading, IconRefresh } from "@arco-design/web-vue/es/icon";
 import {
   useProviderStore,
+  type AppSettings,
   type CliToolProbeResult,
   type LivenessCliKind,
 } from "../../stores/providers";
-import BrandIcon, { type BrandIconName } from "../BrandIcon.vue";
+import {
+  applyCliEnvironmentProbeResult,
+  availableCliKinds,
+  captureCliEnvironmentSettings,
+  cliKindMeta,
+} from "../../utils/cli-environment";
+import BrandIcon from "../BrandIcon.vue";
 import SettingsDetectionGrid from "./SettingsDetectionGrid.vue";
 import SettingsDetectionItem from "./SettingsDetectionItem.vue";
 
 const store = useProviderStore();
+const props = defineProps<{
+  settings: AppSettings;
+}>();
 
 const CLI_KINDS: LivenessCliKind[] = ["codex", "claudeCode"];
-const cliMeta: Record<LivenessCliKind, { label: string; brand: BrandIconName }> = {
-  codex: { label: "Codex", brand: "codex" },
-  claudeCode: { label: "Claude Code", brand: "claude" },
-};
-
 const probe = computed(() => store.cliEnvironmentProbe);
-const detectedCount = computed(
-  () => CLI_KINDS.filter((kind) => toolResult(kind)?.available).length,
-);
+const detectedKinds = computed(() => availableCliKinds(probe.value));
+const probeError = ref("");
 
 function toolResult(kind: LivenessCliKind): CliToolProbeResult | null {
   if (!probe.value) return null;
   return kind === "codex" ? probe.value.codex : probe.value.claudeCode;
 }
 
-function itemState(available?: boolean) {
-  if (store.cliEnvironmentLoading && !probe.value) return "checking";
-  return available ? "ok" : "error";
+function itemState(result: CliToolProbeResult | null) {
+  if (store.cliEnvironmentLoading) return "checking";
+  return result?.available ? "ok" : "error";
 }
 
 function resultText(result: CliToolProbeResult | null) {
-  if (store.cliEnvironmentLoading && !result) return "正在检测";
-  if (result?.available) return result.version || "已检测";
-  return result?.message || "未检测到";
+  if (store.cliEnvironmentLoading) {
+    return result ? "正在重新检测" : "正在检测";
+  }
+  if (!result) return "尚未扫描";
+  if (!result.available) return result.message || "未检测到可用 CLI";
+  return [result.version, result.path].filter(Boolean).join(" · ") || "已检测";
+}
+
+async function runProbe() {
+  if (store.cliEnvironmentLoading) return;
+  probeError.value = "";
+  const settingsAtStart = captureCliEnvironmentSettings(props.settings);
+  try {
+    const result = await store.probeCliEnvironment();
+    applyCliEnvironmentProbeResult(props.settings, result, settingsAtStart);
+  } catch (error) {
+    probeError.value = error instanceof Error ? error.message : String(error);
+  }
 }
 </script>
 
@@ -43,26 +63,40 @@ function resultText(result: CliToolProbeResult | null) {
   <div class="settings-detection-panel">
     <header class="settings-detection-head">
       <span class="settings-detection-mode">
-        <IconLoading v-if="store.cliEnvironmentLoading && !probe" />
+        <IconLoading v-if="store.cliEnvironmentLoading" />
         <i v-else />
         自动检测
       </span>
-      <span>{{ detectedCount }} / 2 可用</span>
+      <span class="settings-detection-summary">
+        {{ detectedKinds.length }} 个可用
+        <a-tooltip content="重新扫描 Agent 与终端">
+          <a-button
+            shape="circle"
+            size="mini"
+            :loading="store.cliEnvironmentLoading"
+            aria-label="重新扫描 Agent 与终端"
+            @click="runProbe"
+          >
+            <template #icon><IconRefresh /></template>
+          </a-button>
+        </a-tooltip>
+      </span>
     </header>
 
     <SettingsDetectionGrid>
       <SettingsDetectionItem
         v-for="kind in CLI_KINDS"
         :key="kind"
-        :state="itemState(toolResult(kind)?.available)"
-        :name="cliMeta[kind].label"
+        :state="itemState(toolResult(kind))"
+        :name="cliKindMeta[kind].label"
         :detail="resultText(toolResult(kind))"
       >
         <template #icon>
-          <BrandIcon :brand="cliMeta[kind].brand" :size="26" />
+          <BrandIcon :brand="cliKindMeta[kind].brand" :size="26" />
         </template>
       </SettingsDetectionItem>
     </SettingsDetectionGrid>
+    <div v-if="probeError" class="settings-detection-error">{{ probeError }}</div>
   </div>
 </template>
 
@@ -75,7 +109,8 @@ function resultText(result: CliToolProbeResult | null) {
 }
 
 .settings-detection-head,
-.settings-detection-mode {
+.settings-detection-mode,
+.settings-detection-summary {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -94,6 +129,10 @@ function resultText(result: CliToolProbeResult | null) {
   font-weight: 650;
 }
 
+.settings-detection-summary {
+  gap: 7px;
+}
+
 .settings-detection-mode > i {
   width: 7px;
   height: 7px;
@@ -104,6 +143,11 @@ function resultText(result: CliToolProbeResult | null) {
 .settings-detection-mode > svg {
   color: rgb(var(--arcoblue-6));
   animation: cli-probe-spin 0.9s linear infinite;
+}
+
+.settings-detection-error {
+  color: rgb(var(--red-6));
+  font-size: 11px;
 }
 
 @keyframes cli-probe-spin {

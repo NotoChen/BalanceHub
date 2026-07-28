@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { type CSSProperties } from "vue";
+import { computed, ref, type CSSProperties } from "vue";
 import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
 import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
+import type { ProviderAuthFilter, ProviderStatusFilter } from "../utils/provider-filters";
 
 interface ProviderDragState {
   providerId: string | null;
   dragging: boolean;
 }
 
-defineProps<{
+const props = defineProps<{
   loading: boolean;
   initialized: boolean;
   loadError: string | null;
@@ -32,6 +33,38 @@ defineProps<{
   cardStatusTooltip: (provider: Provider) => string;
   showLivenessTimeline: (provider: Provider) => boolean;
 }>();
+
+const authFilter = ref<ProviderAuthFilter>("all");
+const statusFilter = ref<ProviderStatusFilter>("all");
+
+function matchesFilters(provider: Provider) {
+  const authMatches =
+    authFilter.value === "all" ||
+    (authFilter.value === "apiKey" && provider.auth.mode === "apiKey") ||
+    (authFilter.value === "account" && provider.auth.mode !== "apiKey");
+  const statusMatches =
+    statusFilter.value === "all" || props.providerCardTone(provider) === statusFilter.value;
+  return authMatches && statusMatches;
+}
+
+const filteredLivenessProviders = computed(() => props.livenessProviders.filter(matchesFilters));
+const filteredRegularProviders = computed(() => props.regularProviders.filter(matchesFilters));
+const hasActiveFilters = computed(
+  () => authFilter.value !== "all" || statusFilter.value !== "all",
+);
+
+function setAuthFilter(value: ProviderAuthFilter) {
+  authFilter.value = value;
+}
+
+function toggleStatusFilter(value: Exclude<ProviderStatusFilter, "all">) {
+  statusFilter.value = statusFilter.value === value ? "all" : value;
+}
+
+function resetFilters() {
+  authFilter.value = "all";
+  statusFilter.value = "all";
+}
 
 const emit = defineEmits<{
   startDrag: [event: MouseEvent];
@@ -60,7 +93,7 @@ const emit = defineEmits<{
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
-  openCliInstances: [provider: Provider];
+  openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
   switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
 }>();
 </script>
@@ -69,7 +102,13 @@ const emit = defineEmits<{
   <AppTopbar
     :refresh-in-progress="refreshInProgress"
     :global-check-in-in-progress="globalCheckInInProgress"
+    :auth-filter="authFilter"
+    :status-filter="statusFilter"
+    :has-active-filters="hasActiveFilters"
     @start-drag="emit('startDrag', $event)"
+    @set-auth-filter="setAuthFilter"
+    @toggle-status-filter="toggleStatusFilter"
+    @reset-filters="resetFilters"
     @add="emit('add')"
     @refresh="emit('refreshAll')"
     @check-in="emit('checkInAll')"
@@ -81,8 +120,8 @@ const emit = defineEmits<{
     :initialized="initialized"
     :load-error="loadError"
     :providers="providers"
-    :liveness-providers="livenessProviders"
-    :regular-providers="regularProviders"
+    :liveness-providers="filteredLivenessProviders"
+    :regular-providers="filteredRegularProviders"
     :cli-runtime="cliRuntime"
     :switching-cli-config="switchingCliConfig"
     :checking-in-provider-ids="checkingInProviderIds"
@@ -116,7 +155,8 @@ const emit = defineEmits<{
     @copy-invite="emit('copyInvite', $event)"
     @copy-secret="(provider, field) => emit('copySecret', provider, field)"
     @remove="emit('remove', $event)"
-    @open-cli-instances="emit('openCliInstances', $event)"
+    @open-cli-instances="(provider, cliKind) => emit('openCliInstances', provider, cliKind)"
     @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
+    @reset-filters="resetFilters"
   />
 </template>

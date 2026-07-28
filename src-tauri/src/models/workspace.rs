@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::LivenessCliKind;
+use super::{LivenessCliKind, TemporaryCliTerminalKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +36,7 @@ pub struct TemporaryCliLaunchInput {
     pub api_key_token_id: String,
     #[serde(default)]
     pub model: String,
+    pub terminal_kind: TemporaryCliTerminalKind,
 }
 
 #[derive(Debug, Clone, Serialize)]

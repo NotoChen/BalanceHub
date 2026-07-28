@@ -27,6 +27,10 @@
     transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.provider-card-standard {
+  min-height: 312px;
+}
+
 .provider-card::before,
 .provider-card::after {
   position: absolute;
@@ -152,6 +156,9 @@
 .provider-card-disabled .provider-logo,
 .provider-card-disabled .provider-card-title,
 .provider-card-disabled .provider-card-type,
+.provider-card-disabled .provider-card-api-field dt,
+.provider-card-disabled .provider-card-api-field dd,
+.provider-card-disabled .provider-card-api-summary code,
 .provider-card-disabled .provider-card-status,
 .provider-card-disabled .provider-card-user-name,
 .provider-card-disabled .provider-card-user-meta,
@@ -163,24 +170,23 @@
 .provider-card-disabled .provider-card-model,
 .provider-card-disabled .provider-card-model-more,
 .provider-card-disabled .provider-card-model-empty,
-.provider-card-disabled .provider-card-auth-summary,
-.provider-card-disabled .provider-card-cli-context,
-.provider-card-disabled .provider-card-cli-instance-trigger,
-.provider-card-disabled .provider-card-cli-default-current {
+.provider-card-disabled .provider-card-auth-summary {
   color: #86909c;
 }
 
 .provider-card-disabled .provider-card-auth-summary > svg,
 .provider-card-disabled .provider-card-auth-summary strong,
-.provider-card-disabled .provider-card-auth-summary span,
-.provider-card-disabled .provider-card-cli-context svg,
-.provider-card-disabled .provider-card-cli-context b {
+.provider-card-disabled .provider-card-auth-summary span {
   color: #86909c;
 }
 
 .provider-card-disabled .provider-logo img {
   filter: grayscale(1);
   opacity: 0.45;
+}
+
+.provider-card-disabled .provider-card-cli-signals {
+  opacity: 0.55;
 }
 
 .provider-card-disabled .provider-quota-progress .arco-progress-line {
@@ -243,6 +249,72 @@
   display: grid;
   min-width: 0;
   gap: 1px;
+}
+
+.provider-card-api-summary {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 7px;
+  margin: 0;
+}
+
+.provider-card-api-field {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.provider-card-api-field dt {
+  color: #86909c;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.provider-card-api-field dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-api-endpoint-value {
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.provider-card-api-key-value {
+  color: #7b8797;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.provider-card-api-key-value code {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: inherit;
+  font-variant-ligatures: none;
+  font-weight: inherit;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-api-value-muted {
+  color: #a9aeb8;
+  font-weight: 500;
 }
 
 .provider-card-title {
@@ -318,6 +390,10 @@
   font-weight: 500;
 }
 
+.provider-card-api-url {
+  font-size: 13px;
+}
+
 .provider-card-user-meta {
   display: flex;
   min-width: 0;
@@ -328,12 +404,20 @@
   line-height: 1.25;
 }
 
-.provider-card-user-meta span {
+.provider-card-user-meta span,
+.provider-card-user-meta code {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.provider-card-user-meta code {
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-ligatures: none;
+  letter-spacing: 0.01em;
 }
 
 .provider-card-quota {
@@ -426,6 +510,12 @@
   font-weight: 600;
 }
 
+.provider-card-unknown {
+  color: var(--surface-muted, #7b8797);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .provider-card-models {
   display: grid;
   min-width: 0;
@@ -459,6 +549,11 @@
   overflow: hidden;
 }
 
+.provider-card-model-list-five-rows {
+  min-height: 120px;
+  max-height: 120px;
+}
+
 .provider-card-model,
 .provider-card-model-more {
   display: inline-block;
@@ -482,6 +577,10 @@
   color: #a9aeb8;
   font-size: 10px;
   line-height: 21px;
+}
+
+.provider-card-model-empty-five-rows {
+  min-height: 120px;
 }
 
 .provider-card-model-more {
@@ -568,78 +667,6 @@
   white-space: nowrap;
 }
 
-.provider-card-cli-context {
-  display: inline-flex;
-  width: 100%;
-  min-width: 0;
-  grid-area: context;
-  align-items: center;
-  justify-self: start;
-  gap: 6px;
-  border-top: 1px solid var(--glass-border);
-  padding-top: 7px;
-}
-
-.provider-card-cli-instance-trigger,
-.provider-card-cli-default-current {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 3px;
-  color: #165dff;
-  white-space: nowrap;
-}
-
-button.provider-card-cli-instance-trigger {
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  padding: 3px 2px;
-  transition:
-    color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.provider-card-cli-instance-trigger svg {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-}
-
-.provider-card-cli-instance-trigger strong {
-  overflow: hidden;
-  color: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-button.provider-card-cli-instance-trigger:hover,
-button.provider-card-cli-instance-trigger:focus-visible {
-  color: #0e42d2;
-  outline: none;
-}
-
-button.provider-card-cli-instance-trigger:active {
-  transform: translateY(1px);
-}
-
-.provider-card-cli-default-current svg {
-  width: 10px;
-  height: 10px;
-  flex: 0 0 auto;
-}
-
-.provider-card-cli-default-current b {
-  color: inherit;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
 .provider-card-quick-actions {
   display: flex;
   min-width: 0;
@@ -683,6 +710,14 @@ button.provider-card-cli-instance-trigger:active {
 .provider-card-ccswitch-action img {
   width: 16px;
   height: 16px;
+  object-fit: contain;
+}
+
+.provider-card-ccswitch-provider-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 4px;
   object-fit: contain;
 }
 
@@ -817,7 +852,7 @@ button.provider-card-cli-instance-trigger:active {
   min-height: 34px;
   grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -900,6 +935,10 @@ button.provider-card-cli-instance-trigger:active {
     transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.provider-card-cli-config-list button.provider-card-cli-config-item-no-logo {
+  grid-template-columns: minmax(0, 1fr) 14px;
+}
+
 .provider-card-cli-config-list button:hover,
 .provider-card-cli-config-list button:focus-visible {
   background: rgba(22, 93, 255, 0.07);
@@ -961,7 +1000,7 @@ button.provider-card-cli-instance-trigger:active {
 }
 
 .provider-card-header-meta,
-.provider-card-default-signals,
+.provider-card-cli-signals,
 .provider-card-footer-meta {
   display: flex;
   min-width: 0;
@@ -973,29 +1012,91 @@ button.provider-card-cli-instance-trigger:active {
   gap: 8px;
 }
 
-.provider-card-default-signals {
-  gap: 5px;
+.provider-card-cli-signals {
+  gap: 4px;
   border-right: 1px solid var(--glass-border);
-  padding-right: 8px;
+  padding-right: 6px;
 }
 
-.provider-card-default-signal {
+.provider-card-cli-signals-standalone {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.provider-card-cli-signal {
+  position: relative;
   display: grid;
-  width: 16px;
-  height: 18px;
-  flex: 0 0 16px;
+  width: 23px;
+  height: 23px;
+  flex: 0 0 23px;
   place-items: center;
-  color: #165dff;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4e5969;
 }
 
-.provider-card-default-signal svg {
-  width: 14px;
-  height: 14px;
+.provider-card-cli-signal .brand-icon {
+  width: 18px;
+  height: 18px;
 }
 
-.provider-card-default-signal .brand-icon {
-  width: 14px;
-  height: 14px;
+.provider-card-cli-signal-default b {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  display: grid;
+  min-width: 12px;
+  height: 12px;
+  place-items: center;
+  border: 1px solid var(--provider-card-surface);
+  border-radius: 4px;
+  background: #4e5969;
+  color: #ffffff;
+  font-size: 7px;
+  font-weight: 750;
+  line-height: 1;
+  text-align: center;
+}
+
+button.provider-card-cli-signal {
+  appearance: none;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    border-color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+button.provider-card-cli-signal:hover,
+button.provider-card-cli-signal:focus-visible {
+  background: rgba(22, 93, 255, 0.08);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+button.provider-card-cli-signal:active {
+  transform: translateY(1px);
+}
+
+.provider-card-cli-signal-active b {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  border: 2px solid var(--provider-card-surface);
+  border-radius: 9px;
+  background: #e34d59;
+  color: #ffffff;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  line-height: 1;
+  padding: 0 3px;
 }
 
 .provider-card-footer {
@@ -1006,7 +1107,17 @@ button.provider-card-cli-instance-trigger:active {
   grid-template-columns: none;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: nowrap;
   gap: 8px;
+  margin-top: auto;
+}
+
+.provider-card-api-key .provider-card-models {
+  margin-top: auto;
+}
+
+.provider-card-api-key .provider-card-footer {
+  margin-top: 0;
 }
 
 .provider-card-footer-meta {
@@ -1031,19 +1142,6 @@ button.provider-card-cli-instance-trigger:active {
   color: currentColor;
 }
 
-.provider-card-cli-instance-trigger {
-  flex: 0 0 auto;
-}
-
-button.provider-card-cli-instance-trigger {
-  display: inline-flex;
-  min-height: 22px;
-  align-items: center;
-  gap: 3px;
-  border-radius: 5px;
-  padding: 2px 4px;
-}
-
 .provider-card-quick-actions {
   display: flex;
   min-width: 0;
@@ -1051,15 +1149,17 @@ button.provider-card-cli-instance-trigger {
   grid-area: auto;
   align-items: center;
   justify-self: auto;
+  flex-wrap: nowrap;
   gap: 0;
   margin-left: auto;
-  padding-left: 5px;
+  padding-left: 0;
 }
 
 .provider-card-action-group {
   display: flex;
   min-width: 0;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 1px;
 }
 
@@ -1208,7 +1308,7 @@ button.provider-card-cli-instance-trigger {
 
 @media (prefers-reduced-motion: reduce) {
   .provider-card,
-  .provider-card-cli-instance-trigger,
+  .provider-card-cli-signal,
   .provider-card-icon-action,
   .provider-card-copy-panel button,
   .provider-card-action-list button,
@@ -1218,7 +1318,6 @@ button.provider-card-cli-instance-trigger {
 
   .provider-card:hover,
   .provider-card:focus-visible,
-  .provider-card-cli-instance-trigger:active,
   .provider-card-icon-action:active,
   .provider-card-copy-panel button:active,
   .provider-card-action-list button:active,

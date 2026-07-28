@@ -1,7 +1,7 @@
 use crate::{
     models::{
-        CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult, LivenessPromptMode,
-        LivenessRecord, TemporaryCliTerminalKind,
+        AppSettings, CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult,
+        LivenessPromptMode, LivenessRecord,
     },
     services::{
         liveness::{effective_interval, LivenessRunner},
@@ -10,28 +10,17 @@ use crate::{
     util::unix_millis as current_timestamp_millis,
 };
 
-use super::{find_provider, ProviderService};
+use super::{find_provider, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
-    pub fn probe_cli_environment(
-        &self,
-        terminal_kind: Option<TemporaryCliTerminalKind>,
-        terminal_command: Option<String>,
-    ) -> Result<CliEnvironmentProbeResult, String> {
+    pub fn probe_cli_environment(&self) -> Result<CliEnvironmentProbeResult, String> {
         let snapshot = self.snapshot();
         let codex_path = snapshot.settings.codex_cli_path.clone();
         let claude_path = snapshot.settings.claude_cli_path.clone();
-        let terminal_kind = terminal_kind.unwrap_or(snapshot.settings.temporary_cli_terminal_kind);
-        let terminal_command = terminal_command
-            .unwrap_or(snapshot.settings.temporary_cli_terminal_command)
-            .trim()
-            .to_string();
-
-        let (codex, claude_code, terminal) = std::thread::scope(|scope| {
+        let (codex, claude_code, terminals) = std::thread::scope(|scope| {
             let codex_handle = scope.spawn(|| LivenessRunner::find_codex_cli(&codex_path));
             let claude_handle = scope.spawn(|| LivenessRunner::find_claude_cli(&claude_path));
-            let terminal_handle =
-                scope.spawn(|| temporary_cli::probe_terminal(terminal_kind, &terminal_command));
+            let terminal_handle = scope.spawn(temporary_cli::probe_available_terminals);
 
             let codex = codex_handle
                 .join()
@@ -39,34 +28,31 @@ impl<'a> ProviderService<'a> {
             let claude = claude_handle
                 .join()
                 .unwrap_or_else(|_| Err("Claude Code CLI 自动检测异常".to_string()));
-            let terminal = terminal_handle.join().unwrap_or_else(|_| {
-                crate::models::TemporaryTerminalProbeResult {
-                    available: false,
-                    kind: terminal_kind,
-                    name: "临时终端".to_string(),
-                    version: String::new(),
-                    message: "临时终端自动检测异常".to_string(),
-                }
-            });
+            let terminals = terminal_handle.join().unwrap_or_default();
 
             (
                 cli_tool_probe_result(codex),
                 cli_tool_probe_result(claude),
-                terminal,
+                terminals,
             )
         });
 
-        let stored_codex_path = codex.path.clone();
-        let stored_claude_path = claude_code.path.clone();
+        let stored_codex_path = codex.available.then(|| codex.path.clone());
+        let stored_claude_path = claude_code.available.then(|| claude_code.path.clone());
         self.mutate(|data| {
-            data.settings.codex_cli_path = stored_codex_path;
-            data.settings.claude_cli_path = stored_claude_path;
+            apply_detected_cli_paths(
+                &mut data.settings,
+                &codex_path,
+                &claude_path,
+                stored_codex_path,
+                stored_claude_path,
+            );
         })?;
 
         Ok(CliEnvironmentProbeResult {
             codex,
             claude_code,
-            terminal,
+            terminals,
         })
     }
 
@@ -81,6 +67,7 @@ impl<'a> ProviderService<'a> {
         if !provider.runtime.enabled {
             return Err("中转站已停用".to_string());
         }
+        let request_context = ProviderRequestContext::capture(&provider);
 
         let record = LivenessRunner::run(&snapshot.settings, &provider, prompt, automatic);
         let stored_record = record.clone();
@@ -93,7 +80,7 @@ impl<'a> ProviderService<'a> {
             if let Some(stored_provider) = data
                 .providers
                 .iter_mut()
-                .find(|stored| stored.identity.id == id)
+                .find(|stored| stored.identity.id == id && request_context.matches(stored))
             {
                 stored_provider.liveness.records.push(stored_record);
                 stored_provider.liveness.run_count =
@@ -138,6 +125,25 @@ impl<'a> ProviderService<'a> {
     }
 }
 
+fn apply_detected_cli_paths(
+    settings: &mut AppSettings,
+    expected_codex_path: &str,
+    expected_claude_path: &str,
+    detected_codex_path: Option<String>,
+    detected_claude_path: Option<String>,
+) {
+    if settings.codex_cli_path == expected_codex_path {
+        if let Some(path) = detected_codex_path {
+            settings.codex_cli_path = path;
+        }
+    }
+    if settings.claude_cli_path == expected_claude_path {
+        if let Some(path) = detected_claude_path {
+            settings.claude_cli_path = path;
+        }
+    }
+}
+
 fn cli_tool_probe_result(result: Result<CodexCliProbeResult, String>) -> CliToolProbeResult {
     match result {
         Ok(result) => CliToolProbeResult {
@@ -152,5 +158,51 @@ fn cli_tool_probe_result(result: Result<CodexCliProbeResult, String>) -> CliTool
             version: String::new(),
             message,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_detected_cli_paths;
+    use crate::models::AppSettings;
+
+    #[test]
+    fn cli_probe_does_not_overwrite_paths_edited_during_scan() {
+        let mut settings = AppSettings {
+            codex_cli_path: "/new/codex".to_string(),
+            claude_cli_path: "/new/claude".to_string(),
+            ..AppSettings::default()
+        };
+
+        apply_detected_cli_paths(
+            &mut settings,
+            "/old/codex",
+            "/old/claude",
+            Some("/detected/codex".to_string()),
+            Some("/detected/claude".to_string()),
+        );
+
+        assert_eq!(settings.codex_cli_path, "/new/codex");
+        assert_eq!(settings.claude_cli_path, "/new/claude");
+    }
+
+    #[test]
+    fn cli_probe_updates_unchanged_version_managed_paths() {
+        let mut settings = AppSettings {
+            codex_cli_path: "/old/codex".to_string(),
+            claude_cli_path: "/old/claude".to_string(),
+            ..AppSettings::default()
+        };
+
+        apply_detected_cli_paths(
+            &mut settings,
+            "/old/codex",
+            "/old/claude",
+            Some("/detected/codex".to_string()),
+            Some("/detected/claude".to_string()),
+        );
+
+        assert_eq!(settings.codex_cli_path, "/detected/codex");
+        assert_eq!(settings.claude_cli_path, "/detected/claude");
     }
 }

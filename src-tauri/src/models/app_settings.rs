@@ -40,8 +40,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub temporary_cli_terminal_kind: TemporaryCliTerminalKind,
     #[serde(default)]
-    pub temporary_cli_terminal_command: String,
-    #[serde(default)]
     pub liveness_enabled: bool,
     #[serde(default = "default_codex_model")]
     pub liveness_model: String,
@@ -87,8 +85,7 @@ impl Default for AppSettings {
             liveness_cli_kind: LivenessCliKind::Codex,
             codex_cli_path: String::new(),
             claude_cli_path: String::new(),
-            temporary_cli_terminal_kind: TemporaryCliTerminalKind::Auto,
-            temporary_cli_terminal_command: String::new(),
+            temporary_cli_terminal_kind: TemporaryCliTerminalKind::default(),
             liveness_enabled: false,
             liveness_model: default_codex_model(),
             liveness_interval_mode: LivenessIntervalMode::Fixed,

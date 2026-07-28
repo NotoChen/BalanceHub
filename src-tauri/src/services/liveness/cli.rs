@@ -2,6 +2,7 @@ use crate::models::CodexCliProbeResult;
 
 use super::process::cli_version;
 use std::{
+    cmp::Ordering,
     env,
     ffi::OsString,
     fs,
@@ -45,22 +46,10 @@ pub(super) fn find_claude_cli(preferred_path: &str) -> Result<CodexCliProbeResul
 }
 
 fn codex_home_candidates(home: &Path) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Ok(versions) = fs::read_dir(home.join(".nvm/versions/node")) {
-        for version in versions.flatten() {
-            candidates.push(version.path().join("bin/codex"));
-        }
-    }
-    if let Ok(versions) = fs::read_dir(home.join(".fnm/node-versions")) {
-        for version in versions.flatten() {
-            candidates.push(version.path().join("installation/bin/codex"));
-        }
-    }
-    if let Ok(versions) = fs::read_dir(home.join(".local/share/fnm/node-versions")) {
-        for version in versions.flatten() {
-            candidates.push(version.path().join("installation/bin/codex"));
-        }
-    }
+    let mut candidates = node_manager_bin_dirs(home)
+        .into_iter()
+        .map(|dir| dir.join("codex"))
+        .collect::<Vec<_>>();
     candidates.push(home.join(".codex/bin/codex"));
     candidates.extend(home_bin_candidates(home, "codex"));
     candidates.extend(windows_npm_candidates("codex"));
@@ -68,14 +57,38 @@ fn codex_home_candidates(home: &Path) -> Vec<PathBuf> {
 }
 
 fn claude_home_candidates(home: &Path) -> Vec<PathBuf> {
-    let mut candidates = home_bin_candidates(home, "claude");
+    let mut candidates = node_manager_bin_dirs(home)
+        .into_iter()
+        .map(|dir| dir.join("claude"))
+        .collect::<Vec<_>>();
+    candidates.extend(home_bin_candidates(home, "claude"));
     candidates.push(home.join(".claude/local/claude"));
     candidates.extend(windows_npm_candidates("claude"));
     candidates
 }
 
+fn explicit_env_candidates(spec: &CliSpec) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    for key in spec.env_keys {
+        if let Ok(path) = env::var(key) {
+            let path = clean_preferred_path(&path);
+            if !path.is_empty() {
+                candidates.push(expand_home_path(&path));
+                if !has_path_separator(&path) {
+                    candidates.extend(path_candidates(&path));
+                }
+            }
+        }
+    }
+    candidates
+}
+
 /// 按优先级构建 CLI 候选路径：preferred → 环境变量 → 各 CLI 专属路径 → 常见安装目录 → PATH → shell。
-fn cli_candidates(preferred_path: &str, spec: &CliSpec) -> Vec<PathBuf> {
+fn cli_candidates(
+    preferred_path: &str,
+    explicit_env_candidates: &[PathBuf],
+    spec: &CliSpec,
+) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     let preferred_path = clean_preferred_path(preferred_path);
     if !preferred_path.is_empty() {
@@ -85,14 +98,7 @@ fn cli_candidates(preferred_path: &str, spec: &CliSpec) -> Vec<PathBuf> {
             candidates.extend(path_candidates(&preferred_path));
         }
     }
-    for key in spec.env_keys {
-        if let Ok(path) = env::var(key) {
-            let path = clean_preferred_path(&path);
-            if !path.is_empty() {
-                candidates.push(expand_home_path(&path));
-            }
-        }
-    }
+    candidates.extend(explicit_env_candidates.iter().cloned());
     if let Some(home) = home_dir() {
         candidates.extend((spec.home_candidates)(&home));
     }
@@ -116,37 +122,134 @@ fn cli_candidates(preferred_path: &str, spec: &CliSpec) -> Vec<PathBuf> {
     candidates
 }
 
-/// 按优先级查找首个可用 CLI。
+/// 显式自定义路径有效时优先使用；NVM/FNM 版本路径与自动发现候选则选择最高版本。
 fn find_cli(preferred_path: &str, spec: &CliSpec) -> Result<CodexCliProbeResult, String> {
     let preferred_path = clean_preferred_path(preferred_path);
-    if !preferred_path.is_empty() && has_path_separator(&preferred_path) {
-        let preferred = normalize_path(expand_home_path(&preferred_path));
-        if is_unsupported_cli_path(&preferred, spec) {
-            return Err(unsupported_cli_path_message(spec).to_string());
-        }
-    }
-
+    let preferred_can_move = preferred_path_is_version_managed(&preferred_path);
+    let explicit_env_candidates = explicit_env_candidates(spec);
     let mut seen = Vec::new();
-    for candidate in cli_candidates(&preferred_path, spec) {
+    let mut best: Option<(CodexCliProbeResult, Vec<u64>)> = None;
+    let mut failures = Vec::new();
+    for candidate in cli_candidates(&preferred_path, &explicit_env_candidates, spec) {
         if seen.iter().any(|item: &PathBuf| item == &candidate) {
             continue;
         }
         seen.push(candidate.clone());
+        let explicit_env = explicit_env_candidates.contains(&candidate);
         if is_unsupported_cli_path(&normalize_path(candidate.clone()), spec) {
+            if candidate_matches_preferred(&candidate, &preferred_path) || explicit_env {
+                failures.push(format!(
+                    "{}: {}",
+                    candidate.display(),
+                    unsupported_cli_path_message(spec)
+                ));
+            }
             continue;
         }
         if !candidate.is_file() {
+            if candidate_matches_preferred(&candidate, &preferred_path) || explicit_env {
+                failures.push(format!("{}: 文件不存在", candidate.display()));
+            }
             continue;
         }
-        if let Ok(version) = cli_version(&candidate, spec.require_version_substring) {
-            return Ok(CodexCliProbeResult {
-                path: candidate.to_string_lossy().to_string(),
-                version,
-            });
+        match cli_version(&candidate, spec.require_version_substring) {
+            Ok(version) => {
+                let result = CodexCliProbeResult {
+                    path: candidate.to_string_lossy().to_string(),
+                    version,
+                };
+                if candidate_has_fixed_priority(
+                    &candidate,
+                    &preferred_path,
+                    preferred_can_move,
+                    &explicit_env_candidates,
+                ) {
+                    return Ok(result);
+                }
+                let version_key = numeric_version_key(&result.version);
+                let should_replace = best.as_ref().is_none_or(|(_, current_key)| {
+                    compare_version_keys(&version_key, current_key) == Ordering::Greater
+                });
+                if should_replace {
+                    best = Some((result, version_key));
+                }
+            }
+            Err(message) => {
+                if failures.len() < 4
+                    || candidate_matches_preferred(&candidate, &preferred_path)
+                    || explicit_env
+                {
+                    failures.push(format!("{}: {message}", candidate.display()));
+                }
+            }
         }
     }
 
-    Err(spec.not_found_message.to_string())
+    if let Some((result, _)) = best {
+        return Ok(result);
+    }
+
+    failures.truncate(4);
+    if failures.is_empty() {
+        Err(spec.not_found_message.to_string())
+    } else {
+        Err(format!(
+            "{}；{}",
+            spec.not_found_message,
+            failures.join("；")
+        ))
+    }
+}
+
+fn candidate_matches_preferred(candidate: &Path, preferred_path: &str) -> bool {
+    !preferred_path.is_empty() && candidate == expand_home_path(preferred_path)
+}
+
+fn candidate_has_fixed_priority(
+    candidate: &Path,
+    preferred_path: &str,
+    preferred_can_move: bool,
+    explicit_env_candidates: &[PathBuf],
+) -> bool {
+    (candidate_matches_preferred(candidate, preferred_path) && !preferred_can_move)
+        || explicit_env_candidates.iter().any(|path| path == candidate)
+}
+
+fn preferred_path_is_version_managed(preferred_path: &str) -> bool {
+    if preferred_path.is_empty() {
+        return false;
+    }
+    let path = expand_home_path(preferred_path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    path.contains("/.nvm/versions/node/")
+        || path.contains("/.fnm/node-versions/")
+        || path.contains("/.local/share/fnm/node-versions/")
+        || path.contains("/.local/state/fnm_multishells/")
+}
+
+fn numeric_version_key(value: &str) -> Vec<u64> {
+    value
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<u64>().ok())
+        .collect()
+}
+
+fn compare_version_keys(left: &[u64], right: &[u64]) -> Ordering {
+    let length = left.len().max(right.len());
+    for index in 0..length {
+        match left
+            .get(index)
+            .copied()
+            .unwrap_or(0)
+            .cmp(&right.get(index).copied().unwrap_or(0))
+        {
+            Ordering::Equal => continue,
+            ordering => return ordering,
+        }
+    }
+    Ordering::Equal
 }
 
 fn is_unsupported_cli_path(path: &Path, spec: &CliSpec) -> bool {
@@ -382,8 +485,38 @@ fn runtime_home_dirs(home: &Path) -> Vec<PathBuf> {
         home.join("Library/pnpm"),
         home.join(".local/share/pnpm"),
     ];
+    dirs.extend(node_manager_bin_dirs(home));
     dirs.extend(fnm_multishell_dirs(home));
     dirs
+}
+
+fn node_manager_bin_dirs(home: &Path) -> Vec<PathBuf> {
+    let mut dirs = versioned_bin_dirs(&home.join(".nvm/versions/node"), "bin");
+    dirs.extend(versioned_bin_dirs(
+        &home.join(".fnm/node-versions"),
+        "installation/bin",
+    ));
+    dirs.extend(versioned_bin_dirs(
+        &home.join(".local/share/fnm/node-versions"),
+        "installation/bin",
+    ));
+    dirs
+}
+
+fn versioned_bin_dirs(base: &Path, suffix: &str) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(base) else {
+        return Vec::new();
+    };
+    let mut versions = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            (numeric_version_key(&name), entry.path().join(suffix))
+        })
+        .collect::<Vec<_>>();
+    versions.sort_by(|left, right| compare_version_keys(&right.0, &left.0));
+    versions.into_iter().map(|(_, path)| path).collect()
 }
 
 fn fnm_multishell_dirs(home: &Path) -> Vec<PathBuf> {
@@ -531,6 +664,58 @@ mod tests {
         let home = Path::new("/Users/example");
         let candidates = claude_home_candidates(home);
         assert!(candidates.contains(&PathBuf::from("/Users/example/.claude/local/claude")));
+    }
+
+    #[test]
+    fn cli_version_comparison_prefers_newer_versions() {
+        assert_eq!(
+            compare_version_keys(
+                &numeric_version_key("codex-cli 0.144.4"),
+                &numeric_version_key("codex-cli 0.99.0"),
+            ),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_version_keys(
+                &numeric_version_key("2.1.10 (Claude Code)"),
+                &numeric_version_key("2.1.9 (Claude Code)"),
+            ),
+            Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn only_version_manager_paths_are_eligible_for_automatic_path_migration() {
+        assert!(preferred_path_is_version_managed(
+            "/Users/example/.nvm/versions/node/v24.1.0/bin/codex"
+        ));
+        assert!(preferred_path_is_version_managed(
+            "/Users/example/.local/share/fnm/node-versions/v24.1.0/installation/bin/claude"
+        ));
+        assert!(!preferred_path_is_version_managed(
+            "/opt/homebrew/bin/codex"
+        ));
+        assert!(!preferred_path_is_version_managed("/tmp/custom/claude"));
+    }
+
+    #[test]
+    fn explicit_environment_path_stays_pinned_while_saved_version_path_can_migrate() {
+        let saved = "/Users/example/.nvm/versions/node/v20.1.0/bin/codex";
+        let environment = PathBuf::from("/opt/homebrew/bin/codex");
+        let explicit = vec![environment.clone()];
+
+        assert!(!candidate_has_fixed_priority(
+            Path::new(saved),
+            saved,
+            true,
+            &explicit,
+        ));
+        assert!(candidate_has_fixed_priority(
+            &environment,
+            saved,
+            true,
+            &explicit,
+        ));
     }
 
     #[cfg(target_os = "windows")]

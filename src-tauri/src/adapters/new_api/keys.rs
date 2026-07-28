@@ -3,12 +3,12 @@ use reqwest::{Client, Method};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use super::newapi_http::{build_url, build_user_request, UserCredential};
-use super::newapi_response::{
+use super::http::{build_url, build_user_request, UserCredential};
+use super::response::{
     extract_bool_field, extract_f64_field, extract_i64_field, extract_string_field,
     extract_token_items, parse_success_data, send_text,
 };
-use super::newapi_site::{convert_quota_value, fetch_site_metadata, SiteMetadata};
+use super::site::{convert_quota_value, fetch_site_metadata, SiteMetadata};
 
 const API_KEY_PAGE_SIZE: usize = 100;
 

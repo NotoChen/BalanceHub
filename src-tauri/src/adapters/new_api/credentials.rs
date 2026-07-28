@@ -6,13 +6,13 @@ use reqwest::{Client, Method};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
-use super::newapi_http::{
+use super::http::{
     build_url, build_user_request, is_anyrouter_base_url, login_password_provider,
     normalize_base_url, UserCredential,
 };
-use super::newapi_keys::fetch_api_key_options;
-use super::newapi_response::{extract_string_field, parse_success_data, send_text};
-use super::newapi_session::decode_session_user_id;
+use super::keys::fetch_api_key_options;
+use super::response::{extract_string_field, parse_success_data, send_text};
+use super::session::decode_session_user_id;
 
 pub async fn complete_credentials(
     client: &Client,
@@ -163,7 +163,11 @@ pub async fn complete_credentials(
                     current.token_id = current_token_id.clone();
                     cached_options.push(current);
                 }
-                ProviderApiKeyOption::merge_cached_key_material(&mut options, &cached_options);
+                ProviderApiKeyOption::merge_cached_key_material(
+                    &mut options,
+                    &cached_options,
+                    crate::models::ProviderProtocol::NewApi,
+                );
                 let selected = options
                     .iter()
                     .find(|option| {

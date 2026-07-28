@@ -1,5 +1,5 @@
 use crate::{
-    adapters::newapi::NewApiAdapter,
+    adapters::protocol::ProtocolAdapter,
     models::{ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderUsageSummary},
 };
 
@@ -13,7 +13,7 @@ impl<'a> ProviderService<'a> {
     ) -> Result<ProviderUsageSummary, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        NewApiAdapter
+        ProtocolAdapter
             .usage_summary(&data.settings, &provider, &period)
             .await
     }
@@ -25,7 +25,7 @@ impl<'a> ProviderService<'a> {
     ) -> Result<ProviderRequestLogsResult, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        NewApiAdapter
+        ProtocolAdapter
             .request_logs(&data.settings, &provider, query)
             .await
     }

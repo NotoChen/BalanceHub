@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use super::newapi_http::{build_url, USER_AGENT_VALUE};
-use super::newapi_response::{
+use super::http::{build_url, USER_AGENT_VALUE};
+use super::response::{
     cloudflare_challenge_message, extract_f64_field, extract_string_field, is_cloudflare_challenge,
     trim_message,
 };
@@ -91,6 +91,7 @@ async fn fetch_site_metadata_uncached(
     }
 
     let response = request
+        .timeout(Duration::from_secs(8))
         .send()
         .await
         .map_err(|err| format!("请求系统状态失败: {err}"))?;
@@ -118,7 +119,33 @@ async fn fetch_site_metadata_uncached(
     let decoded = serde_json::from_str::<Value>(&body)
         .map_err(|err| format!("解析系统状态失败: {err}: {}", trim_message(&body)))?;
 
+    if !is_new_api_status(&decoded) {
+        return Err("响应不符合 NewAPI 系统状态结构".to_string());
+    }
+
     Ok(extract_site_metadata(&decoded, base_url))
+}
+
+fn is_new_api_status(value: &Value) -> bool {
+    if value.get("success").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+
+    let data = value.get("data").unwrap_or(value);
+    let has_name = [value, data]
+        .iter()
+        .any(|item| item.get("system_name").is_some() || item.get("systemName").is_some());
+    let has_protocol_marker = [
+        "version",
+        "quota_per_unit",
+        "quotaPerUnit",
+        "register_enabled",
+        "password_login_enabled",
+    ]
+    .iter()
+    .any(|field| value.get(*field).is_some() || data.get(*field).is_some());
+
+    has_name && has_protocol_marker
 }
 
 pub(crate) fn extract_site_metadata(value: &Value, base_url: &str) -> SiteMetadata {
@@ -344,5 +371,30 @@ mod tests {
 
         assert_eq!(metadata.quota_display_type, "currency");
         assert_eq!(metadata.currency_symbol, "点");
+    }
+
+    #[test]
+    fn protocol_signature_requires_success_name_and_known_marker() {
+        assert!(is_new_api_status(&json!({
+            "success": true,
+            "data": {
+                "system_name": "New API",
+                "quota_per_unit": 500000
+            }
+        })));
+        assert!(is_new_api_status(&json!({
+            "success": true,
+            "system_name": "New API",
+            "version": "0.6.0"
+        })));
+        assert!(is_new_api_status(&json!({
+            "success": true,
+            "system_name": "New API",
+            "data": {"version": "0.6.0"}
+        })));
+        assert!(!is_new_api_status(&json!({
+            "success": true,
+            "data": {"message": "ok"}
+        })));
     }
 }

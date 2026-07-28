@@ -6,11 +6,11 @@ use chrono::{DateTime, Local};
 use reqwest::{Client, Method};
 use std::collections::BTreeMap;
 
-use super::newapi_http::{build_url, build_user_request, provider_user_management_context};
-use super::newapi_response::{
+use super::http::{build_url, build_user_request, provider_user_management_context};
+use super::response::{
     extract_i64_field, extract_string_field, extract_usage_items, parse_success_data, send_text,
 };
-use super::newapi_site::{convert_quota_value, fetch_site_metadata, site_metadata_from_provider};
+use super::site::{convert_quota_value, fetch_site_metadata, site_metadata_from_provider};
 
 pub async fn fetch_usage_summary(
     client: &Client,

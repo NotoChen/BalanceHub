@@ -6,21 +6,21 @@ use reqwest::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::newapi_http::{
+use super::http::{
     access_token_fallback_provider, apply_auth_headers, authenticate_password_provider, build_url,
     login_password_provider, merge_cookie_headers, normalize_base_url, provider_cookie_header,
     provider_is_anyrouter, should_retry_with_access_token, USER_AGENT_VALUE,
 };
-use super::newapi_response::{
+use super::response::{
     cloudflare_challenge_message, extract_bool_field, extract_i64_field, extract_string_field,
     is_cloudflare_challenge, parse_success_data, trim_message,
 };
-use super::newapi_site::{
+use super::site::{
     apply_site_metadata, convert_quota_value, fetch_site_metadata, site_metadata_from_provider,
     value_to_string, SiteMetadata,
 };
 
-#[path = "newapi_quota/connection.rs"]
+#[path = "quota/connection.rs"]
 mod connection;
 
 pub use connection::test_connection;

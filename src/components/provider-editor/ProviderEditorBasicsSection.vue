@@ -1,17 +1,26 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconCloud, IconDelete, IconLink, IconPlus, IconRefresh } from "@arco-design/web-vue/es/icon";
-import type { ProviderInput, ProviderSiteProbeResult } from "../../stores/providers";
+import type {
+  ProviderInput,
+  ProviderProtocol,
+  ProviderProtocolDetectionResult,
+  ProviderSiteProbeResult,
+} from "../../stores/providers";
+import type { ProtocolSelectionSource } from "../../composables/provider-editor-shared";
 
 const props = defineProps<{
   draft: ProviderInput;
   siteProbeResult: ProviderSiteProbeResult | null;
+  protocolDetectionResult: ProviderProtocolDetectionResult | null;
+  protocolSelectionSource: ProtocolSelectionSource;
   probingSite: boolean;
   siteNameSourceBaseUrl: string;
 }>();
 
 const emit = defineEmits<{
-  "probe-site": [];
+  "probe-site": [options?: { force?: boolean }];
+  "select-protocol": [protocol: ProviderProtocol];
 }>();
 
 const normalizedBaseUrl = computed(() => normalizeBaseUrl(props.draft.identity.baseUrl));
@@ -31,9 +40,41 @@ const detectedName = computed(() => {
 });
 const detectionLabel = computed(() => {
   if (props.probingSite) return "识别中";
+  if (props.protocolDetectionResult?.ambiguous) return "识别冲突 · 手动选择";
+  if (props.protocolDetectionResult && !props.protocolDetectionResult.detectedProtocol) {
+    return "无法识别 · 手动选择";
+  }
+  if (
+    props.protocolSelectionSource === "manual"
+    && props.protocolDetectionResult?.detectedProtocol
+    && props.protocolDetectionResult.detectedProtocol !== props.draft.identity.protocol
+  ) {
+    return `识别为 ${protocolLabel(props.protocolDetectionResult.detectedProtocol)} · 保留手动选择`;
+  }
+  if (props.protocolDetectionResult?.detectedProtocol) {
+    return `已识别 · ${protocolLabel(props.protocolDetectionResult.detectedProtocol)}`;
+  }
+  if (props.protocolSelectionSource === "saved") {
+    return `已保存 · ${protocolLabel(props.draft.identity.protocol)}`;
+  }
+  if (props.protocolSelectionSource === "manual") {
+    return `手动选择 · ${protocolLabel(props.draft.identity.protocol)}`;
+  }
   if (detectionIsCurrent.value) return "已识别";
   return "待识别";
 });
+
+const knownProtocolOptions: { value: ProviderProtocol; label: string; description: string }[] = [
+  { value: "newApi", label: "NewAPI", description: "兼容 NewAPI / AnyRouter 协议" },
+  { value: "sub2Api", label: "Sub2API", description: "JWT 账号与 OpenAI 兼容网关" },
+  {
+    value: "api",
+    label: "通用 API Key",
+    description: "未知站点的 OpenAI 兼容模型接口，仅支持 API Key",
+  },
+];
+
+const protocolOptions = knownProtocolOptions;
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
@@ -46,6 +87,12 @@ function addBackupUrl() {
 function removeBackupUrl(index: number) {
   props.draft.identity.backupUrls.splice(index, 1);
 }
+
+function protocolLabel(protocol: ProviderProtocol) {
+  if (protocol === "sub2Api") return "Sub2API";
+  if (protocol === "api") return "通用 API Key";
+  return "NewAPI";
+}
 </script>
 
 <template>
@@ -57,6 +104,21 @@ function removeBackupUrl(index: number) {
         <span class="provider-form-block-required">地址必填</span>
       </header>
       <div class="provider-form-block-body">
+        <div class="provider-protocol-picker" role="radiogroup" aria-label="中转站协议">
+          <button
+            v-for="option in protocolOptions"
+            :key="option.value"
+            type="button"
+            class="provider-protocol-option"
+            :class="{ active: draft.identity.protocol === option.value }"
+            :aria-checked="draft.identity.protocol === option.value"
+            role="radio"
+            :title="option.description"
+            @click="emit('select-protocol', option.value)"
+          >
+            <strong>{{ option.label }}</strong>
+          </button>
+        </div>
         <a-form-item class="provider-field" field="identity.baseUrl" label="主站地址" required>
           <a-input
             v-model="draft.identity.baseUrl"
@@ -72,7 +134,7 @@ function removeBackupUrl(index: number) {
                   class="provider-inline-icon-button"
                   :class="{ spinning: probingSite }"
                   aria-label="重新识别站点"
-                  @click.stop="emit('probe-site')"
+                  @click.stop="emit('probe-site', { force: true })"
                 >
                   <IconRefresh />
                 </button>
@@ -81,11 +143,18 @@ function removeBackupUrl(index: number) {
           </a-input>
         </a-form-item>
 
-        <div class="provider-site-detection" :class="{ loading: probingSite, ready: detectionLabel === '已识别' }">
+        <div
+          class="provider-site-detection"
+          :class="{
+            loading: probingSite,
+            ready: siteProbeResult?.ok,
+            warning: protocolDetectionResult && !protocolDetectionResult.detectedProtocol,
+          }"
+        >
           <span class="provider-site-detection-mark"><IconCloud /></span>
           <div class="provider-site-detection-copy">
             <strong>{{ detectedName }}</strong>
-            <span>NewAPI · {{ detectionLabel }}</span>
+            <span>{{ detectionLabel }}</span>
           </div>
           <span v-if="detectionIsCurrent && siteProbeResult?.message" class="provider-site-detection-message">{{ siteProbeResult.message }}</span>
         </div>

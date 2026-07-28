@@ -24,6 +24,7 @@ interface UseCliRuntimeOptions {
 export function useCliRuntime(options: UseCliRuntimeOptions) {
   const cliInstancesVisible = ref(false);
   const cliInstancesProviderId = ref<string | null>(null);
+  const cliInstancesKind = ref<LivenessCliKind | null>(null);
   const activatingCliInstanceId = ref<string | null>(null);
   const cliInstancesRefreshing = ref(false);
   const switchingCliConfig = ref<{ providerId: string; cliKind: LivenessCliKind } | null>(null);
@@ -41,12 +42,15 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   const providerCliInstances = computed(() =>
     options.cliRuntime.value.instances.filter(
       (instance) =>
-        instance.providerId === cliInstancesProviderId.value && instance.status !== "exited",
+        instance.providerId === cliInstancesProviderId.value &&
+        instance.cliKind === cliInstancesKind.value &&
+        instance.status !== "exited",
     ),
   );
 
-  function openCliInstances(provider: Provider) {
+  function openCliInstances(provider: Provider, cliKind: LivenessCliKind) {
     cliInstancesProviderId.value = provider.identity.id;
+    cliInstancesKind.value = cliKind;
     cliInstancesVisible.value = true;
     void refreshCliRuntime();
   }
@@ -152,6 +156,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   return {
     cliInstancesVisible,
     cliInstancesProvider,
+    cliInstancesKind,
     providerCliInstances,
     activatingCliInstanceId,
     cliInstancesRefreshing,

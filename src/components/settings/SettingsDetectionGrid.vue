@@ -8,7 +8,7 @@
 .settings-detection-grid {
   display: grid;
   width: 100%;
-  max-width: 350px;
+  max-width: 530px;
   min-width: 0;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
   align-items: stretch;

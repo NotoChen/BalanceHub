@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    LivenessCliKind, Provider, ProviderInput, ProviderQuotaDisplay, TemporaryCliTerminalKind,
+    LivenessCliKind, Provider, ProviderInput, ProviderProtocol, ProviderQuotaDisplay,
+    TemporaryCliTerminalKind,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,7 +61,11 @@ pub struct ProviderApiKeyOption {
 
 impl ProviderApiKeyOption {
     pub fn current(key: &str) -> Self {
-        let key = super::normalize_api_key(key);
+        Self::current_for_protocol(key, ProviderProtocol::NewApi)
+    }
+
+    pub fn current_for_protocol(key: &str, protocol: ProviderProtocol) -> Self {
+        let key = super::normalize_api_key_for_protocol(key, protocol);
         Self {
             name: "当前 API Key".to_string(),
             masked_key: mask_api_key(&key),
@@ -73,8 +78,12 @@ impl ProviderApiKeyOption {
         }
     }
 
-    pub fn normalize(mut self) -> Self {
-        self.key = super::normalize_api_key(&self.key);
+    pub fn normalize(self) -> Self {
+        self.normalize_for_protocol(ProviderProtocol::NewApi)
+    }
+
+    pub fn normalize_for_protocol(mut self, protocol: ProviderProtocol) -> Self {
+        self.key = super::normalize_api_key_for_protocol(&self.key, protocol);
         self.masked_key = self.masked_key.trim().to_string();
         self.status = self.status.trim().to_string();
         if self.masked_key.is_empty() && !self.key.is_empty() {
@@ -104,6 +113,7 @@ impl ProviderApiKeyOption {
     pub fn merge_cached_key_material(
         options: &mut [ProviderApiKeyOption],
         cached: &[ProviderApiKeyOption],
+        protocol: ProviderProtocol,
     ) {
         for option in options.iter_mut() {
             if option.key_available {
@@ -120,7 +130,7 @@ impl ProviderApiKeyOption {
             }) else {
                 continue;
             };
-            let key = super::normalize_api_key(&previous.key);
+            let key = super::normalize_api_key_for_protocol(&previous.key, protocol);
             if key.is_empty() || key.contains('*') {
                 continue;
             }
@@ -240,6 +250,15 @@ pub struct ProviderSiteProbeResult {
     pub system_name: Option<String>,
     pub logo: Option<String>,
     pub quota_display: ProviderQuotaDisplay,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProtocolDetectionResult {
+    pub detected_protocol: Option<ProviderProtocol>,
+    pub message: String,
+    pub site: Option<ProviderSiteProbeResult>,
+    pub ambiguous: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

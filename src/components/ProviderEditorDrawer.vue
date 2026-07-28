@@ -12,7 +12,15 @@ import ProviderEditorAdvancedSection from "./provider-editor/ProviderEditorAdvan
 import ProviderEditorBasicsSection from "./provider-editor/ProviderEditorBasicsSection.vue";
 import ProviderEditorCredentialsSection from "./provider-editor/ProviderEditorCredentialsSection.vue";
 import ProviderCredentialAssistant from "./provider-editor/ProviderCredentialAssistant.vue";
-import type { AppSettings, ProviderApiKeyOption, ProviderInput, ProviderSiteProbeResult } from "../stores/providers";
+import type {
+  AppSettings,
+  ProviderApiKeyOption,
+  ProviderInput,
+  ProviderProtocol,
+  ProviderProtocolDetectionResult,
+  ProviderSiteProbeResult,
+} from "../stores/providers";
+import type { ProtocolSelectionSource } from "../composables/provider-editor-shared";
 import type {
   CredentialCompletionState,
   CredentialCompletionStep,
@@ -27,6 +35,8 @@ const props = defineProps<{
   apiKeyOptions: ProviderApiKeyOption[];
   availableModels: string[];
   siteProbeResult: ProviderSiteProbeResult | null;
+  protocolDetectionResult: ProviderProtocolDetectionResult | null;
+  protocolSelectionSource: ProtocolSelectionSource;
   probingSite: boolean;
   siteNameSourceBaseUrl: string;
   settings: AppSettings;
@@ -45,7 +55,8 @@ const emit = defineEmits<{
   "select-api-key": [option: ProviderApiKeyOption];
   "run-credential-assistant": [];
   "test-connection": [];
-  "probe-site": [];
+  "probe-site": [options?: { force?: boolean }];
+  "select-protocol": [protocol: ProviderProtocol];
   save: [];
 }>();
 
@@ -73,7 +84,10 @@ const credentialReady = computed(() => {
     return Boolean(props.draft.auth.sessionCookie.trim());
   }
   if (props.draft.auth.mode === "accessToken") {
-    return Boolean(props.draft.auth.accessToken.trim() && props.draft.auth.apiUser.trim());
+    return Boolean(
+      props.draft.auth.accessToken.trim()
+        && (props.draft.identity.protocol === "sub2Api" || props.draft.auth.apiUser.trim()),
+    );
   }
   if (props.draft.auth.mode === "password") {
     return Boolean(props.draft.auth.loginUsername.trim() && props.draft.auth.loginPassword.trim());
@@ -172,9 +186,12 @@ watch(
                   v-if="activeStep === 'basics'"
                   :draft="draft"
                   :site-probe-result="siteProbeResult"
+                  :protocol-detection-result="protocolDetectionResult"
+                  :protocol-selection-source="protocolSelectionSource"
                   :probing-site="probingSite"
                   :site-name-source-base-url="siteNameSourceBaseUrl"
-                  @probe-site="emit('probe-site')"
+                  @probe-site="emit('probe-site', $event)"
+                  @select-protocol="emit('select-protocol', $event)"
                 />
                 <template v-else-if="activeStep === 'credentials'">
                   <ProviderEditorCredentialsSection
@@ -221,7 +238,6 @@ watch(
         <span class="provider-editor-footer-spacer" />
         <a-button v-if="activeStepIndex > 1" type="text" @click="goPrevious">上一步</a-button>
         <a-button v-if="activeStepIndex < 3" type="secondary" @click="goNext">下一步</a-button>
-        <a-button @click="emit('update:visible', false)">取消</a-button>
         <a-button
           type="primary"
           :disabled="!draft.identity.baseUrl"

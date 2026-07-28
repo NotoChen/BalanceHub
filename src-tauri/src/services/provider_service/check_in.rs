@@ -1,20 +1,14 @@
 use crate::{
-    adapters::newapi::NewApiAdapter,
+    adapters::protocol::ProtocolAdapter,
     models::{
         check_in_message_indicates_disabled, provider_domain, Provider, ProviderCheckInRecord,
         ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderQuotaDisplay, ProviderStatus,
-    },
-    providers::{
-        anyrouter::anyrouter_message_indicates_already_checked_in,
-        newapi_http::provider_is_anyrouter,
     },
     util::unix_millis as current_timestamp_millis,
 };
 
 use super::{
-    find_provider,
-    refresh::{apply_refresh_owned_fields, RefreshAuthSnapshot},
-    ProviderService,
+    find_provider, refresh::apply_refresh_owned_fields, ProviderRequestContext, ProviderService,
 };
 
 impl<'a> ProviderService<'a> {
@@ -25,7 +19,7 @@ impl<'a> ProviderService<'a> {
     ) -> Result<ProviderCheckInRecordsResult, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        match NewApiAdapter
+        match ProtocolAdapter
             .check_in_records(&data.settings, &provider, &month)
             .await
         {
@@ -41,10 +35,10 @@ impl<'a> ProviderService<'a> {
     pub async fn check_in(&self, id: String) -> Result<ProviderCheckInResult, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        let refresh_auth_snapshot = RefreshAuthSnapshot::capture(&provider);
-        let adapter = NewApiAdapter;
+        let request_context = ProviderRequestContext::capture(&provider);
+        let adapter = ProtocolAdapter;
         let mut result = adapter.check_in(&data.settings, &provider).await?;
-        let is_anyrouter = provider_is_anyrouter(&provider);
+        let is_anyrouter = adapter.is_anyrouter(&provider);
         let refreshed_provider = if result.ok {
             Some(adapter.refresh_provider(&data.settings, &provider).await)
         } else {
@@ -64,13 +58,14 @@ impl<'a> ProviderService<'a> {
             if is_anyrouter
                 && quota_delta.is_none()
                 && !has_rewarded_local_check_in(&provider, &checked_date)
-                && !anyrouter_message_indicates_already_checked_in(&result.message)
+                && !adapter
+                    .check_in_message_indicates_already_checked_in(&provider, &result.message)
             {
                 self.mutate(|data| {
                     if let Some(stored_provider) = data
                         .providers
                         .iter_mut()
-                        .find(|stored| stored.identity.id == id)
+                        .find(|stored| stored.identity.id == id && request_context.matches(stored))
                     {
                         clear_unrewarded_local_check_in(stored_provider, &checked_date);
                     }
@@ -88,18 +83,14 @@ impl<'a> ProviderService<'a> {
                 quota_delta,
             );
             let refreshed_provider = refreshed_provider.filter(is_successful_quota_refresh);
-            self.mutate(|data| {
+            let persisted = self.mutate(|data| {
                 if let Some(stored_provider) = data
                     .providers
                     .iter_mut()
-                    .find(|stored| stored.identity.id == id)
+                    .find(|stored| stored.identity.id == id && request_context.matches(stored))
                 {
                     if let Some(refreshed) = refreshed_provider {
-                        apply_refresh_owned_fields(
-                            stored_provider,
-                            refreshed,
-                            &refresh_auth_snapshot,
-                        );
+                        apply_refresh_owned_fields(stored_provider, refreshed, &request_context);
                     }
                     stored_provider.automation.last_checked_in_at = Some(stored_checked_in_at);
                     stored_provider.automation.last_check_in_user = stored_user;
@@ -118,17 +109,27 @@ impl<'a> ProviderService<'a> {
                                 ProviderStatus::Warning
                             };
                     }
+                    true
+                } else {
+                    false
                 }
             })?;
-            result.last_checked_in_at = Some(checked_in_at);
-            result.last_check_in_user = Some(check_in_user);
+            if persisted {
+                result.last_checked_in_at = Some(checked_in_at);
+                result.last_check_in_user = Some(check_in_user);
+            } else {
+                result.message = format!(
+                    "{}；本地配置已变更，本次结果未写入当前账号",
+                    non_empty(&result.message, "签到成功")
+                );
+            }
         } else if check_in_message_indicates_disabled(&result.message) {
             let probed_at = current_timestamp_millis().to_string();
             self.mutate(|data| {
                 if let Some(stored_provider) = data
                     .providers
                     .iter_mut()
-                    .find(|stored| stored.identity.id == id)
+                    .find(|stored| stored.identity.id == id && request_context.matches(stored))
                 {
                     stored_provider.capabilities.check_in_known = true;
                     stored_provider.capabilities.check_in_supported = false;

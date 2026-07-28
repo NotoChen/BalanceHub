@@ -65,7 +65,7 @@ pub struct TemporaryTerminalProbeResult {
 pub struct CliEnvironmentProbeResult {
     pub codex: CliToolProbeResult,
     pub claude_code: CliToolProbeResult,
-    pub terminal: TemporaryTerminalProbeResult,
+    pub terminals: Vec<TemporaryTerminalProbeResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]

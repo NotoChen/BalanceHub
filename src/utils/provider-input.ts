@@ -11,6 +11,7 @@ export function emptyDraft(): ProviderInput {
     identity: {
       name: "",
       baseUrl: "",
+      protocol: "newApi",
       backupUrls: [],
     },
     auth: {
@@ -23,6 +24,8 @@ export function emptyDraft(): ProviderInput {
       apiUser: "",
       loginUsername: "",
       loginPassword: "",
+      refreshToken: "",
+      accessTokenExpiresAt: null,
     },
     cli: {
       preferredModel: "",
@@ -72,6 +75,7 @@ export function providerToInput(
     identity: {
       name: provider.identity.name,
       baseUrl: provider.identity.baseUrl,
+      protocol: provider.identity.protocol || "newApi",
       backupUrls: [...(provider.identity.backupUrls || [])],
     },
     auth: {

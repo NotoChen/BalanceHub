@@ -6,7 +6,6 @@ import {
   IconFolder,
   IconHome,
   IconLaunch,
-  IconLoading,
   IconRefresh,
   IconRight,
   IconUp,
@@ -15,21 +14,27 @@ import type {
   LivenessCliKind,
   Provider,
   ProviderApiKeyOption,
+  TemporaryCliTerminalKind,
   Workspace,
   WorkspaceDirectoryListing,
 } from "../stores/providers";
-import BrandIcon, { type BrandIconName } from "./BrandIcon.vue";
+import type { SelectOption } from "../utils/liveness-options";
+import CliIconSelector from "./CliIconSelector.vue";
 import ProviderAuthIcon from "./ProviderAuthIcon.vue";
+import TerminalIconSelector from "./TerminalIconSelector.vue";
 
 const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
   cliKind: LivenessCliKind;
+  cliOptions: SelectOption<LivenessCliKind>[];
   apiKeys: ProviderApiKeyOption[];
   apiKeyLoading: boolean;
   apiKeyError: string;
   apiKeyTokenId: string;
   selectedModel: string;
+  terminalKind: TemporaryCliTerminalKind;
+  terminalOptions: SelectOption<TemporaryCliTerminalKind>[];
   workspaces: Workspace[];
   directory: WorkspaceDirectoryListing | null;
   pathDraft: string;
@@ -45,6 +50,7 @@ const emit = defineEmits<{
   "update:cliKind": [kind: LivenessCliKind];
   "update:apiKeyTokenId": [tokenId: string];
   "update:selectedModel": [model: string];
+  "update:terminalKind": [kind: TemporaryCliTerminalKind];
   browse: [path?: string];
   launch: [path?: string];
   forget: [path: string];
@@ -75,9 +81,6 @@ const launching = computed(() => Boolean(props.launchingPath));
 const cliLabel = computed(() => (props.cliKind === "codex" ? "Codex" : "Claude Code"));
 const preferredModel = computed(() => props.provider?.cli.preferredModel?.trim() || "");
 
-function cliBrand(kind: LivenessCliKind): BrandIconName {
-  return kind === "codex" ? "codex" : "claude";
-}
 const modelOptions = computed(() => {
   const models = props.provider?.capabilities.availableModels ?? [];
   return [...new Set(models.map((model) => model.trim()).filter(Boolean))].sort((left, right) =>
@@ -135,7 +138,10 @@ const selectedModelModel = computed({
   get: () => props.selectedModel,
   set: (value: string) => emit("update:selectedModel", value),
 });
-
+const terminalKindModel = computed({
+  get: () => props.terminalKind,
+  set: (value: TemporaryCliTerminalKind) => emit("update:terminalKind", value),
+});
 function workspaceName(path: string) {
   const normalized = path.replace(/[\\/]+$/, "");
   return normalized.split(/[\\/]/).pop() || path;
@@ -191,9 +197,10 @@ function browseDraftPath() {
             <button
               type="button"
               class="workspace-history-launch"
-              :title="`在 ${workspace.path} 启动 ${cliLabel}`"
+              :class="{ selected: directory?.currentPath === workspace.path }"
+              :title="`选择工作空间：${workspace.path}`"
               :disabled="launching"
-              @click="emit('launch', workspace.path)"
+              @click="emit('browse', workspace.path)"
             >
               <span class="workspace-history-icon" aria-hidden="true">
                 <icon-bookmark />
@@ -202,11 +209,7 @@ function browseDraftPath() {
                 <strong>{{ workspaceName(workspace.path) }}</strong>
                 <span :title="workspace.path">{{ workspace.path }}</span>
               </span>
-              <icon-loading
-                v-if="launchingPath === workspace.path"
-                class="workspace-history-launch-icon"
-              />
-              <icon-launch v-else class="workspace-history-launch-icon" />
+              <icon-right class="workspace-history-launch-icon" />
             </button>
             <div class="workspace-history-actions">
               <a-tooltip content="浏览此工作空间">
@@ -242,19 +245,11 @@ function browseDraftPath() {
         <section class="workspace-launch-config" aria-label="临时 CLI 启动配置">
           <div class="workspace-launch-config-kind">
             <span class="workspace-config-label">CLI</span>
-            <a-radio-group v-model="cliKindModel" type="button" size="small">
-              <a-radio value="codex" class="workspace-cli-radio" title="Codex" aria-label="Codex">
-                <BrandIcon :brand="cliBrand('codex')" :size="18" />
-              </a-radio>
-              <a-radio
-                value="claudeCode"
-                class="workspace-cli-radio"
-                title="Claude Code"
-                aria-label="Claude Code"
-              >
-                <BrandIcon :brand="cliBrand('claudeCode')" :size="18" />
-              </a-radio>
-            </a-radio-group>
+            <CliIconSelector
+              v-model="cliKindModel"
+              :options="cliOptions"
+              :disabled="launching"
+            />
           </div>
           <div class="workspace-launch-config-field">
             <span class="workspace-config-label">API Key</span>
@@ -301,6 +296,14 @@ function browseDraftPath() {
               size="small"
               :disabled="launching"
               placeholder="输入模型名称（可选）"
+            />
+          </div>
+          <div class="workspace-launch-config-field workspace-launch-terminal-field">
+            <span class="workspace-config-label">终端</span>
+            <TerminalIconSelector
+              v-model="terminalKindModel"
+              :options="terminalOptions"
+              :disabled="launching"
             />
           </div>
         </section>
@@ -395,11 +398,10 @@ function browseDraftPath() {
             <strong :title="directory?.currentPath">{{ directory?.currentPath || "正在读取..." }}</strong>
           </div>
           <div class="workspace-picker-actions">
-            <a-button :disabled="launching" @click="emit('update:visible', false)">取消</a-button>
             <a-button
               type="primary"
               :loading="launchingPath === directory?.currentPath"
-              :disabled="browsing || launching || !directory || apiKeyLoading || effectiveApiKeys.length === 0"
+              :disabled="browsing || launching || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0"
               @click="emit('launch', directory?.currentPath)"
             >
               <template #icon><icon-launch /></template>

@@ -1,6 +1,9 @@
 use crate::{
-    models::{provider_domain, AppSettings, Provider},
-    providers::newapi_http::{build_client, USER_AGENT_VALUE},
+    adapters::{
+        api,
+        transport::{build_client, USER_AGENT_VALUE},
+    },
+    models::{provider_domain, AppSettings, Provider, ProviderProtocol},
     services::liveness::openai_base_url,
 };
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -29,7 +32,17 @@ pub(super) async fn fetch_codex_models(
         return Err("缺少模型 Base URL 或中转站地址".to_string());
     }
 
-    let base_url = openai_base_url(provider);
+    if matches!(provider.identity.protocol, ProviderProtocol::Api) {
+        let client = build_client(settings, provider)?;
+        return api::fetch_models(&client, provider).await;
+    }
+
+    let mut base_url = openai_base_url(provider);
+    if matches!(provider.identity.protocol, ProviderProtocol::Sub2Api)
+        && !base_url.trim_end_matches('/').ends_with("/v1")
+    {
+        base_url = format!("{}/v1", base_url.trim_end_matches('/'));
+    }
     let url = reqwest::Url::parse(&format!("{}/models", base_url.trim_end_matches('/')))
         .map_err(|err| format!("模型列表地址无效: {err}"))?;
     let client = build_client(settings, provider)?;

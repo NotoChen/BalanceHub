@@ -5,8 +5,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use crate::{
+    adapters::protocol::ProtocolAdapter,
     models::{provider_domain, AppSettings, Provider, ProviderStatus},
-    providers::newapi_http::provider_is_anyrouter,
     services::{notifications, provider_service::ProviderService},
     tray,
     util::{unix_millis, unix_secs},
@@ -126,7 +126,7 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
             .providers
             .iter()
             .filter(|provider| {
-                let is_anyrouter = provider_is_anyrouter(provider);
+                let is_anyrouter = ProtocolAdapter.is_anyrouter(provider);
                 provider.runtime.enabled
                     && provider_domain::capabilities::supports_check_in(provider, is_anyrouter)
                     && !provider_domain::capabilities::checked_in_today(provider, is_anyrouter)
@@ -256,8 +256,7 @@ async fn run_auto_check_in(
         }
         Ok(result) => {
             let display = format!("自动签到失败：{}", non_empty(&result.message, "签到失败"));
-            let _ =
-                service.mark_auto_check_in_failure(provider.identity.id.clone(), display.clone());
+            let _ = service.mark_auto_check_in_failure(provider, display.clone());
             if attempt == 1 {
                 notify_provider_event(
                     app,
@@ -272,8 +271,7 @@ async fn run_auto_check_in(
         }
         Err(message) => {
             let display = format!("自动签到异常：{}", non_empty(&message, "签到异常"));
-            let _ =
-                service.mark_auto_check_in_failure(provider.identity.id.clone(), display.clone());
+            let _ = service.mark_auto_check_in_failure(provider, display.clone());
             if attempt == 1 {
                 notify_provider_event(
                     app,

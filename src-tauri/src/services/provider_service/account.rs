@@ -1,9 +1,9 @@
 use crate::{
-    adapters::newapi::NewApiAdapter,
+    adapters::protocol::ProtocolAdapter,
     models::{AuthMode, Provider},
 };
 
-use super::{find_provider, ProviderService};
+use super::{find_provider, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn change_password(
@@ -14,7 +14,7 @@ impl<'a> ProviderService<'a> {
     ) -> Result<String, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        let message = NewApiAdapter
+        let message = ProtocolAdapter
             .change_password(&data.settings, &provider, &original_password, &password)
             .await?;
 
@@ -51,11 +51,10 @@ fn sync_password_if_context_unchanged(
     snapshot: &Provider,
     new_password: &str,
 ) -> bool {
+    let request_context = ProviderRequestContext::capture(snapshot);
     if !supports_login_password_sync(snapshot)
         || !supports_login_password_sync(stored)
-        || stored.identity.base_url != snapshot.identity.base_url
-        || stored.auth.login_username != snapshot.auth.login_username
-        || stored.auth.login_password != snapshot.auth.login_password
+        || !request_context.matches(stored)
     {
         return false;
     }
@@ -173,5 +172,20 @@ mod tests {
             "new-password"
         ));
         assert_eq!(stored.auth.login_password, "manually-edited");
+    }
+
+    #[test]
+    fn password_change_does_not_overwrite_after_the_active_token_changes() {
+        let mut snapshot = provider(AuthMode::Session);
+        snapshot.auth.access_token = "token-a".to_string();
+        let mut stored = snapshot.clone();
+        stored.auth.access_token = "token-b".to_string();
+
+        assert!(!sync_password_if_context_unchanged(
+            &mut stored,
+            &snapshot,
+            "new-password"
+        ));
+        assert_eq!(stored.auth.login_password, "old-password");
     }
 }

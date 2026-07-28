@@ -1,7 +1,7 @@
 // 注意：本文件的额度/货币/邀请链接/anyrouter 判定等格式化逻辑，与 Rust 端
 // （src-tauri/src/tray.rs、providers/newapi_site.rs、models.rs）存在同源镜像实现。
 // 修改任一侧的格式化规则时，请同步另一侧，避免两处显示不一致。
-import type { AuthMode, Provider, ProviderQuotaDisplay } from "../stores/providers";
+import type { AuthMode, Provider, ProviderProtocol, ProviderQuotaDisplay } from "../stores/providers";
 
 export type ProviderCardTone =
   | "disabled"
@@ -20,10 +20,44 @@ const providerAuthModeLabels: Record<AuthMode, string> = {
 };
 
 export function providerAuthModeLabel(provider: Provider) {
+  if (provider.identity.protocol === "sub2Api" && provider.auth.mode === "accessToken") {
+    return "Access Token";
+  }
   return providerAuthModeLabels[provider.auth.mode];
 }
 
+export function providerProtocolLabel(protocol: ProviderProtocol) {
+  if (protocol === "sub2Api") return "Sub2API";
+  if (protocol === "api") return "API";
+  return "NewAPI";
+}
+
+export function providerQuotaKnown(provider: Provider) {
+  return provider.quota.known !== false;
+}
+
+export function providerQuotaTotalKnown(provider: Provider) {
+  return provider.quota.totalKnown !== false;
+}
+
 export function providerAuthModeDescription(provider: Provider) {
+  if (provider.identity.protocol === "api") {
+    return "当前使用 API Key 调用模型接口";
+  }
+  if (provider.identity.protocol === "sub2Api") {
+    switch (provider.auth.mode) {
+      case "password":
+        return "当前使用账号密码登录 Sub2API，缓存 Access / Refresh Token";
+      case "accessToken":
+        return provider.auth.refreshToken.trim()
+          ? "当前使用 Sub2API Access Token（含 Refresh Token，可自动续期）"
+          : "当前使用 Sub2API Access Token（无 Refresh Token，过期需重新获取）";
+      case "apiKey":
+        return "当前使用 Sub2API 网关 API Key";
+      case "session":
+        break;
+    }
+  }
   switch (provider.auth.mode) {
     case "password":
       return "当前优先使用账号密码登录，并建立可复用会话";
@@ -94,10 +128,19 @@ export function providerQuotaUnlimited(provider: Provider) {
 }
 
 export function providerQuotaScopeLabel(provider: Provider) {
+  if (provider.identity.protocol === "api") {
+    return "API Key 可用额度";
+  }
   return provider.quota.scope === "token" ? "API Key 可用额度" : "账号可用额度";
 }
 
 export function providerTotalQuotaLabel(provider: Provider) {
+  if (!providerQuotaKnown(provider)) {
+    return "未公开";
+  }
+  if (!providerQuotaTotalKnown(provider)) {
+    return "未公开";
+  }
   if (providerQuotaUnlimited(provider)) {
     return "∞";
   }
@@ -105,6 +148,9 @@ export function providerTotalQuotaLabel(provider: Provider) {
 }
 
 export function providerAvailableQuotaLabel(provider: Provider) {
+  if (!providerQuotaKnown(provider)) {
+    return "未公开";
+  }
   if (providerQuotaUnlimited(provider)) {
     return "∞";
   }
@@ -113,10 +159,19 @@ export function providerAvailableQuotaLabel(provider: Provider) {
 
 export function maskApiKey(value: string) {
   const text = value.trim();
-  if (text.length <= 14) {
-    return text;
+  if (!text) {
+    return "";
   }
-  return `${text.slice(0, 8)}****${text.slice(-6)}`;
+  if (text.length <= 4) {
+    return "•".repeat(4);
+  }
+  if (text.length <= 8) {
+    return `${text.slice(0, 1)}••••••${text.slice(-1)}`;
+  }
+  if (text.length <= 14) {
+    return `${text.slice(0, 2)}••••••••${text.slice(-2)}`;
+  }
+  return `${text.slice(0, 6)}••••••••${text.slice(-4)}`;
 }
 
 export function isAnyRouterProvider(provider: Provider) {
@@ -162,8 +217,17 @@ export function providerIdentityId(provider: Provider) {
  * capabilities of the current card.
  */
 export function supportsAccountManagement(provider: Provider) {
+  if (provider.identity.protocol === "api") {
+    return false;
+  }
   if (provider.auth.mode === "apiKey") {
     return false;
+  }
+
+  if (provider.identity.protocol === "sub2Api") {
+    return provider.auth.mode === "password"
+      ? Boolean(provider.auth.loginUsername.trim() && provider.auth.loginPassword.trim()) || Boolean(provider.auth.accessToken.trim())
+      : Boolean(provider.auth.accessToken.trim());
   }
 
   if (provider.auth.mode === "password") {
@@ -181,6 +245,12 @@ export function supportsAccountManagement(provider: Provider) {
 }
 
 export function supportsCheckIn(provider: Provider) {
+  if (provider.identity.protocol === "api") {
+    return false;
+  }
+  if (provider.identity.protocol === "sub2Api") {
+    return false;
+  }
   if (provider.auth.mode === "apiKey") {
     return false;
   }
@@ -199,6 +269,9 @@ export function supportsCheckIn(provider: Provider) {
 }
 
 export function supportsApiKeyManagement(provider: Provider) {
+  if (provider.identity.protocol === "api") {
+    return false;
+  }
   if (!supportsAccountManagement(provider)) {
     return false;
   }
@@ -210,6 +283,9 @@ export function supportsApiKeyManagement(provider: Provider) {
 }
 
 export function supportsInvitation(provider: Provider) {
+  if (provider.identity.protocol === "api") {
+    return false;
+  }
   if (!supportsAccountManagement(provider)) {
     return false;
   }
@@ -273,6 +349,9 @@ export function providerCheckedInToday(provider: Provider) {
 }
 
 export function availablePercent(provider: Provider) {
+  if (!providerQuotaKnown(provider) || !providerQuotaTotalKnown(provider)) {
+    return 0;
+  }
   if (provider.quota.unlimited === true) {
     return 1;
   }
@@ -281,6 +360,9 @@ export function availablePercent(provider: Provider) {
 }
 
 export function availablePercentLabel(provider: Provider) {
+  if (!providerQuotaKnown(provider) || !providerQuotaTotalKnown(provider)) {
+    return "未公开";
+  }
   if (provider.quota.unlimited === true) {
     return "∞";
   }
@@ -296,5 +378,5 @@ export function providerNeedsCheckIn(provider: Provider) {
 }
 
 export function providerHasNoAvailableBalance(provider: Provider) {
-  return Boolean(provider.automation.lastSyncedAt) && !providerQuotaUnlimited(provider) && provider.quota.available <= 0;
+  return Boolean(provider.automation.lastSyncedAt) && providerQuotaKnown(provider) && !providerQuotaUnlimited(provider) && provider.quota.available <= 0;
 }

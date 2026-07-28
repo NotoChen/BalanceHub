@@ -28,12 +28,41 @@ const supplementModes: Record<AuthMode, AuthMode[]> = {
   apiKey: [],
 };
 
+const visibleAuthModes = computed(() => {
+  if (props.draft.identity.protocol === "api") {
+    return authModes.filter((mode) => mode.value === "apiKey");
+  }
+  return authModes.filter((mode) => props.draft.identity.protocol !== "sub2Api" || mode.value !== "session");
+});
+
 const apiUserPlaceholder = computed(() =>
   props.draft.auth.mode === "session" ? "自动解析，也可手动填写" : "输入用户 ID",
 );
 
+const apiKeyPlaceholder = computed(() => {
+  if (props.draft.identity.protocol === "newApi") {
+    return "粘贴 API Key（可不含 sk-）";
+  }
+  if (props.draft.identity.protocol === "sub2Api") {
+    return "粘贴完整 API Key（前缀以站点为准）";
+  }
+  return "粘贴完整 API Key";
+});
+
+const secondaryApiKeyPlaceholder = computed(() =>
+  props.draft.identity.protocol === "sub2Api"
+    ? "自动获取或粘贴完整 Key（前缀以站点为准）"
+    : "自动获取或手动填写（可不含 sk-）",
+);
+
 const secondaryModes = computed(() => {
-  return supplementModes[props.draft.auth.mode] || [];
+  if (props.draft.identity.protocol === "api") {
+    return [];
+  }
+  const modes = supplementModes[props.draft.auth.mode] || [];
+  return props.draft.identity.protocol === "sub2Api"
+    ? modes.filter((mode) => mode !== "session")
+    : modes;
 });
 
 const secondaryOrderText = computed(() => secondaryModes.value.map(stageLabel).join(" → "));
@@ -76,6 +105,9 @@ function stageStatusClass(mode: AuthMode) {
 }
 
 function selectMode(mode: AuthMode) {
+  if (props.draft.identity.protocol === "api" && mode !== "apiKey") {
+    return;
+  }
   if (mode === props.draft.auth.mode) {
     return;
   }
@@ -85,6 +117,9 @@ function selectMode(mode: AuthMode) {
   if (mode === "password" && props.draft.auth.mode !== "password") {
     props.draft.auth.sessionCookie = "";
     props.draft.auth.apiUser = "";
+    if (props.draft.identity.protocol === "sub2Api") {
+      clearSub2TokenChain();
+    }
   }
   props.draft.auth.mode = mode;
 }
@@ -93,7 +128,22 @@ function invalidatePasswordSession() {
   if (props.draft.auth.mode === "password") {
     props.draft.auth.sessionCookie = "";
     props.draft.auth.apiUser = "";
+    if (props.draft.identity.protocol === "sub2Api") {
+      clearSub2TokenChain();
+    }
   }
+}
+
+function clearSub2TokenChain() {
+  props.draft.auth.accessToken = "";
+  props.draft.auth.refreshToken = "";
+  props.draft.auth.accessTokenExpiresAt = null;
+}
+
+function invalidateSub2RefreshToken() {
+  if (props.draft.identity.protocol !== "sub2Api") return;
+  props.draft.auth.refreshToken = "";
+  props.draft.auth.accessTokenExpiresAt = null;
 }
 
 function syncApiKeySelection() {
@@ -118,7 +168,7 @@ function activeLabel() {
       <div class="provider-form-block-body">
         <div class="provider-auth-mode-grid" role="radiogroup" aria-label="认证方式">
           <button
-            v-for="mode in authModes"
+            v-for="mode in visibleAuthModes"
             :key="mode.value"
             type="button"
             class="provider-auth-mode-option"
@@ -141,7 +191,7 @@ function activeLabel() {
     <section class="provider-form-block provider-credential-active-panel">
       <header class="provider-form-block-header provider-credential-active-heading">
         <span class="provider-form-block-icon provider-form-block-icon-auth">
-          <ProviderAuthIcon :mode="draft.auth.mode" :size="18" :decorative="true" />
+          <ProviderAuthIcon :mode="draft.auth.mode" :protocol="draft.identity.protocol" :size="18" :decorative="true" />
         </span>
         <div><strong>{{ activeLabel() }}</strong></div>
         <span class="provider-form-block-required">当前使用</span>
@@ -157,12 +207,36 @@ function activeLabel() {
           <a-input-password v-model="draft.auth.sessionCookie" placeholder="session=xxx 或直接粘贴 Cookie 值" allow-clear />
         </a-form-item>
 
-        <a-form-item v-if="draft.auth.mode === 'accessToken'" class="provider-field" field="auth.accessToken" label="访问令牌" required>
-          <a-input-password v-model="draft.auth.accessToken" placeholder="粘贴访问令牌" allow-clear />
+        <a-form-item
+          v-if="draft.auth.mode === 'accessToken'"
+          class="provider-field"
+          field="auth.accessToken"
+          :label="draft.identity.protocol === 'sub2Api' ? 'Access Token' : '访问令牌'"
+          required
+        >
+          <a-input-password
+            v-model="draft.auth.accessToken"
+            :placeholder="draft.identity.protocol === 'sub2Api' ? '粘贴 Access Token (JWT)' : '粘贴访问令牌'"
+            allow-clear
+            @update:model-value="invalidateSub2RefreshToken"
+          />
         </a-form-item>
 
         <a-form-item
-          v-if="draft.auth.mode === 'session' || draft.auth.mode === 'accessToken'"
+          v-if="draft.auth.mode === 'accessToken' && draft.identity.protocol === 'sub2Api'"
+          class="provider-field"
+          field="auth.refreshToken"
+          label="Refresh Token（选填）"
+        >
+          <a-input-password
+            v-model="draft.auth.refreshToken"
+            placeholder="填了可在过期前自动续期；留空则过期后需重新获取"
+            allow-clear
+          />
+        </a-form-item>
+
+        <a-form-item
+          v-if="(draft.auth.mode === 'session' || draft.auth.mode === 'accessToken') && draft.identity.protocol !== 'sub2Api'"
           class="provider-field"
           field="auth.apiUser"
           label="API User ID"
@@ -175,7 +249,7 @@ function activeLabel() {
           <div class="input-action-row">
             <a-input-password
               v-model="draft.auth.apiKey"
-              placeholder="sk-..."
+              :placeholder="apiKeyPlaceholder"
               allow-clear
               @update:model-value="syncApiKeySelection"
             />
@@ -190,13 +264,14 @@ function activeLabel() {
           :options="apiKeyOptions"
           :current-key="draft.auth.apiKey"
           :current-token-id="draft.auth.apiKeyTokenId"
+          :protocol="draft.identity.protocol"
           :selectable="apiKeyOptions.length > 1"
           @select="emit('select-api-key', $event)"
         />
         <a-form-item v-if="draft.auth.mode === 'password'" class="provider-field" field="auth.loginUsername" label="账号" required>
           <a-input
             v-model="draft.auth.loginUsername"
-            placeholder="用户名或邮箱"
+            :placeholder="draft.identity.protocol === 'sub2Api' ? '邮箱' : '用户名或邮箱'"
             allow-clear
             @update:model-value="invalidatePasswordSession"
           />
@@ -204,16 +279,23 @@ function activeLabel() {
         <a-form-item v-if="draft.auth.mode === 'password'" class="provider-field" field="auth.loginPassword" label="密码" required>
           <a-input-password
             v-model="draft.auth.loginPassword"
-            placeholder="NewAPI 登录密码"
+            :placeholder="draft.identity.protocol === 'sub2Api' ? 'Sub2API 登录密码' : 'NewAPI 登录密码'"
             allow-clear
             @update:model-value="invalidatePasswordSession"
           />
         </a-form-item>
-        <a-form-item v-if="draft.auth.mode === 'password' && draft.auth.apiUser" class="provider-field provider-field-wide" field="auth.apiUser" label="登录后用户 ID">
+        <a-form-item
+          v-if="draft.auth.mode === 'password' && draft.auth.apiUser && draft.identity.protocol !== 'sub2Api'"
+          class="provider-field provider-field-wide"
+          field="auth.apiUser"
+          label="登录后用户 ID"
+        >
           <a-input v-model="draft.auth.apiUser" readonly />
         </a-form-item>
         <p v-if="draft.auth.mode === 'password'" class="provider-credential-inline-note provider-field-wide">
-          保存后首次同步会登录站点并缓存会话；开启 2FA 或验证码的站点请改用 Cookie。
+          {{ draft.identity.protocol === 'sub2Api'
+            ? '保存后首次同步会登录站点并缓存访问令牌；启用 2FA 时请先在站点完成登录后粘贴令牌。'
+            : '保存后首次同步会登录站点并缓存会话；开启 2FA 或验证码的站点请改用 Cookie。' }}
         </p>
       </div>
     </section>
@@ -262,7 +344,7 @@ function activeLabel() {
               <div class="input-action-row">
                 <a-input-password
                   v-model="draft.auth.apiKey"
-                  placeholder="自动获取或手动填写"
+                  :placeholder="secondaryApiKeyPlaceholder"
                   allow-clear
                   @update:model-value="syncApiKeySelection"
                 />
@@ -277,6 +359,7 @@ function activeLabel() {
               :options="apiKeyOptions"
               :current-key="draft.auth.apiKey"
               :current-token-id="draft.auth.apiKeyTokenId"
+              :protocol="draft.identity.protocol"
               :selectable="apiKeyOptions.length > 1"
               @select="emit('select-api-key', $event)"
             />

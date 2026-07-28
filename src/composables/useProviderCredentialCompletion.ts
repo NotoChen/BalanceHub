@@ -1,7 +1,18 @@
 import { computed, h, ref, watch, type Ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
-import type { Provider, ProviderApiKeyOption, ProviderInput, ProviderSiteProbeResult } from "../stores/providers";
-import { fieldLabel, normalizeProviderBaseUrl } from "./provider-editor-shared";
+import type {
+  Provider,
+  ProviderApiKeyOption,
+  ProviderInput,
+  ProviderProtocol,
+  ProviderProtocolDetectionResult,
+  ProviderSiteProbeResult,
+} from "../stores/providers";
+import {
+  fieldLabel,
+  normalizeProviderBaseUrl,
+  type ProtocolSelectionSource,
+} from "./provider-editor-shared";
 
 export type CredentialCompletionState =
   | "idle"
@@ -25,13 +36,19 @@ export interface CredentialCompletionStep {
 
 interface UseProviderCredentialCompletionOptions {
   draftProvider: ProviderInput;
+  drawerVisible: Ref<boolean>;
+  editorSession: Ref<number>;
   editingProviderId: Ref<string | null>;
   probingSite: Ref<boolean>;
   siteProbeResult: Ref<ProviderSiteProbeResult | null>;
+  protocolDetectionResult: Ref<ProviderProtocolDetectionResult | null>;
+  protocolSelectionSource: Ref<ProtocolSelectionSource>;
+  protocolSelectionBaseUrl: Ref<string>;
   completingCredentials: Ref<boolean>;
   credentialCompletionMessage: Ref<string>;
   credentialCompletionSteps: Ref<{ name: string; ok: boolean; message: string }[]>;
   siteNameSourceBaseUrl: Ref<string>;
+  detectProviderProtocol: (input: ProviderInput) => Promise<ProviderProtocolDetectionResult>;
   probeProviderSite: (input: ProviderInput) => Promise<ProviderSiteProbeResult>;
   completeProviderCredentials: (input: ProviderInput) => Promise<{
     input: ProviderInput;
@@ -42,11 +59,17 @@ interface UseProviderCredentialCompletionOptions {
   createApiKeyForInput: (input: ProviderInput, name: string) => Promise<ProviderApiKeyOption>;
   generateAccessTokenForInput: (input: ProviderInput) => Promise<string>;
   setApiKeyOptions: (options: ProviderApiKeyOption[]) => void;
-  saveDraftAndFindProvider: () => Promise<Provider | undefined>;
+  saveDraftAndFindProvider: (isCurrent?: () => boolean) => Promise<Provider | undefined>;
   refreshAfterSave: (provider: Provider | undefined) => void;
 }
 
 export function useProviderCredentialCompletion(options: UseProviderCredentialCompletionOptions) {
+  interface EditorRequestContext {
+    editorSession: number;
+    providerId: string | null;
+    inputFingerprint: string;
+  }
+
   interface CompletionRunOptions {
     notify?: boolean;
     save?: boolean;
@@ -57,6 +80,11 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
   const credentialAssistantMessage = ref("");
   const credentialAssistantChangedFields = ref<string[]>([]);
   const credentialAssistantSaved = ref(false);
+  let activeSiteProbe: {
+    key: string;
+    request: Promise<ProviderSiteProbeResult | null | undefined>;
+  } | null = null;
+  let siteProbeRevision = 0;
 
   const credentialAssistantBusy = computed(() =>
     [
@@ -72,8 +100,20 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     if (credentialAssistantBusy.value || options.draftProvider.auth.mode === "apiKey") {
       return false;
     }
+    if (options.draftProvider.identity.protocol === "api") {
+      return false;
+    }
     if (!options.draftProvider.identity.baseUrl.trim()) {
       return false;
+    }
+    if (options.draftProvider.identity.protocol === "sub2Api") {
+      if (options.draftProvider.auth.mode === "password") {
+        return Boolean(
+          options.draftProvider.auth.loginUsername.trim() &&
+            options.draftProvider.auth.loginPassword.trim(),
+        );
+      }
+      return Boolean(options.draftProvider.auth.accessToken.trim());
     }
     if (options.draftProvider.auth.mode === "session") {
       return Boolean(options.draftProvider.auth.sessionCookie.trim());
@@ -90,6 +130,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
   watch(
     () => [
       options.draftProvider.identity.baseUrl,
+      options.draftProvider.identity.protocol,
       options.draftProvider.auth.mode,
       options.draftProvider.auth.sessionCookie,
       options.draftProvider.auth.accessToken,
@@ -99,8 +140,35 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       options.draftProvider.auth.loginPassword,
     ],
     () => {
+      const currentBaseUrl = normalizeProviderBaseUrl(options.draftProvider.identity.baseUrl);
+      if (currentBaseUrl !== options.protocolSelectionBaseUrl.value) {
+        options.protocolSelectionSource.value = "auto";
+        options.protocolDetectionResult.value = null;
+        options.siteProbeResult.value = null;
+      }
       if (!credentialAssistantBusy.value) {
         resetCredentialAssistant();
+      }
+    },
+  );
+
+  watch(
+    () => [options.drawerVisible.value, options.editorSession.value] as const,
+    ([visible]) => {
+      siteProbeRevision += 1;
+      activeSiteProbe = null;
+      options.probingSite.value = false;
+      if (!visible) {
+        resetCredentialAssistant();
+      }
+    },
+  );
+
+  watch(
+    () => options.draftProvider.auth.mode,
+    (mode, previousMode) => {
+      if (mode === "apiKey" && previousMode !== "apiKey") {
+        void ensureProtocolSelection();
       }
     },
   );
@@ -113,11 +181,69 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     credentialAssistantSaved.value = false;
   }
 
-  async function probeSite(probeOptions: { silent?: boolean } = {}) {
-    const silent = probeOptions.silent === true;
-    if (options.probingSite.value) {
-      return options.siteProbeResult.value;
+  function snapshotInput(): ProviderInput {
+    return JSON.parse(JSON.stringify({
+      ...options.draftProvider,
+      id: options.editingProviderId.value ?? undefined,
+    })) as ProviderInput;
+  }
+
+  function captureRequestContext(input = snapshotInput()): EditorRequestContext {
+    return {
+      editorSession: options.editorSession.value,
+      providerId: options.editingProviderId.value,
+      inputFingerprint: JSON.stringify(input),
+    };
+  }
+
+  function requestContextKey(context: EditorRequestContext) {
+    return `${context.editorSession}:${context.providerId ?? "new"}:${context.inputFingerprint}`;
+  }
+
+  function editorSessionIsActive(context: EditorRequestContext) {
+    return options.drawerVisible.value
+      && options.editorSession.value === context.editorSession;
+  }
+
+  function editorSessionIsCurrent(context: EditorRequestContext) {
+    return editorSessionIsActive(context)
+      && options.editingProviderId.value === context.providerId;
+  }
+
+  function requestContextIsCurrent(context: EditorRequestContext) {
+    return editorSessionIsCurrent(context)
+      && JSON.stringify(snapshotInput()) === context.inputFingerprint;
+  }
+
+  async function probeSite(
+    probeOptions: { silent?: boolean; force?: boolean; skipDetection?: boolean } = {},
+  ) {
+    const input = snapshotInput();
+    const context = captureRequestContext(input);
+    const key = requestContextKey(context);
+    if (activeSiteProbe?.key === key) {
+      return activeSiteProbe.request;
     }
+
+    const revision = ++siteProbeRevision;
+    const request = runProbeSite(probeOptions, input, context, revision);
+    activeSiteProbe = { key, request };
+    try {
+      return await request;
+    } finally {
+      if (activeSiteProbe?.request === request) {
+        activeSiteProbe = null;
+      }
+    }
+  }
+
+  async function runProbeSite(
+    probeOptions: { silent?: boolean; force?: boolean; skipDetection?: boolean } = {},
+    initialInput: ProviderInput,
+    initialContext: EditorRequestContext,
+    revision: number,
+  ) {
+    const silent = probeOptions.silent === true;
     if (!options.draftProvider.identity.baseUrl.trim()) {
       if (!silent) {
         Message.warning("请先填写中转站地址");
@@ -125,19 +251,62 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       return;
     }
 
-    const probingBaseUrl = options.draftProvider.identity.baseUrl;
+    const probingBaseUrl = initialInput.identity.baseUrl;
+    const normalizedBaseUrl = normalizeProviderBaseUrl(probingBaseUrl);
+    const shouldDetect = !probeOptions.skipDetection && (
+      probeOptions.force === true
+      || (
+        options.protocolSelectionSource.value === "auto"
+        && options.protocolSelectionBaseUrl.value !== normalizedBaseUrl
+      )
+    );
     options.probingSite.value = true;
     options.siteProbeResult.value = null;
     try {
-      const result = await options.probeProviderSite({
-        ...options.draftProvider,
-        id: options.editingProviderId.value ?? undefined,
-      });
-      options.siteProbeResult.value = result;
-      if (result.systemName) {
-        options.draftProvider.identity.name = result.systemName;
-        options.siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(probingBaseUrl);
+      if (shouldDetect) {
+        const detection = await options.detectProviderProtocol(initialInput);
+        if (!requestContextIsCurrent(initialContext)) {
+          return null;
+        }
+
+        options.protocolDetectionResult.value = detection;
+        options.protocolSelectionBaseUrl.value = normalizedBaseUrl;
+        const detectedProtocol = detection.detectedProtocol;
+        if (!detectedProtocol) {
+          options.protocolSelectionSource.value = "unresolved";
+          if (!silent) {
+            Message.warning(detection.message);
+          }
+          return null;
+        }
+
+        const switched = await applyProtocolSelection(
+          detectedProtocol,
+          "auto",
+          normalizedBaseUrl,
+          initialContext,
+        );
+        if (!switched || !editorSessionIsCurrent(initialContext)) {
+          return null;
+        }
+
+        const result = detection.site;
+        if (result) {
+          applySiteResult(result, probingBaseUrl);
+          if (!silent) {
+            Message.success(detection.message);
+          }
+          return result;
+        }
       }
+
+      const probeInput = snapshotInput();
+      const probeContext = captureRequestContext(probeInput);
+      const result = await options.probeProviderSite(probeInput);
+      if (!requestContextIsCurrent(probeContext)) {
+        return null;
+      }
+      applySiteResult(result, probingBaseUrl);
       if (silent) {
         return result;
       }
@@ -148,13 +317,145 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       }
       return result;
     } catch (error) {
-      if (!silent) {
+      if (
+        !silent
+        && revision === siteProbeRevision
+        && editorSessionIsCurrent(initialContext)
+      ) {
         Message.error(error instanceof Error ? error.message : String(error));
       }
       return null;
     } finally {
-      options.probingSite.value = false;
+      if (
+        revision === siteProbeRevision
+        && editorSessionIsCurrent(initialContext)
+      ) {
+        options.probingSite.value = false;
+      }
     }
+  }
+
+  async function selectProtocol(protocol: ProviderProtocol) {
+    if (options.probingSite.value) {
+      return;
+    }
+    const baseUrl = normalizeProviderBaseUrl(options.draftProvider.identity.baseUrl);
+    if (options.draftProvider.identity.protocol === protocol) {
+      options.protocolSelectionSource.value = "manual";
+      options.protocolSelectionBaseUrl.value = baseUrl;
+      return;
+    }
+    const switched = await applyProtocolSelection(protocol, "manual", baseUrl);
+    if (!switched || !baseUrl) {
+      return;
+    }
+    await probeSite({ silent: true, skipDetection: true });
+  }
+
+  async function ensureProtocolSelection() {
+    if (activeSiteProbe) {
+      const context = captureRequestContext();
+      if (activeSiteProbe.key === requestContextKey(context)) {
+        await activeSiteProbe.request;
+      }
+    }
+
+    const baseUrl = normalizeProviderBaseUrl(options.draftProvider.identity.baseUrl);
+    if (!baseUrl) {
+      return;
+    }
+
+    const selectionSource = options.protocolSelectionSource.value;
+    const shouldDetect = (
+      selectionSource === "auto"
+      && options.protocolSelectionBaseUrl.value !== baseUrl
+    ) || (
+      selectionSource === "unresolved"
+      && options.draftProvider.auth.mode === "apiKey"
+      && !options.protocolDetectionResult.value?.ambiguous
+    );
+    if (!shouldDetect) {
+      return;
+    }
+
+    await probeSite({
+      silent: true,
+      force: selectionSource === "unresolved",
+    });
+  }
+
+  async function applyProtocolSelection(
+    protocol: ProviderProtocol,
+    source: ProtocolSelectionSource,
+    baseUrl: string,
+    expectedContext = captureRequestContext(),
+  ) {
+    if (!requestContextIsCurrent(expectedContext)) {
+      return false;
+    }
+    if (options.draftProvider.identity.protocol === protocol) {
+      options.protocolSelectionSource.value = source;
+      options.protocolSelectionBaseUrl.value = baseUrl;
+      return true;
+    }
+
+    const hasProtocolCredentials = Boolean(
+      options.draftProvider.auth.sessionCookie.trim()
+      || options.draftProvider.auth.accessToken.trim()
+      || options.draftProvider.auth.refreshToken.trim()
+      || options.draftProvider.auth.apiUser.trim(),
+    );
+    if (hasProtocolCredentials) {
+      const confirmed = await confirmAction(
+        "切换中转站协议",
+        `切换为 ${protocolLabel(protocol)} 后，当前 Cookie、访问令牌、刷新令牌和 API User ID 将被清空。账号密码和 API Key 会保留。`,
+        "切换",
+        "warning",
+      );
+      if (!requestContextIsCurrent(expectedContext)) {
+        return false;
+      }
+      if (!confirmed) {
+        options.protocolSelectionSource.value = "manual";
+        options.protocolSelectionBaseUrl.value = baseUrl;
+        return false;
+      }
+    }
+
+    options.draftProvider.identity.protocol = protocol;
+    options.draftProvider.auth.sessionCookie = "";
+    options.draftProvider.auth.accessToken = "";
+    options.draftProvider.auth.refreshToken = "";
+    options.draftProvider.auth.accessTokenExpiresAt = null;
+    options.draftProvider.auth.apiUser = "";
+    options.draftProvider.auth.apiKeyTokenId = "";
+    options.draftProvider.auth.apiKeyOptions = [];
+    options.setApiKeyOptions([]);
+    if (protocol === "api") {
+      options.draftProvider.auth.mode = "apiKey";
+    } else if (protocol === "sub2Api" && options.draftProvider.auth.mode === "session") {
+      options.draftProvider.auth.mode = "password";
+    }
+    options.protocolSelectionSource.value = source;
+    options.protocolSelectionBaseUrl.value = baseUrl;
+    options.siteProbeResult.value = null;
+    options.siteNameSourceBaseUrl.value = "";
+    resetCredentialAssistant();
+    return true;
+  }
+
+  function applySiteResult(result: ProviderSiteProbeResult, baseUrl: string) {
+    options.siteProbeResult.value = result;
+    if (result.systemName) {
+      options.draftProvider.identity.name = result.systemName;
+      options.siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(baseUrl);
+    }
+  }
+
+  function protocolLabel(protocol: ProviderProtocol) {
+    if (protocol === "sub2Api") return "Sub2API";
+    if (protocol === "api") return "通用 API Key";
+    return "NewAPI";
   }
 
   async function completeCredentials(runOptions: CompletionRunOptions = {}) {
@@ -168,20 +469,24 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       return;
     }
 
+    const requestInput = snapshotInput();
+    const requestContext = captureRequestContext(requestInput);
     options.completingCredentials.value = true;
     options.credentialCompletionMessage.value = "";
     options.credentialCompletionSteps.value = [];
     try {
-      const result = await options.completeProviderCredentials({
-        ...options.draftProvider,
-        id: options.editingProviderId.value ?? undefined,
-      });
+      const result = await options.completeProviderCredentials(requestInput);
+      if (!requestContextIsCurrent(requestContext)) {
+        return null;
+      }
 
-      const apiKeyStep = result.steps.find((step) => step.name.includes("API 密钥"));
+      const apiKeyStep = result.steps.find(
+        (step) => step.name.includes("API 密钥") || step.name.includes("API Key"),
+      );
       const apiKeyQueryFailed = Boolean(
         apiKeyStep &&
           !apiKeyStep.ok &&
-          !apiKeyStep.message.includes("站点没有已有 API Key"),
+          !isEmptyApiKeyMessage(apiKeyStep.message),
       );
       Object.assign(options.draftProvider, result.input);
       options.setApiKeyOptions(
@@ -194,7 +499,13 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
           ? `已补全：${changedLabels.join("、")}`
           : `已同步 ${result.apiKeyOptions.length} 个 API Key`;
         if (save) {
-          const savedProvider = await options.saveDraftAndFindProvider();
+          const saveContext = captureRequestContext();
+          const savedProvider = await options.saveDraftAndFindProvider(
+            () => requestContextIsCurrent(saveContext),
+          );
+          if (!savedProvider) {
+            return null;
+          }
           options.refreshAfterSave(savedProvider);
         }
         if (notify) {
@@ -213,13 +524,18 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (!requestContextIsCurrent(requestContext)) {
+        return null;
+      }
       options.credentialCompletionMessage.value = message;
       if (notify) {
         Message.error(message);
       }
       return null;
     } finally {
-      options.completingCredentials.value = false;
+      if (editorSessionIsActive(requestContext)) {
+        options.completingCredentials.value = false;
+      }
     }
   }
 
@@ -228,12 +544,21 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       return;
     }
 
+    const assistantContext = captureRequestContext();
     resetCredentialAssistant();
     setAssistantStep("site", "读取站点信息", "running", "正在读取站点名称和基础能力");
     credentialAssistantState.value = "probingSite";
 
+    const siteContext = captureRequestContext();
     const site = await probeSite({ silent: true });
+    if (!editorSessionIsCurrent(assistantContext)) {
+      return;
+    }
     if (!site) {
+      if (!requestContextIsCurrent(siteContext)) {
+        resetCredentialAssistant();
+        return;
+      }
       failAssistantStep("site", "读取站点信息失败");
       return;
     }
@@ -245,8 +570,16 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
 
     credentialAssistantState.value = "resolvingCredentials";
     setAssistantStep("credentials", "解析基础凭据", "running", "正在解析用户信息和已有凭据");
+    const completionContext = captureRequestContext();
     const completion = await completeCredentials({ notify: false, save: false });
+    if (!editorSessionIsCurrent(assistantContext)) {
+      return;
+    }
     if (!completion) {
+      if (!requestContextIsCurrent(completionContext)) {
+        resetCredentialAssistant();
+        return;
+      }
       failAssistantStep("credentials", options.credentialCompletionMessage.value || "解析基础凭据失败");
       return;
     }
@@ -259,11 +592,31 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       changedFields.length > 0 ? `已补全：${changedFields.join("、")}` : "没有需要补全的基础凭据",
     );
 
+    const accessTokenContext = captureRequestContext();
     if (!(await ensureAccessToken())) {
+      if (
+        editorSessionIsCurrent(assistantContext)
+        && !requestContextIsCurrent(accessTokenContext)
+      ) {
+        resetCredentialAssistant();
+      }
+      return;
+    }
+    if (!editorSessionIsCurrent(assistantContext)) {
       return;
     }
 
+    const apiKeyContext = captureRequestContext();
     if (!(await ensureApiKey())) {
+      if (
+        editorSessionIsCurrent(assistantContext)
+        && !requestContextIsCurrent(apiKeyContext)
+      ) {
+        resetCredentialAssistant();
+      }
+      return;
+    }
+    if (!editorSessionIsCurrent(assistantContext)) {
       return;
     }
 
@@ -271,6 +624,18 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
   }
 
   async function ensureAccessToken() {
+    if (options.draftProvider.identity.protocol === "api") {
+      setAssistantStep("accessToken", "获取访问令牌", "skipped", "通用 API Key 协议不需要访问令牌");
+      return true;
+    }
+    if (options.draftProvider.identity.protocol === "sub2Api") {
+      if (options.draftProvider.auth.accessToken.trim()) {
+        setAssistantStep("accessToken", "获取访问令牌", "skipped", "访问令牌已存在");
+        return true;
+      }
+      failAssistantStep("accessToken", "Sub2API 登录没有返回访问令牌");
+      return false;
+    }
     const canGenerateFromSession = ["session", "password"].includes(options.draftProvider.auth.mode);
     if (!canGenerateFromSession || options.draftProvider.auth.accessToken.trim()) {
       if (canGenerateFromSession) {
@@ -285,12 +650,16 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
 
     credentialAssistantState.value = "needAccessTokenConfirm";
     setAssistantStep("accessToken", "生成访问令牌", "running", "等待确认是否生成访问令牌");
+    const confirmationContext = captureRequestContext();
     const confirmed = await confirmAction(
       "生成访问令牌",
       "当前中转站没有可用访问令牌。是否使用会话 Cookie 生成新的访问令牌？生成后可能覆盖该账号原有访问令牌。",
       "生成",
       "warning",
     );
+    if (!requestContextIsCurrent(confirmationContext)) {
+      return false;
+    }
     if (!confirmed) {
       setAssistantStep("accessToken", "生成访问令牌", "skipped", "已取消生成，保留当前认证方式");
       return true;
@@ -299,15 +668,21 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     credentialAssistantState.value = "generatingAccessToken";
     setAssistantStep("accessToken", "生成访问令牌", "running", "正在生成访问令牌");
     options.completingCredentials.value = true;
+    const requestInput = snapshotInput();
+    const requestContext = captureRequestContext(requestInput);
     try {
-      options.draftProvider.auth.accessToken = await options.generateAccessTokenForInput({
-        ...options.draftProvider,
-        id: options.editingProviderId.value ?? undefined,
-      });
+      const accessToken = await options.generateAccessTokenForInput(requestInput);
+      if (!requestContextIsCurrent(requestContext)) {
+        return false;
+      }
+      options.draftProvider.auth.accessToken = accessToken;
       setAssistantStep("accessToken", "生成访问令牌", "done", "访问令牌已生成");
       Message.success("访问令牌已生成");
       return true;
     } catch (error) {
+      if (!requestContextIsCurrent(requestContext)) {
+        return false;
+      }
       setAssistantStep(
         "accessToken",
         "生成访问令牌",
@@ -316,19 +691,21 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       );
       return true;
     } finally {
-      options.completingCredentials.value = false;
+      if (editorSessionIsCurrent(requestContext)) {
+        options.completingCredentials.value = false;
+      }
     }
   }
 
   async function ensureApiKey() {
     const apiKeyStep = options.credentialCompletionSteps.value.find((step) =>
-      step.name.includes("API 密钥"),
+      step.name.includes("API 密钥") || step.name.includes("API Key"),
     );
     if (
       !options.draftProvider.auth.apiKey.trim() &&
       apiKeyStep &&
       !apiKeyStep.ok &&
-      !apiKeyStep.message.includes("站点没有已有 API Key")
+      !isEmptyApiKeyMessage(apiKeyStep.message)
     ) {
       failAssistantStep("apiKey", `未确认站点的 API Key 列表：${apiKeyStep.message}`);
       return false;
@@ -364,18 +741,31 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       failAssistantStep("apiKey", "站点已有 API Key，但当前凭据无法读取完整 Key，未自动创建新 Key");
       return false;
     }
-    if (!options.draftProvider.auth.apiUser.trim()) {
+    if (
+      options.draftProvider.identity.protocol !== "sub2Api" &&
+      options.draftProvider.identity.protocol !== "api" &&
+      !options.draftProvider.auth.apiUser.trim()
+    ) {
       failAssistantStep("apiKey", "缺少 API User ID，无法创建 API 密钥");
       return false;
     }
-    if (!options.draftProvider.auth.sessionCookie.trim() && !options.draftProvider.auth.accessToken.trim()) {
+    if (
+      options.draftProvider.identity.protocol !== "sub2Api" &&
+      options.draftProvider.identity.protocol !== "api" &&
+      !options.draftProvider.auth.sessionCookie.trim() &&
+      !options.draftProvider.auth.accessToken.trim()
+    ) {
       failAssistantStep("apiKey", "缺少会话 Cookie 或访问令牌，无法创建 API 密钥");
       return false;
     }
 
     credentialAssistantState.value = "needApiKeyName";
     setAssistantStep("apiKey", "创建 API 密钥", "running", "等待输入 API 密钥名称");
+    const promptContext = captureRequestContext();
     const name = await promptApiKeyName();
+    if (!requestContextIsCurrent(promptContext)) {
+      return false;
+    }
     if (!name) {
       setAssistantStep("apiKey", "创建 API 密钥", "skipped", "已取消创建，保留当前认证方式");
       return true;
@@ -384,14 +774,16 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     credentialAssistantState.value = "creatingApiKey";
     setAssistantStep("apiKey", "创建 API 密钥", "running", "正在创建 API 密钥");
     options.completingCredentials.value = true;
+    const requestInput = snapshotInput();
+    const requestContext = captureRequestContext(requestInput);
     try {
       const option = await options.createApiKeyForInput(
-        {
-          ...options.draftProvider,
-          id: options.editingProviderId.value ?? undefined,
-        },
+        requestInput,
         name,
       );
+      if (!requestContextIsCurrent(requestContext)) {
+        return false;
+      }
       options.draftProvider.auth.apiKey = option.key;
       options.draftProvider.auth.apiKeyTokenId = option.tokenId;
       options.setApiKeyOptions([...options.draftProvider.auth.apiKeyOptions, option]);
@@ -399,10 +791,15 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       Message.success("API 密钥已创建");
       return true;
     } catch (error) {
+      if (!requestContextIsCurrent(requestContext)) {
+        return false;
+      }
       failAssistantStep("apiKey", `创建 API 密钥失败：${error instanceof Error ? error.message : String(error)}`);
       return false;
     } finally {
-      options.completingCredentials.value = false;
+      if (editorSessionIsCurrent(requestContext)) {
+        options.completingCredentials.value = false;
+      }
     }
   }
 
@@ -434,8 +831,20 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
 
     credentialAssistantState.value = "saving";
     setAssistantStep("save", "保存配置", "running", "正在保存中转站配置");
+    const saveContext = captureRequestContext();
     try {
-      const savedProvider = await options.saveDraftAndFindProvider();
+      const savedProvider = await options.saveDraftAndFindProvider(
+        () => requestContextIsCurrent(saveContext),
+      );
+      if (!savedProvider) {
+        if (
+          editorSessionIsCurrent(saveContext)
+          && !requestContextIsCurrent(saveContext)
+        ) {
+          resetCredentialAssistant();
+        }
+        return;
+      }
       options.refreshAfterSave(savedProvider);
       credentialAssistantSaved.value = true;
       credentialAssistantState.value = "done";
@@ -443,6 +852,9 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       setAssistantStep("save", "保存配置", "done", "已保存，你可以继续调整高级配置");
       Message.success("配置已完成并保存");
     } catch (error) {
+      if (!requestContextIsCurrent(saveContext)) {
+        return;
+      }
       failAssistantStep("save", error instanceof Error ? error.message : String(error));
     }
   }
@@ -456,7 +868,11 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
       // user may keep a valid Cookie or account-password primary credential
       // after declining their generation; only an actual list-query failure
       // is handled as blocking by ensureApiKey above.
-      if (step.name.includes("访问令牌") || step.name.includes("API 密钥")) {
+      if (
+        step.name.includes("访问令牌")
+          || step.name.includes("API 密钥")
+          || step.name.includes("API Key")
+      ) {
         return false;
       }
       return true;
@@ -466,6 +882,10 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
   function validateAssistantStart() {
     if (options.draftProvider.auth.mode === "apiKey") {
       Message.info("API 密钥模式不需要自动补全");
+      return false;
+    }
+    if (options.draftProvider.identity.protocol === "api") {
+      Message.info("通用 API Key 协议不需要账号凭据补全");
       return false;
     }
     if (!options.draftProvider.identity.baseUrl.trim()) {
@@ -486,12 +906,22 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     }
     if (
       options.draftProvider.auth.mode === "accessToken" &&
-      (!options.draftProvider.auth.accessToken.trim() || !options.draftProvider.auth.apiUser.trim())
+      (!options.draftProvider.auth.accessToken.trim()
+        || (options.draftProvider.identity.protocol !== "sub2Api"
+          && !options.draftProvider.auth.apiUser.trim()))
     ) {
-      Message.warning("请先填写访问令牌和 API User ID");
+      Message.warning(
+        options.draftProvider.identity.protocol === "sub2Api"
+          ? "请先填写访问令牌"
+          : "请先填写访问令牌和 API User ID",
+      );
       return false;
     }
     return true;
+  }
+
+  function isEmptyApiKeyMessage(message: string) {
+    return /站点没有(已有|可用)?\s*API\s*Key|没有已有\s*API\s*Key/i.test(message);
   }
 
   function setAssistantStep(
@@ -594,6 +1024,8 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
 
   return {
     probeSite,
+    selectProtocol,
+    ensureProtocolSelection,
     completeCredentials,
     runCredentialAssistant,
     resetCredentialAssistant,

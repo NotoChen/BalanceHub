@@ -94,6 +94,11 @@
   outline: none;
 }
 
+.workspace-history-launch.selected {
+  background: rgba(22, 93, 255, 0.11);
+  box-shadow: inset 2px 0 #165dff;
+}
+
 .workspace-history-launch:active {
   transform: translateY(1px);
 }
@@ -176,6 +181,7 @@
 
 .workspace-browser {
   display: flex;
+  container: workspace-browser / inline-size;
   flex-direction: column;
   gap: 12px;
   padding: 16px;
@@ -184,7 +190,11 @@
 .workspace-launch-config {
   display: grid;
   min-width: 0;
-  grid-template-columns: auto minmax(150px, 0.8fr) minmax(190px, 1.2fr);
+  grid-template-columns:
+    minmax(112px, 0.7fr)
+    minmax(150px, 0.95fr)
+    minmax(170px, 1.1fr)
+    minmax(155px, 0.95fr);
   align-items: end;
   gap: 10px;
   border-bottom: 1px solid var(--glass-border);
@@ -198,6 +208,10 @@
   gap: 5px;
 }
 
+.workspace-launch-config-kind {
+  min-width: 112px;
+}
+
 .workspace-config-label {
   color: #86909c;
   font-size: 10px;
@@ -205,34 +219,15 @@
   line-height: 1.2;
 }
 
-.workspace-cli-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.workspace-cli-option .brand-icon {
-  width: 14px;
-  height: 14px;
-}
-
-.workspace-cli-radio {
-  display: inline-flex;
-  width: 38px;
-  min-height: 28px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-}
-
-.workspace-cli-radio .arco-radio-label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.workspace-launch-config-kind .environment-icon-selector,
+.workspace-launch-terminal-field .environment-icon-selector {
+  width: 100%;
+  min-width: 0;
 }
 
 .workspace-fixed-credential {
   display: flex;
+  width: 100%;
   min-width: 0;
   min-height: 30px;
   align-items: center;
@@ -261,7 +256,9 @@
 }
 
 .workspace-launch-config-field .arco-select,
-.workspace-launch-model-field .arco-input {
+.workspace-launch-model-field .arco-input,
+.workspace-launch-terminal-field .arco-input {
+  width: 100%;
   min-width: 0;
 }
 
@@ -493,6 +490,16 @@
   }
 }
 
+@media (max-width: 900px) and (min-width: 740px) {
+  .workspace-launch-config {
+    grid-template-columns: auto minmax(145px, 1fr) minmax(145px, 1fr);
+  }
+
+  .workspace-launch-terminal-field {
+    grid-column: 2 / -1;
+  }
+}
+
 @media (max-width: 520px) {
   .workspace-history-header,
   .workspace-browser-toolbar,
@@ -516,6 +523,26 @@
 
   .workspace-launch-config-kind {
     grid-column: auto;
+  }
+}
+
+/* The modal can be narrower than the viewport (for example when the window is
+ * resized), so adapt to the browser column itself instead of relying only on
+ * viewport media queries. Each control then owns a real grid cell and cannot
+ * paint over its neighbour. */
+@container workspace-browser (max-width: 760px) {
+  .workspace-launch-config {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-launch-config-kind {
+    min-width: 0;
+  }
+}
+
+@container workspace-browser (max-width: 520px) {
+  .workspace-launch-config {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
