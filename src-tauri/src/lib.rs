@@ -1,7 +1,6 @@
 mod adapters;
 mod models;
 mod network;
-mod providers;
 mod services;
 mod state;
 mod storage;
@@ -13,9 +12,10 @@ use models::{
     CliRuntimeSnapshot, CodexModelSyncResult, LivenessCliKind, Provider, ProviderApiKeyOption,
     ProviderCapabilityProbeResult, ProviderCheckInRecordsResult, ProviderCheckInResult,
     ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
-    ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
-    ProviderUsageSummary, RefreshResult, TemporaryCliInstance, TemporaryCliLaunchInput,
-    TemporaryCliLaunchResult, TemporaryCliPreference, Workspace, WorkspaceDirectoryListing,
+    ProviderProtocolDetectionResult, ProviderRequestLogsQuery, ProviderRequestLogsResult,
+    ProviderSiteProbeResult, ProviderUsageSummary, RefreshResult, TemporaryCliInstance,
+    TemporaryCliLaunchInput, TemporaryCliLaunchResult, TemporaryCliPreference, Workspace,
+    WorkspaceDirectoryListing,
 };
 use services::liveness::preview_prompts;
 use services::notifications::NotificationSendResult;
@@ -26,11 +26,6 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, WindowEvent,
 };
-
-#[tauri::command]
-fn backend_status() -> &'static str {
-    "ready"
-}
 
 #[tauri::command]
 fn host_platform() -> &'static str {
@@ -99,7 +94,17 @@ fn launch_temporary_cli(
             services::liveness::LivenessRunner::find_claude_cli(&data.settings.claude_cli_path)?
         }
     };
+    let terminal = services::temporary_cli::probe_terminal(input.terminal_kind);
+    if !terminal.available {
+        let detail = terminal.message.trim();
+        return Err(if detail.is_empty() {
+            "所选终端当前不可用，请重新扫描终端".to_string()
+        } else {
+            format!("所选终端当前不可用，请重新扫描终端：{detail}")
+        });
+    }
     let mut launch_settings = data.settings.clone();
+    launch_settings.temporary_cli_terminal_kind = input.terminal_kind;
     match cli_kind {
         LivenessCliKind::Codex => launch_settings.codex_cli_path = cli.path.clone(),
         LivenessCliKind::ClaudeCode => launch_settings.claude_cli_path = cli.path.clone(),
@@ -393,16 +398,10 @@ async fn test_provider_connection(
 }
 
 #[tauri::command]
-async fn probe_cli_environment(
-    app: AppHandle,
-    terminal_kind: Option<models::TemporaryCliTerminalKind>,
-    terminal_command: Option<String>,
-) -> Result<CliEnvironmentProbeResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        ProviderService::new(&app).probe_cli_environment(terminal_kind, terminal_command)
-    })
-    .await
-    .map_err(|err| format!("CLI 探测任务异常: {err}"))?
+async fn probe_cli_environment(app: AppHandle) -> Result<CliEnvironmentProbeResult, String> {
+    tauri::async_runtime::spawn_blocking(move || ProviderService::new(&app).probe_cli_environment())
+        .await
+        .map_err(|err| format!("CLI 探测任务异常: {err}"))?
 }
 
 #[tauri::command]
@@ -416,6 +415,14 @@ async fn probe_provider_site(
     input: ProviderInput,
 ) -> Result<ProviderSiteProbeResult, String> {
     ProviderService::new(&app).probe_site(input).await
+}
+
+#[tauri::command]
+async fn detect_provider_protocol(
+    app: AppHandle,
+    input: ProviderInput,
+) -> ProviderProtocolDetectionResult {
+    ProviderService::new(&app).detect_protocol(input).await
 }
 
 #[tauri::command]
@@ -444,16 +451,6 @@ async fn create_provider_api_key_for_input(
     ProviderService::new(&app)
         .create_api_key_for_input(input, name)
         .await
-}
-
-#[tauri::command]
-async fn generate_provider_access_token(
-    app: AppHandle,
-    id: String,
-) -> Result<Vec<Provider>, String> {
-    let providers = ProviderService::new(&app).generate_access_token(id).await?;
-    tray::refresh_from_state(&app);
-    Ok(providers)
 }
 
 #[tauri::command]
@@ -687,7 +684,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            backend_status,
             host_platform,
             open_ccswitch_deeplink,
             launch_temporary_cli,
@@ -710,11 +706,11 @@ pub fn run() {
             test_provider_connection,
             probe_cli_environment,
             preview_liveness_prompts,
+            detect_provider_protocol,
             probe_provider_site,
             list_provider_api_keys,
             create_provider_api_key,
             create_provider_api_key_for_input,
-            generate_provider_access_token,
             generate_provider_access_token_for_input,
             delete_provider_api_key,
             get_provider_usage,

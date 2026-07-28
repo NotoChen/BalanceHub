@@ -10,18 +10,18 @@ use reqwest::{
 use serde::Deserialize;
 use serde_json::Value;
 
-#[path = "newapi_checkin/records.rs"]
+#[path = "check_in/records.rs"]
 mod records;
 
-use super::newapi_http::{
+use super::http::{
     access_token_fallback_provider, apply_auth_headers, apply_session_cookie, build_url,
     normalize_base_url, provider_is_anyrouter, should_retry_with_access_token, USER_AGENT_VALUE,
 };
-use super::newapi_response::{
+use super::response::{
     cloudflare_challenge_message, is_cloudflare_challenge, parse_success_data, send_text,
     trim_message,
 };
-use super::newapi_site::{apply_site_metadata, fetch_site_metadata, site_metadata_from_provider};
+use super::site::{apply_site_metadata, fetch_site_metadata, site_metadata_from_provider};
 
 #[derive(Debug, Deserialize)]
 struct SignInResponse {

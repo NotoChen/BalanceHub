@@ -1,19 +1,23 @@
 use crate::{
-    adapters::newapi::NewApiAdapter,
-    models::{normalize_api_key, Provider, ProviderApiKeyOption, ProviderAuth, ProviderInput},
+    adapters::protocol::ProtocolAdapter,
+    models::{
+        normalize_api_key_for_protocol, Provider, ProviderApiKeyOption, ProviderAuth,
+        ProviderInput, ProviderProtocol,
+    },
     util::unix_millis as current_timestamp_millis,
 };
 
-use super::{find_provider, ProviderService};
+use super::{find_provider, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn list_api_keys(&self, id: String) -> Result<Vec<ProviderApiKeyOption>, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        let options = NewApiAdapter
+        let request_context = ProviderRequestContext::capture(&provider);
+        let options = ProtocolAdapter
             .list_api_keys(&data.settings, &provider)
             .await?;
-        self.persist_api_key_options(&id, &options, None)?;
+        self.persist_api_key_options(&request_context, &options, None)?;
         Ok(options)
     }
 
@@ -24,12 +28,13 @@ impl<'a> ProviderService<'a> {
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        let adapter = NewApiAdapter;
+        let request_context = ProviderRequestContext::capture(&provider);
+        let adapter = ProtocolAdapter;
         adapter
             .create_api_key(&data.settings, &provider, &name)
             .await?;
         let options = adapter.list_api_keys(&data.settings, &provider).await?;
-        self.persist_api_key_options(&id, &options, None)?;
+        self.persist_api_key_options(&request_context, &options, None)?;
         Ok(options)
     }
 
@@ -44,7 +49,7 @@ impl<'a> ProviderService<'a> {
             .clone()
             .unwrap_or_else(|| format!("provider-{}", current_timestamp_millis()));
         let provider = Provider::from_input(input, provider_id);
-        NewApiAdapter
+        ProtocolAdapter
             .create_api_key(&data.settings, &provider, &name)
             .await
     }
@@ -56,53 +61,68 @@ impl<'a> ProviderService<'a> {
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;
-        let adapter = NewApiAdapter;
+        let request_context = ProviderRequestContext::capture(&provider);
+        let adapter = ProtocolAdapter;
         adapter
             .delete_api_key(&data.settings, &provider, &token_id)
             .await?;
         let options = adapter.list_api_keys(&data.settings, &provider).await?;
-        self.persist_api_key_options(&id, &options, Some(&token_id))?;
+        self.persist_api_key_options(&request_context, &options, Some(&token_id))?;
         Ok(options)
     }
 
     fn persist_api_key_options(
         &self,
-        id: &str,
+        request_context: &ProviderRequestContext,
         options: &[ProviderApiKeyOption],
         removed_token_id: Option<&str>,
     ) -> Result<(), String> {
-        self.mutate(|data| {
+        let persisted = self.mutate(|data| {
             if let Some(provider) = data
                 .providers
                 .iter_mut()
-                .find(|provider| provider.identity.id == id)
+                .find(|provider| request_context.matches(provider))
             {
-                sync_api_key_options(&mut provider.auth, options, removed_token_id);
+                sync_api_key_options(
+                    &mut provider.auth,
+                    provider.identity.protocol,
+                    options,
+                    removed_token_id,
+                );
+                true
+            } else {
+                false
             }
-        })
+        })?;
+        if persisted {
+            Ok(())
+        } else {
+            Err("本地配置已变更，本次 API Key 结果已忽略".to_string())
+        }
     }
 }
 
 fn sync_api_key_options(
     auth: &mut ProviderAuth,
+    protocol: ProviderProtocol,
     options: &[ProviderApiKeyOption],
     removed_token_id: Option<&str>,
 ) {
     let removed_token_id = removed_token_id.unwrap_or("").trim();
-    let current_key = normalize_api_key(&auth.api_key);
+    let current_key = normalize_api_key_for_protocol(&auth.api_key, protocol);
     let current_token_id = auth.api_key_token_id.trim().to_string();
     let mut previous_options = auth.api_key_options.clone();
     if !current_key.is_empty() {
-        let mut current = ProviderApiKeyOption::current(&current_key);
+        let mut current = ProviderApiKeyOption::current_for_protocol(&current_key, protocol);
         current.token_id = current_token_id.clone();
         previous_options.push(current);
     }
     let mut cached = options
         .iter()
         .cloned()
-        .map(ProviderApiKeyOption::normalize)
+        .map(|option| option.normalize_for_protocol(protocol))
         .collect::<Vec<_>>();
-    ProviderApiKeyOption::merge_cached_key_material(&mut cached, &previous_options);
+    ProviderApiKeyOption::merge_cached_key_material(&mut cached, &previous_options, protocol);
 
     let selected = cached
         .iter()
@@ -139,7 +159,7 @@ fn sync_api_key_options(
     } else if !current_key.is_empty() && !cached.iter().any(|option| option.key == current_key) {
         // The list endpoint is intentionally capped at 100 items. Keep a
         // previously revealed primary key when it falls outside that window.
-        let mut current = ProviderApiKeyOption::current(&current_key);
+        let mut current = ProviderApiKeyOption::current_for_protocol(&current_key, protocol);
         current.token_id = current_token_id.clone();
         cached.insert(0, current);
         auth.api_key = current_key;
@@ -161,8 +181,13 @@ fn sync_api_key_options(
 mod tests {
     use super::*;
 
-    fn option(token_id: &str, key: &str, name: &str) -> ProviderApiKeyOption {
-        let mut option = ProviderApiKeyOption::current(key);
+    fn option(
+        protocol: ProviderProtocol,
+        token_id: &str,
+        key: &str,
+        name: &str,
+    ) -> ProviderApiKeyOption {
+        let mut option = ProviderApiKeyOption::current_for_protocol(key, protocol);
         option.token_id = token_id.to_string();
         option.name = name.to_string();
         option
@@ -171,9 +196,14 @@ mod tests {
     #[test]
     fn sync_selects_the_only_available_key() {
         let mut auth = ProviderInput::default().auth;
-        let only = option("11", "sk-only", "Only");
+        let only = option(ProviderProtocol::NewApi, "11", "sk-only", "Only");
 
-        sync_api_key_options(&mut auth, std::slice::from_ref(&only), None);
+        sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::NewApi,
+            std::slice::from_ref(&only),
+            None,
+        );
 
         assert_eq!(auth.api_key, "sk-only");
         assert_eq!(auth.api_key_token_id, "11");
@@ -184,11 +214,11 @@ mod tests {
     fn sync_keeps_multiple_keys_unselected() {
         let mut auth = ProviderInput::default().auth;
         let options = vec![
-            option("11", "sk-first", "First"),
-            option("12", "sk-second", "Second"),
+            option(ProviderProtocol::NewApi, "11", "sk-first", "First"),
+            option(ProviderProtocol::NewApi, "12", "sk-second", "Second"),
         ];
 
-        sync_api_key_options(&mut auth, &options, None);
+        sync_api_key_options(&mut auth, ProviderProtocol::NewApi, &options, None);
 
         assert!(auth.api_key.is_empty());
         assert!(auth.api_key_token_id.is_empty());
@@ -200,7 +230,12 @@ mod tests {
         let mut auth = ProviderInput::default().auth;
         auth.api_key = "sk-secret".to_string();
         auth.api_key_token_id = "11".to_string();
-        auth.api_key_options = vec![option("11", "sk-secret", "Old name")];
+        auth.api_key_options = vec![option(
+            ProviderProtocol::NewApi,
+            "11",
+            "sk-secret",
+            "Old name",
+        )];
         let remote = ProviderApiKeyOption {
             name: "New name".to_string(),
             masked_key: "sk-s**********cret".to_string(),
@@ -209,7 +244,12 @@ mod tests {
             ..ProviderApiKeyOption::default()
         };
 
-        sync_api_key_options(&mut auth, std::slice::from_ref(&remote), None);
+        sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::NewApi,
+            std::slice::from_ref(&remote),
+            None,
+        );
 
         assert_eq!(auth.api_key, "sk-secret");
         assert_eq!(auth.api_key_token_id, "11");
@@ -225,10 +265,15 @@ mod tests {
         let mut auth = ProviderInput::default().auth;
         auth.api_key = "sk-older".to_string();
         auth.api_key_token_id = "101".to_string();
-        auth.api_key_options = vec![option("101", "sk-older", "Older")];
-        let remote = option("1", "sk-newer", "Newer");
+        auth.api_key_options = vec![option(ProviderProtocol::NewApi, "101", "sk-older", "Older")];
+        let remote = option(ProviderProtocol::NewApi, "1", "sk-newer", "Newer");
 
-        sync_api_key_options(&mut auth, std::slice::from_ref(&remote), None);
+        sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::NewApi,
+            std::slice::from_ref(&remote),
+            None,
+        );
 
         assert_eq!(auth.api_key, "sk-older");
         assert_eq!(auth.api_key_token_id, "101");
@@ -243,16 +288,49 @@ mod tests {
         let mut auth = ProviderInput::default().auth;
         auth.api_key = "sk-removed".to_string();
         auth.api_key_token_id = "11".to_string();
-        auth.api_key_options = vec![option("11", "sk-removed", "Removed")];
+        auth.api_key_options = vec![option(
+            ProviderProtocol::NewApi,
+            "11",
+            "sk-removed",
+            "Removed",
+        )];
         let replacements = vec![
-            option("12", "sk-replacement", "Replacement"),
-            option("13", "sk-other", "Other"),
+            option(
+                ProviderProtocol::NewApi,
+                "12",
+                "sk-replacement",
+                "Replacement",
+            ),
+            option(ProviderProtocol::NewApi, "13", "sk-other", "Other"),
         ];
 
-        sync_api_key_options(&mut auth, &replacements, Some("11"));
+        sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::NewApi,
+            &replacements,
+            Some("11"),
+        );
 
         assert!(auth.api_key.is_empty());
         assert!(auth.api_key_token_id.is_empty());
         assert_eq!(auth.api_key_options, replacements);
+    }
+
+    #[test]
+    fn sync_preserves_sub2api_custom_key_prefix() {
+        let mut auth = ProviderInput::default().auth;
+        auth.api_key = "custom-sub2-key".to_string();
+        auth.api_key_token_id = "21".to_string();
+        let remote = option(ProviderProtocol::Sub2Api, "21", "custom-sub2-key", "Custom");
+
+        sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::Sub2Api,
+            std::slice::from_ref(&remote),
+            None,
+        );
+
+        assert_eq!(auth.api_key, "custom-sub2-key");
+        assert_eq!(auth.api_key_options[0].key, "custom-sub2-key");
     }
 }

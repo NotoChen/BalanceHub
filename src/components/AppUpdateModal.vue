@@ -122,7 +122,6 @@ function handleVisibleChange(visible: boolean) {
       <div class="app-update-footer">
         <p>安装完成后应用将自动重启。</p>
         <div class="app-update-actions">
-          <a-button :disabled="installing" @click="emit('dismiss')">稍后</a-button>
           <a-button type="primary" :loading="installing" @click="emit('install')">
             {{ installing ? "正在更新" : "安装并重启" }}
           </a-button>

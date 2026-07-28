@@ -2,18 +2,28 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { selectProviderModels } from "../utils/provider-models";
 
-const props = defineProps<{
-  models: string[] | null | undefined;
-}>();
+const props = withDefaults(
+  defineProps<{
+    models: string[] | null | undefined;
+    rows?: 2 | 5;
+  }>(),
+  {
+    rows: 2,
+  },
+);
 
 const MODEL_GAP = 5;
-const MODEL_MEASURE_LIMIT = 32;
+const DEFAULT_MODEL_MEASURE_LIMIT = 32;
+const EXPANDED_MODEL_MEASURE_LIMIT = 72;
 
-const selection = computed(() => selectProviderModels(props.models, MODEL_MEASURE_LIMIT));
+const modelMeasureLimit = computed(() =>
+  props.rows === 5 ? EXPANDED_MODEL_MEASURE_LIMIT : DEFAULT_MODEL_MEASURE_LIMIT,
+);
+const selection = computed(() => selectProviderModels(props.models, modelMeasureLimit.value));
 const availableModelCount = computed(() =>
   selection.value.groups.reduce((count, group) => count + group.models.length, 0),
 );
-const visibleModelCount = ref(MODEL_MEASURE_LIMIT);
+const visibleModelCount = ref(modelMeasureLimit.value);
 const visibleModels = computed(() =>
   selection.value.models.slice(0, visibleModelCount.value),
 );
@@ -27,7 +37,7 @@ const modelMeasureMoreRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 let measureFrame: number | null = null;
 
-function fitsWithinTwoRows(widths: number[], availableWidth: number) {
+function fitsWithinRows(widths: number[], availableWidth: number) {
   let row = 1;
   let usedWidth = 0;
 
@@ -42,7 +52,7 @@ function fitsWithinTwoRows(widths: number[], availableWidth: number) {
       continue;
     }
     row += 1;
-    if (row > 2) {
+    if (row > props.rows) {
       return false;
     }
     usedWidth = width;
@@ -76,7 +86,7 @@ function measureModelPreview() {
       more.textContent = `+${hidden}`;
       widths.push(more.offsetWidth);
     }
-    if (fitsWithinTwoRows(widths, list.clientWidth)) {
+    if (fitsWithinRows(widths, list.clientWidth)) {
       visibleModelCount.value = count;
       return;
     }
@@ -111,7 +121,7 @@ async function resetModelPreview() {
   scheduleModelMeasure();
 }
 
-watch(selection, () => {
+watch([selection, () => props.rows], () => {
   void resetModelPreview();
 });
 
@@ -134,7 +144,12 @@ onBeforeUnmount(() => {
       <span>{{ availableModelCount > 0 ? `${availableModelCount} 个` : "未同步" }}</span>
     </div>
 
-    <div v-if="selection.models.length" ref="modelListRef" class="provider-card-model-list">
+    <div
+      v-if="selection.models.length"
+      ref="modelListRef"
+      class="provider-card-model-list"
+      :class="{ 'provider-card-model-list-five-rows': rows === 5 }"
+    >
       <span
         v-for="model in visibleModels"
         :key="model.name"
@@ -151,7 +166,13 @@ onBeforeUnmount(() => {
         +{{ hiddenModelCount }}
       </span>
     </div>
-    <span v-else class="provider-card-model-empty">暂未获取模型列表</span>
+    <span
+      v-else
+      class="provider-card-model-empty"
+      :class="{ 'provider-card-model-empty-five-rows': rows === 5 }"
+    >
+      暂未获取模型列表
+    </span>
 
     <div
       v-if="selection.models.length"

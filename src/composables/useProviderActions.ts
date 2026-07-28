@@ -32,6 +32,14 @@ interface UseProviderActionsOptions {
 
 export function useProviderActions(options: UseProviderActionsOptions) {
   const probingCapabilitiesProviderId = ref<string | null>(null);
+  const capabilityProbeVisible = ref(false);
+  const capabilityProbeProviderId = ref<string | null>(null);
+  const capabilityProbeRunning = ref(false);
+  const capabilityProbeError = ref("");
+  const capabilityProbeResultMessage = ref("");
+  const capabilityProbeStartedAt = ref<number | null>(null);
+  const capabilityProbeFinishedAt = ref<number | null>(null);
+  const inviteCopyingProviderId = ref<string | null>(null);
   const livenessDetailsVisible = ref(false);
   const livenessDetailsProviderId = ref<string | null>(null);
   const {
@@ -42,12 +50,15 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     getInviteLink: options.getInviteLink,
     reload: options.reload,
     setBusyProviderId: (id) => {
-      probingCapabilitiesProviderId.value = id;
+      inviteCopyingProviderId.value = id;
     },
   });
 
   const livenessDetailsProvider = computed(() =>
     options.providers.value.find((provider) => provider.identity.id === livenessDetailsProviderId.value) ?? null,
+  );
+  const capabilityProbeProvider = computed(() =>
+    options.providers.value.find((provider) => provider.identity.id === capabilityProbeProviderId.value) ?? null,
   );
 
   function editProvider(provider: Provider) {
@@ -96,9 +107,31 @@ export function useProviderActions(options: UseProviderActionsOptions) {
       return;
     }
 
+    if (capabilityProbeRunning.value) {
+      const activeProvider = capabilityProbeProvider.value;
+      Message.info(
+        activeProvider
+          ? `正在探测“${activeProvider.identity.name}”，请等待当前任务完成`
+          : "站点能力探测正在运行，请等待当前任务完成",
+      );
+      return;
+    }
+
+    capabilityProbeProviderId.value = provider.identity.id;
+    capabilityProbeVisible.value = true;
+
     probingCapabilitiesProviderId.value = provider.identity.id;
+    capabilityProbeRunning.value = true;
+    capabilityProbeError.value = "";
+    capabilityProbeResultMessage.value = "";
+    capabilityProbeStartedAt.value = Date.now();
+    capabilityProbeFinishedAt.value = null;
     try {
       const result = await options.probeCapabilities(provider.identity.id);
+      if (capabilityProbeProviderId.value !== provider.identity.id) {
+        return;
+      }
+      capabilityProbeResultMessage.value = result.message || "站点能力已探测";
       const errorMessage = result.provider.capabilities.errorMessage?.trim();
       if (errorMessage) {
         Message.warning(`站点能力已探测，部分能力不可用：${errorMessage}`);
@@ -106,9 +139,22 @@ export function useProviderActions(options: UseProviderActionsOptions) {
         Message.success(result.message || "站点能力已探测");
       }
     } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
+      if (capabilityProbeProviderId.value === provider.identity.id) {
+        capabilityProbeError.value = error instanceof Error ? error.message : String(error);
+        Message.error(capabilityProbeError.value);
+      }
     } finally {
-      probingCapabilitiesProviderId.value = null;
+      if (capabilityProbeProviderId.value === provider.identity.id) {
+        capabilityProbeRunning.value = false;
+        capabilityProbeFinishedAt.value = Date.now();
+        probingCapabilitiesProviderId.value = null;
+      }
+    }
+  }
+
+  function retryCapabilityProbe() {
+    if (capabilityProbeProvider.value && !capabilityProbeRunning.value) {
+      void probeProviderCapabilities(capabilityProbeProvider.value);
     }
   }
 
@@ -182,6 +228,14 @@ export function useProviderActions(options: UseProviderActionsOptions) {
 
   return {
     probingCapabilitiesProviderId,
+    capabilityProbeVisible,
+    capabilityProbeProvider,
+    capabilityProbeRunning,
+    capabilityProbeError,
+    capabilityProbeResultMessage,
+    capabilityProbeStartedAt,
+    capabilityProbeFinishedAt,
+    retryCapabilityProbe,
     livenessDetailsVisible,
     livenessDetailsProvider,
     editProvider,

@@ -2,8 +2,8 @@ use crate::models::Provider;
 use reqwest::{Client, Method};
 use serde_json::json;
 
-use super::newapi_http::{build_url, build_user_request, provider_user_management_context};
-use super::newapi_response::{parse_success_data, send_text};
+use super::http::{build_url, build_user_request, provider_user_management_context};
+use super::response::{parse_success_data, send_text};
 
 pub async fn change_user_password(
     client: &Client,

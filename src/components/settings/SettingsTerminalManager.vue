@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { IconLoading } from "@arco-design/web-vue/es/icon";
-import { hostPlatform } from "../../api/app";
-import { useProviderStore, type AppSettings, type TemporaryCliTerminalKind } from "../../stores/providers";
-import { temporaryCliTerminalOptionsForPlatform } from "../../utils/liveness-options";
+import { computed, onMounted, ref, watch } from "vue";
+import { IconLoading, IconRefresh } from "@arco-design/web-vue/es/icon";
+import { useProviderStore, type AppSettings } from "../../stores/providers";
+import {
+  applyCliEnvironmentProbeResult,
+  availableTerminalOptions,
+  availableTerminalResults,
+  captureCliEnvironmentSettings,
+} from "../../utils/cli-environment";
 import TerminalBrandIcon from "../TerminalBrandIcon.vue";
+import TerminalIconSelector from "../TerminalIconSelector.vue";
 import SettingsDetectionGrid from "./SettingsDetectionGrid.vue";
 import SettingsDetectionItem from "./SettingsDetectionItem.vue";
 
@@ -13,76 +18,40 @@ const props = defineProps<{
 }>();
 
 const store = useProviderStore();
-const platform = ref("macos");
 const probeError = ref("");
-let probeTimer: ReturnType<typeof setTimeout> | null = null;
 
-const terminal = computed(() => store.cliEnvironmentProbe?.terminal ?? null);
-const terminalOptions = computed(() => temporaryCliTerminalOptionsForPlatform(platform.value));
-const terminalIconKind = computed<TemporaryCliTerminalKind>(() =>
-  terminal.value?.available ? terminal.value.kind : props.settings.temporaryCliTerminalKind,
-);
-const terminalName = computed(() => {
-  if (terminal.value?.name) return terminal.value.name;
-  return (
-    terminalOptions.value.find((option) => option.value === props.settings.temporaryCliTerminalKind)
-      ?.label ?? "终端"
-  );
-});
-const terminalStateLabel = computed(() => {
-  if (store.cliEnvironmentLoading) return "检测中";
-  return terminal.value?.available ? "可用" : "未检测到";
-});
-
-function itemState() {
-  if (store.cliEnvironmentLoading) return "checking";
-  return terminal.value?.available ? "ok" : "error";
-}
-
-function resultText() {
-  if (store.cliEnvironmentLoading) return "正在检测";
-  if (terminal.value?.available) return terminal.value.version || "已检测";
-  return terminal.value?.message || "未检测到";
-}
+const terminals = computed(() => availableTerminalResults(store.cliEnvironmentProbe));
+const terminalOptions = computed(() => availableTerminalOptions(store.cliEnvironmentProbe));
 
 async function runProbe() {
   if (store.cliEnvironmentLoading) return;
   probeError.value = "";
+  const settingsAtStart = captureCliEnvironmentSettings(props.settings);
   try {
-    await store.probeCliEnvironment(
-      props.settings.temporaryCliTerminalKind,
-      props.settings.temporaryCliTerminalCommand,
-    );
+    const result = await store.probeCliEnvironment();
+    applyCliEnvironmentProbeResult(props.settings, result, settingsAtStart);
   } catch (error) {
     probeError.value = error instanceof Error ? error.message : String(error);
   }
 }
 
-function scheduleProbe() {
-  if (probeTimer) clearTimeout(probeTimer);
-  probeTimer = setTimeout(() => {
-    probeTimer = null;
-    void runProbe();
-  }, 350);
-}
-
 watch(
-  () => [props.settings.temporaryCliTerminalKind, props.settings.temporaryCliTerminalCommand],
-  scheduleProbe,
+  terminalOptions,
+  (options) => {
+    if (
+      options.length > 0 &&
+      !options.some((option) => option.value === props.settings.temporaryCliTerminalKind)
+    ) {
+      props.settings.temporaryCliTerminalKind = options[0].value;
+    }
+  },
+  { immediate: true },
 );
 
-onMounted(async () => {
-  try {
-    platform.value = await hostPlatform();
-  } catch {
-    platform.value = "macos";
-  }
+onMounted(() => {
   if (!store.cliEnvironmentProbe) void runProbe();
 });
 
-onUnmounted(() => {
-  if (probeTimer) clearTimeout(probeTimer);
-});
 </script>
 
 <template>
@@ -93,37 +62,47 @@ onUnmounted(() => {
         <i v-else />
         自动检测
       </span>
-      <span>{{ terminalStateLabel }}</span>
+      <span class="settings-terminal-summary">
+        {{ terminals.length }} 个可用
+        <a-tooltip content="重新扫描 Agent 与终端">
+          <a-button
+            shape="circle"
+            size="mini"
+            :loading="store.cliEnvironmentLoading"
+            aria-label="重新扫描 Agent 与终端"
+            @click="runProbe"
+          >
+            <template #icon><IconRefresh /></template>
+          </a-button>
+        </a-tooltip>
+      </span>
     </header>
 
-    <SettingsDetectionGrid>
+    <SettingsDetectionGrid v-if="terminals.length > 0">
       <SettingsDetectionItem
-        :state="itemState()"
-        :name="terminalName"
-        :detail="resultText()"
+        v-for="terminal in terminals"
+        :key="terminal.kind"
+        state="ok"
+        :name="terminal.name"
+        :detail="terminal.version || '已检测'"
       >
         <template #icon>
-          <TerminalBrandIcon :kind="terminalIconKind" :name="terminalName" :size="26" />
+          <TerminalBrandIcon :kind="terminal.kind" :name="terminal.name" :size="26" />
         </template>
       </SettingsDetectionItem>
     </SettingsDetectionGrid>
-
-    <div class="settings-terminal-preference">
-      <span>启动终端</span>
-      <a-select
-        v-model="settings.temporaryCliTerminalKind"
-        :options="terminalOptions"
-        size="small"
-      />
-      <a-input
-        v-if="settings.temporaryCliTerminalKind === 'custom'"
-        v-model="settings.temporaryCliTerminalCommand"
-        size="small"
-        placeholder="输入终端启动命令"
-        allow-clear
-      />
+    <div v-else class="settings-terminal-empty">
+      {{ store.cliEnvironmentLoading ? "正在扫描本机终端" : "未检测到可用终端" }}
     </div>
 
+    <div v-if="terminalOptions.length > 0" class="settings-terminal-preference">
+      <span>启动终端</span>
+      <TerminalIconSelector
+        v-model="settings.temporaryCliTerminalKind"
+        :options="terminalOptions"
+        :loading="store.cliEnvironmentLoading && !store.cliEnvironmentProbe"
+      />
+    </div>
     <div v-if="probeError" class="settings-terminal-error">{{ probeError }}</div>
   </div>
 </template>
@@ -138,6 +117,7 @@ onUnmounted(() => {
 
 .settings-terminal-head,
 .settings-terminal-mode,
+.settings-terminal-summary,
 .settings-terminal-preference {
   display: flex;
   min-width: 0;
@@ -156,6 +136,10 @@ onUnmounted(() => {
   font-weight: 650;
 }
 
+.settings-terminal-summary {
+  gap: 7px;
+}
+
 .settings-terminal-mode > i {
   width: 7px;
   height: 7px;
@@ -172,6 +156,9 @@ onUnmounted(() => {
   width: 100%;
   max-width: 510px;
   gap: 10px;
+}
+
+.settings-terminal-preference {
   border-top: 1px solid var(--color-border-2);
   padding-top: 11px;
 }
@@ -183,14 +170,19 @@ onUnmounted(() => {
   font-weight: 650;
 }
 
-.settings-terminal-preference > .arco-select {
-  width: 180px;
-  flex: 0 0 auto;
+.settings-terminal-preference > :deep(.environment-icon-selector) {
+  flex: 1;
 }
 
-.settings-terminal-preference > .arco-input-wrapper {
-  min-width: 180px;
-  flex: 1;
+.settings-terminal-empty {
+  display: flex;
+  min-height: 74px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--color-border-2);
+  border-radius: 6px;
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 
 .settings-terminal-error {
@@ -208,9 +200,5 @@ onUnmounted(() => {
     flex-direction: column;
   }
 
-  .settings-terminal-preference > .arco-select,
-  .settings-terminal-preference > .arco-input-wrapper {
-    width: 100%;
-  }
 }
 </style>

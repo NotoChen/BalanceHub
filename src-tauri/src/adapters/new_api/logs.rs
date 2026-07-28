@@ -6,13 +6,13 @@ use chrono::{DateTime, Local};
 use reqwest::{Client, Method};
 use serde_json::Value;
 
-use super::newapi_http::{
+use super::http::{
     build_url, build_user_request, provider_user_management_context, UserCredential,
 };
-use super::newapi_response::{
+use super::response::{
     extract_f64_field, extract_i64_field, extract_string_field, parse_success_data, send_text,
 };
-use super::newapi_site::{
+use super::site::{
     convert_quota_value, fetch_site_metadata, site_metadata_from_provider, SiteMetadata,
 };
 
@@ -184,7 +184,7 @@ fn extract_total(data: &Value) -> Option<i64> {
     )
 }
 
-fn normalize_log_item(item: Value, site: &super::newapi_site::SiteMetadata) -> ProviderRequestLog {
+fn normalize_log_item(item: Value, site: &super::site::SiteMetadata) -> ProviderRequestLog {
     let raw_quota = extract_i64_field(&item, &["quota", "Quota"])
         .or_else(|| extract_f64_field(&item, &["quota", "Quota"]).map(|value| value as i64))
         .unwrap_or(0);

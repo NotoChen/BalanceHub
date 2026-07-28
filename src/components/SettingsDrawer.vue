@@ -194,13 +194,6 @@ function saveStateLabel(state: SettingsSaveState) {
           </div>
         </div>
 
-        <footer class="settings-panel-footer">
-          <div class="settings-panel-footer-inner">
-            <div class="drawer-footer">
-              <a-button type="secondary" @click="emit('update:visible', false)">关闭</a-button>
-            </div>
-          </div>
-        </footer>
       </main>
     </div>
   </a-modal>

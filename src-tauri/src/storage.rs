@@ -1,5 +1,5 @@
 use crate::models::{
-    normalize_api_key, normalize_invite_link, normalize_provider_auth, AppData,
+    normalize_api_key_for_protocol, normalize_invite_link, normalize_provider_auth, AppData,
     CURRENT_SCHEMA_VERSION,
 };
 use std::{
@@ -207,6 +207,60 @@ fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String
             }
             Ok(())
         }
+        6 => {
+            if let Some(settings) = data
+                .get_mut("settings")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                let removed_terminal_mode = settings
+                    .get("temporaryCliTerminalKind")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|kind| matches!(kind, "auto" | "systemDefault" | "custom"));
+                if removed_terminal_mode {
+                    settings.insert(
+                        "temporaryCliTerminalKind".to_string(),
+                        serde_json::to_value(crate::models::TemporaryCliTerminalKind::default())
+                            .map_err(|err| format!("生成默认终端配置失败: {err}"))?,
+                    );
+                }
+                settings.remove("temporaryCliTerminalCommand");
+            }
+            if let Some(providers) = data
+                .get_mut("providers")
+                .and_then(|value| value.as_array_mut())
+            {
+                for provider in providers {
+                    let Some(object) = provider.as_object_mut() else {
+                        continue;
+                    };
+                    if let Some(identity) = object
+                        .get_mut("identity")
+                        .and_then(serde_json::Value::as_object_mut)
+                    {
+                        identity
+                            .entry("protocol")
+                            .or_insert_with(|| serde_json::Value::String("newApi".to_string()));
+                    }
+                    // 认证来源(source)成为一等字段：从旧 mode 推导 —— 账号密码是一种来源，
+                    // 其余（会话 Cookie / 访问令牌 / API Key）都是「手动粘贴」。
+                    if let Some(auth) = object
+                        .get_mut("auth")
+                        .and_then(serde_json::Value::as_object_mut)
+                    {
+                        let source = if auth.get("mode").and_then(serde_json::Value::as_str)
+                            == Some("password")
+                        {
+                            "password"
+                        } else {
+                            "manual"
+                        };
+                        auth.entry("source")
+                            .or_insert_with(|| serde_json::Value::String(source.to_string()));
+                    }
+                }
+            }
+            Ok(())
+        }
         other => Err(format!(
             "没有从 schemaVersion {other} 出发的迁移路径，请重新初始化配置或导入新版配置"
         )),
@@ -310,12 +364,13 @@ fn normalize_provider_cached_values(data: &mut AppData) -> bool {
 
     for provider in &mut data.providers {
         let current_auth = provider.auth.clone();
-        provider.auth = normalize_provider_auth(current_auth.clone());
+        provider.auth = normalize_provider_auth(current_auth.clone(), provider.identity.protocol);
         if provider.auth != current_auth {
             changed = true;
         }
 
-        let normalized = normalize_api_key(&provider.auth.api_key);
+        let normalized =
+            normalize_api_key_for_protocol(&provider.auth.api_key, provider.identity.protocol);
         if normalized != provider.auth.api_key {
             provider.auth.api_key = normalized;
             changed = true;
@@ -426,6 +481,61 @@ mod tests {
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
         assert!(migrated.providers[0].auth.api_key_token_id.is_empty());
         assert!(migrated.providers[0].auth.api_key_options.is_empty());
+    }
+
+    #[test]
+    fn schema_six_migration_adds_newapi_protocol() {
+        let mut old = AppData {
+            schema_version: 6,
+            ..AppData::default()
+        };
+        old.providers.push(crate::models::Provider::from_input(
+            crate::models::ProviderInput::default(),
+            "provider-test".to_string(),
+        ));
+        let mut value = serde_json::to_value(old).expect("app data should serialize");
+        value["providers"][0]["identity"]
+            .as_object_mut()
+            .expect("provider identity should be an object")
+            .remove("protocol");
+
+        let migrated = migrate_app_data(
+            &serde_json::to_string(&value).expect("legacy app data should serialize"),
+            6,
+        )
+        .expect("schema six should migrate");
+
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            migrated.providers[0].identity.protocol,
+            crate::models::ProviderProtocol::NewApi
+        );
+    }
+
+    #[test]
+    fn schema_six_migration_replaces_removed_terminal_modes() {
+        for removed_mode in ["auto", "systemDefault", "custom"] {
+            let old = AppData {
+                schema_version: 6,
+                ..AppData::default()
+            };
+            let mut value = serde_json::to_value(old).expect("app data should serialize");
+            value["settings"]["temporaryCliTerminalKind"] =
+                serde_json::Value::String(removed_mode.to_string());
+            value["settings"]["temporaryCliTerminalCommand"] =
+                serde_json::Value::String("legacy terminal command".to_string());
+
+            let migrated = migrate_app_data(
+                &serde_json::to_string(&value).expect("legacy app data should serialize"),
+                6,
+            )
+            .expect("removed terminal mode should migrate");
+
+            assert_eq!(
+                migrated.settings.temporary_cli_terminal_kind,
+                crate::models::TemporaryCliTerminalKind::default()
+            );
+        }
     }
 
     #[test]

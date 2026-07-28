@@ -10,9 +10,12 @@
 }
 
 .provider-board {
-  --provider-grid-card-min: 280px;
+  /* Full footer width: 16px auth icon + 282px actions + 8px gap + 30px chrome. */
+  --provider-grid-card-min: 336px;
+  --provider-grid-card-max: 336px;
   width: 100%;
   align-content: start;
+  padding: 16px 20px 24px;
 }
 
 .provider-board-toolbar {
@@ -124,18 +127,24 @@
 .overview-provider-grid {
   display: grid;
   min-width: 0;
-  align-items: stretch;
+  align-items: start;
+  align-content: start;
   justify-content: start;
+  grid-auto-rows: max-content;
   grid-template-columns: repeat(
     auto-fit,
-    minmax(min(100%, var(--provider-grid-card-min)), 1fr)
+    minmax(min(100%, var(--provider-grid-card-min)), var(--provider-grid-card-max))
   );
   gap: 16px;
   overflow: visible;
 }
 
 .overview-provider-grid > * {
+  align-self: start;
+  width: 100%;
+  max-width: var(--provider-grid-card-max);
   min-width: 0;
+  justify-self: start;
 }
 
 .provider-board-section {

@@ -1,16 +1,19 @@
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import type {
   Provider,
   ProviderApiKeyOption,
   ProviderConnectionTestResult,
   ProviderInput,
+  ProviderProtocolDetectionResult,
   ProviderSiteProbeResult,
 } from "../stores/providers";
 import { emptyDraft, providerToInput } from "../utils/provider-input";
 import { normalizeProviderBaseUrl } from "./provider-editor-shared";
+import type { ProtocolSelectionSource } from "./provider-editor-shared";
 
 export function useProviderEditorState() {
   const drawerVisible = ref(false);
+  const editorSession = ref(0);
   const editingProviderId = ref<string | null>(null);
   const completingCredentials = ref(false);
   const testingConnection = ref(false);
@@ -20,6 +23,9 @@ export function useProviderEditorState() {
   const apiKeyOptions = ref<ProviderApiKeyOption[]>([]);
   const connectionTestResult = ref<ProviderConnectionTestResult | null>(null);
   const siteProbeResult = ref<ProviderSiteProbeResult | null>(null);
+  const protocolDetectionResult = ref<ProviderProtocolDetectionResult | null>(null);
+  const protocolSelectionSource = ref<ProtocolSelectionSource>("auto");
+  const protocolSelectionBaseUrl = ref("");
   const draftProvider = reactive<ProviderInput>(emptyDraft());
   // 可用模型属于运行时能力数据，不写入 ProviderInput；仅作为编辑器的候选项。
   const availableModels = ref<string[]>([]);
@@ -27,24 +33,41 @@ export function useProviderEditorState() {
 
   const drawerTitle = computed(() => (editingProviderId.value ? "编辑中转站" : "添加中转站"));
 
+  watch(drawerVisible, (visible, previous) => {
+    if (!visible && previous) {
+      editorSession.value += 1;
+    }
+  });
+
   function resetDraft() {
+    completingCredentials.value = false;
+    testingConnection.value = false;
+    probingSite.value = false;
     Object.assign(draftProvider, emptyDraft());
     credentialCompletionMessage.value = "";
     credentialCompletionSteps.value = [];
     apiKeyOptions.value = [];
     connectionTestResult.value = null;
     siteProbeResult.value = null;
+    protocolDetectionResult.value = null;
+    protocolSelectionSource.value = "auto";
+    protocolSelectionBaseUrl.value = "";
     availableModels.value = [];
     siteNameSourceBaseUrl.value = "";
   }
 
   function openAddProvider() {
+    editorSession.value += 1;
     editingProviderId.value = null;
     resetDraft();
     drawerVisible.value = true;
   }
 
   function openEditProvider(provider: Provider) {
+    editorSession.value += 1;
+    completingCredentials.value = false;
+    testingConnection.value = false;
+    probingSite.value = false;
     editingProviderId.value = provider.identity.id;
     Object.assign(draftProvider, providerToInput(provider));
     availableModels.value = [...(provider.capabilities.availableModels || [])];
@@ -53,6 +76,9 @@ export function useProviderEditorState() {
     setApiKeyOptions(provider.auth.apiKeyOptions || []);
     connectionTestResult.value = null;
     siteProbeResult.value = null;
+    protocolDetectionResult.value = null;
+    protocolSelectionSource.value = "saved";
+    protocolSelectionBaseUrl.value = normalizeProviderBaseUrl(provider.identity.baseUrl);
     siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(provider.identity.baseUrl);
     drawerVisible.value = true;
   }
@@ -112,6 +138,7 @@ export function useProviderEditorState() {
 
   return {
     drawerVisible,
+    editorSession,
     editingProviderId,
     completingCredentials,
     testingConnection,
@@ -121,6 +148,9 @@ export function useProviderEditorState() {
     apiKeyOptions,
     connectionTestResult,
     siteProbeResult,
+    protocolDetectionResult,
+    protocolSelectionSource,
+    protocolSelectionBaseUrl,
     draftProvider,
     availableModels,
     siteNameSourceBaseUrl,

@@ -1,0 +1,319 @@
+.capability-probe-modal .arco-modal-body {
+  padding: 20px 22px 22px;
+}
+
+.capability-probe-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.capability-probe-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--surface-line);
+  border-radius: 7px;
+  background: var(--surface-panel-soft);
+  padding: 13px 14px;
+}
+
+.capability-probe-summary-main {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.capability-probe-summary-main > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.capability-probe-summary strong {
+  color: var(--surface-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.capability-probe-summary span:not(.capability-probe-status-dot) {
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+}
+
+.capability-probe-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.capability-probe-summary.is-running .capability-probe-status-dot {
+  background: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  animation: capability-probe-pulse 1.2s ease-in-out infinite;
+}
+
+.capability-probe-summary.is-success .capability-probe-status-dot {
+  background: #16836a;
+}
+
+.capability-probe-summary.is-partial .capability-probe-status-dot {
+  background: #b7791f;
+}
+
+.capability-probe-summary.is-error .capability-probe-status-dot {
+  background: #d14b57;
+}
+
+.capability-probe-progress {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #e8edf3;
+}
+
+.capability-probe-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: #2563eb;
+}
+
+.capability-probe-progress.running > span {
+  width: 36%;
+  animation: capability-probe-progress 1.35s ease-in-out infinite;
+}
+
+.capability-probe-progress.complete > span {
+  width: 100%;
+  background: #16836a;
+  transition: width 220ms ease;
+}
+
+.capability-probe-context {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--surface-line);
+  border-radius: 7px;
+  background: var(--surface-panel);
+}
+
+.capability-probe-context > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 10px 12px;
+}
+
+.capability-probe-context > div + div {
+  border-left: 1px solid var(--surface-line);
+}
+
+.capability-probe-context span {
+  color: var(--surface-muted);
+  font-size: 10px;
+}
+
+.capability-probe-context strong {
+  overflow: hidden;
+  color: var(--surface-ink-soft);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capability-probe-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.capability-probe-step {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border: 1px solid var(--surface-line);
+  border-radius: 7px;
+  background: var(--surface-panel);
+  padding: 12px;
+}
+
+.capability-probe-step-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 7px;
+  background: #eef2f7;
+  color: #64748b;
+  font-size: 16px;
+}
+
+.capability-probe-step-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.capability-probe-step-copy > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.capability-probe-step-copy strong {
+  color: var(--surface-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.capability-probe-step-state {
+  flex: 0 0 auto;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 19px;
+  padding: 0 6px;
+}
+
+.capability-probe-step-copy p {
+  min-height: 32px;
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.capability-probe-step-copy code {
+  overflow: hidden;
+  color: #5b6b7f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capability-probe-step.is-running .capability-probe-step-icon,
+.capability-probe-step.is-running .capability-probe-step-state {
+  background: #eaf1ff;
+  color: #2563eb;
+}
+
+.capability-probe-step.is-supported .capability-probe-step-icon,
+.capability-probe-step.is-supported .capability-probe-step-state {
+  background: #e9f5ef;
+  color: #16836a;
+}
+
+.capability-probe-step.is-unsupported .capability-probe-step-icon,
+.capability-probe-step.is-unsupported .capability-probe-step-state,
+.capability-probe-step.is-skipped .capability-probe-step-icon,
+.capability-probe-step.is-skipped .capability-probe-step-state {
+  background: #f2f4f7;
+  color: #778396;
+}
+
+.capability-probe-step.is-error .capability-probe-step-icon,
+.capability-probe-step.is-error .capability-probe-step-state {
+  background: #faecee;
+  color: #b73d49;
+}
+
+.capability-probe-footnote {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.capability-probe-footnote svg {
+  flex: 0 0 auto;
+  font-size: 14px;
+}
+
+.capability-probe-title .surface-modal-title-meta.is-running {
+  border-color: rgba(37, 99, 235, 0.25);
+  background: #eaf1ff;
+  color: #2563eb;
+}
+
+.capability-probe-title .surface-modal-title-meta.is-success {
+  border-color: rgba(22, 131, 106, 0.22);
+  background: #e9f5ef;
+  color: #16836a;
+}
+
+.capability-probe-title .surface-modal-title-meta.is-partial {
+  border-color: rgba(183, 121, 31, 0.24);
+  background: #fff6e5;
+  color: #9b6518;
+}
+
+.capability-probe-title .surface-modal-title-meta.is-error {
+  border-color: rgba(209, 75, 87, 0.24);
+  background: #faecee;
+  color: #b73d49;
+}
+
+@keyframes capability-probe-progress {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
+
+@keyframes capability-probe-pulse {
+  50% { box-shadow: 0 0 0 7px rgba(37, 99, 235, 0); }
+}
+
+@media (max-width: 680px) {
+  .capability-probe-context,
+  .capability-probe-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .capability-probe-context > div + div {
+    border-top: 1px solid var(--surface-line);
+    border-left: 0;
+  }
+}
+
+:root.theme-dark .capability-probe-progress {
+  background: #2a3747;
+}
+
+:root.theme-dark .capability-probe-summary,
+:root.theme-dark .capability-probe-context,
+:root.theme-dark .capability-probe-step {
+  border-color: var(--surface-line);
+  background: var(--surface-panel-soft);
+}
+
+:root.theme-dark .capability-probe-step-icon,
+:root.theme-dark .capability-probe-step-state {
+  background: #293646;
+  color: #9aabbe;
+}
+
+:root.theme-dark .capability-probe-step-copy code {
+  color: #92a2b5;
+}

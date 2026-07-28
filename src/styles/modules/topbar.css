@@ -29,6 +29,105 @@
   -webkit-app-region: drag;
 }
 
+.topbar-filters {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+.topbar-filters * {
+  -webkit-app-region: no-drag;
+}
+
+.topbar-filter-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: #86909c;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.topbar-filter-button:hover,
+.topbar-filter-button:focus-visible {
+  border-color: var(--topbar-filter-border, rgba(22, 93, 255, 0.2));
+  background: var(--topbar-filter-bg, rgba(22, 93, 255, 0.08));
+  color: var(--topbar-filter-color, #165dff);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.topbar-filter-button:active {
+  transform: translateY(0) scale(0.94);
+}
+
+.topbar-filter-button.active {
+  border-color: var(--topbar-filter-border, rgba(22, 93, 255, 0.22));
+  background: var(--topbar-filter-bg, rgba(22, 93, 255, 0.11));
+  color: var(--topbar-filter-color, #165dff);
+}
+
+.topbar-filter-button.reset-active {
+  border-color: rgba(22, 93, 255, 0.2);
+  background: rgba(22, 93, 255, 0.07);
+  color: #165dff;
+}
+
+.topbar-filter-account {
+  --topbar-filter-color: #5f7894;
+  --topbar-filter-bg: rgba(95, 120, 148, 0.12);
+  --topbar-filter-border: rgba(95, 120, 148, 0.24);
+}
+
+.topbar-filter-api-key {
+  --topbar-filter-color: #00a870;
+  --topbar-filter-bg: rgba(0, 168, 112, 0.12);
+  --topbar-filter-border: rgba(0, 168, 112, 0.24);
+}
+
+.topbar-filter-warning {
+  --topbar-filter-color: #d99000;
+  --topbar-filter-bg: rgba(217, 144, 0, 0.13);
+  --topbar-filter-border: rgba(217, 144, 0, 0.25);
+}
+
+.topbar-filter-error {
+  --topbar-filter-color: #e34d59;
+  --topbar-filter-bg: rgba(227, 77, 89, 0.12);
+  --topbar-filter-border: rgba(227, 77, 89, 0.24);
+}
+
+.topbar-filter-divider {
+  width: 1px;
+  height: 17px;
+  flex: 0 0 1px;
+  margin: 0 3px;
+  background: var(--glass-border);
+}
+
+.topbar-filter-active-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  margin-left: 1px;
+  border-radius: 50%;
+  background: #165dff;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.1);
+}
+
 .topbar-actions {
   gap: 6px;
   -webkit-app-region: no-drag;

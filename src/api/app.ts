@@ -13,6 +13,7 @@ import type {
   ProviderCredentialCompletionResult,
   ProviderConnectionTestResult,
   ProviderInput,
+  ProviderProtocolDetectionResult,
   ProviderRequestLogsQuery,
   ProviderRequestLogsResult,
   ProviderSiteProbeResult,
@@ -116,18 +117,16 @@ export function probeProviderSite(input: ProviderInput) {
   return invoke<ProviderSiteProbeResult>("probe_provider_site", { input });
 }
 
+export function detectProviderProtocol(input: ProviderInput) {
+  return invoke<ProviderProtocolDetectionResult>("detect_provider_protocol", { input });
+}
+
 export function testProviderConnection(input: ProviderInput) {
   return invoke<ProviderConnectionTestResult>("test_provider_connection", { input });
 }
 
-export function probeCliEnvironment(
-  terminalKind?: AppSettings["temporaryCliTerminalKind"],
-  terminalCommand?: string,
-) {
-  return invoke<CliEnvironmentProbeResult>("probe_cli_environment", {
-    terminalKind,
-    terminalCommand,
-  });
+export function probeCliEnvironment() {
+  return invoke<CliEnvironmentProbeResult>("probe_cli_environment");
 }
 
 export function previewLivenessPrompts(settings: AppSettings, count = 10) {

@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use super::defaults;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
-    default_true, AuthMode, LivenessCliKind, LivenessIntervalMode, LivenessPromptMode,
+    default_true, AuthMode, AuthSource, LivenessCliKind, LivenessIntervalMode, LivenessPromptMode,
     LivenessRecord, ProviderApiKeyOption, ProviderCheckInRecord, ProviderNotificationMode,
-    ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
+    ProviderProtocol, ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +31,8 @@ pub struct ProviderIdentity {
     pub name: String,
     pub base_url: String,
     #[serde(default)]
+    pub protocol: ProviderProtocol,
+    #[serde(default)]
     pub display_name: String,
     #[serde(default)]
     pub username: String,
@@ -47,6 +49,8 @@ pub struct ProviderIdentity {
 pub struct ProviderIdentityInput {
     pub name: String,
     pub base_url: String,
+    #[serde(default)]
+    pub protocol: ProviderProtocol,
     #[serde(default)]
     pub backup_urls: Vec<String>,
 }
@@ -69,6 +73,9 @@ pub struct ProviderCliInput {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAuth {
     pub mode: AuthMode,
+    /// 主凭据的来源：手动 / 账号密码 / OAuth。与 mode（凭据种类）正交。
+    #[serde(default)]
+    pub source: AuthSource,
     pub api_key: String,
     #[serde(default)]
     pub api_key_token_id: String,
@@ -81,6 +88,12 @@ pub struct ProviderAuth {
     pub login_username: String,
     #[serde(default)]
     pub login_password: String,
+    /// Sub2API 刷新令牌（滚动轮换）；仅在持久化的刷新路径中使用，避免重用攻击。
+    #[serde(default)]
+    pub refresh_token: String,
+    /// access_token 过期时刻（unix 秒）；None 表示未知（NewAPI 等无此概念）。
+    #[serde(default)]
+    pub access_token_expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +101,10 @@ pub struct ProviderAuth {
 pub struct ProviderQuota {
     pub available: f64,
     pub used: f64,
+    #[serde(default = "default_true")]
+    pub known: bool,
+    #[serde(default = "default_true")]
+    pub total_known: bool,
     #[serde(default)]
     pub scope: ProviderQuotaScope,
     #[serde(default)]

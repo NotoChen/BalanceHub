@@ -1,73 +1,107 @@
-.temporary-cli-drawer {
+.temporary-cli-modal {
+  max-height: calc(100dvh - 44px);
+}
+
+.temporary-cli-modal .arco-modal-body {
+  max-height: calc(100dvh - 132px);
+  overflow: auto;
+  padding: 0 22px 22px;
+}
+
+.temporary-cli-modal-title {
+  min-width: 0;
+}
+
+.temporary-cli-modal-content {
   display: grid;
   min-height: 240px;
-  gap: 14px;
+  gap: 16px;
 }
 
 .temporary-cli-toolbar {
   display: flex;
-  min-height: 42px;
+  min-height: 46px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid var(--glass-border);
-  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-line);
+  padding: 14px 0 12px;
 }
 
 .temporary-cli-summary {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 6px;
+  gap: 7px;
 }
 
 .temporary-cli-summary strong {
-  color: #1d2129;
-  font-size: 22px;
+  color: var(--surface-ink);
+  font-size: 24px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 740;
   line-height: 1;
 }
 
 .temporary-cli-summary span {
-  color: #4e5969;
-  font-size: 13px;
-  font-weight: 600;
+  overflow: hidden;
+  color: var(--surface-ink-soft);
+  font-size: 12px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.temporary-cli-summary small {
-  color: #86909c;
-  font-size: 11px;
+.temporary-cli-refresh {
+  flex: 0 0 auto;
+}
+
+.temporary-cli-loading {
+  min-width: 0;
 }
 
 .temporary-cli-list {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  align-items: start;
+  justify-content: start;
+  gap: 12px;
 }
 
 .temporary-cli-instance {
   display: grid;
   min-width: 0;
-  gap: 12px;
-  border: 1px solid var(--glass-border);
-  border-left: 3px solid #c9cdd4;
-  border-radius: 6px;
-  background: var(--glass-card);
-  padding: 12px 13px;
+  gap: 14px;
+  border: 1px solid var(--surface-line);
+  border-left: 3px solid #cbd5e1;
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+  padding: 14px;
+  transition:
+    border-color 180ms var(--surface-ease),
+    box-shadow 180ms var(--surface-ease),
+    transform 180ms var(--surface-ease);
+}
+
+.temporary-cli-instance:hover {
+  border-color: #b9c8dc;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
 }
 
 .temporary-cli-instance-starting {
-  border-left-color: #f7ba1e;
+  border-left-color: var(--surface-warning);
 }
 
 .temporary-cli-instance-running {
-  border-left-color: #00b42a;
+  border-left-color: var(--surface-success);
 }
 
 .temporary-cli-instance-header,
 .temporary-cli-instance-name,
 .temporary-cli-instance-actions {
   display: flex;
+  min-width: 0;
   align-items: center;
 }
 
@@ -77,126 +111,217 @@
 }
 
 .temporary-cli-instance-name {
-  min-width: 0;
-  gap: 9px;
+  gap: 10px;
 }
 
-.temporary-cli-kind-icon {
+.temporary-cli-agent-icon {
   display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
   place-items: center;
-  border-radius: 6px;
-  background: rgba(22, 93, 255, 0.09);
-  color: #165dff;
-  font-size: 16px;
-}
-
-.temporary-cli-kind-icon .brand-icon {
-  width: 20px;
-  height: 20px;
+  border: 1px solid #dbe5f2;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .temporary-cli-instance-name > div {
   display: grid;
   min-width: 0;
-  gap: 1px;
+  gap: 4px;
 }
 
 .temporary-cli-instance-name strong {
-  color: #1d2129;
+  overflow: hidden;
+  color: var(--surface-ink);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 720;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.temporary-cli-instance-name span:not(.temporary-cli-kind-icon) {
-  color: #86909c;
+.temporary-cli-terminal {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--surface-muted);
   font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-terminal .terminal-brand-icon {
+  width: 17px;
+  height: 17px;
 }
 
 .temporary-cli-status {
   flex: 0 0 auto;
-  border-radius: 4px;
-  background: #f2f3f5;
-  color: #86909c;
-  font-size: 11px;
-  font-weight: 650;
+  border: 1px solid var(--surface-line);
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 720;
   line-height: 22px;
   padding: 0 7px;
 }
 
 .temporary-cli-status-starting {
-  background: rgba(247, 186, 30, 0.13);
-  color: #b87a00;
+  border-color: rgba(183, 121, 31, 0.24);
+  background: #fff8e8;
+  color: var(--surface-warning);
 }
 
 .temporary-cli-status-running {
-  background: rgba(0, 180, 42, 0.1);
-  color: #008f24;
+  border-color: rgba(22, 131, 106, 0.22);
+  background: #edf9f5;
+  color: var(--surface-success);
+}
+
+.temporary-cli-workdir {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 18px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 9px;
+  border-top: 1px solid var(--surface-line);
+  border-bottom: 1px solid var(--surface-line);
+  padding: 10px 0;
+  color: var(--surface-accent);
+}
+
+.temporary-cli-workdir > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.temporary-cli-workdir > div > span {
+  color: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.temporary-cli-workdir strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--surface-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-copy {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--surface-line-strong);
+  border-radius: 7px;
+  background: var(--surface-panel);
+  color: var(--surface-muted);
+  cursor: pointer;
+  transition:
+    border-color 180ms var(--surface-ease),
+    background 180ms var(--surface-ease),
+    color 180ms var(--surface-ease),
+    transform 180ms var(--surface-ease);
+}
+
+.temporary-cli-copy:hover,
+.temporary-cli-copy:focus-visible {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.temporary-cli-copy:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.temporary-cli-copy svg {
+  width: 14px;
+  height: 14px;
 }
 
 .temporary-cli-details {
   display: grid;
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px 16px;
+  gap: 12px;
   margin: 0;
 }
 
 .temporary-cli-details > div {
   display: grid;
   min-width: 0;
-  gap: 2px;
-}
-
-.temporary-cli-workdir {
-  grid-column: 1 / -1;
+  gap: 4px;
 }
 
 .temporary-cli-details dt {
   display: flex;
   align-items: center;
-  gap: 4px;
-  color: #86909c;
+  gap: 5px;
+  color: var(--surface-muted);
   font-size: 10px;
-  line-height: 1.3;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.temporary-cli-details dt svg {
+  width: 13px;
+  height: 13px;
 }
 
 .temporary-cli-details dd {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  line-height: 1.4;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.temporary-cli-workdir dd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 11px;
-}
-
 .temporary-cli-instance-actions {
   justify-content: flex-end;
-  gap: 8px;
-  border-top: 1px solid var(--glass-border);
-  padding-top: 10px;
+  border-top: 1px solid var(--surface-line);
+  padding-top: 11px;
 }
 
 .temporary-cli-activate-action {
   display: inline-flex;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 620px) {
+  .temporary-cli-modal .arco-modal-body {
+    padding: 0 14px 14px;
+  }
+
+  .temporary-cli-modal-title .surface-modal-title-meta {
+    display: none;
+  }
+
   .temporary-cli-details {
     grid-template-columns: minmax(0, 1fr);
   }
+}
 
-  .temporary-cli-workdir {
-    grid-column: auto;
+@media (prefers-reduced-motion: reduce) {
+  .temporary-cli-instance,
+  .temporary-cli-copy {
+    transition: none;
   }
 }

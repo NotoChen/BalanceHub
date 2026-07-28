@@ -1,3 +1,5 @@
+use crate::models::ProviderProtocol;
+
 pub fn check_in_message_indicates_disabled(message: &str) -> bool {
     let normalized = message.trim().to_ascii_lowercase();
     if normalized.is_empty() {
@@ -39,15 +41,7 @@ pub fn check_in_message_indicates_disabled(message: &str) -> bool {
 }
 
 pub fn normalize_api_key(raw: &str) -> String {
-    let mut text = raw.trim();
-    // 用 get(..7) 安全取前缀：若第 7 字节不在字符边界返回 None，避免直接按字节切片 panic。
-    if text
-        .get(..7)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("bearer "))
-    {
-        text = text[7..].trim();
-    }
-
+    let text = normalize_api_key_literal(raw);
     if text.is_empty() {
         return String::new();
     }
@@ -57,10 +51,33 @@ pub fn normalize_api_key(raw: &str) -> String {
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("sk-"));
 
     if has_key_prefix || text.contains('*') {
-        text.to_string()
+        text
     } else {
         format!("sk-{text}")
     }
+}
+
+pub fn normalize_api_key_for_protocol(raw: &str, protocol: ProviderProtocol) -> String {
+    match protocol {
+        // NewAPI 的 token 接口常返回不带 sk- 的值，客户端调用网关时需要补齐。
+        ProviderProtocol::NewApi => normalize_api_key(raw),
+        // Sub2API 的 Key 前缀由服务端配置决定，且允许无 sk- 的自定义 Key；通用
+        // OpenAI 兼容接口同样不能假设前缀格式，因此两者都保留完整原值。
+        ProviderProtocol::Sub2Api | ProviderProtocol::Api => normalize_api_key_literal(raw),
+    }
+}
+
+pub fn normalize_api_key_literal(raw: &str) -> String {
+    let mut text = raw.trim();
+    // 用 get(..7) 安全取前缀：若第 7 字节不在字符边界返回 None，避免直接按字节切片 panic。
+    if text
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("bearer "))
+    {
+        text = text[7..].trim();
+    }
+
+    text.to_string()
 }
 
 pub fn normalize_invite_link(raw: &str) -> String {
@@ -144,4 +161,41 @@ pub(super) fn session_value(raw: &str) -> String {
     }
 
     text.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generic_protocol_preserves_non_newapi_key_formats() {
+        assert_eq!(
+            normalize_api_key_for_protocol("  gsk_custom-key  ", ProviderProtocol::Api),
+            "gsk_custom-key"
+        );
+        assert_eq!(
+            normalize_api_key_for_protocol("Bearer key-without-sk-prefix", ProviderProtocol::Api,),
+            "key-without-sk-prefix"
+        );
+    }
+
+    #[test]
+    fn newapi_keeps_key_prefix_normalization() {
+        assert_eq!(
+            normalize_api_key_for_protocol("plain-key", ProviderProtocol::NewApi),
+            "sk-plain-key"
+        );
+    }
+
+    #[test]
+    fn sub2api_preserves_server_defined_key_prefixes() {
+        assert_eq!(
+            normalize_api_key_for_protocol("plain-key", ProviderProtocol::Sub2Api),
+            "plain-key"
+        );
+        assert_eq!(
+            normalize_api_key_for_protocol("custom-sub2-key", ProviderProtocol::Sub2Api),
+            "custom-sub2-key"
+        );
+    }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   IconCalendarClock,
   IconCommand,
@@ -15,6 +15,8 @@ import type {
   ProviderInput,
   ProviderNotificationMode,
 } from "../../stores/providers";
+import { useProviderStore } from "../../stores/providers";
+import { availableCliOptions } from "../../utils/cli-environment";
 import {
   durationUnitOptions,
   durationValueToSeconds,
@@ -25,10 +27,10 @@ import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
 import {
   codexIntervalModeOptions,
   codexPromptModeOptions,
-  livenessCliKindOptions,
   providerProxyModeOptions,
   type SelectOption,
 } from "./options";
+import CliIconSelector from "../CliIconSelector.vue";
 
 type LivenessMode = "global" | "custom" | "disabled";
 
@@ -38,6 +40,9 @@ const props = defineProps<{
   availableModels: string[];
   initiallyExpanded?: boolean;
 }>();
+
+const store = useProviderStore();
+const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe));
 
 const refreshUnit = ref<DurationUnit>("minute");
 const fixedLivenessUnit = ref<DurationUnit>("minute");
@@ -131,6 +136,19 @@ const livenessCliKindModel = computed({
     props.draft.liveness.cliKind = value;
   },
 });
+
+watch(
+  cliOptions,
+  (options) => {
+    if (
+      options.length > 0 &&
+      !options.some((option) => option.value === livenessCliKindModel.value)
+    ) {
+      livenessCliKindModel.value = options[0].value;
+    }
+  },
+  { immediate: true },
+);
 
 const fixedLivenessAmount = computed({
   get: () => secondsToDurationValue(props.draft.liveness.interval, fixedLivenessUnit.value),
@@ -254,8 +272,12 @@ function minLivenessAmount(unit: DurationUnit) {
 
         <div v-if="livenessMode === 'custom'" class="provider-policy-reveal provider-liveness-fields">
           <div class="provider-field-grid provider-field-grid-three">
-            <a-form-item class="provider-field" label="执行 CLI">
-              <a-select v-model="livenessCliKindModel" :options="livenessCliKindOptions" />
+            <a-form-item class="provider-field" label="执行 Agent">
+              <CliIconSelector
+                v-model="livenessCliKindModel"
+                :options="cliOptions"
+                :loading="store.cliEnvironmentLoading && !store.cliEnvironmentProbe"
+              />
             </a-form-item>
             <a-form-item class="provider-field" label="模型">
               <a-input v-model="draft.liveness.model" placeholder="留空跟随全局" allow-clear />

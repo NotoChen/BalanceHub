@@ -4,16 +4,20 @@ import AppUpdateModal from "./AppUpdateModal.vue";
 import ApiKeyManagerModal from "./ApiKeyManagerModal.vue";
 import AvailableModelsModal from "./AvailableModelsModal.vue";
 import CheckInCalendarModal from "./CheckInCalendarModal.vue";
+import CapabilityProbeModal from "./CapabilityProbeModal.vue";
 import LivenessDetailsModal from "./LivenessDetailsModal.vue";
 import PasswordChangeModal from "./PasswordChangeModal.vue";
 import RequestLogsModal from "./RequestLogsModal.vue";
+import TemporaryCliModal from "./TemporaryCliModal.vue";
 import UsageTrendModal from "./UsageTrendModal.vue";
 import type {
+  LivenessCliKind,
   Provider,
   ProviderApiKeyOption,
   ProviderCheckInRecordsResult,
   ProviderRequestLogsResult,
   ProviderUsageSummary,
+  TemporaryCliInstance,
 } from "../stores/providers";
 import type { UsagePeriod } from "../utils/usage-trend";
 
@@ -39,10 +43,21 @@ defineProps<{
   passwordChangeProvider: Provider | null;
   passwordChangeLoading: boolean;
   livenessDetailsProvider: Provider | null;
+  cliRuntimeLoading: boolean;
+  cliInstancesProvider: Provider | null;
+  cliInstancesKind: LivenessCliKind | null;
+  cliInstances: TemporaryCliInstance[];
+  activatingCliInstanceId: string | null;
   checkInRecordsProvider: Provider | null;
   checkInRecordsLoading: boolean;
   checkInRecordsResult: ProviderCheckInRecordsResult | null;
   checkInRecordsError: string;
+  capabilityProbeProvider: Provider | null;
+  capabilityProbeRunning: boolean;
+  capabilityProbeError: string;
+  capabilityProbeResultMessage: string;
+  capabilityProbeStartedAt: number | null;
+  capabilityProbeFinishedAt: number | null;
   updateDialogVisible: boolean;
   availableUpdateCurrentVersion: string;
   availableUpdateVersion: string;
@@ -60,7 +75,6 @@ const emit = defineEmits<{
   refreshApiKeyManager: [];
   openApiKeyCreateModal: [];
   createManagedApiKey: [];
-  useManagedApiKey: [option: ProviderApiKeyOption];
   copyManagedApiKey: [option: ProviderApiKeyOption];
   deleteManagedApiKey: [option: ProviderApiKeyOption];
   refreshAvailableModels: [];
@@ -72,7 +86,10 @@ const emit = defineEmits<{
   setRequestLogsPage: [page: number];
   setRequestLogsPageSize: [pageSize: number];
   submitPasswordChange: [originalPassword: string, password: string];
+  refreshCliRuntime: [];
+  activateCliInstance: [instance: TemporaryCliInstance];
   loadCheckInRecords: [options?: { force?: boolean }];
+  retryCapabilityProbe: [];
   dismissUpdate: [];
   installUpdate: [];
 }>();
@@ -86,8 +103,10 @@ const usagePeriod = defineModel<UsagePeriod>("usagePeriod", { required: true });
 const requestLogsVisible = defineModel<boolean>("requestLogsVisible", { required: true });
 const passwordChangeVisible = defineModel<boolean>("passwordChangeVisible", { required: true });
 const livenessDetailsVisible = defineModel<boolean>("livenessDetailsVisible", { required: true });
+const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { required: true });
 const checkInRecordsVisible = defineModel<boolean>("checkInRecordsVisible", { required: true });
 const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { required: true });
+const capabilityProbeVisible = defineModel<boolean>("capabilityProbeVisible", { required: true });
 </script>
 
 <template>
@@ -124,7 +143,6 @@ const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { require
     @refresh="emit('refreshApiKeyManager')"
     @show-create="emit('openApiKeyCreateModal')"
     @create="emit('createManagedApiKey')"
-    @use="emit('useManagedApiKey', $event)"
     @copy="emit('copyManagedApiKey', $event)"
     @delete="emit('deleteManagedApiKey', $event)"
   />
@@ -173,6 +191,17 @@ const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { require
     :provider="livenessDetailsProvider"
   />
 
+  <TemporaryCliModal
+    v-model:visible="cliInstancesVisible"
+    :provider="cliInstancesProvider"
+    :cli-kind="cliInstancesKind"
+    :loading="cliRuntimeLoading"
+    :instances="cliInstances"
+    :activating-id="activatingCliInstanceId"
+    @refresh="emit('refreshCliRuntime')"
+    @activate="emit('activateCliInstance', $event)"
+  />
+
   <CheckInCalendarModal
     v-model:visible="checkInRecordsVisible"
     v-model:month="checkInRecordsMonth"
@@ -181,5 +210,16 @@ const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { require
     :result="checkInRecordsResult"
     :error="checkInRecordsError"
     @refresh="emit('loadCheckInRecords', { force: true })"
+  />
+
+  <CapabilityProbeModal
+    v-model:visible="capabilityProbeVisible"
+    :provider="capabilityProbeProvider"
+    :running="capabilityProbeRunning"
+    :error="capabilityProbeError"
+    :result-message="capabilityProbeResultMessage"
+    :started-at="capabilityProbeStartedAt"
+    :finished-at="capabilityProbeFinishedAt"
+    @retry="emit('retryCapabilityProbe')"
   />
 </template>

@@ -9,8 +9,8 @@ use reqwest::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-use super::newapi_http::build_url;
-use super::newapi_response::trim_message;
+use super::http::build_url;
+use super::response::trim_message;
 
 const DEFAULT_UPSTREAM: &str = "https://anyrouter.top";
 const USER_AGENT_VALUE: &str = concat!(
@@ -30,7 +30,7 @@ pub async fn check_in_provider(
     provider: &Provider,
 ) -> Result<ProviderCheckInResult, String> {
     let upstream = normalize_base_url(Some(&provider.identity.base_url), DEFAULT_UPSTREAM);
-    if !super::newapi::is_anyrouter_base_url(&upstream) {
+    if !super::adapter::is_anyrouter_base_url(&upstream) {
         return Err("当前中转站不是 AnyRouter 地址".to_string());
     }
 
@@ -434,7 +434,7 @@ fn normalize_session_value(raw: &str) -> String {
     text.to_string()
 }
 
-// build_url 统一复用 newapi_http 的实现：Url::join 对以 "/" 开头的 path 会
+// build_url 统一复用 http 的实现：Url::join 对以 "/" 开头的 path 会
 // 整段替换 base 的 path，子路径部署（如 https://host/relay）会被截断到根路径。
 
 #[cfg(test)]

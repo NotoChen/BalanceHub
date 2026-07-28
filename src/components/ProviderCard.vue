@@ -27,9 +27,10 @@ import {
 } from "@lucide/vue";
 import ProviderLivenessTimeline from "./ProviderLivenessTimeline.vue";
 import ProviderModelPreview from "./ProviderModelPreview.vue";
-import BrandIcon, { type BrandIconName } from "./BrandIcon.vue";
+import BrandIcon from "./BrandIcon.vue";
 import ProviderAuthIcon from "./ProviderAuthIcon.vue";
-import type { LivenessCliKind, Provider } from "../stores/providers";
+import { useProviderStore, type LivenessCliKind, type Provider } from "../stores/providers";
+import { availableCliKinds, cliKindMeta } from "../utils/cli-environment";
 import {
   availablePercent,
   availablePercentLabel,
@@ -41,7 +42,11 @@ import {
   providerIdentitySecondaryUsername,
   providerIdentityUsername,
   providerQuotaScopeLabel,
+  providerQuotaKnown,
+  providerQuotaTotalKnown,
+  providerProtocolLabel,
   providerQuotaUnlimited,
+  maskApiKey,
   supportsApiKeyManagement,
   supportsAccountManagement,
   supportsCheckIn,
@@ -55,6 +60,7 @@ import {
   type CcSwitchAppTarget,
 } from "../utils/ccswitch-deeplink";
 import newApiLogo from "../assets/logos/new-api.png";
+import sub2ApiLogo from "../assets/logos/sub2api.svg";
 import ccSwitchLogo from "../assets/logos/cc-switch.png";
 
 const props = withDefaults(
@@ -70,7 +76,8 @@ const props = withDefaults(
     showLivenessTimeline?: boolean;
     codexDefault?: boolean;
     claudeDefault?: boolean;
-    activeCliCount?: number;
+    codexActiveCliCount?: number;
+    claudeActiveCliCount?: number;
     switchingCliKind?: LivenessCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
@@ -87,7 +94,8 @@ const props = withDefaults(
     showLivenessTimeline: false,
     codexDefault: false,
     claudeDefault: false,
-    activeCliCount: 0,
+    codexActiveCliCount: 0,
+    claudeActiveCliCount: 0,
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
@@ -100,7 +108,7 @@ const emit = defineEmits<{
   click: [provider: Provider, event: MouseEvent];
   pointerdown: [provider: Provider, event: PointerEvent];
   enter: [provider: Provider, event: KeyboardEvent];
-  openCliInstances: [provider: Provider];
+  openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
   switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
   probeCapabilities: [provider: Provider];
   openApiKeyManager: [provider: Provider];
@@ -122,6 +130,11 @@ const emit = defineEmits<{
   remove: [provider: Provider];
 }>();
 
+const store = useProviderStore();
+const detectedCliKinds = computed(() => availableCliKinds(store.cliEnvironmentProbe));
+const codexDetected = computed(() => detectedCliKinds.value.includes("codex"));
+const claudeDetected = computed(() => detectedCliKinds.value.includes("claudeCode"));
+
 const toneLabels: Record<Exclude<ProviderCardTone, "disabled">, string> = {
   ok: "正常",
   pending: "待同步",
@@ -142,6 +155,25 @@ const identityDisplayName = computed(
 );
 const identityUsername = computed(() => providerIdentitySecondaryUsername(props.provider));
 const identityId = computed(() => providerIdentityId(props.provider));
+const isApiKeyAuth = computed(() => props.provider.auth.mode === "apiKey");
+const isGenericApi = computed(() => props.provider.identity.protocol === "api");
+const identityEmptyLabel = computed(() =>
+  props.provider.identity.protocol === "api" ? "通用模型接口" : "用户信息未同步",
+);
+const apiKeyMasked = computed(() => maskApiKey(props.provider.auth.apiKey));
+const apiKeyConfigured = computed(() => Boolean(props.provider.auth.apiKey.trim()));
+const providerUrlDisplay = computed(() =>
+  props.provider.identity.baseUrl
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, ""),
+);
+const providerHeaderTitle = computed(() => props.provider.identity.name);
+const providerHeaderSubtitle = computed(() => providerProtocolLabel(props.provider.identity.protocol));
+const showProviderStatus = computed(() => !isApiKeyAuth.value || props.tone !== "ok");
+const refreshActionTitle = computed(() =>
+  props.provider.identity.protocol === "api" ? "刷新模型列表" : "刷新额度",
+);
 const quotaTone = computed(() => {
   if (providerQuotaUnlimited(props.provider)) {
     return "unlimited";
@@ -160,8 +192,14 @@ const canSwitchCliConfig = computed(() =>
 );
 const canLaunchTemporaryCli = computed(() =>
   Boolean(
+    detectedCliKinds.value.length > 0 &&
     props.provider.identity.baseUrl.trim() &&
       (props.provider.auth.apiKey.trim() || supportsApiKeyManagement(props.provider)),
+  ),
+);
+const switchableCliKinds = computed(() =>
+  detectedCliKinds.value.filter(
+    (kind) => !(kind === "codex" ? props.codexDefault : props.claudeDefault),
   ),
 );
 const hasCopyActions = computed(() =>
@@ -208,7 +246,7 @@ const hasSiteActions = computed(
     canChangePassword.value,
 );
 const showCliConfigAction = computed(
-  () => canSwitchCliConfig.value && !(props.codexDefault && props.claudeDefault),
+  () => canSwitchCliConfig.value && switchableCliKinds.value.length > 0,
 );
 const hasSecondaryActions = computed(
   () =>
@@ -222,10 +260,6 @@ const hasSecondaryActions = computed(
 const canCheckInAction = computed(() => props.provider.runtime.enabled && supportsCheckIn(props.provider));
 const checkedInToday = computed(() => providerCheckedInToday(props.provider));
 
-function ccSwitchTargetBrand(target: CcSwitchAppTarget): BrandIconName {
-  return target === "claude" ? "claude" : target;
-}
-
 function providerStatusLabel() {
   if (props.tone === "disabled") {
     return "已停用";
@@ -234,13 +268,20 @@ function providerStatusLabel() {
 }
 
 function providerLogoSrc(provider: Provider) {
-  return provider.identity.siteLogo?.trim() || newApiLogo;
+  if (provider.identity.siteLogo?.trim()) {
+    return provider.identity.siteLogo;
+  }
+  if (provider.identity.protocol === "sub2Api") {
+    return sub2ApiLogo;
+  }
+  return newApiLogo;
 }
 
 function handleProviderLogoError(event: Event) {
   const image = event.target as HTMLImageElement;
-  if (image.src !== newApiLogo) {
-    image.src = newApiLogo;
+  const fallback = props.provider.identity.protocol === "sub2Api" ? sub2ApiLogo : newApiLogo;
+  if (image.src !== fallback) {
+    image.src = fallback;
   }
 }
 
@@ -262,8 +303,8 @@ function handleEnter(event: KeyboardEvent) {
   }
 }
 
-function openCliInstances() {
-  emit("openCliInstances", props.provider);
+function openCliInstances(cliKind: LivenessCliKind) {
+  emit("openCliInstances", props.provider, cliKind);
 }
 
 function switchCliConfig(cliKind: LivenessCliKind) {
@@ -365,6 +406,9 @@ function removeProvider() {
         'provider-card-placeholder': placeholder,
         'provider-card-drag-over': dragOver,
         'provider-card-dragging': dragging,
+        'provider-card-api-key': isApiKeyAuth,
+        'provider-card-generic-api': isGenericApi,
+        'provider-card-standard': !showLivenessTimeline,
       },
     ]"
     :role="interactive ? 'group' : undefined"
@@ -380,7 +424,29 @@ function removeProvider() {
     @keydown.enter="handleEnter"
   >
     <header class="provider-card-header">
-      <div class="provider-card-brand">
+      <dl v-if="isApiKeyAuth" class="provider-card-api-summary" aria-label="API Key 信息">
+        <div class="provider-card-api-field">
+          <dt>接口地址</dt>
+          <dd
+            v-if="provider.identity.baseUrl.trim()"
+            class="provider-card-api-endpoint-value"
+            :title="provider.identity.baseUrl"
+          >
+            {{ providerUrlDisplay }}
+          </dd>
+          <dd v-else class="provider-card-api-value-muted">未配置</dd>
+        </div>
+        <div class="provider-card-api-field">
+          <dt>API Key</dt>
+          <dd class="provider-card-api-key-value">
+            <code v-if="apiKeyConfigured" :title="`API Key：${apiKeyMasked}`">
+              {{ apiKeyMasked }}
+            </code>
+            <span v-else class="provider-card-api-value-muted">未配置</span>
+          </dd>
+        </div>
+      </dl>
+      <div v-else class="provider-card-brand">
         <div class="provider-logo provider-card-logo">
           <img
             :src="providerLogoSrc(provider)"
@@ -390,30 +456,83 @@ function removeProvider() {
           />
         </div>
         <div class="provider-card-brand-copy">
-          <h3 class="provider-card-title">{{ provider.identity.name }}</h3>
-          <span class="provider-card-type">NewAPI</span>
+          <h3 class="provider-card-title" :title="providerHeaderTitle">
+            {{ providerHeaderTitle }}
+          </h3>
+          <span class="provider-card-type">
+            {{ providerHeaderSubtitle }}
+          </span>
         </div>
       </div>
       <div class="provider-card-header-meta">
-        <div v-if="codexDefault || claudeDefault" class="provider-card-default-signals" aria-label="默认 CLI 配置">
+        <div
+          v-if="(codexDefault && codexDetected) || (claudeDefault && claudeDetected) || codexActiveCliCount > 0 || claudeActiveCliCount > 0"
+          class="provider-card-cli-signals"
+          :class="{ 'provider-card-cli-signals-standalone': !showProviderStatus }"
+          aria-label="CLI 使用状态"
+        >
           <span
-            v-if="codexDefault"
-            class="provider-card-default-signal"
-            title="Codex 当前使用此中转站"
-            aria-label="Codex 当前使用此中转站"
+            v-if="codexDefault && codexDetected"
+            class="provider-card-cli-signal provider-card-cli-signal-default"
+            title="Codex 默认 CLI 配置"
+            aria-label="Codex 默认 CLI 配置"
           >
-            <BrandIcon brand="codex" :size="14" />
+            <BrandIcon brand="codex" :size="17" />
+            <b>D</b>
           </span>
           <span
-            v-if="claudeDefault"
-            class="provider-card-default-signal"
-            title="Claude Code 当前使用此中转站"
-            aria-label="Claude Code 当前使用此中转站"
+            v-if="claudeDefault && claudeDetected"
+            class="provider-card-cli-signal provider-card-cli-signal-default"
+            title="Claude Code 默认 CLI 配置"
+            aria-label="Claude Code 默认 CLI 配置"
           >
-            <BrandIcon brand="claude" :size="14" />
+            <BrandIcon brand="claude" :size="17" />
+            <b>D</b>
+          </span>
+          <button
+            v-if="codexActiveCliCount > 0 && interactive"
+            type="button"
+            class="provider-card-cli-signal provider-card-cli-signal-active"
+            :title="`查看 ${codexActiveCliCount} 个 Codex 临时 CLI`"
+            :aria-label="`查看 ${codexActiveCliCount} 个 Codex 临时 CLI`"
+            @click.stop="openCliInstances('codex')"
+            @pointerdown.stop
+          >
+            <BrandIcon brand="codex" :size="17" />
+            <b>{{ codexActiveCliCount }}</b>
+          </button>
+          <span
+            v-else-if="codexActiveCliCount > 0"
+            class="provider-card-cli-signal provider-card-cli-signal-active"
+            :title="`${codexActiveCliCount} 个 Codex 临时 CLI`"
+            :aria-label="`${codexActiveCliCount} 个 Codex 临时 CLI`"
+          >
+            <BrandIcon brand="codex" :size="17" />
+            <b>{{ codexActiveCliCount }}</b>
+          </span>
+          <button
+            v-if="claudeActiveCliCount > 0 && interactive"
+            type="button"
+            class="provider-card-cli-signal provider-card-cli-signal-active"
+            :title="`查看 ${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
+            :aria-label="`查看 ${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
+            @click.stop="openCliInstances('claudeCode')"
+            @pointerdown.stop
+          >
+            <BrandIcon brand="claude" :size="17" />
+            <b>{{ claudeActiveCliCount }}</b>
+          </button>
+          <span
+            v-else-if="claudeActiveCliCount > 0"
+            class="provider-card-cli-signal provider-card-cli-signal-active"
+            :title="`${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
+            :aria-label="`${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
+          >
+            <BrandIcon brand="claude" :size="17" />
+            <b>{{ claudeActiveCliCount }}</b>
           </span>
         </div>
-        <div class="provider-card-status" :title="title">
+        <div v-if="showProviderStatus" class="provider-card-status" :title="title">
           <i aria-hidden="true"></i>
           <span>{{ providerStatusLabel() }}</span>
         </div>
@@ -421,7 +540,11 @@ function removeProvider() {
     </header>
 
     <div class="provider-card-content">
-      <section class="provider-card-identity" aria-label="账号信息">
+      <section
+        v-if="!isApiKeyAuth"
+        class="provider-card-identity"
+        aria-label="账号信息"
+      >
         <strong
           v-if="identityDisplayName"
           class="provider-card-user-name"
@@ -430,7 +553,7 @@ function removeProvider() {
           {{ identityDisplayName }}
         </strong>
         <span v-else class="provider-card-user-name provider-card-user-name-muted">
-          用户信息未同步
+          {{ identityEmptyLabel }}
         </span>
         <div v-if="identityUsername || identityId" class="provider-card-user-meta">
           <span v-if="identityUsername" :title="identityUsername">{{ identityUsername }}</span>
@@ -439,6 +562,7 @@ function removeProvider() {
       </section>
 
       <section
+        v-if="!isApiKeyAuth"
         class="provider-card-quota"
         :class="`provider-card-quota-${quotaTone}`"
         aria-label="账户余额"
@@ -449,7 +573,7 @@ function removeProvider() {
             {{ providerAvailableQuotaLabel(provider) }}
           </strong>
         </div>
-        <div v-if="!providerQuotaUnlimited(provider)" class="provider-card-progress-row">
+        <div v-if="providerQuotaKnown(provider) && providerQuotaTotalKnown(provider) && !providerQuotaUnlimited(provider)" class="provider-card-progress-row">
           <span>可用 {{ availablePercentLabel(provider) }}</span>
           <a-progress
             class="provider-quota-progress"
@@ -458,10 +582,14 @@ function removeProvider() {
             size="small"
           />
         </div>
-        <div v-else class="provider-card-unlimited">无限额度</div>
+        <div v-else-if="providerQuotaUnlimited(provider)" class="provider-card-unlimited">无限额度</div>
+        <div v-else class="provider-card-unknown">额度未公开</div>
       </section>
 
-      <ProviderModelPreview :models="provider.capabilities.availableModels" />
+      <ProviderModelPreview
+        :models="provider.capabilities.availableModels"
+        :rows="isApiKeyAuth ? 5 : 2"
+      />
 
       <ProviderLivenessTimeline
         v-if="showLivenessTimeline"
@@ -475,23 +603,7 @@ function removeProvider() {
             :title="authModeDescription"
             :aria-label="authModeDescription"
           >
-            <ProviderAuthIcon :mode="provider.auth.mode" />
-          </span>
-          <button
-            v-if="activeCliCount > 0 && interactive"
-            type="button"
-            class="provider-card-cli-instance-trigger"
-            :title="`查看 ${activeCliCount} 个活动 CLI`"
-            :aria-label="`查看 ${activeCliCount} 个活动 CLI`"
-            @click="openCliInstances"
-            @pointerdown.stop
-          >
-            <Bot :size="15" :stroke-width="1.8" />
-            <strong>{{ activeCliCount }}</strong>
-          </button>
-          <span v-else-if="activeCliCount > 0" class="provider-card-cli-instance-trigger">
-            <Bot :size="15" :stroke-width="1.8" />
-            <strong>{{ activeCliCount }}</strong>
+            <ProviderAuthIcon :mode="provider.auth.mode" :protocol="provider.identity.protocol" />
           </span>
         </div>
 
@@ -515,8 +627,8 @@ function removeProvider() {
               type="button"
               class="provider-card-icon-action provider-card-refresh-action"
               :disabled="!provider.runtime.enabled"
-              :title="provider.runtime.enabled ? '刷新额度' : '中转站已停用，无法刷新'"
-              aria-label="刷新额度"
+              :title="provider.runtime.enabled ? refreshActionTitle : '中转站已停用，无法刷新'"
+              :aria-label="refreshActionTitle"
               @click="refreshProvider"
               @pointerdown.stop
             >
@@ -767,35 +879,19 @@ function removeProvider() {
                 <div class="provider-card-action-panel-section-title">默认 CLI</div>
                 <div class="provider-card-cli-config-list">
                   <button
-                    v-if="!codexDefault"
+                    v-for="cliKind in switchableCliKinds"
+                    :key="cliKind"
                     type="button"
                     :disabled="cliConfigSwitching || !canSwitchCliConfig"
-                    @click="switchCliConfig('codex')"
+                    @click="switchCliConfig(cliKind)"
                   >
-                    <BrandIcon brand="codex" :size="16" />
+                    <BrandIcon :brand="cliKindMeta[cliKind].brand" :size="16" />
                     <span>
-                      <strong>Codex</strong>
+                      <strong>{{ cliKindMeta[cliKind].label }}</strong>
                       <small>切换到此中转站</small>
                     </span>
                     <icon-loading
-                      v-if="switchingCliKind === 'codex'"
-                      class="provider-card-action-icon provider-card-action-icon-switch"
-                    />
-                    <icon-swap v-else class="provider-card-action-icon provider-card-action-icon-switch" />
-                  </button>
-                  <button
-                    v-if="!claudeDefault"
-                    type="button"
-                    :disabled="cliConfigSwitching || !canSwitchCliConfig"
-                    @click="switchCliConfig('claudeCode')"
-                  >
-                    <BrandIcon brand="claude" :size="16" />
-                    <span>
-                      <strong>Claude Code</strong>
-                      <small>切换到此中转站</small>
-                    </span>
-                    <icon-loading
-                      v-if="switchingCliKind === 'claudeCode'"
+                      v-if="switchingCliKind === cliKind"
                       class="provider-card-action-icon provider-card-action-icon-switch"
                     />
                     <icon-swap v-else class="provider-card-action-icon provider-card-action-icon-switch" />
@@ -832,13 +928,21 @@ function removeProvider() {
                     v-for="target in ccSwitchTargets"
                     :key="target"
                     type="button"
+                    :class="{ 'provider-card-cli-config-item-no-logo': isApiKeyAuth }"
                     :disabled="!canAddCcSwitchConfig"
                     @click="addCcSwitchConfig(target)"
                   >
-                    <BrandIcon :brand="ccSwitchTargetBrand(target)" :size="16" />
+                    <img
+                      v-if="!isApiKeyAuth"
+                      class="provider-card-ccswitch-provider-icon"
+                      :src="providerLogoSrc(provider)"
+                      alt=""
+                      aria-hidden="true"
+                      @error="handleProviderLogoError"
+                    />
                     <span>
-                      <strong>{{ ccSwitchTargetLabels[target] }}</strong>
-                      <small>添加此中转站配置</small>
+                      <strong>导入到 {{ ccSwitchTargetLabels[target] }}</strong>
+                      <small>仅绑定 URL 与 API Key</small>
                     </span>
                     <icon-link class="provider-card-action-icon provider-card-action-icon-link" />
                   </button>

@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import ProviderEditorDrawer from "./ProviderEditorDrawer.vue";
 import SettingsDrawer from "./SettingsDrawer.vue";
-import TemporaryCliDrawer from "./TemporaryCliDrawer.vue";
 import type {
   AppSettings,
-  Provider,
   ProviderApiKeyOption,
   ProviderInput,
+  ProviderProtocol,
+  ProviderProtocolDetectionResult,
   ProviderSiteProbeResult,
-  TemporaryCliInstance,
 } from "../stores/providers";
 import type {
   CredentialCompletionState,
   CredentialCompletionStep,
 } from "../composables/useProviderCredentialCompletion";
+import type { ProtocolSelectionSource } from "../composables/provider-editor-shared";
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { DurationUnit } from "../utils/duration";
 
@@ -31,15 +31,13 @@ defineProps<{
   importingAppData: boolean;
   appVersion: string;
   checkingForUpdate: boolean;
-  cliRuntimeLoading: boolean;
-  cliInstancesProvider: Provider | null;
-  cliInstances: TemporaryCliInstance[];
-  activatingCliInstanceId: string | null;
   providerEditorTitle: string;
   draftProvider: ProviderInput;
   apiKeyOptions: ProviderApiKeyOption[];
   availableModels: string[];
   siteProbeResult: ProviderSiteProbeResult | null;
+  protocolDetectionResult: ProviderProtocolDetectionResult | null;
+  protocolSelectionSource: ProtocolSelectionSource;
   probingSite: boolean;
   siteNameSourceBaseUrl: string;
   testingConnection: boolean;
@@ -56,13 +54,12 @@ const emit = defineEmits<{
   exportAppData: [];
   importAppData: [];
   checkForUpdate: [];
-  refreshCliRuntime: [];
-  activateCliInstance: [instance: TemporaryCliInstance];
   copyApiKey: [];
   selectApiKey: [option: ProviderApiKeyOption];
   runCredentialAssistant: [];
   testConnection: [];
-  probeSite: [];
+  probeSite: [options?: { force?: boolean }];
+  selectProtocol: [protocol: ProviderProtocol];
   saveProvider: [];
 }>();
 
@@ -70,7 +67,6 @@ const settingsVisible = defineModel<boolean>("settingsVisible", { required: true
 const globalRefreshAmount = defineModel<number>("globalRefreshAmount", { required: true });
 const globalRefreshUnit = defineModel<DurationUnit>("globalRefreshUnit", { required: true });
 const providerEditorVisible = defineModel<boolean>("providerEditorVisible", { required: true });
-const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { required: true });
 </script>
 
 <template>
@@ -99,6 +95,8 @@ const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { requir
     :api-key-options="apiKeyOptions"
     :available-models="availableModels"
     :site-probe-result="siteProbeResult"
+    :protocol-detection-result="protocolDetectionResult"
+    :protocol-selection-source="protocolSelectionSource"
     :probing-site="probingSite"
     :site-name-source-base-url="siteNameSourceBaseUrl"
     :settings="settings"
@@ -113,17 +111,9 @@ const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { requir
     @select-api-key="emit('selectApiKey', $event)"
     @run-credential-assistant="emit('runCredentialAssistant')"
     @test-connection="emit('testConnection')"
-    @probe-site="emit('probeSite')"
+    @probe-site="emit('probeSite', $event)"
+    @select-protocol="emit('selectProtocol', $event)"
     @save="emit('saveProvider')"
   />
 
-  <TemporaryCliDrawer
-    v-model:visible="cliInstancesVisible"
-    :provider="cliInstancesProvider"
-    :loading="cliRuntimeLoading"
-    :instances="cliInstances"
-    :activating-id="activatingCliInstanceId"
-    @refresh="emit('refreshCliRuntime')"
-    @activate="emit('activateCliInstance', $event)"
-  />
 </template>

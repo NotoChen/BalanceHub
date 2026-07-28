@@ -83,7 +83,6 @@ function submit() {
         <a-input-password v-model="confirmPassword" allow-clear autocomplete="new-password" />
       </label>
       <div class="password-change-actions">
-        <a-button :disabled="loading" @click="emit('update:visible', false)">取消</a-button>
         <a-button type="primary" :loading="loading" @click="submit">更新密码</a-button>
       </div>
     </div>

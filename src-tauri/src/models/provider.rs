@@ -10,6 +10,7 @@ mod state;
 pub(crate) use input::normalize_provider_auth;
 pub use input::ProviderInput;
 pub use normalize::{
-    check_in_message_indicates_disabled, normalize_api_key, normalize_invite_link,
+    check_in_message_indicates_disabled, normalize_api_key, normalize_api_key_for_protocol,
+    normalize_invite_link,
 };
 pub use state::*;

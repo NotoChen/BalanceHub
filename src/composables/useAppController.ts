@@ -1,4 +1,4 @@
-import { reactive } from "vue";
+import { computed, reactive } from "vue";
 import { storeToRefs } from "pinia";
 import { Message } from "@arco-design/web-vue";
 import { useProviderStore, type Provider } from "../stores/providers";
@@ -29,6 +29,7 @@ export function useAppController() {
     initialized,
     cliRuntime,
     cliRuntimeLoading,
+    cliEnvironmentProbe,
     loadError,
     loading,
     providers,
@@ -45,8 +46,7 @@ export function useAppController() {
     settings,
     initialSettings: providerStore.settings,
     saveSettings: (value) => providerStore.saveSettings(value),
-    probeCliEnvironment: (terminalKind, terminalCommand) =>
-      providerStore.probeCliEnvironment(terminalKind, terminalCommand),
+    probeCliEnvironment: () => providerStore.probeCliEnvironment(),
   });
 
   const { notifySystem, sendTestNotification } = useSystemNotification(
@@ -94,7 +94,6 @@ export function useAppController() {
     listKeys: (providerId) => providerStore.listApiKeys(providerId),
     createKey: (providerId, name) => providerStore.createApiKey(providerId, name),
     deleteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),
-    saveProvider: (input) => providerStore.saveProvider(input),
     getProvider: (providerId) => providers.value.find((provider) => provider.identity.id === providerId),
   });
 
@@ -141,6 +140,8 @@ export function useAppController() {
   const workspacePicker = useWorkspacePicker({
     workspaces,
     preferences: temporaryCliPreferences,
+    terminalKind: computed(() => settings.value.temporaryCliTerminalKind),
+    cliEnvironmentProbe,
     listApiKeys: (providerId) => providerStore.listApiKeys(providerId),
     browse: (path) => providerStore.browseWorkspaceDirectories(path),
     forget: (path) => providerStore.forgetWorkspace(path),

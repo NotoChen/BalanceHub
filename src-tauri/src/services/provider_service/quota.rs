@@ -1,10 +1,10 @@
 use crate::{
-    adapters::newapi::NewApiAdapter,
+    adapters::protocol::ProtocolAdapter,
     models::{Provider, ProviderConnectionTestResult, ProviderInput, ProviderStatus},
     util::{unix_millis as current_timestamp_millis, unix_secs},
 };
 
-use super::ProviderService;
+use super::{ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn test_connection(
@@ -17,36 +17,37 @@ impl<'a> ProviderService<'a> {
             .clone()
             .unwrap_or_else(|| format!("provider-{}", current_timestamp_millis()));
         let provider = Provider::from_input(input, provider_id);
-        let result = NewApiAdapter
+        let request_context = ProviderRequestContext::capture(&provider);
+        let result = ProtocolAdapter
             .test_connection(&data.settings, &provider)
             .await?;
         if result.ok {
-            self.apply_connection_test_result(&provider.identity.id, &result)?;
+            self.apply_connection_test_result(&request_context, &result)?;
         }
         Ok(result)
     }
 
     fn apply_connection_test_result(
         &self,
-        provider_id: &str,
+        request_context: &ProviderRequestContext,
         result: &ProviderConnectionTestResult,
     ) -> Result<(), String> {
         let Some(available) = result.available else {
             return Ok(());
         };
-        let Some(used) = result.used else {
-            return Ok(());
-        };
+        let used = result.used;
         let quota_display = result.quota_display.clone();
         let synced_at = unix_secs().to_string();
         self.mutate(|data| {
             if let Some(provider) = data
                 .providers
                 .iter_mut()
-                .find(|provider| provider.identity.id == provider_id)
+                .find(|provider| request_context.matches(provider))
             {
                 provider.quota.available = available;
-                provider.quota.used = used;
+                provider.quota.used = used.unwrap_or_default();
+                provider.quota.known = true;
+                provider.quota.total_known = used.is_some();
                 provider.quota.display_type = quota_display.quota_display_type;
                 provider.quota.currency_symbol = quota_display.currency_symbol;
                 provider.runtime.status = ProviderStatus::Ok;

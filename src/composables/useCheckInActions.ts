@@ -14,44 +14,56 @@ interface UseCheckInActionsOptions {
   ) => Promise<boolean>;
 }
 
+type CheckInRunStatus = "success" | "failed" | "skipped";
+
 export function useCheckInActions(options: UseCheckInActionsOptions) {
   const checkingInProviderIdSet = ref<Set<string>>(new Set());
   const checkingInProviderIds = computed(() => [...checkingInProviderIdSet.value]);
   const globalCheckInInProgress = ref(false);
 
-  async function checkInProviderAction(provider: Provider) {
+  async function runCheckIn(
+    provider: Provider,
+    behavior: { reload: boolean; showMessage: boolean },
+  ): Promise<CheckInRunStatus> {
     const providerId = provider.identity.id;
     if (checkingInProviderIdSet.value.has(providerId)) {
-      return;
+      return "skipped";
     }
     checkingInProviderIdSet.value = new Set(checkingInProviderIdSet.value).add(providerId);
     try {
       const result = await checkInProvider(providerId);
       const message = result.message || (result.ok ? "签到成功" : "签到失败");
       if (result.ok) {
-        Message.success(message);
+        if (behavior.showMessage) Message.success(message);
         await options.notifySystem("BalanceHub 签到成功", checkInMarkdown(provider, message), {
           provider,
         });
       } else {
-        Message.error(message);
+        if (behavior.showMessage) Message.error(message);
         await options.notifySystem("BalanceHub 签到失败", checkInMarkdown(provider, message), {
           provider,
         });
       }
-      await options.reload();
+      return result.ok ? "success" : "failed";
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      Message.error(message);
+      if (behavior.showMessage) Message.error(message);
       await options.notifySystem("BalanceHub 签到异常", checkInMarkdown(provider, message), {
         provider,
       });
-      await options.reload();
+      return "failed";
     } finally {
       const next = new Set(checkingInProviderIdSet.value);
       next.delete(providerId);
       checkingInProviderIdSet.value = next;
+      if (behavior.reload) {
+        await options.reload().catch(() => {});
+      }
     }
+  }
+
+  async function checkInProviderAction(provider: Provider) {
+    await runCheckIn(provider, { reload: true, showMessage: true });
   }
 
   async function checkInAllProviders() {
@@ -66,8 +78,20 @@ export function useCheckInActions(options: UseCheckInActionsOptions) {
 
     globalCheckInInProgress.value = true;
     try {
-      for (const provider of targets) {
-        await checkInProviderAction(provider);
+      const results = await Promise.all(
+        targets.map((provider) => runCheckIn(provider, { reload: false, showMessage: false })),
+      );
+      await options.reload().catch(() => {});
+      const succeeded = results.filter((result) => result === "success").length;
+      const failed = results.filter((result) => result === "failed").length;
+      const skipped = results.filter((result) => result === "skipped").length;
+      const skippedText = skipped > 0 ? `，${skipped} 个正在签到已跳过` : "";
+      if (succeeded === 0 && failed === 0 && skipped > 0) {
+        Message.info(`并行签到未重复执行：${skipped} 个中转站正在签到`);
+      } else if (failed === 0) {
+        Message.success(`并行签到完成：${succeeded} 个中转站成功${skippedText}`);
+      } else {
+        Message.warning(`并行签到完成：${succeeded} 个成功，${failed} 个失败${skippedText}`);
       }
     } finally {
       globalCheckInInProgress.value = false;

@@ -1,4 +1,6 @@
 export type AuthMode = "apiKey" | "accessToken" | "session" | "password";
+export type AuthSource = "manual" | "password" | "oauth";
+export type ProviderProtocol = "newApi" | "sub2Api" | "api";
 export type ProviderQuotaScope = "account" | "token";
 export type ProviderStatus = "ok" | "warning" | "error" | "syncing";
 export type ProxyMode = "system" | "noProxy" | "custom";
@@ -10,8 +12,6 @@ export type LivenessPromptMode = "fixed" | "random" | "roundRobin";
 export type LivenessCliKind = "codex" | "claudeCode";
 export type TemporaryCliInstanceStatus = "starting" | "running" | "exited";
 export type TemporaryCliTerminalKind =
-  | "auto"
-  | "systemDefault"
   | "terminal"
   | "iTerm2"
   | "warp"
@@ -22,8 +22,7 @@ export type TemporaryCliTerminalKind =
   | "kaku"
   | "windowsTerminal"
   | "commandPrompt"
-  | "powerShell"
-  | "custom";
+  | "powerShell";
 export type NotificationChannelKind =
   | "system"
   | "dingtalk"
@@ -49,6 +48,7 @@ export interface ProviderIdentity {
   id: string;
   name: string;
   baseUrl: string;
+  protocol: ProviderProtocol;
   displayName: string;
   username: string;
   userId: string;
@@ -59,6 +59,7 @@ export interface ProviderIdentity {
 export interface ProviderIdentityInput {
   name: string;
   baseUrl: string;
+  protocol: ProviderProtocol;
   backupUrls: string[];
 }
 
@@ -72,6 +73,7 @@ export interface ProviderCliInput {
 
 export interface ProviderAuth {
   mode: AuthMode;
+  source?: AuthSource;
   apiKey: string;
   apiKeyTokenId: string;
   apiKeyOptions: ProviderApiKeyOption[];
@@ -80,11 +82,15 @@ export interface ProviderAuth {
   apiUser: string;
   loginUsername: string;
   loginPassword: string;
+  refreshToken: string;
+  accessTokenExpiresAt?: number | null;
 }
 
 export interface ProviderQuota {
   available: number;
   used: number;
+  known?: boolean;
+  totalKnown?: boolean;
   scope?: ProviderQuotaScope;
   unlimited?: boolean;
   perUnit: number;
@@ -228,7 +234,7 @@ export interface TemporaryTerminalProbeResult {
 export interface CliEnvironmentProbeResult {
   codex: CliToolProbeResult;
   claudeCode: CliToolProbeResult;
-  terminal: TemporaryTerminalProbeResult;
+  terminals: TemporaryTerminalProbeResult[];
 }
 
 export interface CodexModelSyncResult {
@@ -400,6 +406,13 @@ export interface ProviderSiteProbeResult {
   quotaDisplay: ProviderQuotaDisplay;
 }
 
+export interface ProviderProtocolDetectionResult {
+  detectedProtocol: ProviderProtocol | null;
+  message: string;
+  site: ProviderSiteProbeResult | null;
+  ambiguous: boolean;
+}
+
 export interface CliConfigSnapshot {
   configured: boolean;
   providerId: string | null;
@@ -458,6 +471,7 @@ export interface TemporaryCliLaunchInput {
   apiKey: string;
   apiKeyTokenId: string;
   model: string;
+  terminalKind: TemporaryCliTerminalKind;
 }
 
 export interface WorkspaceDirectoryEntry {
@@ -503,7 +517,6 @@ export interface AppSettings {
   codexCliPath: string;
   claudeCliPath: string;
   temporaryCliTerminalKind: TemporaryCliTerminalKind;
-  temporaryCliTerminalCommand: string;
   livenessEnabled: boolean;
   livenessModel: string;
   livenessIntervalMode: LivenessIntervalMode;

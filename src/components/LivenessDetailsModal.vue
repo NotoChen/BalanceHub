@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconExperiment } from "@arco-design/web-vue/es/icon";
-import type { LivenessRecord, Provider } from "../stores/providers";
+import type { LivenessCliKind, LivenessRecord, Provider } from "../stores/providers";
+import { cliKindMeta } from "../utils/cli-environment";
+import BrandIcon from "./BrandIcon.vue";
 
 const props = defineProps<{
   visible: boolean;
@@ -46,17 +48,25 @@ function sourceLabel(source: string | undefined) {
   return source || "未知来源";
 }
 
-function cliLabel(record: LivenessRecord) {
-  if (record.cliKind === "claudeCode") return "Claude Code CLI";
-  if (record.cliKind === "codex") return "Codex CLI";
+function recordCliKind(record: LivenessRecord): LivenessCliKind | null {
+  if (record.cliKind === "claudeCode" || record.cliKind === "codex") return record.cliKind;
   const command = record.commandPreview.toLowerCase();
   if (command.includes("anthropic_api_key") || command.includes("claude")) {
-    return "Claude Code CLI";
+    return "claudeCode";
   }
   if (command.includes("openai_api_key") || command.includes("codex")) {
-    return "Codex CLI";
+    return "codex";
   }
-  return "未知方式";
+  return null;
+}
+
+function cliLabel(record: LivenessRecord) {
+  const kind = recordCliKind(record);
+  return kind ? cliKindMeta[kind].label : "未知方式";
+}
+
+function cliBrand(record: LivenessRecord) {
+  return recordCliKind(record) === "claudeCode" ? "claude" : "codex";
 }
 
 function durationLabel(value: number) {
@@ -140,7 +150,16 @@ function responseText(record: LivenessRecord) {
             </a-tag>
             <strong>{{ formatDateTime(record.checkedAt) }}</strong>
             <span>{{ sourceLabel(record.source) }}</span>
-            <span>{{ cliLabel(record) }}</span>
+            <a-tooltip :content="cliLabel(record)">
+              <span class="liveness-record-cli" :aria-label="cliLabel(record)">
+                <BrandIcon
+                  v-if="recordCliKind(record)"
+                  :brand="cliBrand(record)"
+                  :size="17"
+                />
+                <span v-else>--</span>
+              </span>
+            </a-tooltip>
             <span>{{ record.model || "--" }}</span>
             <span>{{ durationLabel(record.latencyMs) }}</span>
             <span>Token {{ numberLabel(record.totalTokens) }}</span>
@@ -220,5 +239,16 @@ function responseText(record: LivenessRecord) {
 .liveness-summary-stats strong {
   font-size: 15px;
   color: var(--color-text-1);
+}
+
+.liveness-record-cli {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  border: 1px solid var(--color-border-2);
+  border-radius: 5px;
+  background: var(--color-fill-1);
 }
 </style>

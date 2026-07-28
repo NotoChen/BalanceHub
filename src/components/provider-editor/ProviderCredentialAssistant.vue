@@ -20,7 +20,9 @@ const emit = defineEmits<{
   run: [];
 }>();
 
-const visible = computed(() => props.draft.auth.mode !== "apiKey");
+const visible = computed(() =>
+  props.draft.auth.mode !== "apiKey" && props.draft.identity.protocol !== "api",
+);
 
 const titleText = computed(() => {
   if (props.saved) return "配置已完成";
@@ -54,12 +56,22 @@ const descriptionText = computed(() => {
     ) {
       return "填写中转站地址、账号和密码后，可以登录并补全账号凭据。";
     }
-    return "账号信息已填写，可以登录并补全会话、访问令牌和 API 密钥。";
+    return props.draft.identity.protocol === "sub2Api"
+      ? "账号信息已填写，可以登录并补全访问令牌和 API Key。"
+      : "账号信息已填写，可以登录并补全会话、访问令牌和 API 密钥。";
   }
-  if (!props.draft.identity.baseUrl.trim() || !props.draft.auth.accessToken.trim() || !props.draft.auth.apiUser.trim()) {
-    return "填写中转站地址、访问令牌和 API User ID 后，可以补全 API 密钥。";
+  if (
+    !props.draft.identity.baseUrl.trim() ||
+    !props.draft.auth.accessToken.trim() ||
+    (props.draft.identity.protocol !== "sub2Api" && !props.draft.auth.apiUser.trim())
+  ) {
+    return props.draft.identity.protocol === "sub2Api"
+      ? "填写中转站地址和访问令牌后，可以同步 API Key。"
+      : "填写中转站地址、访问令牌和 API User ID 后，可以补全 API 密钥。";
   }
-    return "已填写访问令牌，可以解析登录账号、补全 API 密钥并保存配置。";
+  return props.draft.identity.protocol === "sub2Api"
+    ? "已填写访问令牌，可以解析账号并同步 API Key。"
+    : "已填写访问令牌，可以解析登录账号、补全 API 密钥并保存配置。";
 });
 
 const actionText = computed(() => {

@@ -162,36 +162,26 @@ fn terminal_probe_unavailable(
 }
 
 #[cfg(target_os = "macos")]
-pub fn probe_terminal(
-    kind: TemporaryCliTerminalKind,
-    custom_command: &str,
-) -> TemporaryTerminalProbeResult {
-    if matches!(kind, TemporaryCliTerminalKind::Auto) {
-        for candidate in [
-            TemporaryCliTerminalKind::Warp,
-            TemporaryCliTerminalKind::ITerm2,
-            TemporaryCliTerminalKind::WezTerm,
-            TemporaryCliTerminalKind::Kaku,
-            TemporaryCliTerminalKind::Ghostty,
-            TemporaryCliTerminalKind::Terminal,
-        ] {
-            let result = probe_macos_terminal_app(candidate);
-            if result.available {
-                return result;
-            }
-        }
-        return terminal_probe_unavailable(kind, "自动检测", "未检测到可用终端");
-    }
+pub fn probe_available_terminals() -> Vec<TemporaryTerminalProbeResult> {
+    [
+        TemporaryCliTerminalKind::Warp,
+        TemporaryCliTerminalKind::ITerm2,
+        TemporaryCliTerminalKind::WezTerm,
+        TemporaryCliTerminalKind::Kaku,
+        TemporaryCliTerminalKind::Ghostty,
+        TemporaryCliTerminalKind::Terminal,
+        TemporaryCliTerminalKind::Kitty,
+        TemporaryCliTerminalKind::Alacritty,
+    ]
+    .into_iter()
+    .map(probe_terminal)
+    .filter(|result| result.available)
+    .collect()
+}
 
+#[cfg(target_os = "macos")]
+pub fn probe_terminal(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
     match kind {
-        TemporaryCliTerminalKind::SystemDefault => {
-            let terminal = probe_macos_terminal_app(TemporaryCliTerminalKind::Terminal);
-            if terminal.available {
-                terminal_probe_available(kind, "系统默认终端", terminal.version)
-            } else {
-                terminal_probe_unavailable(kind, "系统默认终端", terminal.message)
-            }
-        }
         TemporaryCliTerminalKind::Terminal
         | TemporaryCliTerminalKind::ITerm2
         | TemporaryCliTerminalKind::Warp
@@ -200,14 +190,7 @@ pub fn probe_terminal(
         | TemporaryCliTerminalKind::Ghostty
         | TemporaryCliTerminalKind::Kitty
         | TemporaryCliTerminalKind::Alacritty => probe_macos_terminal_app(kind),
-        TemporaryCliTerminalKind::Custom => {
-            if custom_command.trim().is_empty() {
-                terminal_probe_unavailable(kind, "自定义终端", "自定义终端命令为空")
-            } else {
-                terminal_probe_available(kind, "自定义终端", "")
-            }
-        }
-        _ => terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
+        _ => terminal_probe_unavailable(kind, "临时终端", "仅支持自动扫描到的具体终端"),
     }
 }
 
@@ -263,101 +246,64 @@ fn macos_app_version(app: &str) -> String {
 }
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-pub fn probe_terminal(
-    kind: TemporaryCliTerminalKind,
-    custom_command: &str,
-) -> TemporaryTerminalProbeResult {
-    if matches!(kind, TemporaryCliTerminalKind::Custom) {
-        return if custom_command.trim().is_empty() {
-            terminal_probe_unavailable(kind, "自定义终端", "自定义终端命令为空")
-        } else {
-            terminal_probe_available(kind, "自定义终端", "")
-        };
-    }
+pub fn probe_available_terminals() -> Vec<TemporaryTerminalProbeResult> {
+    [
+        TemporaryCliTerminalKind::Terminal,
+        TemporaryCliTerminalKind::Warp,
+        TemporaryCliTerminalKind::WezTerm,
+        TemporaryCliTerminalKind::Ghostty,
+        TemporaryCliTerminalKind::Kitty,
+        TemporaryCliTerminalKind::Alacritty,
+    ]
+    .into_iter()
+    .map(probe_terminal)
+    .filter(|result| result.available)
+    .collect()
+}
 
-    let requested = if matches!(
-        kind,
-        TemporaryCliTerminalKind::Auto
-            | TemporaryCliTerminalKind::SystemDefault
-            | TemporaryCliTerminalKind::Terminal
-    ) {
-        env::var("TERMINAL")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| {
-                let binary = Path::new(value.trim())
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(value.trim())
-                    .to_string();
-                (TemporaryCliTerminalKind::Terminal, "系统终端", binary)
-            })
-            .unwrap_or((
-                TemporaryCliTerminalKind::Terminal,
-                "系统终端",
-                "x-terminal-emulator".to_string(),
-            ))
-    } else {
-        match kind {
-            TemporaryCliTerminalKind::Warp => (kind, "Warp", "warp-terminal".to_string()),
-            TemporaryCliTerminalKind::WezTerm => (kind, "WezTerm", "wezterm".to_string()),
-            TemporaryCliTerminalKind::Ghostty => (kind, "Ghostty", "ghostty".to_string()),
-            TemporaryCliTerminalKind::Kitty => (kind, "Kitty", "kitty".to_string()),
-            TemporaryCliTerminalKind::Alacritty => (kind, "Alacritty", "alacritty".to_string()),
-            _ => return terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
-        }
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+pub fn probe_terminal(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
+    if matches!(kind, TemporaryCliTerminalKind::Terminal) {
+        return probe_linux_default_terminal();
+    }
+    let requested = match kind {
+        TemporaryCliTerminalKind::Warp => (kind, "Warp", "warp-terminal"),
+        TemporaryCliTerminalKind::WezTerm => (kind, "WezTerm", "wezterm"),
+        TemporaryCliTerminalKind::Ghostty => (kind, "Ghostty", "ghostty"),
+        TemporaryCliTerminalKind::Kitty => (kind, "Kitty", "kitty"),
+        TemporaryCliTerminalKind::Alacritty => (kind, "Alacritty", "alacritty"),
+        _ => return terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
     };
 
-    probe_terminal_command(requested.0, requested.1, &requested.2, &["--version"])
+    probe_terminal_command(requested.0, requested.1, requested.2, &["--version"])
 }
 
 #[cfg(target_os = "windows")]
-pub fn probe_terminal(
-    kind: TemporaryCliTerminalKind,
-    custom_command: &str,
-) -> TemporaryTerminalProbeResult {
-    if matches!(kind, TemporaryCliTerminalKind::Custom) {
-        return if custom_command.trim().is_empty() {
-            terminal_probe_unavailable(kind, "自定义终端", "自定义终端命令为空")
-        } else {
-            terminal_probe_available(kind, "自定义终端", "")
-        };
-    }
+pub fn probe_available_terminals() -> Vec<TemporaryTerminalProbeResult> {
+    [
+        TemporaryCliTerminalKind::WindowsTerminal,
+        TemporaryCliTerminalKind::CommandPrompt,
+        TemporaryCliTerminalKind::PowerShell,
+    ]
+    .into_iter()
+    .map(probe_terminal)
+    .filter(|result| result.available)
+    .collect()
+}
 
+#[cfg(target_os = "windows")]
+pub fn probe_terminal(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
     match kind {
-        TemporaryCliTerminalKind::Auto
-        | TemporaryCliTerminalKind::SystemDefault
-        | TemporaryCliTerminalKind::WindowsTerminal => {
-            let terminal = probe_terminal_command(
-                TemporaryCliTerminalKind::WindowsTerminal,
-                "Windows Terminal",
-                "wt",
-                &["--version"],
-            );
-            if terminal.available || matches!(kind, TemporaryCliTerminalKind::WindowsTerminal) {
-                terminal
-            } else {
-                probe_terminal_command(
-                    TemporaryCliTerminalKind::CommandPrompt,
-                    "命令提示符",
-                    "cmd",
-                    &["/C", "ver"],
-                )
-            }
-        }
-        TemporaryCliTerminalKind::CommandPrompt | TemporaryCliTerminalKind::Terminal => {
+        TemporaryCliTerminalKind::WindowsTerminal => probe_terminal_command(
+            TemporaryCliTerminalKind::WindowsTerminal,
+            "Windows Terminal",
+            "wt",
+            &["--version"],
+        ),
+        TemporaryCliTerminalKind::CommandPrompt => {
             probe_terminal_command(kind, "命令提示符", "cmd", &["/C", "ver"])
         }
-        TemporaryCliTerminalKind::PowerShell => probe_terminal_command(
-            kind,
-            "PowerShell",
-            "powershell",
-            &[
-                "-NoProfile",
-                "-Command",
-                "$PSVersionTable.PSVersion.ToString()",
-            ],
-        ),
+        TemporaryCliTerminalKind::PowerShell => probe_windows_powershell(kind),
         _ => terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
     }
 }
@@ -369,11 +315,26 @@ fn probe_terminal_command(
     binary: &str,
     args: &[&str],
 ) -> TemporaryTerminalProbeResult {
-    let Ok(output) = Command::new(binary).args(args).output() else {
+    let mut command = Command::new(binary);
+    command.args(args);
+    #[cfg(not(target_os = "windows"))]
+    if let Some(path) = LivenessRunner::runtime_path_for_cli(Path::new(binary)) {
+        command.env("PATH", path);
+    }
+    let Ok(output) = command.output() else {
         return terminal_probe_unavailable(kind, name, format!("未检测到 {name}"));
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        let detail = stderr
+            .lines()
+            .chain(stdout.lines())
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("命令执行失败");
+        return terminal_probe_unavailable(kind, name, format!("{name}: {detail}"));
+    }
     let version = stdout
         .lines()
         .chain(stderr.lines())
@@ -382,6 +343,146 @@ fn probe_terminal_command(
         .unwrap_or_default()
         .to_string();
     terminal_probe_available(kind, name, version)
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LinuxTerminalInvocation {
+    Direct,
+    Execute,
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+#[derive(Clone)]
+struct LinuxTerminalCandidate {
+    binary: std::ffi::OsString,
+    invocation: LinuxTerminalInvocation,
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn linux_default_terminal_candidates() -> Vec<LinuxTerminalCandidate> {
+    let mut candidates = vec![LinuxTerminalCandidate {
+        binary: "xdg-terminal-exec".into(),
+        invocation: LinuxTerminalInvocation::Direct,
+    }];
+    if let Some(terminal) = env::var_os("TERMINAL").filter(|value| !value.is_empty()) {
+        candidates.push(LinuxTerminalCandidate {
+            binary: terminal,
+            invocation: LinuxTerminalInvocation::Execute,
+        });
+    }
+    candidates.extend(
+        [
+            "x-terminal-emulator",
+            "gnome-terminal",
+            "konsole",
+            "xfce4-terminal",
+            "xterm",
+        ]
+        .into_iter()
+        .map(|binary| LinuxTerminalCandidate {
+            binary: binary.into(),
+            invocation: LinuxTerminalInvocation::Execute,
+        }),
+    );
+
+    let mut unique = Vec::new();
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            if unique
+                .iter()
+                .any(|known: &std::ffi::OsString| known == &candidate.binary)
+            {
+                false
+            } else {
+                unique.push(candidate.binary.clone());
+                true
+            }
+        })
+        .collect()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn linux_command_available(binary: &std::ffi::OsStr) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    let executable = |path: &Path| {
+        path.metadata()
+            .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    };
+    let binary_path = Path::new(binary);
+    if binary_path.components().count() > 1 {
+        return executable(binary_path);
+    }
+    LivenessRunner::runtime_path_for_cli(binary_path)
+        .map(|path| env::split_paths(&path).any(|dir| executable(&dir.join(binary))))
+        .unwrap_or(false)
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn linux_terminal_command(candidate: &LinuxTerminalCandidate, script: &Path) -> Command {
+    let mut command = Command::new(&candidate.binary);
+    if matches!(candidate.invocation, LinuxTerminalInvocation::Execute) {
+        command.arg("-e");
+    }
+    command.arg(script);
+    if let Some(path) = LivenessRunner::runtime_path_for_cli(Path::new(&candidate.binary)) {
+        command.env("PATH", path);
+    }
+    command
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn probe_linux_default_terminal() -> TemporaryTerminalProbeResult {
+    let Some(candidate) = linux_default_terminal_candidates()
+        .into_iter()
+        .find(|candidate| linux_command_available(&candidate.binary))
+    else {
+        return terminal_probe_unavailable(
+            TemporaryCliTerminalKind::Terminal,
+            "系统终端",
+            "未检测到可启动的系统终端",
+        );
+    };
+    terminal_probe_available(
+        TemporaryCliTerminalKind::Terminal,
+        "系统终端",
+        candidate.binary.to_string_lossy(),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn windows_powershell_binary() -> Option<&'static str> {
+    ["pwsh", "powershell"].into_iter().find(|binary| {
+        Command::new(binary)
+            .args([
+                "-NoProfile",
+                "-Command",
+                "$PSVersionTable.PSVersion.ToString()",
+            ])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn probe_windows_powershell(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
+    let Some(binary) = windows_powershell_binary() else {
+        return terminal_probe_unavailable(kind, "PowerShell", "未检测到 PowerShell");
+    };
+    probe_terminal_command(
+        kind,
+        "PowerShell",
+        binary,
+        &[
+            "-NoProfile",
+            "-Command",
+            "$PSVersionTable.PSVersion.ToString()",
+        ],
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -404,6 +505,7 @@ fn activate_terminal_target(_target: &cli_runtime::CliTerminalLocator) -> Result
 
 fn cleanup_launch_files(script: &Path, cli_kind: LivenessCliKind) {
     let _ = fs::remove_file(script);
+    let _ = fs::remove_file(temporary_windows_launch_payload_path(script));
     if let Some(settings_path) = temporary_claude_settings_path(script, cli_kind) {
         let _ = fs::remove_file(settings_path);
     }
@@ -453,6 +555,13 @@ fn temporary_claude_settings_path(script: &Path, cli_kind: LivenessCliKind) -> O
             .map(|parent| parent.join("claude-settings.json"))
             .unwrap_or_else(|| env::temp_dir().join("claude-settings.json"))
     })
+}
+
+fn temporary_windows_launch_payload_path(script: &Path) -> PathBuf {
+    script
+        .parent()
+        .map(|parent| parent.join("launch.json"))
+        .unwrap_or_else(|| env::temp_dir().join("launch.json"))
 }
 
 fn sanitize_path_part(value: &str) -> String {
@@ -574,32 +683,26 @@ fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
         input.model,
         claude_settings_path.as_deref(),
     );
-    let auth_block = match input.cli_kind {
-        LivenessCliKind::Codex => format!(
-            "set CODEX_API_KEY=\r\nset CODEX_ACCESS_TOKEN=\r\nset \"OPENAI_API_KEY={api_key}\"\r\n",
-            api_key = escape_cmd_value(input.api_key)
-        ),
-        LivenessCliKind::ClaudeCode => {
-            "set ANTHROPIC_API_KEY=\r\nset ANTHROPIC_AUTH_TOKEN=\r\nset ANTHROPIC_BASE_URL=\r\n"
-                .to_string()
-        }
-    };
+    let launch_payload_path = temporary_windows_launch_payload_path(input.script);
+    let launch_payload =
+        windows_launch_payload(input.cli_kind, input.cli_path, &args, input.api_key);
+    let launch_payload_text = serde_json::to_string_pretty(&launch_payload)
+        .map_err(|err| format!("生成 Windows 临时 CLI 启动参数失败: {err}"))?;
+    fs::write(&launch_payload_path, launch_payload_text)
+        .map_err(|err| format!("写入 Windows 临时 CLI 启动参数失败: {err}"))?;
+    restrict_to_owner(&launch_payload_path)?;
     let script_dir = input
         .script
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
     let text = format!(
-        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_PID=null\"\r\nfor /f %%P in ('powershell -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncall :BH_WRITE_STATUS running %BH_PID% null null\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\n{color_block}{auth_block}\"{cli}\" {args}\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset STATUS=%ERRORLEVEL%\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nfor /f %%T in ('powershell -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %STATUS%\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
+        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_LAUNCH_FILE={launch_payload_path}\"\r\nset \"BH_POWERSHELL=\"\r\nwhere pwsh.exe >nul 2>nul && set \"BH_POWERSHELL=pwsh.exe\"\r\nif not defined BH_POWERSHELL where powershell.exe >nul 2>nul && set \"BH_POWERSHELL=powershell.exe\"\r\nset \"BH_PID=null\"\r\nif defined BH_POWERSHELL for /f %%P in ('%BH_POWERSHELL% -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncall :BH_WRITE_STATUS running %BH_PID% null null\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\nif not defined BH_POWERSHELL goto BH_POWERSHELL_ERROR\r\n{color_block}%BH_POWERSHELL% -NoProfile -ExecutionPolicy Bypass -Command \"{powershell_launch_command}\"\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_POWERSHELL_ERROR\r\nset STATUS=9009\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nif defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %STATUS%\r\ndel \"{launch_payload_path}\" 2>nul\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
         status_path = escape_cmd_value(&input.status_path.display().to_string()),
+        launch_payload_path = escape_cmd_value(&launch_payload_path.display().to_string()),
         workdir = escape_cmd_value(&input.workdir.display().to_string()),
         color_block = windows_color_block(),
-        cli = escape_cmd_value(input.cli_path),
-        args = args
-            .iter()
-            .map(|arg| windows_quote(arg))
-            .collect::<Vec<_>>()
-            .join(" "),
+        powershell_launch_command = WINDOWS_LAUNCH_PAYLOAD_COMMAND,
         script_dir = escape_cmd_value(&script_dir.display().to_string()),
         cleanup_settings = claude_settings_path
             .as_ref()
@@ -608,6 +711,48 @@ fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
     );
 
     fs::write(input.script, text).map_err(|err| format!("写入临时 CLI 启动脚本失败: {err}"))
+}
+
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_LAUNCH_PAYLOAD_COMMAND: &str = concat!(
+    "$ErrorActionPreference = 'Stop'; ",
+    "$launch = Get-Content -Raw -LiteralPath $env:BH_LAUNCH_FILE | ConvertFrom-Json; ",
+    "foreach ($name in @($launch.removeEnv)) { ",
+    "Remove-Item -LiteralPath ('Env:' + [string]$name) -ErrorAction SilentlyContinue }; ",
+    "foreach ($entry in @($launch.setEnv.PSObject.Properties)) { ",
+    "Set-Item -LiteralPath ('Env:' + $entry.Name) -Value ([string]$entry.Value) }; ",
+    "$arguments = @($launch.args | ForEach-Object { [string]$_ }); ",
+    "& ([string]$launch.cliPath) @arguments; ",
+    "if ($null -eq $LASTEXITCODE) { exit 0 } else { exit $LASTEXITCODE }"
+);
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_launch_payload(
+    cli_kind: LivenessCliKind,
+    cli_path: &str,
+    args: &[String],
+    api_key: &str,
+) -> serde_json::Value {
+    let (remove_env, set_env) = match cli_kind {
+        LivenessCliKind::Codex => (
+            serde_json::json!(["CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]),
+            serde_json::json!({ "OPENAI_API_KEY": api_key }),
+        ),
+        LivenessCliKind::ClaudeCode => (
+            serde_json::json!([
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_BASE_URL"
+            ]),
+            serde_json::json!({}),
+        ),
+    };
+    serde_json::json!({
+        "cliPath": cli_path,
+        "args": args,
+        "removeEnv": remove_env,
+        "setEnv": set_env,
+    })
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -754,9 +899,6 @@ fn open_script_in_terminal(
     workdir: &Path,
 ) -> Result<TerminalLaunch, String> {
     match settings.temporary_cli_terminal_kind {
-        TemporaryCliTerminalKind::Auto => open_macos_auto(script, workdir),
-        TemporaryCliTerminalKind::SystemDefault => open_macos_system_default(script)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::SystemDefault)),
         TemporaryCliTerminalKind::Terminal => open_macos_terminal(script)
             .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Terminal)),
         TemporaryCliTerminalKind::ITerm2 => open_macos_iterm2(script)
@@ -774,63 +916,8 @@ fn open_script_in_terminal(
             .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Kitty)),
         TemporaryCliTerminalKind::Alacritty => open_macos_shell_app("Alacritty", &["-e"], script)
             .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Alacritty)),
-        TemporaryCliTerminalKind::Custom => {
-            open_unix_custom_terminal(&settings.temporary_cli_terminal_command, script, workdir)
-                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Custom))
-        }
         _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
     }
-}
-
-#[cfg(target_os = "macos")]
-fn open_macos_auto(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
-    let mut errors = Vec::new();
-
-    if app_exists_macos("Warp") {
-        match open_macos_warp(script, workdir) {
-            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::Warp)),
-            Err(err) => errors.push(err),
-        }
-    }
-    if app_exists_macos("iTerm") {
-        match open_macos_iterm2(script) {
-            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::ITerm2)),
-            Err(err) => errors.push(err),
-        }
-    }
-    if app_exists_macos("WezTerm") {
-        match open_macos_wezterm_compatible("WezTerm", script, workdir) {
-            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::WezTerm)),
-            Err(err) => errors.push(err),
-        }
-    }
-    if app_exists_macos("Kaku") {
-        match open_macos_wezterm_compatible("Kaku", script, workdir) {
-            Ok(()) => return Ok(TerminalLaunch::untracked(TemporaryCliTerminalKind::Kaku)),
-            Err(err) => errors.push(err),
-        }
-    }
-    if app_exists_macos("Ghostty") {
-        match open_macos_ghostty(script) {
-            Ok(terminal_launch) => return Ok(terminal_launch),
-            Err(err) => errors.push(err),
-        }
-    }
-    match open_macos_terminal(script) {
-        Ok(()) => {
-            return Ok(TerminalLaunch::untracked(
-                TemporaryCliTerminalKind::Terminal,
-            ))
-        }
-        Err(err) => errors.push(err),
-    }
-
-    Err(format!("无法自动启动临时 CLI 终端: {}", errors.join("；")))
-}
-
-#[cfg(target_os = "macos")]
-fn open_macos_system_default(script: &Path) -> Result<(), String> {
-    run_command(Command::new("open").arg(script), "无法调用系统默认终端")
 }
 
 #[cfg(target_os = "macos")]
@@ -1051,38 +1138,19 @@ fn open_script_in_terminal(
     workdir: &Path,
 ) -> Result<TerminalLaunch, String> {
     match settings.temporary_cli_terminal_kind {
-        TemporaryCliTerminalKind::Auto => open_windows_auto(script, workdir),
-        TemporaryCliTerminalKind::SystemDefault | TemporaryCliTerminalKind::WindowsTerminal => {
-            open_windows_terminal(script, workdir)
-                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WindowsTerminal))
-        }
-        TemporaryCliTerminalKind::CommandPrompt | TemporaryCliTerminalKind::Terminal => {
-            open_windows_command_prompt(script)
-                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::CommandPrompt))
-        }
+        TemporaryCliTerminalKind::WindowsTerminal => open_windows_terminal(script, workdir)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WindowsTerminal)),
+        TemporaryCliTerminalKind::CommandPrompt => open_windows_command_prompt(script)
+            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::CommandPrompt)),
         TemporaryCliTerminalKind::PowerShell => open_windows_powershell(script)
             .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::PowerShell)),
-        TemporaryCliTerminalKind::Custom => {
-            open_windows_custom_terminal(&settings.temporary_cli_terminal_command, script, workdir)
-                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Custom))
-        }
         _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
     }
 }
 
 #[cfg(target_os = "windows")]
-fn open_windows_auto(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
-    open_windows_terminal(script, workdir)
-        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WindowsTerminal))
-        .or_else(|_| {
-            open_windows_command_prompt(script)
-                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::CommandPrompt))
-        })
-}
-
-#[cfg(target_os = "windows")]
 fn open_windows_terminal(script: &Path, workdir: &Path) -> Result<(), String> {
-    run_command(
+    spawn_command(
         Command::new("wt")
             .arg("-d")
             .arg(workdir)
@@ -1095,7 +1163,7 @@ fn open_windows_terminal(script: &Path, workdir: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn open_windows_command_prompt(script: &Path) -> Result<(), String> {
-    run_command(
+    spawn_command(
         Command::new("cmd")
             .args(["/C", "start", "", "cmd", "/K"])
             .arg(script),
@@ -1105,16 +1173,18 @@ fn open_windows_command_prompt(script: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn open_windows_powershell(script: &Path) -> Result<(), String> {
-    run_command(
-        Command::new("powershell")
+    let binary = windows_powershell_binary().ok_or_else(|| "未检测到 PowerShell".to_string())?;
+    spawn_command(
+        Command::new(binary)
+            .env("BALANCEHUB_TEMPORARY_CLI_SCRIPT", script)
             .args(["-NoExit", "-ExecutionPolicy", "Bypass", "-Command"])
-            .arg(format!(
-                "cmd /c {}",
-                windows_quote(&script.to_string_lossy())
-            )),
+            .arg(WINDOWS_POWERSHELL_SCRIPT_COMMAND),
         "无法调用 PowerShell",
     )
 }
+
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_POWERSHELL_SCRIPT_COMMAND: &str = "& $env:BALANCEHUB_TEMPORARY_CLI_SCRIPT";
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 fn open_script_in_terminal(
@@ -1123,10 +1193,6 @@ fn open_script_in_terminal(
     workdir: &Path,
 ) -> Result<TerminalLaunch, String> {
     match settings.temporary_cli_terminal_kind {
-        TemporaryCliTerminalKind::Auto => open_linux_default(script)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Auto)),
-        TemporaryCliTerminalKind::SystemDefault => open_linux_default(script)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::SystemDefault)),
         TemporaryCliTerminalKind::Terminal => open_linux_default(script)
             .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Terminal)),
         TemporaryCliTerminalKind::Warp => open_linux_command("warp-terminal", &[], script)
@@ -1165,10 +1231,6 @@ fn open_script_in_terminal(
             script,
         )
         .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Alacritty)),
-        TemporaryCliTerminalKind::Custom => {
-            open_unix_custom_terminal(&settings.temporary_cli_terminal_command, script, workdir)
-                .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Custom))
-        }
         _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
     }
 }
@@ -1176,35 +1238,15 @@ fn open_script_in_terminal(
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 fn open_linux_default(script: &Path) -> Result<(), String> {
     let mut errors = Vec::new();
-
-    if let Ok(output) = Command::new("xdg-terminal-exec").arg(script).output() {
-        if output.status.success() {
-            return Ok(());
-        }
-        errors.push(command_error_message(output));
-    }
-
-    if let Some(terminal) = env::var_os("TERMINAL").filter(|value| !value.is_empty()) {
-        match Command::new(&terminal).arg("-e").arg(script).output() {
-            Ok(output) if output.status.success() => return Ok(()),
-            Ok(output) => errors.push(command_error_message(output)),
-            Err(err) => errors.push(format!("{}: {err}", terminal.to_string_lossy())),
-        }
-    }
-
-    let terminals = [
-        "x-terminal-emulator",
-        "gnome-terminal",
-        "konsole",
-        "xfce4-terminal",
-        "xterm",
-    ];
-    for terminal in terminals {
-        let output = Command::new(terminal).arg("-e").arg(script).output();
-        match output {
-            Ok(output) if output.status.success() => return Ok(()),
-            Ok(output) => errors.push(command_error_message(output)),
-            Err(err) => errors.push(err.to_string()),
+    for candidate in linux_default_terminal_candidates() {
+        match linux_terminal_command(&candidate, script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(_) => return Ok(()),
+            Err(err) => errors.push(format!("{}: {err}", candidate.binary.to_string_lossy())),
         }
     }
     Err(format!("无法调用系统终端: {}", errors.join("；")))
@@ -1214,52 +1256,21 @@ fn open_linux_default(script: &Path) -> Result<(), String> {
 fn open_linux_command(binary: &str, args: &[&str], script: &Path) -> Result<(), String> {
     let mut command = Command::new(binary);
     command.args(args).arg(script);
-    run_command(&mut command, &format!("无法调用 {binary}"))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn open_unix_custom_terminal(template: &str, script: &Path, workdir: &Path) -> Result<(), String> {
-    let command = custom_terminal_command(template, script, workdir, shell_quote)?;
-    run_command(
-        Command::new("/bin/sh").arg("-lc").arg(command),
-        "无法调用自定义终端命令",
-    )
-}
-
-#[cfg(target_os = "windows")]
-fn open_windows_custom_terminal(
-    template: &str,
-    script: &Path,
-    workdir: &Path,
-) -> Result<(), String> {
-    let command = custom_terminal_command(template, script, workdir, windows_quote)?;
-    run_command(
-        Command::new("cmd").arg("/C").arg(command),
-        "无法调用自定义终端命令",
-    )
-}
-
-fn custom_terminal_command(
-    template: &str,
-    script: &Path,
-    workdir: &Path,
-    quote: fn(&str) -> String,
-) -> Result<String, String> {
-    let trimmed = template.trim();
-    if trimmed.is_empty() {
-        return Err("自定义终端命令为空".to_string());
+    if let Some(path) = LivenessRunner::runtime_path_for_cli(Path::new(binary)) {
+        command.env("PATH", path);
     }
+    spawn_command(&mut command, &format!("无法调用 {binary}"))
+}
 
-    let script_value = quote(&script.to_string_lossy());
-    let workdir_value = quote(&workdir.to_string_lossy());
-    let mut command = trimmed
-        .replace("{script}", &script_value)
-        .replace("{workdir}", &workdir_value);
-    if !trimmed.contains("{script}") {
-        command.push(' ');
-        command.push_str(&script_value);
-    }
-    Ok(command)
+#[cfg(not(target_os = "macos"))]
+fn spawn_command(command: &mut Command, context: &str) -> Result<(), String> {
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| format!("{context}: {err}"))
 }
 
 fn run_command(command: &mut Command, context: &str) -> Result<(), String> {
@@ -1342,11 +1353,6 @@ fn escape_cmd_value(value: &str) -> String {
         .filter(|ch| !matches!(ch, '"' | '\r' | '\n'))
         .collect::<String>()
         .replace('%', "%%")
-}
-
-#[cfg(target_os = "windows")]
-fn windows_quote(value: &str) -> String {
-    format!("\"{}\"", value.replace('"', "\\\""))
 }
 
 #[cfg(target_os = "macos")]
@@ -1556,7 +1562,7 @@ mod tests {
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn launch_runs_temporary_codex_cli_without_ui_when_custom_terminal_executes_script() {
+    fn generated_codex_launch_script_runs_without_terminal_ui() {
         let root = env::temp_dir().join(format!(
             "balancehub-temporary-cli-launch-test-{}-{}",
             std::process::id(),
@@ -1591,28 +1597,31 @@ fi
         .unwrap();
         set_executable(&fake_codex).unwrap();
 
-        let settings = AppSettings {
-            codex_cli_path: fake_codex.to_string_lossy().to_string(),
-            temporary_cli_terminal_kind: TemporaryCliTerminalKind::Custom,
-            temporary_cli_terminal_command: "BALANCEHUB_LOGIN_ENV_READY=1 NO_COLOR=1 {script}"
-                .to_string(),
-            liveness_model: "gpt-5.5".to_string(),
-            ..AppSettings::default()
-        };
         let mut provider = provider_with_liveness_model("");
         provider.identity.name = "Relay Site".to_string();
-
-        let instance = launch(
-            &settings,
-            &provider,
-            LivenessCliKind::Codex,
-            &workdir,
-            "",
-            "",
-        )
+        let script_dir = root.join("launch");
+        fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("codex.sh");
+        let status_path = root.join("status.json");
+        write_launch_script(&LaunchScriptInput {
+            script: &script,
+            cli_kind: LivenessCliKind::Codex,
+            cli_path: &fake_codex.to_string_lossy(),
+            workdir: &workdir,
+            provider_name: &provider.identity.name,
+            api_key: &provider.auth.api_key,
+            base_url: &openai_base_url(&provider),
+            model: "gpt-5.5",
+            status_path: &status_path,
+        })
         .unwrap();
-        assert_eq!(instance.cli_kind, LivenessCliKind::Codex);
-        assert_eq!(instance.provider_id, provider.identity.id);
+        let status = Command::new("/bin/sh")
+            .arg(&script)
+            .env("BALANCEHUB_LOGIN_ENV_READY", "1")
+            .env("NO_COLOR", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
 
         let captured = fs::read_to_string(&capture).unwrap();
         let args_line = captured
@@ -1631,23 +1640,12 @@ fi
         );
         assert!(!args_line.contains("balancehub"));
 
-        let stored = cli_runtime::instance_by_id(&instance.id).unwrap();
-        assert_eq!(
-            stored.status,
-            crate::models::TemporaryCliInstanceStatus::Exited
-        );
-        let _ = fs::remove_dir_all(
-            env::temp_dir()
-                .join("balancehub-cli-runtime-v1")
-                .join("instances")
-                .join(instance.id),
-        );
         let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn launch_runs_temporary_claude_cli_with_settings_without_env_api_key() {
+    fn generated_claude_launch_script_uses_settings_without_env_api_key() {
         let root = env::temp_dir().join(format!(
             "balancehub-temporary-claude-launch-test-{}-{}",
             std::process::id(),
@@ -1697,27 +1695,30 @@ done
         .unwrap();
         set_executable(&fake_claude).unwrap();
 
-        let settings = AppSettings {
-            claude_cli_path: fake_claude.to_string_lossy().to_string(),
-            temporary_cli_terminal_kind: TemporaryCliTerminalKind::Custom,
-            temporary_cli_terminal_command: "BALANCEHUB_LOGIN_ENV_READY=1 NO_COLOR=1 {script}"
-                .to_string(),
-            liveness_model: "claude-sonnet-4-5".to_string(),
-            ..AppSettings::default()
-        };
         let provider = provider_with_liveness_model("");
-
-        let instance = launch(
-            &settings,
-            &provider,
-            LivenessCliKind::ClaudeCode,
-            &workdir,
-            "",
-            "",
-        )
+        let script_dir = root.join("launch");
+        fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("claude.sh");
+        let status_path = root.join("status.json");
+        write_launch_script(&LaunchScriptInput {
+            script: &script,
+            cli_kind: LivenessCliKind::ClaudeCode,
+            cli_path: &fake_claude.to_string_lossy(),
+            workdir: &workdir,
+            provider_name: &provider.identity.name,
+            api_key: &provider.auth.api_key,
+            base_url: &anthropic_base_url(&provider),
+            model: "claude-sonnet-4-5",
+            status_path: &status_path,
+        })
         .unwrap();
-        assert_eq!(instance.cli_kind, LivenessCliKind::ClaudeCode);
-        assert_eq!(instance.provider_id, provider.identity.id);
+        let status = Command::new("/bin/sh")
+            .arg(&script)
+            .env("BALANCEHUB_LOGIN_ENV_READY", "1")
+            .env("NO_COLOR", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
 
         let captured = fs::read_to_string(&capture).unwrap();
         let args_line = captured
@@ -1736,49 +1737,7 @@ done
         assert!(captured.contains("\"ANTHROPIC_BASE_URL\": \"https://relay.example.com\""));
         assert!(!captured.contains("\"ANTHROPIC_API_KEY\""));
 
-        let stored = cli_runtime::instance_by_id(&instance.id).unwrap();
-        assert_eq!(
-            stored.status,
-            crate::models::TemporaryCliInstanceStatus::Exited
-        );
-        let _ = fs::remove_dir_all(
-            env::temp_dir()
-                .join("balancehub-cli-runtime-v1")
-                .join("instances")
-                .join(instance.id),
-        );
         let _ = fs::remove_dir_all(root);
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn custom_terminal_command_replaces_placeholders() {
-        let command = custom_terminal_command(
-            "open -a Warp --args {script} --cwd {workdir}",
-            Path::new("/tmp/a b/run.command"),
-            Path::new("/Users/me/work repo"),
-            shell_quote,
-        )
-        .unwrap();
-
-        assert_eq!(
-            command,
-            "open -a Warp --args '/tmp/a b/run.command' --cwd '/Users/me/work repo'"
-        );
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn custom_terminal_command_appends_script_when_placeholder_missing() {
-        let command = custom_terminal_command(
-            "open -a Warp",
-            Path::new("/tmp/run.command"),
-            Path::new("/Users/me/work"),
-            shell_quote,
-        )
-        .unwrap();
-
-        assert_eq!(command, "open -a Warp '/tmp/run.command'");
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1803,6 +1762,46 @@ done
         assert_eq!(escape_cmd_value("sk-abc%TEMP%def"), "sk-abc%%TEMP%%def");
         assert_eq!(escape_cmd_value("sk-a\"b\r\ndel C:\\*"), "sk-abdel C:\\*",);
         assert_eq!(escape_cmd_value("sk-normal-key"), "sk-normal-key");
+    }
+
+    #[test]
+    fn windows_launch_payload_preserves_cli_arguments_and_credentials() {
+        let args = vec![
+            "--model".to_string(),
+            "model %TEMP% \\\"quoted\\\" C:\\models\\".to_string(),
+            "line one\r\nline two".to_string(),
+        ];
+        let payload = windows_launch_payload(
+            LivenessCliKind::Codex,
+            r#"C:\Program Files\Codex\codex.cmd"#,
+            &args,
+            "sk-%TEMP%-\"quoted\"\r\nkey",
+        );
+
+        assert_eq!(
+            payload["cliPath"],
+            serde_json::json!(r#"C:\Program Files\Codex\codex.cmd"#)
+        );
+        assert_eq!(payload["args"], serde_json::json!(args));
+        assert_eq!(
+            payload["setEnv"]["OPENAI_API_KEY"],
+            serde_json::json!("sk-%TEMP%-\"quoted\"\r\nkey")
+        );
+        assert_eq!(
+            payload["removeEnv"],
+            serde_json::json!(["CODEX_API_KEY", "CODEX_ACCESS_TOKEN"])
+        );
+    }
+
+    #[test]
+    fn windows_launch_commands_avoid_batch_command_string_quoting() {
+        assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("& ([string]$launch.cliPath) @arguments"));
+        assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("$launch.args"));
+        assert!(!WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("cmd /c"));
+        assert_eq!(
+            WINDOWS_POWERSHELL_SCRIPT_COMMAND,
+            "& $env:BALANCEHUB_TEMPORARY_CLI_SCRIPT"
+        );
     }
 
     #[cfg(target_os = "macos")]

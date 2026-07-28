@@ -16,6 +16,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
   const state = useProviderEditorState();
   const {
     drawerVisible,
+    editorSession,
     editingProviderId,
     completingCredentials,
     testingConnection,
@@ -24,6 +25,9 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     credentialCompletionSteps,
     connectionTestResult,
     siteProbeResult,
+    protocolDetectionResult,
+    protocolSelectionSource,
+    protocolSelectionBaseUrl,
     draftProvider,
     availableModels,
     siteNameSourceBaseUrl,
@@ -32,6 +36,8 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
 
   const { testConnection } = useProviderConnectionTest({
     draftProvider,
+    drawerVisible,
+    editorSession,
     editingProviderId,
     testingConnection,
     connectionTestResult,
@@ -40,13 +46,19 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
 
   const credentialAssistant = useProviderCredentialCompletion({
     draftProvider,
+    drawerVisible,
+    editorSession,
     editingProviderId,
     probingSite,
     siteProbeResult,
+    protocolDetectionResult,
+    protocolSelectionSource,
+    protocolSelectionBaseUrl,
     completingCredentials,
     credentialCompletionMessage,
     credentialCompletionSteps,
     siteNameSourceBaseUrl,
+    detectProviderProtocol: (input) => options.store.detectProviderProtocol(input),
     probeProviderSite: (input) => options.store.probeProviderSite(input),
     completeProviderCredentials: (input) => options.store.completeProviderCredentials(input),
     createApiKeyForInput: (input, name) => options.store.createApiKeyForInput(input, name),
@@ -82,23 +94,37 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
   }
 
   async function saveProvider() {
-    const savedProvider = await saveDraftAndFindProvider();
+    const session = editorSession.value;
+    await credentialAssistant.ensureProtocolSelection();
+    if (editorSession.value !== session || !drawerVisible.value) {
+      return;
+    }
+    const savedProvider = await saveDraftAndFindProvider(
+      () => editorSession.value === session && drawerVisible.value,
+    );
+    if (editorSession.value !== session || !drawerVisible.value) {
+      return;
+    }
     if (savedProvider && connectionTestResult.value?.ok) {
       await options.store.testProviderConnection(providerToInput(savedProvider));
+    }
+    if (editorSession.value !== session || !drawerVisible.value) {
+      return;
     }
     drawerVisible.value = false;
     refreshAfterSave(savedProvider);
   }
 
-  async function saveDraftAndFindProvider() {
+  async function saveDraftAndFindProvider(isCurrent: () => boolean = () => true) {
     const input = currentProviderInput();
     const savedProviders = await options.store.saveProvider(input);
     const savedProvider = findSavedProvider(savedProviders, input);
-    if (savedProvider) {
+    if (savedProvider && isCurrent()) {
       editingProviderId.value = savedProvider.identity.id;
       siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(savedProvider.identity.baseUrl);
+      return savedProvider;
     }
-    return savedProvider;
+    return undefined;
   }
 
   function currentProviderInput(): ProviderInput {

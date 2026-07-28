@@ -1,6 +1,6 @@
 use crate::{
     models::{
-        normalize_api_key, CliConfigChange, CliConfigPreview, CliConfigSnapshot,
+        normalize_api_key_for_protocol, CliConfigChange, CliConfigPreview, CliConfigSnapshot,
         CliRuntimeSnapshot, LivenessCliKind, Provider, TemporaryCliInstance,
         TemporaryCliInstanceStatus, TemporaryCliTerminalKind,
     },
@@ -177,12 +177,6 @@ pub fn mark_instance_exited(status_path: &Path, exit_code: Option<i32>) {
         exit_code,
     };
     let _ = write_json_atomic(status_path, &status);
-}
-
-#[cfg(all(test, not(target_os = "windows")))]
-pub fn instance_by_id(id: &str) -> Result<TemporaryCliInstance, String> {
-    let instance_dir = validated_instance_dir(id)?;
-    load_instance(&instance_dir).ok_or_else(|| "临时 CLI 实例不存在或记录已损坏".to_string())
 }
 
 fn validated_instance_dir(id: &str) -> Result<PathBuf, String> {
@@ -478,7 +472,8 @@ pub fn switch_config(
 }
 
 fn cli_target(provider: &Provider, cli_kind: LivenessCliKind) -> Result<(String, String), String> {
-    let api_key = normalize_api_key(&provider.auth.api_key);
+    let api_key =
+        normalize_api_key_for_protocol(&provider.auth.api_key, provider.identity.protocol);
     if api_key.is_empty() {
         return Err("中转站缺少 API Key，无法切换 CLI 配置".to_string());
     }
@@ -735,7 +730,6 @@ fn match_provider(
     api_key: &str,
 ) -> Option<String> {
     let expected_url = normalize_endpoint(base_url)?;
-    let expected_key = normalize_api_key(api_key);
     providers
         .iter()
         .find(|provider| {
@@ -744,7 +738,10 @@ fn match_provider(
                 LivenessCliKind::ClaudeCode => anthropic_base_url(provider),
             };
             normalize_endpoint(&provider_url).as_deref() == Some(expected_url.as_str())
-                && normalize_api_key(&provider.auth.api_key) == expected_key
+                && normalize_api_key_for_protocol(
+                    &provider.auth.api_key,
+                    provider.identity.protocol,
+                ) == normalize_api_key_for_protocol(api_key, provider.identity.protocol)
         })
         .map(|provider| provider.identity.id.clone())
 }
@@ -947,7 +944,7 @@ fn process_is_alive(_pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AuthMode, ProviderInput};
+    use crate::models::{AuthMode, ProviderInput, ProviderProtocol};
 
     fn relay_provider() -> Provider {
         Provider::from_input(
@@ -1077,6 +1074,37 @@ command = "node"
                 LivenessCliKind::ClaudeCode,
                 "https://relay.example.com",
                 "sk-other",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn generic_provider_keeps_an_arbitrary_api_key_for_cli_config() {
+        let mut input = ProviderInput::default();
+        input.identity.base_url = "https://generic.example.com".to_string();
+        input.identity.protocol = ProviderProtocol::Api;
+        input.auth.mode = AuthMode::ApiKey;
+        input.auth.api_key = "gsk_custom-key".to_string();
+        let provider = Provider::from_input(input, "generic-provider".to_string());
+
+        let (_, key) = cli_target(&provider, LivenessCliKind::Codex).unwrap();
+        assert_eq!(key, "gsk_custom-key");
+        assert_eq!(
+            match_provider(
+                std::slice::from_ref(&provider),
+                LivenessCliKind::Codex,
+                "https://generic.example.com/v1",
+                "gsk_custom-key",
+            ),
+            Some("generic-provider".to_string())
+        );
+        assert_eq!(
+            match_provider(
+                std::slice::from_ref(&provider),
+                LivenessCliKind::Codex,
+                "https://generic.example.com/v1",
+                "sk-gsk_custom-key",
             ),
             None
         );

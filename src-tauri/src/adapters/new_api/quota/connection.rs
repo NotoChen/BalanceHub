@@ -4,8 +4,8 @@ use crate::models::{
 };
 use reqwest::Client;
 
+use super::super::http::login_password_provider;
 use super::fetch_quota;
-use crate::providers::newapi_http::login_password_provider;
 
 pub async fn test_connection(
     client: &Client,

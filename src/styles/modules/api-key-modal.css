@@ -71,7 +71,7 @@
 }
 
 .api-key-col-name {
-  width: 18%;
+  width: 22%;
 }
 
 .api-key-col-status {
@@ -95,7 +95,7 @@
 }
 
 .api-key-col-actions {
-  width: 12%;
+  width: 8%;
 }
 
 /* Keep table cells as native table-cell; apply layout only to inner elements or mobile cards. */
@@ -206,17 +206,6 @@
   color: #f53f3f;
 }
 
-.api-key-primary-mark {
-  display: inline-flex;
-  margin-top: 4px;
-  border-radius: 999px;
-  padding: 2px 6px;
-  color: #3d6fae;
-  background: #e8effa;
-  font-size: 10px;
-  font-weight: 650;
-}
-
 .api-key-card-list {
   display: none;
 }
@@ -290,8 +279,6 @@
 }
 
 :root.theme-dark .api-key-name-cell small { color: #8798aa; }
-:root.theme-dark .api-key-primary-mark { color: #a7c8f5; background: #2b405d; }
-
 :root.theme-dark .api-key-quota-cell i {
   background: #343743;
 }

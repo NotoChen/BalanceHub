@@ -144,7 +144,7 @@ pub(super) fn cli_version(
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| err.to_string())?;
     let outcome = wait_with_output_timeout(child, Duration::from_secs(3));
@@ -152,9 +152,28 @@ pub(super) fn cli_version(
         return Err("CLI 版本探测超时".to_string());
     }
     if !outcome.status.is_some_and(|status| status.success()) {
-        return Err("CLI 不可用".to_string());
+        let detail = outcome
+            .stderr
+            .lines()
+            .chain(outcome.stdout.lines())
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(|line| line.chars().take(180).collect::<String>());
+        return Err(detail
+            .map(|detail| format!("CLI 不可用：{detail}"))
+            .unwrap_or_else(|| "CLI 不可用".to_string()));
     }
-    let version = outcome.stdout.trim().to_string();
+    let version = outcome
+        .stdout
+        .lines()
+        .chain(outcome.stderr.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_string();
+    if version.is_empty() {
+        return Err("CLI 未返回版本信息".to_string());
+    }
     if let Some(substring) = require_substring {
         if !version.to_ascii_lowercase().contains(substring) {
             return Err("CLI 版本信息不匹配".to_string());

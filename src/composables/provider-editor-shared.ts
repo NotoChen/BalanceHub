@@ -4,11 +4,13 @@ import type {
   ProviderCapabilityProbeResult,
   ProviderConnectionTestResult,
   ProviderInput,
+  ProviderProtocolDetectionResult,
   ProviderSiteProbeResult,
 } from "../stores/providers";
 
 export interface ProviderEditorStore {
   saveProvider: (input: ProviderInput) => Promise<Provider[]>;
+  detectProviderProtocol: (input: ProviderInput) => Promise<ProviderProtocolDetectionResult>;
   probeProviderSite: (input: ProviderInput) => Promise<ProviderSiteProbeResult>;
   completeProviderCredentials: (input: ProviderInput) => Promise<{
     input: ProviderInput;
@@ -22,6 +24,8 @@ export interface ProviderEditorStore {
   refreshByIds: (ids: string[]) => Promise<unknown>;
   probeCapabilities: (id: string) => Promise<ProviderCapabilityProbeResult>;
 }
+
+export type ProtocolSelectionSource = "auto" | "unresolved" | "manual" | "saved";
 
 export function normalizeProviderBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "").toLowerCase();
@@ -42,6 +46,8 @@ export function findSavedProvider(savedProviders: Provider[], input: ProviderInp
 export function fieldLabel(field: string) {
   const labels: Record<string, string> = {
     accessToken: "访问令牌",
+    refreshToken: "刷新令牌",
+    accessTokenExpiresAt: "访问令牌有效期",
     apiKey: "API 密钥",
     apiKeyTokenId: "主 API Key",
     apiKeyOptions: "API Key 列表",

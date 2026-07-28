@@ -4,6 +4,10 @@ import { Message } from "@arco-design/web-vue";
 import type { AppSettings, CliEnvironmentProbeResult, Provider } from "../stores/providers";
 import { durationValueToSeconds, secondsToDurationValue, type DurationUnit } from "../utils/duration";
 import { normalizeLivenessTiming } from "../utils/liveness-defaults";
+import {
+  applyCliEnvironmentProbeResult,
+  captureCliEnvironmentSettings,
+} from "../utils/cli-environment";
 import { useThemeMode } from "./useThemeMode";
 import { defaultSettings } from "../stores/providers";
 
@@ -12,10 +16,7 @@ interface UseSettingsControllerOptions {
   settings: Ref<AppSettings>;
   initialSettings: AppSettings;
   saveSettings: (settings: AppSettings) => Promise<unknown>;
-  probeCliEnvironment: (
-    terminalKind?: AppSettings["temporaryCliTerminalKind"],
-    terminalCommand?: string,
-  ) => Promise<CliEnvironmentProbeResult>;
+  probeCliEnvironment: () => Promise<CliEnvironmentProbeResult>;
 }
 
 export type SettingsSaveState = "saved" | "pending" | "saving" | "error";
@@ -141,14 +142,11 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
       return;
     }
 
+    const settingsAtStart = captureCliEnvironmentSettings(settingsForm);
     probingCliEnvironment.value = true;
     try {
-      const result = await options.probeCliEnvironment(
-        settingsForm.temporaryCliTerminalKind,
-        settingsForm.temporaryCliTerminalCommand,
-      );
-      settingsForm.codexCliPath = result.codex.path;
-      settingsForm.claudeCliPath = result.claudeCode.path;
+      const result = await options.probeCliEnvironment();
+      applyCliEnvironmentProbeResult(settingsForm, result, settingsAtStart);
     } catch (error) {
       // 自动探测失败只在设置卡片内呈现，不打断启动流程。
       if (settingsDrawerVisible.value) {
@@ -160,14 +158,10 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
   }
 
   async function autoProbeCliEnvironment() {
+    const settingsAtStart = captureCliEnvironmentSettings(settingsForm);
     try {
-      const result = await options.probeCliEnvironment(
-        settingsForm.temporaryCliTerminalKind,
-        settingsForm.temporaryCliTerminalCommand,
-      );
-      settingsForm.codexCliPath = result.codex.path;
-      settingsForm.claudeCliPath = result.claudeCode.path;
-      Object.assign(settingsForm, cloneSettings(options.settings.value));
+      const result = await options.probeCliEnvironment();
+      applyCliEnvironmentProbeResult(settingsForm, result, settingsAtStart);
     } catch {
       // Keep startup quiet; the settings panel presents the unavailable state.
     }
