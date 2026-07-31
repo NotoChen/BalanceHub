@@ -9,12 +9,15 @@ const props = defineProps<{
   version: string;
   releaseNotes: string;
   installing: boolean;
+  canCancel: boolean;
+  cancelling: boolean;
   downloadProgress: number | null;
   installStatus: string;
 }>();
 
 const emit = defineEmits<{
   dismiss: [];
+  cancel: [];
   install: [];
 }>();
 
@@ -122,6 +125,14 @@ function handleVisibleChange(visible: boolean) {
       <div class="app-update-footer">
         <p>安装完成后应用将自动重启。</p>
         <div class="app-update-actions">
+          <a-button
+            v-if="canCancel"
+            :loading="cancelling"
+            :disabled="cancelling"
+            @click="emit('cancel')"
+          >
+            {{ cancelling ? "正在取消" : "取消下载" }}
+          </a-button>
           <a-button type="primary" :loading="installing" @click="emit('install')">
             {{ installing ? "正在更新" : "安装并重启" }}
           </a-button>

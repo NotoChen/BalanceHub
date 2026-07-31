@@ -1,11 +1,16 @@
-use crate::models::{Provider, ProviderQuotaDisplay};
 use crate::util::DEFAULT_QUOTA_PER_UNIT;
+use crate::{
+    limits,
+    models::{Provider, ProviderQuotaDisplay},
+    network,
+};
+use lru::LruCache;
 use reqwest::{
     header::{ACCEPT, COOKIE, ORIGIN, REFERER, USER_AGENT},
     Client, Url,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -40,9 +45,14 @@ impl Default for SiteMetadata {
 
 const SITE_METADATA_TTL: Duration = Duration::from_secs(300);
 
-fn site_metadata_cache() -> &'static Mutex<HashMap<String, (Instant, SiteMetadata)>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, SiteMetadata)>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn site_metadata_cache() -> &'static Mutex<LruCache<String, (Instant, SiteMetadata)>> {
+    static CACHE: OnceLock<Mutex<LruCache<String, (Instant, SiteMetadata)>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Mutex::new(LruCache::new(
+            NonZeroUsize::new(limits::MAX_SITE_METADATA_CACHE_ENTRIES)
+                .expect("site metadata cache capacity must be non-zero"),
+        ))
+    })
 }
 
 /// 站点元数据（货币符号/额度单位等）基本不变，缓存 5 分钟，
@@ -53,19 +63,18 @@ pub(crate) async fn fetch_site_metadata(
     is_anyrouter: bool,
 ) -> Result<SiteMetadata, String> {
     let cache_key = format!("{is_anyrouter}|{base_url}");
-    if let Some((fetched_at, metadata)) = site_metadata_cache()
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(&cache_key).cloned())
-    {
-        if fetched_at.elapsed() < SITE_METADATA_TTL {
-            return Ok(metadata);
+    if let Ok(mut cache) = site_metadata_cache().lock() {
+        if let Some((fetched_at, metadata)) = cache.get(&cache_key).cloned() {
+            if fetched_at.elapsed() < SITE_METADATA_TTL {
+                return Ok(metadata);
+            }
+            cache.pop(&cache_key);
         }
     }
 
     let metadata = fetch_site_metadata_uncached(client, base_url, is_anyrouter).await?;
     if let Ok(mut cache) = site_metadata_cache().lock() {
-        cache.insert(cache_key, (Instant::now(), metadata.clone()));
+        cache.put(cache_key, (Instant::now(), metadata.clone()));
     }
     Ok(metadata)
 }
@@ -96,10 +105,7 @@ async fn fetch_site_metadata_uncached(
         .await
         .map_err(|err| format!("请求系统状态失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取系统状态失败: {err}"))?;
+    let body = network::read_http_text(response, "读取系统状态").await?;
 
     if !status.is_success() {
         if is_cloudflare_challenge(&body) {
@@ -287,6 +293,10 @@ fn extract_logo(value: &Value, base_url: &str) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|logo| !logo.is_empty())?;
+
+    if !limits::site_logo_allowed(logo) {
+        return None;
+    }
 
     if logo.starts_with("http://") || logo.starts_with("https://") || logo.starts_with("data:") {
         return Some(logo.to_string());

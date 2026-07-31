@@ -1,3 +1,4 @@
+use crate::network;
 use reqwest::StatusCode;
 use serde_json::Value;
 
@@ -10,10 +11,7 @@ pub(crate) async fn send_text(
         .await
         .map_err(|err| format!("{context}失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("{context}响应读取失败: {err}"))?;
+    let body = network::read_http_text(response, context).await?;
     Ok((status, body))
 }
 

@@ -1,4 +1,5 @@
 use crate::{
+    limits,
     models::{
         AppSettings, CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult,
         LivenessPromptMode, LivenessRecord,
@@ -71,7 +72,7 @@ impl<'a> ProviderService<'a> {
 
         let record = LivenessRunner::run(&snapshot.settings, &provider, prompt, automatic);
         let stored_record = record.clone();
-        // 累计统计独立于 40 条记录上限，每次自动测活都计入实际消耗。
+        // 累计统计独立于明细记录上限，每次自动测活都计入实际消耗。
         let run_input_tokens = record.input_tokens.unwrap_or(0);
         let run_output_tokens = record.output_tokens.unwrap_or(0);
         let run_total_tokens = record.total_tokens.unwrap_or(0);
@@ -98,8 +99,9 @@ impl<'a> ProviderService<'a> {
                     .total_tokens
                     .saturating_add(run_total_tokens);
                 stored_provider.liveness.total_cost_usd += run_cost_usd;
-                if stored_provider.liveness.records.len() > 40 {
-                    let remove_count = stored_provider.liveness.records.len() - 40;
+                if stored_provider.liveness.records.len() > limits::MAX_LIVENESS_RECORDS {
+                    let remove_count =
+                        stored_provider.liveness.records.len() - limits::MAX_LIVENESS_RECORDS;
                     stored_provider.liveness.records.drain(0..remove_count);
                 }
                 if matches!(

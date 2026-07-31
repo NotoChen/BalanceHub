@@ -36,6 +36,7 @@ const modelMeasureRef = ref<HTMLElement | null>(null);
 const modelMeasureMoreRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 let measureFrame: number | null = null;
+let disposed = false;
 
 function fitsWithinRows(widths: number[], availableWidth: number) {
   let row = 1;
@@ -96,16 +97,19 @@ function measureModelPreview() {
 }
 
 function scheduleModelMeasure() {
+  if (disposed) return;
   if (measureFrame !== null) {
     window.cancelAnimationFrame(measureFrame);
   }
   measureFrame = window.requestAnimationFrame(() => {
     measureFrame = null;
+    if (disposed) return;
     measureModelPreview();
   });
 }
 
 function observeModelList() {
+  if (disposed) return;
   resizeObserver?.disconnect();
   resizeObserver = null;
   if (typeof ResizeObserver !== "undefined" && modelListRef.value) {
@@ -115,8 +119,10 @@ function observeModelList() {
 }
 
 async function resetModelPreview() {
+  if (disposed) return;
   visibleModelCount.value = selection.value.models.length;
   await nextTick();
+  if (disposed) return;
   observeModelList();
   scheduleModelMeasure();
 }
@@ -126,13 +132,17 @@ watch([selection, () => props.rows], () => {
 });
 
 onMounted(() => {
+  disposed = false;
   void resetModelPreview();
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
   resizeObserver?.disconnect();
+  resizeObserver = null;
   if (measureFrame !== null) {
     window.cancelAnimationFrame(measureFrame);
+    measureFrame = null;
   }
 });
 </script>

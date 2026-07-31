@@ -1,8 +1,22 @@
 use crate::models::{Provider, ProviderQuotaScope};
 use crate::state::AppState;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
 
 pub const MAIN_TRAY_ID: &str = "main-tray";
+
+#[derive(Default)]
+pub struct TrayAvailability(AtomicBool);
+
+pub fn set_available(app: &AppHandle, available: bool) {
+    app.state::<TrayAvailability>()
+        .0
+        .store(available, Ordering::Release);
+}
+
+pub fn is_available(app: &AppHandle) -> bool {
+    app.state::<TrayAvailability>().0.load(Ordering::Acquire)
+}
 
 pub fn update_tooltip(app: &AppHandle, providers: &[Provider]) {
     let active_providers = providers

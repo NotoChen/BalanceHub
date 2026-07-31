@@ -11,6 +11,7 @@ mod usage;
 mod workspaces;
 
 use crate::{
+    limits,
     models::{
         AppData, AppDataTransferResult, AppSettings, AuthMode, AuthSource, Provider, ProviderInput,
         ProviderProtocol, ProviderStatus,
@@ -114,19 +115,34 @@ impl<'a> ProviderService<'a> {
         self.storage_protection_error().map_or(Ok(()), Err)
     }
 
-    /// 在写锁下基于克隆状态修改并原子落盘，落盘成功后才提交到内存。
+    /// 在串行事务锁下基于克隆状态修改并原子落盘，落盘成功后才提交到内存。
     ///
     /// 闭包内严禁 `.await`：持锁跨越 await 会序列化所有网络请求并有死锁风险。
     /// 异步流程一律先用 [`snapshot`](Self::snapshot) 取数据、在锁外完成网络调用，
     /// 再用本方法把结果按 id 合并回最新状态。
     fn mutate<R>(&self, apply: impl FnOnce(&mut AppData) -> R) -> Result<R, String> {
+        self.mutate_fallible(|data| Ok(apply(data)))
+    }
+
+    fn mutate_fallible<R>(
+        &self,
+        apply: impl FnOnce(&mut AppData) -> Result<R, String>,
+    ) -> Result<R, String> {
         self.ensure_storage_ready()?;
         let state = self.app.state::<AppState>();
-        let mut guard = state.data.write().unwrap_or_else(|err| err.into_inner());
-        let mut next_data = guard.clone();
-        let result = apply(&mut next_data);
+        let _transaction = state
+            .mutation_gate
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let mut next_data = state
+            .data
+            .read()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
+        let result = apply(&mut next_data)?;
+        limits::normalize_app_data(&mut next_data);
         storage::save_app_data(self.app, &next_data)?;
-        *guard = next_data;
+        *state.data.write().unwrap_or_else(|err| err.into_inner()) = next_data;
         Ok(result)
     }
 
@@ -138,7 +154,7 @@ impl<'a> ProviderService<'a> {
     }
 
     pub fn save_provider(&self, input: ProviderInput) -> Result<Vec<Provider>, String> {
-        self.mutate(|data| {
+        self.mutate_fallible(|data| {
             if let Some(id) = input.id.clone() {
                 if let Some(provider) = data
                     .providers
@@ -147,13 +163,25 @@ impl<'a> ProviderService<'a> {
                 {
                     provider.apply_input(input);
                 } else {
+                    if data.providers.len() >= limits::MAX_PROVIDERS {
+                        return Err(format!(
+                            "中转站数量已达到上限（{} 个）",
+                            limits::MAX_PROVIDERS
+                        ));
+                    }
                     data.providers.push(Provider::from_input(input, id));
                 }
             } else {
+                if data.providers.len() >= limits::MAX_PROVIDERS {
+                    return Err(format!(
+                        "中转站数量已达到上限（{} 个）",
+                        limits::MAX_PROVIDERS
+                    ));
+                }
                 let id = format!("provider-{}", current_timestamp_millis());
                 data.providers.push(Provider::from_input(input, id));
             }
-            data.providers.clone()
+            Ok(data.providers.clone())
         })
     }
 
@@ -184,7 +212,14 @@ impl<'a> ProviderService<'a> {
         })
     }
 
-    pub fn save_settings(&self, settings: AppSettings) -> Result<AppSettings, String> {
+    pub fn save_settings(&self, mut settings: AppSettings) -> Result<AppSettings, String> {
+        limits::normalize_settings(&mut settings);
+        if settings.notification_channels.len() > limits::MAX_NOTIFICATION_CHANNELS {
+            return Err(format!(
+                "通知渠道数量超过上限（最多 {} 个）",
+                limits::MAX_NOTIFICATION_CHANNELS
+            ));
+        }
         self.mutate(|data| {
             data.settings = settings;
             data.settings.clone()
@@ -226,8 +261,12 @@ impl<'a> ProviderService<'a> {
         path: String,
     ) -> Result<(AppData, AppDataTransferResult), String> {
         let source = PathBuf::from(path);
-        let data = storage::import_app_data(self.app, &source)?;
         let state = self.app.state::<AppState>();
+        let _transaction = state
+            .mutation_gate
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let data = storage::import_app_data(self.app, &source)?;
         let mut guard = state.data.write().unwrap_or_else(|err| err.into_inner());
         *guard = data.clone();
         state.clear_load_error();

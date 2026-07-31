@@ -30,11 +30,11 @@
   <a href="https://github.com/NotoChen/BalanceHub/issues">反馈问题</a>
 </p>
 
-BalanceHub 用来集中管理 NewAPI 兼容中转站账号。它把余额、签到、用量趋势、请求日志、API Key、Codex / Claude Code 测活这些高频操作放到一个本地桌面应用里，减少在多个中转站后台之间来回切换。
+BalanceHub 用来集中管理 AI 中转站账号与 OpenAI 兼容 API。它把余额、签到、用量趋势、请求日志、API Key、Codex / Claude Code 测活这些高频操作放到一个本地桌面应用里，减少在多个中转站后台之间来回切换。
 
 ## 为什么需要 BalanceHub
 
-NewAPI 兼容中转站通常各自有独立后台。账号多了之后，余额、签到、API Key、请求日志、用量趋势和模型可用性会分散在多个页面里。BalanceHub 把这些信息收束到本地桌面 App 中，适合长期管理多个中转站账号。
+不同中转站通常各自有独立后台。账号多了之后，余额、签到、API Key、请求日志、用量趋势和模型可用性会分散在多个页面里。BalanceHub 把这些信息收束到本地桌面 App 中，适合长期管理多个中转站账号。
 
 - **集中观察**：余额、额度、账号状态、站点元数据和异常状态集中展示。
 - **减少切换**：签到、签到记录、用量趋势、请求日志、API Key 管理都在 App 内完成。
@@ -45,31 +45,28 @@ NewAPI 兼容中转站通常各自有独立后台。账号多了之后，余额�
 
 ## 适合与边界
 
-BalanceHub 适合已经在使用多个 NewAPI 兼容中转站，并希望把账号观察、日常签到、用量排查和 CLI 可用性验证集中到一个桌面工具里的用户。它不是中转站服务端，也不提供 Web 自部署版本。
+BalanceHub 适合已经在使用多个 AI 中转站，并希望把账号观察、日常签到、用量排查和 CLI 可用性验证集中到一个桌面工具里的用户。它不是中转站服务端，也不提供 Web 自部署版本。
 
-当前 UI 只展示 NewAPI 类型；AnyRouter 按 NewAPI 方言兼容处理，不作为独立中转站类型展示。sub2api 尚未接入。仓库只通过 Issues 收集反馈，不接受 Pull Request。
+当前 UI 支持 NewAPI、Sub2API 和通用 API Key。AnyRouter 按 NewAPI 方言兼容处理，不作为独立中转站类型展示；通用 API 通过 OpenAI 兼容模型接口工作。仓库只通过 Issues 收集反馈，不接受 Pull Request。
 
 ## 界面预览
 
 以下截图均来自真实桌面 App。截图中的中转站名称、用户名称和用户 ID 均为演示数据。
 
 <p>
-  <img src="docs/assets/screenshots/provider-editor.png" width="49%" alt="新增中转站" />
   <img src="docs/assets/screenshots/settings.png" width="49%" alt="设置" />
-</p>
-<p>
   <img src="docs/assets/screenshots/usage-trends.png" width="49%" alt="用量趋势" />
-  <img src="docs/assets/screenshots/request-logs.png" width="49%" alt="请求日志" />
 </p>
 <p>
+  <img src="docs/assets/screenshots/request-logs.png" width="49%" alt="请求日志" />
   <img src="docs/assets/screenshots/checkin-records.png" width="49%" alt="签到记录" />
 </p>
 
 ## 快速开始
 
 1. 下载并打开 [最新版本](https://github.com/NotoChen/BalanceHub/releases/latest)。
-2. 点击添加中转站，填写 NewAPI 兼容站点地址。
-3. 选择认证方式，优先使用账号密码；已有会话时可选择 Cookie，其次是访问令牌，最后是 API Key。
+2. 点击添加中转站，填写站点地址并确认自动识别的协议，必要时手动选择 NewAPI、Sub2API 或通用 API Key。
+3. NewAPI / Sub2API 优先使用账号密码；已有凭据时可按协议选择 Cookie、访问令牌或 API Key。通用 API 使用 API Key。
 4. 测试连接并保存，中转站会出现在主面板。
 5. 按需开启自动刷新、自动签到、自动测活和通知。
 6. 需要临时使用某个中转站时，在卡片快捷操作中选择 Codex / Claude Code，选择工作目录后启动终端。
@@ -80,7 +77,7 @@ BalanceHub 适合已经在使用多个 NewAPI 兼容中转站，并希望把账�
 
 | 模块 | 能力 | 适用场景 |
 | --- | --- | --- |
-| 中转站管理 | 新增、编辑、排序、连接测试、站点探测、认证方式管理。 | 维护多个 NewAPI 兼容站点，快速确认账号状态。 |
+| 中转站管理 | 新增、编辑、排序、协议识别、连接测试、站点探测、认证方式管理。 | 统一维护 NewAPI、Sub2API 和通用 OpenAI 兼容 API。 |
 | 余额与账单 | 账号额度、API Key 额度、无限额度、用量趋势、请求日志。 | 观察余额变化、排查消耗异常、确认 Key 维度额度。 |
 | 签到 | 手动签到、自动签到、签到记录、余额增量识别。 | 处理日常签到，并避免把无余额变化的签到误判为有效收益。 |
 | 测活 | Codex / Claude Code CLI 测活、候选 CLI 扫描、时间线记录。 | 判断站点、模型、Key、代理或本机 CLI 是否可用。 |
@@ -93,7 +90,7 @@ BalanceHub 适合已经在使用多个 NewAPI 兼容中转站，并希望把账�
 | 层级 | 技术 | 职责 |
 | --- | --- | --- |
 | 桌面容器 | Tauri 2 | 窗口、托盘、权限、通知、自动更新和跨平台打包。 |
-| 后端 | Rust 2021、tokio、reqwest、serde | NewAPI 请求、调度、存储、通知、测活和 Tauri command。 |
+| 后端 | Rust 2021、tokio、reqwest、serde | 协议适配、调度、存储、通知、测活和 Tauri command。 |
 | 前端 | Vue 3、TypeScript、Pinia、Arco Design Vue | App 交互、状态管理、设置面板、弹窗、图表和桌面工具界面。 |
 | 构建发布 | Vite、Cargo、GitHub Actions | 本地开发、质量检查、tag 触发的多平台发布包。 |
 
@@ -105,7 +102,10 @@ Vue 3 UI
     -> Tauri invoke
       -> Rust commands
         -> services/provider_service
-          -> providers/newapi_* 访问中转站
+          -> adapters/protocol 协议分发
+            -> adapters/new_api
+            -> adapters/sub2_api
+            -> adapters/api
           -> services/liveness 执行测活
           -> services/notifications 发送通知
           -> storage.rs 读写本地配置
@@ -141,14 +141,14 @@ Vue 3 UI
 <details>
 <summary><strong>支持哪些中转站？</strong></summary>
 
-当前只在 UI 上支持 NewAPI 兼容中转站。AnyRouter 按 NewAPI 方言兼容处理，不作为独立中转站类型展示。sub2api 尚未接入。
+当前支持 NewAPI、Sub2API 和通用 API Key。AnyRouter 按 NewAPI 方言兼容处理，不作为独立中转站类型展示；通用 API 只提供 API Key 和 OpenAI 兼容模型接口相关能力。
 
 </details>
 
 <details>
 <summary><strong>认证方式应该怎么选？</strong></summary>
 
-默认优先级是账号密码 > Cookie > 访问令牌 > API Key。账号密码可以登录并补全后续会话、访问令牌和 API Key；只关心 Key 维度额度时可以使用 API Key。
+NewAPI 默认优先账号密码，也可以直接使用 Cookie、访问令牌或 API Key；Sub2API 默认优先账号密码，也可以使用访问令牌或 API Key；通用 API 只使用 API Key。账号密码模式可以继续补全后续凭据。
 
 </details>
 

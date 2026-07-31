@@ -2,7 +2,7 @@ import { computed, ref, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { checkInProvider } from "../api/checkin";
 import type { Provider } from "../stores/providers";
-import { providerCheckedInToday, supportsCheckIn } from "../utils/provider-display";
+import { providerCheckedInToday, supportsCheckIn } from "../utils/provider-actions";
 
 interface UseCheckInActionsOptions {
   providers: Ref<Provider[]>;

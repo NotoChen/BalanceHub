@@ -1,0 +1,221 @@
+/* Dark mode preserves the same hierarchy instead of introducing a second palette. */
+:root.theme-dark .settings-workspace-v3,
+:root.theme-dark .settings-workspace-v3 .settings-panel,
+:root.theme-dark .settings-workspace-v3 .settings-panel-body,
+:root.theme-dark .provider-editor-studio,
+:root.theme-dark .provider-editor-main,
+:root.theme-dark .provider-editor-canvas {
+  background: #151d28;
+}
+
+:root.theme-dark .settings-workspace-v3 .settings-panel-header {
+  background: transparent;
+}
+
+:root.theme-dark .settings-workspace-v3 .settings-nav,
+:root.theme-dark .provider-editor-rail {
+  border-color: #2d3949;
+  background: #1b2532;
+}
+
+:root.theme-dark .settings-nav-brand-mark,
+:root.theme-dark .settings-workspace-v3 .settings-nav-item.active,
+:root.theme-dark .provider-editor-stepbar-v3 .provider-editor-step-tab.active {
+  border-color: #395781;
+  background: #223b5f;
+  color: #8bb7f6;
+}
+
+:root.theme-dark .settings-workspace-v3 .settings-nav-brand strong,
+:root.theme-dark .settings-workspace-v3 .settings-nav-item:hover,
+:root.theme-dark .settings-workspace-v3 .settings-nav-item:focus-visible,
+:root.theme-dark .provider-editor-stepbar-v3 .provider-editor-step-tab:hover,
+:root.theme-dark .provider-editor-stepbar-v3 .provider-editor-step-tab:focus-visible {
+  color: #e2e8f0;
+}
+
+:root.theme-dark .settings-workspace-v3 .settings-nav-item:hover,
+:root.theme-dark .settings-workspace-v3 .settings-nav-item:focus-visible,
+:root.theme-dark .provider-editor-stepbar-v3 .provider-editor-step-tab:hover,
+:root.theme-dark .provider-editor-stepbar-v3 .provider-editor-step-tab:focus-visible {
+  border-color: #344154;
+  background: #263241;
+}
+
+:root.theme-dark .settings-workspace-v3 .settings-nav-icon,
+:root.theme-dark .provider-editor-stepbar-v3 .provider-editor-step-tab-icon {
+  background: #263241;
+  color: #9aa8b9;
+}
+
+:root.theme-dark .settings-workspace-v3 .settings-nav-item.active .settings-nav-icon,
+:root.theme-dark .provider-editor-stepbar-v3 .provider-editor-step-tab.active .provider-editor-step-tab-icon {
+  background: #2c4d78;
+  color: #9fc5fb;
+}
+
+:root.theme-dark .settings-workspace-v3 .settings-card,
+:root.theme-dark .provider-form-block,
+:root.theme-dark .provider-policy-block,
+:root.theme-dark .provider-credentials-secondary > summary,
+:root.theme-dark .provider-credential-active-panel {
+  border-color: #303c4c;
+  background: #1d2734;
+}
+
+:root.theme-dark .provider-form-block-header,
+:root.theme-dark .provider-policy-header,
+:root.theme-dark .provider-credential-active-heading,
+:root.theme-dark .provider-policy-row,
+:root.theme-dark .provider-policy-reveal {
+  border-color: #303c4c;
+}
+
+:root.theme-dark .provider-form-block-header strong,
+:root.theme-dark .provider-policy-header strong,
+:root.theme-dark .provider-policy-copy strong,
+:root.theme-dark .provider-backup-empty strong,
+:root.theme-dark .provider-auth-mode-copy strong,
+:root.theme-dark .provider-credentials-secondary-title strong {
+  color: #dce4ee;
+}
+
+:root.theme-dark .provider-form-block-header small,
+:root.theme-dark .provider-policy-header small,
+:root.theme-dark .provider-policy-copy small,
+:root.theme-dark .provider-backup-empty small,
+:root.theme-dark .provider-auth-mode-copy small,
+:root.theme-dark .provider-credentials-secondary-title small,
+:root.theme-dark .provider-auth-picker-note {
+  color: #91a0b2;
+}
+
+:root.theme-dark .provider-auth-mode-option,
+:root.theme-dark .provider-option-segment > button.active {
+  border-color: #344154;
+  background: #202b39;
+}
+
+:root.theme-dark .provider-auth-mode-option.active {
+  border-color: #456795;
+  background: #203956;
+  box-shadow: inset 0 0 0 1px #2d4c71;
+}
+
+:root.theme-dark .provider-auth-mode-icon,
+:root.theme-dark .provider-form-block-icon-neutral,
+:root.theme-dark .provider-backup-url-index {
+  background: #293646;
+  color: #a6b3c3;
+}
+
+:root.theme-dark .provider-option-segment {
+  background: #17202b;
+}
+
+:root.theme-dark .provider-option-segment > button {
+  color: #98a6b7;
+}
+
+:root.theme-dark .provider-option-segment > button.active {
+  color: #8bb7f6;
+}
+
+:root.theme-dark .provider-policy-info:hover,
+:root.theme-dark .provider-policy-info:focus-visible {
+  background: #293646;
+  color: #9fc5fb;
+}
+
+:root.theme-dark .provider-backup-empty,
+:root.theme-dark .provider-credentials-secondary-content {
+  border-color: #394758;
+  background: #19232f;
+}
+
+@media (max-width: 760px) {
+  .settings-workspace-v3 {
+    height: min(720px, calc(100dvh - 92px));
+  }
+
+  .settings-workspace-v3 .settings-topbar {
+    padding: 0 12px;
+  }
+
+  .settings-workspace-v3 .settings-topbar-track {
+    min-width: 580px;
+  }
+
+  .settings-workspace-v3 .settings-topbar-item {
+    gap: 5px;
+    padding: 0 8px;
+  }
+
+  .settings-workspace-v3 .settings-panel-header {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .settings-workspace-v3 .settings-panel-body {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .settings-workspace-v3 .settings-panel-footer {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .settings-workspace-v3 .settings-nav {
+    background: #eef1f5;
+  }
+
+  .settings-workspace-v3 .settings-theme-options-v4,
+  .provider-auth-mode-grid,
+  .provider-policy-page,
+  .provider-field-grid,
+  .provider-field-grid-identity,
+  .provider-field-grid-three {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-field-wide,
+  .provider-field-span-two,
+  .provider-liveness-policy {
+    grid-column: auto;
+  }
+
+  .provider-editor-studio {
+    height: min(760px, calc(100dvh - 92px));
+  }
+
+  .provider-editor-rail {
+    padding: 8px 10px;
+  }
+
+  .provider-editor-stepbar-v3 {
+    display: flex;
+  }
+
+  .provider-editor-stepbar-v3 .provider-editor-step-tab {
+    min-width: 132px;
+  }
+
+  .provider-editor-main-scroll {
+    padding: 14px;
+  }
+
+  .provider-policy-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .provider-policy-control {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  :root.theme-dark .settings-workspace-v3 .settings-nav {
+    background: #1b2532;
+  }
+}

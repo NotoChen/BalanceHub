@@ -1,12 +1,18 @@
 # 中转站配置
 
-BalanceHub 当前只支持 NewAPI 兼容中转站。AnyRouter 这类站点按 NewAPI 接口方言处理，不在界面上作为独立中转站类型展示。
+BalanceHub 当前支持 NewAPI、Sub2API 和通用 API Key。AnyRouter 这类站点按 NewAPI 接口方言处理，不在界面上作为独立中转站类型展示。
 
 中转站配置和凭据只保存在当前电脑的应用数据目录中。导出配置会包含中转站信息和凭据，请只在可信设备之间迁移。
 
 ## 认证方式
 
-认证优先级建议是：账号密码 > Cookie > 访问令牌 > API Key。账号密码可以登录站点，并按需补全后续会话、访问令牌和 API Key。
+NewAPI / Sub2API 新配置默认使用账号密码。账号密码可以登录站点，并按需补全后续会话、访问令牌和 API Key；已有凭据时也可以按协议直接选择 Cookie、访问令牌或 API Key。通用 API 只使用 API Key。
+
+### 协议边界
+
+- NewAPI：支持账号密码、Cookie、访问令牌和 API Key，并按站点能力提供签到、日志、用量、密钥管理等功能。
+- Sub2API：支持账号密码、Access / Refresh Token 和网关 API Key，并提供用户资料、额度、用量、日志和密钥管理能力。
+- 通用 API Key：通过 OpenAI 兼容 `/v1/models` 接口验证和同步模型，不提供账号、签到或站点密钥管理能力。
 
 ### 账号密码
 

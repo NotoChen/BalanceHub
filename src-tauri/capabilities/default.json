@@ -8,11 +8,8 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-size",
     "core:window:allow-set-size-constraints",
-    "opener:default",
     "autostart:default",
     "dialog:default",
-    "notification:default",
-    "process:default",
-    "updater:default"
+    "process:default"
   ]
 }

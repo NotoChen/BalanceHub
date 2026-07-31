@@ -1,0 +1,97 @@
+/* Keep every field in these workspaces on the same visual plane. */
+.surface-modal .arco-form-item-label > label {
+  color: #536276;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.surface-modal .arco-form-item-extra,
+.surface-modal .arco-form-item-message {
+  color: #8997a8;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.surface-modal .arco-input-wrapper,
+.surface-modal .arco-input-number,
+.surface-modal .arco-select-view,
+.surface-modal .arco-picker,
+.surface-modal .arco-textarea-wrapper {
+  min-height: 40px;
+  border: 1px solid #d7e0eb !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(35, 52, 73, 0.04);
+  transition:
+    border-color 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.surface-modal .arco-input-wrapper:hover,
+.surface-modal .arco-input-number:hover,
+.surface-modal .arco-select-view:hover,
+.surface-modal .arco-picker:hover,
+.surface-modal .arco-textarea-wrapper:hover {
+  border-color: #9eb9df !important;
+}
+
+.surface-modal .arco-input-wrapper:focus-within,
+.surface-modal .arco-input-number:focus-within,
+.surface-modal .arco-select-view:focus-within,
+.surface-modal .arco-picker:focus-within,
+.surface-modal .arco-textarea-wrapper:focus-within {
+  border-color: #5d8fe9 !important;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.1) !important;
+}
+
+.surface-modal .arco-input,
+.surface-modal .arco-input-number-input,
+.surface-modal .arco-select-view-input,
+.surface-modal .arco-select-view-value,
+.surface-modal .arco-picker-input,
+.surface-modal .arco-textarea {
+  min-height: 38px;
+  background: transparent !important;
+  color: #1e2b3b;
+}
+
+.surface-modal .arco-input::placeholder,
+.surface-modal .arco-textarea::placeholder {
+  color: #a4afbd;
+}
+
+.surface-modal .arco-select-view-suffix,
+.surface-modal .arco-picker-suffix,
+.surface-modal .arco-input-password .arco-input-suffix {
+  color: #7f8da0;
+}
+
+.surface-modal .arco-switch-checked {
+  background: #2d6de0;
+}
+
+.surface-modal .arco-btn:not(.arco-btn-primary) {
+  border-color: #d7e0eb;
+  background: #ffffff;
+  color: #4b5b70;
+}
+
+.surface-modal .arco-btn:not(.arco-btn-primary):hover,
+.surface-modal .arco-btn:not(.arco-btn-primary):focus-visible {
+  border-color: #8fb3ee;
+  background: #f2f6fd;
+  color: #165dff;
+}
+
+.surface-modal .arco-btn-primary {
+  border-color: #2d6de0;
+  background: #2d6de0;
+  box-shadow: 0 5px 12px rgba(45, 109, 224, 0.2);
+}
+
+.surface-modal .arco-btn-primary:hover,
+.surface-modal .arco-btn-primary:focus-visible {
+  border-color: #165dff;
+  background: #165dff;
+}

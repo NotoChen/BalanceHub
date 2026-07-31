@@ -1,0 +1,178 @@
+/* Provider editor gets a quiet canvas and a more explicit progress rail. */
+.provider-editor-studio {
+  background: #eef3f8;
+}
+
+.provider-editor-stepbar {
+  gap: 10px;
+  border-bottom-color: #dbe3ed;
+  background: #ffffff;
+  padding: 14px 20px;
+}
+
+.provider-editor-stepbar-track {
+  background: #d8e1ec;
+}
+
+.provider-editor-step-tab {
+  min-height: 56px;
+  border-color: transparent;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+
+.provider-editor-step-tab:hover,
+.provider-editor-step-tab:focus-visible {
+  border-color: #b6cef5;
+  background: #ffffff;
+}
+
+.provider-editor-step-tab.active {
+  border-color: #8fb3ee;
+  background: #eff5ff;
+  box-shadow: inset 0 0 0 1px rgba(22, 93, 255, 0.06);
+}
+
+.provider-editor-step-tab-index {
+  border-color: #d4deea;
+  background: #ffffff;
+}
+
+.provider-editor-step-tab.active .provider-editor-step-tab-index {
+  border-color: #2d6de0;
+  background: #2d6de0;
+}
+
+.provider-editor-stage {
+  background: #eef3f8;
+}
+
+.provider-editor-canvas {
+  background: #ffffff;
+}
+
+.provider-editor-canvas-header {
+  min-height: 84px;
+  border-bottom-color: #e2e8f0;
+  padding: 16px 24px;
+}
+
+.provider-editor-canvas-header h2 {
+  color: #172233;
+  font-size: 20px;
+}
+
+.provider-editor-main-scroll {
+  padding: 22px 24px 28px;
+}
+
+.provider-editor-main-scroll .arco-form-item {
+  margin-bottom: 17px;
+}
+
+.provider-editor-context {
+  border-left-color: #dbe3ed;
+  background: #f3f6fa;
+  padding: 20px 16px;
+}
+
+.provider-editor-context-card {
+  border-color: #d5e0eb;
+  border-radius: 11px;
+  box-shadow: 0 4px 14px rgba(25, 42, 64, 0.05);
+}
+
+.provider-editor-context-note {
+  border-color: #c7e3df;
+  background: #eff9f7;
+}
+
+.provider-editor-context-progress > div {
+  background: #d9e2ed;
+}
+
+.provider-editor-context-progress i {
+  background: #2d6de0;
+}
+
+.provider-credential-active-panel {
+  border-color: #c8dafa;
+  border-radius: 10px;
+  background: #f3f7ff;
+  padding: 15px 15px 8px;
+}
+
+.provider-auth-mode-option {
+  min-height: 60px;
+  border-color: #d8e2ed;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.provider-auth-mode-option.active {
+  border-color: #8fb3ee;
+  background: #eff5ff;
+  box-shadow: inset 0 0 0 1px rgba(22, 93, 255, 0.06);
+}
+
+.provider-credentials-secondary {
+  border-color: #d8e2ed;
+  background: #f8fafc;
+}
+
+@media (max-width: 980px) {
+  .settings-panel-status-strip {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .surface-modal .arco-modal-header {
+    padding-right: 54px;
+    padding-left: 16px;
+  }
+
+  .surface-modal-title-meta {
+    display: none;
+  }
+
+  .settings-workspace,
+  .provider-editor-studio {
+    height: min(760px, calc(100dvh - 90px));
+  }
+
+  .settings-nav {
+    background: #172333;
+  }
+
+  .settings-panel-header {
+    min-height: 92px;
+    padding: 16px;
+  }
+
+  .settings-panel-header h2 {
+    font-size: 21px;
+  }
+
+  .settings-panel-mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  .settings-panel-body,
+  .provider-editor-main-scroll {
+    padding: 16px;
+  }
+
+  .settings-setting-row {
+    gap: 12px;
+  }
+
+  .settings-setting-row > .arco-select,
+  .settings-setting-row > .arco-input-wrapper,
+  .settings-setting-row > .arco-input-number,
+  .settings-setting-row > .arco-picker,
+  .settings-setting-row > .arco-space {
+    max-width: none;
+  }
+}

@@ -1,7 +1,7 @@
 import { computed, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type { AppSettings, Provider } from "../stores/providers";
-import { providerNeedsCheckIn } from "../utils/provider-display";
+import { providerNeedsCheckIn } from "../utils/provider-actions";
 import { providerLivenessEnabled } from "../utils/provider-liveness";
 import { useProviderCardTone } from "./useProviderCardTone";
 import { useProviderDragSort } from "./useProviderDragSort";

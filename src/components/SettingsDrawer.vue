@@ -17,11 +17,6 @@ import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { AppSettings } from "../stores/providers";
 import type { DurationUnit } from "../utils/duration";
 
-interface ModelProviderIndexItem {
-  model: string;
-  providers: { id: string; name: string }[];
-}
-
 type SettingsSectionKey = "appearance" | "automation" | "codex" | "notification" | "system";
 
 const emit = defineEmits<{
@@ -39,7 +34,7 @@ const props = defineProps<{
   settings: AppSettings;
   settingsSaveState: SettingsSaveState;
   livenessModelOptions: string[];
-  modelProviderIndex: ModelProviderIndexItem[];
+  selectedLivenessModelProviders: { id: string; name: string }[];
   globalRefreshAmount: number;
   globalRefreshUnit: DurationUnit;
   exportingAppData: boolean;
@@ -170,7 +165,7 @@ function saveStateLabel(state: SettingsSaveState) {
                 :settings="settings"
                 :expanded="true"
                 :liveness-model-options="livenessModelOptions"
-                :model-provider-index="modelProviderIndex"
+                :selected-liveness-model-providers="selectedLivenessModelProviders"
               />
               <SettingsNotificationSection
                 v-else-if="activeSection === 'notification'"

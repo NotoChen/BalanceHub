@@ -98,6 +98,7 @@ export function useWindowGridSnap() {
   let unlistenBrowserResize: (() => void) | null = null;
   let geometryFrame: number | null = null;
   let resizeSettleTimer: number | null = null;
+  let applySizeReleaseTimer: number | null = null;
   let scaleFactor = 1;
   let applyingSize = false;
   let lastObservedSize: LogicalWindowSize | null = null;
@@ -106,6 +107,7 @@ export function useWindowGridSnap() {
   let expandedWindow = false;
   let releaseCheckInProgress = false;
   let resizeRevision = 0;
+  let disposed = false;
 
   const clearScheduledGeometryRefresh = () => {
     if (geometryFrame !== null) {
@@ -121,7 +123,15 @@ export function useWindowGridSnap() {
     }
   };
 
+  const clearApplySizeReleaseTimer = () => {
+    if (applySizeReleaseTimer !== null) {
+      window.clearTimeout(applySizeReleaseTimer);
+      applySizeReleaseTimer = null;
+    }
+  };
+
   const setConstraints = async (geometry: GridGeometry) => {
+    if (disposed) return;
     const minimum = minimumSize(geometry);
     if (
       lastConstraintSize &&
@@ -135,19 +145,22 @@ export function useWindowGridSnap() {
         minWidth: minimum.width,
         minHeight: minimum.height,
       });
-      lastConstraintSize = minimum;
+      if (!disposed) {
+        lastConstraintSize = minimum;
+      }
     } catch {
       // The Vite preview and non-desktop environments do not expose Tauri window controls.
     }
   };
 
   const snapSize = async (requested: LogicalWindowSize) => {
-    if (applyingSize || expandedWindow) {
+    if (disposed || applyingSize || expandedWindow) {
       return;
     }
 
     const geometry = readGridGeometry();
     await setConstraints(geometry);
+    if (disposed) return;
     const target = {
       width: Math.max(
         minimumSize(geometry).width,
@@ -176,17 +189,26 @@ export function useWindowGridSnap() {
     applyingSize = true;
     try {
       await getCurrentWindow().setSize(new LogicalSize(target.width, target.height));
-      lastObservedSize = target;
+      if (!disposed) {
+        lastObservedSize = target;
+      }
     } catch {
       // Ignore resize calls made while the app is running outside Tauri.
     } finally {
-      window.setTimeout(() => {
+      clearApplySizeReleaseTimer();
+      if (disposed) {
         applyingSize = false;
-      }, 80);
+      } else {
+        applySizeReleaseTimer = window.setTimeout(() => {
+          applySizeReleaseTimer = null;
+          applyingSize = false;
+        }, 80);
+      }
     }
   };
 
   const updateResponsiveSpacing = (geometry: GridGeometry) => {
+    if (disposed) return;
     const root = document.documentElement;
     const board = document.querySelector<HTMLElement>(".provider-board");
     const grids = Array.from(document.querySelectorAll<HTMLElement>(".overview-provider-grid"));
@@ -321,16 +343,19 @@ export function useWindowGridSnap() {
   };
 
   const refreshWindowMode = async () => {
+    if (disposed) return;
     try {
       const appWindow = getCurrentWindow();
       expandedWindow = (await appWindow.isMaximized()) || (await appWindow.isFullscreen());
     } catch {
       expandedWindow = false;
     }
+    if (disposed) return;
     updateResponsiveSpacing(readGridGeometry());
   };
 
   const requestSnapAfterRelease = async (expectedRevision?: number) => {
+    if (disposed) return;
     if (expectedRevision === undefined) {
       clearResizeSettleTimer();
     }
@@ -341,6 +366,7 @@ export function useWindowGridSnap() {
     releaseCheckInProgress = true;
     await refreshWindowMode();
     releaseCheckInProgress = false;
+    if (disposed) return;
     if (expectedRevision !== undefined && expectedRevision !== resizeRevision) {
       return;
     }
@@ -358,6 +384,7 @@ export function useWindowGridSnap() {
   };
 
   const observeSize = (requested: LogicalWindowSize) => {
+    if (disposed) return;
     lastObservedSize = requested;
     resizeInProgress = true;
     resizeRevision += 1;
@@ -371,11 +398,12 @@ export function useWindowGridSnap() {
   };
 
   const scheduleGeometryRefresh = () => {
-    if (geometryFrame !== null) {
+    if (disposed || geometryFrame !== null) {
       return;
     }
     geometryFrame = window.requestAnimationFrame(() => {
       geometryFrame = null;
+      if (disposed) return;
       const geometry = readGridGeometry();
       void setConstraints(geometry);
       updateResponsiveSpacing(geometry);
@@ -383,17 +411,24 @@ export function useWindowGridSnap() {
   };
 
   onMounted(async () => {
+    disposed = false;
     try {
       const appWindow = getCurrentWindow();
       scaleFactor = await appWindow.scaleFactor();
+      if (disposed) return;
       await refreshWindowMode();
+      if (disposed) return;
       const currentSize = await appWindow.innerSize();
+      if (disposed) return;
       lastObservedSize = {
         width: currentSize.width / scaleFactor,
         height: currentSize.height / scaleFactor,
       };
 
-      unlistenResize = await appWindow.onResized(({ payload }) => {
+      const resizeUnlisten = await appWindow.onResized(({ payload }) => {
+        if (disposed) {
+          return;
+        }
         if (applyingSize) {
           return;
         }
@@ -405,6 +440,11 @@ export function useWindowGridSnap() {
           },
         );
       });
+      if (disposed) {
+        resizeUnlisten();
+        return;
+      }
+      unlistenResize = resizeUnlisten;
 
       // Native resize borders can keep the pointer outside the WebView. Pointer
       // release snaps immediately; the resize-settle timer above is the fallback
@@ -439,8 +479,10 @@ export function useWindowGridSnap() {
   });
 
   onBeforeUnmount(() => {
+    disposed = true;
     clearScheduledGeometryRefresh();
     clearResizeSettleTimer();
+    clearApplySizeReleaseTimer();
     mutationObserver?.disconnect();
     mutationObserver = null;
     unlistenResize?.();

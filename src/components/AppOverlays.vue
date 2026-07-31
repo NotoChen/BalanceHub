@@ -63,6 +63,8 @@ defineProps<{
   availableUpdateVersion: string;
   availableUpdateReleaseNotes: string;
   installingUpdate: boolean;
+  updateCanCancel: boolean;
+  cancellingUpdate: boolean;
   updateDownloadProgress: number | null;
   updateInstallStatus: string;
 }>();
@@ -91,6 +93,7 @@ const emit = defineEmits<{
   loadCheckInRecords: [options?: { force?: boolean }];
   retryCapabilityProbe: [];
   dismissUpdate: [];
+  cancelUpdate: [];
   installUpdate: [];
 }>();
 
@@ -127,9 +130,12 @@ const capabilityProbeVisible = defineModel<boolean>("capabilityProbeVisible", { 
     :version="availableUpdateVersion"
     :release-notes="availableUpdateReleaseNotes"
     :installing="installingUpdate"
+    :can-cancel="updateCanCancel"
+    :cancelling="cancellingUpdate"
     :download-progress="updateDownloadProgress"
     :install-status="updateInstallStatus"
     @dismiss="emit('dismissUpdate')"
+    @cancel="emit('cancelUpdate')"
     @install="emit('installUpdate')"
   />
 

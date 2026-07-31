@@ -1,0 +1,43 @@
+/* Final settings layout constraints keep narrow cards from squeezing labels into vertical text. */
+.settings-workspace-v3 .settings-automation-page {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-workspace-v3 .settings-automation-value-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.settings-workspace-v3 .settings-automation-value-row > .settings-duration-control,
+.settings-workspace-v3 .settings-automation-value-row > .arco-picker {
+  width: 100%;
+  max-width: none;
+  justify-self: stretch;
+}
+
+.settings-workspace-v3 .settings-automation-toggle-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.settings-workspace-v3 .settings-liveness-timing-grid {
+  grid-template-columns: repeat(3, minmax(130px, 1fr));
+}
+
+.settings-workspace-v3 .settings-liveness-timing-grid .arco-form-item,
+.settings-workspace-v3 .settings-liveness-timing-grid .arco-input-number {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .settings-workspace-v3 .settings-liveness-timing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .settings-workspace-v3 .settings-liveness-timing-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

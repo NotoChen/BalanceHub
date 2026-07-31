@@ -6,29 +6,32 @@
 
 | 功能 | 定义 | 实现位置 | 说明 |
 | --- | --- | --- | --- |
-| 中转站账号管理 | 把多个 NewAPI 兼容站点集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`src-tauri/src/services/provider_service/` | 当前 UI 只展示 NewAPI 类型；AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
-| 认证方式管理 | 按站点保存账号密码、Cookie、访问令牌、API Key 等认证信息。 | `src/stores/provider-types.ts`、`src-tauri/src/models/`、`src-tauri/src/providers/newapi_http.rs` | 默认优先级是账号密码 > Cookie > 访问令牌 > API Key。 |
-| 站点探测 | 从中转站读取名称、图标、额度单位和货币符号。 | `src-tauri/src/providers/newapi_site.rs` | 用于减少手动填写，并保证余额、日志、签到记录单位显示一致。 |
-| 余额刷新 | 查询账号或 API Key 当前额度、已用额度和可用额度。 | `src-tauri/src/providers/newapi_quota.rs`、`src-tauri/src/services/provider_service/quota.rs` | API Key 查询明确按 Key 维度展示；无限额度按无限状态处理。 |
+| 中转站账号管理 | 把 NewAPI、Sub2API 和通用 OpenAI 兼容 API 集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`src-tauri/src/services/provider_service/` | AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
+| 认证方式管理 | 按协议保存账号密码、Cookie、访问令牌、Refresh Token、API Key 等认证信息。 | `src/stores/provider-types.ts`、`src-tauri/src/models/`、`src-tauri/src/adapters/` | NewAPI / Sub2API 默认账号密码；通用 API 只使用 API Key。 |
+| 操作能力契约 | 由 Rust 统一判断账号管理、签到、密钥管理和邀请等操作是否可用。 | `src-tauri/src/models/provider_domain/capabilities.rs`、`src-tauri/src/contracts.rs`、`src/utils/provider-actions.ts` | 不引入类型生成工具；TypeScript 只声明 IPC 结构并读取 Rust 返回结果。 |
+| 协议探测 | 并发探测 NewAPI、Sub2API，并在 API Key 模式下通过模型接口识别通用 API。 | `src-tauri/src/adapters/detector.rs`、`src-tauri/src/adapters/protocol.rs` | 识别冲突或失败时允许用户手动选择协议。 |
+| 站点探测 | 从中转站读取名称、图标、额度单位和货币符号。 | `src-tauri/src/adapters/new_api/site.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs`、`src-tauri/src/adapters/api.rs` | 用于减少手动填写，并保证余额、日志、签到记录单位显示一致。 |
+| 余额刷新 | 查询账号或 API Key 当前额度、已用额度和可用额度。 | `src-tauri/src/adapters/new_api/quota.rs`、`src-tauri/src/adapters/sub2_api/`、`src-tauri/src/services/provider_service/quota.rs` | API Key 查询明确按 Key 维度展示；无限额度按无限状态处理。 |
 | 自动刷新 | 按用户配置周期刷新中转站状态。 | `src-tauri/src/services/scheduler.rs` | 适合多站点长期挂后台观察余额和异常状态。 |
-| 签到 | 对支持签到的 NewAPI 兼容站点执行每日签到。 | `src-tauri/src/providers/newapi_checkin.rs`、`src-tauri/src/providers/anyrouter.rs`、`src-tauri/src/services/provider_service/check_in.rs` | 签到结果会结合接口返回和余额变化展示，避免把无余额变化误判为有效收益。 |
-| 签到记录 | 展示每日签到结果和余额增量。 | `src/components/CheckInCalendarModal.vue`、`src-tauri/src/providers/newapi_checkin/records.rs` | 兼容站点返回的显示额度和 NewAPI 原始额度单位转换。 |
-| 用量趋势 | 查看周期内请求量和额度消耗趋势。 | `src/components/UsageTrendModal.vue`、`src/composables/useUsageTrendChart.ts`、`src-tauri/src/providers/newapi_usage.rs` | 用于判断站点消耗变化、请求峰值和账户使用节奏。 |
-| 请求日志 | 查看模型请求记录、状态、Token 和消耗。 | `src/components/RequestLogsModal.vue`、`src-tauri/src/providers/newapi_logs.rs` | 消耗金额沿用站点元数据中的额度单位、货币符号和换算规则。 |
-| API Key 管理 | 查看、创建、删除中转站 API Key，并读取 Key 额度。 | `src/components/ApiKeyManagerModal.vue`、`src-tauri/src/providers/newapi_keys.rs` | 适合从桌面端快速生成 Codex / Claude Code 使用的 Key。 |
-| 修改密码 | 在支持的 NewAPI 站点上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/providers/newapi_account.rs` | 仅在站点能力和认证信息满足要求时展示操作入口。 |
+| 签到 | 对支持签到的 NewAPI 兼容站点执行每日签到。 | `src-tauri/src/adapters/new_api/check_in.rs`、`src-tauri/src/adapters/new_api/anyrouter.rs`、`src-tauri/src/services/provider_service/check_in.rs` | 签到结果会结合接口返回和余额变化展示，避免把无余额变化误判为有效收益。 |
+| 签到记录 | 展示每日签到结果和余额增量。 | `src/components/CheckInCalendarModal.vue`、`src-tauri/src/adapters/new_api/check_in/records.rs` | 兼容站点返回的显示额度和 NewAPI 原始额度单位转换。 |
+| 用量趋势 | 查看周期内请求量和额度消耗趋势。 | `src/components/UsageTrendModal.vue`、`src/composables/useUsageTrendChart.ts`、`src-tauri/src/adapters/new_api/usage.rs`、`src-tauri/src/adapters/sub2_api/usage.rs` | 用于判断站点消耗变化、请求峰值和账户使用节奏。 |
+| 请求日志 | 查看模型请求记录、状态、Token 和消耗。 | `src/components/RequestLogsModal.vue`、`src-tauri/src/adapters/new_api/logs.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 消耗金额沿用站点元数据中的额度单位、货币符号和换算规则。 |
+| API Key 管理 | 查看、创建、删除中转站 API Key，并读取 Key 额度。 | `src/components/ApiKeyManagerModal.vue`、`src-tauri/src/adapters/new_api/keys.rs`、`src-tauri/src/adapters/sub2_api/keys.rs` | 适合从桌面端快速生成 Codex / Claude Code 使用的 Key。 |
+| 修改密码 | 在支持的账号协议上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/adapters/new_api/account.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 仅在协议、站点能力和认证信息满足要求时展示操作入口。 |
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
 | CLI 测活 | 使用 Codex / Claude Code CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness/command.rs`、`src-tauri/src/services/liveness/process.rs` | 测活会消耗真实额度，首次开启自动测活前会要求确认。 |
 | CLI 候选扫描 | 扫描本机 Codex / Claude Code 可执行文件。 | `src-tauri/src/services/liveness/cli.rs`、`src/components/settings/SettingsCliManager.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
-| 临时 CLI 启动 | 使用当前中转站临时启动 Codex / Claude Code CLI。 | `src-tauri/src/services/temporary_cli.rs`、`src/components/ProviderCard.vue`、`src/composables/useProviderActions.ts` | 仅覆盖 API Key、Base URL 和模型，工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
-| CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/lib.rs` | 支持 Codex、Claude Code、OpenCode、OpenClaw、Hermes 目标；不声明 Gemini 支持。 |
+| 临时 CLI 启动 | 使用当前中转站临时启动 Codex / Claude Code CLI。 | `src-tauri/src/services/temporary_cli/`、`src/components/ProviderCard.vue`、`src/composables/useProviderActions.ts` | 覆盖 API Key、Base URL、模型和当前中转站的有效代理；工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
+| 统一代理 | 为业务请求、Webhook、updater、测活 CLI 和临时 CLI 解析同一套代理语义。 | `src-tauri/src/network/` | 支持无代理、自定义 HTTP/SOCKS 代理及系统手工 HTTP/HTTPS/SOCKS 配置；PAC/WPAD 或无法静态读取的桌面配置保留运行环境，不虚构已解析结果。 |
+| CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/commands/app.rs`、`src-tauri/src/platform/cc_switch.rs` | 支持 Codex、Claude Code、OpenCode、OpenClaw、Hermes 目标；macOS 优先定位 CC Switch bundle，其他情况交给安全的系统处理器。 |
 | 测活时间线 | 保存并展示每个中转站最近的测活结果。 | `src/components/ProviderLivenessTimeline.vue`、`src/utils/provider-liveness.ts` | 用于区分余额正常但 CLI 不可用、模型不可用或网络异常。 |
 | 系统通知 | 对自动刷新、自动签到等结果发出系统通知。 | `src-tauri/src/services/notifications/adapters/system.rs` | 系统通知使用纯文本内容，避免显示 Markdown 语法。 |
 | Webhook 通知 | 通过钉钉、企业微信、飞书、Slack 或通用 Webhook 推送消息。 | `src-tauri/src/services/notifications/adapters/` | 不同渠道按各自消息格式发送，并处理签名和返回校验。 |
 | 配置导入导出 | 将本地中转站配置导出备份或迁移到另一台设备。 | `src/composables/useAppDataTransfer.ts`、`src-tauri/src/storage.rs` | 导出的配置可能包含敏感认证信息，应自行妥善保管。 |
 | 本地存储恢复 | 读写本地配置，并从临时文件恢复异常写入。 | `src-tauri/src/storage.rs` | 避免写入中断导致配置文件损坏。 |
 | 系统托盘 / 菜单栏 | 将桌面 App 保持在后台并提供快速入口。 | `src-tauri/src/tray.rs` | 支持显示窗口、刷新和退出，适合长期后台运行。 |
-| 自动更新 | 从 GitHub Releases 读取更新元数据并安装新版本。 | `src-tauri/tauri.conf.json`、`src-tauri/tauri.release.conf.json`、`.github/workflows/release.yml` | `.sig` 是 Tauri updater 自动更新签名文件，不是用户手动安装入口。 |
+| 自动更新 | 从 GitHub Releases 读取更新元数据并安装新版本。 | `src/composables/useAppUpdater.ts`、`src-tauri/src/services/app_updater.rs`、`src-tauri/tauri.release.conf.json` | 启动 30 秒后静默检查，之后每 6 小时检查；只提示、不自动下载。下载可取消，并有 45 秒停滞超时、20 分钟总时限和 256 MiB 上限；`.sig` 用于签名校验。 |
 | 主题和响应式布局 | 提供明暗主题和不同窗口宽度下的可用布局。 | `src/styles/modules/` | 优先保证桌面工具场景的信息密度和扫描效率。 |
 
 ## 技术框架
@@ -36,15 +39,15 @@
 | 层级 | 技术 | 用途 |
 | --- | --- | --- |
 | 桌面容器 | Tauri 2 | 打包跨平台桌面应用，提供窗口、托盘、权限、通知、更新和系统能力。 |
-| 后端语言 | Rust 2021 | 实现 NewAPI 请求、调度、存储、通知、测活和 Tauri command。 |
+| 后端语言 | Rust 2021 | 实现协议适配、调度、存储、通知、测活和 Tauri command。 |
 | 前端框架 | Vue 3 | 构建设置、卡片、弹窗、抽屉和状态交互。 |
 | 前端状态 | Pinia | 管理中转站、设置、运行状态和 UI 派生数据。 |
 | UI 组件 | Arco Design Vue | 提供表单、弹窗、按钮、抽屉、消息提示等基础组件。 |
 | 构建工具 | Vite 6 | 前端开发服务器和生产构建。 |
 | 类型系统 | TypeScript | 约束前端状态、API 返回和组件数据。 |
-| HTTP 客户端 | reqwest | 后端访问 NewAPI、Webhook 和更新相关接口。 |
+| HTTP 客户端 | reqwest | 后端访问中转站、Webhook 和更新相关接口。 |
 | 异步运行 | tokio | 支撑定时任务、网络请求和外部进程等待。 |
-| 序列化 | serde / serde_json | 读写本地配置、解析 NewAPI 响应、构造 Webhook 请求。 |
+| 序列化 | serde / serde_json | 读写本地配置、解析协议响应、构造 Webhook 请求。 |
 | 加密签名 | hmac / sha2 / base64 | 生成钉钉、飞书等 Webhook 签名。 |
 | 时间处理 | chrono | 处理签到日期、调度时间和本地时间判断。 |
 | Tauri 插件 | opener / dialog / notification / autostart / updater / process | 打开链接、文件选择、系统通知、开机启动、自动更新和进程能力。 |
@@ -57,9 +60,13 @@ BalanceHub 按“前端交互、Tauri command、Rust 服务、站点接口、本
 Vue 3 UI
   -> composables / Pinia store
     -> Tauri invoke API
-      -> src-tauri/src/lib.rs command
+      -> src-tauri/src/desktop.rs 注册 command
+        -> src-tauri/src/commands/ command 实现
         -> services/provider_service 调度业务
-          -> providers/newapi_* 访问中转站
+          -> adapters/protocol 分发协议
+            -> adapters/new_api
+            -> adapters/sub2_api
+            -> adapters/api
           -> services/liveness 执行 CLI 测活
           -> services/notifications 发送通知
           -> storage.rs 读写本地配置
@@ -95,6 +102,7 @@ Vue 3 UI
 │   ├── main.ts                       # 前端入口
 │   ├── api/                          # Tauri invoke 封装
 │   ├── components/                   # 页面、抽屉、弹窗、卡片和设置组件
+│   │   └── provider-card/             # 卡片头部、主体、操作区和弹出菜单
 │   ├── composables/                  # 前端状态编排和业务动作
 │   ├── stores/                       # Pinia store、类型和默认值
 │   ├── styles/                       # 全局样式和业务模块样式
@@ -105,22 +113,26 @@ Vue 3 UI
     ├── capabilities/                 # Tauri 权限能力配置
     ├── icons/                        # 应用图标
     └── src/
-        ├── lib.rs                    # Tauri command 注册和应用初始化
+        ├── lib.rs                    # Rust 库入口
+        ├── desktop.rs                # Tauri 应用编排、插件和 command 注册
+        ├── commands/                 # 应用、CLI 和中转站 command 实现
         ├── main.rs                   # 桌面进程入口
         ├── state.rs                  # 全局运行状态
         ├── storage.rs                # 本地配置读写、版本检查和恢复
         ├── tray.rs                   # 系统托盘 / 菜单栏
-        ├── network.rs                # 系统代理和网络辅助逻辑
-        ├── adapters/                 # 站点适配器入口
+        ├── network/                  # 跨平台系统代理解析和统一网络语义
+        ├── platform/                 # 深链、后台进程等平台能力封装
+        ├── contracts.rs              # Rust 派生操作能力和 IPC View
+        ├── adapters/                 # 协议探测、分发及各协议实现
         ├── models/                   # Rust 数据模型
-        ├── providers/                # NewAPI 兼容站点接口实现
         └── services/                 # 业务服务、测活、通知和调度
 ```
 
 ## 关键边界
 
 - BalanceHub 只考虑桌面 App，不提供 Web 自部署版本。
-- 当前仅支持 NewAPI 兼容中转站；AnyRouter 作为 NewAPI 方言兼容，不在 UI 上作为独立类型展示。
-- sub2api 尚未接入，不在文档中声明支持。
+- 当前支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 作为 NewAPI 方言兼容，不在 UI 上作为独立类型展示。
+- 通用 API 只提供 API Key、模型识别和 CLI 相关能力，不虚构账号、签到或站点密钥管理能力。
+- 操作能力以 Rust 为唯一真源，前端只消费 `contracts.rs` 返回的 actions，不维护同源业务判断。
 - 仓库只接受 Issue，不接受 Pull Request。
 - 不提交本地配置、导出的中转站配置、Cookie、访问令牌、API Key、updater 私钥或真实账号数据。

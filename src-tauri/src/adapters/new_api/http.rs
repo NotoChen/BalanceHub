@@ -1,4 +1,7 @@
-use crate::models::{AuthMode, Provider};
+use crate::{
+    models::{AuthMode, Provider},
+    network,
+};
 use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, SET_COOKIE, USER_AGENT},
     Client, Method, Url,
@@ -86,10 +89,7 @@ async fn authenticate_password_provider_inner(
         .map_err(|err| format!("账号密码登录失败: {err}"))?;
     let status = response.status();
     let session_cookie = extract_session_cookie(response.headers());
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取登录响应失败: {err}"))?;
+    let body = network::read_http_text(response, "读取登录响应").await?;
     let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
     let success = payload
         .get("success")

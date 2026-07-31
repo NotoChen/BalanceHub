@@ -1,4 +1,7 @@
-use crate::models::{AuthMode, Provider, ProviderQuotaDisplay, ProviderQuotaScope, ProviderStatus};
+use crate::{
+    models::{AuthMode, Provider, ProviderQuotaDisplay, ProviderQuotaScope, ProviderStatus},
+    network,
+};
 use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, USER_AGENT},
     Client,
@@ -204,10 +207,7 @@ async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfil
         .await
         .map_err(|err| format!("请求余额失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取余额响应失败: {err}"))?;
+    let body = network::read_http_text(response, "读取余额响应").await?;
 
     if !status.is_success() {
         if is_cloudflare_challenge(&body) {
@@ -268,10 +268,7 @@ async fn fetch_token_quota(
         .await
         .map_err(|err| format!("请求 API 密钥额度失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取 API 密钥额度响应失败: {err}"))?;
+    let body = network::read_http_text(response, "读取 API 密钥额度响应").await?;
     let data = parse_success_data(&status, body, "API 密钥额度")?;
     let quota_unlimited =
         extract_bool_field(&data, &["unlimited_quota", "unlimitedQuota"]).unwrap_or(false);

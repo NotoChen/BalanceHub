@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type Channel } from "@tauri-apps/api/core";
 import type {
   AppSettings,
   CliConfigPreview,
@@ -57,6 +57,21 @@ export interface AppDataTransferResult {
   providerCount: number;
 }
 
+export interface AppUpdateInfo {
+  currentVersion: string;
+  version: string;
+  date?: string | null;
+  body?: string | null;
+  rawJson?: Record<string, unknown> | null;
+}
+
+export type AppUpdateDownloadEvent =
+  | { event: "Started"; data: { contentLength?: number | null } }
+  | { event: "Progress"; data: { chunkLength: number } }
+  | { event: "Verifying" }
+  | { event: "Installing" }
+  | { event: "Finished" };
+
 export function loadAppData() {
   return invoke<AppData>("load_app_data");
 }
@@ -67,6 +82,26 @@ export function hostPlatform() {
 
 export function openCcSwitchDeeplink(url: string) {
   return invoke<void>("open_ccswitch_deeplink", { url });
+}
+
+export function checkAppUpdate() {
+  return invoke<AppUpdateInfo | null>("check_app_update");
+}
+
+export function installAppUpdate(onEvent: Channel<AppUpdateDownloadEvent>) {
+  return invoke<void>("install_app_update", { onEvent });
+}
+
+export function cancelAppUpdate() {
+  return invoke<void>("cancel_app_update");
+}
+
+export function clearPendingAppUpdate() {
+  return invoke<void>("clear_pending_app_update");
+}
+
+export function cancelVisibleRelaunch() {
+  return invoke<void>("cancel_visible_relaunch");
 }
 
 export function saveProvider(input: ProviderInput) {

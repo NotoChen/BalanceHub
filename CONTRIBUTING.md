@@ -24,6 +24,7 @@ BalanceHub 当前只接受 Issue，不接受 Pull Request。仓库保留开发�
 │   ├── api/                    # Tauri invoke 封装
 │   ├── assets/                 # 前端静态资源
 │   ├── components/             # 页面、抽屉、弹窗和业务组件
+│   │   └── provider-card/      # 中转站卡片头部、主体、操作与菜单
 │   ├── composables/            # 前端业务状态和交互逻辑
 │   ├── stores/                 # Pinia store、类型和默认值
 │   ├── styles/                 # 全局样式和模块样式
@@ -32,12 +33,17 @@ BalanceHub 当前只接受 Issue，不接受 Pull Request。仓库保留开发�
 │   ├── capabilities/           # Tauri 权限能力配置
 │   ├── icons/                  # 应用图标
 │   ├── src/
-│   │   ├── adapters/           # 外部命令或系统能力适配
+│   │   ├── adapters/           # NewAPI、Sub2API、通用 API 与协议探测适配
+│   │   ├── commands/           # Tauri command 实现与注册清单
+│   │   ├── contracts.rs        # Rust 计算并输出给前端的 IPC View
+│   │   ├── desktop.rs          # 桌面应用初始化、插件和单实例编排
 │   │   ├── models/             # Rust 数据模型和序列化结构
-│   │   ├── providers/          # NewAPI 兼容中转站接口实现
+│   │   ├── network/            # HTTP 客户端、代理解析和平台系统代理读取
+│   │   ├── platform/           # 深链、后台进程等桌面平台差异封装
 │   │   ├── services/           # 调度、通知、测活、中转站服务
-│   │   ├── lib.rs              # Tauri command 注册和应用初始化
-│   │   ├── storage.rs          # 本地配置读写、迁移和恢复
+│   │   ├── lib.rs              # Rust crate 入口
+│   │   ├── storage.rs          # 本地配置模块入口
+│   │   ├── storage/            # 配置读写、迁移、恢复与测试
 │   │   └── tray.rs             # 系统托盘 / 菜单栏相关逻辑
 │   ├── tauri.conf.json         # 开发构建配置
 │   └── tauri.release.conf.json # Release / updater 相关配置
@@ -86,6 +92,7 @@ npm run dev
 
 ```bash
 npm run build
+npm test
 ```
 
 本地打包桌面应用：
@@ -134,12 +141,15 @@ BalanceHub 的真实账号配置保存在系统应用配置目录，不在仓库
 1. `src/App.vue`：应用入口和主要组件组合。
 2. `src/composables/useAppController.ts`：前端主要状态编排。
 3. `src/stores/provider-types.ts`：前端中转站、设置、日志、用量等类型。
-4. `src-tauri/src/lib.rs`：Tauri command 注册。
-5. `src-tauri/src/models/`：后端序列化模型。
-6. `src-tauri/src/providers/`：NewAPI 兼容接口实现。
-7. `src-tauri/src/services/`：调度、通知、测活和跨模块业务。
+4. `src-tauri/src/desktop.rs`：Tauri 应用编排、插件和 command 注册。
+5. `src-tauri/src/commands/`：按应用、CLI 和中转站职责拆分的 command 实现。
+6. `src-tauri/src/contracts.rs`：Rust 派生的前端操作能力和 IPC 返回 View。
+7. `src-tauri/src/models/`：后端持久化模型和业务数据结构。
+8. `src-tauri/src/adapters/`：协议探测、分发及 NewAPI、Sub2API、通用 API 实现。
+9. `src-tauri/src/services/`：调度、通知、测活和跨模块业务。
+10. `src-tauri/src/network/`：业务请求、Webhook、updater 和 CLI 共用的代理语义。
 
-保持改动边界清晰。UI、前端状态、后端 command、存储模型和 provider 接口尽量分开修改；涉及数据结构变更时，需要同步前后端类型和本地配置迁移逻辑。
+保持改动边界清晰。UI、前端状态、后端 command、存储模型和协议接口尽量分开修改；涉及持久化数据结构时，需要同步前后端类型和本地配置迁移逻辑。账号管理、签到、密钥管理、邀请等操作能力由 Rust 计算，经 `contracts.rs` 返回；前端 `provider-actions.ts` 只读取结果，不复制业务判断。
 
 ## 维护者发布
 

@@ -1,0 +1,158 @@
+/* Settings sections inside the shared work surface. */
+.settings-workspace-v3 .settings-page {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-workspace-v3 .settings-card {
+  overflow: hidden;
+  border: 1px solid var(--surface-line);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.025);
+}
+
+.settings-workspace-v3 .settings-card-header {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  gap: 11px;
+  border-bottom: 1px solid var(--surface-line);
+  padding: 13px 16px;
+}
+
+.settings-workspace-v3 .settings-card-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-workspace-v3 .settings-card-header > div > strong {
+  color: var(--surface-ink);
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.settings-workspace-v3 .settings-card-header > div > span {
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-workspace-v3 .settings-card-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  font-size: 16px;
+}
+
+.settings-workspace-v3 .settings-card-icon-green {
+  background: #e9f8f3;
+  color: var(--surface-success);
+}
+
+.settings-workspace-v3 .settings-card-icon-amber {
+  background: #fff4df;
+  color: var(--surface-warning);
+}
+
+.settings-workspace-v3 .settings-setting-list {
+  display: grid;
+  padding: 0 16px;
+}
+
+.settings-workspace-v3 .settings-setting-row {
+  display: grid;
+  min-height: 64px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
+  align-items: center;
+  gap: 18px;
+  border-bottom: 1px solid var(--surface-line);
+  padding: 10px 0;
+}
+
+.settings-workspace-v3 .settings-setting-row:last-child { border-bottom: 0; }
+
+.settings-workspace-v3 .settings-setting-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.settings-workspace-v3 .settings-setting-copy > strong {
+  color: var(--surface-ink-soft);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.settings-workspace-v3 .settings-setting-copy > span {
+  color: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.settings-workspace-v3 .settings-theme-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 16px;
+  padding: 16px;
+}
+
+.settings-workspace-v3 .settings-theme-options { display: grid; gap: 7px; }
+
+.settings-workspace-v3 .settings-theme-option {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 30px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--surface-line);
+  border-radius: 9px;
+  background: var(--surface-panel);
+  cursor: pointer;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.settings-workspace-v3 .settings-theme-option.active {
+  border-color: #9bbcf7;
+  background: var(--surface-accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08);
+}
+
+.settings-workspace-v3 .settings-theme-option-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+  color: var(--surface-accent);
+}
+
+.settings-workspace-v3 .settings-theme-option > span:nth-child(2) { display: grid; gap: 1px; }
+.settings-workspace-v3 .settings-theme-option strong { color: var(--surface-ink-soft); font-size: 11px; font-weight: 700; }
+.settings-workspace-v3 .settings-theme-option small { color: var(--surface-muted); font-size: 10px; }
+.settings-workspace-v3 .settings-theme-option > i { width: 7px; height: 7px; border: 1px solid #aab6c5; border-radius: 50%; }
+.settings-workspace-v3 .settings-theme-option.active > i { border-color: var(--surface-accent); background: var(--surface-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+
+.settings-workspace-v3 .settings-appearance-preview {
+  min-height: 168px;
+  border: 1px solid #d7e2f2;
+  border-radius: 11px;
+  background: #eef4fb;
+  padding: 9px;
+}
+
+.settings-workspace-v3 .settings-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-workspace-v3 .settings-field-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.settings-workspace-v3 .settings-liveness-config { margin: 0 16px 16px; border: 1px solid var(--surface-line); border-radius: 10px; background: var(--surface-panel-soft); padding: 14px; }
+.settings-workspace-v3 .settings-liveness-prompt { border: 1px solid var(--surface-line); border-radius: 9px; background: var(--surface-panel); padding: 10px 12px; }
+.settings-workspace-v3 .settings-cli-runtime-card > .cli-manager { margin: 14px 16px 0; border: 1px solid var(--surface-line); border-radius: 10px; background: var(--surface-panel-soft); }
+.settings-workspace-v3 .settings-cli-terminal-settings { margin-top: 4px; }
+.settings-workspace-v3 .settings-channel-section > .notification-channel-list { padding: 0 16px 16px; }

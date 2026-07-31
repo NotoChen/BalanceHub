@@ -1,4 +1,7 @@
-use crate::models::{Provider, ProviderQuotaDisplay, ProviderQuotaScope};
+use crate::{
+    limits,
+    models::{Provider, ProviderQuotaDisplay, ProviderQuotaScope},
+};
 use reqwest::{Client, Method};
 use serde_json::Value;
 use std::time::Duration;
@@ -58,14 +61,18 @@ pub(super) async fn fetch_models(
         "读取 Sub2API 模型列表",
     )
     .await?;
-    Ok(value
+    let mut models = value
         .get("data")
         .and_then(Value::as_array)
         .or_else(|| value.as_array())
         .into_iter()
         .flatten()
         .filter_map(|item| string_field(item, &["id", "name"]))
-        .collect())
+        .collect::<Vec<_>>();
+    models.sort();
+    models.dedup();
+    limits::truncate_models(&mut models);
+    Ok(models)
 }
 
 pub(super) fn apply_user(provider: &mut Provider, user: &Value) {

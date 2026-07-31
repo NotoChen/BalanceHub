@@ -2,8 +2,11 @@ use crate::models::{
     normalize_api_key_for_protocol, normalize_invite_link, normalize_provider_auth, AppData,
     CURRENT_SCHEMA_VERSION,
 };
+use crate::{limits, util::read_text_file_limited};
+use serde::Serialize;
 use std::{
-    fs,
+    fs::{self, File},
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
@@ -22,7 +25,8 @@ pub fn load_app_data(app: &AppHandle) -> Result<AppData, String> {
         return Ok(AppData::default());
     };
     validate_app_data_schema(&data)?;
-    let normalized = normalize_provider_cached_values(&mut data);
+    let normalized =
+        normalize_provider_cached_values(&mut data) | limits::normalize_app_data(&mut data);
     if migrated || normalized {
         save_app_data(app, &data)?;
     }
@@ -30,19 +34,16 @@ pub fn load_app_data(app: &AppHandle) -> Result<AppData, String> {
 }
 
 pub fn save_app_data(app: &AppHandle, data: &AppData) -> Result<(), String> {
+    validate_app_data_schema(data)?;
     let path = data_file_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("创建配置目录失败({}): {err}", parent.display()))?;
     }
 
-    let text =
-        serde_json::to_string_pretty(data).map_err(|err| format!("序列化配置失败: {err}"))?;
-
     // 先写完整临时文件再替换目标文件，避免崩溃/断电把配置（含 API Key）截断成半个 JSON。
     let tmp_path = tmp_file_path(&path);
-    fs::write(&tmp_path, text)
-        .map_err(|err| format!("保存配置失败({}): {err}", tmp_path.display()))?;
+    write_json_file_limited(&tmp_path, data, limits::MAX_APP_DATA_FILE_BYTES, "保存配置")?;
     replace_data_file(&tmp_path, &path)
 }
 
@@ -51,6 +52,7 @@ pub fn import_app_data(app: &AppHandle, source: &Path) -> Result<AppData, String
     let (mut data, _migrated) = read_app_data_file(source, BackupBeforeMigrate::No)?;
     validate_app_data_schema(&data)?;
     normalize_provider_cached_values(&mut data);
+    limits::normalize_app_data(&mut data);
     save_app_data(app, &data)?;
     Ok(data)
 }
@@ -66,9 +68,13 @@ pub fn export_app_data(target: &Path, data: &AppData) -> Result<(), String> {
     let mut export_data = data.clone();
     validate_app_data_schema(&export_data)?;
     normalize_provider_cached_values(&mut export_data);
-    let text = serde_json::to_string_pretty(&export_data)
-        .map_err(|err| format!("序列化导出配置失败: {err}"))?;
-    fs::write(target, text).map_err(|err| format!("导出配置失败({}): {err}", target.display()))
+    limits::normalize_app_data(&mut export_data);
+    write_json_file_limited(
+        target,
+        &export_data,
+        limits::MAX_APP_DATA_FILE_BYTES,
+        "导出配置",
+    )
 }
 
 fn data_file_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -93,8 +99,7 @@ fn read_app_data_file(
     path: &Path,
     backup_mode: BackupBeforeMigrate,
 ) -> Result<(AppData, bool), String> {
-    let text = fs::read_to_string(path)
-        .map_err(|err| format!("读取配置失败({}): {err}", path.display()))?;
+    let text = read_text_file_limited(path, limits::MAX_APP_DATA_FILE_BYTES, "读取配置")?;
     let stored_version = stored_schema_version(&text)
         .map_err(|err| format!("解析配置失败({}): {err}", path.display()))?;
 
@@ -355,7 +360,74 @@ fn validate_app_data_schema(data: &AppData) -> Result<(), String> {
             CURRENT_SCHEMA_VERSION, data.schema_version
         ));
     }
+    limits::validate_app_data_limits(data)
+}
 
+struct LimitedWriter<W> {
+    inner: W,
+    written: usize,
+    limit: usize,
+    exceeded: bool,
+}
+
+impl<W> LimitedWriter<W> {
+    fn new(inner: W, limit: usize) -> Self {
+        Self {
+            inner,
+            written: 0,
+            limit,
+            exceeded: false,
+        }
+    }
+}
+
+impl<W: Write> Write for LimitedWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        if self.written.saturating_add(buffer.len()) > self.limit {
+            self.exceeded = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "serialized data exceeds configured limit",
+            ));
+        }
+        let written = self.inner.write(buffer)?;
+        self.written = self.written.saturating_add(written);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn write_json_file_limited<T: Serialize>(
+    path: &Path,
+    value: &T,
+    max_bytes: usize,
+    context: &str,
+) -> Result<(), String> {
+    let file =
+        File::create(path).map_err(|err| format!("{context}失败({}): {err}", path.display()))?;
+    let mut writer = LimitedWriter::new(BufWriter::new(file), max_bytes);
+    if let Err(err) = serde_json::to_writer_pretty(&mut writer, value) {
+        let exceeded = writer.exceeded;
+        drop(writer);
+        let _ = fs::remove_file(path);
+        return Err(if exceeded {
+            format!(
+                "{context}失败({})：序列化结果超过 {} MiB 上限",
+                path.display(),
+                max_bytes / 1024 / 1024
+            )
+        } else {
+            format!("{context}失败({}): {err}", path.display())
+        });
+    }
+    writer.flush().map_err(|err| {
+        let _ = fs::remove_file(path);
+        format!("{context}失败({}): {err}", path.display())
+    })?;
+    drop(writer);
     Ok(())
 }
 
@@ -386,284 +458,4 @@ fn normalize_provider_cached_values(data: &mut AppData) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::CURRENT_SCHEMA_VERSION;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn new_app_data_uses_current_schema_version() {
-        assert_eq!(AppData::default().schema_version, CURRENT_SCHEMA_VERSION);
-    }
-
-    #[test]
-    fn rejects_app_data_when_schema_version_is_missing() {
-        let data = serde_json::from_value::<AppData>(serde_json::json!({
-            "providers": [],
-            "settings": AppData::default().settings
-        }))
-        .expect("app data should deserialize");
-
-        assert_eq!(data.schema_version, 0);
-        let err = validate_app_data_schema(&data).expect_err("missing schema should be rejected");
-        assert!(err.contains("schemaVersion"));
-        assert!(err.contains(&CURRENT_SCHEMA_VERSION.to_string()));
-        assert_eq!(data.schema_version, 0);
-    }
-
-    #[test]
-    fn migrates_app_data_from_older_schema_version() {
-        let old = AppData {
-            schema_version: CURRENT_SCHEMA_VERSION - 1,
-            ..AppData::default()
-        };
-        let text = serde_json::to_string(&old).expect("app data should serialize");
-
-        let migrated = migrate_app_data(&text, CURRENT_SCHEMA_VERSION - 1)
-            .expect("older schema should migrate");
-
-        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert!(migrated.workspaces.is_empty());
-        assert!(migrated.temporary_cli_preferences.is_empty());
-    }
-
-    #[test]
-    fn schema_four_migration_adds_password_login_fields() {
-        let mut old = AppData {
-            schema_version: 4,
-            ..AppData::default()
-        };
-        old.providers.push(crate::models::Provider::from_input(
-            crate::models::ProviderInput::default(),
-            "provider-test".to_string(),
-        ));
-        let mut value = serde_json::to_value(old).expect("app data should serialize");
-        let auth = value["providers"][0]["auth"]
-            .as_object_mut()
-            .expect("provider auth should be an object");
-        auth.remove("loginUsername");
-        auth.remove("loginPassword");
-
-        let migrated = migrate_app_data(
-            &serde_json::to_string(&value).expect("legacy app data should serialize"),
-            4,
-        )
-        .expect("schema four should migrate");
-
-        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(migrated.providers[0].auth.login_username, "");
-        assert_eq!(migrated.providers[0].auth.login_password, "");
-    }
-
-    #[test]
-    fn schema_five_migration_adds_api_key_cache_fields() {
-        let mut old = AppData {
-            schema_version: 5,
-            ..AppData::default()
-        };
-        old.providers.push(crate::models::Provider::from_input(
-            crate::models::ProviderInput::default(),
-            "provider-test".to_string(),
-        ));
-        let mut value = serde_json::to_value(old).expect("app data should serialize");
-        let auth = value["providers"][0]["auth"]
-            .as_object_mut()
-            .expect("provider auth should be an object");
-        auth.remove("apiKeyTokenId");
-        auth.remove("apiKeyOptions");
-
-        let migrated = migrate_app_data(
-            &serde_json::to_string(&value).expect("legacy app data should serialize"),
-            5,
-        )
-        .expect("schema five should migrate");
-
-        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert!(migrated.providers[0].auth.api_key_token_id.is_empty());
-        assert!(migrated.providers[0].auth.api_key_options.is_empty());
-    }
-
-    #[test]
-    fn schema_six_migration_adds_newapi_protocol() {
-        let mut old = AppData {
-            schema_version: 6,
-            ..AppData::default()
-        };
-        old.providers.push(crate::models::Provider::from_input(
-            crate::models::ProviderInput::default(),
-            "provider-test".to_string(),
-        ));
-        let mut value = serde_json::to_value(old).expect("app data should serialize");
-        value["providers"][0]["identity"]
-            .as_object_mut()
-            .expect("provider identity should be an object")
-            .remove("protocol");
-
-        let migrated = migrate_app_data(
-            &serde_json::to_string(&value).expect("legacy app data should serialize"),
-            6,
-        )
-        .expect("schema six should migrate");
-
-        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(
-            migrated.providers[0].identity.protocol,
-            crate::models::ProviderProtocol::NewApi
-        );
-    }
-
-    #[test]
-    fn schema_six_migration_replaces_removed_terminal_modes() {
-        for removed_mode in ["auto", "systemDefault", "custom"] {
-            let old = AppData {
-                schema_version: 6,
-                ..AppData::default()
-            };
-            let mut value = serde_json::to_value(old).expect("app data should serialize");
-            value["settings"]["temporaryCliTerminalKind"] =
-                serde_json::Value::String(removed_mode.to_string());
-            value["settings"]["temporaryCliTerminalCommand"] =
-                serde_json::Value::String("legacy terminal command".to_string());
-
-            let migrated = migrate_app_data(
-                &serde_json::to_string(&value).expect("legacy app data should serialize"),
-                6,
-            )
-            .expect("removed terminal mode should migrate");
-
-            assert_eq!(
-                migrated.settings.temporary_cli_terminal_kind,
-                crate::models::TemporaryCliTerminalKind::default()
-            );
-        }
-    }
-
-    #[test]
-    fn read_app_data_file_migrates_old_file_and_backs_up_original() {
-        let dir = unique_test_dir("migrate-old");
-        let target = dir.join(DATA_FILE_NAME);
-        let old = AppData {
-            schema_version: CURRENT_SCHEMA_VERSION - 1,
-            ..AppData::default()
-        };
-        fs::write(
-            &target,
-            serde_json::to_string_pretty(&old).expect("app data should serialize"),
-        )
-        .expect("old data file should be writable");
-
-        let (data, migrated) = read_app_data_file(&target, BackupBeforeMigrate::Yes)
-            .expect("old data file should migrate");
-
-        assert!(migrated);
-        assert_eq!(data.schema_version, CURRENT_SCHEMA_VERSION);
-        let backup = target.with_file_name(format!(
-            "{DATA_FILE_NAME}.v{}.bak",
-            CURRENT_SCHEMA_VERSION - 1
-        ));
-        assert!(backup.exists(), "original file should be backed up");
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn read_app_data_file_rejects_newer_schema_version() {
-        let dir = unique_test_dir("reject-newer");
-        let target = dir.join(DATA_FILE_NAME);
-        let newer = AppData {
-            schema_version: CURRENT_SCHEMA_VERSION + 1,
-            ..AppData::default()
-        };
-        fs::write(
-            &target,
-            serde_json::to_string_pretty(&newer).expect("app data should serialize"),
-        )
-        .expect("newer data file should be writable");
-
-        let err = read_app_data_file(&target, BackupBeforeMigrate::Yes)
-            .expect_err("newer schema should be rejected");
-        assert!(err.contains("配置结构版本过新"));
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn migrate_rejects_unknown_version_zero() {
-        let err =
-            migrate_app_data("{\"providers\":[]}", 0).expect_err("version 0 has no migration path");
-        assert!(err.contains("没有从 schemaVersion 0"));
-    }
-
-    #[test]
-    fn backup_legacy_file_does_not_overwrite_existing_backup() {
-        let dir = unique_test_dir("backup-no-clobber");
-        let target = dir.join(DATA_FILE_NAME);
-        let first = backup_legacy_file(&target, 2, "original").expect("backup should be written");
-        let second =
-            backup_legacy_file(&target, 2, "migrated-again").expect("existing backup returned");
-
-        assert_eq!(first, second);
-        assert_eq!(
-            fs::read_to_string(&first).expect("backup should exist"),
-            "original"
-        );
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn replace_data_file_replaces_existing_target() {
-        let dir = unique_test_dir("replace-existing");
-        let target = dir.join(DATA_FILE_NAME);
-        let tmp = tmp_file_path(&target);
-        fs::write(&target, "old").expect("old target should be writable");
-        fs::write(&tmp, "new").expect("tmp target should be writable");
-
-        replace_data_file(&tmp, &target).expect("replace should succeed");
-
-        assert_eq!(
-            fs::read_to_string(&target).expect("target should exist"),
-            "new"
-        );
-        assert!(!tmp.exists());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn recovers_missing_data_file_from_tmp_file() {
-        let dir = unique_test_dir("recover-tmp");
-        let target = dir.join(DATA_FILE_NAME);
-        let tmp = tmp_file_path(&target);
-        let data = AppData::default();
-        fs::write(
-            &tmp,
-            serde_json::to_string_pretty(&data).expect("app data should serialize"),
-        )
-        .expect("tmp target should be writable");
-
-        let recovered = recover_missing_app_data_file(&target)
-            .expect("recovery should not fail")
-            .expect("tmp file should be recovered");
-
-        assert_eq!(recovered.0.schema_version, CURRENT_SCHEMA_VERSION);
-        assert!(!recovered.1, "same-version recovery needs no migration");
-        assert!(target.exists());
-        assert!(!tmp.exists());
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    fn unique_test_dir(name: &str) -> PathBuf {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "balancehub-storage-{name}-{}-{now}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("test dir should be created");
-        path
-    }
-}
+mod tests;

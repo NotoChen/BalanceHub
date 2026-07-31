@@ -1,6 +1,6 @@
 [package]
 name = "balancehub"
-version = "0.4.1"
+version = "0.4.2"
 description = "用于集中管理 AI 中转站账号的跨平台桌面应用。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"
@@ -20,7 +20,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli", "deflate", "system-proxy"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "gzip", "brotli", "deflate", "system-proxy", "socks"] }
+# updater 目前使用 reqwest 0.13；显式合并 SOCKS 与系统代理 feature，
+# 并由 tauri-plugin-updater 的 native-tls feature 使用系统证书存储。
+reqwest-updater = { package = "reqwest", version = "0.13", default-features = false, features = ["socks", "system-proxy"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
@@ -34,9 +37,12 @@ tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 async-trait = "0.1"
+futures-util = "0.3"
+lru = "0.12"
 tauri-plugin-dialog = "2"
-tauri-plugin-updater = "2"
+tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["native-tls", "zip"] }
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["time", "sync", "macros"] }
 
 [target.'cfg(unix)'.dependencies]

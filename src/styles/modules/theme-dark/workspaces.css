@@ -1,0 +1,242 @@
+/* Settings and provider editor dark workspace. */
+:root.theme-dark .surface-modal .arco-modal-content,
+:root.theme-dark .surface-modal .arco-modal-header,
+:root.theme-dark .settings-panel,
+:root.theme-dark .settings-panel-header,
+:root.theme-dark .settings-panel-footer,
+:root.theme-dark .provider-editor-studio,
+:root.theme-dark .provider-editor-canvas,
+:root.theme-dark .provider-editor-main-footer {
+  border-color: #353943;
+  background: #1d2026;
+}
+
+:root.theme-dark .surface-modal-title-copy > strong,
+:root.theme-dark .settings-nav-intro strong,
+:root.theme-dark .settings-panel-header h2,
+:root.theme-dark .settings-card-header > div > strong,
+:root.theme-dark .settings-setting-copy > strong,
+:root.theme-dark .settings-theme-option strong,
+:root.theme-dark .provider-editor-step-tab-copy strong,
+:root.theme-dark .provider-editor-canvas-header h2,
+:root.theme-dark .provider-editor-context-card > header > span,
+:root.theme-dark .provider-editor-context-card dd {
+  color: #f0f2f5;
+}
+
+:root.theme-dark .surface-modal-title-copy > span,
+:root.theme-dark .settings-nav-intro small,
+:root.theme-dark .settings-nav-copy small,
+:root.theme-dark .settings-panel-header p,
+:root.theme-dark .settings-card-header > div > span,
+:root.theme-dark .settings-setting-copy > span,
+:root.theme-dark .settings-theme-option small,
+:root.theme-dark .provider-editor-step-tab-copy small,
+:root.theme-dark .provider-editor-canvas-header p,
+:root.theme-dark .provider-editor-footer-status {
+  color: #929aa8;
+}
+
+:root.theme-dark .surface-modal-title-meta {
+  background: #2b2f37;
+  color: #a8afbb;
+}
+
+:root.theme-dark .surface-modal-title-meta.ready,
+:root.theme-dark .settings-card-state.active,
+:root.theme-dark .provider-editor-context-card > header > b.ready {
+  background: rgba(34, 160, 107, 0.16);
+  color: #73d1ad;
+}
+
+:root.theme-dark .surface-modal-title-icon,
+:root.theme-dark .settings-card-icon,
+:root.theme-dark .settings-panel-mark,
+:root.theme-dark .provider-editor-canvas-mark {
+  background: rgba(64, 128, 255, 0.16);
+  color: #8bb2ff;
+}
+
+:root.theme-dark .surface-modal-title-icon-settings {
+  background: rgba(14, 159, 168, 0.16);
+  color: #6fd0cc;
+}
+
+:root.theme-dark .settings-card-icon-green {
+  background: rgba(34, 160, 107, 0.16);
+  color: #73d1ad;
+}
+
+:root.theme-dark .settings-card-icon-amber {
+  background: rgba(224, 148, 35, 0.16);
+  color: #e9b968;
+}
+
+:root.theme-dark .settings-nav,
+:root.theme-dark .provider-editor-stepbar,
+:root.theme-dark .provider-editor-context {
+  border-color: #353943;
+  background: #191c21;
+}
+
+:root.theme-dark .settings-nav-item:hover,
+:root.theme-dark .settings-nav-item:focus-visible {
+  background: #292d34;
+}
+
+:root.theme-dark .settings-nav-item.active {
+  background: #2b3038;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.24);
+}
+
+:root.theme-dark .settings-nav-copy strong {
+  color: #dfe2e7;
+}
+
+:root.theme-dark .settings-nav-icon {
+  background: transparent;
+  color: #949ca9;
+}
+
+:root.theme-dark .settings-nav-item.active .settings-nav-icon {
+  border-color: transparent;
+  background: rgba(64, 128, 255, 0.16);
+  color: #8bb2ff;
+}
+
+:root.theme-dark .settings-nav-footnote,
+:root.theme-dark .settings-panel-header,
+:root.theme-dark .settings-panel-footer,
+:root.theme-dark .provider-editor-canvas-header,
+:root.theme-dark .provider-editor-main-footer {
+  border-color: #353943;
+}
+
+:root.theme-dark .settings-card,
+:root.theme-dark .settings-theme-option,
+:root.theme-dark .notification-channel,
+:root.theme-dark .provider-editor-context-card {
+  border-color: #3a3f49;
+  background: #242830;
+}
+
+:root.theme-dark .settings-card-header,
+:root.theme-dark .settings-cli-runtime-card > .settings-card-header,
+:root.theme-dark .settings-channel-section > .settings-card-header {
+  border-color: #3a3f49;
+  background: #20242b;
+}
+
+:root.theme-dark .settings-setting-row + .settings-setting-row,
+:root.theme-dark .settings-liveness-config,
+:root.theme-dark .settings-liveness-prompt,
+:root.theme-dark .provider-editor-canvas-header,
+:root.theme-dark .provider-editor-context-card > header,
+:root.theme-dark .provider-editor-context-card dl > div + div {
+  border-color: #383d46;
+}
+
+:root.theme-dark .settings-card-state,
+:root.theme-dark .provider-editor-context-card > header > b {
+  background: #30353e;
+  color: #a9b0bc;
+}
+
+:root.theme-dark .settings-version-badge {
+  background: rgba(64, 128, 255, 0.16);
+  color: #8bb2ff;
+}
+
+:root.theme-dark .settings-theme-option:hover,
+:root.theme-dark .settings-theme-option:focus-visible,
+:root.theme-dark .settings-theme-option.active {
+  border-color: #607fbf;
+  background: #29313f;
+}
+
+:root.theme-dark .settings-theme-option-icon {
+  background: #30353e;
+  color: #a6aeba;
+}
+
+:root.theme-dark .settings-theme-option.active .settings-theme-option-icon {
+  background: rgba(64, 128, 255, 0.2);
+  color: #8bb2ff;
+}
+
+:root.theme-dark .settings-cli-runtime-card > .cli-manager,
+:root.theme-dark .settings-cli-terminal-settings {
+  border-color: #3a3f49;
+  background: #242830;
+}
+
+:root.theme-dark .settings-liveness-config {
+  background: #20242a;
+}
+
+:root.theme-dark .notification-channel-system-note {
+  background: #2d323a;
+  color: #a4abb7;
+}
+
+:root.theme-dark .provider-editor-step-tab {
+  background: #191c21;
+}
+
+:root.theme-dark .provider-editor-step-tab:hover,
+:root.theme-dark .provider-editor-step-tab:focus-visible,
+:root.theme-dark .provider-editor-step-tab.active {
+  border-color: #495875;
+  background: #282d35;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+:root.theme-dark .provider-editor-step-tab-index {
+  border-color: #424852;
+  background: #252930;
+  color: #a7aeb9;
+}
+
+:root.theme-dark .provider-editor-step-tab.active .provider-editor-step-tab-index {
+  border-color: #5b8ff9;
+  background: #356fe0;
+  color: #ffffff;
+}
+
+:root.theme-dark .provider-editor-step-tab.complete .provider-editor-step-tab-index {
+  border-color: #356f5b;
+  background: rgba(34, 160, 107, 0.16);
+  color: #73d1ad;
+}
+
+:root.theme-dark .provider-editor-stepbar-track,
+:root.theme-dark .provider-editor-context-progress > div {
+  background: #40454f;
+}
+
+:root.theme-dark .provider-editor-context-card dt {
+  color: #949ca9;
+}
+
+:root.theme-dark .provider-editor-context-note {
+  border-color: #355b58;
+  background: #1f3332;
+}
+
+:root.theme-dark .provider-editor-context-note strong {
+  color: #87d6cf;
+}
+
+:root.theme-dark .provider-editor-context-note span {
+  color: #9abbb7;
+}
+
+:root.theme-dark .provider-credential-active-panel {
+  border-color: #455675;
+  background: #232a36;
+}
+
+:root.theme-dark .provider-auth-mode-option.active {
+  border-color: #607fbf;
+  background: #29313f;
+}

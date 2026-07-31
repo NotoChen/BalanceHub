@@ -10,16 +10,11 @@ import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
 import { codexIntervalModeOptions } from "../../utils/liveness-options";
 import { useProviderStore, type AppSettings } from "../../stores/providers";
 
-interface ModelProviderIndexItem {
-  model: string;
-  providers: { id: string; name: string }[];
-}
-
 const props = defineProps<{
   settings: AppSettings;
   expanded?: boolean;
   livenessModelOptions: string[];
-  modelProviderIndex: ModelProviderIndexItem[];
+  selectedLivenessModelProviders: { id: string; name: string }[];
 }>();
 
 const store = useProviderStore();
@@ -47,12 +42,6 @@ const codexModelSelectOptions = computed(() =>
     ),
   ).map((model) => ({ label: model, value: model })),
 );
-
-const selectedLivenessModelProviders = computed(() => {
-  const model = props.settings.livenessModel.trim();
-  if (!model) return [];
-  return props.modelProviderIndex.find((item) => item.model === model)?.providers ?? [];
-});
 
 const minimumRandomMaxInterval = computed(() =>
   Math.max(MIN_LIVENESS_INTERVAL_SECONDS, Number(props.settings.livenessRandomMinInterval) || 0),
@@ -155,7 +144,7 @@ const minimumRandomMaxInterval = computed(() =>
             </a-form-item>
           </template>
           <a-form-item label="超时（秒）">
-            <a-input-number v-model="settings.livenessTimeout" :min="10" :max="300" :step="5" />
+            <a-input-number v-model="settings.livenessTimeout" :min="10" :max="600" :step="5" />
           </a-form-item>
         </div>
 

@@ -45,6 +45,13 @@
   font-weight: 650;
 }
 
+.available-models-render-limit {
+  margin: -4px 2px 0;
+  color: #86909c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .available-models-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));

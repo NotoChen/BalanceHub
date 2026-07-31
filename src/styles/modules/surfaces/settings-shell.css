@@ -1,0 +1,380 @@
+/* Settings control center */
+.settings-modal-v3 {
+  max-height: calc(100dvh - 44px);
+}
+
+.settings-modal-v3 .arco-modal-body {
+  padding: 0;
+}
+
+.settings-workspace-v3 {
+  display: grid;
+  height: min(724px, calc(100dvh - 126px));
+  min-height: 510px;
+  grid-template-columns: 236px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--surface-canvas);
+}
+
+.settings-workspace-v3 .settings-nav {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0;
+  border: 0;
+  border-right: 1px solid #273548;
+  border-radius: 0;
+  background: #172231;
+  padding: 22px 14px 16px;
+}
+
+.settings-workspace-v3 .settings-nav-intro.settings-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+}
+
+.settings-nav-brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(147, 197, 253, 0.4);
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.35);
+  color: #dbeafe;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.settings-nav-brand > div {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-workspace-v3 .settings-nav-brand strong {
+  color: #f8fafc;
+  font-size: 14px;
+  font-weight: 740;
+}
+
+.settings-workspace-v3 .settings-nav-brand small {
+  color: #91a1b4;
+  font-size: 10px;
+}
+
+.settings-nav-rule {
+  height: 1px;
+  margin: 22px 8px 18px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.settings-nav-label,
+.provider-editor-rail-label {
+  display: block;
+  margin: 0 8px 8px;
+  color: #8192a7;
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-workspace-v3 .settings-nav-list {
+  display: grid;
+  gap: 4px;
+  overflow: auto;
+  padding: 0;
+}
+
+.settings-workspace-v3 .settings-nav-item {
+  position: relative;
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #aebdce;
+  cursor: pointer;
+  padding: 7px 9px;
+  text-align: left;
+  transition: background 220ms var(--surface-ease), border-color 220ms var(--surface-ease), color 220ms var(--surface-ease), transform 220ms var(--surface-ease);
+}
+
+.settings-workspace-v3 .settings-nav-item::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: transparent;
+  content: "";
+}
+
+.settings-workspace-v3 .settings-nav-item:hover,
+.settings-workspace-v3 .settings-nav-item:focus-visible {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.1);
+  color: #f8fafc;
+  outline: none;
+  transform: translateX(2px);
+}
+
+.settings-workspace-v3 .settings-nav-item.active {
+  border-color: rgba(147, 197, 253, 0.22);
+  background: rgba(37, 99, 235, 0.22);
+  color: #f8fafc;
+}
+
+.settings-workspace-v3 .settings-nav-item.active::before {
+  background: #60a5fa;
+}
+
+.settings-workspace-v3 .settings-nav-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  color: #9eb0c4;
+  font-size: 15px;
+}
+
+.settings-workspace-v3 .settings-nav-item.active .settings-nav-icon {
+  border-color: rgba(147, 197, 253, 0.35);
+  background: rgba(96, 165, 250, 0.16);
+  color: #bfdbfe;
+}
+
+.settings-workspace-v3 .settings-nav-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-workspace-v3 .settings-nav-copy strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-workspace-v3 .settings-nav-copy small {
+  overflow: hidden;
+  color: #8192a7;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-workspace-v3 .settings-nav-item.active .settings-nav-copy small {
+  color: #b8c9de;
+}
+
+.settings-workspace-v3 .settings-nav-index {
+  color: #6f8196;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.settings-workspace-v3 .settings-nav-item.active .settings-nav-index {
+  color: #bfdbfe;
+}
+
+.settings-workspace-v3 .settings-nav-footnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 14px 8px 0;
+  color: #8192a7;
+}
+
+.settings-workspace-v3 .settings-nav-footnote > div {
+  display: grid;
+  gap: 1px;
+}
+
+.settings-workspace-v3 .settings-nav-footnote span:not(.settings-nav-status-dot) {
+  font-size: 10px;
+}
+
+.settings-workspace-v3 .settings-nav-footnote b {
+  color: #c9d5e3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.settings-workspace-v3 .settings-nav-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.12);
+}
+
+.settings-workspace-v3 .settings-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-canvas);
+}
+
+.settings-workspace-v3 .settings-panel-header {
+  display: flex;
+  min-height: 104px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 0;
+  border-bottom: 1px solid var(--surface-line);
+  background: var(--surface-panel);
+  padding: 20px 28px;
+}
+
+.settings-workspace-v3 .settings-panel-heading {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settings-workspace-v3 .settings-panel-kicker,
+.provider-editor-main-kicker {
+  color: var(--surface-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-workspace-v3 .settings-panel-header h2 {
+  margin: 0;
+  color: var(--surface-ink);
+  font-size: 23px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.settings-workspace-v3 .settings-panel-header p {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-workspace-v3 .settings-panel-header-aside {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.settings-workspace-v3 .settings-panel-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.settings-workspace-v3 .settings-panel-status-item {
+  display: grid;
+  min-width: 76px;
+  grid-template-columns: 6px auto;
+  align-items: center;
+  column-gap: 5px;
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+  padding: 5px 7px;
+}
+
+.settings-workspace-v3 .settings-panel-status-item i {
+  width: 6px;
+  height: 6px;
+  grid-row: span 2;
+  border-radius: 50%;
+  background: #a7b2c1;
+}
+
+.settings-workspace-v3 .settings-panel-status-item b {
+  color: var(--surface-muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.settings-workspace-v3 .settings-panel-status-item small {
+  color: #a0acba;
+  font-size: 9px;
+}
+
+.settings-workspace-v3 .settings-panel-status-item.active i {
+  background: var(--surface-success);
+  box-shadow: 0 0 0 3px rgba(22, 131, 106, 0.12);
+}
+
+.settings-workspace-v3 .settings-panel-status-item.active b {
+  color: var(--surface-ink-soft);
+}
+
+.settings-workspace-v3 .settings-panel-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #cfe0ff;
+  border-radius: 11px;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  font-size: 18px;
+}
+
+.settings-workspace-v3 .settings-panel-body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 24px 28px 28px;
+  scrollbar-gutter: stable;
+}
+
+.settings-workspace-v3 .settings-panel-body > .arco-form {
+  min-height: 100%;
+}
+
+.settings-workspace-v3 .settings-panel-footer {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--surface-line);
+  background: var(--surface-panel);
+  padding: 12px 28px;
+}
+
+.settings-workspace-v3 .settings-panel-footer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--surface-muted);
+  font-size: 11px;
+}
+
+.settings-workspace-v3 .settings-panel-footer > span > svg {
+  color: var(--surface-accent);
+  font-size: 14px;
+}

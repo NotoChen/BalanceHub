@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::{stream, StreamExt};
 use tauri::{AppHandle, Emitter};
 
 use crate::{
@@ -17,6 +18,8 @@ use crate::{
 const TICK_SECS: u64 = 30;
 /// 自动测活并发上限，沿用原前端实现，避免一批到期时被单个最长超时拖垮。
 const LIVENESS_CONCURRENCY: usize = 3;
+/// 自动签到同样采用小并发窗口，避免大量站点逐个等待最长网络超时。
+const CHECK_IN_CONCURRENCY: usize = 3;
 /// 首轮执行前的等待：给前端 webview 注册 `providers-changed` 监听留出时间，
 /// 确保启动后的首次刷新/签到结果能通过事件回流到界面。
 const INITIAL_DELAY_SECS: u64 = 5;
@@ -139,12 +142,28 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
             })
             .cloned()
             .collect();
-        for provider in due {
-            let attempt =
-                record_check_in_attempt(&mut state.check_in_attempts, &provider, &today, now_secs);
-            if run_auto_check_in(app, &service, &provider, settings, attempt).await {
-                changed = true;
-            }
+        let attempts = due
+            .into_iter()
+            .map(|provider| {
+                let attempt = record_check_in_attempt(
+                    &mut state.check_in_attempts,
+                    &provider,
+                    &today,
+                    now_secs,
+                );
+                (provider, attempt)
+            })
+            .collect::<Vec<_>>();
+        let service = &service;
+        let results = stream::iter(attempts)
+            .map(|(provider, attempt)| async move {
+                run_auto_check_in(app, service, &provider, settings, attempt).await
+            })
+            .buffer_unordered(CHECK_IN_CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await;
+        if results.into_iter().any(|result| result) {
+            changed = true;
         }
     }
 
@@ -371,9 +390,15 @@ async fn notify_provider_event(
         "**中转站**：{}\n\n**结果**：{message}",
         provider.identity.name
     );
-    let _ =
+    let result =
         notifications::send_provider_notification(app, settings, provider, title, markdown, false)
             .await;
+    for delivery in result.results.iter().filter(|delivery| !delivery.ok) {
+        eprintln!(
+            "BalanceHub 后台通知发送失败: provider={}, channel={}({:?}), error={}",
+            provider.identity.id, delivery.channel_name, delivery.channel_kind, delivery.message
+        );
+    }
 }
 
 fn local_date_today() -> String {

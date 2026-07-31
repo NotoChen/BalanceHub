@@ -1,4 +1,4 @@
-import { computed, reactive, ref, watch, type Ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch, type Ref } from "vue";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { Message } from "@arco-design/web-vue";
 import type { AppSettings, CliEnvironmentProbeResult, Provider } from "../stores/providers";
@@ -21,6 +21,8 @@ interface UseSettingsControllerOptions {
 
 export type SettingsSaveState = "saved" | "pending" | "saving" | "error";
 
+const MAX_LIVENESS_MODEL_OPTIONS = 2_000;
+
 export function useSettingsController(options: UseSettingsControllerOptions) {
   const settingsDrawerVisible = ref(false);
   const probingCliEnvironment = ref(false);
@@ -32,36 +34,37 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let activeSave: Promise<void> | null = null;
   let queuedSave = false;
+  let disposed = false;
   let lastPersistedSnapshot = settingsSnapshot(settingsForm);
   let lastLaunchAtLogin = settingsForm.launchAtLogin;
 
-  const livenessModelOptions = computed(() =>
-    Array.from(
-      new Set(
-        options.providers.value.flatMap((provider) =>
-          (provider.capabilities.availableModels || []).map((model) => model.trim()).filter(Boolean),
-        ),
-      ),
-    ).sort(),
-  );
-
-  const modelProviderIndex = computed(() => {
-    const index = new Map<string, { model: string; providers: { id: string; name: string }[] }>();
-    for (const provider of options.providers.value) {
+  const livenessModelOptions = computed(() => {
+    const models = new Set<string>();
+    outer: for (const provider of options.providers.value) {
       for (const rawModel of provider.capabilities.availableModels || []) {
         const model = rawModel.trim();
-        if (!model) continue;
-        const item = index.get(model) ?? { model, providers: [] };
-        item.providers.push({ id: provider.identity.id, name: provider.identity.name });
-        index.set(model, item);
+        if (model) {
+          models.add(model);
+        }
+        if (models.size >= MAX_LIVENESS_MODEL_OPTIONS) {
+          break outer;
+        }
       }
     }
-    return Array.from(index.values())
-      .map((item) => ({
-        ...item,
-        providers: item.providers.sort((a, b) => a.name.localeCompare(b.name)),
-      }))
-      .sort((a, b) => a.model.localeCompare(b.model));
+    return Array.from(models).sort();
+  });
+
+  const selectedLivenessModelProviders = computed(() => {
+    const selectedModel = settingsForm.livenessModel.trim();
+    if (!selectedModel) return [];
+    return options.providers.value
+      .filter((provider) =>
+        (provider.capabilities.availableModels || []).some(
+          (model) => model.trim() === selectedModel,
+        ),
+      )
+      .map((provider) => ({ id: provider.identity.id, name: provider.identity.name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   });
 
   const globalRefreshAmount = computed({
@@ -72,6 +75,7 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
   });
 
   function scheduleSettingsSave() {
+    if (disposed) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
@@ -103,7 +107,7 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
             lastLaunchAtLogin = payload.launchAtLogin;
           }
           await options.saveSettings(payload);
-          if (settingsSnapshot(settingsForm) !== snapshot) {
+          if (!disposed && settingsSnapshot(settingsForm) !== snapshot) {
             queuedSave = true;
           } else {
             lastPersistedSnapshot = snapshot;
@@ -111,9 +115,11 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
           }
         } catch (error) {
           settingsSaveState.value = "error";
-          Message.error(error instanceof Error ? error.message : String(error));
+          if (!disposed) {
+            Message.error(error instanceof Error ? error.message : String(error));
+          }
         }
-      } while (queuedSave && settingsSaveState.value !== "error");
+      } while (!disposed && queuedSave && settingsSaveState.value !== "error");
     })();
 
     activeSave = task;
@@ -203,6 +209,15 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     { deep: true },
   );
 
+  onBeforeUnmount(() => {
+    disposed = true;
+    queuedSave = false;
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+  });
+
   return {
     settingsDrawerVisible,
     settingsSaveState,
@@ -210,7 +225,7 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     settingsForm,
     globalRefreshUnit,
     livenessModelOptions,
-    modelProviderIndex,
+    selectedLivenessModelProviders,
     globalRefreshAmount,
     applyTheme,
     setupThemeListener,

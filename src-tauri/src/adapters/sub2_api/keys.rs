@@ -1,4 +1,7 @@
-use crate::models::{Provider, ProviderApiKeyOption, ProviderProtocol};
+use crate::{
+    limits,
+    models::{Provider, ProviderApiKeyOption, ProviderProtocol},
+};
 use reqwest::{Client, Method};
 use serde_json::Value;
 
@@ -8,8 +11,6 @@ use super::{
         array_items, number_field, string_field, string_list, timestamp_millis, value_has_field,
     },
 };
-
-const MAX_API_KEYS: usize = 100;
 
 pub(super) async fn fetch_api_keys(
     client: &Client,
@@ -27,7 +28,7 @@ pub(super) async fn fetch_api_keys(
     let items = array_items(&data);
     let mut options = items
         .into_iter()
-        .take(MAX_API_KEYS)
+        .take(limits::MAX_API_KEYS_PER_PROVIDER)
         .filter_map(|item| api_key_from_value(&item))
         .collect::<Vec<_>>();
     ProviderApiKeyOption::merge_cached_key_material(

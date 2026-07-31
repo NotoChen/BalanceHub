@@ -1,4 +1,4 @@
-use crate::models::ProviderProtocol;
+use crate::{limits, models::ProviderProtocol};
 
 pub fn check_in_message_indicates_disabled(message: &str) -> bool {
     let normalized = message.trim().to_ascii_lowercase();
@@ -105,6 +105,7 @@ pub(super) fn string_list(values: Vec<String>) -> Vec<String> {
         .collect::<Vec<_>>();
     normalized.sort();
     normalized.dedup();
+    normalized.truncate(limits::MAX_NOTIFICATION_CHANNELS);
     normalized
 }
 
@@ -117,6 +118,9 @@ pub(super) fn backup_url_list(values: Vec<String>) -> Vec<String> {
             continue;
         }
         normalized.push(value);
+        if normalized.len() >= limits::MAX_BACKUP_URLS_PER_PROVIDER {
+            break;
+        }
     }
     normalized
 }

@@ -1,4 +1,5 @@
 use crate::{
+    limits,
     models::{
         default_liveness_placeholder_pools, AppSettings, LivenessCliKind, LivenessIntervalMode,
         LivenessPlaceholderPool, LivenessPromptMode, Provider,
@@ -74,11 +75,12 @@ pub(super) fn effective_cli_kind(settings: &AppSettings, provider: &Provider) ->
 }
 
 pub(super) fn effective_timeout(settings: &AppSettings, provider: &Provider) -> u64 {
-    if provider.liveness.use_global {
+    let timeout = if provider.liveness.use_global {
         settings.liveness_timeout.max(10)
     } else {
         provider.liveness.timeout.max(10)
-    }
+    };
+    timeout.min(limits::MAX_LIVENESS_TIMEOUT_SECS)
 }
 
 pub(super) fn select_prompt(settings: &AppSettings, provider: &Provider) -> String {

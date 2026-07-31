@@ -1,3 +1,4 @@
+use crate::network;
 use reqwest::{Client, Method, StatusCode, Url};
 use serde_json::Value;
 use std::time::Duration;
@@ -79,10 +80,7 @@ async fn request_json_inner(
         .await
         .map_err(|err| format!("{context}失败: {err}"))?;
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format!("读取{context}响应失败: {err}"))?;
+    let text = network::read_http_text(response, &format!("读取{context}响应")).await?;
     parse_response(status, &text, context)
 }
 
