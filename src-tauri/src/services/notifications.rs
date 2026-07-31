@@ -1,17 +1,19 @@
 pub mod adapters;
 
+use futures_util::future::join_all;
 use serde::Serialize;
-use std::time::Duration;
 use tauri::AppHandle;
 
-use crate::models::{
-    AppSettings, NotificationChannel, NotificationChannelKind, Provider, ProviderNotificationMode,
+use crate::{
+    limits,
+    models::{
+        AppSettings, NotificationChannel, NotificationChannelKind, Provider,
+        ProviderNotificationMode,
+    },
+    network,
 };
 
 use self::adapters::{adapter_for, NotificationContext, NotificationMessage};
-
-const WEBHOOK_REQUEST_TIMEOUT_SECS: u64 = 10;
-const WEBHOOK_CONNECT_TIMEOUT_SECS: u64 = 5;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +69,7 @@ pub async fn send_configured_notification(
     }
 
     let message = NotificationMessage::new(title, markdown);
-    send_to_channels(app, &settings.notification_channels, message).await
+    send_to_channels(app, settings, &settings.notification_channels, message).await
 }
 
 pub async fn send_provider_notification(
@@ -96,19 +98,16 @@ pub async fn send_provider_notification(
 
     let selected_channels = selected_provider_channels(settings, provider);
     let message = NotificationMessage::new(title, markdown);
-    send_to_channels(app, &selected_channels, message).await
+    send_to_channels(app, settings, &selected_channels, message).await
 }
 
 async fn send_to_channels(
     app: &AppHandle,
+    settings: &AppSettings,
     channels: &[NotificationChannel],
     message: NotificationMessage,
 ) -> NotificationSendResult {
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(WEBHOOK_REQUEST_TIMEOUT_SECS))
-        .connect_timeout(Duration::from_secs(WEBHOOK_CONNECT_TIMEOUT_SECS))
-        .build()
-    {
+    let client = match network::build_webhook_client(settings) {
         Ok(client) => client,
         Err(err) => {
             let results = channels
@@ -132,12 +131,14 @@ async fn send_to_channels(
         app,
         client: &client,
     };
-    let mut results = Vec::new();
-
-    for channel in channels.iter().filter(|channel| channel.enabled) {
-        let adapter = adapter_for(channel.kind);
-        results.push(adapter.send(&context, channel, &message).await);
-    }
+    let results = join_all(
+        channels
+            .iter()
+            .filter(|channel| channel.enabled)
+            .take(limits::MAX_NOTIFICATION_CHANNELS)
+            .map(|channel| adapter_for(channel.kind).send(&context, channel, &message)),
+    )
+    .await;
 
     NotificationSendResult {
         sent_count: results.iter().filter(|result| result.ok).count(),

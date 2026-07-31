@@ -1,12 +1,11 @@
 use crate::{
+    limits,
     models::{LivenessCliKind, TemporaryCliPreference, Workspace},
     services::workspaces::normalize_directory,
 };
 use std::path::Path;
 
 use super::ProviderService;
-
-const MAX_WORKSPACES: usize = 30;
 
 impl ProviderService<'_> {
     pub fn record_temporary_cli_launch(
@@ -37,7 +36,7 @@ impl ProviderService<'_> {
                 });
             }
             sort_workspaces(&mut data.workspaces);
-            data.workspaces.truncate(MAX_WORKSPACES);
+            data.workspaces.truncate(limits::MAX_WORKSPACES);
             let preference = TemporaryCliPreference {
                 provider_id: provider_id.to_string(),
                 cli_kind,

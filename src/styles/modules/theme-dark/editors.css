@@ -1,0 +1,207 @@
+/* Shared drawer/editor surfaces */
+:root.theme-dark .arco-drawer,
+:root.theme-dark .arco-modal,
+:root.theme-dark .arco-modal-content,
+:root.theme-dark .arco-modal-header,
+:root.theme-dark .arco-modal-body,
+:root.theme-dark .arco-modal-footer {
+  border-color: var(--glass-border);
+  background: var(--glass-panel);
+  color: #f2f3f5;
+}
+
+:root.theme-dark .arco-modal {
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.42);
+}
+
+:root.theme-dark .arco-drawer-title,
+:root.theme-dark .arco-modal-title,
+:root.theme-dark .drawer-heading-copy strong,
+:root.theme-dark .settings-drawer-intro strong,
+:root.theme-dark .provider-editor-section-header strong,
+:root.theme-dark .provider-auth-mode-copy strong,
+:root.theme-dark .provider-credential-active-heading span {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .drawer-heading-kicker,
+:root.theme-dark .settings-drawer-intro span,
+:root.theme-dark .settings-section-title span,
+:root.theme-dark .settings-section-kicker,
+:root.theme-dark .provider-editor-section-header small,
+:root.theme-dark .provider-auth-mode-copy small,
+:root.theme-dark .provider-credential-active-heading small,
+:root.theme-dark .provider-credentials-secondary summary small {
+  color: #a9aeb8 !important;
+}
+
+:root.theme-dark .settings-drawer-intro {
+  border-color: rgba(122, 167, 255, 0.24);
+  background: linear-gradient(135deg, rgba(64, 128, 255, 0.15), rgba(14, 159, 168, 0.08));
+}
+
+:root.theme-dark .settings-drawer-version {
+  border-color: var(--glass-border);
+  background: rgba(36, 38, 47, 0.84);
+  color: #c9cdd4 !important;
+}
+
+:root.theme-dark .settings-section-title:hover,
+:root.theme-dark .settings-section-title:focus-visible {
+  background: rgba(122, 167, 255, 0.08);
+}
+
+:root.theme-dark .settings-section-glyph {
+  border-color: var(--glass-border);
+  background: var(--glass-card-muted);
+  color: #a9aeb8;
+}
+
+:root.theme-dark .settings-section-glyph.expanded {
+  border-color: rgba(122, 167, 255, 0.42);
+  background: rgba(64, 128, 255, 0.12);
+  color: #94bfff;
+}
+
+:root.theme-dark .provider-editor-summary-item,
+:root.theme-dark .provider-auth-mode-option,
+:root.theme-dark .provider-credentials-secondary {
+  border-color: var(--glass-border);
+  background: var(--glass-card-muted);
+}
+
+:root.theme-dark .provider-editor-summary-item strong,
+:root.theme-dark .provider-credentials-secondary summary span {
+  color: #d7dae0;
+}
+
+:root.theme-dark .provider-editor-summary-item span,
+:root.theme-dark .provider-auth-mode-copy small {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-auth-mode-option:hover,
+:root.theme-dark .provider-auth-mode-option:focus-visible {
+  border-color: rgba(122, 167, 255, 0.48);
+}
+
+:root.theme-dark .provider-auth-mode-option.active {
+  border-color: rgba(122, 167, 255, 0.56);
+  background: rgba(64, 128, 255, 0.16);
+}
+
+:root.theme-dark .provider-auth-mode-copy strong,
+:root.theme-dark .provider-credential-active-heading span {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .provider-auth-mode-icon {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root.theme-dark .provider-credential-active-panel {
+  border-color: rgba(122, 167, 255, 0.28);
+  background: linear-gradient(135deg, rgba(64, 128, 255, 0.14), var(--glass-card-muted));
+}
+
+:root.theme-dark .provider-credentials-secondary summary::after {
+  border-color: #a9aeb8;
+}
+
+:root.theme-dark .provider-credentials-secondary-content {
+  border-color: var(--glass-border);
+}
+
+:root.theme-dark .provider-editor-section-index {
+  border-color: rgba(122, 167, 255, 0.36);
+  background: rgba(64, 128, 255, 0.15);
+  color: #94bfff;
+}
+
+:root.theme-dark .settings-nav,
+:root.theme-dark .provider-editor-rail {
+  border-color: var(--glass-border);
+  background: var(--glass-card-muted);
+}
+
+:root.theme-dark .settings-nav-intro strong,
+:root.theme-dark .settings-nav-copy strong,
+:root.theme-dark .provider-editor-rail-intro strong,
+:root.theme-dark .provider-editor-step-copy strong,
+:root.theme-dark .settings-panel-header h2,
+:root.theme-dark .provider-editor-main-header h2 {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .settings-nav-intro small,
+:root.theme-dark .settings-nav-copy small,
+:root.theme-dark .settings-nav-footnote,
+:root.theme-dark .provider-editor-rail-intro small,
+:root.theme-dark .provider-editor-step-copy small,
+:root.theme-dark .settings-panel-header p,
+:root.theme-dark .provider-editor-main-header p,
+:root.theme-dark .settings-panel-footer > span {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .settings-nav-item:hover,
+:root.theme-dark .settings-nav-item:focus-visible,
+:root.theme-dark .provider-editor-step:hover,
+:root.theme-dark .provider-editor-step:focus-visible {
+  border-color: rgba(122, 167, 255, 0.28);
+  background: rgba(64, 128, 255, 0.1);
+}
+
+:root.theme-dark .settings-nav-item.active,
+:root.theme-dark .provider-editor-step.active {
+  border-color: rgba(122, 167, 255, 0.34);
+  background: rgba(64, 128, 255, 0.16);
+}
+
+:root.theme-dark .settings-nav-icon,
+:root.theme-dark .provider-editor-step-icon {
+  border-color: var(--glass-border);
+  background: var(--glass-card);
+  color: #a9aeb8;
+}
+
+:root.theme-dark .settings-nav-item.active .settings-nav-icon,
+:root.theme-dark .provider-editor-step.active .provider-editor-step-icon {
+  border-color: rgba(122, 167, 255, 0.4);
+  background: rgba(64, 128, 255, 0.18);
+  color: #94bfff;
+}
+
+:root.theme-dark .settings-nav-index,
+:root.theme-dark .provider-editor-step-index,
+:root.theme-dark .settings-panel-kicker,
+:root.theme-dark .provider-editor-main-kicker,
+:root.theme-dark .provider-editor-rail-intro > span {
+  color: #7f8796;
+}
+
+:root.theme-dark .settings-nav-item.active .settings-nav-index,
+:root.theme-dark .provider-editor-step.active .provider-editor-step-index {
+  color: #94bfff;
+}
+
+:root.theme-dark .settings-panel-mark,
+:root.theme-dark .provider-editor-main-mark {
+  border-color: rgba(122, 167, 255, 0.32);
+  background: rgba(64, 128, 255, 0.15);
+  color: #94bfff;
+}
+
+:root.theme-dark .provider-editor-rail-summary-row strong {
+  color: #d7dae0;
+}
+
+:root.theme-dark .provider-editor-rail-summary-row span {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-editor-rail-note {
+  border-color: rgba(62, 192, 194, 0.28);
+  background: rgba(14, 159, 168, 0.12);
+  color: #79d2d1;
+}

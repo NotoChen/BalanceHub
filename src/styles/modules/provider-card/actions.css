@@ -1,0 +1,582 @@
+/* Quick actions share one geometry; their restrained hues communicate intent without turning
+ * the footer into a row of saturated buttons. */
+.provider-card-copy-action {
+  color: #5f7894;
+}
+
+.provider-card-data-action {
+  color: #3f78c5;
+}
+
+.provider-card-site-action {
+  color: #a87322;
+}
+
+.provider-card-cli-config-action {
+  color: #218a68;
+}
+
+.provider-card-ccswitch-action {
+  color: #c86b2b;
+}
+
+.provider-card-launch-action {
+  color: #165dff;
+}
+
+.provider-card-checkin-action,
+.provider-card-enable-action {
+  color: #168a65;
+}
+
+.provider-card-refresh-action {
+  color: #3f78c5;
+}
+
+.provider-card-edit-action {
+  color: #64748b;
+}
+
+.provider-card-toggle-action {
+  color: #a87322;
+}
+
+.provider-card-delete-action {
+  color: #c7535d;
+}
+
+.provider-card-copy-action:hover,
+.provider-card-copy-action:focus-visible,
+.provider-card-data-action:hover,
+.provider-card-data-action:focus-visible,
+.provider-card-site-action:hover,
+.provider-card-site-action:focus-visible,
+.provider-card-cli-config-action:hover,
+.provider-card-cli-config-action:focus-visible,
+.provider-card-ccswitch-action:hover,
+.provider-card-ccswitch-action:focus-visible,
+.provider-card-launch-action:hover,
+.provider-card-launch-action:focus-visible,
+.provider-card-checkin-action:hover,
+.provider-card-checkin-action:focus-visible,
+.provider-card-refresh-action:hover,
+.provider-card-refresh-action:focus-visible,
+.provider-card-edit-action:hover,
+.provider-card-edit-action:focus-visible,
+.provider-card-toggle-action:hover,
+.provider-card-toggle-action:focus-visible,
+.provider-card-delete-action:hover,
+.provider-card-delete-action:focus-visible {
+  background: color-mix(in srgb, currentColor 11%, transparent);
+  color: currentColor;
+}
+
+.provider-card-user-meta span + span::before {
+  content: "·";
+  display: inline-block;
+  margin-right: 9px;
+  color: #c9cdd4;
+}
+
+.provider-card-action-popover {
+  border-color: var(--glass-border) !important;
+  border-radius: 8px !important;
+  background: var(--glass-card) !important;
+  box-shadow: 0 12px 32px rgba(29, 33, 41, 0.14) !important;
+  padding: 6px !important;
+}
+
+.provider-card-copy-panel {
+  display: grid;
+  width: 196px;
+  gap: 3px;
+}
+
+.provider-card-action-panel-title {
+  min-height: 28px;
+  color: #86909c;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 28px;
+  padding: 0 8px;
+}
+
+.provider-card-copy-panel button {
+  display: grid;
+  width: 100%;
+  min-height: 34px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4e5969;
+  cursor: pointer;
+  padding: 6px 8px;
+  text-align: left;
+  transition:
+    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.provider-card-copy-panel button:hover,
+.provider-card-copy-panel button:focus-visible {
+  background: rgba(22, 93, 255, 0.07);
+  outline: none;
+}
+
+.provider-card-copy-panel button:active {
+  transform: translateY(1px);
+}
+
+.provider-card-copy-panel button svg {
+  width: 14px;
+  height: 14px;
+  color: #86909c;
+}
+
+.provider-card-copy-panel button span {
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-cli-panel {
+  display: grid;
+  width: 244px;
+  gap: 4px;
+}
+
+.provider-card-cli-panel-header {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 8px 5px;
+}
+
+.provider-card-cli-panel-header strong {
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.provider-card-cli-config-list {
+  display: grid;
+  gap: 3px;
+}
+
+.provider-card-cli-config-list button {
+  display: grid;
+  width: 100%;
+  min-height: 42px;
+  grid-template-columns: 18px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4e5969;
+  cursor: pointer;
+  padding: 6px 8px;
+  text-align: left;
+  transition:
+    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.provider-card-cli-config-list button.provider-card-cli-config-item-no-logo {
+  grid-template-columns: minmax(0, 1fr) 14px;
+}
+
+.provider-card-cli-config-list button:hover,
+.provider-card-cli-config-list button:focus-visible {
+  background: rgba(22, 93, 255, 0.07);
+  outline: none;
+}
+
+.provider-card-cli-config-list button:active {
+  transform: translateY(1px);
+}
+
+.provider-card-cli-config-list button:disabled:not(.provider-card-cli-switch-option-current) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.provider-card-cli-config-list button > svg {
+  width: 15px;
+  height: 15px;
+  color: #86909c;
+}
+
+.provider-card-cli-config-list button > img {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+}
+
+.provider-card-cli-config-list button > span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.provider-card-cli-config-list button strong,
+.provider-card-cli-config-list button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-cli-config-list button strong {
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.provider-card-cli-config-list button small {
+  color: #86909c;
+  font-size: 10px;
+}
+
+.provider-card-cli-switch-option-current {
+  background: rgba(22, 93, 255, 0.07) !important;
+  cursor: default !important;
+}
+
+.provider-card-cli-switch-option-current > svg:last-child {
+  color: #165dff;
+}
+
+.provider-card-header-meta,
+.provider-card-cli-signals,
+.provider-card-footer-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.provider-card-header-meta {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.provider-card-cli-signals {
+  gap: 4px;
+  border-right: 1px solid var(--glass-border);
+  padding-right: 6px;
+}
+
+.provider-card-cli-signals-standalone {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.provider-card-cli-signal {
+  position: relative;
+  display: grid;
+  width: 23px;
+  height: 23px;
+  flex: 0 0 23px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4e5969;
+}
+
+.provider-card-cli-signal .brand-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.provider-card-cli-signal-default b {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  display: grid;
+  min-width: 12px;
+  height: 12px;
+  place-items: center;
+  border: 1px solid var(--provider-card-surface);
+  border-radius: 4px;
+  background: #4e5969;
+  color: #ffffff;
+  font-size: 7px;
+  font-weight: 750;
+  line-height: 1;
+  text-align: center;
+}
+
+button.provider-card-cli-signal {
+  appearance: none;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    border-color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+button.provider-card-cli-signal:hover,
+button.provider-card-cli-signal:focus-visible {
+  background: rgba(22, 93, 255, 0.08);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+button.provider-card-cli-signal:active {
+  transform: translateY(1px);
+}
+
+.provider-card-cli-signal-active b {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  border: 2px solid var(--provider-card-surface);
+  border-radius: 9px;
+  background: #e34d59;
+  color: #ffffff;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  line-height: 1;
+  padding: 0 3px;
+}
+
+.provider-card-footer {
+  display: flex;
+  min-width: 0;
+  min-height: 28px;
+  grid-template-areas: none;
+  grid-template-columns: none;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.provider-card-api-key .provider-card-models {
+  margin-top: auto;
+}
+
+.provider-card-api-key .provider-card-footer {
+  margin-top: 0;
+}
+
+.provider-card-footer-meta {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.provider-card-auth-summary {
+  display: inline-flex;
+  min-width: 16px;
+  flex: 0 0 auto;
+  grid-area: auto;
+  overflow: visible;
+  align-items: center;
+  gap: 3px;
+  color: #4e5969;
+}
+
+.provider-card-auth-summary > svg {
+  width: 15px;
+  height: 15px;
+  color: currentColor;
+}
+
+.provider-card-quick-actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  grid-area: auto;
+  align-items: center;
+  justify-self: auto;
+  flex-wrap: nowrap;
+  gap: 0;
+  margin-left: auto;
+  padding-left: 0;
+}
+
+.provider-card-action-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 1px;
+}
+
+.provider-card-primary-actions,
+.provider-card-secondary-actions {
+  flex: 0 0 auto;
+}
+
+.provider-card-action-divider {
+  width: 1px;
+  height: 16px;
+  flex: 0 0 1px;
+  margin: 0 4px;
+  background: var(--glass-border);
+}
+
+.provider-card-action-panel {
+  display: grid;
+  width: 208px;
+  gap: 3px;
+}
+
+.provider-card-action-list {
+  display: grid;
+  gap: 3px;
+}
+
+.provider-card-action-list button {
+  display: grid;
+  width: 100%;
+  min-height: 34px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4e5969;
+  cursor: pointer;
+  padding: 6px 8px;
+  text-align: left;
+  transition:
+    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.provider-card-action-list button:hover,
+.provider-card-action-list button:focus-visible {
+  background: rgba(22, 93, 255, 0.07);
+  outline: none;
+}
+
+.provider-card-action-list button:active {
+  transform: translateY(1px);
+}
+
+.provider-card-action-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
+.provider-card-action-list button svg {
+  width: 14px;
+  height: 14px;
+  color: #86909c;
+}
+
+.provider-card-action-list button .provider-auth-icon-session {
+  color: #d99000;
+}
+
+.provider-card-action-list button .provider-auth-icon-access-token {
+  color: #0e7490;
+}
+
+.provider-card-action-list button .provider-auth-icon-api-key {
+  color: #00a870;
+}
+
+.provider-card-action-list button .provider-card-action-icon-url,
+.provider-card-action-list button .provider-card-action-icon-link {
+  color: #3f78c5;
+}
+
+.provider-card-action-list button .provider-card-action-icon-invite {
+  color: #a87322;
+}
+
+.provider-card-action-list button .provider-card-action-icon-usage,
+.provider-card-action-list button .provider-card-action-icon-probe {
+  color: #3f78c5;
+}
+
+.provider-card-action-list button .provider-card-action-icon-logs {
+  color: #64748b;
+}
+
+.provider-card-action-list button .provider-card-action-icon-liveness {
+  color: #d99000;
+}
+
+.provider-card-action-list button .provider-card-action-icon-checkin-records {
+  color: #00a870;
+}
+
+.provider-card-action-list button .provider-card-action-icon-keys {
+  color: #00a870;
+}
+
+.provider-card-action-list button .provider-card-action-icon-models {
+  color: #7c5cff;
+}
+
+.provider-card-action-list button .provider-card-action-icon-password {
+  color: #e34d59;
+}
+
+.provider-card-cli-config-list button .provider-card-action-icon-switch {
+  color: #218a68;
+}
+
+.provider-card-action-list button span {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-action-panel-section-title {
+  color: #86909c;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 24px;
+  padding: 0 8px;
+}
+
+.provider-card-action-panel-section-divided {
+  margin-top: 4px;
+  border-top: 1px solid var(--glass-border);
+  padding-top: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider-card,
+  .provider-card-cli-signal,
+  .provider-card-icon-action,
+  .provider-card-copy-panel button,
+  .provider-card-action-list button,
+  .provider-card-cli-config-list button {
+    transition: none;
+  }
+
+  .provider-card:hover,
+  .provider-card:focus-visible,
+  .provider-card-icon-action:active,
+  .provider-card-copy-panel button:active,
+  .provider-card-action-list button:active,
+  .provider-card-cli-config-list button:active {
+    transform: none;
+  }
+}

@@ -1,4 +1,7 @@
-use crate::models::{normalize_api_key, ProviderApiKeyOption};
+use crate::{
+    limits,
+    models::{normalize_api_key, ProviderApiKeyOption},
+};
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -9,8 +12,6 @@ use super::response::{
     extract_token_items, parse_success_data, send_text,
 };
 use super::site::{convert_quota_value, fetch_site_metadata, SiteMetadata};
-
-const API_KEY_PAGE_SIZE: usize = 100;
 
 pub(crate) async fn fetch_api_key_options(
     client: &Client,
@@ -32,7 +33,7 @@ pub(crate) async fn fetch_api_key_options(
     // even when a compatible deployment ignores the requested page size.
     let tokens = extract_token_items(&data)
         .into_iter()
-        .take(API_KEY_PAGE_SIZE)
+        .take(limits::MAX_API_KEYS_PER_PROVIDER)
         .collect::<Vec<_>>();
     let site = fetch_site_metadata(client, base_url, is_anyrouter)
         .await
@@ -108,7 +109,7 @@ async fn fetch_api_key_page(
     {
         let mut pairs = url.query_pairs_mut();
         pairs.append_pair("p", &page.to_string());
-        pairs.append_pair("page_size", &API_KEY_PAGE_SIZE.to_string());
+        pairs.append_pair("page_size", &limits::MAX_API_KEYS_PER_PROVIDER.to_string());
     }
     let request = build_user_request(
         client,

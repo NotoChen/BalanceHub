@@ -32,10 +32,22 @@ interface UseAppLifecycleOptions {
 
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
   let providersChangedUnlisten: UnlistenFn | null = null;
+  let disposed = false;
 
-  async function applyHostPlatformClass() {
+  async function resolveHostPlatform() {
     try {
-      const platform = await hostPlatform();
+      return await hostPlatform();
+    } catch {
+      // Browser preview has no Tauri backend; keep the default macOS-aligned spacing.
+      return null;
+    }
+  }
+
+  onMounted(async () => {
+    disposed = false;
+    const platform = await resolveHostPlatform();
+    if (disposed) return;
+    if (platform) {
       document.documentElement.classList.remove(
         "platform-macos",
         "platform-windows",
@@ -44,32 +56,37 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       document.documentElement.classList.add(
         `platform-${platform === "macos" ? "macos" : platform}`,
       );
-    } catch {
-      // Browser preview has no Tauri backend; keep the default macOS-aligned spacing.
     }
-  }
 
-  onMounted(async () => {
-    await applyHostPlatformClass();
     await options.initialize();
+    if (disposed) return;
     options.syncFromSettings();
     options.setupThemeListener();
     try {
       // 监听后端调度任务的状态变更，自动刷新视图（关窗到托盘时也能保持同步）。
-      providersChangedUnlisten = await listen("providers-changed", () => {
-        void options.reloadProviders();
+      const unlisten = await listen("providers-changed", () => {
+        if (!disposed) {
+          void options.reloadProviders();
+        }
       });
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      providersChangedUnlisten = unlisten;
     } catch {
       // Browser preview has no Tauri backend; scheduling events are unavailable.
     }
-    if (options.loadError.value) {
+    if (disposed || options.loadError.value) {
       return;
     }
     await options.syncLaunchAtLogin();
+    if (disposed) return;
     await options.autoProbeCliEnvironment();
   });
 
   onUnmounted(() => {
+    disposed = true;
     options.cleanupThemeListener();
     options.resetProviderPointerDrag(false);
     providersChangedUnlisten?.();

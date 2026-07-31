@@ -42,6 +42,15 @@ export interface Provider {
   proxy: ProviderProxy;
   notification: ProviderNotification;
   runtime: ProviderRuntime;
+  actions: ProviderActions;
+}
+
+export interface ProviderActions {
+  accountManagement: boolean;
+  checkIn: boolean;
+  checkedInToday: boolean;
+  apiKeyManagement: boolean;
+  invitation: boolean;
 }
 
 export interface ProviderIdentity {

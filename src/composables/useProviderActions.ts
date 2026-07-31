@@ -2,7 +2,7 @@ import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import { openCcSwitchDeeplink } from "../api/app";
 import type { LivenessCliKind, Provider } from "../stores/providers";
-import { supportsApiKeyManagement } from "../utils/provider-display";
+import { supportsApiKeyManagement } from "../utils/provider-actions";
 import { useProviderCopyActions } from "./useProviderCopyActions";
 import {
   buildCcSwitchProviderDeeplink,

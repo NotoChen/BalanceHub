@@ -1,9 +1,39 @@
 use chrono::{Datelike, Local};
 
-use crate::models::{provider_domain::auth, AuthMode, Provider};
+use crate::models::{provider_domain::auth, AuthMode, Provider, ProviderProtocol};
+
+pub fn supports_account_management(provider: &Provider) -> bool {
+    if matches!(provider.identity.protocol, ProviderProtocol::Api)
+        || matches!(provider.auth.mode, AuthMode::ApiKey)
+    {
+        return false;
+    }
+
+    if matches!(provider.identity.protocol, ProviderProtocol::Sub2Api) {
+        return if matches!(provider.auth.mode, AuthMode::Password) {
+            (!provider.auth.login_username.trim().is_empty()
+                && !provider.auth.login_password.trim().is_empty())
+                || auth::has_access_token(provider)
+        } else {
+            auth::has_access_token(provider)
+        };
+    }
+
+    if matches!(provider.auth.mode, AuthMode::Password) {
+        return (!provider.auth.login_username.trim().is_empty()
+            && !provider.auth.login_password.trim().is_empty())
+            || (auth::has_api_user(provider)
+                && (auth::has_access_token(provider) || auth::has_session(provider)));
+    }
+
+    auth::has_api_user(provider)
+        && (auth::has_access_token(provider) || auth::has_session(provider))
+}
 
 pub fn supports_check_in(provider: &Provider, is_anyrouter: bool) -> bool {
-    if matches!(provider.auth.mode, AuthMode::ApiKey) {
+    if !matches!(provider.identity.protocol, ProviderProtocol::NewApi)
+        || matches!(provider.auth.mode, AuthMode::ApiKey)
+    {
         return false;
     }
     let capabilities = &provider.capabilities;
@@ -23,6 +53,26 @@ pub fn supports_check_in(provider: &Provider, is_anyrouter: bool) -> bool {
         || (matches!(provider.auth.mode, AuthMode::Password)
             && auth::has_session(provider)
             && auth::has_api_user(provider))
+}
+
+pub fn supports_api_key_management(provider: &Provider) -> bool {
+    if !supports_account_management(provider) {
+        return false;
+    }
+    if provider.capabilities.api_key_management_known {
+        return provider.capabilities.api_key_management_supported;
+    }
+    true
+}
+
+pub fn supports_invitation(provider: &Provider) -> bool {
+    if !supports_account_management(provider) {
+        return false;
+    }
+    if provider.capabilities.invitation_known {
+        return provider.capabilities.invitation_supported;
+    }
+    !provider.capabilities.invite_link.trim().is_empty() || supports_account_management(provider)
 }
 
 pub fn check_in_user(provider: &Provider, is_anyrouter: bool) -> String {
@@ -112,6 +162,29 @@ mod tests {
         provider.auth.mode = AuthMode::ApiKey;
         provider.capabilities.check_in_known = true;
         provider.capabilities.check_in_supported = true;
+
+        assert!(!supports_check_in(&provider, false));
+    }
+
+    #[test]
+    fn account_and_remote_capabilities_follow_the_active_auth_mode() {
+        let mut provider = provider();
+        assert!(supports_account_management(&provider));
+        assert!(supports_api_key_management(&provider));
+        assert!(supports_invitation(&provider));
+
+        provider.auth.mode = AuthMode::ApiKey;
+        assert!(!supports_account_management(&provider));
+        assert!(!supports_api_key_management(&provider));
+        assert!(!supports_invitation(&provider));
+    }
+
+    #[test]
+    fn non_newapi_protocols_never_infer_check_in_support() {
+        let mut provider = provider();
+        provider.identity.protocol = ProviderProtocol::Sub2Api;
+        provider.auth.mode = AuthMode::AccessToken;
+        provider.auth.access_token = "token".to_string();
 
         assert!(!supports_check_in(&provider, false));
     }

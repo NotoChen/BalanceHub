@@ -1,4 +1,7 @@
-use crate::models::{Provider, ProviderCheckInResult};
+use crate::{
+    models::{Provider, ProviderCheckInResult},
+    network,
+};
 use reqwest::{
     header::{
         HeaderMap, ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, SET_COOKIE,
@@ -99,7 +102,8 @@ async fn check_in_provider_one(
     }
 
     let response_headers = response.headers().clone();
-    let mut body_text = match response.text().await {
+    let mut body_text = match network::read_http_text(response, "读取 AnyRouter 账号响应").await
+    {
         Ok(text) => text,
         Err(err) => {
             return AccountResult {
@@ -141,7 +145,7 @@ async fn check_in_provider_one(
             };
         }
 
-        body_text = match response.text().await {
+        body_text = match network::read_http_text(response, "读取 AnyRouter 账号响应").await {
             Ok(text) => text,
             Err(err) => {
                 return AccountResult {
@@ -287,7 +291,8 @@ async fn get_challenge_cookie_header(
         };
 
         let headers = response.headers().clone();
-        let body_text = match response.text().await {
+        let body_text = match network::read_http_text(response, "读取 AnyRouter 验证响应").await
+        {
             Ok(text) => text,
             Err(_) => continue,
         };

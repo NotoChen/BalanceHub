@@ -1,0 +1,379 @@
+/* Provider cards keep a neutral surface in dark mode; state color is reserved for signals. */
+:root.theme-dark .provider-card {
+  --provider-card-surface: var(--glass-card);
+  border-color: var(--glass-border);
+  background: var(--provider-card-surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+:root.theme-dark .provider-card:hover {
+  border-color: color-mix(in srgb, #7aa7ff 30%, var(--glass-border));
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+:root.theme-dark .provider-card:focus-visible {
+  border-color: #7aa7ff;
+  box-shadow: 0 0 0 3px rgba(122, 167, 255, 0.18), 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+:root.theme-dark .provider-card-ok {
+  --provider-card-state: #4fd1a1;
+}
+
+:root.theme-dark .provider-card-warning {
+  --provider-card-state: #f2b84b;
+}
+
+:root.theme-dark .provider-card-pending,
+:root.theme-dark .provider-card-syncing {
+  --provider-card-state: #7aa7ff;
+}
+
+:root.theme-dark .provider-card-error {
+  --provider-card-state: #ff7d7d;
+}
+
+:root.theme-dark .provider-card-empty {
+  --provider-card-state: #a9aeb8;
+}
+
+:root.theme-dark .provider-card-error::after {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #ff7d7d 8%, transparent),
+    transparent 42%
+  );
+}
+
+:root.theme-dark .provider-card-status {
+  color: var(--provider-card-state);
+}
+
+:root.theme-dark .provider-card-quota-neutral {
+  --provider-quota-color: #a9aeb8;
+}
+
+:root.theme-dark .provider-card-quota-normal {
+  --provider-quota-color: #7aa7ff;
+}
+
+:root.theme-dark .provider-card-quota-warning {
+  --provider-quota-color: #f2b84b;
+}
+
+:root.theme-dark .provider-card-quota-empty {
+  --provider-quota-color: #ff7d7d;
+}
+
+:root.theme-dark .provider-card-quota-unlimited {
+  --provider-quota-color: #4fd1a1;
+}
+
+:root.theme-dark .provider-card .provider-quota-progress .arco-progress-line {
+  background-color: #343743;
+}
+
+:root.theme-dark .provider-card .provider-quota-progress .arco-progress-line-bar {
+  background-color: var(--provider-quota-color);
+}
+
+:root.theme-dark .provider-card-model-more {
+  border-color: rgba(122, 167, 255, 0.34);
+  color: #94bfff;
+}
+
+:root.theme-dark .provider-card-disabled {
+  --provider-card-surface: var(--glass-card-muted);
+  --provider-card-state: #6b7280;
+  border-color: var(--glass-border);
+  background: var(--provider-card-surface);
+  box-shadow: none;
+}
+
+:root.theme-dark .provider-card-disabled::before,
+:root.theme-dark .provider-card-disabled::after {
+  display: none;
+}
+
+:root.theme-dark .provider-card-disabled .provider-card-auth-summary > svg,
+:root.theme-dark .provider-card-disabled .provider-card-auth-summary strong,
+:root.theme-dark .provider-card-disabled .provider-card-auth-summary span {
+  color: #6b7280;
+}
+
+:root.theme-dark .provider-card-quick-actions {
+  border-color: var(--glass-border);
+}
+
+:root.theme-dark .provider-card-icon-action {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-card-icon-action:hover,
+:root.theme-dark .provider-card-icon-action:focus-visible {
+  background: rgba(122, 167, 255, 0.14);
+  color: #94bfff;
+}
+
+:root.theme-dark .provider-card-icon-action:disabled {
+  color: #5f6470;
+}
+
+:root.theme-dark .provider-card-copy-action {
+  color: #9bb0c8;
+}
+
+:root.theme-dark .provider-card-data-action {
+  color: #82b4f4;
+}
+
+:root.theme-dark .provider-card-site-action {
+  color: #d9ad69;
+}
+
+:root.theme-dark .provider-card-cli-config-action {
+  color: #78d0ae;
+}
+
+:root.theme-dark .provider-card-ccswitch-action {
+  color: #f0a06a;
+}
+
+:root.theme-dark .provider-card-launch-action {
+  color: #94bfff;
+}
+
+:root.theme-dark .provider-card-checkin-action,
+:root.theme-dark .provider-card-enable-action {
+  color: #69d3ab;
+}
+
+:root.theme-dark .provider-card-refresh-action {
+  color: #82b4f4;
+}
+
+:root.theme-dark .provider-card-edit-action {
+  color: #a9b5c5;
+}
+
+:root.theme-dark .provider-card-toggle-action {
+  color: #f0c078;
+}
+
+:root.theme-dark .provider-card-delete-action {
+  color: #ff8b94;
+}
+
+:root.theme-dark .provider-card-copy-action:hover,
+:root.theme-dark .provider-card-copy-action:focus-visible,
+:root.theme-dark .provider-card-data-action:hover,
+:root.theme-dark .provider-card-data-action:focus-visible,
+:root.theme-dark .provider-card-site-action:hover,
+:root.theme-dark .provider-card-site-action:focus-visible,
+:root.theme-dark .provider-card-cli-config-action:hover,
+:root.theme-dark .provider-card-cli-config-action:focus-visible,
+:root.theme-dark .provider-card-ccswitch-action:hover,
+:root.theme-dark .provider-card-ccswitch-action:focus-visible,
+:root.theme-dark .provider-card-launch-action:hover,
+:root.theme-dark .provider-card-launch-action:focus-visible,
+:root.theme-dark .provider-card-checkin-action:hover,
+:root.theme-dark .provider-card-checkin-action:focus-visible,
+:root.theme-dark .provider-card-refresh-action:hover,
+:root.theme-dark .provider-card-refresh-action:focus-visible,
+:root.theme-dark .provider-card-edit-action:hover,
+:root.theme-dark .provider-card-edit-action:focus-visible,
+:root.theme-dark .provider-card-toggle-action:hover,
+:root.theme-dark .provider-card-toggle-action:focus-visible,
+:root.theme-dark .provider-card-delete-action:hover,
+:root.theme-dark .provider-card-delete-action:focus-visible {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: currentColor;
+}
+
+:root.theme-dark .provider-card-action-popover {
+  border-color: var(--glass-border) !important;
+  background: var(--glass-card) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.36) !important;
+}
+
+:root.theme-dark .provider-card-action-panel-title {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-card-copy-panel button,
+:root.theme-dark .provider-card-cli-config-list button {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .provider-card-copy-panel button:hover,
+:root.theme-dark .provider-card-copy-panel button:focus-visible {
+  background: rgba(64, 128, 255, 0.14);
+}
+
+:root.theme-dark .provider-card-copy-panel button svg {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-card-copy-panel button span {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .provider-card-cli-signals {
+  border-color: var(--glass-border);
+}
+
+:root.theme-dark .provider-card-cli-signal {
+  border-color: transparent;
+  background: transparent;
+  color: #c9d9f5;
+}
+
+:root.theme-dark .provider-card-cli-signal-default b {
+  background: #a9b7cc;
+  border-color: var(--provider-card-surface);
+  color: #1f2026;
+}
+
+:root.theme-dark .provider-card-cli-signal-active b {
+  border-color: var(--provider-card-surface);
+  background: #f06a73;
+}
+
+:root.theme-dark .provider-card-auth-summary {
+  color: #c9cdd4;
+}
+
+:root.theme-dark .provider-auth-icon-session {
+  color: #f2c14e;
+}
+
+:root.theme-dark .provider-auth-icon-access-token {
+  color: #67c7dd;
+}
+
+:root.theme-dark .provider-auth-icon-api-key {
+  color: #55d6a5;
+}
+
+:root.theme-dark .provider-card-auth-summary > .provider-auth-icon-session {
+  color: #f2c14e;
+}
+
+:root.theme-dark .provider-card-auth-summary > .provider-auth-icon-access-token {
+  color: #67c7dd;
+}
+
+:root.theme-dark .provider-card-auth-summary > .provider-auth-icon-api-key {
+  color: #55d6a5;
+}
+
+:root.theme-dark .provider-card-action-list button {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .provider-card-action-list button:hover,
+:root.theme-dark .provider-card-action-list button:focus-visible {
+  background: rgba(64, 128, 255, 0.14);
+}
+
+:root.theme-dark .provider-card-action-list button svg {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-card-action-list button span {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-auth-icon-session {
+  color: #f2c14e;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-auth-icon-access-token {
+  color: #67c7dd;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-auth-icon-api-key,
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-checkin-records,
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-keys {
+  color: #55d6a5;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-url,
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-link,
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-usage,
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-probe {
+  color: #82b4f4;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-invite {
+  color: #f0c078;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-logs {
+  color: #a9b5c5;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-liveness {
+  color: #f2c14e;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-models {
+  color: #b5a7ff;
+}
+
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-password {
+  color: #ff7d87;
+}
+
+:root.theme-dark .provider-card-cli-config-list button .provider-card-action-icon-switch {
+  color: #78d0ae;
+}
+
+:root.theme-dark .provider-card-action-panel-section-title {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-board-toolbar {
+  border-color: var(--glass-border);
+}
+
+:root.theme-dark .provider-board-filter-summary {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-board-filter-summary strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .provider-board-filter-label {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-board-filter-segment {
+  background: rgba(36, 38, 47, 0.82);
+}
+
+:root.theme-dark .provider-board-filter-segment button {
+  border-color: var(--glass-border);
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-board-filter-segment button:hover,
+:root.theme-dark .provider-board-filter-segment button:focus-visible {
+  background: rgba(122, 167, 255, 0.12);
+  color: #c9dcff;
+}
+
+:root.theme-dark .provider-board-filter-segment button.active {
+  background: rgba(122, 167, 255, 0.17);
+  color: #94bfff;
+}
+
+:root.theme-dark .provider-board-filter-reset {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .provider-board-filter-reset:hover,
+:root.theme-dark .provider-board-filter-reset:focus-visible {
+  color: #94bfff;
+}

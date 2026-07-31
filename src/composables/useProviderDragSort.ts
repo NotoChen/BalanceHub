@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, onBeforeUnmount, ref, type Ref } from "vue";
 import type { Provider } from "../stores/providers";
 import {
   beginProviderDrag,
@@ -37,9 +37,11 @@ export function useProviderDragSort(options: DragSortOptions) {
   const providerCardClickSuppressed = ref(false);
   let providerDragPreviewFrame: number | null = null;
   let providerDragCommitTimer: number | null = null;
+  let providerClickReleaseTimer: number | null = null;
   let pendingTargetIndex: number | null = null;
   let pendingTargetSince = 0;
   let dragLayoutSnapshot: DragLayoutItem[] = [];
+  let disposed = false;
 
   const DRAG_REORDER_DELAY_MS = 110;
 
@@ -77,6 +79,9 @@ export function useProviderDragSort(options: DragSortOptions) {
   });
 
   function handleProviderPointerDown(provider: Provider, event: PointerEvent) {
+    if (disposed) {
+      return;
+    }
     if (event.button !== 0) {
       return;
     }
@@ -307,12 +312,18 @@ export function useProviderDragSort(options: DragSortOptions) {
       dragOrder.value = [];
       dragOrderGroup.value = "";
     }
-    window.setTimeout(
-      () => {
+    if (providerClickReleaseTimer !== null) {
+      window.clearTimeout(providerClickReleaseTimer);
+      providerClickReleaseTimer = null;
+    }
+    if (disposed) {
+      providerCardClickSuppressed.value = false;
+    } else {
+      providerClickReleaseTimer = window.setTimeout(() => {
+        providerClickReleaseTimer = null;
         providerCardClickSuppressed.value = false;
-      },
-      suppressClick ? 180 : 0,
-    );
+      }, suppressClick ? 180 : 0);
+    }
   }
 
   function flushProviderDragPreviewUpdate() {
@@ -353,6 +364,11 @@ export function useProviderDragSort(options: DragSortOptions) {
   }
 
   const providerDragStyle = () => providerDragStyleFromState(providerDrag);
+
+  onBeforeUnmount(() => {
+    disposed = true;
+    resetProviderPointerDrag(false);
+  });
 
   return {
     providerDrag,

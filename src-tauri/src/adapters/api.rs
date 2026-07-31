@@ -6,6 +6,7 @@
 
 use crate::{
     adapters::transport::{build_client, USER_AGENT_VALUE},
+    limits,
     models::{
         AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCapabilities,
         ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
@@ -14,6 +15,7 @@ use crate::{
         ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
         ProviderStatus, ProviderUsageSummary,
     },
+    network,
 };
 use reqwest::{header::ACCEPT, header::USER_AGENT, Client, Url};
 use serde_json::Value;
@@ -288,10 +290,7 @@ pub(crate) async fn fetch_models(
         .await
         .map_err(|err| format!("获取模型列表失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取模型列表失败: {err}"))?;
+    let body = network::read_http_text(response, "读取模型列表").await?;
     if !status.is_success() {
         let detail = body.chars().take(240).collect::<String>();
         return Err(format!("获取模型列表失败: HTTP {status} {detail}"));
@@ -326,6 +325,7 @@ fn parse_models(body: &str) -> Result<Vec<String>, String> {
         .collect::<Vec<_>>();
     models.sort();
     models.dedup();
+    limits::truncate_models(&mut models);
     if models.is_empty() {
         return Err("模型列表为空".to_string());
     }

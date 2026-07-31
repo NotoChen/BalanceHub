@@ -152,6 +152,8 @@ useWindowGridSnap();
       :available-update-version="app.availableUpdateVersion"
       :available-update-release-notes="app.availableUpdateReleaseNotes"
       :installing-update="app.installingUpdate"
+      :update-can-cancel="app.updateCanCancel"
+      :cancelling-update="app.cancellingUpdate"
       :update-download-progress="app.updateDownloadProgress"
       :update-install-status="app.updateInstallStatus"
       @open-onboarding-add-provider="app.openOnboardingAddProvider"
@@ -177,6 +179,7 @@ useWindowGridSnap();
       @load-check-in-records="app.loadCheckInRecords"
       @retry-capability-probe="app.retryCapabilityProbe"
       @dismiss-update="app.dismissUpdate"
+      @cancel-update="app.cancelUpdate"
       @install-update="app.installUpdate"
     />
 
@@ -188,7 +191,7 @@ useWindowGridSnap();
       :settings="app.settingsForm"
       :settings-save-state="app.settingsSaveState"
       :liveness-model-options="app.livenessModelOptions"
-      :model-provider-index="app.modelProviderIndex"
+      :selected-liveness-model-providers="app.selectedLivenessModelProviders"
       :exporting-app-data="app.exportingAppData"
       :importing-app-data="app.importingAppData"
       :app-version="app.appVersion"

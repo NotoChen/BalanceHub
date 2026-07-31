@@ -404,10 +404,10 @@
       <section class="hero">
         <div class="hero-inner">
           <div class="hero-copy">
-            <p class="eyebrow">本地桌面 App · NewAPI 兼容中转站</p>
+            <p class="eyebrow">本地桌面 App · 多协议 AI 中转站</p>
             <h1>BalanceHub</h1>
             <p class="lead">
-              集中管理 NewAPI 兼容中转站账号，把余额、签到、用量趋势、请求日志、API Key、Codex / Claude Code 测活和本地 CLI 衔接放到一个桌面应用里。
+              集中管理 NewAPI、Sub2API 和通用 OpenAI 兼容 API，把余额、签到、用量趋势、请求日志、API Key、Codex / Claude Code 测活和本地 CLI 衔接放到一个桌面应用里。
             </p>
             <div class="actions">
               <a class="button" href="https://github.com/NotoChen/BalanceHub/releases/latest">
@@ -434,7 +434,7 @@
         <div class="feature-grid">
           <article class="feature">
             <h3>中转站管理</h3>
-            <p>新增、编辑、排序、连接测试和站点探测，统一维护多个 NewAPI 兼容站点。</p>
+            <p>新增、编辑、排序、协议识别、连接测试和站点探测，统一维护 NewAPI、Sub2API 和通用 API。</p>
           </article>
           <article class="feature">
             <h3>余额与账单</h3>
@@ -470,8 +470,8 @@
             <span>BalanceHub 基于 Tauri 运行在本机，不提供 Web 自部署版本。</span>
           </li>
           <li>
-            <strong>当前只展示 NewAPI</strong>
-            <span>AnyRouter 按 NewAPI 方言兼容处理；sub2api 尚未接入。</span>
+            <strong>支持三种协议</strong>
+            <span>支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 作为 NewAPI 方言处理。</span>
           </li>
           <li>
             <strong>凭据本地保存</strong>
@@ -490,9 +490,6 @@
           <p>截图均来自真实桌面 App，数据使用演示配置。</p>
         </div>
         <div class="screenshots">
-          <figure class="screenshot-card">
-            <img src="assets/screenshots/provider-editor.png" alt="新增中转站" />
-          </figure>
           <figure class="screenshot-card">
             <img src="assets/screenshots/settings.png" alt="应用设置" />
           </figure>
@@ -525,7 +522,7 @@
           <article class="release-card">
             <h3>自动更新</h3>
             <p>
-              `.sig` 文件用于应用内自动更新签名校验，不是手动安装包。应用会读取 GitHub Releases 的 `latest.json`，下载当前平台匹配的更新包，校验后安装并重启。
+              `.sig` 文件用于应用内更新签名校验，不是手动安装包。应用启动 30 秒后静默检查，之后每 6 小时检查；发现新版本只提示，用户确认后才下载。下载阶段可取消，并有停滞超时、总时限和 256 MiB 上限，校验通过后再安装并重启。
             </p>
           </article>
         </div>
@@ -543,7 +540,7 @@
           </article>
           <article class="stack-item">
             <h3>Rust / tokio / reqwest</h3>
-            <p>NewAPI 请求、CLI 测活、调度任务、通知渠道和本地配置存储。</p>
+            <p>协议适配、CLI 测活、调度任务、通知渠道和本地配置存储。</p>
           </article>
           <article class="stack-item">
             <h3>Vue 3 / TypeScript / Pinia</h3>
@@ -564,7 +561,7 @@
           </a>
           <a class="doc-card" href="provider-config.html">
             <h3>中转站配置</h3>
-            <p>Cookie、访问令牌、API Key 的使用边界和连接测试。</p>
+            <p>协议选择、账号密码、Cookie、访问令牌、API Key 的使用边界和连接测试。</p>
           </a>
           <a class="doc-card" href="liveness.html">
             <h3>测活配置</h3>

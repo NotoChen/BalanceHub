@@ -2,9 +2,9 @@ import { computed, type Ref } from "vue";
 import type { Provider } from "../stores/providers";
 import {
   providerHasNoAvailableBalance,
-  providerNeedsCheckIn,
   type ProviderCardTone,
 } from "../utils/provider-display";
+import { providerNeedsCheckIn } from "../utils/provider-actions";
 
 interface UseProviderCardToneOptions {
   providers: Ref<Provider[]>;

@@ -1,0 +1,304 @@
+/*
+ * Shared desktop surface system.
+ *
+ * The main app remains a dense utility surface. Modal workflows use a clear
+ * navigation hierarchy, a quiet work area, and one explicit action row.
+ */
+
+:root {
+  --surface-ink: #17202b;
+  --surface-ink-soft: #526071;
+  --surface-muted: #7a8797;
+  --surface-line: #e4e9f0;
+  --surface-line-strong: #cbd5e1;
+  --surface-canvas: #f4f7fb;
+  --surface-panel: #ffffff;
+  --surface-panel-soft: #f8fafc;
+  --surface-accent: #2563eb;
+  --surface-accent-soft: #eaf1ff;
+  --surface-success: #16836a;
+  --surface-warning: #b7791f;
+  --surface-shadow: 0 28px 80px rgba(15, 23, 42, 0.2);
+  --surface-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --provider-grid-gap: 16px;
+  --provider-card-action-gap: 1px;
+}
+
+/* The native window can be resized continuously. These variables only tune
+ * the visual rhythm after layout has settled, so the card geometry stays
+ * stable while the resize edge is being dragged. */
+.overview-provider-grid {
+  column-gap: var(--provider-grid-local-gap, var(--provider-grid-gap));
+  row-gap: var(--provider-grid-local-row-gap, var(--provider-grid-gap));
+}
+
+.provider-card-action-group {
+  gap: var(--provider-card-action-gap, 1px);
+}
+
+.provider-card-quick-actions {
+  gap: var(--provider-card-action-gap, 1px);
+}
+
+:root[data-window-expanded] .provider-board {
+  --provider-grid-card-max: 336px;
+}
+
+:root[data-window-expanded] .overview-provider-grid {
+  justify-content: center;
+}
+
+.provider-board {
+  justify-content: var(--provider-board-content-justify, flex-start);
+  gap: var(--provider-board-section-gap, 16px);
+}
+
+/* Shared modal shell */
+.surface-modal.arco-modal {
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 18px;
+  background: var(--surface-panel);
+  box-shadow: var(--surface-shadow);
+  font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", "SF Pro Display", "Segoe UI", sans-serif;
+}
+
+.surface-modal .arco-modal-content {
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--surface-panel);
+}
+
+.surface-modal .arco-modal-header {
+  min-height: 72px;
+  border-bottom: 1px solid var(--surface-line);
+  background: var(--surface-panel);
+  padding: 15px 22px;
+}
+
+.surface-modal .arco-modal-title {
+  min-width: 0;
+  color: var(--surface-ink);
+  font-size: 16px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+}
+
+.surface-modal .arco-modal-close-btn {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--surface-line);
+  border-radius: 9px;
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+  transition: transform 220ms var(--surface-ease), color 220ms var(--surface-ease), border-color 220ms var(--surface-ease), background 220ms var(--surface-ease);
+}
+
+.surface-modal .arco-modal-close-btn:hover,
+.surface-modal .arco-modal-close-btn:focus-visible {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.surface-modal .arco-modal-body {
+  min-height: 0;
+  background: var(--surface-panel);
+}
+
+.surface-modal .arco-modal-footer {
+  border-top: 1px solid var(--surface-line);
+  background: var(--surface-panel);
+  padding: 12px 22px;
+}
+
+.surface-modal .arco-form-item-label > label {
+  color: var(--surface-ink-soft);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.surface-modal .arco-form-item-extra,
+.surface-modal .arco-form-item-message {
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.surface-modal .arco-input-wrapper,
+.surface-modal .arco-input-number,
+.surface-modal .arco-select-view,
+.surface-modal .arco-picker,
+.surface-modal .arco-textarea-wrapper {
+  min-height: 38px;
+  border: 1px solid var(--surface-line-strong);
+  border-radius: 9px;
+  background: var(--surface-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition: border-color 180ms var(--surface-ease), box-shadow 180ms var(--surface-ease), background 180ms var(--surface-ease);
+}
+
+.surface-modal .arco-input-wrapper:hover,
+.surface-modal .arco-input-number:hover,
+.surface-modal .arco-select-view:hover,
+.surface-modal .arco-picker:hover,
+.surface-modal .arco-textarea-wrapper:hover {
+  border-color: #94a3b8;
+}
+
+.surface-modal .arco-input-wrapper:focus-within,
+.surface-modal .arco-input-number:focus-within,
+.surface-modal .arco-select-view:focus-within,
+.surface-modal .arco-picker:focus-within,
+.surface-modal .arco-textarea-wrapper:focus-within {
+  border-color: var(--surface-accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.surface-modal .arco-input,
+.surface-modal .arco-input-number-input,
+.surface-modal .arco-select-view-input,
+.surface-modal .arco-select-view-value,
+.surface-modal .arco-picker-input,
+.surface-modal .arco-textarea {
+  color: var(--surface-ink);
+  font-size: 13px;
+}
+
+.surface-modal .arco-input::placeholder,
+.surface-modal .arco-textarea::placeholder {
+  color: #a5afbd;
+}
+
+.surface-modal .arco-switch-checked {
+  background: var(--surface-accent);
+}
+
+.surface-modal .arco-btn {
+  min-height: 34px;
+  border-radius: 8px;
+  font-weight: 650;
+  transition: transform 180ms var(--surface-ease), border-color 180ms var(--surface-ease), background 180ms var(--surface-ease), color 180ms var(--surface-ease);
+}
+
+.surface-modal .arco-btn:active {
+  transform: translateY(1px) scale(0.985);
+}
+
+.surface-modal .arco-btn:not(.arco-btn-primary) {
+  border-color: var(--surface-line-strong);
+  background: var(--surface-panel);
+  color: var(--surface-ink-soft);
+}
+
+.surface-modal .arco-btn:not(.arco-btn-primary):hover,
+.surface-modal .arco-btn:not(.arco-btn-primary):focus-visible {
+  border-color: rgba(37, 99, 235, 0.36);
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  outline: none;
+}
+
+.surface-modal .arco-btn-primary {
+  border-color: var(--surface-accent);
+  background: var(--surface-accent);
+  box-shadow: 0 7px 16px rgba(37, 99, 235, 0.2);
+}
+
+.surface-modal .arco-btn-primary:hover,
+.surface-modal .arco-btn-primary:focus-visible {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  box-shadow: 0 9px 20px rgba(37, 99, 235, 0.27);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.surface-modal-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.surface-modal-title-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #cfe0ff;
+  border-radius: 11px;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  font-size: 18px;
+}
+
+.surface-modal-title-icon-settings {
+  border-color: #cfe0ff;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
+.surface-modal-title-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.surface-modal-title-copy > span {
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.surface-modal-title-copy > strong {
+  overflow: hidden;
+  color: var(--surface-ink);
+  font-size: 16px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.surface-modal-title-meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  border: 1px solid var(--surface-line);
+  border-radius: 999px;
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 24px;
+  padding: 0 9px;
+}
+
+.surface-modal-title-meta i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.surface-modal-title-meta.ready {
+  border-color: rgba(22, 131, 106, 0.25);
+  background: #edf9f5;
+  color: var(--surface-success);
+}
+
+.surface-modal-title-meta.ready::before {
+  background: var(--surface-success);
+}

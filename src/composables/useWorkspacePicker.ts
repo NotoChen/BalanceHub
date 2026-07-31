@@ -13,7 +13,7 @@ import type {
   WorkspaceDirectoryListing,
 } from "../stores/providers";
 import { availableCliOptions, availableTerminalOptions } from "../utils/cli-environment";
-import { supportsApiKeyManagement } from "../utils/provider-display";
+import { supportsApiKeyManagement } from "../utils/provider-actions";
 
 interface UseWorkspacePickerOptions {
   workspaces: Ref<Workspace[]>;

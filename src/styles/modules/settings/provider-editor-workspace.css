@@ -1,0 +1,306 @@
+/* Provider editor workspace */
+.provider-editor-workspace {
+  display: grid;
+  min-width: 0;
+  height: min(650px, calc(100dvh - 142px));
+  min-height: 460px;
+  grid-template-columns: 258px minmax(0, 1fr);
+}
+
+.provider-editor-rail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--glass-border);
+  background: var(--glass-card-muted);
+  padding: 20px 13px 14px;
+}
+
+.provider-editor-rail-intro {
+  display: grid;
+  gap: 4px;
+  padding: 0 8px 18px;
+}
+
+.provider-editor-rail-intro strong {
+  color: #1d2129;
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.provider-editor-rail-intro small {
+  color: #86909c;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.provider-editor-steps {
+  display: grid;
+  gap: 5px;
+}
+
+.provider-editor-step {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 31px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 58px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+  transition:
+    background 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.provider-editor-step:hover,
+.provider-editor-step:focus-visible {
+  border-color: rgba(22, 93, 255, 0.17);
+  background: rgba(22, 93, 255, 0.05);
+  outline: none;
+  transform: translateX(2px);
+}
+
+.provider-editor-step.active {
+  border-color: rgba(22, 93, 255, 0.22);
+  background: rgba(22, 93, 255, 0.09);
+}
+
+.provider-editor-step-icon {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-card);
+  color: #86909c;
+  font-size: 15px;
+}
+
+.provider-editor-step.active .provider-editor-step-icon {
+  border-color: rgba(22, 93, 255, 0.25);
+  background: rgba(22, 93, 255, 0.12);
+  color: #165dff;
+}
+
+.provider-editor-step-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.provider-editor-step-copy strong {
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.provider-editor-step-copy small {
+  overflow: hidden;
+  color: #86909c;
+  font-size: 10px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-editor-step-index {
+  align-self: start;
+  color: #a9aeb8;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  padding-top: 3px;
+}
+
+.provider-editor-step.active .provider-editor-step-index {
+  color: #165dff;
+}
+
+.provider-editor-rail-summary {
+  display: grid;
+  gap: 7px;
+  margin-top: auto;
+  border-top: 1px solid var(--glass-border);
+  padding: 15px 8px 12px;
+}
+
+.provider-editor-rail-summary-row {
+  display: grid;
+  grid-template-columns: 15px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-editor-rail-summary-row > svg {
+  color: #165dff;
+  font-size: 13px;
+}
+
+.provider-editor-rail-summary-row span {
+  color: #86909c;
+  font-size: 10px;
+}
+
+.provider-editor-rail-summary-row strong {
+  overflow: hidden;
+  color: #4e5969;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-editor-rail-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid rgba(14, 159, 168, 0.18);
+  border-radius: 8px;
+  background: rgba(14, 159, 168, 0.06);
+  color: #0e7d84;
+  font-size: 10px;
+  line-height: 1.45;
+  padding: 9px;
+}
+
+.provider-editor-rail-note > svg {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.provider-editor-main-scroll {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 0 26px 24px;
+  scrollbar-gutter: stable;
+}
+
+.provider-editor-main-scroll .arco-form {
+  min-width: 0;
+}
+
+.provider-editor-main-scroll .provider-editor-section {
+  padding-top: 20px;
+}
+
+.provider-editor-main-footer {
+  flex: 0 0 auto;
+}
+
+.provider-editor-footer-spacer {
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  .settings-workspace,
+  .provider-editor-workspace {
+    height: min(720px, calc(100dvh - 112px));
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav,
+  .provider-editor-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--glass-border);
+    padding: 12px;
+  }
+
+  .settings-nav-intro,
+  .provider-editor-rail-intro,
+  .settings-nav-footnote,
+  .provider-editor-rail-summary,
+  .provider-editor-rail-note {
+    display: none;
+  }
+
+  .settings-nav-list,
+  .provider-editor-steps {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .settings-nav-list::-webkit-scrollbar,
+  .provider-editor-steps::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-nav-item,
+  .provider-editor-step {
+    min-width: 150px;
+    flex: 0 0 auto;
+  }
+
+  .settings-nav-item:hover,
+  .provider-editor-step:hover {
+    transform: none;
+  }
+
+  .settings-panel-header,
+  .provider-editor-main-header,
+  .settings-panel-footer,
+  .provider-editor-main-footer {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .settings-panel-body,
+  .provider-editor-main-scroll {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}
+
+.surface-drawer.arco-drawer {
+  border-left: 1px solid #d7e0eb;
+  background: #eef3f8;
+  box-shadow: -24px 0 60px rgba(25, 42, 64, 0.16);
+}
+
+.surface-drawer .arco-drawer-header {
+  position: relative;
+  min-height: 74px;
+  border-bottom: 1px solid #dce4ee;
+  background: #fbfcfe;
+  padding: 18px 56px 18px 24px;
+}
+
+.surface-drawer .arco-drawer-title {
+  color: #172233;
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.surface-drawer .arco-drawer-close-btn {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid #d6dfe9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #566579;
+}
+
+.surface-drawer .arco-drawer-close-btn:hover,
+.surface-drawer .arco-drawer-close-btn:focus-visible {
+  border-color: #8fb3ee;
+  background: #edf4ff;
+  color: #165dff;
+}
+
+.surface-drawer .arco-drawer-body {
+  background: #eef3f8;
+}

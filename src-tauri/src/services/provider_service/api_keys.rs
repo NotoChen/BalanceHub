@@ -1,5 +1,6 @@
 use crate::{
     adapters::protocol::ProtocolAdapter,
+    limits,
     models::{
         normalize_api_key_for_protocol, Provider, ProviderApiKeyOption, ProviderAuth,
         ProviderInput, ProviderProtocol,
@@ -174,6 +175,7 @@ fn sync_api_key_options(
             auth.api_key_token_id = option.token_id.clone();
         }
     }
+    cached.truncate(limits::MAX_API_KEYS_PER_PROVIDER);
     auth.api_key_options = cached;
 }
 

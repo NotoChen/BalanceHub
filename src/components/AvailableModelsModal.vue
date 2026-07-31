@@ -3,6 +3,8 @@ import { computed, ref, watch } from "vue";
 import { IconCloud, IconCopy, IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider } from "../stores/providers";
 
+const MAX_RENDERED_MODELS = 500;
+
 const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
@@ -46,6 +48,9 @@ const filteredModels = computed(() => {
   if (!filter) return models.value;
   return models.value.filter((model) => model.toLowerCase().includes(filter));
 });
+
+const displayedModels = computed(() => filteredModels.value.slice(0, MAX_RENDERED_MODELS));
+const modelsTruncated = computed(() => filteredModels.value.length > displayedModels.value.length);
 
 const canRefresh = computed(() => Boolean(props.provider?.auth.apiKey.trim()));
 </script>
@@ -97,9 +102,12 @@ const canRefresh = computed(() => Boolean(props.provider?.auth.apiKey.trim()));
             <span>模型数量</span>
             <strong>{{ filteredModels.length }} / {{ models.length }}</strong>
           </div>
+          <p v-if="modelsTruncated" class="available-models-render-limit">
+            筛选结果较多，仅展示前 {{ MAX_RENDERED_MODELS }} 个；“复制全部”仍会复制完整列表。
+          </p>
           <div class="available-models-list">
             <button
-              v-for="model in filteredModels"
+              v-for="model in displayedModels"
               :key="model"
               type="button"
               class="available-model-item"

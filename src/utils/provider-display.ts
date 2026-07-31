@@ -1,6 +1,4 @@
-// 注意：本文件的额度/货币/邀请链接/anyrouter 判定等格式化逻辑，与 Rust 端
-// （src-tauri/src/tray.rs、providers/newapi_site.rs、models.rs）存在同源镜像实现。
-// 修改任一侧的格式化规则时，请同步另一侧，避免两处显示不一致。
+// 本文件只保留前端展示格式化。业务能力读取集中在 provider-actions.ts。
 import type { AuthMode, Provider, ProviderProtocol, ProviderQuotaDisplay } from "../stores/providers";
 
 export type ProviderCardTone =
@@ -174,15 +172,6 @@ export function maskApiKey(value: string) {
   return `${text.slice(0, 6)}••••••••${text.slice(-4)}`;
 }
 
-export function isAnyRouterProvider(provider: Provider) {
-  return provider.identity.baseUrl.toLowerCase().includes("anyrouter");
-}
-
-export function providerCheckInUser(provider: Provider) {
-  const apiUser = provider.auth.apiUser.trim();
-  return apiUser || (isAnyRouterProvider(provider) ? provider.identity.id : "");
-}
-
 export function providerIdentityName(provider: Provider) {
   return providerIdentityDisplayName(provider) || providerIdentityUsername(provider);
 }
@@ -211,91 +200,6 @@ export function providerIdentityId(provider: Provider) {
   return provider.identity.userId?.trim() || provider.auth.apiUser?.trim() || "";
 }
 
-/**
- * API Key is deliberately a key-scoped mode. Cached account credentials may
- * remain available for a later mode switch, but they must not broaden the
- * capabilities of the current card.
- */
-export function supportsAccountManagement(provider: Provider) {
-  if (provider.identity.protocol === "api") {
-    return false;
-  }
-  if (provider.auth.mode === "apiKey") {
-    return false;
-  }
-
-  if (provider.identity.protocol === "sub2Api") {
-    return provider.auth.mode === "password"
-      ? Boolean(provider.auth.loginUsername.trim() && provider.auth.loginPassword.trim()) || Boolean(provider.auth.accessToken.trim())
-      : Boolean(provider.auth.accessToken.trim());
-  }
-
-  if (provider.auth.mode === "password") {
-    return Boolean(
-      (provider.auth.loginUsername.trim() && provider.auth.loginPassword.trim()) ||
-        (provider.auth.apiUser.trim() &&
-          (provider.auth.accessToken.trim() || provider.auth.sessionCookie.trim())),
-    );
-  }
-
-  return Boolean(
-    provider.auth.apiUser.trim() &&
-      (provider.auth.accessToken.trim() || provider.auth.sessionCookie.trim()),
-  );
-}
-
-export function supportsCheckIn(provider: Provider) {
-  if (provider.identity.protocol === "api") {
-    return false;
-  }
-  if (provider.identity.protocol === "sub2Api") {
-    return false;
-  }
-  if (provider.auth.mode === "apiKey") {
-    return false;
-  }
-  const capabilities = provider.capabilities;
-  if (capabilities?.checkInKnown) {
-    return capabilities.checkInSupported;
-  }
-  if (isAnyRouterProvider(provider)) {
-    return Boolean(provider.auth.sessionCookie.trim());
-  }
-  return (
-    (provider.auth.mode === "accessToken" && Boolean(provider.auth.accessToken.trim() && provider.auth.apiUser.trim())) ||
-    (provider.auth.mode === "session" && Boolean(provider.auth.sessionCookie.trim() && provider.auth.apiUser.trim())) ||
-    (provider.auth.mode === "password" && Boolean(provider.auth.sessionCookie.trim() && provider.auth.apiUser.trim()))
-  );
-}
-
-export function supportsApiKeyManagement(provider: Provider) {
-  if (provider.identity.protocol === "api") {
-    return false;
-  }
-  if (!supportsAccountManagement(provider)) {
-    return false;
-  }
-  const capabilities = provider.capabilities;
-  if (capabilities?.apiKeyManagementKnown) {
-    return capabilities.apiKeyManagementSupported;
-  }
-  return true;
-}
-
-export function supportsInvitation(provider: Provider) {
-  if (provider.identity.protocol === "api") {
-    return false;
-  }
-  if (!supportsAccountManagement(provider)) {
-    return false;
-  }
-  const capabilities = provider.capabilities;
-  if (capabilities?.invitationKnown) {
-    return capabilities.invitationSupported;
-  }
-  return Boolean(provider.capabilities.inviteLink?.trim()) || supportsAccountManagement(provider);
-}
-
 export function normalizeInviteLink(value: string) {
   const text = value.trim();
   if (!text || text.includes("/register?aff=")) {
@@ -306,46 +210,6 @@ export function normalizeInviteLink(value: string) {
     return text;
   }
   return `${base.replace(/\/+$/, "")}/register?aff=${code.trim()}`;
-}
-
-export function parseStoredDate(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const numericTimestamp = Number(value);
-  if (Number.isFinite(numericTimestamp)) {
-    return new Date(numericTimestamp > 1_000_000_000_000 ? numericTimestamp : numericTimestamp * 1000);
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-export function isSameLocalDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-export function providerCheckedInToday(provider: Provider) {
-  if (!supportsCheckIn(provider)) {
-    return false;
-  }
-
-  const checkedAt = parseStoredDate(provider.automation.lastCheckedInAt);
-  if (!checkedAt || !isSameLocalDay(checkedAt, new Date())) {
-    return false;
-  }
-
-  const checkedUser = provider.automation.lastCheckInUser.trim();
-  if (!checkedUser) {
-    return true;
-  }
-
-  return checkedUser === providerCheckInUser(provider);
 }
 
 export function availablePercent(provider: Provider) {
@@ -371,10 +235,6 @@ export function availablePercentLabel(provider: Provider) {
 
 export function totalQuota(provider: Provider) {
   return provider.quota.available + provider.quota.used;
-}
-
-export function providerNeedsCheckIn(provider: Provider) {
-  return supportsCheckIn(provider) && !providerCheckedInToday(provider);
 }
 
 export function providerHasNoAvailableBalance(provider: Provider) {

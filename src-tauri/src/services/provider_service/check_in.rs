@@ -1,5 +1,6 @@
 use crate::{
     adapters::protocol::ProtocolAdapter,
+    limits,
     models::{
         check_in_message_indicates_disabled, provider_domain, Provider, ProviderCheckInRecord,
         ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderQuotaDisplay, ProviderStatus,
@@ -219,8 +220,9 @@ fn upsert_local_check_in_record(provider: &mut Provider, record: ProviderCheckIn
         .check_in_records
         .sort_by(|left, right| left.date.cmp(&right.date));
 
-    if provider.automation.check_in_records.len() > 730 {
-        let remove_count = provider.automation.check_in_records.len() - 730;
+    if provider.automation.check_in_records.len() > limits::MAX_CHECK_IN_RECORDS {
+        let remove_count =
+            provider.automation.check_in_records.len() - limits::MAX_CHECK_IN_RECORDS;
         provider.automation.check_in_records.drain(0..remove_count);
     }
 }

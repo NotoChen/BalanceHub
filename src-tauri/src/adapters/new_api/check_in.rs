@@ -1,8 +1,11 @@
-use crate::models::{
-    check_in_message_indicates_disabled, AuthMode, Provider, ProviderCheckInRecordsResult,
-    ProviderCheckInResult, ProviderQuotaDisplay,
-};
 use crate::util::current_month;
+use crate::{
+    models::{
+        check_in_message_indicates_disabled, AuthMode, Provider, ProviderCheckInRecordsResult,
+        ProviderCheckInResult, ProviderQuotaDisplay,
+    },
+    network,
+};
 use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT},
     Client, Method, StatusCode,
@@ -124,10 +127,7 @@ async fn fetch_check_in_records_once(
         .await
         .map_err(|err| format!("拉取签到记录失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取签到记录失败: {err}"))?;
+    let body = network::read_http_text(response, "读取签到记录").await?;
 
     if !status.is_success() {
         if is_cloudflare_challenge(&body) {
@@ -252,10 +252,7 @@ async fn check_in_provider_once(
         .await
         .map_err(|err| format!("请求签到失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取签到响应失败: {err}"))?;
+    let body = network::read_http_text(response, "读取签到响应").await?;
 
     Ok(parse_check_in_response(status, &body))
 }
@@ -292,10 +289,7 @@ async fn check_in_status(
         .await
         .map_err(|err| format!("查询签到状态失败: {err}"))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("读取签到状态失败: {err}"))?;
+    let body = network::read_http_text(response, "读取签到状态").await?;
 
     if !status.is_success() {
         if is_cloudflare_challenge(&body) {

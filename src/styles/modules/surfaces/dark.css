@@ -1,0 +1,105 @@
+/* Dark theme: same hierarchy, inverted surfaces. */
+:root.theme-dark {
+  --surface-ink: #f4f7fb;
+  --surface-ink-soft: #d1dae6;
+  --surface-muted: #96a5b7;
+  --surface-line: #2e3a4c;
+  --surface-line-strong: #435168;
+  --surface-canvas: #131b27;
+  --surface-panel: #1a2432;
+  --surface-panel-soft: #202d3e;
+  --surface-accent: #78a9ff;
+  --surface-accent-soft: #20395f;
+  --surface-success: #61d4b0;
+  --surface-warning: #e5b968;
+  --surface-shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
+}
+
+:root.theme-dark .surface-modal.arco-modal,
+:root.theme-dark .surface-modal .arco-modal-content,
+:root.theme-dark .surface-modal .arco-modal-header,
+:root.theme-dark .surface-modal .arco-modal-body,
+:root.theme-dark .surface-modal .arco-modal-footer { background: var(--surface-panel); }
+:root.theme-dark .surface-modal .arco-input-wrapper,
+:root.theme-dark .surface-modal .arco-input-number,
+:root.theme-dark .surface-modal .arco-select-view,
+:root.theme-dark .surface-modal .arco-picker,
+:root.theme-dark .surface-modal .arco-textarea-wrapper { background: #1d2938; box-shadow: none; }
+:root.theme-dark .surface-modal .arco-input,
+:root.theme-dark .surface-modal .arco-input-number-input,
+:root.theme-dark .surface-modal .arco-select-view-input,
+:root.theme-dark .surface-modal .arco-select-view-value,
+:root.theme-dark .surface-modal .arco-picker-input,
+:root.theme-dark .surface-modal .arco-textarea { color: var(--surface-ink); }
+:root.theme-dark .surface-modal .arco-btn:not(.arco-btn-primary) { background: var(--surface-panel); color: var(--surface-ink-soft); }
+:root.theme-dark .surface-modal .arco-btn:not(.arco-btn-primary):hover,
+:root.theme-dark .surface-modal .arco-btn:not(.arco-btn-primary):focus-visible { background: var(--surface-accent-soft); color: var(--surface-accent); }
+:root.theme-dark .surface-modal-title-copy > strong,
+:root.theme-dark .surface-modal .arco-modal-title,
+:root.theme-dark .settings-workspace-v3 .settings-panel-header h2,
+:root.theme-dark .settings-overview-hero h2,
+:root.theme-dark .settings-overview-metric strong,
+:root.theme-dark .settings-overview-surface > header strong,
+:root.theme-dark .settings-workspace-v3 .settings-card-header > div > strong,
+:root.theme-dark .provider-editor-workflow-header h2,
+:root.theme-dark .provider-editor-main-scroll .provider-editor-section-header strong { color: var(--surface-ink); }
+:root.theme-dark .settings-workspace-v3 .settings-panel,
+:root.theme-dark .settings-workspace-v3 .settings-panel-header,
+:root.theme-dark .settings-workspace-v3 .settings-panel-footer,
+:root.theme-dark .settings-overview-metric,
+:root.theme-dark .settings-overview-surface,
+:root.theme-dark .settings-workspace-v3 .settings-card,
+:root.theme-dark .provider-editor-main,
+:root.theme-dark .provider-editor-workflow-header,
+:root.theme-dark .provider-editor-canvas,
+:root.theme-dark .provider-editor-main-footer,
+:root.theme-dark .provider-editor-context-card,
+:root.theme-dark .app-update-modal .app-update-version-summary,
+:root.theme-dark .app-update-modal .app-update-release-scroll,
+:root.theme-dark .cli-config-preview-summary,
+:root.theme-dark .cli-config-preview-files { background: var(--surface-panel); }
+:root.theme-dark .settings-workspace-v3 .settings-panel-body,
+:root.theme-dark .provider-editor-stage,
+:root.theme-dark .provider-editor-context,
+:root.theme-dark .app-update-modal .arco-modal-body,
+:root.theme-dark .cli-config-preview-modal .arco-modal-body,
+:root.theme-dark .available-models-modal .arco-modal-body,
+:root.theme-dark .api-key-manager-modal .arco-modal-body,
+:root.theme-dark .workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
+:root.theme-dark .settings-overview-hero { border-color: #31527a; background: linear-gradient(120deg, #1c3150 0%, #1c293a 68%, #1c3c3b 100%); }
+:root.theme-dark .settings-overview-hero p,
+:root.theme-dark .settings-overview-metric small,
+:root.theme-dark .settings-overview-metric > div > span,
+:root.theme-dark .settings-overview-surface > header span,
+:root.theme-dark .settings-workspace-v3 .settings-card-header > div > span,
+:root.theme-dark .settings-workspace-v3 .settings-setting-copy > span { color: var(--surface-muted); }
+:root.theme-dark .settings-overview-toggle-row strong,
+:root.theme-dark .settings-workspace-v3 .settings-setting-copy > strong,
+:root.theme-dark .settings-workspace-v3 .settings-theme-option strong,
+:root.theme-dark .provider-editor-context-card > header > span,
+:root.theme-dark .provider-editor-context-card dd { color: var(--surface-ink-soft); }
+:root.theme-dark .settings-overview-toggle-icon,
+:root.theme-dark .settings-workspace-v3 .settings-theme-option,
+:root.theme-dark .settings-workspace-v3 .settings-appearance-preview,
+:root.theme-dark .settings-workspace-v3 .settings-liveness-config,
+:root.theme-dark .settings-workspace-v3 .settings-liveness-prompt,
+:root.theme-dark .settings-overview-metric-icon { background: var(--surface-panel-soft); }
+:root.theme-dark .settings-overview-attention-item:hover,
+:root.theme-dark .settings-overview-attention-item:focus-visible { background: var(--surface-panel-soft); }
+:root.theme-dark .settings-overview-empty-state { color: var(--surface-success); }
+:root.theme-dark .settings-workspace-v3 .settings-setting-row,
+:root.theme-dark .settings-overview-toggle-row,
+:root.theme-dark .settings-overview-surface > footer { border-color: var(--surface-line); }
+:root.theme-dark .provider-editor-context { background: #172231; }
+:root.theme-dark .provider-editor-context-note { border-color: #2c6258; background: #1b3936; }
+:root.theme-dark .provider-editor-context-note strong { color: #8be4c2; }
+:root.theme-dark .provider-editor-context-note span { color: #a4cfc2; }
+:root.theme-dark .provider-editor-context-progress > div { background: #334155; }
+:root.theme-dark .provider-editor-workflow-status,
+:root.theme-dark .provider-editor-context-card > header > b { background: var(--surface-panel-soft); color: var(--surface-muted); }
+:root.theme-dark .provider-editor-workflow-status.ready,
+:root.theme-dark .provider-editor-context-card > header > b.ready { background: #1b3936; color: var(--surface-success); }
+:root.theme-dark .workspace-picker-modal .workspace-history { background: #172231; }
+:root.theme-dark .workspace-picker-modal .workspace-browser { background: var(--surface-panel); }
+:root.theme-dark .workspace-picker-modal .workspace-launch-config,
+:root.theme-dark .workspace-picker-modal .workspace-directory-scroll { background: var(--surface-panel-soft); }

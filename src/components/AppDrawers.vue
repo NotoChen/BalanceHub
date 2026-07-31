@@ -17,16 +17,11 @@ import type { ProtocolSelectionSource } from "../composables/provider-editor-sha
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { DurationUnit } from "../utils/duration";
 
-interface ModelProviderIndexItem {
-  model: string;
-  providers: { id: string; name: string }[];
-}
-
 defineProps<{
   settings: AppSettings;
   settingsSaveState: SettingsSaveState;
   livenessModelOptions: string[];
-  modelProviderIndex: ModelProviderIndexItem[];
+  selectedLivenessModelProviders: { id: string; name: string }[];
   exportingAppData: boolean;
   importingAppData: boolean;
   appVersion: string;
@@ -77,7 +72,7 @@ const providerEditorVisible = defineModel<boolean>("providerEditorVisible", { re
     :settings="settings"
     :settings-save-state="settingsSaveState"
     :liveness-model-options="livenessModelOptions"
-    :model-provider-index="modelProviderIndex"
+    :selected-liveness-model-providers="selectedLivenessModelProviders"
     :exporting-app-data="exportingAppData"
     :importing-app-data="importingAppData"
     :app-version="appVersion"

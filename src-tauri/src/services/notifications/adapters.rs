@@ -10,8 +10,11 @@ use reqwest::Url;
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::models::{NotificationChannel, NotificationChannelKind};
 use crate::services::notifications::NotificationDeliveryResult;
+use crate::{
+    models::{NotificationChannel, NotificationChannelKind},
+    network,
+};
 
 use self::{
     dingtalk::DingTalkAdapter, feishu::FeishuAdapter, generic::GenericAdapter, slack::SlackAdapter,
@@ -81,7 +84,7 @@ pub(super) async fn post_json(
         .await
         .map_err(|err| format!("发送失败：{err}"))?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = network::read_webhook_text(response, "读取 Webhook 响应").await?;
     if !status.is_success() {
         return Err(format!("HTTP {}：{}", status.as_u16(), text));
     }

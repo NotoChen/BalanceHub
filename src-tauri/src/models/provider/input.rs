@@ -11,6 +11,7 @@ use super::{
         ProviderRuntimeInput,
     },
 };
+use crate::limits;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
     AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode, ProviderNotificationMode,
@@ -150,7 +151,10 @@ impl Provider {
                 interval: input.liveness.interval,
                 random_min_interval: input.liveness.random_min_interval,
                 random_max_interval: input.liveness.random_max_interval,
-                timeout: input.liveness.timeout,
+                timeout: input
+                    .liveness
+                    .timeout
+                    .clamp(10, limits::MAX_LIVENESS_TIMEOUT_SECS),
                 model: input.liveness.model,
                 prompt_mode: input.liveness.prompt_mode,
                 fixed_prompt: input.liveness.fixed_prompt,
@@ -302,7 +306,10 @@ impl Provider {
         self.liveness.interval = input.liveness.interval;
         self.liveness.random_min_interval = input.liveness.random_min_interval;
         self.liveness.random_max_interval = input.liveness.random_max_interval;
-        self.liveness.timeout = input.liveness.timeout;
+        self.liveness.timeout = input
+            .liveness
+            .timeout
+            .clamp(10, limits::MAX_LIVENESS_TIMEOUT_SECS);
         self.liveness.model = input.liveness.model;
         self.liveness.prompt_mode = input.liveness.prompt_mode;
         self.liveness.fixed_prompt = input.liveness.fixed_prompt;

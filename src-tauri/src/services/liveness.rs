@@ -7,6 +7,7 @@ mod prompt;
 pub use prompt::{anthropic_base_url, effective_interval, openai_base_url, preview_prompts};
 
 use crate::{
+    limits,
     models::{
         provider_domain, AppSettings, CodexCliProbeResult, LivenessCliKind, LivenessRecord,
         Provider,
@@ -186,7 +187,14 @@ impl LivenessRunner {
 
         let response = output_path
             .as_ref()
-            .and_then(|path| fs::read_to_string(path).ok())
+            .and_then(|path| {
+                crate::util::read_text_file_limited(
+                    path,
+                    limits::MAX_LIVENESS_OUTPUT_FILE_BYTES,
+                    "读取测活结果",
+                )
+                .ok()
+            })
             .unwrap_or_default();
         if let Some(output_path) = &output_path {
             let _ = fs::remove_file(output_path);
