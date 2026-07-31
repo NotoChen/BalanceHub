@@ -376,8 +376,18 @@ mod tests {
     fn command_env<'a>(command: &'a Command, key: &str) -> Option<&'a str> {
         command
             .get_envs()
-            .find(|(name, _)| *name == OsStr::new(key))
+            .find(|(name, _)| command_env_name_matches(name, key))
             .and_then(|(_, value)| value)
             .and_then(OsStr::to_str)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn command_env_name_matches(name: &OsStr, key: &str) -> bool {
+        name.to_string_lossy().eq_ignore_ascii_case(key)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn command_env_name_matches(name: &OsStr, key: &str) -> bool {
+        name == OsStr::new(key)
     }
 }
