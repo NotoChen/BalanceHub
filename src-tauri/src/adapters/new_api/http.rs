@@ -1,14 +1,13 @@
-use crate::{
-    models::{AuthMode, Provider},
-    network,
-};
+use crate::models::{AuthMode, Provider};
 use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, SET_COOKIE, USER_AGENT},
-    Client, Method, Url,
+    Method, Url,
 };
 use serde_json::{json, Value};
 
-pub(crate) use crate::adapters::transport::{build_client, USER_AGENT_VALUE};
+pub(crate) use crate::adapters::transport::{
+    build_client, merge_cookie_headers, ProviderTransport, USER_AGENT_VALUE,
+};
 
 #[derive(Clone)]
 pub(crate) enum UserCredential {
@@ -21,7 +20,7 @@ pub(crate) enum UserCredential {
 /// 登录凭据保留在 Provider 中，Session 只作为可复用缓存写回；后续请求仍走
 /// Cookie + `new-api-user`，不会把账号密码发送到任何其他接口。
 pub(crate) async fn authenticate_password_provider(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Provider, String> {
     authenticate_password_provider_inner(client, provider, false).await
@@ -30,14 +29,14 @@ pub(crate) async fn authenticate_password_provider(
 /// 强制使用当前账号密码重新登录。交互式操作需要这个路径，避免用户修改密码后
 /// 仍然复用旧的缓存 Session。
 pub(crate) async fn login_password_provider(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Provider, String> {
     authenticate_password_provider_inner(client, provider, true).await
 }
 
 async fn authenticate_password_provider_inner(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     force_login: bool,
 ) -> Result<Provider, String> {
@@ -67,7 +66,7 @@ async fn authenticate_password_provider_inner(
     let mut url = build_url(&base_url, "/api/user/login")?;
     url.query_pairs_mut().append_pair("turnstile", "");
 
-    let mut request = client
+    let request = client
         .post(url)
         .header(USER_AGENT, USER_AGENT_VALUE)
         .header(CONTENT_TYPE, "application/json")
@@ -76,20 +75,10 @@ async fn authenticate_password_provider_inner(
         .header(REFERER, format!("{base_url}/"))
         .json(&json!({ "username": username, "password": password }));
 
-    if provider_is_anyrouter(provider) {
-        let challenge_cookie = super::anyrouter::challenge_cookie_header(client, &base_url).await?;
-        if !challenge_cookie.trim().is_empty() {
-            request = request.header(COOKIE, challenge_cookie);
-        }
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("账号密码登录失败: {err}"))?;
-    let status = response.status();
-    let session_cookie = extract_session_cookie(response.headers());
-    let body = network::read_http_text(response, "读取登录响应").await?;
+    let response = client.send(request, "账号密码登录").await?;
+    let status = response.status;
+    let session_cookie = extract_session_cookie(&response.headers);
+    let body = response.body;
     let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
     let success = payload
         .get("success")
@@ -160,19 +149,16 @@ fn extract_session_cookie(headers: &reqwest::header::HeaderMap) -> Option<String
     })
 }
 
-pub(crate) async fn build_user_request(
-    client: &Client,
+pub(crate) fn build_user_request(
+    client: &ProviderTransport,
     method: Method,
     url: Url,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
-) -> Result<reqwest::RequestBuilder, String> {
+) -> reqwest::RequestBuilder {
+    // 过盾由 ProviderTransport 在响应阶段统一处理，这里只组装业务认证。
     let mut cookie_header = String::new();
-    if is_anyrouter {
-        cookie_header = super::anyrouter::challenge_cookie_header(client, base_url).await?;
-    }
 
     let mut request = client
         .request(method, url)
@@ -188,7 +174,7 @@ pub(crate) async fn build_user_request(
             request = request.bearer_auth(access_token.trim());
         }
         UserCredential::Session(session_cookie) => {
-            let session_cookie = provider_cookie_header(&session_cookie, is_anyrouter);
+            let session_cookie = provider_cookie_header(&session_cookie);
             cookie_header =
                 merge_cookie_headers(&[cookie_header.as_str(), session_cookie.as_str()]);
         }
@@ -198,12 +184,12 @@ pub(crate) async fn build_user_request(
         request = request.header(COOKIE, cookie_header);
     }
 
-    Ok(request)
+    request
 }
 
 pub(crate) fn provider_user_management_context(
     provider: &Provider,
-) -> Result<(String, String, UserCredential, bool), String> {
+) -> Result<(String, String, UserCredential), String> {
     let base_url = normalize_base_url(&provider.identity.base_url);
     if base_url.is_empty() {
         return Err("缺少中转站地址".to_string());
@@ -218,8 +204,7 @@ pub(crate) fn provider_user_management_context(
 
     let credential = user_management_credential(provider)?;
 
-    let is_anyrouter = provider_is_anyrouter(provider);
-    Ok((base_url, api_user, credential, is_anyrouter))
+    Ok((base_url, api_user, credential))
 }
 
 fn user_management_credential(provider: &Provider) -> Result<UserCredential, String> {
@@ -307,46 +292,20 @@ pub(crate) fn apply_session_cookie(
         return request;
     }
 
-    let is_anyrouter = provider_is_anyrouter(provider);
     request.header(
         COOKIE,
-        provider_cookie_header(&provider.auth.session_cookie, is_anyrouter),
+        provider_cookie_header(&provider.auth.session_cookie),
     )
 }
 
-pub(crate) fn provider_cookie_header(raw: &str, session_only: bool) -> String {
+pub(crate) fn provider_cookie_header(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
     }
 
-    if session_only || !trimmed.contains('=') {
-        let session = super::anyrouter::normalize_session_cookie(trimmed);
-        return format!("session={session}");
-    }
-
-    trimmed.to_string()
-}
-
-pub(crate) fn merge_cookie_headers(cookie_sources: &[&str]) -> String {
-    let mut pairs = std::collections::BTreeMap::new();
-    for source in cookie_sources {
-        for item in source
-            .split(';')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-        {
-            let Some((name, value)) = item.split_once('=') else {
-                continue;
-            };
-            let name = name.trim();
-            let value = value.trim();
-            if !name.is_empty() {
-                pairs.insert(name.to_string(), format!("{name}={value}"));
-            }
-        }
-    }
-    pairs.into_values().collect::<Vec<_>>().join("; ")
+    let session = super::anyrouter::normalize_session_cookie(trimmed);
+    format!("session={session}")
 }
 
 pub(crate) fn build_url(base_url: &str, path: &str) -> Result<Url, String> {
@@ -407,7 +366,7 @@ mod tests {
             provider_with_user_credentials("access-token", "session=session-cookie", "1001");
         provider.auth.mode = AuthMode::AccessToken;
 
-        let (_, _, credential, _) = provider_user_management_context(&provider).unwrap();
+        let (_, _, credential) = provider_user_management_context(&provider).unwrap();
 
         assert!(matches!(credential, UserCredential::AccessToken(_)));
     }
@@ -428,7 +387,7 @@ mod tests {
     fn user_management_uses_access_token_when_cookie_missing() {
         let provider = provider_with_user_credentials("access-token", "", "1001");
 
-        let (_, _, credential, _) = provider_user_management_context(&provider).unwrap();
+        let (_, _, credential) = provider_user_management_context(&provider).unwrap();
 
         assert!(matches!(credential, UserCredential::AccessToken(_)));
     }

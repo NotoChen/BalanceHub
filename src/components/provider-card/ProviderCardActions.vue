@@ -26,6 +26,7 @@ const props = withDefaults(
     switchingCliKind?: LivenessCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
+    passingChallenge?: boolean;
     checkingIn?: boolean;
   }>(),
   {
@@ -35,6 +36,7 @@ const props = withDefaults(
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
+    passingChallenge: false,
     checkingIn: false,
   },
 );
@@ -47,6 +49,7 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
+  passChallenge: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
@@ -79,6 +82,7 @@ const menuListeners = {
   openUsage: (provider: Provider) => emit("openUsage", provider),
   openRequestLogs: (provider: Provider) => emit("openRequestLogs", provider),
   openPasswordChange: (provider: Provider) => emit("openPasswordChange", provider),
+  passChallenge: (provider: Provider) => emit("passChallenge", provider),
   openLivenessDetails: (provider: Provider) => emit("openLivenessDetails", provider),
   openCheckInRecords: (provider: Provider) => emit("openCheckInRecords", provider),
   addCcSwitchConfig: (provider: Provider, target: CcSwitchAppTarget) =>
@@ -200,6 +204,7 @@ function removeProvider() {
         :switching-cli-kind="switchingCliKind"
         :cli-config-switching="cliConfigSwitching"
         :probing-capabilities="probingCapabilities"
+        :passing-challenge="passingChallenge"
         v-on="menuListeners"
       />
     </div>

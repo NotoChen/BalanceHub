@@ -39,7 +39,7 @@ pub(crate) fn run() {
             launch_temporary_cli,
             get_cli_runtime_snapshot,
             get_temporary_cli_instances,
-            list_cli_sessions,
+            get_temporary_cli_instance,
             activate_temporary_cli,
             forget_workspace,
             browse_workspace_directories,
@@ -74,6 +74,7 @@ pub(crate) fn run() {
             refresh_all_providers,
             refresh_providers,
             check_in_provider,
+            pass_provider_challenge,
             check_app_update,
             install_app_update,
             cancel_app_update,
@@ -134,6 +135,9 @@ fn build_app_menu<R: tauri::Runtime>(
 }
 
 fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    // 过盾组件按主机共享，需要在任何网络请求前拿到 AppHandle 才能开 WebView。
+    crate::network::shield::init(app.app_handle().clone());
+
     let app_state = match storage::load_app_data(app.app_handle()) {
         Ok(data) => AppState::new(data),
         Err(err) => AppState::with_load_error(AppData::default(), Some(err)),

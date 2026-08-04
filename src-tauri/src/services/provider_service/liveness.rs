@@ -2,7 +2,7 @@ use crate::{
     limits,
     models::{
         AppSettings, CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult,
-        LivenessPromptMode, LivenessRecord,
+        LivenessCliKind, LivenessPromptMode, LivenessRecord,
     },
     services::{
         liveness::{effective_interval, LivenessRunner},
@@ -32,8 +32,8 @@ impl<'a> ProviderService<'a> {
             let terminals = terminal_handle.join().unwrap_or_default();
 
             (
-                cli_tool_probe_result(codex),
-                cli_tool_probe_result(claude),
+                cli_tool_probe_result(LivenessCliKind::Codex, codex),
+                cli_tool_probe_result(LivenessCliKind::ClaudeCode, claude),
                 terminals,
             )
         });
@@ -146,27 +146,53 @@ fn apply_detected_cli_paths(
     }
 }
 
-fn cli_tool_probe_result(result: Result<CodexCliProbeResult, String>) -> CliToolProbeResult {
+fn cli_tool_probe_result(
+    cli_kind: LivenessCliKind,
+    result: Result<CodexCliProbeResult, String>,
+) -> CliToolProbeResult {
     match result {
         Ok(result) => CliToolProbeResult {
             available: true,
             path: result.path,
             version: result.version,
             message: String::new(),
+            supports_session_name: cli_kind.supports_session_name(),
         },
         Err(message) => CliToolProbeResult {
             available: false,
             path: String::new(),
             version: String::new(),
             message,
+            supports_session_name: false,
         },
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::apply_detected_cli_paths;
-    use crate::models::AppSettings;
+    use super::{apply_detected_cli_paths, cli_tool_probe_result};
+    use crate::models::{AppSettings, CodexCliProbeResult, LivenessCliKind};
+
+    #[test]
+    fn cli_probe_exposes_launch_naming_capability_from_rust() {
+        let claude = cli_tool_probe_result(
+            LivenessCliKind::ClaudeCode,
+            Ok(CodexCliProbeResult {
+                path: "/usr/local/bin/claude".to_string(),
+                version: "2.1.221".to_string(),
+            }),
+        );
+        let codex = cli_tool_probe_result(
+            LivenessCliKind::Codex,
+            Ok(CodexCliProbeResult {
+                path: "/usr/local/bin/codex".to_string(),
+                version: "0.146.0".to_string(),
+            }),
+        );
+
+        assert!(claude.supports_session_name);
+        assert!(!codex.supports_session_name);
+    }
 
     #[test]
     fn cli_probe_does_not_overwrite_paths_edited_during_scan() {

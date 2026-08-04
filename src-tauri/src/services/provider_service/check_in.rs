@@ -33,6 +33,19 @@ impl<'a> ProviderService<'a> {
         }
     }
 
+    /// 用户主动为某中转站完成 Cloudflare 人机验证。
+    ///
+    /// 只有这条路径允许弹出验证窗口：后台刷新一律静默，不打断用户。
+    pub async fn pass_challenge(&self, id: String) -> Result<String, String> {
+        let data = self.snapshot();
+        let provider = find_provider(&data, &id)?;
+        let transport = crate::adapters::transport::build_client(&data.settings, &provider)?;
+        transport
+            .pass_challenge()
+            .await
+            .map(|_| "站点验证已通过".to_string())
+    }
+
     pub async fn check_in(&self, id: String) -> Result<ProviderCheckInResult, String> {
         let data = self.snapshot();
         let provider = find_provider(&data, &id)?;

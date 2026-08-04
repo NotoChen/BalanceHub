@@ -11,8 +11,8 @@ import {
   exportAppData as exportAppDataCommand,
   generateProviderAccessTokenForInput as generateProviderAccessTokenForInputCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
+  getTemporaryCliInstance as getTemporaryCliInstanceCommand,
   getTemporaryCliInstances as getTemporaryCliInstancesCommand,
-  listCliSessions as listCliSessionsCommand,
   getProviderCheckInRecords as getProviderCheckInRecordsCommand,
   getProviderInviteLink as getProviderInviteLinkCommand,
   getProviderRequestLogs as getProviderRequestLogsCommand,
@@ -22,6 +22,7 @@ import {
   launchTemporaryCli as launchTemporaryCliCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
+  passProviderChallenge as passProviderChallengeCommand,
   probeCliEnvironment as probeCliEnvironmentCommand,
   probeProviderSite as probeProviderSiteCommand,
   previewCliConfig as previewCliConfigCommand,
@@ -47,7 +48,6 @@ import type {
   CliConfigPreview,
   CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
-  CliSessionSummary,
   LivenessCliKind,
   Provider,
   ProviderInput,
@@ -178,6 +178,11 @@ export const useProviderStore = defineStore("providers", {
       }
       return result;
     },
+    async passProviderChallenge(id: string) {
+      const message = await passProviderChallengeCommand(id);
+      await this.refreshByIds([id]);
+      return message;
+    },
     async probeCliEnvironment() {
       const settingsAtStart = captureCliEnvironmentSettings(this.settings);
       this.cliEnvironmentLoading = true;
@@ -199,7 +204,14 @@ export const useProviderStore = defineStore("providers", {
         ),
         result.preference,
       ];
-      await this.refreshCliRuntime().catch(() => {});
+      const instances = this.cliRuntime.instances.filter(
+        (instance) => instance.id !== result.instance.id,
+      );
+      this.cliRuntime = {
+        ...this.cliRuntime,
+        instances:
+          result.instance.status === "exited" ? instances : [result.instance, ...instances],
+      };
       return result;
     },
     async activateTemporaryCli(instanceId: string) {
@@ -210,11 +222,14 @@ export const useProviderStore = defineStore("providers", {
       this.cliRuntime = { ...this.cliRuntime, instances };
       return instances;
     },
-    async listCliSessions(
-      cliKind: LivenessCliKind,
-      workdir: string,
-    ): Promise<CliSessionSummary[]> {
-      return listCliSessionsCommand(cliKind, workdir);
+    async getTemporaryCliInstance(instanceId: string) {
+      const instance = await getTemporaryCliInstanceCommand(instanceId);
+      const remaining = this.cliRuntime.instances.filter((item) => item.id !== instanceId);
+      this.cliRuntime = {
+        ...this.cliRuntime,
+        instances: instance && instance.status !== "exited" ? [instance, ...remaining] : remaining,
+      };
+      return instance;
     },
     async browseWorkspaceDirectories(path?: string) {
       return browseWorkspaceDirectoriesCommand(path);

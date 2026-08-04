@@ -255,9 +255,7 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
-.workspace-launch-config-field .arco-select,
-.workspace-launch-model-field .arco-input,
-.workspace-launch-terminal-field .arco-input {
+.workspace-launch-config-field .arco-select {
   width: 100%;
   min-width: 0;
 }
@@ -277,109 +275,19 @@
   gap: 12px;
 }
 
-.workspace-session-spin {
-  display: block;
-  min-width: 0;
-}
-
-.workspace-session-list {
-  display: grid;
-  max-height: 156px;
-  min-width: 0;
-  gap: 4px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.workspace-session-item {
+.workspace-session-name-field {
   display: grid;
   min-width: 0;
-  min-height: 54px;
-  grid-template-columns: minmax(0, 1fr) minmax(132px, 0.55fr);
+  grid-template-columns: 70px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  background: transparent;
-  color: #1d2129;
-  cursor: pointer;
-  padding: 8px 10px;
-  text-align: left;
-  transition:
-    border-color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  gap: 10px;
 }
 
-.workspace-session-item:hover,
-.workspace-session-item:focus-visible,
-.workspace-session-item.selected {
-  border-color: rgba(22, 93, 255, 0.55);
-  background: rgba(22, 93, 255, 0.07);
-  outline: none;
-}
-
-.workspace-session-item.selected {
-  box-shadow: inset 2px 0 #165dff;
-}
-
-.workspace-session-item:active {
-  transform: translateY(1px);
-}
-
-.workspace-session-item:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.workspace-session-copy,
-.workspace-session-meta {
-  display: grid;
+.workspace-session-name-field .arco-input {
   min-width: 0;
-  gap: 3px;
 }
 
-.workspace-session-copy strong,
-.workspace-session-copy span,
-.workspace-session-meta code,
-.workspace-session-meta small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-session-copy strong {
-  color: #1d2129;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.workspace-session-copy span,
-.workspace-session-meta small {
-  color: #86909c;
-  font-size: 10px;
-}
-
-.workspace-session-meta {
-  justify-items: end;
-}
-
-.workspace-session-meta code {
-  width: 100%;
-  color: #4e5969;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 10px;
-  text-align: right;
-}
-
-.workspace-session-empty {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  color: #86909c;
+.workspace-session-capability-note {
   font-size: 11px;
 }
 
@@ -496,6 +404,36 @@
   font-size: 12px;
 }
 
+.workspace-launch-progress {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.workspace-launch-progress-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #4e5969;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-launch-progress-label strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2129;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-launch-progress-label span {
+  flex: 0 0 auto;
+}
+
 .workspace-picker-footer {
   min-width: 0;
   justify-content: space-between;
@@ -571,35 +509,23 @@
   color: #6b7280;
 }
 
-:root.theme-dark .workspace-session-item {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .workspace-session-item:hover,
-:root.theme-dark .workspace-session-item:focus-visible,
-:root.theme-dark .workspace-session-item.selected {
-  border-color: rgba(94, 156, 255, 0.62);
-  background: rgba(64, 128, 255, 0.13);
-}
-
-:root.theme-dark .workspace-session-copy strong {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .workspace-session-copy span,
-:root.theme-dark .workspace-session-meta small,
-:root.theme-dark .workspace-session-empty {
-  color: #6b7280;
-}
-
-:root.theme-dark .workspace-session-meta code {
-  color: #c9cdd4;
-}
-
 :root.theme-dark .workspace-fixed-credential {
   border-color: var(--glass-border);
   background: rgba(36, 38, 47, 0.82);
   color: #c9cdd4;
+}
+
+:root.theme-dark .workspace-launch-progress-label {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .workspace-launch-progress-label strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .workspace-session-capability-note {
+  background: rgba(64, 128, 255, 0.12);
+  border-color: rgba(94, 156, 255, 0.3);
 }
 
 :root.theme-dark .workspace-history-launch:hover,
@@ -673,27 +599,17 @@
     flex-direction: column;
   }
 
+  .workspace-session-name-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+
   .workspace-session-header .arco-radio-group {
     width: 100%;
   }
 
   .workspace-session-header .arco-radio-button {
     flex: 1;
-  }
-
-  .workspace-session-item {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 5px;
-  }
-
-  .workspace-session-meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .workspace-session-meta code {
-    text-align: left;
   }
 
   .workspace-launch-config-kind {

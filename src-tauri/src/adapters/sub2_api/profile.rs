@@ -1,8 +1,9 @@
 use crate::{
+    adapters::transport::ProviderTransport,
     limits,
     models::{Provider, ProviderQuotaDisplay, ProviderQuotaScope},
 };
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde_json::Value;
 use std::time::Duration;
 
@@ -11,7 +12,10 @@ use super::{
     response::{api_url, gateway_url, request_json, Credential},
 };
 
-pub(super) async fn fetch_site(client: &Client, base_url: &str) -> Result<Value, String> {
+pub(super) async fn fetch_site(
+    client: &ProviderTransport,
+    base_url: &str,
+) -> Result<Value, String> {
     let site = super::response::request_json_with_timeout(
         client,
         Method::GET,
@@ -45,7 +49,7 @@ fn is_sub2_api_public_settings(value: &Value) -> bool {
 }
 
 pub(super) async fn fetch_models(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Vec<String>, String> {
     let key = provider.auth.api_key.trim();

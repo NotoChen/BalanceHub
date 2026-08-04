@@ -1,4 +1,5 @@
 use super::resolve_launch_model;
+use super::resolve_session_name;
 use super::script::{
     cli_args, effective_model, escape_cmd_value, temporary_script_path, windows_launch_payload,
     WINDOWS_LAUNCH_PAYLOAD_COMMAND,
@@ -15,7 +16,7 @@ use super::terminal::{
 };
 use crate::models::{
     AppSettings, AuthMode, LivenessCliKind, Provider, ProviderInput, ProxyMode,
-    TemporaryCliTerminalKind,
+    TemporaryCliSessionMode, TemporaryCliTerminalKind,
 };
 use crate::network;
 #[cfg(not(target_os = "windows"))]
@@ -83,13 +84,60 @@ fn resumed_session_without_override_preserves_its_model() {
     let provider = provider_with_liveness_model("claude-opus-4-6");
 
     assert_eq!(
-        resolve_launch_model(&settings, &provider, "", Some("session-1")),
+        resolve_launch_model(&settings, &provider, "", TemporaryCliSessionMode::Picker),
         ""
     );
     assert_eq!(
-        resolve_launch_model(&settings, &provider, "claude-sonnet-4-5", Some("session-1")),
+        resolve_launch_model(
+            &settings,
+            &provider,
+            "claude-sonnet-4-5",
+            TemporaryCliSessionMode::Latest,
+        ),
         "claude-sonnet-4-5"
     );
+}
+
+#[test]
+fn session_name_is_only_forwarded_to_new_claude_sessions() {
+    assert_eq!(
+        resolve_session_name(
+            LivenessCliKind::ClaudeCode,
+            TemporaryCliSessionMode::New,
+            "  Refactor billing  ",
+        )
+        .unwrap(),
+        "Refactor billing"
+    );
+    assert_eq!(
+        resolve_session_name(
+            LivenessCliKind::ClaudeCode,
+            TemporaryCliSessionMode::Picker,
+            "Should not leak",
+        )
+        .unwrap(),
+        ""
+    );
+    assert_eq!(
+        resolve_session_name(
+            LivenessCliKind::Codex,
+            TemporaryCliSessionMode::New,
+            "Codex title",
+        )
+        .unwrap(),
+        ""
+    );
+}
+
+#[test]
+fn session_name_rejects_control_characters() {
+    let error = resolve_session_name(
+        LivenessCliKind::ClaudeCode,
+        TemporaryCliSessionMode::New,
+        "bad\nname",
+    )
+    .unwrap_err();
+    assert!(error.contains("控制字符"));
 }
 
 #[test]
@@ -99,7 +147,8 @@ fn codex_args_override_provider_without_ignoring_user_config() {
         "Relay Site",
         "https://relay.example.com/v1",
         "gpt-5.5",
-        None,
+        "",
+        TemporaryCliSessionMode::New,
         None,
     );
 
@@ -123,7 +172,8 @@ fn codex_args_escape_toml_values() {
         "Relay \"Site\"",
         "https://relay.example.com/openai/\"tenant\"",
         "",
-        None,
+        "",
+        TemporaryCliSessionMode::New,
         None,
     );
 
@@ -136,32 +186,57 @@ fn codex_args_escape_toml_values() {
 }
 
 #[test]
-fn resume_args_are_appended_after_provider_overrides() {
-    let codex = cli_args(
+fn official_session_modes_are_appended_after_provider_overrides() {
+    let codex_latest = cli_args(
         LivenessCliKind::Codex,
         "Relay Site",
         "https://relay.example.com/v1",
         "gpt-5.5",
-        Some("codex-session-1"),
+        "",
+        TemporaryCliSessionMode::Latest,
         None,
     );
     assert_eq!(
-        &codex[codex.len() - 2..],
-        ["resume".to_string(), "codex-session-1".to_string()]
+        &codex_latest[codex_latest.len() - 2..],
+        ["resume".to_string(), "--last".to_string()]
     );
 
-    let claude = cli_args(
+    let codex_picker = cli_args(
+        LivenessCliKind::Codex,
+        "Relay Site",
+        "https://relay.example.com/v1",
+        "",
+        "",
+        TemporaryCliSessionMode::Picker,
+        None,
+    );
+    assert_eq!(codex_picker.last().map(String::as_str), Some("resume"));
+    assert!(!codex_picker.contains(&"-m".to_string()));
+
+    let claude_latest = cli_args(
         LivenessCliKind::ClaudeCode,
         "Relay Site",
         "https://relay.example.com",
         "claude-sonnet-4-5",
-        Some("claude-session-1"),
+        "",
+        TemporaryCliSessionMode::Latest,
         None,
     );
-    assert_eq!(
-        &claude[claude.len() - 2..],
-        ["--resume".to_string(), "claude-session-1".to_string()]
+    assert_eq!(claude_latest.last().map(String::as_str), Some("--continue"));
+    assert!(claude_latest
+        .windows(2)
+        .any(|pair| pair == ["--model", "claude-sonnet-4-5"]));
+
+    let claude_picker = cli_args(
+        LivenessCliKind::ClaudeCode,
+        "Relay Site",
+        "https://relay.example.com",
+        "",
+        "",
+        TemporaryCliSessionMode::Picker,
+        None,
     );
+    assert_eq!(claude_picker.last().map(String::as_str), Some("--resume"));
 }
 
 #[test]
@@ -174,7 +249,8 @@ fn claude_args_include_settings_and_model_when_configured() {
             "Relay Site",
             "https://relay.example.com",
             "claude-sonnet-4-5",
-            None,
+            "",
+            TemporaryCliSessionMode::New,
             Some(settings_path)
         ),
         vec![
@@ -190,7 +266,8 @@ fn claude_args_include_settings_and_model_when_configured() {
             "Relay Site",
             "https://relay.example.com",
             "",
-            None,
+            "",
+            TemporaryCliSessionMode::New,
             Some(settings_path)
         ),
         vec![
@@ -198,6 +275,34 @@ fn claude_args_include_settings_and_model_when_configured() {
             "/tmp/claude settings.json".to_string(),
         ]
     );
+}
+
+#[test]
+fn claude_args_include_name_only_for_new_sessions() {
+    let named = cli_args(
+        LivenessCliKind::ClaudeCode,
+        "Relay Site",
+        "https://relay.example.com",
+        "",
+        "Billing refactor",
+        TemporaryCliSessionMode::New,
+        None,
+    );
+    assert_eq!(
+        named,
+        vec!["--name".to_string(), "Billing refactor".to_string()]
+    );
+
+    let resumed = cli_args(
+        LivenessCliKind::ClaudeCode,
+        "Relay Site",
+        "https://relay.example.com",
+        "",
+        "Billing refactor",
+        TemporaryCliSessionMode::Latest,
+        None,
+    );
+    assert_eq!(resumed, vec!["--continue".to_string()]);
 }
 
 #[test]
@@ -215,7 +320,7 @@ fn temporary_script_path_sanitizes_provider_id() {
 }
 
 #[test]
-fn terminal_kind_serialization_matches_frontend_values() {
+fn cli_option_serialization_matches_frontend_values() {
     assert_eq!(
         serde_json::to_string(&TemporaryCliTerminalKind::ITerm2).unwrap(),
         "\"iTerm2\""
@@ -235,6 +340,14 @@ fn terminal_kind_serialization_matches_frontend_values() {
     assert_eq!(
         serde_json::to_string(&TemporaryCliTerminalKind::PowerShell).unwrap(),
         "\"powerShell\""
+    );
+    assert_eq!(
+        serde_json::to_string(&TemporaryCliSessionMode::Latest).unwrap(),
+        "\"latest\""
+    );
+    assert_eq!(
+        serde_json::to_string(&TemporaryCliSessionMode::Picker).unwrap(),
+        "\"picker\""
     );
 }
 
@@ -300,7 +413,8 @@ fi
         api_key: &provider.auth.api_key,
         base_url: &openai_base_url(&provider),
         model: "gpt-5.5",
-        resume_id: None,
+        session_name: "",
+        session_mode: TemporaryCliSessionMode::New,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
     })
@@ -406,7 +520,8 @@ cat "$settings_path"
         api_key: &provider.auth.api_key,
         base_url: &anthropic_base_url(&provider),
         model: "claude-sonnet-4-5",
-        resume_id: None,
+        session_name: "Release smoke test",
+        session_mode: TemporaryCliSessionMode::New,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
     })
@@ -432,6 +547,7 @@ cat "$settings_path"
     assert!(captured.lines().any(|line| line == "CLICOLOR=1"));
     assert!(args_line.contains("--settings"));
     assert!(args_line.contains("--model claude-sonnet-4-5"));
+    assert!(args_line.contains("--name Release smoke test"));
     assert!(captured.contains("\"ANTHROPIC_AUTH_TOKEN\": \"sk-test\""));
     assert!(captured.contains("\"ANTHROPIC_BASE_URL\": \"https://relay.example.com\""));
     assert!(!captured.contains("\"ANTHROPIC_API_KEY\""));

@@ -4,7 +4,6 @@ import type {
   CliConfigPreview,
   CliRuntimeSnapshot,
   CliEnvironmentProbeResult,
-  CliSessionSummary,
   CodexModelSyncResult,
   LivenessCliKind,
   Provider,
@@ -161,6 +160,10 @@ export function testProviderConnection(input: ProviderInput) {
   return invoke<ProviderConnectionTestResult>("test_provider_connection", { input });
 }
 
+export function passProviderChallenge(id: string) {
+  return invoke<string>("pass_provider_challenge", { id });
+}
+
 export function probeCliEnvironment() {
   return invoke<CliEnvironmentProbeResult>("probe_cli_environment");
 }
@@ -181,8 +184,8 @@ export function getTemporaryCliInstances() {
   return invoke<TemporaryCliInstance[]>("get_temporary_cli_instances");
 }
 
-export function listCliSessions(cliKind: LivenessCliKind, workdir: string) {
-  return invoke<CliSessionSummary[]>("list_cli_sessions", { cliKind, workdir });
+export function getTemporaryCliInstance(instanceId: string) {
+  return invoke<TemporaryCliInstance | null>("get_temporary_cli_instance", { instanceId });
 }
 
 export function activateTemporaryCli(instanceId: string) {

@@ -25,6 +25,7 @@ const props = defineProps<{
   globalCheckInInProgress: boolean;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
+  challengingProviderId: string | null;
   providerDrag: ProviderDragState;
   dragOverProviderId: string | null;
   draggedProvider: Provider | null;
@@ -86,6 +87,7 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
+  passChallenge: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
@@ -126,6 +128,7 @@ const emit = defineEmits<{
     :switching-cli-config="switchingCliConfig"
     :checking-in-provider-ids="checkingInProviderIds"
     :probing-capabilities-provider-id="probingCapabilitiesProviderId"
+    :challenging-provider-id="challengingProviderId"
     :provider-drag="providerDrag"
     :drag-over-provider-id="dragOverProviderId"
     :dragged-provider="draggedProvider"
@@ -148,6 +151,7 @@ const emit = defineEmits<{
     @open-usage="emit('openUsage', $event)"
     @open-request-logs="emit('openRequestLogs', $event)"
     @open-password-change="emit('openPasswordChange', $event)"
+    @pass-challenge="emit('passChallenge', $event)"
     @open-liveness-details="emit('openLivenessDetails', $event)"
     @open-check-in-records="emit('openCheckInRecords', $event)"
     @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"

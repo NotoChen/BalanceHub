@@ -212,3 +212,8 @@ pub(crate) async fn check_in_provider(
 ) -> Result<ProviderCheckInResult, String> {
     ProviderService::new(&app).check_in(id).await
 }
+
+#[tauri::command]
+pub(crate) async fn pass_provider_challenge(app: AppHandle, id: String) -> Result<String, String> {
+    ProviderService::new(&app).pass_challenge(id).await
+}

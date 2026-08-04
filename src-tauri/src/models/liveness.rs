@@ -48,6 +48,8 @@ pub struct CliToolProbeResult {
     pub path: String,
     pub version: String,
     pub message: String,
+    /// 是否支持通过临时 CLI 启动参数直接设置新会话名称。
+    pub supports_session_name: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

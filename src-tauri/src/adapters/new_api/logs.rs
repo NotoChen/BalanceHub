@@ -3,11 +3,12 @@ use crate::models::{
     ProviderRequestLogsResult,
 };
 use chrono::{DateTime, Local};
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde_json::Value;
 
 use super::http::{
-    build_url, build_user_request, provider_user_management_context, UserCredential,
+    build_url, build_user_request, provider_user_management_context, ProviderTransport,
+    UserCredential,
 };
 use super::response::{
     extract_f64_field, extract_i64_field, extract_string_field, parse_success_data, send_text,
@@ -17,22 +18,20 @@ use super::site::{
 };
 
 struct RequestLogStatsContext<'a> {
-    client: &'a Client,
+    client: &'a ProviderTransport,
     base_url: &'a str,
     api_user: &'a str,
     credential: UserCredential,
-    is_anyrouter: bool,
     site: &'a SiteMetadata,
 }
 
 pub async fn fetch_request_logs(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     query: ProviderRequestLogsQuery,
 ) -> Result<ProviderRequestLogsResult, String> {
-    let (base_url, api_user, credential, is_anyrouter) =
-        provider_user_management_context(provider)?;
-    let site = fetch_site_metadata(client, &base_url, is_anyrouter)
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    let site = fetch_site_metadata(client, &base_url)
         .await
         .unwrap_or_else(|_| site_metadata_from_provider(provider));
 
@@ -44,7 +43,6 @@ pub async fn fetch_request_logs(
             base_url: &base_url,
             api_user: &api_user,
             credential: credential.clone(),
-            is_anyrouter,
             site: &site,
         },
         &query,
@@ -56,17 +54,8 @@ pub async fn fetch_request_logs(
 
     let url = request_logs_url(&base_url, &query, start_timestamp, end_timestamp, true)?;
 
-    let request = build_user_request(
-        client,
-        Method::GET,
-        url,
-        &base_url,
-        &api_user,
-        credential,
-        is_anyrouter,
-    )
-    .await?;
-    let (status, body) = send_text(request, "读取请求日志").await?;
+    let request = build_user_request(client, Method::GET, url, &base_url, &api_user, credential);
+    let (status, body) = send_text(client, request, "读取请求日志").await?;
     let data = parse_success_data(&status, body, "请求日志")?;
     let total = extract_total(&data);
     let logs = extract_log_items(&data)
@@ -108,10 +97,8 @@ async fn fetch_request_log_stats(
         context.base_url,
         context.api_user,
         context.credential,
-        context.is_anyrouter,
-    )
-    .await?;
-    let (status, body) = send_text(request, "读取请求日志统计").await?;
+    );
+    let (status, body) = send_text(context.client, request, "读取请求日志统计").await?;
     let data = parse_success_data(&status, body, "请求日志统计")?;
     let raw_quota = extract_i64_field(&data, &["quota", "Quota"])
         .or_else(|| extract_f64_field(&data, &["quota", "Quota"]).map(|value| value as i64))

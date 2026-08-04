@@ -3,24 +3,25 @@ use crate::models::{
     ProviderUsageSummary,
 };
 use chrono::{DateTime, Local};
-use reqwest::{Client, Method};
+use reqwest::Method;
 use std::collections::BTreeMap;
 
-use super::http::{build_url, build_user_request, provider_user_management_context};
+use super::http::{
+    build_url, build_user_request, provider_user_management_context, ProviderTransport,
+};
 use super::response::{
     extract_i64_field, extract_string_field, extract_usage_items, parse_success_data, send_text,
 };
 use super::site::{convert_quota_value, fetch_site_metadata, site_metadata_from_provider};
 
 pub async fn fetch_usage_summary(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     period: &str,
 ) -> Result<ProviderUsageSummary, String> {
     let (seconds, hourly) = usage_period(period);
-    let (base_url, api_user, credential, is_anyrouter) =
-        provider_user_management_context(provider)?;
-    let site = fetch_site_metadata(client, &base_url, is_anyrouter)
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    let site = fetch_site_metadata(client, &base_url)
         .await
         .unwrap_or_else(|_| site_metadata_from_provider(provider));
     let end_timestamp = crate::util::unix_secs() as i64;
@@ -29,17 +30,8 @@ pub async fn fetch_usage_summary(
         &base_url,
         &format!("/api/data/self?start_timestamp={start_timestamp}&end_timestamp={end_timestamp}"),
     )?;
-    let request = build_user_request(
-        client,
-        Method::GET,
-        url,
-        &base_url,
-        &api_user,
-        credential,
-        is_anyrouter,
-    )
-    .await?;
-    let (status, body) = send_text(request, "读取用量趋势").await?;
+    let request = build_user_request(client, Method::GET, url, &base_url, &api_user, credential);
+    let (status, body) = send_text(client, request, "读取用量趋势").await?;
     let data = parse_success_data(&status, body, "用量趋势")?;
 
     let mut grouped: BTreeMap<String, (f64, i64, i64)> = BTreeMap::new();

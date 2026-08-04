@@ -2,20 +2,20 @@ use crate::models::{
     normalize_api_key, AuthMode, Provider, ProviderApiKeyOption,
     ProviderCredentialCompletionResult, ProviderCredentialCompletionStep, ProviderInput,
 };
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
 use super::http::{
-    build_url, build_user_request, is_anyrouter_base_url, login_password_provider,
-    normalize_base_url, UserCredential,
+    build_url, build_user_request, login_password_provider, normalize_base_url, ProviderTransport,
+    UserCredential,
 };
 use super::keys::fetch_api_key_options;
 use super::response::{extract_string_field, parse_success_data, send_text};
 use super::session::decode_session_user_id;
 
 pub async fn complete_credentials(
-    client: &Client,
+    client: &ProviderTransport,
     input: ProviderInput,
 ) -> Result<ProviderCredentialCompletionResult, String> {
     let mut updated = input;
@@ -23,8 +23,6 @@ pub async fn complete_credentials(
     if base_url.is_empty() {
         return Err("请先填写中转站地址".to_string());
     }
-
-    let is_anyrouter = is_anyrouter_base_url(&base_url);
 
     if matches!(updated.auth.mode, crate::models::AuthMode::Password) {
         let provider = Provider::from_input(updated.clone(), "credential-completion".to_string());
@@ -66,7 +64,6 @@ pub async fn complete_credentials(
                 &base_url,
                 &updated.auth.api_user,
                 UserCredential::Session(updated.auth.session_cookie.clone()),
-                is_anyrouter,
             )
             .await
             {
@@ -150,7 +147,6 @@ pub async fn complete_credentials(
             &base_url,
             &updated.auth.api_user,
             credential.clone(),
-            is_anyrouter,
         )
         .await
         {
@@ -286,14 +282,8 @@ pub async fn complete_credentials(
         && !updated.auth.api_user.trim().is_empty()
     {
         if let Some(credential) = user_self_credential(&updated) {
-            if let Ok(data) = fetch_user_self(
-                client,
-                &base_url,
-                &updated.auth.api_user,
-                credential,
-                is_anyrouter,
-            )
-            .await
+            if let Ok(data) =
+                fetch_user_self(client, &base_url, &updated.auth.api_user, credential).await
             {
                 if fill_login_username_from_self(&mut updated, &data) {
                     changed_fields.insert("loginUsername".to_string());
@@ -368,7 +358,10 @@ fn user_self_credential(input: &ProviderInput) -> Option<UserCredential> {
     }
 }
 
-pub async fn create_access_token(client: &Client, provider: &Provider) -> Result<String, String> {
+pub async fn create_access_token(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Result<String, String> {
     let base_url = normalize_base_url(&provider.identity.base_url);
     if base_url.is_empty() {
         return Err("缺少中转站地址".to_string());
@@ -385,39 +378,27 @@ pub async fn create_access_token(client: &Client, provider: &Provider) -> Result
         &base_url,
         api_user,
         provider.auth.session_cookie.clone(),
-        is_anyrouter_base_url(&base_url),
     )
     .await
 }
 
 async fn fetch_user_self(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
 ) -> Result<Value, String> {
     let url = build_url(base_url, "/api/user/self")?;
-    let request = build_user_request(
-        client,
-        Method::GET,
-        url,
-        base_url,
-        api_user,
-        credential,
-        is_anyrouter,
-    )
-    .await?;
-    let body = send_text(request, "读取用户信息").await?;
+    let request = build_user_request(client, Method::GET, url, base_url, api_user, credential);
+    let body = send_text(client, request, "读取用户信息").await?;
     parse_success_data(&body.0, body.1, "用户信息")
 }
 
 async fn generate_access_token(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     session_cookie: String,
-    is_anyrouter: bool,
 ) -> Result<String, String> {
     let url = build_url(base_url, "/api/user/token")?;
     let request = build_user_request(
@@ -427,10 +408,8 @@ async fn generate_access_token(
         base_url,
         api_user,
         UserCredential::Session(session_cookie),
-        is_anyrouter,
-    )
-    .await?;
-    let (status, body) = send_text(request, "创建访问令牌").await?;
+    );
+    let (status, body) = send_text(client, request, "创建访问令牌").await?;
     let data = parse_success_data(&status, body, "创建访问令牌")?;
 
     data.as_str()

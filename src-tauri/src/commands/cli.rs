@@ -1,8 +1,8 @@
 use crate::{
     models::{
-        CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot, CliSessionSummary,
-        LivenessCliKind, TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
-        TemporaryCliPreference, Workspace, WorkspaceDirectoryListing,
+        CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot, LivenessCliKind,
+        TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
+        TemporaryCliPreference, TemporaryCliSessionMode, Workspace, WorkspaceDirectoryListing,
     },
     services::{self, provider_service::ProviderService},
     state::AppState,
@@ -27,12 +27,7 @@ pub(crate) fn launch_temporary_cli(
         .cloned()
         .ok_or_else(|| "中转站不存在".to_string())?;
     let cli_kind = input.cli_kind;
-    let resume_id = input
-        .resume_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
+    let session_mode = input.session_mode;
     let api_key = if input.api_key.trim().is_empty() {
         provider.auth.api_key.trim().to_string()
     } else {
@@ -48,10 +43,8 @@ pub(crate) fn launch_temporary_cli(
     let saved_model = saved_preference
         .map(|preference| preference.model.trim().to_string())
         .unwrap_or_default();
-    let model = if resume_id.is_some() && input.model.trim().is_empty() {
-        String::new()
-    } else {
-        [
+    let model = match session_mode {
+        TemporaryCliSessionMode::New => [
             input.model.trim(),
             saved_preference
                 .map(|preference| preference.model.trim())
@@ -63,13 +56,15 @@ pub(crate) fn launch_temporary_cli(
         .into_iter()
         .find(|value| !value.is_empty())
         .unwrap_or_default()
-        .to_string()
+        .to_string(),
+        TemporaryCliSessionMode::Latest | TemporaryCliSessionMode::Picker => {
+            input.model.trim().to_string()
+        }
     };
-    // 未记录模型的历史会话不应覆盖用户为新会话保存的模型偏好。
-    let preference_model = if model.is_empty() {
-        saved_model
-    } else {
-        model.clone()
+    // 恢复会话的显式模型只影响本次启动，不覆盖新会话的默认模型偏好。
+    let preference_model = match session_mode {
+        TemporaryCliSessionMode::New if !model.is_empty() => model.clone(),
+        _ => saved_model,
     };
 
     let cli = match cli_kind {
@@ -96,17 +91,17 @@ pub(crate) fn launch_temporary_cli(
         LivenessCliKind::ClaudeCode => launch_settings.claude_cli_path = cli.path.clone(),
     }
     let workdir = services::workspaces::normalize_directory(std::path::Path::new(&input.workdir))?;
-    if let Some(resume_id) = resume_id.as_deref() {
-        services::cli_sessions::ensure_resume_id(cli_kind, &workdir, resume_id)?;
-    }
     let instance = services::temporary_cli::launch(
         &launch_settings,
         &provider,
         cli_kind,
         &workdir,
-        &api_key,
-        &model,
-        resume_id.as_deref(),
+        services::temporary_cli::LaunchOptions {
+            api_key_override: &api_key,
+            model_override: &model,
+            session_name_override: &input.session_name,
+            session_mode,
+        },
     )?;
     let fallback_preference = TemporaryCliPreference {
         provider_id: provider.identity.id.clone(),
@@ -155,14 +150,12 @@ pub(crate) async fn get_temporary_cli_instances() -> Result<Vec<TemporaryCliInst
 }
 
 #[tauri::command]
-pub(crate) async fn list_cli_sessions(
-    cli_kind: LivenessCliKind,
-    workdir: String,
-) -> Result<Vec<CliSessionSummary>, String> {
-    let workdir = services::workspaces::normalize_directory(std::path::Path::new(&workdir))?;
-    tauri::async_runtime::spawn_blocking(move || services::cli_sessions::list(cli_kind, &workdir))
+pub(crate) async fn get_temporary_cli_instance(
+    instance_id: String,
+) -> Result<Option<TemporaryCliInstance>, String> {
+    tauri::async_runtime::spawn_blocking(move || services::cli_runtime::instance(&instance_id))
         .await
-        .map_err(|err| format!("CLI 历史会话读取任务异常: {err}"))?
+        .map_err(|err| format!("临时 CLI 状态读取任务异常: {err}"))?
 }
 
 #[tauri::command]

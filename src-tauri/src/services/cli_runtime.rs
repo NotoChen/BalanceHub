@@ -24,6 +24,7 @@ const METADATA_FILE_NAME: &str = "instance.json";
 const STATUS_FILE_NAME: &str = "status.json";
 const STARTING_TIMEOUT_MILLIS: u128 = 2 * 60 * 1000;
 const UNKNOWN_PID_TIMEOUT_MILLIS: u128 = 24 * 60 * 60 * 1000;
+const EXITED_INSTANCE_RETENTION_MILLIS: u128 = 2 * 60 * 1000;
 const MAX_ACTIVE_INSTANCES: usize = 80;
 
 static INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -82,6 +83,21 @@ pub fn snapshot(providers: &[Provider]) -> CliRuntimeSnapshot {
 
 pub fn active_instances() -> Vec<TemporaryCliInstance> {
     load_instances()
+}
+
+pub fn instance(id: &str) -> Result<Option<TemporaryCliInstance>, String> {
+    let instance_dir = validated_instance_dir(id)?;
+    if !instance_dir.is_dir() {
+        return Ok(None);
+    }
+
+    let metadata = read_json::<StoredInstanceMetadata>(&instance_dir.join(METADATA_FILE_NAME))?;
+    let status_path = instance_dir.join(STATUS_FILE_NAME);
+    let mut status = read_json::<StoredInstanceStatus>(&status_path)?;
+    if reconcile_status(&metadata, &mut status) {
+        write_json_atomic(&status_path, &status)?;
+    }
+    Ok(Some(merge_instance(metadata, status)))
 }
 
 pub fn register_instance(
@@ -204,7 +220,9 @@ fn load_instances() -> Vec<TemporaryCliInstance> {
             }
             let instance = load_instance(&path)?;
             if instance.status == TemporaryCliInstanceStatus::Exited {
-                let _ = fs::remove_dir_all(path);
+                if exited_instance_expired(&instance) {
+                    let _ = fs::remove_dir_all(path);
+                }
                 return None;
             }
             Some(instance)
@@ -216,6 +234,15 @@ fn load_instances() -> Vec<TemporaryCliInstance> {
     });
     instances.truncate(MAX_ACTIVE_INSTANCES);
     instances
+}
+
+fn exited_instance_expired(instance: &TemporaryCliInstance) -> bool {
+    let ended_at = instance
+        .ended_at
+        .as_deref()
+        .map(numeric_timestamp)
+        .unwrap_or_else(|| numeric_timestamp(&instance.started_at));
+    unix_millis().saturating_sub(ended_at) >= EXITED_INSTANCE_RETENTION_MILLIS
 }
 
 fn load_instance(instance_dir: &Path) -> Option<TemporaryCliInstance> {
@@ -470,4 +497,50 @@ fn process_is_alive(pid: u32) -> bool {
 #[cfg(not(any(unix, target_os = "windows")))]
 fn process_is_alive(_pid: u32) -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_instance_query_preserves_recent_exit_details() {
+        let id = format!(
+            "test-{:x}-{:x}",
+            std::process::id(),
+            INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        let instance_dir = instances_dir().join(&id);
+        let now = unix_millis();
+        let metadata = StoredInstanceMetadata {
+            id: id.clone(),
+            provider_id: "provider-test".to_string(),
+            provider_name: "Relay".to_string(),
+            cli_kind: LivenessCliKind::Codex,
+            workdir: "/workspace".to_string(),
+            terminal_kind: TemporaryCliTerminalKind::Terminal,
+            terminal_locator: None,
+            started_at: now.saturating_sub(1).to_string(),
+        };
+        let status = StoredInstanceStatus {
+            status: TemporaryCliInstanceStatus::Exited,
+            pid: None,
+            ended_at: Some(now),
+            exit_code: Some(17),
+        };
+        write_json_atomic(&instance_dir.join(METADATA_FILE_NAME), &metadata).unwrap();
+        write_json_atomic(&instance_dir.join(STATUS_FILE_NAME), &status).unwrap();
+
+        let loaded = instance(&id).unwrap().unwrap();
+        assert_eq!(loaded.status, TemporaryCliInstanceStatus::Exited);
+        assert_eq!(loaded.exit_code, Some(17));
+        assert!(instance_dir.is_dir());
+
+        let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn single_instance_query_rejects_path_traversal() {
+        assert!(instance("../status").is_err());
+    }
 }

@@ -4,7 +4,9 @@ mod terminal;
 mod tests;
 
 use crate::{
-    models::{AppSettings, LivenessCliKind, Provider, TemporaryCliInstance},
+    models::{
+        AppSettings, LivenessCliKind, Provider, TemporaryCliInstance, TemporaryCliSessionMode,
+    },
     network,
     services::{
         cli_runtime,
@@ -21,22 +23,29 @@ use terminal::{activate_terminal_target, open_script_in_terminal};
 pub use script::cleanup_stale;
 pub use terminal::{probe_available_terminals, probe_terminal};
 
+/// 本次临时 CLI 启动的调用方覆盖项。配置解析和实例注册仍由本模块统一负责，
+/// 这里只承载 IPC 层已经解析出的单次启动选择。
+pub(crate) struct LaunchOptions<'a> {
+    pub(crate) api_key_override: &'a str,
+    pub(crate) model_override: &'a str,
+    pub(crate) session_name_override: &'a str,
+    pub(crate) session_mode: TemporaryCliSessionMode,
+}
+
 pub fn launch(
     settings: &AppSettings,
     provider: &Provider,
     cli_kind: LivenessCliKind,
     workdir: &Path,
-    api_key_override: &str,
-    model_override: &str,
-    resume_id: Option<&str>,
+    options: LaunchOptions<'_>,
 ) -> Result<TemporaryCliInstance, String> {
     if !workdir.is_dir() {
         return Err("工作目录不存在".to_string());
     }
-    let api_key = if api_key_override.trim().is_empty() {
+    let api_key = if options.api_key_override.trim().is_empty() {
         provider.auth.api_key.trim().to_string()
     } else {
-        api_key_override.trim().to_string()
+        options.api_key_override.trim().to_string()
     };
     if api_key.is_empty() {
         return Err("缺少 API Key，无法启动临时 CLI".to_string());
@@ -49,7 +58,17 @@ pub fn launch(
         LivenessCliKind::Codex => LivenessRunner::find_codex_cli(&settings.codex_cli_path)?,
         LivenessCliKind::ClaudeCode => LivenessRunner::find_claude_cli(&settings.claude_cli_path)?,
     };
-    let model = resolve_launch_model(settings, provider, model_override, resume_id);
+    let model = resolve_launch_model(
+        settings,
+        provider,
+        options.model_override,
+        options.session_mode,
+    );
+    let session_name = resolve_session_name(
+        cli_kind,
+        options.session_mode,
+        options.session_name_override,
+    )?;
     let base_url = match cli_kind {
         LivenessCliKind::Codex => openai_base_url(provider),
         LivenessCliKind::ClaudeCode => anthropic_base_url(provider),
@@ -83,7 +102,8 @@ pub fn launch(
         api_key: &api_key,
         base_url: &base_url,
         model: &model,
-        resume_id,
+        session_name: &session_name,
+        session_mode: options.session_mode,
         status_path: &registered.status_path,
         proxy_environment: &proxy_environment,
     };
@@ -114,18 +134,39 @@ fn resolve_launch_model(
     settings: &AppSettings,
     provider: &Provider,
     model_override: &str,
-    resume_id: Option<&str>,
+    session_mode: TemporaryCliSessionMode,
 ) -> String {
     if !model_override.trim().is_empty() {
         return model_override.trim().to_string();
     }
     // 恢复已有会话时，CLI 自己会从会话元数据恢复模型；注入测活默认模型
     // 可能改变原会话的行为。新会话仍沿用现有的全局/中转站回退规则。
-    if resume_id.is_some() {
+    if !matches!(session_mode, TemporaryCliSessionMode::New) {
         String::new()
     } else {
         effective_model(settings, provider)
     }
+}
+
+fn resolve_session_name(
+    cli_kind: LivenessCliKind,
+    session_mode: TemporaryCliSessionMode,
+    session_name_override: &str,
+) -> Result<String, String> {
+    // Codex only exposes /new and /rename inside its TUI; never turn this into
+    // an undocumented startup argument.
+    if !cli_kind.supports_session_name() || !matches!(session_mode, TemporaryCliSessionMode::New) {
+        return Ok(String::new());
+    }
+
+    let name = session_name_override.trim();
+    if name.is_empty() {
+        return Ok(String::new());
+    }
+    if name.chars().any(char::is_control) {
+        return Err("会话名称不能包含换行或控制字符".to_string());
+    }
+    Ok(name.to_string())
 }
 
 pub fn activate(instance_id: &str) -> Result<(), String> {

@@ -2,6 +2,24 @@
 
 BalanceHub 的重要变更会记录在这里。
 
+## 0.4.5
+
+### 新增
+
+- 新增统一过盾流程，支持阿里云 WAF 与 Cloudflare 挑战的凭证缓存、挑战状态提示和用户主动验证窗口。
+- 临时 CLI 启动过程增加阶段进度反馈，并按 CLI 官方能力支持新会话命名、继续最近会话或进入官方恢复选择器。
+
+### 变更
+
+- NewAPI、Sub2API、通用 OpenAI API 与 Codex 模型同步统一使用 `ProviderTransport`，业务 Cookie 与过盾 Cookie 分离管理。
+- 仅对 GET、HEAD、OPTIONS 做有限自动重试；POST、PUT、PATCH、DELETE 命中挑战后不自动重放，避免重复执行有副作用的请求。
+- 过盾凭证按中转站、站点 origin、代理路由和盾类型隔离，并增加容量、TTL、并发窗口和失效竞态保护。
+
+### 修复
+
+- 修复 Cloudflare 挑战页面识别、Cookie 域过滤、隐藏 WebView 回收和并发凭证失效问题。
+- 修复挑战状态变化后卡片操作菜单不能及时更新的问题，并明确拒绝无法保证 DNS/出口一致性的 `socks5h` WebView 路由。
+
 ## 0.4.4
 
 ### 新增

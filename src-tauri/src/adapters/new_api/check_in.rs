@@ -1,14 +1,11 @@
-use crate::util::current_month;
-use crate::{
-    models::{
-        check_in_message_indicates_disabled, AuthMode, Provider, ProviderCheckInRecordsResult,
-        ProviderCheckInResult, ProviderQuotaDisplay,
-    },
-    network,
+use crate::models::{
+    check_in_message_indicates_disabled, AuthMode, Provider, ProviderCheckInRecordsResult,
+    ProviderCheckInResult, ProviderQuotaDisplay,
 };
+use crate::util::current_month;
 use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT},
-    Client, Method, StatusCode,
+    Method, StatusCode,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -18,12 +15,10 @@ mod records;
 
 use super::http::{
     access_token_fallback_provider, apply_auth_headers, apply_session_cookie, build_url,
-    normalize_base_url, provider_is_anyrouter, should_retry_with_access_token, USER_AGENT_VALUE,
+    normalize_base_url, provider_is_anyrouter, should_retry_with_access_token, ProviderTransport,
+    USER_AGENT_VALUE,
 };
-use super::response::{
-    cloudflare_challenge_message, is_cloudflare_challenge, parse_success_data, send_text,
-    trim_message,
-};
+use super::response::{parse_success_data, send_text, trim_message};
 use super::site::{apply_site_metadata, fetch_site_metadata, site_metadata_from_provider};
 
 #[derive(Debug, Deserialize)]
@@ -36,7 +31,7 @@ struct SignInResponse {
 }
 
 pub(crate) async fn probe_check_in_capability(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     base_url: &str,
 ) -> Result<Vec<AuthMode>, String> {
@@ -71,7 +66,7 @@ pub(crate) async fn probe_check_in_capability(
 }
 
 pub async fn check_in_provider(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<ProviderCheckInResult, String> {
     if provider_is_anyrouter(provider) {
@@ -88,7 +83,7 @@ pub async fn check_in_provider(
 }
 
 pub async fn fetch_check_in_records(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     month: &str,
 ) -> Result<ProviderCheckInRecordsResult, String> {
@@ -102,7 +97,7 @@ pub async fn fetch_check_in_records(
 }
 
 async fn fetch_check_in_records_once(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     month: &str,
 ) -> Result<ProviderCheckInRecordsResult, String> {
@@ -122,28 +117,20 @@ async fn fetch_check_in_records_once(
     request = apply_auth_headers(request, provider);
     request = apply_session_cookie(request, provider);
 
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("拉取签到记录失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取签到记录").await?;
+    let (status, body) = send_text(client, request, "读取签到记录").await?;
 
     if !status.is_success() {
-        if is_cloudflare_challenge(&body) {
-            return Err(cloudflare_challenge_message());
-        }
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));
     }
-    if is_cloudflare_challenge(&body) {
-        return Err(cloudflare_challenge_message());
+    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
+        return Err(crate::adapters::transport::shield_blocked_message(kind));
     }
     if check_in_message_indicates_disabled(&trim_message(&body)) {
         return Err("当前站点未开启签到".to_string());
     }
 
     let data = parse_success_data(&status, body, "签到记录")?;
-    let site = fetch_site_metadata(client, &base_url, provider_is_anyrouter(provider))
+    let site = fetch_site_metadata(client, &base_url)
         .await
         .unwrap_or_else(|_| site_metadata_from_provider(provider));
     let mut quota_provider = provider.clone();
@@ -177,7 +164,7 @@ fn should_retry_check_in_records_with_access_token(
 }
 
 async fn check_in_status_probe(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     base_url: &str,
 ) -> Result<bool, String> {
@@ -196,18 +183,15 @@ async fn check_in_status_probe(
     request = apply_auth_headers(request, provider);
     request = apply_session_cookie(request, provider);
 
-    let (status, body) = send_text(request, "探测签到能力").await?;
+    let (status, body) = send_text(client, request, "探测签到能力").await?;
     if status == StatusCode::NOT_FOUND || status == StatusCode::METHOD_NOT_ALLOWED {
         return Ok(false);
     }
     if !status.is_success() {
-        if is_cloudflare_challenge(&body) {
-            return Err(cloudflare_challenge_message());
-        }
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));
     }
-    if is_cloudflare_challenge(&body) {
-        return Err(cloudflare_challenge_message());
+    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
+        return Err(crate::adapters::transport::shield_blocked_message(kind));
     }
     serde_json::from_str::<Value>(&body)
         .map_err(|err| format!("解析签到状态失败: {err}: {}", trim_message(&body)))?;
@@ -218,7 +202,7 @@ async fn check_in_status_probe(
 }
 
 async fn check_in_provider_once(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<ProviderCheckInResult, String> {
     validate_check_in_credentials(provider)?;
@@ -247,12 +231,9 @@ async fn check_in_provider_once(
     request = apply_auth_headers(request, provider);
     request = apply_session_cookie(request, provider);
 
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("请求签到失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取签到响应").await?;
+    let response = client.send(request, "请求签到").await?;
+    let status = response.status;
+    let body = response.body;
 
     Ok(parse_check_in_response(status, &body))
 }
@@ -265,7 +246,7 @@ fn should_retry_check_in_with_access_token(result: &Result<ProviderCheckInResult
 }
 
 async fn check_in_status(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     base_url: &str,
 ) -> Result<bool, String> {
@@ -284,22 +265,14 @@ async fn check_in_status(
     request = apply_auth_headers(request, provider);
     request = apply_session_cookie(request, provider);
 
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("查询签到状态失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取签到状态").await?;
+    let (status, body) = send_text(client, request, "读取签到状态").await?;
 
     if !status.is_success() {
-        if is_cloudflare_challenge(&body) {
-            return Err(cloudflare_challenge_message());
-        }
         return Ok(false);
     }
 
-    if is_cloudflare_challenge(&body) {
-        return Err(cloudflare_challenge_message());
+    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
+        return Err(crate::adapters::transport::shield_blocked_message(kind));
     }
 
     let decoded = match serde_json::from_str::<Value>(&body) {
@@ -334,10 +307,10 @@ fn validate_check_in_credentials(provider: &Provider) -> Result<(), String> {
 }
 
 fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInResult {
-    if is_cloudflare_challenge(body) {
+    if let Some(kind) = crate::network::shield::detect(&Default::default(), body) {
         return ProviderCheckInResult {
             ok: false,
-            message: cloudflare_challenge_message(),
+            message: crate::adapters::transport::shield_blocked_message(kind),
             last_checked_in_at: None,
             last_check_in_user: None,
         };

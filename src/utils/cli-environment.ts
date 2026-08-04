@@ -2,15 +2,29 @@ import type {
   AppSettings,
   CliEnvironmentProbeResult,
   LivenessCliKind,
+  TemporaryCliSessionMode,
   TemporaryCliTerminalKind,
   TemporaryTerminalProbeResult,
 } from "../stores/providers";
 import type { SelectOption } from "./liveness-options";
 
-export const cliKindMeta: Record<LivenessCliKind, { label: string; brand: "codex" | "claude" }> = {
+export const cliKindMeta: Record<
+  LivenessCliKind,
+  { label: string; brand: "codex" | "claude" }
+> = {
   codex: { label: "Codex", brand: "codex" },
   claudeCode: { label: "Claude Code", brand: "claude" },
 };
+
+export function canNameSessionAtLaunch(
+  probe: CliEnvironmentProbeResult | null | undefined,
+  cliKind: LivenessCliKind,
+  sessionMode: TemporaryCliSessionMode,
+) {
+  if (sessionMode !== "new" || !probe) return false;
+  const tool = cliKind === "codex" ? probe.codex : probe.claudeCode;
+  return tool.available && tool.supportsSessionName;
+}
 
 export function availableCliKinds(
   probe: CliEnvironmentProbeResult | null | undefined,

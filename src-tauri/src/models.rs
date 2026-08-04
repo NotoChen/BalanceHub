@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[path = "models/app_settings.rs"]
 mod app_settings;
-#[path = "models/cli_sessions.rs"]
-mod cli_sessions;
 #[path = "models/enums.rs"]
 mod enums;
 #[path = "models/liveness.rs"]
@@ -24,7 +22,6 @@ pub(crate) use app_settings::{
 pub use app_settings::{
     AppSettings, LivenessPlaceholderPool, NotificationChannel, NotificationChannelKind,
 };
-pub use cli_sessions::CliSessionSummary;
 pub use enums::*;
 pub use liveness::*;
 pub use provider::*;
