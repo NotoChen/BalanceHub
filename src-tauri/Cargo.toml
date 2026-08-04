@@ -38,7 +38,7 @@ tauri-plugin-notification = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 async-trait = "0.1"
 futures-util = "0.3"
-lru = "0.12"
+lru = "0.16"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["native-tls", "zip"] }
 tauri-plugin-process = "2"
