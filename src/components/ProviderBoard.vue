@@ -21,6 +21,7 @@ const props = defineProps<{
   switchingCliConfig: { providerId: string; cliKind: LivenessCliKind } | null;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
+  challengingProviderId: string | null;
   providerDrag: ProviderDragState;
   dragOverProviderId: string | null;
   draggedProvider: Provider | null;
@@ -46,6 +47,7 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
+  passChallenge: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
@@ -123,6 +125,7 @@ function providerSwitchingCliKind(provider: Provider) {
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
+          :passing-challenge="challengingProviderId === provider.identity.id"
           :checking-in="checkingInProviderIds.includes(provider.identity.id)"
           @click="emit('cardClick', $event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
@@ -135,6 +138,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @open-usage="emit('openUsage', $event)"
           @open-request-logs="emit('openRequestLogs', $event)"
           @open-password-change="emit('openPasswordChange', $event)"
+          @pass-challenge="emit('passChallenge', $event)"
           @open-liveness-details="emit('openLivenessDetails', $event)"
           @open-check-in-records="emit('openCheckInRecords', $event)"
           @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"
@@ -173,6 +177,7 @@ function providerSwitchingCliKind(provider: Provider) {
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
+          :passing-challenge="challengingProviderId === provider.identity.id"
           :checking-in="checkingInProviderIds.includes(provider.identity.id)"
           @click="emit('cardClick', $event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
@@ -185,6 +190,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @open-usage="emit('openUsage', $event)"
           @open-request-logs="emit('openRequestLogs', $event)"
           @open-password-change="emit('openPasswordChange', $event)"
+          @pass-challenge="emit('passChallenge', $event)"
           @open-liveness-details="emit('openLivenessDetails', $event)"
           @open-check-in-records="emit('openCheckInRecords', $event)"
           @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"
@@ -223,6 +229,7 @@ function providerSwitchingCliKind(provider: Provider) {
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
+          :passing-challenge="challengingProviderId === provider.identity.id"
           :checking-in="checkingInProviderIds.includes(provider.identity.id)"
           @click="emit('cardClick', $event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
@@ -235,6 +242,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @open-usage="emit('openUsage', $event)"
           @open-request-logs="emit('openRequestLogs', $event)"
           @open-password-change="emit('openPasswordChange', $event)"
+          @pass-challenge="emit('passChallenge', $event)"
           @open-liveness-details="emit('openLivenessDetails', $event)"
           @open-check-in-records="emit('openCheckInRecords', $event)"
           @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"

@@ -1,5 +1,7 @@
 use super::platform;
 use crate::models::{AppSettings, Provider, ProviderProxyMode, ProxyMode};
+use reqwest::Url;
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     process::Command,
@@ -88,6 +90,69 @@ impl EffectiveProxy {
 
     pub(crate) fn environment(&self) -> ProxyEnvironment {
         ProxyEnvironment::from_proxy(self)
+    }
+
+    /// Stable, non-secret identity used to scope provider shield credentials.
+    /// Proxy URLs can contain credentials, so the raw value must never be used
+    /// in logs or IPC-visible state.
+    pub(crate) fn fingerprint(&self) -> String {
+        let material = format!(
+            "{:?}|{}|{}|{}|{}|{}",
+            self.mode,
+            self.http_url.trim(),
+            self.https_url.trim(),
+            self.all_url.trim(),
+            self.no_proxy.trim(),
+            self.inherit_environment,
+        );
+        format!("{:x}", Sha256::digest(material.as_bytes()))
+    }
+
+    /// Return the proxy configuration that can be applied to a Tauri WebView.
+    ///
+    /// `reqwest` and the WebView must use the same route for Cloudflare
+    /// clearance to remain valid. An unsupported route is an explicit error,
+    /// rather than silently producing a credential bound to another egress IP.
+    pub(crate) fn webview_proxy_url(&self) -> Result<Option<Url>, String> {
+        match self.mode {
+            ProxyMode::System => Ok(None),
+            ProxyMode::NoProxy => Err(
+                "当前为直连模式，无法在所有桌面 WebView 平台保证与业务请求使用同一出口；暂不自动通过 Cloudflare 验证"
+                    .to_string(),
+            ),
+            ProxyMode::Custom => {
+                let raw = self.all_url.trim();
+                let url = Url::parse(raw)
+                    .map_err(|err| format!("WebView 代理地址无效({raw}): {err}"))?;
+                if !url.username().is_empty() || url.password().is_some() {
+                    return Err("Cloudflare WebView 验证暂不支持带账号密码的代理".to_string());
+                }
+                if url.scheme() == "socks5h" {
+                    return Err(
+                        "Cloudflare WebView 暂不支持 socks5h 代理；请改用 socks5 以保持 DNS 出口语义一致"
+                            .to_string(),
+                    );
+                }
+                if !matches!(url.scheme(), "http" | "socks5") {
+                    return Err(
+                        "Cloudflare WebView 验证只支持 http:// 或 socks5:// 代理".to_string(),
+                    );
+                }
+
+                #[cfg(target_os = "macos")]
+                {
+                    Err(
+                        "当前 macOS 构建未启用 macos-proxy，无法保证 Cloudflare WebView 与业务代理一致"
+                            .to_string(),
+                    )
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(Some(url))
+                }
+            }
+        }
     }
 }
 
@@ -364,6 +429,48 @@ mod tests {
         assert_eq!(
             environment_value(&environment, "NO_PROXY"),
             Some("127.0.0.1,localhost,::1,.internal")
+        );
+    }
+
+    #[test]
+    fn proxy_fingerprint_is_route_specific_without_exposing_credentials() {
+        let first = EffectiveProxy::custom("http://user:secret@127.0.0.1:7890".to_string());
+        let second = EffectiveProxy::custom("http://user:secret@127.0.0.1:7891".to_string());
+
+        assert_ne!(first.fingerprint(), second.fingerprint());
+        assert!(!first.fingerprint().contains("secret"));
+    }
+
+    #[test]
+    fn webview_rejects_unsupported_proxy_credentials_and_dns_mode() {
+        let credentials = EffectiveProxy::custom("http://user:secret@127.0.0.1:7890".to_string());
+        let credentials_error = credentials
+            .webview_proxy_url()
+            .expect_err("WebView must not receive proxy credentials");
+        assert!(credentials_error.contains("账号密码"));
+
+        let socks5h = EffectiveProxy::custom("socks5h://127.0.0.1:1080".to_string());
+        let socks5h_error = socks5h
+            .webview_proxy_url()
+            .expect_err("WebView must not silently change socks5h DNS semantics");
+        assert!(socks5h_error.contains("socks5h"));
+    }
+
+    #[test]
+    fn webview_proxy_capability_is_explicit() {
+        let system = EffectiveProxy::system(SystemProxyConfig::default());
+        assert_eq!(system.webview_proxy_url().unwrap(), None);
+
+        let direct = EffectiveProxy::none();
+        assert!(direct.webview_proxy_url().is_err());
+
+        let http = EffectiveProxy::custom("http://127.0.0.1:7890".to_string());
+        #[cfg(target_os = "macos")]
+        assert!(http.webview_proxy_url().is_err());
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            http.webview_proxy_url().unwrap().as_ref().map(Url::scheme),
+            Some("http")
         );
     }
 

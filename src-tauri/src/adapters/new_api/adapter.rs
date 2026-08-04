@@ -6,6 +6,7 @@ pub(crate) use super::http::{
 };
 use super::http::{
     build_url, build_user_request, normalize_base_url, provider_user_management_context,
+    ProviderTransport,
 };
 use super::keys::{
     create_api_key, delete_api_key, fetch_api_key_options, probe_api_key_management,
@@ -20,7 +21,7 @@ use crate::models::{
     ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
     ProviderUsageSummary,
 };
-use reqwest::{Client, Method};
+use reqwest::Method;
 
 pub(crate) struct NewApiAdapter;
 
@@ -253,7 +254,7 @@ fn provider_with_error(provider: &Provider, message: String) -> Provider {
 }
 
 async fn authenticated_provider(
-    client: &reqwest::Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Provider, String> {
     if matches!(provider.auth.mode, AuthMode::Password) {
@@ -264,58 +265,47 @@ async fn authenticated_provider(
 }
 
 pub async fn discover_site_metadata(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
 ) -> Result<SiteMetadata, String> {
     let base_url = normalize_base_url(base_url);
     if base_url.is_empty() {
         return Err("请先填写中转站地址".to_string());
     }
-    fetch_site_metadata(client, &base_url, is_anyrouter_base_url(&base_url)).await
+    fetch_site_metadata(client, &base_url).await
 }
 
 pub async fn list_api_keys(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    let (base_url, api_user, credential, is_anyrouter) =
-        provider_user_management_context(provider)?;
-    fetch_api_key_options(client, &base_url, &api_user, credential, is_anyrouter).await
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    fetch_api_key_options(client, &base_url, &api_user, credential).await
 }
 
 pub async fn create_managed_api_key(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     name: &str,
 ) -> Result<ProviderApiKeyOption, String> {
-    let (base_url, api_user, credential, is_anyrouter) =
-        provider_user_management_context(provider)?;
-    create_api_key(client, &base_url, &api_user, credential, is_anyrouter, name).await
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    create_api_key(client, &base_url, &api_user, credential, name).await
 }
 
 pub async fn delete_managed_api_key(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     token_id: &str,
 ) -> Result<(), String> {
     if token_id.trim().is_empty() {
         return Err("缺少 API 密钥 ID".to_string());
     }
-    let (base_url, api_user, credential, is_anyrouter) =
-        provider_user_management_context(provider)?;
-    delete_api_key(
-        client,
-        &base_url,
-        &api_user,
-        credential,
-        is_anyrouter,
-        token_id,
-    )
-    .await
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    delete_api_key(client, &base_url, &api_user, credential, token_id).await
 }
 
 pub async fn probe_capabilities(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> (ProviderCapabilities, String, Option<String>) {
     let mut capabilities = ProviderCapabilities::default();
@@ -361,10 +351,8 @@ pub async fn probe_capabilities(
 
     let api_key_management_context = provider_user_management_context(provider);
     match api_key_management_context {
-        Ok((base_url, api_user, credential, is_anyrouter)) => {
-            match probe_api_key_management(client, &base_url, &api_user, credential, is_anyrouter)
-                .await
-            {
+        Ok((base_url, api_user, credential)) => {
+            match probe_api_key_management(client, &base_url, &api_user, credential).await {
                 Ok(()) => {
                     capabilities.api_key_management_known = true;
                     capabilities.api_key_management_supported = true;
@@ -405,21 +393,14 @@ pub async fn probe_capabilities(
     (capabilities, invite_link, error)
 }
 
-pub async fn fetch_invite_link(client: &Client, provider: &Provider) -> Result<String, String> {
-    let (base_url, api_user, credential, is_anyrouter) =
-        provider_user_management_context(provider)?;
+pub async fn fetch_invite_link(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Result<String, String> {
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
     let url = build_url(&base_url, "/api/user/aff")?;
-    let request = build_user_request(
-        client,
-        Method::GET,
-        url,
-        &base_url,
-        &api_user,
-        credential,
-        is_anyrouter,
-    )
-    .await?;
-    let (status, body) = send_text(request, "读取邀请链接").await?;
+    let request = build_user_request(client, Method::GET, url, &base_url, &api_user, credential);
+    let (status, body) = send_text(client, request, "读取邀请链接").await?;
     let data = parse_success_data(&status, body, "邀请链接")?;
     let code = data
         .as_str()

@@ -1,4 +1,5 @@
 mod adapters;
+mod app_events;
 mod commands;
 mod contracts;
 mod desktop;

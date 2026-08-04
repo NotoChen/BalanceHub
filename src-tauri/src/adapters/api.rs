@@ -5,7 +5,7 @@
 //! Sub2API account endpoint merely because the user supplied an API key.
 
 use crate::{
-    adapters::transport::{build_client, USER_AGENT_VALUE},
+    adapters::transport::{build_client, ProviderTransport, USER_AGENT_VALUE},
     limits,
     models::{
         AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCapabilities,
@@ -15,9 +15,8 @@ use crate::{
         ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
         ProviderStatus, ProviderUsageSummary,
     },
-    network,
 };
-use reqwest::{header::ACCEPT, header::USER_AGENT, Client, Url};
+use reqwest::{header::ACCEPT, header::USER_AGENT, Url};
 use serde_json::Value;
 
 pub(crate) struct ApiAdapter;
@@ -274,23 +273,21 @@ impl ApiAdapter {
 /// Fetch the OpenAI-compatible model list used by connection checks, refresh,
 /// capability probing, and the editor's model picker.
 pub(crate) async fn fetch_models(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Vec<String>, String> {
     if provider.auth.api_key.trim().is_empty() {
         return Err("缺少 API Key，无法获取模型列表".to_string());
     }
     let url = models_url(provider)?;
-    let response = client
+    let request = client
         .get(url)
         .bearer_auth(provider.auth.api_key.trim())
         .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|err| format!("获取模型列表失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取模型列表").await?;
+        .header(ACCEPT, "application/json");
+    let response = client.send(request, "读取模型列表").await?;
+    let status = response.status;
+    let body = response.body;
     if !status.is_success() {
         let detail = body.chars().take(240).collect::<String>();
         return Err(format!("获取模型列表失败: HTTP {status} {detail}"));

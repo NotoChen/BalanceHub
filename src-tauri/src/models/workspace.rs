@@ -2,6 +2,15 @@ use serde::{Deserialize, Serialize};
 
 use super::{LivenessCliKind, TemporaryCliTerminalKind};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TemporaryCliSessionMode {
+    #[default]
+    New,
+    Latest,
+    Picker,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
@@ -37,7 +46,9 @@ pub struct TemporaryCliLaunchInput {
     #[serde(default)]
     pub model: String,
     #[serde(default)]
-    pub resume_id: Option<String>,
+    pub session_mode: TemporaryCliSessionMode,
+    #[serde(default)]
+    pub session_name: String,
     pub terminal_kind: TemporaryCliTerminalKind,
 }
 

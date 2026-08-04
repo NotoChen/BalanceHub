@@ -13,6 +13,7 @@ import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
 import { usePasswordChange } from "./usePasswordChange";
 import { useOnboardingController } from "./useOnboardingController";
+import { useProviderChallenge } from "./useProviderChallenge";
 import { useProviderEditor } from "./useProviderEditor";
 import { useProviderActions } from "./useProviderActions";
 import { useProviderWorkspaceController } from "./useProviderWorkspaceController";
@@ -120,6 +121,9 @@ export function useAppController() {
     await providerStore.toggleProvider(provider.identity.id, enabled);
   }
 
+  const providerChallenge = useProviderChallenge({
+    passChallenge: (providerId) => providerStore.passProviderChallenge(providerId),
+  });
   const providerEditor = useProviderEditor({ store: providerStore });
 
   const onboarding = useOnboardingController({
@@ -143,10 +147,10 @@ export function useAppController() {
     terminalKind: computed(() => settings.value.temporaryCliTerminalKind),
     cliEnvironmentProbe,
     listApiKeys: (providerId) => providerStore.listApiKeys(providerId),
-    listSessions: (cliKind, workdir) => providerStore.listCliSessions(cliKind, workdir),
     browse: (path) => providerStore.browseWorkspaceDirectories(path),
     forget: (path) => providerStore.forgetWorkspace(path),
     launch: (input) => providerStore.launchTemporaryCli(input),
+    getInstance: (instanceId) => providerStore.getTemporaryCliInstance(instanceId),
   });
 
   const providerActions = useProviderActions({
@@ -250,6 +254,7 @@ export function useAppController() {
     ...availableModels,
     ...cliRuntimeController,
     ...workspacePicker,
+    ...providerChallenge,
     ...providerEditor,
     ...providerActions,
     ...workspace,

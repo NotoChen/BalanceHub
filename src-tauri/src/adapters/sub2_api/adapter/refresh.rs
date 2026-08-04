@@ -8,7 +8,7 @@ use crate::{
             json::string_field,
             profile::{apply_user, fetch_models, fetch_site, quota_display},
         },
-        transport::build_client,
+        transport::{build_client, ProviderTransport},
     },
     limits,
     models::{
@@ -17,7 +17,6 @@ use crate::{
         ProviderSiteProbeResult, ProviderStatus,
     },
 };
-use reqwest::Client;
 use serde_json::Value;
 
 impl Sub2ApiAdapter {
@@ -136,7 +135,7 @@ impl Sub2ApiAdapter {
 
     async fn refresh_provider_with_client(
         &self,
-        client: &Client,
+        client: &ProviderTransport,
         provider: &Provider,
         site_hint: Option<Value>,
     ) -> Provider {

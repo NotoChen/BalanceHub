@@ -68,6 +68,12 @@ pub enum LivenessCliKind {
     ClaudeCode,
 }
 
+impl LivenessCliKind {
+    pub(crate) fn supports_session_name(self) -> bool {
+        matches!(self, Self::ClaudeCode)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TemporaryCliTerminalKind {

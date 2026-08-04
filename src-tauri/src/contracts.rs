@@ -6,6 +6,7 @@ use crate::{
         provider_domain, AppData, AppSettings, CodexModelSyncResult, Provider,
         ProviderCapabilityProbeResult, RefreshResult, TemporaryCliPreference, Workspace,
     },
+    network::shield,
 };
 
 /// Tauri IPC only view of a provider. The persisted `Provider` remains free of
@@ -19,7 +20,7 @@ pub struct ProviderView {
     pub actions: ProviderActions,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderActions {
     pub account_management: bool,
@@ -27,6 +28,14 @@ pub struct ProviderActions {
     pub checked_in_today: bool,
     pub api_key_management: bool,
     pub invitation: bool,
+    pub challenge: Option<ProviderChallengeView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderChallengeView {
+    pub kind: shield::ShieldKind,
+    pub interactive: bool,
 }
 
 impl From<Provider> for ProviderView {
@@ -45,6 +54,12 @@ impl From<Provider> for ProviderView {
                 &provider,
             ),
             invitation: provider_domain::capabilities::supports_invitation(&provider),
+            challenge: shield::challenge_for(&provider.identity.id).map(|state| {
+                ProviderChallengeView {
+                    kind: state.kind,
+                    interactive: state.kind.may_need_interaction(),
+                }
+            }),
         };
         Self { provider, actions }
     }

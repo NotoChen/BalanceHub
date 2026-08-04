@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::{
     adapters::protocol::ProtocolAdapter,
+    app_events::PROVIDERS_CHANGED_EVENT,
     models::{provider_domain, AppSettings, Provider, ProviderStatus},
     services::{notifications, provider_service::ProviderService},
     tray,
@@ -27,9 +28,6 @@ const INITIAL_DELAY_SECS: u64 = 5;
 const CHECK_IN_MAX_ATTEMPTS_PER_DAY: u32 = 3;
 /// 自动签到两次尝试之间的退避间隔。
 const CHECK_IN_RETRY_BACKOFF_SECS: u64 = 30 * 60;
-/// 前端监听此事件后重新拉取内存状态刷新视图。
-pub const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
-
 /// 单个中转站当日自动签到的尝试记录。
 ///
 /// 「失败后何时重试、何时放弃」的状态只活在调度器内存里，与展示用的

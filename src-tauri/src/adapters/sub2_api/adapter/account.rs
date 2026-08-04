@@ -8,11 +8,11 @@ use crate::{
             response::normalize_base_url,
             usage::urlencoding,
         },
-        transport::build_client,
+        transport::{build_client, ProviderTransport},
     },
     models::{AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCapabilities},
 };
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde_json::json;
 
 impl Sub2ApiAdapter {
@@ -164,7 +164,7 @@ impl Sub2ApiAdapter {
 
     async fn invite_link_with_client(
         &self,
-        client: &Client,
+        client: &ProviderTransport,
         provider: &Provider,
     ) -> Result<String, String> {
         let (_authenticated, data) = request_account_json(

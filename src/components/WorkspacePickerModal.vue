@@ -12,9 +12,9 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import type {
   LivenessCliKind,
-  CliSessionSummary,
   Provider,
   ProviderApiKeyOption,
+  TemporaryCliSessionMode,
   TemporaryCliTerminalKind,
   Workspace,
   WorkspaceDirectoryListing,
@@ -34,11 +34,9 @@ const props = defineProps<{
   apiKeyError: string;
   apiKeyTokenId: string;
   selectedModel: string;
-  sessionMode: "new" | "resume";
-  selectedSessionId: string;
-  sessions: CliSessionSummary[];
-  sessionsLoading: boolean;
-  sessionError: string;
+  sessionName: string;
+  canNameSession: boolean;
+  sessionMode: TemporaryCliSessionMode;
   terminalKind: TemporaryCliTerminalKind;
   terminalOptions: SelectOption<TemporaryCliTerminalKind>[];
   workspaces: Workspace[];
@@ -46,6 +44,8 @@ const props = defineProps<{
   pathDraft: string;
   browsing: boolean;
   launchingPath: string | null;
+  launchProgress: number;
+  launchStage: string;
   forgettingPath: string | null;
   error: string;
 }>();
@@ -56,8 +56,8 @@ const emit = defineEmits<{
   "update:cliKind": [kind: LivenessCliKind];
   "update:apiKeyTokenId": [tokenId: string];
   "update:selectedModel": [model: string];
-  "update:sessionMode": [mode: "new" | "resume"];
-  "update:selectedSessionId": [sessionId: string];
+  "update:sessionName": [name: string];
+  "update:sessionMode": [mode: TemporaryCliSessionMode];
   "update:terminalKind": [kind: TemporaryCliTerminalKind];
   browse: [path?: string];
   launch: [path?: string];
@@ -87,16 +87,17 @@ const visibleDirectories = computed(() =>
 
 const launching = computed(() => Boolean(props.launchingPath));
 const cliLabel = computed(() => (props.cliKind === "codex" ? "Codex" : "Claude Code"));
-const preferredModel = computed(() => props.provider?.cli.preferredModel?.trim() || "");
-const selectedSession = computed(() =>
-  props.sessions.find((session) => session.id === props.selectedSessionId),
+const codexNamingHint = computed(
+  () => props.cliKind === "codex" && props.sessionMode === "new" && !props.canNameSession,
 );
-const fixedModel = computed(() => {
-  if (props.sessionMode === "resume") {
-    return selectedSession.value?.model?.trim() || "未记录（由 CLI 恢复）";
-  }
-  return preferredModel.value;
-});
+const preferredModel = computed(() => props.provider?.cli.preferredModel?.trim() || "");
+const fixedModel = computed(() => (props.sessionMode === "new" ? preferredModel.value : ""));
+const modelPlaceholder = computed(() =>
+  props.sessionMode === "new" ? "选择或输入模型（可选）" : "不指定则沿用原会话模型",
+);
+const launchProgressPercent = computed(() =>
+  Math.min(1, Math.max(0, props.launchProgress / 100)),
+);
 
 const modelOptions = computed(() => {
   const models = props.provider?.capabilities.availableModels ?? [];
@@ -155,13 +156,13 @@ const selectedModelModel = computed({
   get: () => props.selectedModel,
   set: (value: string) => emit("update:selectedModel", value),
 });
+const sessionNameModel = computed({
+  get: () => props.sessionName,
+  set: (value: string) => emit("update:sessionName", value),
+});
 const sessionModeModel = computed({
   get: () => props.sessionMode,
-  set: (value: "new" | "resume") => emit("update:sessionMode", value),
-});
-const selectedSessionModel = computed({
-  get: () => props.selectedSessionId,
-  set: (value: string) => emit("update:selectedSessionId", value),
+  set: (value: TemporaryCliSessionMode) => emit("update:sessionMode", value),
 });
 const terminalKindModel = computed({
   get: () => props.terminalKind,
@@ -179,16 +180,9 @@ function browseDraftPath() {
   }
 }
 
-function formatSessionTime(value: string | null) {
-  if (!value) return "时间未知";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  const pad = (item: number) => String(item).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function sessionModelLabel(session: CliSessionSummary) {
-  return session.model?.trim() || "模型未知";
+function handleVisibleChange(visible: boolean) {
+  if (!visible && launching.value) return;
+  emit("update:visible", visible);
 }
 </script>
 
@@ -203,7 +197,7 @@ function sessionModelLabel(session: CliSessionSummary) {
     :mask-closable="!launching"
     :esc-to-close="!launching"
     unmount-on-close
-    @update:visible="emit('update:visible', $event)"
+    @update:visible="handleVisibleChange"
   >
     <template #title>
       <div class="surface-modal-title workspace-picker-title">
@@ -315,25 +309,19 @@ function sessionModelLabel(session: CliSessionSummary) {
               <span :title="fixedModel">{{ fixedModel }}</span>
             </div>
             <a-select
-              v-else-if="modelOptions.length > 0"
+              v-else
               v-model="selectedModelModel"
               size="small"
               allow-search
               allow-clear
+              allow-create
               :disabled="launching"
-              placeholder="选择模型"
+              :placeholder="modelPlaceholder"
             >
               <a-option v-for="model in modelOptions" :key="model" :value="model">
                 {{ model }}
               </a-option>
             </a-select>
-            <a-input
-              v-else
-              v-model="selectedModelModel"
-              size="small"
-              :disabled="launching"
-              placeholder="输入模型名称（可选）"
-            />
           </div>
           <div class="workspace-launch-config-field workspace-launch-terminal-field">
             <span class="workspace-config-label">终端</span>
@@ -344,53 +332,31 @@ function sessionModelLabel(session: CliSessionSummary) {
             />
           </div>
         </section>
-        <section class="workspace-session-picker" aria-label="历史会话">
+        <section class="workspace-session-picker" aria-label="会话启动方式">
           <div class="workspace-session-header">
             <span class="workspace-config-label">会话</span>
             <a-radio-group v-model="sessionModeModel" type="button" size="small" :disabled="launching">
               <a-radio value="new">新会话</a-radio>
-              <a-radio value="resume">继续会话</a-radio>
+              <a-radio value="latest">继续最近</a-radio>
+              <a-radio value="picker">选择历史</a-radio>
             </a-radio-group>
           </div>
-          <a-spin :loading="sessionsLoading" class="workspace-session-spin">
-            <div
-              v-if="sessionModeModel === 'resume' && sessions.length > 0"
-              class="workspace-session-list"
-              role="radiogroup"
-              aria-label="历史会话列表"
-            >
-              <button
-                v-for="session in sessions"
-                :key="session.id"
-                type="button"
-                class="workspace-session-item"
-                :class="{ selected: selectedSessionModel === session.id }"
-                :aria-checked="selectedSessionModel === session.id"
-                role="radio"
-                :disabled="launching"
-                @click="selectedSessionModel = session.id"
-              >
-                <span class="workspace-session-copy">
-                  <strong :title="session.title">{{ session.title }}</strong>
-                  <span>{{ sessionModelLabel(session) }}</span>
-                </span>
-                <span class="workspace-session-meta">
-                  <code :title="session.id">{{ session.id }}</code>
-                  <small>{{ formatSessionTime(session.updatedAt) }}</small>
-                </span>
-              </button>
-            </div>
-            <div
-              v-else-if="sessionModeModel === 'resume' && !sessionsLoading"
-              class="workspace-session-empty"
-            >
-              当前目录没有可继续的历史会话
-            </div>
-          </a-spin>
+          <div v-if="canNameSession" class="workspace-session-name-field">
+            <span class="workspace-config-label">会话名称</span>
+            <a-input
+              v-model="sessionNameModel"
+              size="small"
+              allow-clear
+              :disabled="launching"
+              placeholder="可选，例如：支付模块重构"
+            />
+          </div>
           <a-alert
-            v-if="sessionError"
-            type="warning"
-            :content="`历史会话读取失败：${sessionError}`"
+            v-else-if="codexNamingHint"
+            class="workspace-session-capability-note"
+            type="info"
+            show-icon
+            content="Codex 当前不支持启动前命名；启动后可在终端输入 /new 名称 或 /rename"
           />
         </section>
         <a-alert v-if="apiKeyError" type="warning" :content="`API Key 列表读取失败：${apiKeyError}`" />
@@ -478,6 +444,19 @@ function sessionModelLabel(session: CliSessionSummary) {
           </a-spin>
         </div>
 
+        <div v-if="launching" class="workspace-launch-progress" aria-live="polite">
+          <div class="workspace-launch-progress-label">
+            <strong>{{ launchStage || `正在启动 ${cliLabel}` }}</strong>
+            <span>{{ Math.round(launchProgress) }}%</span>
+          </div>
+          <a-progress
+            :percent="launchProgressPercent"
+            :show-text="false"
+            size="small"
+            animation
+          />
+        </div>
+
         <footer class="workspace-picker-footer">
           <div class="workspace-current-selection">
             <span>当前工作空间</span>
@@ -487,7 +466,7 @@ function sessionModelLabel(session: CliSessionSummary) {
             <a-button
               type="primary"
               :loading="launchingPath === directory?.currentPath"
-              :disabled="browsing || launching || sessionsLoading || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || (sessionModeModel === 'resume' && !selectedSessionModel)"
+              :disabled="browsing || launching || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0"
               @click="emit('launch', directory?.currentPath)"
             >
               <template #icon><icon-launch /></template>

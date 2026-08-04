@@ -24,6 +24,7 @@ pub const MAX_LIVENESS_RECORDS: usize = 40;
 pub const MAX_CHECK_IN_RECORDS: usize = 730;
 pub const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 16;
 pub const MAX_SITE_METADATA_CACHE_ENTRIES: usize = 128;
+pub const MAX_SHIELD_CACHE_ENTRIES: usize = 64;
 
 pub fn normalize_settings(settings: &mut AppSettings) {
     settings.liveness_timeout = settings

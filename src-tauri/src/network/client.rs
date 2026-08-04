@@ -1,7 +1,7 @@
-use super::proxy::{merge_no_proxy, resolve_global_proxy, resolve_proxy, EffectiveProxy};
+use super::proxy::{merge_no_proxy, resolve_global_proxy, EffectiveProxy};
 use crate::{
     limits,
-    models::{AppSettings, Provider, ProxyMode},
+    models::{AppSettings, ProxyMode},
 };
 use lru::LruCache;
 use reqwest::{redirect::Policy, Client, ClientBuilder, NoProxy, Proxy};
@@ -25,14 +25,8 @@ enum ProxyKind {
     All,
 }
 
-pub(crate) fn build_provider_client(
-    settings: &AppSettings,
-    provider: &Provider,
-) -> Result<Client, String> {
-    build_cached_client(
-        HttpClientProfile::Business,
-        resolve_proxy(settings, provider),
-    )
+pub(crate) fn build_provider_client_with_proxy(proxy: EffectiveProxy) -> Result<Client, String> {
+    build_cached_client(HttpClientProfile::Business, proxy)
 }
 
 pub(crate) fn build_webhook_client(settings: &AppSettings) -> Result<Client, String> {

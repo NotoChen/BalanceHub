@@ -1,22 +1,15 @@
-use crate::{
-    models::{AuthMode, Provider, ProviderQuotaDisplay, ProviderQuotaScope, ProviderStatus},
-    network,
-};
-use reqwest::{
-    header::{ACCEPT, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, USER_AGENT},
-    Client,
-};
+use crate::models::{AuthMode, Provider, ProviderQuotaDisplay, ProviderQuotaScope, ProviderStatus};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use serde::Deserialize;
 use serde_json::Value;
 
 use super::http::{
-    access_token_fallback_provider, apply_auth_headers, authenticate_password_provider, build_url,
-    login_password_provider, merge_cookie_headers, normalize_base_url, provider_cookie_header,
-    provider_is_anyrouter, should_retry_with_access_token, USER_AGENT_VALUE,
+    access_token_fallback_provider, apply_auth_headers, apply_session_cookie,
+    authenticate_password_provider, build_url, login_password_provider, normalize_base_url,
+    should_retry_with_access_token, ProviderTransport, USER_AGENT_VALUE,
 };
 use super::response::{
-    cloudflare_challenge_message, extract_bool_field, extract_i64_field, extract_string_field,
-    is_cloudflare_challenge, parse_success_data, trim_message,
+    extract_bool_field, extract_i64_field, extract_string_field, parse_success_data, trim_message,
 };
 use super::site::{
     apply_site_metadata, convert_quota_value, fetch_site_metadata, site_metadata_from_provider,
@@ -60,7 +53,7 @@ struct QuotaProfile {
     login_username: String,
 }
 
-pub async fn refresh_provider(client: &Client, provider: &Provider) -> Provider {
+pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -> Provider {
     let mut next = provider.clone();
 
     if !provider.runtime.enabled {
@@ -143,7 +136,7 @@ pub async fn refresh_provider(client: &Client, provider: &Provider) -> Provider 
 }
 
 async fn fetch_quota_with_access_token_fallback(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<QuotaProfile, String> {
     match fetch_quota(client, provider).await {
@@ -163,12 +156,14 @@ async fn fetch_quota_with_access_token_fallback(
     }
 }
 
-async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfile, String> {
+async fn fetch_quota(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Result<QuotaProfile, String> {
     validate_credentials(provider)?;
 
     let base_url = normalize_base_url(&provider.identity.base_url);
-    let is_anyrouter = provider_is_anyrouter(provider);
-    let site = fetch_site_metadata(client, &base_url, is_anyrouter)
+    let site = fetch_site_metadata(client, &base_url)
         .await
         .unwrap_or_else(|_| site_metadata_from_provider(provider));
     if matches!(provider.auth.mode, AuthMode::ApiKey) {
@@ -176,11 +171,7 @@ async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfil
     }
     let url = build_url(&base_url, "/api/user/self")?;
 
-    let mut cookie_header = String::new();
-    if is_anyrouter {
-        cookie_header = super::anyrouter::challenge_cookie_header(client, &base_url).await?;
-    }
-
+    // 盾凭证由 ProviderTransport 独立管理；这里仅附加业务认证 Cookie。
     let mut request = client
         .get(url)
         .header(USER_AGENT, USER_AGENT_VALUE)
@@ -190,38 +181,19 @@ async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfil
         .header(REFERER, format!("{base_url}/"));
 
     request = apply_auth_headers(request, provider);
+    request = apply_session_cookie(request, provider);
 
-    let provider_cookie_header =
-        provider_cookie_header(&provider.auth.session_cookie, is_anyrouter);
-    if matches!(provider.auth.mode, AuthMode::Session) {
-        cookie_header =
-            merge_cookie_headers(&[cookie_header.as_str(), provider_cookie_header.as_str()]);
+    let response = client.send(request, "请求余额").await?;
+    let status = response.status;
+    let body = response.body;
+
+    // 过盾已由 ProviderTransport 后验处理；走到这里仍是挑战页说明重试未通过。
+    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
+        return Err(crate::adapters::transport::shield_blocked_message(kind));
     }
-
-    if !cookie_header.trim().is_empty() {
-        request = request.header(COOKIE, cookie_header);
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("请求余额失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取余额响应").await?;
 
     if !status.is_success() {
-        if is_cloudflare_challenge(&body) {
-            return Err(cloudflare_challenge_message());
-        }
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));
-    }
-
-    if is_cloudflare_challenge(&body) {
-        return Err(cloudflare_challenge_message());
-    }
-
-    if body.contains("var arg1") {
-        return Err("命中 AnyRouter 验证页，动态 Cookie 未通过".to_string());
     }
 
     let decoded = serde_json::from_str::<NewApiResponse>(&body)
@@ -253,22 +225,20 @@ async fn fetch_quota(client: &Client, provider: &Provider) -> Result<QuotaProfil
 }
 
 async fn fetch_token_quota(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     base_url: &str,
     site: SiteMetadata,
 ) -> Result<QuotaProfile, String> {
     let url = build_url(base_url, "/api/usage/token/")?;
-    let response = client
+    let request = client
         .get(url)
         .header(USER_AGENT, USER_AGENT_VALUE)
         .header(ACCEPT, "application/json, text/plain, */*")
-        .bearer_auth(provider.auth.api_key.trim())
-        .send()
-        .await
-        .map_err(|err| format!("请求 API 密钥额度失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取 API 密钥额度响应").await?;
+        .bearer_auth(provider.auth.api_key.trim());
+    let response = client.send(request, "请求 API 密钥额度").await?;
+    let status = response.status;
+    let body = response.body;
     let data = parse_success_data(&status, body, "API 密钥额度")?;
     let quota_unlimited =
         extract_bool_field(&data, &["unlimited_quota", "unlimitedQuota"]).unwrap_or(false);

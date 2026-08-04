@@ -1,18 +1,17 @@
-use crate::network;
+use crate::adapters::transport::{shield_blocked_message, ProviderTransport};
+use crate::network::shield;
 use reqwest::StatusCode;
 use serde_json::Value;
 
+/// NewAPI 各接口共用的发送器。幂等读取可在求解后有限重试，变更请求则由
+/// ProviderTransport 阻止自动重放；未命中挑战时仍只发送一次普通 HTTP 请求。
 pub(crate) async fn send_text(
+    client: &ProviderTransport,
     request: reqwest::RequestBuilder,
     context: &str,
 ) -> Result<(StatusCode, String), String> {
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("{context}失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, context).await?;
-    Ok((status, body))
+    let response = client.send(request, context).await?;
+    Ok((response.status, response.body))
 }
 
 pub(crate) fn parse_success_data(
@@ -20,12 +19,9 @@ pub(crate) fn parse_success_data(
     body: String,
     context: &str,
 ) -> Result<Value, String> {
-    if body.contains("var arg1") {
-        return Err("命中 AnyRouter 验证页，动态 Cookie 未通过".to_string());
-    }
-
-    if is_cloudflare_challenge(&body) {
-        return Err(cloudflare_challenge_message());
+    // 走到这里还是挑战页，说明过盾后重试仍未通过。
+    if let Some(kind) = shield::detect(&Default::default(), &body) {
+        return Err(shield_blocked_message(kind));
     }
 
     if !status.is_success() {
@@ -144,15 +140,4 @@ pub(crate) fn trim_message(value: &str) -> String {
     } else {
         truncated
     }
-}
-
-pub(crate) fn is_cloudflare_challenge(body: &str) -> bool {
-    let text = body.to_lowercase();
-    text.contains("just a moment")
-        && (text.contains("cloudflare") || text.contains("cf-browser-verification"))
-}
-
-pub(crate) fn cloudflare_challenge_message() -> String {
-    "命中 Cloudflare 验证页。请在浏览器完成该站验证后，复制包含 cf_clearance 的完整 Cookie 到会话 Cookie；或为该站配置可通过验证的代理。"
-        .to_string()
 }

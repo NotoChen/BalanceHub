@@ -1,7 +1,7 @@
 #[cfg(not(target_os = "windows"))]
 use crate::services::liveness::LivenessRunner;
 use crate::{
-    models::{AppSettings, LivenessCliKind, Provider},
+    models::{AppSettings, LivenessCliKind, Provider, TemporaryCliSessionMode},
     network::ProxyEnvironment,
     util::unix_millis as now_millis,
 };
@@ -95,7 +95,8 @@ pub(super) struct LaunchScriptInput<'a> {
     pub(super) api_key: &'a str,
     pub(super) base_url: &'a str,
     pub(super) model: &'a str,
-    pub(super) resume_id: Option<&'a str>,
+    pub(super) session_name: &'a str,
+    pub(super) session_mode: TemporaryCliSessionMode,
     pub(super) status_path: &'a Path,
     pub(super) proxy_environment: &'a ProxyEnvironment,
 }
@@ -111,7 +112,8 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         input.provider_name,
         input.base_url,
         input.model,
-        input.resume_id,
+        input.session_name,
+        input.session_mode,
         claude_settings_path.as_deref(),
     );
     let path_export = LivenessRunner::runtime_path_for_cli(Path::new(input.cli_path))
@@ -151,14 +153,14 @@ bh_write_status() {{
 bh_now_ms() {{
   echo $(( $(date +%s) * 1000 ))
 }}
-bh_write_status running "$$" null null
 cd {workdir}
 status=$?
 if [ "$status" -ne 0 ]; then
   bh_write_status exited null "$(bh_now_ms)" "$status"
   exit "$status"
 fi
-{path_export}{color_block}{proxy_block}{auth_block}{cli} {args}
+{path_export}{color_block}{proxy_block}{auth_block}bh_write_status running "$$" null null
+{cli} {args}
 status=$?
 bh_write_status exited null "$(bh_now_ms)" "$status"
 rm -f "$0"
@@ -195,7 +197,8 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         input.provider_name,
         input.base_url,
         input.model,
-        input.resume_id,
+        input.session_name,
+        input.session_mode,
         claude_settings_path.as_deref(),
     );
     let launch_payload_path = temporary_windows_launch_payload_path(input.script);
@@ -217,7 +220,7 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
     let text = format!(
-        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_LAUNCH_FILE={launch_payload_path}\"\r\nset \"BH_POWERSHELL=\"\r\nwhere pwsh.exe >nul 2>nul && set \"BH_POWERSHELL=pwsh.exe\"\r\nif not defined BH_POWERSHELL where powershell.exe >nul 2>nul && set \"BH_POWERSHELL=powershell.exe\"\r\nset \"BH_PID=null\"\r\nif defined BH_POWERSHELL for /f %%P in ('%BH_POWERSHELL% -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncall :BH_WRITE_STATUS running %BH_PID% null null\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\nif not defined BH_POWERSHELL goto BH_POWERSHELL_ERROR\r\n{color_block}%BH_POWERSHELL% -NoProfile -ExecutionPolicy Bypass -Command \"{powershell_launch_command}\"\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_POWERSHELL_ERROR\r\nset STATUS=9009\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nif defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %STATUS%\r\ndel \"{launch_payload_path}\" 2>nul\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
+        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_LAUNCH_FILE={launch_payload_path}\"\r\nset \"BH_POWERSHELL=\"\r\nwhere pwsh.exe >nul 2>nul && set \"BH_POWERSHELL=pwsh.exe\"\r\nif not defined BH_POWERSHELL where powershell.exe >nul 2>nul && set \"BH_POWERSHELL=powershell.exe\"\r\nset \"BH_PID=null\"\r\nif defined BH_POWERSHELL for /f %%P in ('%BH_POWERSHELL% -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\nif not defined BH_POWERSHELL goto BH_POWERSHELL_ERROR\r\n{color_block}call :BH_WRITE_STATUS running %BH_PID% null null\r\n%BH_POWERSHELL% -NoProfile -ExecutionPolicy Bypass -Command \"{powershell_launch_command}\"\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_POWERSHELL_ERROR\r\nset STATUS=9009\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nif defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %STATUS%\r\ndel \"{launch_payload_path}\" 2>nul\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
         status_path = escape_cmd_value(&input.status_path.display().to_string()),
         launch_payload_path = escape_cmd_value(&launch_payload_path.display().to_string()),
         workdir = escape_cmd_value(&input.workdir.display().to_string()),
@@ -395,7 +398,8 @@ pub(super) fn cli_args(
     provider_name: &str,
     base_url: &str,
     model: &str,
-    resume_id: Option<&str>,
+    session_name: &str,
+    session_mode: TemporaryCliSessionMode,
     claude_settings_path: Option<&Path>,
 ) -> Vec<String> {
     match cli_kind {
@@ -430,8 +434,12 @@ pub(super) fn cli_args(
                 "-c".to_string(),
                 "model_providers.custom.requires_openai_auth=true".to_string(),
             ]);
-            if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
-                args.extend(["resume".to_string(), resume_id.trim().to_string()]);
+            match session_mode {
+                TemporaryCliSessionMode::New => {}
+                TemporaryCliSessionMode::Latest => {
+                    args.extend(["resume".to_string(), "--last".to_string()]);
+                }
+                TemporaryCliSessionMode::Picker => args.push("resume".to_string()),
             }
             args
         }
@@ -443,8 +451,15 @@ pub(super) fn cli_args(
             if !model.trim().is_empty() {
                 args.extend(["--model".to_string(), model.trim().to_string()]);
             }
-            if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
-                args.extend(["--resume".to_string(), resume_id.trim().to_string()]);
+            if matches!(session_mode, TemporaryCliSessionMode::New)
+                && !session_name.trim().is_empty()
+            {
+                args.extend(["--name".to_string(), session_name.trim().to_string()]);
+            }
+            match session_mode {
+                TemporaryCliSessionMode::New => {}
+                TemporaryCliSessionMode::Latest => args.push("--continue".to_string()),
+                TemporaryCliSessionMode::Picker => args.push("--resume".to_string()),
             }
             args
         }

@@ -1,8 +1,9 @@
 use crate::{
+    adapters::transport::ProviderTransport,
     limits,
     models::{Provider, ProviderApiKeyOption, ProviderProtocol},
 };
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde_json::Value;
 
 use super::{
@@ -13,7 +14,7 @@ use super::{
 };
 
 pub(super) async fn fetch_api_keys(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<(Provider, Vec<ProviderApiKeyOption>), String> {
     let (authenticated, data) = request_account_json(

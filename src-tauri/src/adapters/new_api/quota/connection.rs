@@ -1,14 +1,12 @@
+use super::super::http::{login_password_provider, ProviderTransport};
+use super::fetch_quota;
 use crate::models::{
     AuthMode, Provider, ProviderConnectionTestResult, ProviderConnectionTestStep,
     ProviderQuotaDisplay,
 };
-use reqwest::Client;
-
-use super::super::http::login_password_provider;
-use super::fetch_quota;
 
 pub async fn test_connection(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<ProviderConnectionTestResult, String> {
     let mut steps = Vec::new();
@@ -124,7 +122,7 @@ fn skipped_test_step(name: &str, message: &str) -> ProviderConnectionTestStep {
 }
 
 async fn test_connection_with_auth(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     auth_mode: AuthMode,
 ) -> ProviderConnectionTestStep {

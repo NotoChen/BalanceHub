@@ -1,5 +1,8 @@
-use crate::models::{AuthMode, Provider};
-use reqwest::{Client, Method};
+use crate::{
+    adapters::transport::ProviderTransport,
+    models::{AuthMode, Provider},
+};
+use reqwest::Method;
 use serde_json::{json, Value};
 
 use super::{
@@ -8,7 +11,7 @@ use super::{
 };
 
 pub(super) async fn authenticate_account(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<(Provider, Value), String> {
     request_account_json(
@@ -23,7 +26,7 @@ pub(super) async fn authenticate_account(
 }
 
 pub(super) async fn request_account_json(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
     method: Method,
     path: &str,
@@ -64,7 +67,7 @@ pub(super) async fn request_account_json(
 }
 
 async fn authenticate_account_if_needed(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Provider, String> {
     if matches!(provider.auth.mode, AuthMode::ApiKey) {
@@ -86,7 +89,7 @@ async fn authenticate_account_if_needed(
     Err("缺少 Sub2API 访问令牌".to_string())
 }
 
-async fn login(client: &Client, provider: &Provider) -> Result<Provider, String> {
+async fn login(client: &ProviderTransport, provider: &Provider) -> Result<Provider, String> {
     let username = provider.auth.login_username.trim();
     let password = provider.auth.login_password.trim();
     if username.is_empty() || password.is_empty() {
@@ -119,7 +122,7 @@ const REFRESH_SKEW_SECS: i64 = 120;
 /// 仅供持久化的刷新路径调用：读操作里旋转令牌却不落盘会导致下次提交旧令牌，触发
 /// 服务端「重用攻击」并吊销整个会话家族。
 pub(super) async fn refresh_tokens(
-    client: &Client,
+    client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Provider, String> {
     let refresh_token = provider.auth.refresh_token.trim();

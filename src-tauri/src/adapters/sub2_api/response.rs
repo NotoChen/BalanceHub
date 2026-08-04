@@ -1,5 +1,5 @@
-use crate::network;
-use reqwest::{Client, Method, StatusCode, Url};
+use crate::adapters::transport::ProviderTransport;
+use reqwest::{Method, StatusCode, Url};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ impl Credential {
 }
 
 pub(super) async fn request_json(
-    client: &Client,
+    client: &ProviderTransport,
     method: Method,
     url: Url,
     credential: Option<Credential>,
@@ -33,7 +33,7 @@ pub(super) async fn request_json(
 }
 
 pub(super) async fn request_json_with_timeout(
-    client: &Client,
+    client: &ProviderTransport,
     method: Method,
     url: Url,
     credential: Option<Credential>,
@@ -54,7 +54,7 @@ pub(super) async fn request_json_with_timeout(
 }
 
 async fn request_json_inner(
-    client: &Client,
+    client: &ProviderTransport,
     method: Method,
     url: Url,
     credential: Option<Credential>,
@@ -75,13 +75,8 @@ async fn request_json_inner(
     if let Some(body) = body {
         request = request.json(&body);
     }
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("{context}失败: {err}"))?;
-    let status = response.status();
-    let text = network::read_http_text(response, &format!("读取{context}响应")).await?;
-    parse_response(status, &text, context)
+    let response = client.send(request, context).await?;
+    parse_response(response.status, &response.body, context)
 }
 
 pub(super) fn parse_response(

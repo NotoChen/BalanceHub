@@ -5,7 +5,6 @@ use crate::{
     },
     limits,
     models::{provider_domain, AppSettings, Provider, ProviderProtocol},
-    network,
     services::liveness::openai_base_url,
 };
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -48,16 +47,14 @@ pub(super) async fn fetch_codex_models(
     let url = reqwest::Url::parse(&format!("{}/models", base_url.trim_end_matches('/')))
         .map_err(|err| format!("模型列表地址无效: {err}"))?;
     let client = build_client(settings, provider)?;
-    let response = client
+    let request = client
         .get(url)
         .bearer_auth(provider.auth.api_key.trim())
         .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|err| format!("获取模型列表失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取模型列表").await?;
+        .header(ACCEPT, "application/json");
+    let response = client.send(request, "读取模型列表").await?;
+    let status = response.status;
+    let body = response.body;
     if !status.is_success() {
         let detail = body.chars().take(240).collect::<String>();
         return Err(format!("获取模型列表失败: HTTP {status} {detail}"));

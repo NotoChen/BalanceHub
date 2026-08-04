@@ -43,6 +43,7 @@ const props = withDefaults(
     switchingCliKind?: LivenessCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
+    passingChallenge?: boolean;
   }>(),
   {
     codexDefault: false,
@@ -50,6 +51,7 @@ const props = withDefaults(
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
+    passingChallenge: false,
   },
 );
 
@@ -61,6 +63,7 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
+  passChallenge: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
@@ -134,8 +137,14 @@ const canProbeSite = computed(
   () => props.provider.runtime.enabled && accountManagementAvailable.value,
 );
 const canChangePassword = computed(() => accountManagementAvailable.value);
+// 只有 Rust 在真实请求中检测到可交互的 Cloudflare challenge 后才展示，
+// 普通站点和纯算法盾不进入无效的人工验证流程。
+const canPassChallenge = computed(
+  () => props.provider.actions.challenge?.interactive === true,
+);
 const hasSiteActions = computed(
   () =>
+    canPassChallenge.value ||
     canProbeSite.value ||
     supportsApiKeyManagement(props.provider) ||
     canViewAvailableModels.value ||
@@ -176,7 +185,9 @@ function openDataAction(action: "usage" | "requestLogs" | "liveness" | "checkInR
   }
 }
 
-function openSiteAction(action: "probe" | "keys" | "models" | "password") {
+function openSiteAction(
+  action: "probe" | "keys" | "models" | "password" | "challenge",
+) {
   siteMenuVisible.value = false;
   if (action === "probe") {
     if (!props.provider.runtime.enabled || props.probingCapabilities) {
@@ -187,6 +198,8 @@ function openSiteAction(action: "probe" | "keys" | "models" | "password") {
     emit("openApiKeyManager", props.provider);
   } else if (action === "models") {
     emit("openAvailableModels", props.provider);
+  } else if (action === "challenge") {
+    emit("passChallenge", props.provider);
   } else {
     emit("openPasswordChange", props.provider);
   }
@@ -396,6 +409,19 @@ function handleProviderLogoError(event: Event) {
         >
           <icon-lock class="provider-card-action-icon provider-card-action-icon-password" />
           <span>修改密码</span>
+        </button>
+        <button
+          v-if="canPassChallenge"
+          type="button"
+          :disabled="passingChallenge"
+          @click="openSiteAction('challenge')"
+        >
+          <icon-loading
+            v-if="passingChallenge"
+            class="provider-card-action-icon provider-card-action-icon-probe"
+          />
+          <icon-safe v-else class="provider-card-action-icon provider-card-action-icon-probe" />
+          <span>{{ passingChallenge ? "验证中" : "通过站点验证" }}</span>
         </button>
       </div>
     </div>

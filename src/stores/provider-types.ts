@@ -11,6 +11,7 @@ export type LivenessIntervalMode = "fixed" | "random";
 export type LivenessPromptMode = "fixed" | "random" | "roundRobin";
 export type LivenessCliKind = "codex" | "claudeCode";
 export type TemporaryCliInstanceStatus = "starting" | "running" | "exited";
+export type TemporaryCliSessionMode = "new" | "latest" | "picker";
 export type TemporaryCliTerminalKind =
   | "terminal"
   | "iTerm2"
@@ -51,6 +52,12 @@ export interface ProviderActions {
   checkedInToday: boolean;
   apiKeyManagement: boolean;
   invitation: boolean;
+  challenge: ProviderChallenge | null;
+}
+
+export interface ProviderChallenge {
+  kind: "aliyunWaf" | "cloudflare";
+  interactive: boolean;
 }
 
 export interface ProviderIdentity {
@@ -230,6 +237,7 @@ export interface CliToolProbeResult {
   path: string;
   version: string;
   message: string;
+  supportsSessionName: boolean;
 }
 
 export interface TemporaryTerminalProbeResult {
@@ -460,15 +468,6 @@ export interface TemporaryCliInstance {
   canActivate: boolean;
 }
 
-export interface CliSessionSummary {
-  id: string;
-  title: string;
-  model: string | null;
-  cliKind: LivenessCliKind;
-  createdAt: string | null;
-  updatedAt: string | null;
-}
-
 export interface Workspace {
   path: string;
   useCount: number;
@@ -489,8 +488,9 @@ export interface TemporaryCliLaunchInput {
   apiKey: string;
   apiKeyTokenId: string;
   model: string;
+  sessionMode: TemporaryCliSessionMode;
+  sessionName: string;
   terminalKind: TemporaryCliTerminalKind;
-  resumeId?: string | null;
 }
 
 export interface WorkspaceDirectoryEntry {

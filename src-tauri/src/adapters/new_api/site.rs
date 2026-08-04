@@ -2,23 +2,19 @@ use crate::util::DEFAULT_QUOTA_PER_UNIT;
 use crate::{
     limits,
     models::{Provider, ProviderQuotaDisplay},
-    network,
 };
 use lru::LruCache;
 use reqwest::{
-    header::{ACCEPT, COOKIE, ORIGIN, REFERER, USER_AGENT},
-    Client, Url,
+    header::{ACCEPT, ORIGIN, REFERER, USER_AGENT},
+    Url,
 };
 use serde_json::Value;
 use std::num::NonZeroUsize;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use super::http::{build_url, USER_AGENT_VALUE};
-use super::response::{
-    cloudflare_challenge_message, extract_f64_field, extract_string_field, is_cloudflare_challenge,
-    trim_message,
-};
+use super::http::{build_url, ProviderTransport, USER_AGENT_VALUE};
+use super::response::{extract_f64_field, extract_string_field, trim_message};
 
 #[derive(Debug, Clone)]
 pub struct SiteMetadata {
@@ -58,11 +54,10 @@ fn site_metadata_cache() -> &'static Mutex<LruCache<String, (Instant, SiteMetada
 /// 站点元数据（货币符号/额度单位等）基本不变，缓存 5 分钟，
 /// 避免每次刷新、用量趋势、连接测试都重复探测同一站点的 `/api/status`。
 pub(crate) async fn fetch_site_metadata(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
-    is_anyrouter: bool,
 ) -> Result<SiteMetadata, String> {
-    let cache_key = format!("{is_anyrouter}|{base_url}");
+    let cache_key = base_url.to_string();
     if let Ok(mut cache) = site_metadata_cache().lock() {
         if let Some((fetched_at, metadata)) = cache.get(&cache_key).cloned() {
             if fetched_at.elapsed() < SITE_METADATA_TTL {
@@ -72,7 +67,7 @@ pub(crate) async fn fetch_site_metadata(
         }
     }
 
-    let metadata = fetch_site_metadata_uncached(client, base_url, is_anyrouter).await?;
+    let metadata = fetch_site_metadata_uncached(client, base_url).await?;
     if let Ok(mut cache) = site_metadata_cache().lock() {
         cache.put(cache_key, (Instant::now(), metadata.clone()));
     }
@@ -80,46 +75,28 @@ pub(crate) async fn fetch_site_metadata(
 }
 
 async fn fetch_site_metadata_uncached(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
-    is_anyrouter: bool,
 ) -> Result<SiteMetadata, String> {
     let url = build_url(base_url, "/api/status")?;
-    let mut request = client
+    let request = client
         .get(url)
         .header(USER_AGENT, USER_AGENT_VALUE)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(ORIGIN, base_url)
         .header(REFERER, format!("{base_url}/"));
 
-    if is_anyrouter {
-        let cookie_header = super::anyrouter::challenge_cookie_header(client, base_url).await?;
-        if !cookie_header.trim().is_empty() {
-            request = request.header(COOKIE, cookie_header);
-        }
-    }
+    let request = request.timeout(Duration::from_secs(8));
+    let response = client.send(request, "请求系统状态").await?;
+    let status = response.status;
+    let body = response.body;
 
-    let response = request
-        .timeout(Duration::from_secs(8))
-        .send()
-        .await
-        .map_err(|err| format!("请求系统状态失败: {err}"))?;
-    let status = response.status();
-    let body = network::read_http_text(response, "读取系统状态").await?;
+    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
+        return Err(crate::adapters::transport::shield_blocked_message(kind));
+    }
 
     if !status.is_success() {
-        if is_cloudflare_challenge(&body) {
-            return Err(cloudflare_challenge_message());
-        }
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));
-    }
-
-    if is_cloudflare_challenge(&body) {
-        return Err(cloudflare_challenge_message());
-    }
-
-    if body.contains("var arg1") {
-        return Err("命中 AnyRouter 验证页，动态 Cookie 未通过".to_string());
     }
 
     let decoded = serde_json::from_str::<Value>(&body)

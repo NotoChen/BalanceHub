@@ -2,11 +2,11 @@ use crate::{
     limits,
     models::{normalize_api_key, ProviderApiKeyOption},
 };
-use reqwest::{Client, Method};
+use reqwest::Method;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use super::http::{build_url, build_user_request, UserCredential};
+use super::http::{build_url, build_user_request, ProviderTransport, UserCredential};
 use super::response::{
     extract_bool_field, extract_f64_field, extract_i64_field, extract_string_field,
     extract_token_items, parse_success_data, send_text,
@@ -14,28 +14,19 @@ use super::response::{
 use super::site::{convert_quota_value, fetch_site_metadata, SiteMetadata};
 
 pub(crate) async fn fetch_api_key_options(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    let data = fetch_api_key_page(
-        client,
-        base_url,
-        api_user,
-        credential.clone(),
-        is_anyrouter,
-        1,
-    )
-    .await?;
+    let data = fetch_api_key_page(client, base_url, api_user, credential.clone(), 1).await?;
     // NewAPI caps this endpoint at 100 items. Enforce the same bound locally
     // even when a compatible deployment ignores the requested page size.
     let tokens = extract_token_items(&data)
         .into_iter()
         .take(limits::MAX_API_KEYS_PER_PROVIDER)
         .collect::<Vec<_>>();
-    let site = fetch_site_metadata(client, base_url, is_anyrouter)
+    let site = fetch_site_metadata(client, base_url)
         .await
         .unwrap_or_default();
 
@@ -47,16 +38,10 @@ pub(crate) async fn fetch_api_key_options(
         .iter()
         .filter_map(extract_token_id)
         .collect::<Vec<_>>();
-    let batch_keys = reveal_api_keys_batch(
-        client,
-        base_url,
-        api_user,
-        credential.clone(),
-        is_anyrouter,
-        &token_ids,
-    )
-    .await
-    .unwrap_or_default();
+    let batch_keys =
+        reveal_api_keys_batch(client, base_url, api_user, credential.clone(), &token_ids)
+            .await
+            .unwrap_or_default();
 
     let mut options = Vec::new();
     for (index, token) in tokens.iter().enumerate() {
@@ -66,16 +51,9 @@ pub(crate) async fn fetch_api_key_options(
         let mut full_key =
             extract_full_key_from_token(token).or_else(|| batch_keys.get(&token_id).cloned());
         if full_key.is_none() && !token_id.is_empty() {
-            full_key = reveal_api_key(
-                client,
-                base_url,
-                api_user,
-                credential.clone(),
-                is_anyrouter,
-                &token_id,
-            )
-            .await
-            .ok();
+            full_key = reveal_api_key(client, base_url, api_user, credential.clone(), &token_id)
+                .await
+                .ok();
         }
         options.push(api_key_option_from_token(
             token, name, full_key, token_id, status, &site,
@@ -86,23 +64,21 @@ pub(crate) async fn fetch_api_key_options(
 }
 
 pub(crate) async fn probe_api_key_management(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
 ) -> Result<(), String> {
-    fetch_api_key_page(client, base_url, api_user, credential, is_anyrouter, 1)
+    fetch_api_key_page(client, base_url, api_user, credential, 1)
         .await
         .map(|_| ())
 }
 
 async fn fetch_api_key_page(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
     page: usize,
 ) -> Result<Value, String> {
     let mut url = build_url(base_url, "/api/token/")?;
@@ -111,26 +87,16 @@ async fn fetch_api_key_page(
         pairs.append_pair("p", &page.to_string());
         pairs.append_pair("page_size", &limits::MAX_API_KEYS_PER_PROVIDER.to_string());
     }
-    let request = build_user_request(
-        client,
-        Method::GET,
-        url,
-        base_url,
-        api_user,
-        credential,
-        is_anyrouter,
-    )
-    .await?;
-    let (status, body) = send_text(request, "读取 API 密钥列表").await?;
+    let request = build_user_request(client, Method::GET, url, base_url, api_user, credential);
+    let (status, body) = send_text(client, request, "读取 API 密钥列表").await?;
     parse_success_data(&status, body, "API 密钥列表")
 }
 
 pub(crate) async fn create_api_key(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
     name: &str,
 ) -> Result<ProviderApiKeyOption, String> {
     let name = name.trim();
@@ -151,13 +117,11 @@ pub(crate) async fn create_api_key(
         base_url,
         api_user,
         credential.clone(),
-        is_anyrouter,
     )
-    .await?
     .json(&payload);
-    let (status, body) = send_text(request, "创建 API 密钥").await?;
+    let (status, body) = send_text(client, request, "创建 API 密钥").await?;
     let data = parse_success_data(&status, body, "创建 API 密钥")?;
-    let site = fetch_site_metadata(client, base_url, is_anyrouter)
+    let site = fetch_site_metadata(client, base_url)
         .await
         .unwrap_or_default();
 
@@ -173,15 +137,7 @@ pub(crate) async fn create_api_key(
     }
 
     if let Some(token_id) = extract_token_id(&data) {
-        let key = reveal_api_key(
-            client,
-            base_url,
-            api_user,
-            credential,
-            is_anyrouter,
-            &token_id,
-        )
-        .await?;
+        let key = reveal_api_key(client, base_url, api_user, credential, &token_id).await?;
         return Ok(api_key_option_from_token(
             &data,
             name.to_string(),
@@ -192,8 +148,7 @@ pub(crate) async fn create_api_key(
         ));
     }
 
-    let options =
-        fetch_api_key_options(client, base_url, api_user, credential, is_anyrouter).await?;
+    let options = fetch_api_key_options(client, base_url, api_user, credential).await?;
     options
         .iter()
         .find(|option| option.name == name && option.key_available)
@@ -203,35 +158,24 @@ pub(crate) async fn create_api_key(
 }
 
 pub(crate) async fn delete_api_key(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
     token_id: &str,
 ) -> Result<(), String> {
     let url = build_url(base_url, &format!("/api/token/{}", token_id.trim()))?;
-    let request = build_user_request(
-        client,
-        Method::DELETE,
-        url,
-        base_url,
-        api_user,
-        credential,
-        is_anyrouter,
-    )
-    .await?;
-    let (status, body) = send_text(request, "删除 API 密钥").await?;
+    let request = build_user_request(client, Method::DELETE, url, base_url, api_user, credential);
+    let (status, body) = send_text(client, request, "删除 API 密钥").await?;
     parse_success_data(&status, body, "删除 API 密钥")?;
     Ok(())
 }
 
 async fn reveal_api_key(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
     token_id: &str,
 ) -> Result<String, String> {
     let reveal_url = build_url(base_url, &format!("/api/token/{token_id}/key"))?;
@@ -242,11 +186,9 @@ async fn reveal_api_key(
         base_url,
         api_user,
         credential,
-        is_anyrouter,
     )
-    .await?
     .body("");
-    let (status, body) = send_text(reveal_request, "读取完整 API 密钥").await?;
+    let (status, body) = send_text(client, reveal_request, "读取完整 API 密钥").await?;
     let reveal_data = parse_success_data(&status, body, "完整 API 密钥")?;
     extract_string_field(&reveal_data, &["key", "Key"])
         .filter(|key| is_full_api_key(key))
@@ -255,11 +197,10 @@ async fn reveal_api_key(
 }
 
 async fn reveal_api_keys_batch(
-    client: &Client,
+    client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    is_anyrouter: bool,
     token_ids: &[String],
 ) -> Result<HashMap<String, String>, String> {
     let ids = token_ids
@@ -271,18 +212,9 @@ async fn reveal_api_keys_batch(
     }
 
     let url = build_url(base_url, "/api/token/batch/keys")?;
-    let request = build_user_request(
-        client,
-        Method::POST,
-        url,
-        base_url,
-        api_user,
-        credential,
-        is_anyrouter,
-    )
-    .await?
-    .json(&json!({ "ids": ids }));
-    let (status, body) = send_text(request, "批量读取完整 API 密钥").await?;
+    let request = build_user_request(client, Method::POST, url, base_url, api_user, credential)
+        .json(&json!({ "ids": ids }));
+    let (status, body) = send_text(client, request, "批量读取完整 API 密钥").await?;
     let data = parse_success_data(&status, body, "完整 API 密钥")?;
     let keys = data.get("keys").unwrap_or(&data);
     let Some(keys) = keys.as_object() else {
