@@ -435,7 +435,7 @@
 }
 
 :root.theme-dark .temporary-cli-summary strong,
-:root.theme-dark .temporary-cli-instance-name strong {
+:root.theme-dark .temporary-cli-runtime-copy strong {
   color: #f2f3f5;
 }
 
@@ -444,12 +444,13 @@
   color: #c9cdd4;
 }
 
-:root.theme-dark .temporary-cli-terminal,
+:root.theme-dark .temporary-cli-runtime-copy small,
 :root.theme-dark .temporary-cli-details dt {
   color: #96a5b7;
 }
 
 :root.theme-dark .temporary-cli-agent-icon,
+:root.theme-dark .temporary-cli-terminal-icon,
 :root.theme-dark .temporary-cli-copy,
 :root.theme-dark .temporary-cli-status {
   border-color: var(--surface-line);

@@ -39,9 +39,9 @@
 
 :root.theme-dark .provider-card-error::after {
   background: linear-gradient(
-    90deg,
-    color-mix(in srgb, #ff7d7d 8%, transparent),
-    transparent 42%
+    to bottom left,
+    color-mix(in srgb, #ff7d7d 9%, transparent),
+    transparent 64%
   );
 }
 
@@ -90,7 +90,6 @@
   box-shadow: none;
 }
 
-:root.theme-dark .provider-card-disabled::before,
 :root.theme-dark .provider-card-disabled::after {
   display: none;
 }

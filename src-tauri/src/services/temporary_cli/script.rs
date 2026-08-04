@@ -95,6 +95,7 @@ pub(super) struct LaunchScriptInput<'a> {
     pub(super) api_key: &'a str,
     pub(super) base_url: &'a str,
     pub(super) model: &'a str,
+    pub(super) resume_id: Option<&'a str>,
     pub(super) status_path: &'a Path,
     pub(super) proxy_environment: &'a ProxyEnvironment,
 }
@@ -110,6 +111,7 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         input.provider_name,
         input.base_url,
         input.model,
+        input.resume_id,
         claude_settings_path.as_deref(),
     );
     let path_export = LivenessRunner::runtime_path_for_cli(Path::new(input.cli_path))
@@ -193,6 +195,7 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         input.provider_name,
         input.base_url,
         input.model,
+        input.resume_id,
         claude_settings_path.as_deref(),
     );
     let launch_payload_path = temporary_windows_launch_payload_path(input.script);
@@ -392,6 +395,7 @@ pub(super) fn cli_args(
     provider_name: &str,
     base_url: &str,
     model: &str,
+    resume_id: Option<&str>,
     claude_settings_path: Option<&Path>,
 ) -> Vec<String> {
     match cli_kind {
@@ -426,6 +430,9 @@ pub(super) fn cli_args(
                 "-c".to_string(),
                 "model_providers.custom.requires_openai_auth=true".to_string(),
             ]);
+            if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
+                args.extend(["resume".to_string(), resume_id.trim().to_string()]);
+            }
             args
         }
         LivenessCliKind::ClaudeCode => {
@@ -435,6 +442,9 @@ pub(super) fn cli_args(
             }
             if !model.trim().is_empty() {
                 args.extend(["--model".to_string(), model.trim().to_string()]);
+            }
+            if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
+                args.extend(["--resume".to_string(), resume_id.trim().to_string()]);
             }
             args
         }

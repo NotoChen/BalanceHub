@@ -2,6 +2,7 @@ import { computed, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type {
   CliEnvironmentProbeResult,
+  CliSessionSummary,
   LivenessCliKind,
   Provider,
   ProviderApiKeyOption,
@@ -24,7 +25,10 @@ interface UseWorkspacePickerOptions {
   browse: (path?: string) => Promise<WorkspaceDirectoryListing>;
   forget: (path: string) => Promise<Workspace[]>;
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
+  listSessions: (cliKind: LivenessCliKind, workdir: string) => Promise<CliSessionSummary[]>;
 }
+
+export type WorkspaceSessionMode = "new" | "resume";
 
 export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspacePickerVisible = ref(false);
@@ -35,6 +39,12 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceApiKeyError = ref("");
   const workspaceApiKeyTokenId = ref("");
   const workspaceSelectedModel = ref("");
+  const workspaceNewSessionModel = ref("");
+  const workspaceSessionMode = ref<WorkspaceSessionMode>("new");
+  const workspaceSessions = ref<CliSessionSummary[]>([]);
+  const workspaceSessionsLoading = ref(false);
+  const workspaceSessionError = ref("");
+  const workspaceSelectedSessionId = ref("");
   const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(options.terminalKind.value);
   const workspaceCliOptions = computed(() => availableCliOptions(options.cliEnvironmentProbe.value));
   const workspaceTerminalOptions = computed(() =>
@@ -48,6 +58,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceBrowserError = ref("");
   let browseRequestId = 0;
   let apiKeyRequestId = 0;
+  let sessionRequestId = 0;
   let pickerRequestId = 0;
 
   async function loadWorkspaceApiKeys(provider: Provider) {
@@ -137,6 +148,15 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       }
       workspaceDirectory.value = listing;
       workspacePathDraft.value = listing.currentPath;
+      if (workspaceSessionMode.value === "resume") {
+        void loadWorkspaceSessions(listing.currentPath, workspacePickerCliKind.value);
+      } else {
+        sessionRequestId += 1;
+        workspaceSessions.value = [];
+        workspaceSelectedSessionId.value = "";
+        workspaceSessionError.value = "";
+        workspaceSessionsLoading.value = false;
+      }
       return true;
     } catch (error) {
       if (requestId === browseRequestId) {
@@ -147,6 +167,54 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       if (requestId === browseRequestId) {
         workspaceBrowsing.value = false;
       }
+    }
+  }
+
+  async function loadWorkspaceSessions(path?: string, cliKind = workspacePickerCliKind.value) {
+    const requestId = ++sessionRequestId;
+    const workdir = (path || workspaceDirectory.value?.currentPath || "").trim();
+    workspaceSessions.value = [];
+    workspaceSelectedSessionId.value = "";
+    workspaceSessionError.value = "";
+    if (!workspacePickerVisible.value || !workdir) {
+      workspaceSessionsLoading.value = false;
+      return;
+    }
+
+    workspaceSessionsLoading.value = true;
+    try {
+      const sessions = await options.listSessions(cliKind, workdir);
+      if (
+        requestId !== sessionRequestId
+        || !workspacePickerVisible.value
+        || workspacePickerCliKind.value !== cliKind
+        || workspaceDirectory.value?.currentPath !== workdir
+      ) {
+        return;
+      }
+      workspaceSessions.value = sessions;
+      if (sessions.length === 0) {
+        workspaceSessionMode.value = "new";
+        return;
+      }
+      selectWorkspaceSession(sessions[0].id);
+    } catch (error) {
+      if (requestId === sessionRequestId) {
+        workspaceSessionError.value = error instanceof Error ? error.message : String(error);
+        workspaceSessionMode.value = "new";
+      }
+    } finally {
+      if (requestId === sessionRequestId) {
+        workspaceSessionsLoading.value = false;
+      }
+    }
+  }
+
+  function selectWorkspaceSession(sessionId: string) {
+    const session = workspaceSessions.value.find((item) => item.id === sessionId);
+    workspaceSelectedSessionId.value = session?.id ?? "";
+    if (workspaceSessionMode.value === "resume") {
+      workspaceSelectedModel.value = session?.model?.trim() || "";
     }
   }
 
@@ -168,11 +236,17 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       ? options.terminalKind.value
       : (workspaceTerminalOptions.value[0]?.value ?? options.terminalKind.value);
     workspaceApiKeyTokenId.value = preference?.apiKeyTokenId ?? "";
-    workspaceSelectedModel.value =
+    workspaceNewSessionModel.value =
       provider.cli.preferredModel?.trim() ||
       preference?.model ||
       provider.liveness.model ||
       "";
+    workspaceSelectedModel.value = workspaceNewSessionModel.value;
+    workspaceSessionMode.value = "new";
+    workspaceSessions.value = [];
+    workspaceSelectedSessionId.value = "";
+    workspaceSessionError.value = "";
+    workspaceSessionsLoading.value = false;
     workspacePickerVisible.value = true;
     workspaceDirectory.value = null;
     workspacePathDraft.value = "";
@@ -220,9 +294,20 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       (option) => option.tokenId === workspaceApiKeyTokenId.value,
     );
     const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
-    const model =
-      workspaceSelectedModel.value.trim() ||
-      provider.cli.preferredModel.trim();
+    const resumeId = workspaceSessionMode.value === "resume"
+      ? workspaceSelectedSessionId.value.trim()
+      : "";
+    if (workspaceSessionMode.value === "resume" && !resumeId) {
+      const message = "请选择要继续的历史会话";
+      workspaceBrowserError.value = message;
+      Message.warning(message);
+      workspaceLaunchingPath.value = null;
+      return;
+    }
+    const selectedSession = workspaceSessions.value.find((session) => session.id === resumeId);
+    const model = workspaceSessionMode.value === "resume"
+      ? (selectedSession?.model?.trim() || "")
+      : (workspaceSelectedModel.value.trim() || provider.cli.preferredModel.trim());
     if (!apiKey) {
       const message = "请选择一个可用的 API Key";
       workspaceBrowserError.value = message;
@@ -240,6 +325,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
         apiKeyTokenId: workspaceApiKeyTokenId.value,
         model,
         terminalKind: workspaceTerminalKind.value,
+        resumeId: resumeId || null,
       });
       const cliLabel = workspacePickerCliKind.value === "codex" ? "Codex" : "Claude Code";
       if (result.workspaceError) {
@@ -281,6 +367,51 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     }
   });
 
+  watch(workspacePickerCliKind, (cliKind) => {
+    if (
+      workspacePickerVisible.value
+      && workspaceDirectory.value
+      && workspaceSessionMode.value === "resume"
+    ) {
+      void loadWorkspaceSessions(workspaceDirectory.value.currentPath, cliKind);
+    } else {
+      sessionRequestId += 1;
+      workspaceSessions.value = [];
+      workspaceSelectedSessionId.value = "";
+      workspaceSessionError.value = "";
+      workspaceSessionsLoading.value = false;
+    }
+  });
+
+  watch(workspaceSessionMode, (mode) => {
+    if (mode === "new") {
+      workspaceSelectedModel.value = workspaceNewSessionModel.value;
+      return;
+    }
+    if (workspaceSelectedSessionId.value) {
+      selectWorkspaceSession(workspaceSelectedSessionId.value);
+    } else if (workspaceSessions.value.length > 0) {
+      selectWorkspaceSession(workspaceSessions.value[0].id);
+    } else if (workspacePickerVisible.value && workspaceDirectory.value) {
+      void loadWorkspaceSessions(
+        workspaceDirectory.value.currentPath,
+        workspacePickerCliKind.value,
+      );
+    }
+  });
+
+  watch(workspaceSelectedSessionId, (sessionId) => {
+    if (workspaceSessionMode.value === "resume") {
+      selectWorkspaceSession(sessionId);
+    }
+  });
+
+  watch(workspaceSelectedModel, (model) => {
+    if (workspaceSessionMode.value === "new") {
+      workspaceNewSessionModel.value = model;
+    }
+  });
+
   watch(workspaceTerminalOptions, (available) => {
     if (
       workspacePickerVisible.value &&
@@ -299,8 +430,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     pickerRequestId += 1;
     browseRequestId += 1;
     apiKeyRequestId += 1;
+    sessionRequestId += 1;
     workspaceBrowsing.value = false;
     workspaceApiKeyLoading.value = false;
+    workspaceSessionsLoading.value = false;
   });
 
   return {
@@ -313,6 +446,11 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceApiKeyError,
     workspaceApiKeyTokenId,
     workspaceSelectedModel,
+    workspaceSessionMode,
+    workspaceSessions,
+    workspaceSessionsLoading,
+    workspaceSessionError,
+    workspaceSelectedSessionId,
     workspaceTerminalKind,
     workspaceTerminalOptions,
     workspaceDirectory,
@@ -324,6 +462,8 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     openWorkspacePicker,
     browseWorkspaceDirectory,
     launchWorkspace,
+    loadWorkspaceSessions,
+    selectWorkspaceSession,
     forgetWorkspace,
   };
 }

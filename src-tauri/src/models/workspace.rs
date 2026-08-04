@@ -36,6 +36,8 @@ pub struct TemporaryCliLaunchInput {
     pub api_key_token_id: String,
     #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub resume_id: Option<String>,
     pub terminal_kind: TemporaryCliTerminalKind,
 }
 

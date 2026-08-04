@@ -28,6 +28,7 @@ pub fn launch(
     workdir: &Path,
     api_key_override: &str,
     model_override: &str,
+    resume_id: Option<&str>,
 ) -> Result<TemporaryCliInstance, String> {
     if !workdir.is_dir() {
         return Err("工作目录不存在".to_string());
@@ -48,11 +49,7 @@ pub fn launch(
         LivenessCliKind::Codex => LivenessRunner::find_codex_cli(&settings.codex_cli_path)?,
         LivenessCliKind::ClaudeCode => LivenessRunner::find_claude_cli(&settings.claude_cli_path)?,
     };
-    let model = if model_override.trim().is_empty() {
-        effective_model(settings, provider)
-    } else {
-        model_override.trim().to_string()
-    };
+    let model = resolve_launch_model(settings, provider, model_override, resume_id);
     let base_url = match cli_kind {
         LivenessCliKind::Codex => openai_base_url(provider),
         LivenessCliKind::ClaudeCode => anthropic_base_url(provider),
@@ -86,6 +83,7 @@ pub fn launch(
         api_key: &api_key,
         base_url: &base_url,
         model: &model,
+        resume_id,
         status_path: &registered.status_path,
         proxy_environment: &proxy_environment,
     };
@@ -110,6 +108,24 @@ pub fn launch(
         terminal_launch.locator,
     )
     .unwrap_or(registered.instance))
+}
+
+fn resolve_launch_model(
+    settings: &AppSettings,
+    provider: &Provider,
+    model_override: &str,
+    resume_id: Option<&str>,
+) -> String {
+    if !model_override.trim().is_empty() {
+        return model_override.trim().to_string();
+    }
+    // 恢复已有会话时，CLI 自己会从会话元数据恢复模型；注入测活默认模型
+    // 可能改变原会话的行为。新会话仍沿用现有的全局/中转站回退规则。
+    if resume_id.is_some() {
+        String::new()
+    } else {
+        effective_model(settings, provider)
+    }
 }
 
 pub fn activate(instance_id: &str) -> Result<(), String> {

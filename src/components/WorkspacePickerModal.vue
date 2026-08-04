@@ -12,6 +12,7 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import type {
   LivenessCliKind,
+  CliSessionSummary,
   Provider,
   ProviderApiKeyOption,
   TemporaryCliTerminalKind,
@@ -33,6 +34,11 @@ const props = defineProps<{
   apiKeyError: string;
   apiKeyTokenId: string;
   selectedModel: string;
+  sessionMode: "new" | "resume";
+  selectedSessionId: string;
+  sessions: CliSessionSummary[];
+  sessionsLoading: boolean;
+  sessionError: string;
   terminalKind: TemporaryCliTerminalKind;
   terminalOptions: SelectOption<TemporaryCliTerminalKind>[];
   workspaces: Workspace[];
@@ -50,6 +56,8 @@ const emit = defineEmits<{
   "update:cliKind": [kind: LivenessCliKind];
   "update:apiKeyTokenId": [tokenId: string];
   "update:selectedModel": [model: string];
+  "update:sessionMode": [mode: "new" | "resume"];
+  "update:selectedSessionId": [sessionId: string];
   "update:terminalKind": [kind: TemporaryCliTerminalKind];
   browse: [path?: string];
   launch: [path?: string];
@@ -80,6 +88,15 @@ const visibleDirectories = computed(() =>
 const launching = computed(() => Boolean(props.launchingPath));
 const cliLabel = computed(() => (props.cliKind === "codex" ? "Codex" : "Claude Code"));
 const preferredModel = computed(() => props.provider?.cli.preferredModel?.trim() || "");
+const selectedSession = computed(() =>
+  props.sessions.find((session) => session.id === props.selectedSessionId),
+);
+const fixedModel = computed(() => {
+  if (props.sessionMode === "resume") {
+    return selectedSession.value?.model?.trim() || "未记录（由 CLI 恢复）";
+  }
+  return preferredModel.value;
+});
 
 const modelOptions = computed(() => {
   const models = props.provider?.capabilities.availableModels ?? [];
@@ -138,6 +155,14 @@ const selectedModelModel = computed({
   get: () => props.selectedModel,
   set: (value: string) => emit("update:selectedModel", value),
 });
+const sessionModeModel = computed({
+  get: () => props.sessionMode,
+  set: (value: "new" | "resume") => emit("update:sessionMode", value),
+});
+const selectedSessionModel = computed({
+  get: () => props.selectedSessionId,
+  set: (value: string) => emit("update:selectedSessionId", value),
+});
 const terminalKindModel = computed({
   get: () => props.terminalKind,
   set: (value: TemporaryCliTerminalKind) => emit("update:terminalKind", value),
@@ -152,6 +177,18 @@ function browseDraftPath() {
   if (path) {
     emit("browse", path);
   }
+}
+
+function formatSessionTime(value: string | null) {
+  if (!value) return "时间未知";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  const pad = (item: number) => String(item).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function sessionModelLabel(session: CliSessionSummary) {
+  return session.model?.trim() || "模型未知";
 }
 </script>
 
@@ -274,8 +311,8 @@ function browseDraftPath() {
           </div>
           <div class="workspace-launch-config-field workspace-launch-model-field">
             <span class="workspace-config-label">模型</span>
-            <div v-if="preferredModel" class="workspace-fixed-credential workspace-fixed-model">
-              <span :title="preferredModel">{{ preferredModel }}</span>
+            <div v-if="fixedModel" class="workspace-fixed-credential workspace-fixed-model">
+              <span :title="fixedModel">{{ fixedModel }}</span>
             </div>
             <a-select
               v-else-if="modelOptions.length > 0"
@@ -306,6 +343,55 @@ function browseDraftPath() {
               :disabled="launching"
             />
           </div>
+        </section>
+        <section class="workspace-session-picker" aria-label="历史会话">
+          <div class="workspace-session-header">
+            <span class="workspace-config-label">会话</span>
+            <a-radio-group v-model="sessionModeModel" type="button" size="small" :disabled="launching">
+              <a-radio value="new">新会话</a-radio>
+              <a-radio value="resume">继续会话</a-radio>
+            </a-radio-group>
+          </div>
+          <a-spin :loading="sessionsLoading" class="workspace-session-spin">
+            <div
+              v-if="sessionModeModel === 'resume' && sessions.length > 0"
+              class="workspace-session-list"
+              role="radiogroup"
+              aria-label="历史会话列表"
+            >
+              <button
+                v-for="session in sessions"
+                :key="session.id"
+                type="button"
+                class="workspace-session-item"
+                :class="{ selected: selectedSessionModel === session.id }"
+                :aria-checked="selectedSessionModel === session.id"
+                role="radio"
+                :disabled="launching"
+                @click="selectedSessionModel = session.id"
+              >
+                <span class="workspace-session-copy">
+                  <strong :title="session.title">{{ session.title }}</strong>
+                  <span>{{ sessionModelLabel(session) }}</span>
+                </span>
+                <span class="workspace-session-meta">
+                  <code :title="session.id">{{ session.id }}</code>
+                  <small>{{ formatSessionTime(session.updatedAt) }}</small>
+                </span>
+              </button>
+            </div>
+            <div
+              v-else-if="sessionModeModel === 'resume' && !sessionsLoading"
+              class="workspace-session-empty"
+            >
+              当前目录没有可继续的历史会话
+            </div>
+          </a-spin>
+          <a-alert
+            v-if="sessionError"
+            type="warning"
+            :content="`历史会话读取失败：${sessionError}`"
+          />
         </section>
         <a-alert v-if="apiKeyError" type="warning" :content="`API Key 列表读取失败：${apiKeyError}`" />
         <div class="workspace-browser-toolbar">
@@ -401,7 +487,7 @@ function browseDraftPath() {
             <a-button
               type="primary"
               :loading="launchingPath === directory?.currentPath"
-              :disabled="browsing || launching || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0"
+              :disabled="browsing || launching || sessionsLoading || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || (sessionModeModel === 'resume' && !selectedSessionModel)"
               @click="emit('launch', directory?.currentPath)"
             >
               <template #icon><icon-launch /></template>

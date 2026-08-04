@@ -262,6 +262,127 @@
   min-width: 0;
 }
 
+.workspace-session-picker {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  border-bottom: 1px solid var(--glass-border);
+  padding-bottom: 12px;
+}
+
+.workspace-session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-session-spin {
+  display: block;
+  min-width: 0;
+}
+
+.workspace-session-list {
+  display: grid;
+  max-height: 156px;
+  min-width: 0;
+  gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.workspace-session-item {
+  display: grid;
+  min-width: 0;
+  min-height: 54px;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 0.55fr);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  background: transparent;
+  color: #1d2129;
+  cursor: pointer;
+  padding: 8px 10px;
+  text-align: left;
+  transition:
+    border-color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.workspace-session-item:hover,
+.workspace-session-item:focus-visible,
+.workspace-session-item.selected {
+  border-color: rgba(22, 93, 255, 0.55);
+  background: rgba(22, 93, 255, 0.07);
+  outline: none;
+}
+
+.workspace-session-item.selected {
+  box-shadow: inset 2px 0 #165dff;
+}
+
+.workspace-session-item:active {
+  transform: translateY(1px);
+}
+
+.workspace-session-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.workspace-session-copy,
+.workspace-session-meta {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workspace-session-copy strong,
+.workspace-session-copy span,
+.workspace-session-meta code,
+.workspace-session-meta small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-session-copy strong {
+  color: #1d2129;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.workspace-session-copy span,
+.workspace-session-meta small {
+  color: #86909c;
+  font-size: 10px;
+}
+
+.workspace-session-meta {
+  justify-items: end;
+}
+
+.workspace-session-meta code {
+  width: 100%;
+  color: #4e5969;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  text-align: right;
+}
+
+.workspace-session-empty {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  color: #86909c;
+  font-size: 11px;
+}
+
 .workspace-browser-toolbar {
   min-height: 32px;
   justify-content: space-between;
@@ -414,6 +535,7 @@
 }
 
 :root.theme-dark .workspace-launch-config,
+:root.theme-dark .workspace-session-picker,
 :root.theme-dark .workspace-picker-footer,
 :root.theme-dark .workspace-history-item {
   border-color: var(--glass-border);
@@ -447,6 +569,31 @@
 
 :root.theme-dark .workspace-config-label {
   color: #6b7280;
+}
+
+:root.theme-dark .workspace-session-item {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .workspace-session-item:hover,
+:root.theme-dark .workspace-session-item:focus-visible,
+:root.theme-dark .workspace-session-item.selected {
+  border-color: rgba(94, 156, 255, 0.62);
+  background: rgba(64, 128, 255, 0.13);
+}
+
+:root.theme-dark .workspace-session-copy strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .workspace-session-copy span,
+:root.theme-dark .workspace-session-meta small,
+:root.theme-dark .workspace-session-empty {
+  color: #6b7280;
+}
+
+:root.theme-dark .workspace-session-meta code {
+  color: #c9cdd4;
 }
 
 :root.theme-dark .workspace-fixed-credential {
@@ -519,6 +666,34 @@
 
   .workspace-launch-config {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-session-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workspace-session-header .arco-radio-group {
+    width: 100%;
+  }
+
+  .workspace-session-header .arco-radio-button {
+    flex: 1;
+  }
+
+  .workspace-session-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .workspace-session-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .workspace-session-meta code {
+    text-align: left;
   }
 
   .workspace-launch-config-kind {

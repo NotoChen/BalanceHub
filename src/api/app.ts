@@ -4,6 +4,7 @@ import type {
   CliConfigPreview,
   CliRuntimeSnapshot,
   CliEnvironmentProbeResult,
+  CliSessionSummary,
   CodexModelSyncResult,
   LivenessCliKind,
   Provider,
@@ -178,6 +179,10 @@ export function getCliRuntimeSnapshot() {
 
 export function getTemporaryCliInstances() {
   return invoke<TemporaryCliInstance[]>("get_temporary_cli_instances");
+}
+
+export function listCliSessions(cliKind: LivenessCliKind, workdir: string) {
+  return invoke<CliSessionSummary[]>("list_cli_sessions", { cliKind, workdir });
 }
 
 export function activateTemporaryCli(instanceId: string) {
