@@ -143,6 +143,7 @@ export function useAppController() {
     terminalKind: computed(() => settings.value.temporaryCliTerminalKind),
     cliEnvironmentProbe,
     listApiKeys: (providerId) => providerStore.listApiKeys(providerId),
+    listSessions: (cliKind, workdir) => providerStore.listCliSessions(cliKind, workdir),
     browse: (path) => providerStore.browseWorkspaceDirectories(path),
     forget: (path) => providerStore.forgetWorkspace(path),
     launch: (input) => providerStore.launchTemporaryCli(input),

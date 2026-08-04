@@ -12,6 +12,7 @@ import {
   generateProviderAccessTokenForInput as generateProviderAccessTokenForInputCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
   getTemporaryCliInstances as getTemporaryCliInstancesCommand,
+  listCliSessions as listCliSessionsCommand,
   getProviderCheckInRecords as getProviderCheckInRecordsCommand,
   getProviderInviteLink as getProviderInviteLinkCommand,
   getProviderRequestLogs as getProviderRequestLogsCommand,
@@ -46,6 +47,7 @@ import type {
   CliConfigPreview,
   CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
+  CliSessionSummary,
   LivenessCliKind,
   Provider,
   ProviderInput,
@@ -207,6 +209,12 @@ export const useProviderStore = defineStore("providers", {
       const instances = await getTemporaryCliInstancesCommand();
       this.cliRuntime = { ...this.cliRuntime, instances };
       return instances;
+    },
+    async listCliSessions(
+      cliKind: LivenessCliKind,
+      workdir: string,
+    ): Promise<CliSessionSummary[]> {
+      return listCliSessionsCommand(cliKind, workdir);
     },
     async browseWorkspaceDirectories(path?: string) {
       return browseWorkspaceDirectoriesCommand(path);

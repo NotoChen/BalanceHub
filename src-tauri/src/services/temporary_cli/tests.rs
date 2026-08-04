@@ -1,3 +1,4 @@
+use super::resolve_launch_model;
 use super::script::{
     cli_args, effective_model, escape_cmd_value, temporary_script_path, windows_launch_payload,
     WINDOWS_LAUNCH_PAYLOAD_COMMAND,
@@ -74,12 +75,31 @@ fn effective_model_falls_back_to_global_model() {
 }
 
 #[test]
+fn resumed_session_without_override_preserves_its_model() {
+    let settings = AppSettings {
+        liveness_model: "gpt-5.5".to_string(),
+        ..AppSettings::default()
+    };
+    let provider = provider_with_liveness_model("claude-opus-4-6");
+
+    assert_eq!(
+        resolve_launch_model(&settings, &provider, "", Some("session-1")),
+        ""
+    );
+    assert_eq!(
+        resolve_launch_model(&settings, &provider, "claude-sonnet-4-5", Some("session-1")),
+        "claude-sonnet-4-5"
+    );
+}
+
+#[test]
 fn codex_args_override_provider_without_ignoring_user_config() {
     let args = cli_args(
         LivenessCliKind::Codex,
         "Relay Site",
         "https://relay.example.com/v1",
         "gpt-5.5",
+        None,
         None,
     );
 
@@ -104,6 +124,7 @@ fn codex_args_escape_toml_values() {
         "https://relay.example.com/openai/\"tenant\"",
         "",
         None,
+        None,
     );
 
     assert!(!args.contains(&"-m".to_string()));
@@ -112,6 +133,35 @@ fn codex_args_escape_toml_values() {
         &"model_providers.custom.base_url=\"https://relay.example.com/openai/\\\"tenant\\\"\""
             .to_string()
     ));
+}
+
+#[test]
+fn resume_args_are_appended_after_provider_overrides() {
+    let codex = cli_args(
+        LivenessCliKind::Codex,
+        "Relay Site",
+        "https://relay.example.com/v1",
+        "gpt-5.5",
+        Some("codex-session-1"),
+        None,
+    );
+    assert_eq!(
+        &codex[codex.len() - 2..],
+        ["resume".to_string(), "codex-session-1".to_string()]
+    );
+
+    let claude = cli_args(
+        LivenessCliKind::ClaudeCode,
+        "Relay Site",
+        "https://relay.example.com",
+        "claude-sonnet-4-5",
+        Some("claude-session-1"),
+        None,
+    );
+    assert_eq!(
+        &claude[claude.len() - 2..],
+        ["--resume".to_string(), "claude-session-1".to_string()]
+    );
 }
 
 #[test]
@@ -124,6 +174,7 @@ fn claude_args_include_settings_and_model_when_configured() {
             "Relay Site",
             "https://relay.example.com",
             "claude-sonnet-4-5",
+            None,
             Some(settings_path)
         ),
         vec![
@@ -139,6 +190,7 @@ fn claude_args_include_settings_and_model_when_configured() {
             "Relay Site",
             "https://relay.example.com",
             "",
+            None,
             Some(settings_path)
         ),
         vec![
@@ -248,6 +300,7 @@ fi
         api_key: &provider.auth.api_key,
         base_url: &openai_base_url(&provider),
         model: "gpt-5.5",
+        resume_id: None,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
     })
@@ -353,6 +406,7 @@ cat "$settings_path"
         api_key: &provider.auth.api_key,
         base_url: &anthropic_base_url(&provider),
         model: "claude-sonnet-4-5",
+        resume_id: None,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
     })

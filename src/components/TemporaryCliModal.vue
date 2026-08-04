@@ -145,19 +145,27 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
             :class="`temporary-cli-instance-${instance.status}`"
           >
             <header class="temporary-cli-instance-header">
-              <div class="temporary-cli-instance-name">
-                <span class="temporary-cli-agent-icon">
-                  <BrandIcon :brand="cliBrand(instance.cliKind)" :size="22" />
-                </span>
-                <div>
-                  <strong>{{ cliLabel(instance.cliKind) }}</strong>
-                  <span class="temporary-cli-terminal">
+              <div class="temporary-cli-runtime-pair">
+                <div class="temporary-cli-runtime-item">
+                  <span class="temporary-cli-agent-icon">
+                    <BrandIcon :brand="cliBrand(instance.cliKind)" :size="22" />
+                  </span>
+                  <span class="temporary-cli-runtime-copy">
+                    <small>智能体</small>
+                    <strong>{{ cliLabel(instance.cliKind) }}</strong>
+                  </span>
+                </div>
+                <div class="temporary-cli-runtime-item">
+                  <span class="temporary-cli-terminal-icon">
                     <TerminalBrandIcon
                       :kind="instance.terminalKind"
                       :name="terminalLabel(instance.terminalKind)"
-                      :size="17"
+                      :size="22"
                     />
-                    {{ terminalLabel(instance.terminalKind) }}
+                  </span>
+                  <span class="temporary-cli-runtime-copy">
+                    <small>终端</small>
+                    <strong>{{ terminalLabel(instance.terminalKind) }}</strong>
                   </span>
                 </div>
               </div>

@@ -1,7 +1,7 @@
 use crate::{
     models::{
-        CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot, LivenessCliKind,
-        TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
+        CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot, CliSessionSummary,
+        LivenessCliKind, TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
         TemporaryCliPreference, Workspace, WorkspaceDirectoryListing,
     },
     services::{self, provider_service::ProviderService},
@@ -27,6 +27,12 @@ pub(crate) fn launch_temporary_cli(
         .cloned()
         .ok_or_else(|| "中转站不存在".to_string())?;
     let cli_kind = input.cli_kind;
+    let resume_id = input
+        .resume_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let api_key = if input.api_key.trim().is_empty() {
         provider.auth.api_key.trim().to_string()
     } else {
@@ -39,19 +45,32 @@ pub(crate) fn launch_temporary_cli(
         .temporary_cli_preferences
         .iter()
         .find(|preference| preference.provider_id == provider.identity.id);
-    let model = [
-        input.model.trim(),
-        saved_preference
-            .map(|preference| preference.model.trim())
-            .unwrap_or_default(),
-        provider.cli.preferred_model.trim(),
-        provider.liveness.model.trim(),
-        data.settings.liveness_model.trim(),
-    ]
-    .into_iter()
-    .find(|value| !value.is_empty())
-    .unwrap_or_default()
-    .to_string();
+    let saved_model = saved_preference
+        .map(|preference| preference.model.trim().to_string())
+        .unwrap_or_default();
+    let model = if resume_id.is_some() && input.model.trim().is_empty() {
+        String::new()
+    } else {
+        [
+            input.model.trim(),
+            saved_preference
+                .map(|preference| preference.model.trim())
+                .unwrap_or_default(),
+            provider.cli.preferred_model.trim(),
+            provider.liveness.model.trim(),
+            data.settings.liveness_model.trim(),
+        ]
+        .into_iter()
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_string()
+    };
+    // 未记录模型的历史会话不应覆盖用户为新会话保存的模型偏好。
+    let preference_model = if model.is_empty() {
+        saved_model
+    } else {
+        model.clone()
+    };
 
     let cli = match cli_kind {
         LivenessCliKind::Codex => {
@@ -77,6 +96,9 @@ pub(crate) fn launch_temporary_cli(
         LivenessCliKind::ClaudeCode => launch_settings.claude_cli_path = cli.path.clone(),
     }
     let workdir = services::workspaces::normalize_directory(std::path::Path::new(&input.workdir))?;
+    if let Some(resume_id) = resume_id.as_deref() {
+        services::cli_sessions::ensure_resume_id(cli_kind, &workdir, resume_id)?;
+    }
     let instance = services::temporary_cli::launch(
         &launch_settings,
         &provider,
@@ -84,12 +106,13 @@ pub(crate) fn launch_temporary_cli(
         &workdir,
         &api_key,
         &model,
+        resume_id.as_deref(),
     )?;
     let fallback_preference = TemporaryCliPreference {
         provider_id: provider.identity.id.clone(),
         cli_kind,
         api_key_token_id: input.api_key_token_id.trim().to_string(),
-        model: model.clone(),
+        model: preference_model.clone(),
         workspace_path: workdir.to_string_lossy().to_string(),
     };
     let (workspaces, workspace_error, preference) = match ProviderService::new(&app)
@@ -99,7 +122,7 @@ pub(crate) fn launch_temporary_cli(
             &cli.path,
             &workdir,
             &input.api_key_token_id,
-            &model,
+            &preference_model,
         ) {
         Ok((workspaces, preference)) => (workspaces, None, preference),
         Err(err) => (data.workspaces, Some(err), fallback_preference),
@@ -129,6 +152,17 @@ pub(crate) async fn get_temporary_cli_instances() -> Result<Vec<TemporaryCliInst
     tauri::async_runtime::spawn_blocking(services::cli_runtime::active_instances)
         .await
         .map_err(|err| format!("临时 CLI 状态读取任务异常: {err}"))
+}
+
+#[tauri::command]
+pub(crate) async fn list_cli_sessions(
+    cli_kind: LivenessCliKind,
+    workdir: String,
+) -> Result<Vec<CliSessionSummary>, String> {
+    let workdir = services::workspaces::normalize_directory(std::path::Path::new(&workdir))?;
+    tauri::async_runtime::spawn_blocking(move || services::cli_sessions::list(cli_kind, &workdir))
+        .await
+        .map_err(|err| format!("CLI 历史会话读取任务异常: {err}"))?
 }
 
 #[tauri::command]

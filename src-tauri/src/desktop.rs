@@ -39,6 +39,7 @@ pub(crate) fn run() {
             launch_temporary_cli,
             get_cli_runtime_snapshot,
             get_temporary_cli_instances,
+            list_cli_sessions,
             activate_temporary_cli,
             forget_workspace,
             browse_workspace_directories,

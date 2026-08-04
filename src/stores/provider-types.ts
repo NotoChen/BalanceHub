@@ -460,6 +460,15 @@ export interface TemporaryCliInstance {
   canActivate: boolean;
 }
 
+export interface CliSessionSummary {
+  id: string;
+  title: string;
+  model: string | null;
+  cliKind: LivenessCliKind;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface Workspace {
   path: string;
   useCount: number;
@@ -481,6 +490,7 @@ export interface TemporaryCliLaunchInput {
   apiKeyTokenId: string;
   model: string;
   terminalKind: TemporaryCliTerminalKind;
+  resumeId?: string | null;
 }
 
 export interface WorkspaceDirectoryEntry {
