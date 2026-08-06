@@ -1,6 +1,5 @@
 use crate::{
     adapters::transport::ProviderTransport,
-    limits,
     models::{Provider, ProviderQuotaDisplay, ProviderQuotaScope},
 };
 use reqwest::Method;
@@ -9,14 +8,14 @@ use std::time::Duration;
 
 use super::{
     json::{number_field, string_field},
-    response::{api_url, gateway_url, request_json, Credential},
+    response::{api_url, request_json_with_timeout},
 };
 
 pub(super) async fn fetch_site(
     client: &ProviderTransport,
     base_url: &str,
 ) -> Result<Value, String> {
-    let site = super::response::request_json_with_timeout(
+    let site = request_json_with_timeout(
         client,
         Method::GET,
         api_url(base_url, "/settings/public")?,
@@ -46,37 +45,6 @@ fn is_sub2_api_public_settings(value: &Value) -> bool {
     .any(|field| value.get(*field).is_some());
 
     has_name && has_protocol_marker
-}
-
-pub(super) async fn fetch_models(
-    client: &ProviderTransport,
-    provider: &Provider,
-) -> Result<Vec<String>, String> {
-    let key = provider.auth.api_key.trim();
-    if key.is_empty() {
-        return Err("缺少 API Key，无法读取 Sub2API 模型列表".to_string());
-    }
-    let value = request_json(
-        client,
-        Method::GET,
-        gateway_url(&provider.identity.base_url, "/v1/models")?,
-        Some(Credential::ApiKey(key.to_string())),
-        None,
-        "读取 Sub2API 模型列表",
-    )
-    .await?;
-    let mut models = value
-        .get("data")
-        .and_then(Value::as_array)
-        .or_else(|| value.as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|item| string_field(item, &["id", "name"]))
-        .collect::<Vec<_>>();
-    models.sort();
-    models.dedup();
-    limits::truncate_models(&mut models);
-    Ok(models)
 }
 
 pub(super) fn apply_user(provider: &mut Provider, user: &Value) {

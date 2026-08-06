@@ -138,12 +138,10 @@ pub(super) fn apply_refresh_owned_fields(
     {
         provider.auth.login_username = refreshed.auth.login_username;
     }
-    if matches!(provider.identity.protocol, ProviderProtocol::Api)
-        && !matches!(
-            refreshed.runtime.status,
-            crate::models::ProviderStatus::Error
-        )
-    {
+    if !matches!(
+        refreshed.runtime.status,
+        crate::models::ProviderStatus::Error
+    ) {
         provider.capabilities.available_models = refreshed.capabilities.available_models;
     }
     provider.automation.last_synced_at = refreshed.automation.last_synced_at;

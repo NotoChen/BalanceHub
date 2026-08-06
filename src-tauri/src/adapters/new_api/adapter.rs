@@ -206,7 +206,21 @@ impl NewApiAdapter {
         provider: &Provider,
     ) -> Provider {
         match crate::adapters::transport::build_client(settings, provider).await {
-            Ok(client) => super::quota::refresh_provider(&client, provider).await,
+            Ok(client) => {
+                let mut refreshed = super::quota::refresh_provider(&client, provider).await;
+                if !matches!(
+                    refreshed.runtime.status,
+                    crate::models::ProviderStatus::Error
+                ) && !refreshed.auth.api_key.trim().is_empty()
+                {
+                    if let Ok(models) =
+                        crate::adapters::api::fetch_models(&client, &refreshed).await
+                    {
+                        refreshed.capabilities.available_models = models;
+                    }
+                }
+                refreshed
+            }
             Err(message) => provider_with_error(provider, message),
         }
     }

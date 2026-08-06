@@ -1,24 +1,7 @@
 use crate::{
-    adapters::{
-        api,
-        transport::{build_client, USER_AGENT_VALUE},
-    },
-    limits,
-    models::{provider_domain, AppSettings, Provider, ProviderProtocol},
-    services::liveness::openai_base_url,
+    adapters::{api, transport::build_client},
+    models::{provider_domain, AppSettings, Provider},
 };
-use reqwest::header::{ACCEPT, USER_AGENT};
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModelList {
-    data: Vec<OpenAiModel>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModel {
-    id: String,
-}
 
 pub(super) async fn fetch_codex_models(
     settings: &AppSettings,
@@ -32,46 +15,6 @@ pub(super) async fn fetch_codex_models(
     {
         return Err("缺少模型 Base URL 或中转站地址".to_string());
     }
-
-    if matches!(provider.identity.protocol, ProviderProtocol::Api) {
-        let client = build_client(settings, provider).await?;
-        return api::fetch_models(&client, provider).await;
-    }
-
-    let mut base_url = openai_base_url(provider);
-    if matches!(provider.identity.protocol, ProviderProtocol::Sub2Api)
-        && !base_url.trim_end_matches('/').ends_with("/v1")
-    {
-        base_url = format!("{}/v1", base_url.trim_end_matches('/'));
-    }
-    let url = reqwest::Url::parse(&format!("{}/models", base_url.trim_end_matches('/')))
-        .map_err(|err| format!("模型列表地址无效: {err}"))?;
     let client = build_client(settings, provider).await?;
-    let request = client
-        .get(url)
-        .bearer_auth(provider.auth.api_key.trim())
-        .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(ACCEPT, "application/json");
-    let response = client.send(request, "读取模型列表").await?;
-    let status = response.status;
-    let body = response.body;
-    if !status.is_success() {
-        let detail = body.chars().take(240).collect::<String>();
-        return Err(format!("获取模型列表失败: HTTP {status} {detail}"));
-    }
-
-    let mut models = serde_json::from_str::<OpenAiModelList>(&body)
-        .map_err(|err| format!("解析模型列表失败: {err}"))?
-        .data
-        .into_iter()
-        .map(|model| model.id.trim().to_string())
-        .filter(|id| !id.is_empty())
-        .collect::<Vec<_>>();
-    models.sort();
-    models.dedup();
-    limits::truncate_models(&mut models);
-    if models.is_empty() {
-        return Err("模型列表为空".to_string());
-    }
-    Ok(models)
+    api::fetch_models(&client, provider).await
 }

@@ -70,6 +70,7 @@ export const useProviderStore = defineStore("providers", {
     refreshInProgress: false,
     cliRuntimeLoading: false,
     refreshingIds: new Set<string>(),
+    refreshingAllIds: new Set<string>(),
     providerReloadPending: false,
     providers: [] as Provider[],
     settings: defaultSettings(),
@@ -151,6 +152,10 @@ export const useProviderStore = defineStore("providers", {
       return result;
     },
     async reload() {
+      if (this.refreshInProgress || this.refreshingIds.size > 0 || this.refreshingAllIds.size > 0) {
+        this.providerReloadPending = true;
+        return;
+      }
       try {
         const data = await loadAppData();
         this.providers = data.providers;
@@ -173,7 +178,11 @@ export const useProviderStore = defineStore("providers", {
      * operation returns the authoritative provider view when it completes.
      */
     async reloadProviders() {
-      if (this.refreshInProgress || this.refreshingIds.size > 0) {
+      if (
+        this.refreshInProgress ||
+        this.refreshingIds.size > 0 ||
+        this.refreshingAllIds.size > 0
+      ) {
         this.providerReloadPending = true;
         return;
       }
@@ -183,7 +192,8 @@ export const useProviderStore = defineStore("providers", {
       if (
         !this.providerReloadPending ||
         this.refreshInProgress ||
-        this.refreshingIds.size > 0
+        this.refreshingIds.size > 0 ||
+        this.refreshingAllIds.size > 0
       ) {
         return;
       }
@@ -337,11 +347,16 @@ export const useProviderStore = defineStore("providers", {
     },
     /** 全量刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
     async refreshAll(): Promise<string | null> {
-      if (this.refreshInProgress) {
+      if (this.refreshInProgress || this.refreshingIds.size > 0) {
         return null;
       }
 
       this.refreshInProgress = true;
+      this.refreshingAllIds = new Set(
+        this.providers
+          .filter((provider) => provider.runtime.enabled)
+          .map((provider) => provider.identity.id),
+      );
       const previousProviders = this.providers;
       this.providers = this.providers.map((provider) =>
         provider.runtime.enabled
@@ -368,12 +383,16 @@ export const useProviderStore = defineStore("providers", {
         );
         return errorToMessage(error);
       } finally {
+        this.refreshingAllIds.clear();
         this.refreshInProgress = false;
         void this.flushPendingProviderReload();
       }
     },
     /** 按 id 刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
     async refreshByIds(ids: string[]): Promise<string | null> {
+      if (this.refreshInProgress || this.refreshingAllIds.size > 0) {
+        return null;
+      }
       const todo = ids.filter((id) => !this.refreshingIds.has(id));
       if (todo.length === 0) {
         return null;
