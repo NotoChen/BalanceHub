@@ -13,8 +13,9 @@ mod workspaces;
 use crate::{
     limits,
     models::{
-        AppData, AppDataTransferResult, AppSettings, AuthMode, AuthSource, Provider, ProviderInput,
-        ProviderProtocol, ProviderStatus,
+        provider_duplicate_kind, AppData, AppDataTransferResult, AppSettings, AuthMode, AuthSource,
+        Provider, ProviderDuplicateKind, ProviderInput, ProviderProtocol, ProviderSaveConflict,
+        ProviderSaveOptions, ProviderSaveResult, ProviderStatus,
     },
     state::AppState,
     storage,
@@ -93,6 +94,10 @@ impl<'a> ProviderService<'a> {
         Self { app }
     }
 
+    pub fn background(app: &'a AppHandle) -> Self {
+        Self { app }
+    }
+
     /// 读取内存状态的快照（克隆）。
     fn snapshot(&self) -> AppData {
         self.app
@@ -101,6 +106,27 @@ impl<'a> ProviderService<'a> {
             .read()
             .unwrap_or_else(|err| err.into_inner())
             .clone()
+    }
+
+    /// Clone the in-memory state without ever making an async worker wait on a
+    /// synchronous lock. The state is normally tiny, but a provider can carry
+    /// model, usage, and liveness history; a writer may also briefly hold the
+    /// lock while committing a snapshot. Keep that wait on the blocking pool.
+    pub(super) async fn snapshot_async(&self) -> Result<AppData, String> {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn_blocking(move || ProviderService { app: &app }.snapshot())
+            .await
+            .map_err(|err| format!("读取配置快照任务异常: {err}"))
+    }
+
+    /// Load the configuration with the same protection checks as the startup
+    /// command, while keeping the synchronous state/configuration path off the
+    /// async runtime.
+    pub(super) async fn load_app_data_async(&self) -> Result<AppData, String> {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn_blocking(move || ProviderService { app: &app }.load_app_data())
+            .await
+            .map_err(|err| format!("加载应用配置任务异常: {err}"))?
     }
 
     fn storage_protection_error(&self) -> Option<String> {
@@ -130,7 +156,7 @@ impl<'a> ProviderService<'a> {
     ) -> Result<R, String> {
         self.ensure_storage_ready()?;
         let state = self.app.state::<AppState>();
-        let _transaction = state
+        let transaction = state
             .mutation_gate
             .lock()
             .unwrap_or_else(|err| err.into_inner());
@@ -142,8 +168,30 @@ impl<'a> ProviderService<'a> {
         let result = apply(&mut next_data)?;
         limits::normalize_app_data(&mut next_data);
         storage::save_app_data(self.app, &next_data)?;
-        *state.data.write().unwrap_or_else(|err| err.into_inner()) = next_data;
+        let previous_data = {
+            let mut current = state.data.write().unwrap_or_else(|err| err.into_inner());
+            std::mem::replace(&mut *current, next_data)
+        };
+        drop(transaction);
+        drop(previous_data);
         Ok(result)
+    }
+
+    /// Run a synchronous storage transaction off the async worker.
+    ///
+    /// Network-facing service methods must not hold the runtime thread while
+    /// waiting on the mutation gate or writing the JSON store. The app handle
+    /// is owned by the blocking task so the borrowed service can return before
+    /// the task starts.
+    pub(super) async fn mutate_async<R, F>(&self, apply: F) -> Result<R, String>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut AppData) -> R + Send + 'static,
+    {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn_blocking(move || ProviderService { app: &app }.mutate(apply))
+            .await
+            .map_err(|err| format!("配置事务任务异常: {err}"))?
     }
 
     pub fn load_app_data(&self) -> Result<AppData, String> {
@@ -153,9 +201,72 @@ impl<'a> ProviderService<'a> {
         Ok(self.snapshot())
     }
 
-    pub fn save_provider(&self, input: ProviderInput) -> Result<Vec<Provider>, String> {
+    pub fn save_provider(
+        &self,
+        input: ProviderInput,
+        options: ProviderSaveOptions,
+    ) -> Result<ProviderSaveResult, String> {
         self.mutate_fallible(|data| {
-            if let Some(id) = input.id.clone() {
+            let conflict = data.providers.iter().find_map(|provider| {
+                if Some(provider.identity.id.as_str()) == input.id.as_deref() {
+                    return None;
+                }
+                provider_duplicate_kind(provider, &input).map(|kind| ProviderSaveConflict {
+                    kind,
+                    existing_provider_id: provider.identity.id.clone(),
+                    existing_provider_name: provider.identity.name.clone(),
+                })
+            });
+
+            if let Some(conflict) = conflict {
+                if conflict.kind == ProviderDuplicateKind::UrlDifferentApiKey
+                    && options.merge_api_key_into_provider_id.as_deref()
+                        == Some(conflict.existing_provider_id.as_str())
+                {
+                    let provider = data
+                        .providers
+                        .iter_mut()
+                        .find(|provider| provider.identity.id == conflict.existing_provider_id)
+                        .ok_or_else(|| "目标中转站已不存在，请重新保存".to_string())?;
+                    provider.add_api_key(&input.auth.api_key)?;
+                    return Ok(ProviderSaveResult {
+                        providers: data.providers.clone(),
+                        saved: true,
+                        saved_provider_id: Some(conflict.existing_provider_id.clone()),
+                        conflict: None,
+                    });
+                }
+
+                if matches!(
+                    conflict.kind,
+                    ProviderDuplicateKind::Account | ProviderDuplicateKind::ApiKey
+                ) && options.overwrite_provider_id.as_deref()
+                    == Some(conflict.existing_provider_id.as_str())
+                {
+                    let mut overwrite_input = input.clone();
+                    overwrite_input.id = Some(conflict.existing_provider_id.clone());
+                    let provider = data
+                        .providers
+                        .iter_mut()
+                        .find(|provider| provider.identity.id == conflict.existing_provider_id)
+                        .ok_or_else(|| "目标中转站已不存在，请重新保存".to_string())?;
+                    provider.apply_input(overwrite_input);
+                    return Ok(ProviderSaveResult {
+                        providers: data.providers.clone(),
+                        saved: true,
+                        saved_provider_id: Some(conflict.existing_provider_id.clone()),
+                        conflict: None,
+                    });
+                }
+
+                return Ok(ProviderSaveResult {
+                    providers: data.providers.clone(),
+                    saved: false,
+                    saved_provider_id: None,
+                    conflict: Some(conflict),
+                });
+            }
+            let saved_provider_id = if let Some(id) = input.id.clone() {
                 if let Some(provider) = data
                     .providers
                     .iter_mut()
@@ -169,8 +280,9 @@ impl<'a> ProviderService<'a> {
                             limits::MAX_PROVIDERS
                         ));
                     }
-                    data.providers.push(Provider::from_input(input, id));
+                    data.providers.push(Provider::from_input(input, id.clone()));
                 }
+                Some(id)
             } else {
                 if data.providers.len() >= limits::MAX_PROVIDERS {
                     return Err(format!(
@@ -179,9 +291,15 @@ impl<'a> ProviderService<'a> {
                     ));
                 }
                 let id = format!("provider-{}", current_timestamp_millis());
-                data.providers.push(Provider::from_input(input, id));
-            }
-            Ok(data.providers.clone())
+                data.providers.push(Provider::from_input(input, id.clone()));
+                Some(id)
+            };
+            Ok(ProviderSaveResult {
+                providers: data.providers.clone(),
+                saved: true,
+                saved_provider_id,
+                conflict: None,
+            })
         })
     }
 
@@ -226,13 +344,13 @@ impl<'a> ProviderService<'a> {
         })
     }
 
-    pub fn mark_auto_check_in_failure(
+    pub async fn mark_auto_check_in_failure(
         &self,
         provider: &Provider,
         message: String,
     ) -> Result<(), String> {
         let request_context = ProviderRequestContext::capture(provider);
-        self.mutate(|data| {
+        self.mutate_async(move |data| {
             if let Some(provider) = data
                 .providers
                 .iter_mut()
@@ -242,6 +360,7 @@ impl<'a> ProviderService<'a> {
                 provider.runtime.error_message = Some(message);
             }
         })
+        .await
     }
 
     pub fn export_app_data(&self, path: String) -> Result<AppDataTransferResult, String> {
@@ -262,14 +381,18 @@ impl<'a> ProviderService<'a> {
     ) -> Result<(AppData, AppDataTransferResult), String> {
         let source = PathBuf::from(path);
         let state = self.app.state::<AppState>();
-        let _transaction = state
+        let transaction = state
             .mutation_gate
             .lock()
             .unwrap_or_else(|err| err.into_inner());
         let data = storage::import_app_data(self.app, &source)?;
-        let mut guard = state.data.write().unwrap_or_else(|err| err.into_inner());
-        *guard = data.clone();
+        let previous_data = {
+            let mut current = state.data.write().unwrap_or_else(|err| err.into_inner());
+            std::mem::replace(&mut *current, data.clone())
+        };
         state.clear_load_error();
+        drop(transaction);
+        drop(previous_data);
         let result = AppDataTransferResult {
             path: source.display().to_string(),
             schema_version: data.schema_version,

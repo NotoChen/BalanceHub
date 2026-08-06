@@ -1,10 +1,9 @@
-use crate::adapters::transport::{shield_blocked_message, ProviderTransport};
-use crate::network::shield;
+use crate::adapters::transport::ProviderTransport;
 use reqwest::StatusCode;
 use serde_json::Value;
 
-/// NewAPI 各接口共用的发送器。幂等读取可在求解后有限重试，变更请求则由
-/// ProviderTransport 阻止自动重放；未命中挑战时仍只发送一次普通 HTTP 请求。
+/// NewAPI 各接口共用的发送器。明确命中盾页时由 ProviderTransport 求解并有限重放；
+/// 未命中挑战时仍只发送一次普通 HTTP 请求。
 pub(crate) async fn send_text(
     client: &ProviderTransport,
     request: reqwest::RequestBuilder,
@@ -19,11 +18,6 @@ pub(crate) fn parse_success_data(
     body: String,
     context: &str,
 ) -> Result<Value, String> {
-    // 走到这里还是挑战页，说明过盾后重试仍未通过。
-    if let Some(kind) = shield::detect(&Default::default(), &body) {
-        return Err(shield_blocked_message(kind));
-    }
-
     if !status.is_success() {
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));
     }

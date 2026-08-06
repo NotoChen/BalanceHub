@@ -88,8 +88,20 @@ fn claude_switch_preserves_other_settings_and_updates_existing_key_fields() {
   "permissions": { "defaultMode": "bypassPermissions" }
 }"#;
 
-    let settings = rewrite_claude_config(settings, "https://new.example.com", "sk-new").unwrap();
-    let settings = serde_json::from_str::<JsonValue>(&settings).unwrap();
+    let rewritten = rewrite_claude_config(settings, "https://new.example.com", "sk-new").unwrap();
+    assert_eq!(
+        rewritten,
+        r#"{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://new.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "sk-new",
+    "ANTHROPIC_API_KEY": "sk-new",
+    "KEEP_ME": "yes"
+  },
+  "permissions": { "defaultMode": "bypassPermissions" }
+}"#
+    );
+    let settings = serde_json::from_str::<JsonValue>(&rewritten).unwrap();
 
     assert_eq!(
         settings["env"]["ANTHROPIC_BASE_URL"],
@@ -99,6 +111,44 @@ fn claude_switch_preserves_other_settings_and_updates_existing_key_fields() {
     assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], "sk-new");
     assert_eq!(settings["env"]["KEEP_ME"], "yes");
     assert_eq!(settings["permissions"]["defaultMode"], "bypassPermissions");
+}
+
+#[test]
+fn claude_switch_preserves_compact_layout_and_adds_only_missing_fields() {
+    let settings = r#"{"permissions":{"defaultMode":"bypassPermissions"},"env":{"KEEP_ME":[1,2],"ANTHROPIC_API_KEY":"sk-old"}}"#;
+
+    let rewritten = rewrite_claude_config(settings, "https://new.example.com", "sk-new").unwrap();
+
+    assert_eq!(
+        rewritten,
+        r#"{"permissions":{"defaultMode":"bypassPermissions"},"env":{"KEEP_ME":[1,2],"ANTHROPIC_API_KEY":"sk-new", "ANTHROPIC_BASE_URL": "https://new.example.com"}}"#
+    );
+    let parsed = serde_json::from_str::<JsonValue>(&rewritten).unwrap();
+    assert_eq!(parsed["env"]["KEEP_ME"], serde_json::json!([1, 2]));
+    assert_eq!(parsed["env"]["ANTHROPIC_API_KEY"], "sk-new");
+    assert!(parsed["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
+}
+
+#[test]
+fn claude_switch_adds_env_without_reformatting_existing_root() {
+    let settings = "{\r\n    \"permissions\": {\"defaultMode\": \"bypassPermissions\"}\r\n}";
+
+    let rewritten = rewrite_claude_config(settings, "https://new.example.com", "sk-new").unwrap();
+
+    assert_eq!(
+        rewritten,
+        "{\r\n    \"permissions\": {\"defaultMode\": \"bypassPermissions\"},\r\n    \"env\": {\r\n        \"ANTHROPIC_BASE_URL\": \"https://new.example.com\",\r\n        \"ANTHROPIC_AUTH_TOKEN\": \"sk-new\"\r\n    }\r\n}"
+    );
+    assert!(serde_json::from_str::<JsonValue>(&rewritten).is_ok());
+}
+
+#[test]
+fn claude_switch_keeps_source_byte_for_byte_when_values_are_unchanged() {
+    let settings = r#"{ "env" : { "ANTHROPIC_BASE_URL" : "https://same.example.com", "ANTHROPIC_AUTH_TOKEN" : "sk-same" } }"#;
+
+    let rewritten = rewrite_claude_config(settings, "https://same.example.com", "sk-same").unwrap();
+
+    assert_eq!(rewritten, settings);
 }
 
 #[test]

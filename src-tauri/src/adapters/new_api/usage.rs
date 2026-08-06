@@ -12,7 +12,7 @@ use super::http::{
 use super::response::{
     extract_i64_field, extract_string_field, extract_usage_items, parse_success_data, send_text,
 };
-use super::site::{convert_quota_value, fetch_site_metadata, site_metadata_from_provider};
+use super::site::{convert_quota_value, fetch_site_metadata_or, site_metadata_from_provider};
 
 pub async fn fetch_usage_summary(
     client: &ProviderTransport,
@@ -21,9 +21,8 @@ pub async fn fetch_usage_summary(
 ) -> Result<ProviderUsageSummary, String> {
     let (seconds, hourly) = usage_period(period);
     let (base_url, api_user, credential) = provider_user_management_context(provider)?;
-    let site = fetch_site_metadata(client, &base_url)
-        .await
-        .unwrap_or_else(|_| site_metadata_from_provider(provider));
+    let site =
+        fetch_site_metadata_or(client, &base_url, site_metadata_from_provider(provider)).await?;
     let end_timestamp = crate::util::unix_secs() as i64;
     let start_timestamp = end_timestamp - seconds;
     let url = build_url(

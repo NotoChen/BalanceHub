@@ -11,7 +11,7 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<ProviderCredentialCompletionResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider_id = input
             .id
             .clone()
@@ -25,7 +25,7 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<String, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider_id = input
             .id
             .clone()

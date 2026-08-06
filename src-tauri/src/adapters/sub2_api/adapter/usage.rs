@@ -24,7 +24,7 @@ impl Sub2ApiAdapter {
         provider: &Provider,
         period: &str,
     ) -> Result<ProviderUsageSummary, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let (start, end) = usage_dates(period);
         let query = format!("?start_date={start}&end_date={end}");
         let (authenticated, trend) = request_account_json(
@@ -83,7 +83,7 @@ impl Sub2ApiAdapter {
         provider: &Provider,
         query: ProviderRequestLogsQuery,
     ) -> Result<ProviderRequestLogsResult, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let page = query.page + 1;
         let mut path = format!("/usage?page={page}&page_size={}", query.page_size.max(1));
         if !query.keyword.trim().is_empty() {

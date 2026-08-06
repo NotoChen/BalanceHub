@@ -23,8 +23,6 @@ pub(super) fn build_codex_command(
         .arg("--ignore-user-config")
         .arg("--ignore-rules")
         .arg("--json")
-        .arg("-m")
-        .arg(&context.model)
         .arg("-c")
         .arg("model_provider=\"balancehub\"")
         .arg("-c")
@@ -41,6 +39,9 @@ pub(super) fn build_codex_command(
         .arg("-c")
         .arg("model_providers.balancehub.requires_openai_auth=true")
         .env("OPENAI_API_KEY", provider.auth.api_key.trim());
+    if !context.model.trim().is_empty() {
+        command.arg("-m").arg(context.model.trim());
+    }
 }
 
 pub(super) fn apply_codex_isolated_home(command: &mut Command, path: &Path) {
@@ -69,8 +70,6 @@ pub(super) fn build_claude_command(
         .arg(&context.prompt)
         .arg("--output-format")
         .arg("json")
-        .arg("--model")
-        .arg(&context.model)
         .arg("--max-budget-usd")
         .arg("0.02")
         .arg("--no-session-persistence")
@@ -87,6 +86,9 @@ pub(super) fn build_claude_command(
             "API_TIMEOUT_MS",
             (context.timeout_seconds * 1000).to_string(),
         );
+    if !context.model.trim().is_empty() {
+        command.arg("--model").arg(context.model.trim());
+    }
 }
 
 pub(super) fn apply_claude_isolated_home(command: &mut Command, path: &Path) {
@@ -113,20 +115,34 @@ pub(super) fn build_command_preview(
     prompt: &str,
 ) -> String {
     match cli_kind {
-        LivenessCliKind::Codex => format!(
-            "CODEX_HOME=/tmp/balancehub-codex-home-<random> OPENAI_API_KEY=*** {} --ask-for-approval never --sandbox read-only exec --skip-git-repo-check --ephemeral --ignore-user-config --ignore-rules --json -m {} -c 'model_provider=\"balancehub\"' -c 'model_providers.balancehub.identity.name=\"BalanceHub\"' -c 'model_providers.balancehub.identity.base_url=\"{}\"' -c 'model_providers.balancehub.wire_api=\"responses\"' -c 'model_providers.balancehub.env_key=\"OPENAI_API_KEY\"' -c 'model_providers.balancehub.requires_openai_auth=true' -o /tmp/balancehub-codex-<random>.txt '{}'",
-            shell_quote(cli_path),
-            shell_quote(model),
-            base_url,
-            prompt.replace('\'', "'\\''")
-        ),
-        LivenessCliKind::ClaudeCode => format!(
-            "HOME=/tmp/balancehub-claude-home-<random> ANTHROPIC_API_KEY=*** ANTHROPIC_BASE_URL={} {} --bare -p '{}' --output-format json --model {} --max-budget-usd 0.02 --no-session-persistence --tools ''",
-            shell_quote(base_url),
-            shell_quote(cli_path),
-            prompt.replace('\'', "'\\''"),
-            shell_quote(model)
-        ),
+        LivenessCliKind::Codex => {
+            let model_arg = if model.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" -m {}", shell_quote(model))
+            };
+            format!(
+                "CODEX_HOME=/tmp/balancehub-codex-home-<random> OPENAI_API_KEY=*** {} --ask-for-approval never --sandbox read-only exec --skip-git-repo-check --ephemeral --ignore-user-config --ignore-rules --json{} -c 'model_provider=\"balancehub\"' -c 'model_providers.balancehub.identity.name=\"BalanceHub\"' -c 'model_providers.balancehub.identity.base_url=\"{}\"' -c 'model_providers.balancehub.wire_api=\"responses\"' -c 'model_providers.balancehub.env_key=\"OPENAI_API_KEY\"' -c 'model_providers.balancehub.requires_openai_auth=true' -o /tmp/balancehub-codex-<random>.txt '{}'",
+                shell_quote(cli_path),
+                model_arg,
+                base_url,
+                prompt.replace('\'', "'\\''")
+            )
+        }
+        LivenessCliKind::ClaudeCode => {
+            let model_arg = if model.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" --model {}", shell_quote(model))
+            };
+            format!(
+                "HOME=/tmp/balancehub-claude-home-<random> ANTHROPIC_API_KEY=*** ANTHROPIC_BASE_URL={} {} --bare -p '{}' --output-format json{} --max-budget-usd 0.02 --no-session-persistence --tools ''",
+                shell_quote(base_url),
+                shell_quote(cli_path),
+                prompt.replace('\'', "'\\''"),
+                model_arg
+            )
+        }
     }
 }
 

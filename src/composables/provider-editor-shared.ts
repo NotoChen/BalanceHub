@@ -4,12 +4,14 @@ import type {
   ProviderCapabilityProbeResult,
   ProviderConnectionTestResult,
   ProviderInput,
+  ProviderSaveOptions,
+  ProviderSaveResult,
   ProviderProtocolDetectionResult,
   ProviderSiteProbeResult,
 } from "../stores/providers";
 
 export interface ProviderEditorStore {
-  saveProvider: (input: ProviderInput) => Promise<Provider[]>;
+  saveProvider: (input: ProviderInput, options?: ProviderSaveOptions) => Promise<ProviderSaveResult>;
   detectProviderProtocol: (input: ProviderInput) => Promise<ProviderProtocolDetectionResult>;
   probeProviderSite: (input: ProviderInput) => Promise<ProviderSiteProbeResult>;
   completeProviderCredentials: (input: ProviderInput) => Promise<{

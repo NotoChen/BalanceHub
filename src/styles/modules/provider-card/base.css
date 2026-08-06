@@ -1,3 +1,9 @@
+@property --provider-card-beam-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
 .provider-card {
   --provider-card-surface: var(--glass-card);
   --provider-card-state: #c9cdd4;
@@ -10,7 +16,7 @@
   flex-direction: column;
   gap: 12px;
   overflow: visible;
-  border: 1px solid var(--glass-border);
+  border: 1px solid transparent;
   border-radius: 8px;
   background: var(--provider-card-surface);
   box-shadow: 0 4px 14px rgba(29, 33, 41, 0.06);
@@ -39,15 +45,50 @@
   content: "";
 }
 
+/* Keep the border geometry fixed and move only the beam inside the rounded mask. */
+.provider-card::before {
+  position: absolute;
+  z-index: 0;
+  inset: -1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--provider-card-beam-angle),
+    transparent 0deg 252deg,
+    color-mix(in srgb, var(--provider-card-state) 10%, transparent) 260deg,
+    color-mix(in srgb, var(--provider-card-state) 28%, transparent) 274deg,
+    color-mix(in srgb, var(--provider-card-state) 58%, transparent) 288deg,
+    color-mix(in srgb, var(--provider-card-state) 86%, transparent) 302deg,
+    var(--provider-card-state) 316deg,
+    color-mix(in srgb, var(--provider-card-state) 86%, transparent) 330deg,
+    color-mix(in srgb, var(--provider-card-state) 58%, transparent) 344deg,
+    color-mix(in srgb, var(--provider-card-state) 28%, transparent) 358deg,
+    transparent 360deg
+  );
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 3px;
+  filter:
+    drop-shadow(0 0 5px color-mix(in srgb, var(--provider-card-state) 58%, transparent))
+    drop-shadow(0 0 11px color-mix(in srgb, var(--provider-card-state) 28%, transparent));
+  transition: opacity 180ms ease;
+  will-change: --provider-card-beam-angle, opacity;
+}
+
 .provider-card::after {
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(
     to bottom left,
-    color-mix(in srgb, var(--provider-card-state) 6%, transparent),
-    transparent 64%
+    color-mix(in srgb, var(--provider-card-state) 13%, transparent),
+    color-mix(in srgb, var(--provider-card-state) 4%, transparent) 22%,
+    transparent 48%
   );
-  opacity: 0;
+  opacity: 0.78;
 }
 
 .provider-card > * {
@@ -56,15 +97,25 @@
 }
 
 .provider-card:hover,
-.provider-card:focus-visible {
-  border-color: color-mix(in srgb, #165dff 26%, var(--glass-border));
+.provider-card:focus-visible,
+.provider-card-interacting {
   box-shadow: 0 8px 20px rgba(29, 33, 41, 0.08);
   transform: translateY(-1px);
 }
 
+.provider-card:hover::before,
+.provider-card:focus-visible::before,
+.provider-card-interacting::before {
+  opacity: 1;
+  animation: provider-card-border-flow 2.15s linear infinite;
+}
+
 .provider-card:focus-visible {
-  border-color: #165dff;
   box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12), 0 8px 20px rgba(29, 33, 41, 0.08);
+}
+
+@keyframes provider-card-border-flow {
+  to { --provider-card-beam-angle: 360deg; }
 }
 
 .provider-card-dragging {
@@ -114,10 +165,6 @@
   --provider-card-state: #e34d59;
 }
 
-.provider-card-error::after {
-  opacity: 1;
-}
-
 .provider-card-empty {
   --provider-card-state: #86909c;
 }
@@ -132,13 +179,33 @@
 
 .provider-card-disabled:hover,
 .provider-card-disabled:focus-visible {
-  border-color: var(--glass-border);
+  border-color: transparent;
   box-shadow: none;
   transform: none;
 }
 
 .provider-card-disabled::after {
   display: none;
+}
+
+.provider-card-disabled::before,
+.provider-card-placeholder::before,
+.provider-card-dragging::before {
+  display: none;
+}
+
+.provider-card-placeholder::after,
+.provider-card-dragging::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider-card:hover::before,
+  .provider-card:focus-visible::before,
+  .provider-card-interacting::before {
+    animation: none;
+    opacity: 0.82;
+  }
 }
 
 .provider-card-disabled .provider-logo,
@@ -698,14 +765,6 @@
 .provider-card-ccswitch-action img {
   width: 16px;
   height: 16px;
-  object-fit: contain;
-}
-
-.provider-card-ccswitch-provider-icon {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  border-radius: 4px;
   object-fit: contain;
 }
 

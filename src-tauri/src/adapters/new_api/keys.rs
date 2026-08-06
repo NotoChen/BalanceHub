@@ -11,7 +11,7 @@ use super::response::{
     extract_bool_field, extract_f64_field, extract_i64_field, extract_string_field,
     extract_token_items, parse_success_data, send_text,
 };
-use super::site::{convert_quota_value, fetch_site_metadata, SiteMetadata};
+use super::site::{convert_quota_value, fetch_site_metadata_or, SiteMetadata};
 
 pub(crate) async fn fetch_api_key_options(
     client: &ProviderTransport,
@@ -26,9 +26,7 @@ pub(crate) async fn fetch_api_key_options(
         .into_iter()
         .take(limits::MAX_API_KEYS_PER_PROVIDER)
         .collect::<Vec<_>>();
-    let site = fetch_site_metadata(client, base_url)
-        .await
-        .unwrap_or_default();
+    let site = fetch_site_metadata_or(client, base_url, SiteMetadata::default()).await?;
 
     if tokens.is_empty() {
         return Ok(Vec::new());
@@ -121,9 +119,7 @@ pub(crate) async fn create_api_key(
     .json(&payload);
     let (status, body) = send_text(client, request, "创建 API 密钥").await?;
     let data = parse_success_data(&status, body, "创建 API 密钥")?;
-    let site = fetch_site_metadata(client, base_url)
-        .await
-        .unwrap_or_default();
+    let site = fetch_site_metadata_or(client, base_url, SiteMetadata::default()).await?;
 
     if let Some(key) = extract_string_field(&data, &["key", "Key"]) {
         return Ok(api_key_option_from_token(

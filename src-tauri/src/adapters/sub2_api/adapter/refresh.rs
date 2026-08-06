@@ -25,7 +25,7 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<ProviderConnectionTestResult, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let site = fetch_site(&client, &provider.identity.base_url).await.ok();
         let mut steps = Vec::new();
 
@@ -82,7 +82,7 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<ProviderSiteProbeResult, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         match fetch_site(&client, &provider.identity.base_url).await {
             Ok(site) => Ok(ProviderSiteProbeResult {
                 ok: true,
@@ -107,7 +107,7 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Provider {
-        match build_client(settings, provider) {
+        match build_client(settings, provider).await {
             Ok(client) => {
                 self.refresh_provider_with_client(&client, provider, None)
                     .await

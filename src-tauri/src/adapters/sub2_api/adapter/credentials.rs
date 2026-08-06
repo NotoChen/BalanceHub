@@ -51,11 +51,20 @@ impl Sub2ApiAdapter {
         let client = build_client(
             settings,
             &Provider::from_input(updated.clone(), provider_id.clone()),
-        )?;
+        )
+        .await?;
         let provider = Provider::from_input(updated.clone(), provider_id);
         let (mut authenticated, user) = authenticate_account(&client, &provider).await?;
         let mut changed_fields = Vec::new();
         sync_authenticated_tokens(&mut updated, &authenticated, &mut changed_fields);
+        if let Some(user_id) =
+            crate::adapters::sub2_api::json::string_field(&user, &["id", "user_id", "userId"])
+        {
+            if updated.identity.user_id != user_id {
+                updated.identity.user_id = user_id;
+                push_changed_field(&mut changed_fields, "identityUserId");
+            }
+        }
         if updated.auth.login_username.trim().is_empty() {
             if let Some(login) = user_login_name(&user) {
                 updated.auth.login_username = login;

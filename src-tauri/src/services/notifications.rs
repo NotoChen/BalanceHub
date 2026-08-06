@@ -107,7 +107,7 @@ async fn send_to_channels(
     channels: &[NotificationChannel],
     message: NotificationMessage,
 ) -> NotificationSendResult {
-    let client = match network::build_webhook_client(settings) {
+    let client = match network::build_webhook_client(settings).await {
         Ok(client) => client,
         Err(err) => {
             let results = channels

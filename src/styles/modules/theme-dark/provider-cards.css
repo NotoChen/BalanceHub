@@ -1,18 +1,18 @@
-/* Provider cards keep a neutral surface in dark mode; state color is reserved for signals. */
+/* State color drives both the card gradient and the compact status signal. */
 :root.theme-dark .provider-card {
   --provider-card-surface: var(--glass-card);
-  border-color: var(--glass-border);
+  border-color: transparent;
   background: var(--provider-card-surface);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 :root.theme-dark .provider-card:hover {
-  border-color: color-mix(in srgb, #7aa7ff 30%, var(--glass-border));
+  border-color: transparent;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
 :root.theme-dark .provider-card:focus-visible {
-  border-color: #7aa7ff;
+  border-color: transparent;
   box-shadow: 0 0 0 3px rgba(122, 167, 255, 0.18), 0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
@@ -37,11 +37,12 @@
   --provider-card-state: #a9aeb8;
 }
 
-:root.theme-dark .provider-card-error::after {
+:root.theme-dark .provider-card::after {
   background: linear-gradient(
     to bottom left,
-    color-mix(in srgb, #ff7d7d 9%, transparent),
-    transparent 64%
+    color-mix(in srgb, var(--provider-card-state) 15%, transparent),
+    color-mix(in srgb, var(--provider-card-state) 5%, transparent) 22%,
+    transparent 48%
   );
 }
 

@@ -32,12 +32,7 @@ pub(crate) fn solve(body: &str, set_cookies: &[String]) -> Result<ShieldCredenti
         .collect::<Vec<_>>();
     sources.push(parse_cookie_pair(&computed).expect("computed cookie has a valid name"));
 
-    Ok(ShieldCredential::from_pairs(
-        ShieldKind::AliyunWaf,
-        sources,
-        // 阿里云盾不绑定 UA，保持调用方原有的 User-Agent。
-        None,
-    ))
+    Ok(ShieldCredential::from_pairs(ShieldKind::AliyunWaf, sources))
 }
 
 /// 复刻挑战页 JS 的 `unsbox` + `hexXor`：
@@ -138,7 +133,5 @@ mod tests {
 
         assert!(credential.cookie_header().contains("acw_tc=abc123"));
         assert!(credential.cookie_header().contains("acw_sc__v2="));
-        // 阿里云盾不绑定 UA，不应覆盖调用方的 User-Agent。
-        assert!(credential.user_agent.is_none());
     }
 }

@@ -14,7 +14,7 @@ use super::response::{
     extract_f64_field, extract_i64_field, extract_string_field, parse_success_data, send_text,
 };
 use super::site::{
-    convert_quota_value, fetch_site_metadata, site_metadata_from_provider, SiteMetadata,
+    convert_quota_value, fetch_site_metadata_or, site_metadata_from_provider, SiteMetadata,
 };
 
 struct RequestLogStatsContext<'a> {
@@ -31,9 +31,8 @@ pub async fn fetch_request_logs(
     query: ProviderRequestLogsQuery,
 ) -> Result<ProviderRequestLogsResult, String> {
     let (base_url, api_user, credential) = provider_user_management_context(provider)?;
-    let site = fetch_site_metadata(client, &base_url)
-        .await
-        .unwrap_or_else(|_| site_metadata_from_provider(provider));
+    let site =
+        fetch_site_metadata_or(client, &base_url, site_metadata_from_provider(provider)).await?;
 
     let end_timestamp = crate::util::unix_secs();
     let start_timestamp = end_timestamp.saturating_sub(30 * 86_400);

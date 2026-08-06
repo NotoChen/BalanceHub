@@ -190,10 +190,6 @@
     transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.provider-card-cli-config-list button.provider-card-cli-config-item-no-logo {
-  grid-template-columns: minmax(0, 1fr) 14px;
-}
-
 .provider-card-cli-config-list button:hover,
 .provider-card-cli-config-list button:focus-visible {
   background: rgba(22, 93, 255, 0.07);

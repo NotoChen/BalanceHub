@@ -29,8 +29,13 @@ pub(crate) fn build_provider_client_with_proxy(proxy: EffectiveProxy) -> Result<
     build_cached_client(HttpClientProfile::Business, proxy)
 }
 
-pub(crate) fn build_webhook_client(settings: &AppSettings) -> Result<Client, String> {
-    build_cached_client(HttpClientProfile::Webhook, resolve_global_proxy(settings))
+pub(crate) async fn build_webhook_client(settings: &AppSettings) -> Result<Client, String> {
+    let settings = settings.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        build_cached_client(HttpClientProfile::Webhook, resolve_global_proxy(&settings))
+    })
+    .await
+    .map_err(|err| format!("初始化 Webhook 网络客户端任务异常: {err}"))?
 }
 
 fn build_cached_client(

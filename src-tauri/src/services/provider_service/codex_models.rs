@@ -34,7 +34,7 @@ pub(super) async fn fetch_codex_models(
     }
 
     if matches!(provider.identity.protocol, ProviderProtocol::Api) {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         return api::fetch_models(&client, provider).await;
     }
 
@@ -46,7 +46,7 @@ pub(super) async fn fetch_codex_models(
     }
     let url = reqwest::Url::parse(&format!("{}/models", base_url.trim_end_matches('/')))
         .map_err(|err| format!("模型列表地址无效: {err}"))?;
-    let client = build_client(settings, provider)?;
+    let client = build_client(settings, provider).await?;
     let request = client
         .get(url)
         .bearer_auth(provider.auth.api_key.trim())

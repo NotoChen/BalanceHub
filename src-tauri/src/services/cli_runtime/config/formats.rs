@@ -1,4 +1,6 @@
 use super::super::{replace_file, INSTANCE_COUNTER};
+use super::json_source;
+
 use serde_json::Value as JsonValue;
 use std::{fs, path::Path, sync::atomic::Ordering};
 use toml_edit::{value as toml_value, Document as TomlDocument};
@@ -44,45 +46,7 @@ pub(super) fn rewrite_codex_config(
     Ok((document.to_string(), format!("{auth}\n")))
 }
 
-pub(super) fn rewrite_claude_config(
-    settings: &str,
-    base_url: &str,
-    api_key: &str,
-) -> Result<String, String> {
-    let mut settings = serde_json::from_str::<JsonValue>(settings)
-        .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
-    let settings = settings
-        .as_object_mut()
-        .ok_or_else(|| "Claude Code 配置文件格式无效".to_string())?;
-    let env = settings
-        .entry("env".to_string())
-        .or_insert_with(|| JsonValue::Object(serde_json::Map::new()))
-        .as_object_mut()
-        .ok_or_else(|| "Claude Code 配置中的 env 不是对象".to_string())?;
-    env.insert(
-        "ANTHROPIC_BASE_URL".to_string(),
-        JsonValue::String(base_url.trim().to_string()),
-    );
-
-    let has_auth_token = env.contains_key("ANTHROPIC_AUTH_TOKEN");
-    let has_api_key = env.contains_key("ANTHROPIC_API_KEY");
-    if has_auth_token || !has_api_key {
-        env.insert(
-            "ANTHROPIC_AUTH_TOKEN".to_string(),
-            JsonValue::String(api_key.trim().to_string()),
-        );
-    }
-    if has_api_key {
-        env.insert(
-            "ANTHROPIC_API_KEY".to_string(),
-            JsonValue::String(api_key.trim().to_string()),
-        );
-    }
-
-    serde_json::to_string_pretty(settings)
-        .map(|text| format!("{text}\n"))
-        .map_err(|err| format!("生成 Claude Code 配置失败: {err}"))
-}
+pub(super) use json_source::rewrite_claude_config;
 
 pub(super) fn write_config_text(path: &Path, text: &str, label: &str) -> Result<(), String> {
     let sequence = INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed);

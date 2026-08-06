@@ -297,6 +297,13 @@ pub async fn complete_credentials(
         }
     }
 
+    if !updated.auth.api_user.trim().is_empty()
+        && updated.identity.user_id.trim() != updated.auth.api_user.trim()
+    {
+        updated.identity.user_id = updated.auth.api_user.trim().to_string();
+        changed_fields.insert("identityUserId".to_string());
+    }
+
     Ok(ProviderCredentialCompletionResult {
         input: updated,
         changed_fields: changed_fields.into_iter().collect(),

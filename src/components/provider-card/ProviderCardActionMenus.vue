@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   IconApps,
   IconBarChart,
@@ -33,7 +33,6 @@ import {
   type CcSwitchAppTarget,
 } from "../../utils/ccswitch-deeplink";
 import ccSwitchLogo from "../../assets/logos/cc-switch.png";
-import { applyProviderLogoFallback, providerLogoSrc } from "./provider-card-logo";
 
 const props = withDefaults(
   defineProps<{
@@ -43,7 +42,6 @@ const props = withDefaults(
     switchingCliKind?: LivenessCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
-    passingChallenge?: boolean;
   }>(),
   {
     codexDefault: false,
@@ -51,7 +49,6 @@ const props = withDefaults(
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
-    passingChallenge: false,
   },
 );
 
@@ -63,7 +60,6 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
-  passChallenge: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
@@ -71,6 +67,7 @@ const emit = defineEmits<{
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
+  interaction: [active: boolean];
 }>();
 
 const store = useProviderStore();
@@ -137,14 +134,8 @@ const canProbeSite = computed(
   () => props.provider.runtime.enabled && accountManagementAvailable.value,
 );
 const canChangePassword = computed(() => accountManagementAvailable.value);
-// 只有 Rust 在真实请求中检测到可交互的 Cloudflare challenge 后才展示，
-// 普通站点和纯算法盾不进入无效的人工验证流程。
-const canPassChallenge = computed(
-  () => props.provider.actions.challenge?.interactive === true,
-);
 const hasSiteActions = computed(
   () =>
-    canPassChallenge.value ||
     canProbeSite.value ||
     supportsApiKeyManagement(props.provider) ||
     canViewAvailableModels.value ||
@@ -162,7 +153,11 @@ const hasSecondaryActions = computed(
     canAddCcSwitchConfig.value ||
     canLaunchTemporaryCli.value,
 );
-const isApiKeyAuth = computed(() => props.provider.auth.mode === "apiKey");
+watch(
+  [copyMenuVisible, dataMenuVisible, siteMenuVisible, cliSwitchVisible, ccSwitchMenuVisible],
+  (visibleMenus) => emit("interaction", visibleMenus.some(Boolean)),
+  { immediate: true },
+);
 
 function switchCliConfig(cliKind: LivenessCliKind) {
   const isCurrent = cliKind === "codex" ? props.codexDefault : props.claudeDefault;
@@ -186,7 +181,7 @@ function openDataAction(action: "usage" | "requestLogs" | "liveness" | "checkInR
 }
 
 function openSiteAction(
-  action: "probe" | "keys" | "models" | "password" | "challenge",
+  action: "probe" | "keys" | "models" | "password",
 ) {
   siteMenuVisible.value = false;
   if (action === "probe") {
@@ -198,8 +193,6 @@ function openSiteAction(
     emit("openApiKeyManager", props.provider);
   } else if (action === "models") {
     emit("openAvailableModels", props.provider);
-  } else if (action === "challenge") {
-    emit("passChallenge", props.provider);
   } else {
     emit("openPasswordChange", props.provider);
   }
@@ -231,9 +224,6 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
   emit("copySecret", props.provider, field);
 }
 
-function handleProviderLogoError(event: Event) {
-  applyProviderLogoFallback(event, props.provider);
-}
 </script>
 
 <template>
@@ -410,19 +400,6 @@ function handleProviderLogoError(event: Event) {
           <icon-lock class="provider-card-action-icon provider-card-action-icon-password" />
           <span>修改密码</span>
         </button>
-        <button
-          v-if="canPassChallenge"
-          type="button"
-          :disabled="passingChallenge"
-          @click="openSiteAction('challenge')"
-        >
-          <icon-loading
-            v-if="passingChallenge"
-            class="provider-card-action-icon provider-card-action-icon-probe"
-          />
-          <icon-safe v-else class="provider-card-action-icon provider-card-action-icon-probe" />
-          <span>{{ passingChallenge ? "验证中" : "通过站点验证" }}</span>
-        </button>
       </div>
     </div>
   </template>
@@ -507,18 +484,10 @@ function handleProviderLogoError(event: Event) {
           v-for="target in ccSwitchTargets"
           :key="target"
           type="button"
-          :class="{ 'provider-card-cli-config-item-no-logo': isApiKeyAuth }"
           :disabled="!canAddCcSwitchConfig"
           @click="addCcSwitchConfig(target)"
         >
-          <img
-            v-if="!isApiKeyAuth"
-            class="provider-card-ccswitch-provider-icon"
-            :src="providerLogoSrc(provider)"
-            alt=""
-            aria-hidden="true"
-            @error="handleProviderLogoError"
-          />
+          <BrandIcon :brand="target" :size="18" />
           <span>
             <strong>导入到 {{ ccSwitchTargetLabels[target] }}</strong>
             <small>仅绑定 URL 与 API Key</small>

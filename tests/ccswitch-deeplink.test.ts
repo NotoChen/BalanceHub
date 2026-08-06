@@ -67,6 +67,7 @@ test("CC Switch OpenAI targets use the OpenAI endpoint and a single /v1 suffix",
   assert.equal(link.searchParams.get("app"), "codex");
   assert.equal(link.searchParams.get("endpoint"), "https://openai.example.com/root/v1");
   assert.equal(link.searchParams.get("apiKey"), "sk-test");
+  assert.equal(link.searchParams.has("icon"), false);
 });
 
 test("CC Switch Claude target keeps the Anthropic endpoint without appending /v1", () => {

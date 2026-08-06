@@ -41,7 +41,7 @@ pub struct AppSettings {
     pub temporary_cli_terminal_kind: TemporaryCliTerminalKind,
     #[serde(default)]
     pub liveness_enabled: bool,
-    #[serde(default = "default_codex_model")]
+    #[serde(default)]
     pub liveness_model: String,
     #[serde(default)]
     pub liveness_interval_mode: LivenessIntervalMode,
@@ -87,7 +87,7 @@ impl Default for AppSettings {
             claude_cli_path: String::new(),
             temporary_cli_terminal_kind: TemporaryCliTerminalKind::default(),
             liveness_enabled: false,
-            liveness_model: default_codex_model(),
+            liveness_model: String::new(),
             liveness_interval_mode: LivenessIntervalMode::Fixed,
             liveness_interval: default_liveness_interval(),
             liveness_random_min_interval: default_liveness_random_min_interval(),
@@ -145,10 +145,6 @@ fn default_notification_channels() -> Vec<NotificationChannel> {
         secret: String::new(),
         enabled: true,
     }]
-}
-
-pub(crate) fn default_codex_model() -> String {
-    "gpt-5.5".to_string()
 }
 
 pub(crate) fn default_liveness_interval() -> u64 {

@@ -3,10 +3,6 @@
   max-height: calc(100dvh - 44px);
 }
 
-.settings-modal-v3 .arco-modal-body {
-  padding: 0;
-}
-
 .settings-workspace-v3 {
   display: grid;
   height: min(724px, calc(100dvh - 126px));

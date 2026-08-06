@@ -69,9 +69,9 @@ pub fn start(app: &AppHandle) {
 }
 
 async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
-    let service = ProviderService::new(app);
+    let service = ProviderService::background(app);
     // 配置加载失败（storage 保护态）时暂停所有自动化，避免基于残缺状态误操作。
-    let Ok(data) = service.load_app_data() else {
+    let Ok(data) = service.load_app_data_async().await else {
         return;
     };
     let settings = &data.settings;
@@ -273,7 +273,9 @@ async fn run_auto_check_in(
         }
         Ok(result) => {
             let display = format!("自动签到失败：{}", non_empty(&result.message, "签到失败"));
-            let _ = service.mark_auto_check_in_failure(provider, display.clone());
+            let _ = service
+                .mark_auto_check_in_failure(provider, display.clone())
+                .await;
             if attempt == 1 {
                 notify_provider_event(
                     app,
@@ -288,7 +290,9 @@ async fn run_auto_check_in(
         }
         Err(message) => {
             let display = format!("自动签到异常：{}", non_empty(&message, "签到异常"));
-            let _ = service.mark_auto_check_in_failure(provider, display.clone());
+            let _ = service
+                .mark_auto_check_in_failure(provider, display.clone())
+                .await;
             if attempt == 1 {
                 notify_provider_event(
                     app,

@@ -58,16 +58,31 @@
   scrollbar-gutter: stable;
 }
 
-.surface-modal.password-change-modal .arco-modal-body,
-.surface-modal.available-models-modal .arco-modal-body,
-.surface-modal.api-key-manager-modal .arco-modal-body,
-.surface-modal.api-key-create-modal .arco-modal-body,
-.surface-modal.checkin-calendar-modal .arco-modal-body,
-.surface-modal.liveness-details-modal .arco-modal-body,
-.surface-modal.usage-trend-modal .arco-modal-body,
-.surface-modal.request-logs-modal .arco-modal-body,
-.surface-modal.request-log-detail-modal-surface .arco-modal-body {
+/* Every ordinary dialog gets one predictable content inset. Full-workspace
+ * dialogs opt out below because their inner layout owns the edge-to-edge grid. */
+.surface-modal .arco-modal-body {
+  box-sizing: border-box;
   padding: 20px 22px 22px;
+}
+
+.surface-modal.settings-modal-v3 .arco-modal-body,
+.surface-modal.provider-editor-modal-v3 .arco-modal-body,
+.surface-modal.workspace-picker-modal .arco-modal-body,
+.surface-modal.onboarding-modal .arco-modal-body {
+  padding: 0;
+}
+
+@media (max-width: 760px) {
+  .surface-modal .arco-modal-body {
+    padding: 14px 16px 16px;
+  }
+
+  .surface-modal.settings-modal-v3 .arco-modal-body,
+  .surface-modal.provider-editor-modal-v3 .arco-modal-body,
+  .surface-modal.workspace-picker-modal .arco-modal-body,
+  .surface-modal.onboarding-modal .arco-modal-body {
+    padding: 0;
+  }
 }
 
 .surface-modal-title-icon {

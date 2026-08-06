@@ -19,7 +19,7 @@ use super::http::{
     USER_AGENT_VALUE,
 };
 use super::response::{parse_success_data, send_text, trim_message};
-use super::site::{apply_site_metadata, fetch_site_metadata, site_metadata_from_provider};
+use super::site::{apply_site_metadata, fetch_site_metadata_or, site_metadata_from_provider};
 
 #[derive(Debug, Deserialize)]
 struct SignInResponse {
@@ -74,7 +74,12 @@ pub async fn check_in_provider(
     }
 
     let result = check_in_provider_once(client, provider).await;
-    if should_retry_check_in_with_access_token(&result) {
+    if client
+        .shield_blocked_for(&provider.identity.base_url)
+        .await
+        .is_none()
+        && should_retry_check_in_with_access_token(&result)
+    {
         if let Some(fallback_provider) = access_token_fallback_provider(provider) {
             return check_in_provider_once(client, &fallback_provider).await;
         }
@@ -88,7 +93,12 @@ pub async fn fetch_check_in_records(
     month: &str,
 ) -> Result<ProviderCheckInRecordsResult, String> {
     let result = fetch_check_in_records_once(client, provider, month).await;
-    if should_retry_check_in_records_with_access_token(&result) {
+    if client
+        .shield_blocked_for(&provider.identity.base_url)
+        .await
+        .is_none()
+        && should_retry_check_in_records_with_access_token(&result)
+    {
         if let Some(fallback_provider) = access_token_fallback_provider(provider) {
             return fetch_check_in_records_once(client, &fallback_provider, month).await;
         }
@@ -122,17 +132,13 @@ async fn fetch_check_in_records_once(
     if !status.is_success() {
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));
     }
-    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
-        return Err(crate::adapters::transport::shield_blocked_message(kind));
-    }
     if check_in_message_indicates_disabled(&trim_message(&body)) {
         return Err("当前站点未开启签到".to_string());
     }
 
     let data = parse_success_data(&status, body, "签到记录")?;
-    let site = fetch_site_metadata(client, &base_url)
-        .await
-        .unwrap_or_else(|_| site_metadata_from_provider(provider));
+    let site =
+        fetch_site_metadata_or(client, &base_url, site_metadata_from_provider(provider)).await?;
     let mut quota_provider = provider.clone();
     apply_site_metadata(&mut quota_provider, site.clone());
     let quota_display = ProviderQuotaDisplay {
@@ -189,9 +195,6 @@ async fn check_in_status_probe(
     }
     if !status.is_success() {
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));
-    }
-    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
-        return Err(crate::adapters::transport::shield_blocked_message(kind));
     }
     serde_json::from_str::<Value>(&body)
         .map_err(|err| format!("解析签到状态失败: {err}: {}", trim_message(&body)))?;
@@ -271,10 +274,6 @@ async fn check_in_status(
         return Ok(false);
     }
 
-    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
-        return Err(crate::adapters::transport::shield_blocked_message(kind));
-    }
-
     let decoded = match serde_json::from_str::<Value>(&body) {
         Ok(decoded) => decoded,
         Err(_) => return Ok(false),
@@ -307,15 +306,6 @@ fn validate_check_in_credentials(provider: &Provider) -> Result<(), String> {
 }
 
 fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInResult {
-    if let Some(kind) = crate::network::shield::detect(&Default::default(), body) {
-        return ProviderCheckInResult {
-            ok: false,
-            message: crate::adapters::transport::shield_blocked_message(kind),
-            last_checked_in_at: None,
-            last_check_in_user: None,
-        };
-    }
-
     if !status.is_success() && status != StatusCode::BAD_REQUEST {
         return ProviderCheckInResult {
             ok: false,

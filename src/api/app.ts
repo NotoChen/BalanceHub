@@ -2,6 +2,7 @@ import { invoke, type Channel } from "@tauri-apps/api/core";
 import type {
   AppSettings,
   CliConfigPreview,
+  CliConfigFile,
   CliRuntimeSnapshot,
   CliEnvironmentProbeResult,
   CodexModelSyncResult,
@@ -13,6 +14,8 @@ import type {
   ProviderCredentialCompletionResult,
   ProviderConnectionTestResult,
   ProviderInput,
+  ProviderSaveOptions,
+  ProviderSaveResult,
   ProviderProtocolDetectionResult,
   ProviderRequestLogsQuery,
   ProviderRequestLogsResult,
@@ -104,8 +107,8 @@ export function cancelVisibleRelaunch() {
   return invoke<void>("cancel_visible_relaunch");
 }
 
-export function saveProvider(input: ProviderInput) {
-  return invoke<Provider[]>("save_provider", { input });
+export function saveProvider(input: ProviderInput, options: ProviderSaveOptions = {}) {
+  return invoke<ProviderSaveResult>("save_provider", { input, options });
 }
 
 export function removeProvider(id: string) {
@@ -160,10 +163,6 @@ export function testProviderConnection(input: ProviderInput) {
   return invoke<ProviderConnectionTestResult>("test_provider_connection", { input });
 }
 
-export function passProviderChallenge(id: string) {
-  return invoke<string>("pass_provider_challenge", { id });
-}
-
 export function probeCliEnvironment() {
   return invoke<CliEnvironmentProbeResult>("probe_cli_environment");
 }
@@ -204,8 +203,13 @@ export function previewCliConfig(id: string, cliKind: LivenessCliKind) {
   return invoke<CliConfigPreview>("preview_cli_config", { id, cliKind });
 }
 
-export function switchCliConfig(id: string, cliKind: LivenessCliKind, revision: string) {
-  return invoke<CliRuntimeSnapshot>("switch_cli_config", { id, cliKind, revision });
+export function switchCliConfig(
+  id: string,
+  cliKind: LivenessCliKind,
+  revision: string,
+  files: CliConfigFile[],
+) {
+  return invoke<CliRuntimeSnapshot>("switch_cli_config", { id, cliKind, revision, files });
 }
 
 export function syncCodexModels(id: string) {

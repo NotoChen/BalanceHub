@@ -1,7 +1,3 @@
-.workspace-picker-modal .arco-modal-body {
-  padding: 0;
-}
-
 .workspace-picker {
   display: grid;
   min-width: 0;

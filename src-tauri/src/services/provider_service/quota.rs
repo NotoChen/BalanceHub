@@ -11,7 +11,7 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<ProviderConnectionTestResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider_id = input
             .id
             .clone()
@@ -22,12 +22,13 @@ impl<'a> ProviderService<'a> {
             .test_connection(&data.settings, &provider)
             .await?;
         if result.ok {
-            self.apply_connection_test_result(&request_context, &result)?;
+            self.apply_connection_test_result(&request_context, &result)
+                .await?;
         }
         Ok(result)
     }
 
-    fn apply_connection_test_result(
+    async fn apply_connection_test_result(
         &self,
         request_context: &ProviderRequestContext,
         result: &ProviderConnectionTestResult,
@@ -38,11 +39,12 @@ impl<'a> ProviderService<'a> {
         let used = result.used;
         let quota_display = result.quota_display.clone();
         let synced_at = unix_secs().to_string();
-        self.mutate(|data| {
+        let mutation_context = request_context.clone();
+        self.mutate_async(move |data| {
             if let Some(provider) = data
                 .providers
                 .iter_mut()
-                .find(|provider| request_context.matches(provider))
+                .find(|provider| mutation_context.matches(provider))
             {
                 provider.quota.available = available;
                 provider.quota.used = used.unwrap_or_default();
@@ -55,5 +57,6 @@ impl<'a> ProviderService<'a> {
                 provider.runtime.error_message = None;
             }
         })
+        .await
     }
 }

@@ -5,7 +5,11 @@ import ProviderBoard from "./ProviderBoard.vue";
 import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
-import type { ProviderAuthFilter, ProviderStatusFilter } from "../utils/provider-filters";
+import {
+  providerMatchesSearch,
+  type ProviderAuthFilter,
+  type ProviderStatusFilter,
+} from "../utils/provider-filters";
 
 interface ProviderDragState {
   providerId: string | null;
@@ -25,7 +29,6 @@ const props = defineProps<{
   globalCheckInInProgress: boolean;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
-  challengingProviderId: string | null;
   providerDrag: ProviderDragState;
   dragOverProviderId: string | null;
   draggedProvider: Provider | null;
@@ -37,6 +40,7 @@ const props = defineProps<{
 
 const authFilter = ref<ProviderAuthFilter>("all");
 const statusFilter = ref<ProviderStatusFilter>("all");
+const searchQuery = ref("");
 
 function matchesFilters(provider: Provider) {
   const authMatches =
@@ -45,17 +49,27 @@ function matchesFilters(provider: Provider) {
     (authFilter.value === "account" && provider.auth.mode !== "apiKey");
   const statusMatches =
     statusFilter.value === "all" || props.providerCardTone(provider) === statusFilter.value;
-  return authMatches && statusMatches;
+  return authMatches && statusMatches && providerMatchesSearch(provider, searchQuery.value);
 }
 
 const filteredLivenessProviders = computed(() => props.livenessProviders.filter(matchesFilters));
 const filteredRegularProviders = computed(() => props.regularProviders.filter(matchesFilters));
+const visibleProviderCount = computed(
+  () => filteredLivenessProviders.value.length + filteredRegularProviders.value.length,
+);
 const hasActiveFilters = computed(
-  () => authFilter.value !== "all" || statusFilter.value !== "all",
+  () =>
+    authFilter.value !== "all" ||
+    statusFilter.value !== "all" ||
+    searchQuery.value.trim().length > 0,
 );
 
 function setAuthFilter(value: ProviderAuthFilter) {
   authFilter.value = value;
+}
+
+function setStatusFilter(value: ProviderStatusFilter) {
+  statusFilter.value = value;
 }
 
 function toggleStatusFilter(value: Exclude<ProviderStatusFilter, "all">) {
@@ -65,6 +79,7 @@ function toggleStatusFilter(value: Exclude<ProviderStatusFilter, "all">) {
 function resetFilters() {
   authFilter.value = "all";
   statusFilter.value = "all";
+  searchQuery.value = "";
 }
 
 const emit = defineEmits<{
@@ -87,7 +102,6 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
-  passChallenge: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
@@ -106,10 +120,15 @@ const emit = defineEmits<{
     :global-check-in-in-progress="globalCheckInInProgress"
     :auth-filter="authFilter"
     :status-filter="statusFilter"
+    :search-query="searchQuery"
+    :visible-provider-count="visibleProviderCount"
+    :total-provider-count="providers.length"
     :has-active-filters="hasActiveFilters"
     @start-drag="emit('startDrag', $event)"
     @set-auth-filter="setAuthFilter"
+    @set-status-filter="setStatusFilter"
     @toggle-status-filter="toggleStatusFilter"
+    @set-search-query="searchQuery = $event"
     @reset-filters="resetFilters"
     @add="emit('add')"
     @refresh="emit('refreshAll')"
@@ -128,7 +147,6 @@ const emit = defineEmits<{
     :switching-cli-config="switchingCliConfig"
     :checking-in-provider-ids="checkingInProviderIds"
     :probing-capabilities-provider-id="probingCapabilitiesProviderId"
-    :challenging-provider-id="challengingProviderId"
     :provider-drag="providerDrag"
     :drag-over-provider-id="dragOverProviderId"
     :dragged-provider="draggedProvider"
@@ -151,7 +169,6 @@ const emit = defineEmits<{
     @open-usage="emit('openUsage', $event)"
     @open-request-logs="emit('openRequestLogs', $event)"
     @open-password-change="emit('openPasswordChange', $event)"
-    @pass-challenge="emit('passChallenge', $event)"
     @open-liveness-details="emit('openLivenessDetails', $event)"
     @open-check-in-records="emit('openCheckInRecords', $event)"
     @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"

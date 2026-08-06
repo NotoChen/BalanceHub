@@ -1,42 +1,62 @@
 use crate::{
     contracts::{
-        provider_views, CodexModelSyncResultView, ProviderCapabilityProbeResultView, ProviderView,
-        RefreshResultView,
+        provider_views, CodexModelSyncResultView, ProviderCapabilityProbeResultView,
+        ProviderSaveResultView, ProviderView, RefreshResultView,
     },
     models::{
         ProviderApiKeyOption, ProviderCheckInRecordsResult, ProviderCheckInResult,
         ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
         ProviderProtocolDetectionResult, ProviderRequestLogsQuery, ProviderRequestLogsResult,
-        ProviderSiteProbeResult, ProviderUsageSummary,
+        ProviderSaveOptions, ProviderSiteProbeResult, ProviderUsageSummary,
     },
     services::provider_service::ProviderService,
     tray,
 };
 use tauri::AppHandle;
 
+use super::run_blocking;
+
 #[tauri::command]
-pub(crate) fn save_provider(
+pub(crate) async fn save_provider(
     app: AppHandle,
     input: ProviderInput,
+    options: Option<ProviderSaveOptions>,
+) -> Result<ProviderSaveResultView, String> {
+    let task_app = app.clone();
+    let result = run_blocking("保存中转站", move || {
+        ProviderService::new(&task_app).save_provider(input, options.unwrap_or_default())
+    })
+    .await?;
+    if result.saved {
+        tray::refresh_from_state(&app);
+    }
+    Ok(result.into())
+}
+
+#[tauri::command]
+pub(crate) async fn remove_provider(
+    app: AppHandle,
+    id: String,
 ) -> Result<Vec<ProviderView>, String> {
-    let providers = ProviderService::new(&app).save_provider(input)?;
+    let task_app = app.clone();
+    let providers = run_blocking("删除中转站", move || {
+        ProviderService::new(&task_app).remove_provider(id)
+    })
+    .await?;
     tray::refresh_from_state(&app);
     Ok(provider_views(providers))
 }
 
 #[tauri::command]
-pub(crate) fn remove_provider(app: AppHandle, id: String) -> Result<Vec<ProviderView>, String> {
-    let providers = ProviderService::new(&app).remove_provider(id)?;
-    tray::refresh_from_state(&app);
-    Ok(provider_views(providers))
-}
-
-#[tauri::command]
-pub(crate) fn reorder_providers(
+pub(crate) async fn reorder_providers(
     app: AppHandle,
     ids: Vec<String>,
 ) -> Result<Vec<ProviderView>, String> {
-    let providers = ProviderService::new(&app).reorder_providers(ids)?;
+    let task_app = app.clone();
+    let providers = run_blocking("调整中转站顺序", move || {
+        ProviderService::new(&task_app).reorder_providers(ids)
+    })
+    .await?;
     tray::refresh_from_state(&app);
     Ok(provider_views(providers))
 }
@@ -211,9 +231,4 @@ pub(crate) async fn check_in_provider(
     id: String,
 ) -> Result<ProviderCheckInResult, String> {
     ProviderService::new(&app).check_in(id).await
-}
-
-#[tauri::command]
-pub(crate) async fn pass_provider_challenge(app: AppHandle, id: String) -> Result<String, String> {
-    ProviderService::new(&app).pass_challenge(id).await
 }

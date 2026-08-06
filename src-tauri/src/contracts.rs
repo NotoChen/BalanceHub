@@ -4,9 +4,9 @@ use crate::{
     adapters::protocol::ProtocolAdapter,
     models::{
         provider_domain, AppData, AppSettings, CodexModelSyncResult, Provider,
-        ProviderCapabilityProbeResult, RefreshResult, TemporaryCliPreference, Workspace,
+        ProviderCapabilityProbeResult, ProviderSaveResult, RefreshResult, TemporaryCliPreference,
+        Workspace,
     },
-    network::shield,
 };
 
 /// Tauri IPC only view of a provider. The persisted `Provider` remains free of
@@ -28,14 +28,6 @@ pub struct ProviderActions {
     pub checked_in_today: bool,
     pub api_key_management: bool,
     pub invitation: bool,
-    pub challenge: Option<ProviderChallengeView>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderChallengeView {
-    pub kind: shield::ShieldKind,
-    pub interactive: bool,
 }
 
 impl From<Provider> for ProviderView {
@@ -54,12 +46,6 @@ impl From<Provider> for ProviderView {
                 &provider,
             ),
             invitation: provider_domain::capabilities::supports_invitation(&provider),
-            challenge: shield::challenge_for(&provider.identity.id).map(|state| {
-                ProviderChallengeView {
-                    kind: state.kind,
-                    interactive: state.kind.may_need_interaction(),
-                }
-            }),
         };
         Self { provider, actions }
     }
@@ -67,6 +53,26 @@ impl From<Provider> for ProviderView {
 
 pub fn provider_views(providers: Vec<Provider>) -> Vec<ProviderView> {
     providers.into_iter().map(ProviderView::from).collect()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSaveResultView {
+    pub providers: Vec<ProviderView>,
+    pub saved: bool,
+    pub saved_provider_id: Option<String>,
+    pub conflict: Option<crate::models::ProviderSaveConflict>,
+}
+
+impl From<ProviderSaveResult> for ProviderSaveResultView {
+    fn from(result: ProviderSaveResult) -> Self {
+        Self {
+            providers: provider_views(result.providers),
+            saved: result.saved,
+            saved_provider_id: result.saved_provider_id,
+            conflict: result.conflict,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

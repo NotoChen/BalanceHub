@@ -69,14 +69,6 @@ struct AccountResult {
 }
 
 fn parse_check_in_response(response_status: StatusCode, body_text: &str) -> AccountResult {
-    // 走到这里还是挑战页，说明通用层求解后重试仍未通过。
-    if let Some(kind) = crate::network::shield::detect(&Default::default(), body_text) {
-        return AccountResult {
-            ok: false,
-            message: crate::adapters::transport::shield_blocked_message(kind),
-        };
-    }
-
     if response_status == StatusCode::UNAUTHORIZED {
         return AccountResult {
             ok: false,
@@ -206,16 +198,6 @@ mod tests {
 
         assert!(result.ok);
         assert_eq!(result.message, "今日已签到");
-    }
-
-    #[test]
-    fn reports_shield_when_retry_still_returns_challenge_page() {
-        // 通用层求解后仍是挑战页，应给出可操作的过盾提示而不是"响应非 JSON"。
-        let body = "<script>var arg1='0123456789abcdef0123456789abcdef01234567';</script>";
-        let result = parse_check_in_response(StatusCode::OK, body);
-
-        assert!(!result.ok);
-        assert!(result.message.contains("阿里云 WAF 验证"));
     }
 
     #[test]

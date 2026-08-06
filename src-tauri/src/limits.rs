@@ -7,6 +7,9 @@ pub const MAX_LIVENESS_OUTPUT_FILE_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_COMMAND_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_SYSTEM_COMMAND_OUTPUT_BYTES: usize = 256 * 1024;
 pub const MAX_HTTP_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+/// Automatic shield replay keeps a bounded in-memory request clone. Larger or
+/// streaming bodies must be retried by the caller after verification.
+pub const MAX_HTTP_REPLAY_BODY_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_WEBHOOK_RESPONSE_BYTES: usize = 1024 * 1024;
 pub const MAX_UPDATE_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAX_PROVIDERS: usize = 200;

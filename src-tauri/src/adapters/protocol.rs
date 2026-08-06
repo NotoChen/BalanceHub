@@ -11,7 +11,6 @@ use crate::models::{
     ProviderCredentialCompletionResult, ProviderInput, ProviderProtocol, ProviderRequestLogsQuery,
     ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary,
 };
-
 pub(crate) struct ProtocolAdapter;
 
 impl ProtocolAdapter {

@@ -14,7 +14,17 @@ use super::{
 
 impl<'a> ProviderService<'a> {
     pub async fn detect_protocol(&self, input: ProviderInput) -> ProviderProtocolDetectionResult {
-        let data = self.snapshot();
+        let data = match self.snapshot_async().await {
+            Ok(data) => data,
+            Err(error) => {
+                return ProviderProtocolDetectionResult {
+                    detected_protocol: None,
+                    message: format!("读取本地配置失败：{error}"),
+                    site: None,
+                    ambiguous: false,
+                }
+            }
+        };
         let mut detection_input = input;
         // 协议尚未识别时不能先按 NewAPI 规则给 Key 补 `sk-`，否则 Sub2API 或
         // 通用 API 的自定义前缀会在真正探测前被改写。账号协议的公开探测接口不依赖
@@ -34,7 +44,7 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<ProviderSiteProbeResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider_id = input
             .id
             .clone()
@@ -47,7 +57,7 @@ impl<'a> ProviderService<'a> {
         &self,
         id: String,
     ) -> Result<ProviderCapabilityProbeResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let (mut capabilities, invite_link, error) = ProtocolAdapter
@@ -75,23 +85,27 @@ impl<'a> ProviderService<'a> {
             .filter(|count| *count > 0)
             .map(|count| format!("站点能力已探测，已获取 {count} 个模型"))
             .unwrap_or_else(|| "站点能力已探测".to_string());
-        let (providers, update_result) = self.mutate(|data| {
-            let update_result = match data
-                .providers
-                .iter_mut()
-                .find(|stored| stored.identity.id == id)
-            {
-                Some(stored_provider) if request_context.matches(stored_provider) => {
-                    stored_provider.capabilities = capabilities;
-                    stored_provider.capabilities.invite_link = invite_link;
-                    stored_provider.capabilities.probed_at = Some(probed_at);
-                    Ok(stored_provider.clone())
-                }
-                Some(_) => Err("本地配置已变更，本次能力探测结果已忽略".to_string()),
-                None => Err("中转站已删除，本次能力探测结果已忽略".to_string()),
-            };
-            (data.providers.clone(), update_result)
-        })?;
+        let provider_id = id.clone();
+        let mutation_context = request_context.clone();
+        let (providers, update_result) = self
+            .mutate_async(move |data| {
+                let update_result = match data
+                    .providers
+                    .iter_mut()
+                    .find(|stored| stored.identity.id == provider_id)
+                {
+                    Some(stored_provider) if mutation_context.matches(stored_provider) => {
+                        stored_provider.capabilities = capabilities;
+                        stored_provider.capabilities.invite_link = invite_link;
+                        stored_provider.capabilities.probed_at = Some(probed_at);
+                        Ok(stored_provider.clone())
+                    }
+                    Some(_) => Err("本地配置已变更，本次能力探测结果已忽略".to_string()),
+                    None => Err("中转站已删除，本次能力探测结果已忽略".to_string()),
+                };
+                (data.providers.clone(), update_result)
+            })
+            .await?;
         let updated_provider = update_result?;
         Ok(ProviderCapabilityProbeResult {
             providers,
@@ -101,25 +115,29 @@ impl<'a> ProviderService<'a> {
     }
 
     pub async fn sync_codex_models(&self, id: String) -> Result<CodexModelSyncResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let models = fetch_codex_models(&data.settings, &provider).await?;
         let stored_models = models.clone();
-        let (providers, updated_provider) = self.mutate(|data| {
-            let mut updated_provider = None;
-            if let Some(stored_provider) = data
-                .providers
-                .iter_mut()
-                .find(|stored| stored.identity.id == id)
-            {
-                if request_context.matches(stored_provider) {
-                    stored_provider.capabilities.available_models = stored_models;
-                    updated_provider = Some(stored_provider.clone());
+        let provider_id = id.clone();
+        let mutation_context = request_context.clone();
+        let (providers, updated_provider) = self
+            .mutate_async(move |data| {
+                let mut updated_provider = None;
+                if let Some(stored_provider) = data
+                    .providers
+                    .iter_mut()
+                    .find(|stored| stored.identity.id == provider_id)
+                {
+                    if mutation_context.matches(stored_provider) {
+                        stored_provider.capabilities.available_models = stored_models;
+                        updated_provider = Some(stored_provider.clone());
+                    }
                 }
-            }
-            (data.providers.clone(), updated_provider)
-        })?;
+                (data.providers.clone(), updated_provider)
+            })
+            .await?;
         let updated_provider =
             updated_provider.ok_or_else(|| "本地配置已变更，本次模型列表结果已忽略".to_string())?;
         Ok(CodexModelSyncResult {
@@ -131,22 +149,23 @@ impl<'a> ProviderService<'a> {
     }
 
     pub async fn invite_link(&self, id: String) -> Result<String, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         if !provider.capabilities.invite_link.trim().is_empty() {
             let invite_link = normalize_invite_link(&provider.capabilities.invite_link);
             if invite_link != provider.capabilities.invite_link {
                 let stored_link = invite_link.clone();
-                self.mutate(|data| {
-                    if let Some(stored_provider) = data
-                        .providers
-                        .iter_mut()
-                        .find(|stored| stored.identity.id == id && request_context.matches(stored))
-                    {
+                let provider_id = id.clone();
+                let mutation_context = request_context.clone();
+                self.mutate_async(move |data| {
+                    if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
+                        stored.identity.id == provider_id && mutation_context.matches(stored)
+                    }) {
                         stored_provider.capabilities.invite_link = stored_link;
                     }
-                })?;
+                })
+                .await?;
             }
             return Ok(invite_link);
         }
@@ -155,23 +174,25 @@ impl<'a> ProviderService<'a> {
             .invite_link(&data.settings, &provider)
             .await?;
         let stored_link = invite_link.clone();
-        let persisted = self.mutate(|data| {
-            if let Some(stored_provider) = data
-                .providers
-                .iter_mut()
-                .find(|stored| stored.identity.id == id && request_context.matches(stored))
-            {
-                stored_provider.capabilities.invite_link = stored_link;
-                stored_provider.capabilities.invitation_known = true;
-                stored_provider.capabilities.invitation_supported = true;
-                stored_provider.capabilities.probed_at =
-                    Some(current_timestamp_millis().to_string());
-                stored_provider.capabilities.error_message = None;
-                true
-            } else {
-                false
-            }
-        })?;
+        let provider_id = id.clone();
+        let mutation_context = request_context.clone();
+        let persisted = self
+            .mutate_async(move |data| {
+                if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
+                    stored.identity.id == provider_id && mutation_context.matches(stored)
+                }) {
+                    stored_provider.capabilities.invite_link = stored_link;
+                    stored_provider.capabilities.invitation_known = true;
+                    stored_provider.capabilities.invitation_supported = true;
+                    stored_provider.capabilities.probed_at =
+                        Some(current_timestamp_millis().to_string());
+                    stored_provider.capabilities.error_message = None;
+                    true
+                } else {
+                    false
+                }
+            })
+            .await?;
         if !persisted {
             return Err("本地配置已变更，本次邀请链接结果已忽略".to_string());
         }

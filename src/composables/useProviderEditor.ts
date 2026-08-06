@@ -7,6 +7,8 @@ import { useProviderCredentialCompletion } from "./useProviderCredentialCompleti
 import { useProviderEditorState } from "./useProviderEditorState";
 import { normalizeLivenessTiming } from "../utils/liveness-defaults";
 import { providerToInput } from "../utils/provider-input";
+import { confirmAction } from "./provider-credential-dialogs";
+import type { ProviderSaveOptions } from "../stores/provider-types";
 
 interface UseProviderEditorOptions {
   store: ProviderEditorStore;
@@ -94,37 +96,93 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
   }
 
   async function saveProvider() {
-    const session = editorSession.value;
-    await credentialAssistant.ensureProtocolSelection();
-    if (editorSession.value !== session || !drawerVisible.value) {
-      return;
+    try {
+      const session = editorSession.value;
+      await credentialAssistant.ensureProtocolSelection();
+      if (editorSession.value !== session || !drawerVisible.value) {
+        return;
+      }
+      const savedProvider = await saveDraftAndFindProvider(
+        () => editorSession.value === session && drawerVisible.value,
+      );
+      if (editorSession.value !== session || !drawerVisible.value) {
+        return;
+      }
+      if (!savedProvider) {
+        return;
+      }
+      if (savedProvider && connectionTestResult.value?.ok) {
+        await options.store.testProviderConnection(providerToInput(savedProvider));
+      }
+      if (editorSession.value !== session || !drawerVisible.value) {
+        return;
+      }
+      drawerVisible.value = false;
+      refreshAfterSave(savedProvider);
+    } catch (error) {
+      // Keep the editor open so the user can correct a duplicate or invalid value in place.
+      Message.error(error instanceof Error ? error.message : String(error));
     }
-    const savedProvider = await saveDraftAndFindProvider(
-      () => editorSession.value === session && drawerVisible.value,
-    );
-    if (editorSession.value !== session || !drawerVisible.value) {
-      return;
-    }
-    if (savedProvider && connectionTestResult.value?.ok) {
-      await options.store.testProviderConnection(providerToInput(savedProvider));
-    }
-    if (editorSession.value !== session || !drawerVisible.value) {
-      return;
-    }
-    drawerVisible.value = false;
-    refreshAfterSave(savedProvider);
   }
 
-  async function saveDraftAndFindProvider(isCurrent: () => boolean = () => true) {
+  async function saveDraftAndFindProvider(
+    isCurrent: () => boolean = () => true,
+    saveOptions: ProviderSaveOptions = {},
+  ) {
     const input = currentProviderInput();
-    const savedProviders = await options.store.saveProvider(input);
-    const savedProvider = findSavedProvider(savedProviders, input);
+    const result = await options.store.saveProvider(input, saveOptions);
+    if (!result.saved) {
+      const conflict = result.conflict;
+      if (!conflict || !isCurrent()) {
+        return undefined;
+      }
+      const confirmed = await confirmDuplicateConflict(conflict.kind, conflict.existingProviderName);
+      if (!confirmed || !isCurrent()) {
+        return undefined;
+      }
+      const retryOptions: ProviderSaveOptions = conflict.kind === "sameUrlDifferentApiKey"
+        ? { mergeApiKeyIntoProviderId: conflict.existingProviderId }
+        : { overwriteProviderId: conflict.existingProviderId };
+      return saveDraftAndFindProvider(isCurrent, retryOptions);
+    }
+
+    const savedProvider = result.savedProviderId
+      ? result.providers.find((provider) => provider.identity.id === result.savedProviderId)
+      : findSavedProvider(result.providers, input);
     if (savedProvider && isCurrent()) {
       editingProviderId.value = savedProvider.identity.id;
       siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(savedProvider.identity.baseUrl);
       return savedProvider;
     }
     return undefined;
+  }
+
+  function confirmDuplicateConflict(
+    kind: "sameAccount" | "sameApiKey" | "sameUrlDifferentApiKey",
+    existingName: string,
+  ) {
+    if (kind === "sameUrlDifferentApiKey") {
+      return confirmAction(
+        "站点已有中转站配置",
+        `检测到同一站点已有“${existingName}”。是否将当前 API Key 添加到该中转站，而不是创建新的卡片？`,
+        "添加 API Key",
+        "normal",
+      );
+    }
+    if (kind === "sameApiKey") {
+      return confirmAction(
+        "API Key 已存在",
+        `“${existingName}”已经保存了相同的 API Key。是否覆盖已有中转站配置？`,
+        "覆盖配置",
+        "warning",
+      );
+    }
+    return confirmAction(
+      "账号已存在",
+      `检测到“${existingName}”是同一站点的同一账号。是否覆盖已有中转站配置？`,
+      "覆盖配置",
+      "warning",
+    );
   }
 
   function currentProviderInput(): ProviderInput {
