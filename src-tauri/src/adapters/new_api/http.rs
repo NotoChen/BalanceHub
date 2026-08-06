@@ -260,8 +260,7 @@ pub(crate) fn access_token_fallback_provider(provider: &Provider) -> Option<Prov
 
 pub(crate) fn should_retry_with_access_token(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
-    message.contains("Cloudflare")
-        || message.contains("HTTP 403")
+    message.contains("HTTP 403")
         || message.contains("API 密钥不支持用户签到")
         || message.contains("Cookie 签到需要")
         || message.contains("未登录")
@@ -398,5 +397,16 @@ mod tests {
         provider.auth.mode = AuthMode::ApiKey;
 
         assert!(access_token_fallback_provider(&provider).is_none());
+    }
+
+    #[test]
+    fn shield_failures_never_enter_the_access_token_fallback() {
+        assert!(!should_retry_with_access_token(
+            "命中阿里云 WAF 验证，自动过盾后仍未通过。"
+        ));
+        assert!(!should_retry_with_access_token(
+            "命中阿里云 WAF 验证，自动过盾后仍未通过。；已尝试改用访问令牌，仍失败"
+        ));
+        assert!(should_retry_with_access_token("HTTP 403: 未登录"));
     }
 }

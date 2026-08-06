@@ -21,7 +21,7 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let (_authenticated, options) = fetch_api_keys(&client, provider).await?;
         Ok(options)
     }
@@ -36,7 +36,7 @@ impl Sub2ApiAdapter {
         if name.is_empty() {
             return Err("请填写 API 密钥名称".to_string());
         }
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let (_authenticated, data) = request_account_json(
             &client,
             provider,
@@ -70,7 +70,7 @@ impl Sub2ApiAdapter {
         if token_id.is_empty() {
             return Err("缺少 API Key ID".to_string());
         }
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         request_account_json(
             &client,
             provider,
@@ -93,7 +93,7 @@ impl Sub2ApiAdapter {
         if password.trim().is_empty() {
             return Err("请输入新密码".to_string());
         }
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         request_account_json(
             &client,
             provider,
@@ -126,7 +126,7 @@ impl Sub2ApiAdapter {
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Ok((capabilities, String::new(), None));
         }
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let mut errors = Vec::new();
         let mut authenticated = provider.clone();
         match fetch_api_keys(&client, provider).await {
@@ -158,7 +158,7 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<String, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         self.invite_link_with_client(&client, provider).await
     }
 

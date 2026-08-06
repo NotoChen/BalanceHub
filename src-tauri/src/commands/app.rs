@@ -12,15 +12,18 @@ use crate::{
 };
 use tauri::{ipc::Channel, AppHandle};
 
+use super::run_blocking;
+
 #[tauri::command]
 pub(crate) fn host_platform() -> &'static str {
     std::env::consts::OS
 }
 
 #[tauri::command]
-pub(crate) fn open_ccswitch_deeplink(app: AppHandle, url: String) -> Result<(), String> {
+pub(crate) async fn open_ccswitch_deeplink(app: AppHandle, url: String) -> Result<(), String> {
     let trimmed = validate_ccswitch_deeplink(&url)?;
-    cc_switch::open(&app, trimmed)
+    let trimmed = trimmed.to_string();
+    run_blocking("打开 CC Switch", move || cc_switch::open(&app, &trimmed)).await
 }
 
 fn validate_ccswitch_deeplink(url: &str) -> Result<&str, String> {
@@ -41,15 +44,28 @@ fn validate_ccswitch_deeplink(url: &str) -> Result<&str, String> {
 }
 
 #[tauri::command]
-pub(crate) fn load_app_data(app: AppHandle) -> Result<AppDataView, String> {
-    let data = ProviderService::new(&app).load_app_data()?;
+pub(crate) async fn load_app_data(app: AppHandle) -> Result<AppDataView, String> {
+    let data = {
+        let task_app = app.clone();
+        run_blocking("加载应用配置", move || {
+            ProviderService::new(&task_app).load_app_data()
+        })
+        .await?
+    };
     tray::update_tooltip(&app, &data.providers);
     Ok(data.into())
 }
 
 #[tauri::command]
-pub(crate) fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
-    let settings = ProviderService::new(&app).save_settings(settings)?;
+pub(crate) async fn save_settings(
+    app: AppHandle,
+    settings: AppSettings,
+) -> Result<AppSettings, String> {
+    let task_app = app.clone();
+    let settings = run_blocking("保存应用设置", move || {
+        ProviderService::new(&task_app).save_settings(settings)
+    })
+    .await?;
     tray::refresh_from_state(&app);
     Ok(settings)
 }
@@ -86,19 +102,26 @@ pub(crate) async fn send_app_notification(
 }
 
 #[tauri::command]
-pub(crate) fn export_app_data(
+pub(crate) async fn export_app_data(
     app: AppHandle,
     path: String,
 ) -> Result<AppDataTransferResult, String> {
-    ProviderService::new(&app).export_app_data(path)
+    run_blocking("导出应用配置", move || {
+        ProviderService::new(&app).export_app_data(path)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn import_app_data(
+pub(crate) async fn import_app_data(
     app: AppHandle,
     path: String,
 ) -> Result<AppDataTransferResult, String> {
-    let (_data, result) = ProviderService::new(&app).import_app_data(path)?;
+    let task_app = app.clone();
+    let (_data, result) = run_blocking("导入应用配置", move || {
+        ProviderService::new(&task_app).import_app_data(path)
+    })
+    .await?;
     tray::refresh_from_state(&app);
     Ok(result)
 }

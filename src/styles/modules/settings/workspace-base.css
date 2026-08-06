@@ -6,10 +6,6 @@
   background: var(--glass-panel);
 }
 
-.surface-modal .arco-modal-body {
-  padding: 0;
-}
-
 .settings-modal .arco-modal-header,
 .provider-editor-modal .arco-modal-header {
   background: var(--glass-panel);

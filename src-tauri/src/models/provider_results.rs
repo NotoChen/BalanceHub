@@ -32,6 +32,31 @@ pub struct ProviderCredentialCompletionStep {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderSaveOptions {
+    /// 覆盖前一次重复校验返回的同账号/同 API Key 中转站。
+    pub overwrite_provider_id: Option<String>,
+    /// 将 API Key 追加到重复校验返回的已有中转站卡片。
+    pub merge_api_key_into_provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSaveConflict {
+    pub kind: super::ProviderDuplicateKind,
+    pub existing_provider_id: String,
+    pub existing_provider_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderSaveResult {
+    pub providers: Vec<Provider>,
+    pub saved: bool,
+    pub saved_provider_id: Option<String>,
+    pub conflict: Option<ProviderSaveConflict>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderApiKeyOption {
@@ -378,12 +403,9 @@ pub struct CliConfigSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CliConfigChange {
+pub struct CliConfigFile {
     pub file_path: String,
-    pub field_path: String,
-    pub before_value: Option<String>,
-    pub after_value: Option<String>,
-    pub sensitive: bool,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -393,7 +415,8 @@ pub struct CliConfigPreview {
     pub provider_name: String,
     pub cli_kind: LivenessCliKind,
     pub revision: String,
-    pub changes: Vec<CliConfigChange>,
+    pub original_files: Vec<CliConfigFile>,
+    pub files: Vec<CliConfigFile>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

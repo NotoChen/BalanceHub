@@ -1,7 +1,7 @@
 use crate::{
     models::{
-        CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot, LivenessCliKind,
-        TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
+        CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot,
+        LivenessCliKind, TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
         TemporaryCliPreference, TemporaryCliSessionMode, Workspace, WorkspaceDirectoryListing,
     },
     services::{self, provider_service::ProviderService},
@@ -9,8 +9,22 @@ use crate::{
 };
 use tauri::{AppHandle, Manager};
 
+use super::run_blocking;
+
 #[tauri::command]
-pub(crate) fn launch_temporary_cli(
+pub(crate) async fn launch_temporary_cli(
+    app: AppHandle,
+    input: TemporaryCliLaunchInput,
+) -> Result<TemporaryCliLaunchResult, String> {
+    // The launch path performs process probes, filesystem writes and terminal
+    // activation. Keep all of that work off both the UI and async worker pools.
+    run_blocking("启动临时 CLI", move || {
+        launch_temporary_cli_blocking(app, input)
+    })
+    .await
+}
+
+fn launch_temporary_cli_blocking(
     app: AppHandle,
     input: TemporaryCliLaunchInput,
 ) -> Result<TemporaryCliLaunchResult, String> {
@@ -131,103 +145,126 @@ pub(crate) fn launch_temporary_cli(
 }
 
 #[tauri::command]
-pub(crate) fn get_cli_runtime_snapshot(app: AppHandle) -> CliRuntimeSnapshot {
-    let providers = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|err| err.into_inner())
-        .providers
-        .clone();
-    services::cli_runtime::snapshot(&providers)
+pub(crate) async fn get_cli_runtime_snapshot(app: AppHandle) -> Result<CliRuntimeSnapshot, String> {
+    run_blocking("读取 CLI 运行状态", move || {
+        let providers = app
+            .state::<AppState>()
+            .data
+            .read()
+            .unwrap_or_else(|err| err.into_inner())
+            .providers
+            .clone();
+        Ok(services::cli_runtime::snapshot(&providers))
+    })
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn get_temporary_cli_instances() -> Result<Vec<TemporaryCliInstance>, String> {
-    tauri::async_runtime::spawn_blocking(services::cli_runtime::active_instances)
-        .await
-        .map_err(|err| format!("临时 CLI 状态读取任务异常: {err}"))
+    run_blocking("读取临时 CLI 状态", || {
+        Ok(services::cli_runtime::active_instances())
+    })
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn get_temporary_cli_instance(
     instance_id: String,
 ) -> Result<Option<TemporaryCliInstance>, String> {
-    tauri::async_runtime::spawn_blocking(move || services::cli_runtime::instance(&instance_id))
-        .await
-        .map_err(|err| format!("临时 CLI 状态读取任务异常: {err}"))?
+    run_blocking("读取临时 CLI 状态", move || {
+        services::cli_runtime::instance(&instance_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn activate_temporary_cli(instance_id: String) -> Result<(), String> {
-    services::temporary_cli::activate(&instance_id)
+pub(crate) async fn activate_temporary_cli(instance_id: String) -> Result<(), String> {
+    run_blocking("激活临时 CLI", move || {
+        services::temporary_cli::activate(&instance_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn forget_workspace(app: AppHandle, path: String) -> Result<Vec<Workspace>, String> {
-    ProviderService::new(&app).forget_workspace(path)
+pub(crate) async fn forget_workspace(
+    app: AppHandle,
+    path: String,
+) -> Result<Vec<Workspace>, String> {
+    run_blocking("删除工作空间记录", move || {
+        ProviderService::new(&app).forget_workspace(path)
+    })
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn browse_workspace_directories(
     path: Option<String>,
 ) -> Result<WorkspaceDirectoryListing, String> {
-    tauri::async_runtime::spawn_blocking(move || services::workspaces::browse(path.as_deref()))
-        .await
-        .map_err(|err| format!("工作空间目录读取任务异常: {err}"))?
+    run_blocking("读取工作空间目录", move || {
+        services::workspaces::browse(path.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn preview_cli_config(
+pub(crate) async fn preview_cli_config(
     app: AppHandle,
     id: String,
     cli_kind: LivenessCliKind,
 ) -> Result<CliConfigPreview, String> {
-    let data = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|err| err.into_inner())
-        .clone();
-    let provider = data
-        .providers
-        .iter()
-        .find(|provider| provider.identity.id == id)
-        .cloned()
-        .ok_or_else(|| "中转站不存在".to_string())?;
+    run_blocking("读取 CLI 配置预览", move || {
+        let data = app
+            .state::<AppState>()
+            .data
+            .read()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
+        let provider = data
+            .providers
+            .iter()
+            .find(|provider| provider.identity.id == id)
+            .cloned()
+            .ok_or_else(|| "中转站不存在".to_string())?;
 
-    services::cli_runtime::preview_config(&provider, cli_kind)
+        services::cli_runtime::preview_config(&provider, cli_kind)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn switch_cli_config(
+pub(crate) async fn switch_cli_config(
     app: AppHandle,
     id: String,
     cli_kind: LivenessCliKind,
     revision: String,
+    files: Vec<CliConfigFile>,
 ) -> Result<CliRuntimeSnapshot, String> {
-    let data = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|err| err.into_inner())
-        .clone();
-    let provider = data
-        .providers
-        .iter()
-        .find(|provider| provider.identity.id == id)
-        .cloned()
-        .ok_or_else(|| "中转站不存在".to_string())?;
+    run_blocking("切换 CLI 配置", move || {
+        let data = app
+            .state::<AppState>()
+            .data
+            .read()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
+        let provider = data
+            .providers
+            .iter()
+            .find(|provider| provider.identity.id == id)
+            .cloned()
+            .ok_or_else(|| "中转站不存在".to_string())?;
 
-    services::cli_runtime::switch_config(&provider, cli_kind, Some(&revision))?;
-    Ok(services::cli_runtime::snapshot(&data.providers))
+        services::cli_runtime::switch_config(&provider, cli_kind, Some(&revision), &files)?;
+        Ok(services::cli_runtime::snapshot(&data.providers))
+    })
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn probe_cli_environment(
     app: AppHandle,
 ) -> Result<CliEnvironmentProbeResult, String> {
-    tauri::async_runtime::spawn_blocking(move || ProviderService::new(&app).probe_cli_environment())
-        .await
-        .map_err(|err| format!("CLI 探测任务异常: {err}"))?
+    run_blocking("探测 CLI 环境", move || {
+        ProviderService::new(&app).probe_cli_environment()
+    })
+    .await
 }

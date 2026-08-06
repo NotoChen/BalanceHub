@@ -18,7 +18,7 @@ impl<'a> ProviderService<'a> {
         id: String,
         month: String,
     ) -> Result<ProviderCheckInRecordsResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         match ProtocolAdapter
             .check_in_records(&data.settings, &provider, &month)
@@ -33,21 +33,8 @@ impl<'a> ProviderService<'a> {
         }
     }
 
-    /// 用户主动为某中转站完成 Cloudflare 人机验证。
-    ///
-    /// 只有这条路径允许弹出验证窗口：后台刷新一律静默，不打断用户。
-    pub async fn pass_challenge(&self, id: String) -> Result<String, String> {
-        let data = self.snapshot();
-        let provider = find_provider(&data, &id)?;
-        let transport = crate::adapters::transport::build_client(&data.settings, &provider)?;
-        transport
-            .pass_challenge()
-            .await
-            .map(|_| "站点验证已通过".to_string())
-    }
-
     pub async fn check_in(&self, id: String) -> Result<ProviderCheckInResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
@@ -75,15 +62,20 @@ impl<'a> ProviderService<'a> {
                 && !adapter
                     .check_in_message_indicates_already_checked_in(&provider, &result.message)
             {
-                self.mutate(|data| {
-                    if let Some(stored_provider) = data
-                        .providers
-                        .iter_mut()
-                        .find(|stored| stored.identity.id == id && request_context.matches(stored))
-                    {
-                        clear_unrewarded_local_check_in(stored_provider, &checked_date);
+                let provider_id = id.clone();
+                let mutation_context = request_context.clone();
+                let checked_date_for_mutation = checked_date.clone();
+                self.mutate_async(move |data| {
+                    if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
+                        stored.identity.id == provider_id && mutation_context.matches(stored)
+                    }) {
+                        clear_unrewarded_local_check_in(
+                            stored_provider,
+                            &checked_date_for_mutation,
+                        );
                     }
-                })?;
+                })
+                .await?;
                 result.ok = false;
                 result.message = anyrouter_no_reward_message(&result.message);
                 return Ok(result);
@@ -97,37 +89,46 @@ impl<'a> ProviderService<'a> {
                 quota_delta,
             );
             let refreshed_provider = refreshed_provider.filter(is_successful_quota_refresh);
-            let persisted = self.mutate(|data| {
-                if let Some(stored_provider) = data
-                    .providers
-                    .iter_mut()
-                    .find(|stored| stored.identity.id == id && request_context.matches(stored))
-                {
-                    if let Some(refreshed) = refreshed_provider {
-                        apply_refresh_owned_fields(stored_provider, refreshed, &request_context);
+            let provider_id = id.clone();
+            let mutation_context = request_context.clone();
+            let checked_in_at_for_mutation = stored_checked_in_at.clone();
+            let check_in_user_for_mutation = stored_user.clone();
+            let persisted = self
+                .mutate_async(move |data| {
+                    if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
+                        stored.identity.id == provider_id && mutation_context.matches(stored)
+                    }) {
+                        if let Some(refreshed) = refreshed_provider {
+                            apply_refresh_owned_fields(
+                                stored_provider,
+                                refreshed,
+                                &mutation_context,
+                            );
+                        }
+                        stored_provider.automation.last_checked_in_at =
+                            Some(checked_in_at_for_mutation);
+                        stored_provider.automation.last_check_in_user = check_in_user_for_mutation;
+                        upsert_local_check_in_record(stored_provider, stored_record);
+                        if stored_provider
+                            .runtime
+                            .error_message
+                            .as_deref()
+                            .is_some_and(is_auto_check_in_error)
+                        {
+                            stored_provider.runtime.error_message = None;
+                            stored_provider.runtime.status =
+                                if stored_provider.automation.last_synced_at.is_some() {
+                                    ProviderStatus::Ok
+                                } else {
+                                    ProviderStatus::Warning
+                                };
+                        }
+                        true
+                    } else {
+                        false
                     }
-                    stored_provider.automation.last_checked_in_at = Some(stored_checked_in_at);
-                    stored_provider.automation.last_check_in_user = stored_user;
-                    upsert_local_check_in_record(stored_provider, stored_record);
-                    if stored_provider
-                        .runtime
-                        .error_message
-                        .as_deref()
-                        .is_some_and(is_auto_check_in_error)
-                    {
-                        stored_provider.runtime.error_message = None;
-                        stored_provider.runtime.status =
-                            if stored_provider.automation.last_synced_at.is_some() {
-                                ProviderStatus::Ok
-                            } else {
-                                ProviderStatus::Warning
-                            };
-                    }
-                    true
-                } else {
-                    false
-                }
-            })?;
+                })
+                .await?;
             if persisted {
                 result.last_checked_in_at = Some(checked_in_at);
                 result.last_check_in_user = Some(check_in_user);
@@ -139,18 +140,19 @@ impl<'a> ProviderService<'a> {
             }
         } else if check_in_message_indicates_disabled(&result.message) {
             let probed_at = current_timestamp_millis().to_string();
-            self.mutate(|data| {
-                if let Some(stored_provider) = data
-                    .providers
-                    .iter_mut()
-                    .find(|stored| stored.identity.id == id && request_context.matches(stored))
-                {
+            let provider_id = id.clone();
+            let mutation_context = request_context.clone();
+            self.mutate_async(move |data| {
+                if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
+                    stored.identity.id == provider_id && mutation_context.matches(stored)
+                }) {
                     stored_provider.capabilities.check_in_known = true;
                     stored_provider.capabilities.check_in_supported = false;
                     stored_provider.capabilities.check_in_auth_modes.clear();
                     stored_provider.capabilities.probed_at = Some(probed_at);
                 }
-            })?;
+            })
+            .await?;
         }
 
         Ok(result)

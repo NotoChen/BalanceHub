@@ -1,4 +1,3 @@
-export const DEFAULT_LIVENESS_MODEL = "gpt-5.5";
 export const DEFAULT_LIVENESS_FIXED_PROMPT = "Explain: ls -la";
 export const MIN_LIVENESS_INTERVAL_SECONDS = 1;
 export const DEFAULT_LIVENESS_INTERVAL = 5 * 60;

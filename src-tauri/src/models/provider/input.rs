@@ -42,6 +42,7 @@ impl Default for ProviderInput {
                 name: String::new(),
                 base_url: String::new(),
                 protocol: ProviderProtocol::default(),
+                user_id: String::new(),
                 backup_urls: Vec::new(),
             },
             auth: ProviderAuth {
@@ -97,6 +98,11 @@ impl Provider {
         let protocol = input.identity.protocol;
         let api = matches!(protocol, ProviderProtocol::Api);
         let mut auth = input.auth;
+        let input_user_id = if !input.identity.user_id.trim().is_empty() {
+            input.identity.user_id.trim().to_string()
+        } else {
+            auth.api_user.trim().to_string()
+        };
         if api {
             auth.mode = AuthMode::ApiKey;
         }
@@ -108,7 +114,11 @@ impl Provider {
                 protocol,
                 display_name: String::new(),
                 username: String::new(),
-                user_id: String::new(),
+                user_id: if matches!(auth.mode, AuthMode::ApiKey) {
+                    String::new()
+                } else {
+                    input_user_id
+                },
                 site_logo: String::new(),
                 backup_urls: backup_url_list(input.identity.backup_urls),
             },
@@ -180,6 +190,32 @@ impl Provider {
         }
     }
 
+    /// Append a manually supplied API Key to an existing provider card without
+    /// replacing its account credentials or display state.
+    pub fn add_api_key(&mut self, raw_key: &str) -> Result<(), String> {
+        let key = normalize_api_key_for_protocol(raw_key, self.identity.protocol);
+        if key.is_empty() {
+            return Err("API Key 为空，无法添加".to_string());
+        }
+        if self.auth.api_key_options.iter().any(|option| {
+            normalize_api_key_for_protocol(&option.key, self.identity.protocol) == key
+        }) || normalize_api_key_for_protocol(&self.auth.api_key, self.identity.protocol) == key
+        {
+            return Err("该 API Key 已存在".to_string());
+        }
+
+        let mut option =
+            crate::models::ProviderApiKeyOption::current_for_protocol(&key, self.identity.protocol);
+        option.name = "手动添加 API Key".to_string();
+        self.auth.api_key_options.insert(0, option);
+        if self.auth.api_key.trim().is_empty() {
+            self.auth.api_key = key;
+            self.auth.api_key_token_id.clear();
+        }
+        self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
+        Ok(())
+    }
+
     pub fn apply_input(&mut self, input: ProviderInput) {
         let previous_check_in_user = self.auth.api_user.trim();
         let protocol_changed = self.identity.protocol != input.identity.protocol;
@@ -238,10 +274,26 @@ impl Provider {
             self.automation.check_in_records.clear();
         }
 
+        let input_user_id = if !input.identity.user_id.trim().is_empty() {
+            input.identity.user_id.trim().to_string()
+        } else {
+            input.auth.api_user.trim().to_string()
+        };
+        let identity_user_id = if protocol_changed
+            || matches!(next_auth_mode, AuthMode::ApiKey)
+            || previous_check_in_user != next_check_in_user
+            || session_changed
+        {
+            String::new()
+        } else {
+            input_user_id
+        };
+
         self.identity.name =
             provider_name_from_input(&input.identity.name, &input.identity.base_url);
         self.identity.base_url = input.identity.base_url;
         self.identity.protocol = input.identity.protocol;
+        self.identity.user_id = identity_user_id;
         self.identity.backup_urls = backup_url_list(input.identity.backup_urls);
         if protocol_changed {
             self.identity.display_name.clear();
@@ -414,6 +466,24 @@ mod tests {
         assert_eq!(provider.quota.scope, ProviderQuotaScope::Token);
         assert!(!provider.quota.known);
         assert!(!provider.quota.total_known);
+    }
+
+    #[test]
+    fn adding_api_key_keeps_the_existing_account_card_and_deduplicates_keys() {
+        let mut input = ProviderInput::default();
+        input.identity.base_url = "https://relay.example.com".to_string();
+        input.auth.login_username = "alice".to_string();
+        input.auth.login_password = "password".to_string();
+        let mut provider = Provider::from_input(input, "provider-test".to_string());
+
+        provider
+            .add_api_key("sk-extra")
+            .expect("key should be added");
+        assert_eq!(provider.auth.mode, AuthMode::Password);
+        assert_eq!(provider.auth.login_username, "alice");
+        assert_eq!(provider.auth.api_key_options.len(), 1);
+        assert_eq!(provider.auth.api_key_options[0].key, "sk-extra");
+        assert!(provider.add_api_key("sk-extra").is_err());
     }
 
     #[test]

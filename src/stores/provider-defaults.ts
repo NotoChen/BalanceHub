@@ -1,7 +1,6 @@
 import {
   DEFAULT_LIVENESS_FIXED_PROMPT,
   DEFAULT_LIVENESS_INTERVAL,
-  DEFAULT_LIVENESS_MODEL,
   DEFAULT_LIVENESS_NUMBER_MAX,
   DEFAULT_LIVENESS_NUMBER_MIN,
   DEFAULT_LIVENESS_RANDOM_MIN_INTERVAL,
@@ -38,7 +37,7 @@ export const defaultSettings = (): AppSettings => ({
   claudeCliPath: "",
   temporaryCliTerminalKind: "terminal",
   livenessEnabled: false,
-  livenessModel: DEFAULT_LIVENESS_MODEL,
+  livenessModel: "",
   livenessIntervalMode: "fixed",
   livenessInterval: DEFAULT_LIVENESS_INTERVAL,
   livenessRandomMinInterval: DEFAULT_LIVENESS_RANDOM_MIN_INTERVAL,

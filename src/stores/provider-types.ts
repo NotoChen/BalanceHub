@@ -52,12 +52,6 @@ export interface ProviderActions {
   checkedInToday: boolean;
   apiKeyManagement: boolean;
   invitation: boolean;
-  challenge: ProviderChallenge | null;
-}
-
-export interface ProviderChallenge {
-  kind: "aliyunWaf" | "cloudflare";
-  interactive: boolean;
 }
 
 export interface ProviderIdentity {
@@ -76,6 +70,7 @@ export interface ProviderIdentityInput {
   name: string;
   baseUrl: string;
   protocol: ProviderProtocol;
+  userId: string;
   backupUrls: string[];
 }
 
@@ -209,6 +204,29 @@ export interface ProviderInput {
   proxy: ProviderProxy;
   notification: ProviderNotification;
   runtime: Pick<ProviderRuntime, "enabled">;
+}
+
+export type ProviderSaveConflictKind =
+  | "sameAccount"
+  | "sameApiKey"
+  | "sameUrlDifferentApiKey";
+
+export interface ProviderSaveOptions {
+  overwriteProviderId?: string;
+  mergeApiKeyIntoProviderId?: string;
+}
+
+export interface ProviderSaveConflict {
+  kind: ProviderSaveConflictKind;
+  existingProviderId: string;
+  existingProviderName: string;
+}
+
+export interface ProviderSaveResult {
+  providers: Provider[];
+  saved: boolean;
+  savedProviderId: string | null;
+  conflict: ProviderSaveConflict | null;
 }
 
 export interface LivenessRecord {
@@ -437,12 +455,9 @@ export interface CliConfigSnapshot {
   errorMessage: string | null;
 }
 
-export interface CliConfigChange {
+export interface CliConfigFile {
   filePath: string;
-  fieldPath: string;
-  beforeValue: string | null;
-  afterValue: string | null;
-  sensitive: boolean;
+  content: string;
 }
 
 export interface CliConfigPreview {
@@ -450,7 +465,8 @@ export interface CliConfigPreview {
   providerName: string;
   cliKind: LivenessCliKind;
   revision: string;
-  changes: CliConfigChange[];
+  originalFiles: CliConfigFile[];
+  files: CliConfigFile[];
 }
 
 export interface TemporaryCliInstance {

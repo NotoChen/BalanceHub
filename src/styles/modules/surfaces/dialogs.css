@@ -1,21 +1,24 @@
-/* Other frequently opened dialogs share the same visual rhythm. */
+/* Frequently opened dialogs use one safe inset at the modal body boundary. */
 .app-update-modal .arco-modal-body,
 .cli-config-preview-modal .arco-modal-body,
 .available-models-modal .arco-modal-body,
-.api-key-manager-modal .arco-modal-body { background: var(--surface-canvas); }
+.api-key-manager-modal .arco-modal-body {
+  box-sizing: border-box;
+  background: var(--surface-canvas);
+}
 
 .app-update-modal .app-update-panel,
 .cli-config-preview-modal .cli-config-preview,
 .available-models-modal .available-models-panel,
-.api-key-manager-modal .api-key-manager { padding: 20px 22px 22px; }
+.api-key-manager-modal .api-key-manager {
+  padding: 0;
+}
 
 .app-update-modal .app-update-version-summary,
 .cli-config-preview-summary,
 .available-models-summary { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); box-shadow: none; }
-.app-update-modal .app-update-release-scroll,
-.cli-config-preview-files { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); padding: 13px 15px; }
+.app-update-modal .app-update-release-scroll { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); padding: 13px 15px; }
 .app-update-modal .app-update-footer { padding-top: 0; }
-.cli-config-preview-change { border-color: var(--surface-line); border-radius: 9px; }
 .workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
 .workspace-picker-modal .workspace-picker { height: min(650px, calc(100dvh - 126px)); }
 .workspace-picker-modal .workspace-history { background: #edf2f8; padding: 18px 15px; }

@@ -74,14 +74,24 @@ pub async fn check(app: &AppHandle) -> Result<Option<AppUpdateInfo>, String> {
         .try_lock()
         .map_err(|_| "正在检查更新，请稍候".to_string())?;
 
-    let settings = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|err| err.into_inner())
-        .settings
-        .clone();
-    let proxy = network::resolve_global_proxy(&settings);
+    let settings = {
+        let task_app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            task_app
+                .state::<AppState>()
+                .data
+                .read()
+                .unwrap_or_else(|err| err.into_inner())
+                .settings
+                .clone()
+        })
+        .await
+        .map_err(|err| format!("读取应用设置任务异常: {err}"))?
+    };
+    let proxy =
+        tauri::async_runtime::spawn_blocking(move || network::resolve_global_proxy(&settings))
+            .await
+            .map_err(|err| format!("读取系统代理配置任务异常: {err}"))?;
     let builder = network::configure_updater_builder(app.updater_builder(), &proxy)?;
     let updater = builder
         .build()

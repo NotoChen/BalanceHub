@@ -51,6 +51,9 @@ pub struct ProviderIdentityInput {
     pub base_url: String,
     #[serde(default)]
     pub protocol: ProviderProtocol,
+    /// 已认证账号的稳定用户 ID。新增草稿通常为空，保存已存在账号时由前端回传。
+    #[serde(default)]
+    pub user_id: String,
     #[serde(default)]
     pub backup_urls: Vec<String>,
 }

@@ -44,7 +44,6 @@ export function buildCcSwitchProviderDeeplink(
   params.set("name", provider.identity.name.trim() || provider.identity.displayName.trim() || "BalanceHub");
   params.set("endpoint", endpointForTarget(provider, target));
   params.set("apiKey", provider.auth.apiKey.trim());
-  params.set("icon", iconForProvider(provider));
 
   return `ccswitch://v1/import?${params.toString()}`;
 }
@@ -60,43 +59,6 @@ function endpointForTarget(provider: Provider, target: CcSwitchAppTarget) {
     return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
   }
   return normalizeUrl(provider.identity.baseUrl);
-}
-
-function iconForProvider(provider: Provider) {
-  const identity = [
-    provider.identity.name,
-    provider.identity.displayName,
-    provider.identity.baseUrl,
-    provider.identity.siteLogo,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  const knownIcons: Array<[string, string]> = [
-    ["deepseek", "deepseek"],
-    ["openrouter", "openrouter"],
-    ["siliconflow", "siliconflow"],
-    ["硅基流动", "siliconflow"],
-    ["anthropic", "anthropic"],
-    ["claude", "anthropic"],
-    ["openai", "openai"],
-    ["gemini", "gemini"],
-    ["google", "google"],
-    ["qwen", "qwen"],
-    ["通义", "qwen"],
-    ["kimi", "kimi"],
-    ["minimax", "minimax"],
-    ["mistral", "mistral"],
-    ["nvidia", "nvidia"],
-    ["x.ai", "xai"],
-    ["grok", "grok"],
-    ["ollama", "ollama"],
-  ];
-  const matched = knownIcons.find(([keyword]) => identity.includes(keyword));
-  if (matched) return matched[1];
-  if (provider.identity.protocol === "sub2Api") return "subrouter";
-  if (provider.identity.protocol === "api") return "openai";
-  return "newapi";
 }
 
 function normalizeUrl(value: string) {

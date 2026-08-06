@@ -5,7 +5,6 @@
 .temporary-cli-modal .arco-modal-body {
   max-height: calc(100dvh - 132px);
   overflow: auto;
-  padding: 0 28px 28px;
 }
 
 .temporary-cli-modal-title {
@@ -315,10 +314,6 @@
 }
 
 @media (max-width: 620px) {
-  .temporary-cli-modal .arco-modal-body {
-    padding: 0 14px 14px;
-  }
-
   .temporary-cli-modal-title .surface-modal-title-meta {
     display: none;
   }

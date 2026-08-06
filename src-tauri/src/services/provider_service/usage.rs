@@ -11,7 +11,7 @@ impl<'a> ProviderService<'a> {
         id: String,
         period: String,
     ) -> Result<ProviderUsageSummary, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         ProtocolAdapter
             .usage_summary(&data.settings, &provider, &period)
@@ -23,7 +23,7 @@ impl<'a> ProviderService<'a> {
         id: String,
         query: ProviderRequestLogsQuery,
     ) -> Result<ProviderRequestLogsResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         ProtocolAdapter
             .request_logs(&data.settings, &provider, query)

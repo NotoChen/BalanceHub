@@ -8,9 +8,9 @@ const props = defineProps<{
 
 const previewPrompt = computed(() =>
   props.settings.livenessPromptMode === "fixed"
-    ? props.settings.livenessFixedPrompt.trim() || "Explain: ls -la"
+    ? props.settings.livenessFixedPrompt.trim() || "当前固定话术为空"
     : props.settings.livenessPromptLibrary.find((item) => item.trim())?.trim() ||
-      "Explain: ls -la",
+      "当前话术库为空",
 );
 
 const codexCommandPreview = computed(() => {
@@ -19,8 +19,9 @@ const codexCommandPreview = computed(() => {
       ? props.settings.claudeCliPath.trim() || "claude"
       : props.settings.codexCliPath.trim() || "codex";
   const prompt = previewPrompt.value;
+  const model = props.settings.livenessModel.trim();
   if (props.settings.livenessCliKind === "claudeCode") {
-    return [
+    const lines = [
       "ANTHROPIC_API_KEY=*** \\",
       "ANTHROPIC_BASE_URL=<provider-anthropic-base-url> \\",
       "HTTPS_PROXY=<effective-proxy-if-needed> \\",
@@ -28,13 +29,14 @@ const codexCommandPreview = computed(() => {
       "  --bare \\",
       `  -p ${quote(prompt)} \\`,
       "  --output-format json \\",
-      `  --model ${quote(props.settings.livenessModel || "claude-opus-4-8[1m]")} \\`,
+      `  --model ${quote(model)} \\`,
       "  --max-budget-usd 0.02 \\",
       "  --no-session-persistence \\",
       "  --tools ''",
-    ].join("\n");
+    ].filter((line) => model || !line.includes("--model"));
+    return lines.join("\n");
   }
-  return [
+  const lines = [
     "OPENAI_API_KEY=*** \\",
     `  ${quote(cliPath)} \\`,
     "  --ask-for-approval never \\",
@@ -45,7 +47,7 @@ const codexCommandPreview = computed(() => {
     "  --ignore-user-config \\",
     "  --ignore-rules \\",
     "  --json \\",
-    `  -m ${quote(props.settings.livenessModel || "gpt-5.5")} \\`,
+    `  -m ${quote(model)} \\`,
     "  -c 'model_provider=\"balancehub\"' \\",
     "  -c 'model_providers.balancehub.name=\"BalanceHub\"' \\",
     "  -c 'model_providers.balancehub.base_url=\"<provider-model-base-url>\"' \\",
@@ -53,7 +55,8 @@ const codexCommandPreview = computed(() => {
     "  -c 'model_providers.balancehub.requires_openai_auth=true' \\",
     "  -o /tmp/balancehub-codex-<provider-id>-<pid>-<timestamp>.txt \\",
     `  ${quote(prompt)}`,
-  ].join("\n");
+  ].filter((line) => model || !line.includes(" -m "));
+  return lines.join("\n");
 });
 
 function quote(value: string) {
@@ -72,7 +75,7 @@ function quote(value: string) {
     </p>
     <p v-else>
       <strong>OPENAI_API_KEY</strong> 使用当前中转站 API Key 环境变量注入；
-      <strong>-m</strong> 为默认模型；<strong>base_url</strong>
+      <strong>-m</strong> 仅在指定模型时注入；留空则沿用 CLI 或站点配置；<strong>base_url</strong>
       运行时替换为模型 Base URL；
       <strong>-o</strong> 使用按中转站和时间生成的临时输出文件。
     </p>

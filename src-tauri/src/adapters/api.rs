@@ -62,7 +62,7 @@ impl ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<ProviderConnectionTestResult, String> {
-        let client = match build_client(settings, provider) {
+        let client = match build_client(settings, provider).await {
             Ok(client) => client,
             Err(message) => return Ok(connection_failure(message)),
         };
@@ -107,7 +107,7 @@ impl ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<ProviderSiteProbeResult, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let system_name = host_name(&provider.identity.base_url);
         match fetch_models(&client, provider).await {
             Ok(models) => Ok(ProviderSiteProbeResult {
@@ -230,7 +230,7 @@ impl ApiAdapter {
             return provider_with_error(&next, "通用 API 协议只支持 API Key 认证".to_string());
         }
 
-        let client = match build_client(settings, provider) {
+        let client = match crate::adapters::transport::build_client(settings, provider).await {
             Ok(client) => client,
             Err(message) => return provider_with_error(&next, message),
         };

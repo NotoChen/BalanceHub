@@ -12,13 +12,14 @@ use super::{find_provider, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn list_api_keys(&self, id: String) -> Result<Vec<ProviderApiKeyOption>, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let options = ProtocolAdapter
             .list_api_keys(&data.settings, &provider)
             .await?;
-        self.persist_api_key_options(&request_context, &options, None)?;
+        self.persist_api_key_options(&request_context, &options, None)
+            .await?;
         Ok(options)
     }
 
@@ -27,7 +28,7 @@ impl<'a> ProviderService<'a> {
         id: String,
         name: String,
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
@@ -35,7 +36,8 @@ impl<'a> ProviderService<'a> {
             .create_api_key(&data.settings, &provider, &name)
             .await?;
         let options = adapter.list_api_keys(&data.settings, &provider).await?;
-        self.persist_api_key_options(&request_context, &options, None)?;
+        self.persist_api_key_options(&request_context, &options, None)
+            .await?;
         Ok(options)
     }
 
@@ -44,7 +46,7 @@ impl<'a> ProviderService<'a> {
         input: ProviderInput,
         name: String,
     ) -> Result<ProviderApiKeyOption, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider_id = input
             .id
             .clone()
@@ -60,7 +62,7 @@ impl<'a> ProviderService<'a> {
         id: String,
         token_id: String,
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
@@ -68,33 +70,39 @@ impl<'a> ProviderService<'a> {
             .delete_api_key(&data.settings, &provider, &token_id)
             .await?;
         let options = adapter.list_api_keys(&data.settings, &provider).await?;
-        self.persist_api_key_options(&request_context, &options, Some(&token_id))?;
+        self.persist_api_key_options(&request_context, &options, Some(&token_id))
+            .await?;
         Ok(options)
     }
 
-    fn persist_api_key_options(
+    async fn persist_api_key_options(
         &self,
         request_context: &ProviderRequestContext,
         options: &[ProviderApiKeyOption],
         removed_token_id: Option<&str>,
     ) -> Result<(), String> {
-        let persisted = self.mutate(|data| {
-            if let Some(provider) = data
-                .providers
-                .iter_mut()
-                .find(|provider| request_context.matches(provider))
-            {
-                sync_api_key_options(
-                    &mut provider.auth,
-                    provider.identity.protocol,
-                    options,
-                    removed_token_id,
-                );
-                true
-            } else {
-                false
-            }
-        })?;
+        let mutation_context = request_context.clone();
+        let options = options.to_vec();
+        let removed_token_id = removed_token_id.map(str::to_string);
+        let persisted = self
+            .mutate_async(move |data| {
+                if let Some(provider) = data
+                    .providers
+                    .iter_mut()
+                    .find(|provider| mutation_context.matches(provider))
+                {
+                    sync_api_key_options(
+                        &mut provider.auth,
+                        provider.identity.protocol,
+                        &options,
+                        removed_token_id.as_deref(),
+                    );
+                    true
+                } else {
+                    false
+                }
+            })
+            .await?;
         if persisted {
             Ok(())
         } else {

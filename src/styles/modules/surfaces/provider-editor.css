@@ -3,8 +3,6 @@
   max-height: calc(100dvh - 44px);
 }
 
-.provider-editor-modal-v3 .arco-modal-body { padding: 0; }
-
 .provider-editor-studio {
   display: grid;
   height: min(744px, calc(100dvh - 126px));

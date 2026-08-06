@@ -12,7 +12,7 @@ impl<'a> ProviderService<'a> {
         original_password: String,
         password: String,
     ) -> Result<String, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let message = ProtocolAdapter
             .change_password(&data.settings, &provider, &original_password, &password)
@@ -25,15 +25,17 @@ impl<'a> ProviderService<'a> {
         }
 
         let new_password = password.trim().to_string();
+        let provider_id = id.clone();
         let synced = self
-            .mutate(|data| {
+            .mutate_async(move |data| {
                 data.providers
                     .iter_mut()
-                    .find(|stored| stored.identity.id == id)
+                    .find(|stored| stored.identity.id == provider_id)
                     .is_some_and(|stored| {
                         sync_password_if_context_unchanged(stored, &provider, &new_password)
                     })
             })
+            .await
             .map_err(|error| format!("站点密码已更新，但本地登录密码保存失败：{error}"))?;
 
         if synced {

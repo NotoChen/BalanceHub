@@ -13,7 +13,6 @@ import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
 import { usePasswordChange } from "./usePasswordChange";
 import { useOnboardingController } from "./useOnboardingController";
-import { useProviderChallenge } from "./useProviderChallenge";
 import { useProviderEditor } from "./useProviderEditor";
 import { useProviderActions } from "./useProviderActions";
 import { useProviderWorkspaceController } from "./useProviderWorkspaceController";
@@ -109,8 +108,8 @@ export function useAppController() {
     refreshInstances: () => providerStore.refreshTemporaryCliInstances(),
     activate: (instanceId) => providerStore.activateTemporaryCli(instanceId),
     previewConfig: (providerId, cliKind) => providerStore.previewCliConfig(providerId, cliKind),
-    switchConfig: (providerId, cliKind, revision) =>
-      providerStore.switchCliConfig(providerId, cliKind, revision),
+    switchConfig: (providerId, cliKind, revision, files) =>
+      providerStore.switchCliConfig(providerId, cliKind, revision, files),
   });
 
   async function removeProvider(provider: Provider) {
@@ -121,9 +120,6 @@ export function useAppController() {
     await providerStore.toggleProvider(provider.identity.id, enabled);
   }
 
-  const providerChallenge = useProviderChallenge({
-    passChallenge: (providerId) => providerStore.passProviderChallenge(providerId),
-  });
   const providerEditor = useProviderEditor({ store: providerStore });
 
   const onboarding = useOnboardingController({
@@ -209,7 +205,7 @@ export function useAppController() {
     cleanupThemeListener: settingsController.cleanupThemeListener,
     syncLaunchAtLogin: settingsController.syncLaunchAtLogin,
     autoProbeCliEnvironment: settingsController.autoProbeCliEnvironment,
-    reloadProviders: () => providerStore.reload().catch(() => {}),
+    reloadProviders: () => providerStore.reloadProviders().catch(() => {}),
     applyTheme: settingsController.applyTheme,
     resetSettingsDraft: settingsController.resetDraftOnClose,
     resetProviderPointerDrag: workspace.resetProviderPointerDrag,
@@ -254,7 +250,6 @@ export function useAppController() {
     ...availableModels,
     ...cliRuntimeController,
     ...workspacePicker,
-    ...providerChallenge,
     ...providerEditor,
     ...providerActions,
     ...workspace,

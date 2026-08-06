@@ -22,7 +22,6 @@ import {
   launchTemporaryCli as launchTemporaryCliCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
-  passProviderChallenge as passProviderChallengeCommand,
   probeCliEnvironment as probeCliEnvironmentCommand,
   probeProviderSite as probeProviderSiteCommand,
   previewCliConfig as previewCliConfigCommand,
@@ -46,11 +45,13 @@ import { defaultSettings } from "./provider-defaults";
 import type {
   AppSettings,
   CliConfigPreview,
+  CliConfigFile,
   CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
   LivenessCliKind,
   Provider,
   ProviderInput,
+  ProviderSaveOptions,
   ProviderRequestLogsQuery,
   TemporaryCliLaunchResult,
   TemporaryCliLaunchInput,
@@ -69,6 +70,7 @@ export const useProviderStore = defineStore("providers", {
     refreshInProgress: false,
     cliRuntimeLoading: false,
     refreshingIds: new Set<string>(),
+    providerReloadPending: false,
     providers: [] as Provider[],
     settings: defaultSettings(),
     workspaces: [] as Workspace[],
@@ -105,10 +107,13 @@ export const useProviderStore = defineStore("providers", {
         this.loading = false;
       }
     },
-    async saveProvider(input: ProviderInput) {
-      this.providers = await saveProviderCommand(input);
-      await this.refreshCliRuntime().catch(() => {});
-      return this.providers;
+    async saveProvider(input: ProviderInput, options: ProviderSaveOptions = {}) {
+      const result = await saveProviderCommand(input, options);
+      if (result.saved) {
+        this.providers = result.providers;
+        await this.refreshCliRuntime().catch(() => {});
+      }
+      return result;
     },
     async removeProvider(id: string) {
       this.providers = await removeProviderCommand(id);
@@ -162,6 +167,29 @@ export const useProviderStore = defineStore("providers", {
         throw error;
       }
     },
+    /**
+     * Refresh the view after a background Rust mutation. Do not replace the
+     * local syncing state while a provider operation is still in flight; the
+     * operation returns the authoritative provider view when it completes.
+     */
+    async reloadProviders() {
+      if (this.refreshInProgress || this.refreshingIds.size > 0) {
+        this.providerReloadPending = true;
+        return;
+      }
+      await this.reload();
+    },
+    async flushPendingProviderReload() {
+      if (
+        !this.providerReloadPending ||
+        this.refreshInProgress ||
+        this.refreshingIds.size > 0
+      ) {
+        return;
+      }
+      this.providerReloadPending = false;
+      await this.reload().catch(() => {});
+    },
     async probeProviderSite(input: ProviderInput) {
       return probeProviderSiteCommand(input);
     },
@@ -177,11 +205,6 @@ export const useProviderStore = defineStore("providers", {
         await this.reload();
       }
       return result;
-    },
-    async passProviderChallenge(id: string) {
-      const message = await passProviderChallengeCommand(id);
-      await this.refreshByIds([id]);
-      return message;
     },
     async probeCliEnvironment() {
       const settingsAtStart = captureCliEnvironmentSettings(this.settings);
@@ -244,8 +267,13 @@ export const useProviderStore = defineStore("providers", {
     async previewCliConfig(id: string, cliKind: LivenessCliKind): Promise<CliConfigPreview> {
       return previewCliConfigCommand(id, cliKind);
     },
-    async switchCliConfig(id: string, cliKind: LivenessCliKind, revision: string) {
-      this.cliRuntime = await switchCliConfigCommand(id, cliKind, revision);
+    async switchCliConfig(
+      id: string,
+      cliKind: LivenessCliKind,
+      revision: string,
+      files: CliConfigFile[],
+    ) {
+      this.cliRuntime = await switchCliConfigCommand(id, cliKind, revision, files);
       return this.cliRuntime;
     },
     async refreshCliRuntime(): Promise<CliRuntimeSnapshot> {
@@ -341,6 +369,7 @@ export const useProviderStore = defineStore("providers", {
         return errorToMessage(error);
       } finally {
         this.refreshInProgress = false;
+        void this.flushPendingProviderReload();
       }
     },
     /** 按 id 刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
@@ -379,6 +408,7 @@ export const useProviderStore = defineStore("providers", {
         return errorToMessage(error);
       } finally {
         todo.forEach((id) => this.refreshingIds.delete(id));
+        void this.flushPendingProviderReload();
       }
     },
   },

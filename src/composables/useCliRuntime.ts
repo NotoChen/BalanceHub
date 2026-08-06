@@ -2,6 +2,7 @@ import { computed, onUnmounted, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type {
   CliConfigPreview,
+  CliConfigFile,
   CliRuntimeSnapshot,
   LivenessCliKind,
   Provider,
@@ -18,6 +19,7 @@ interface UseCliRuntimeOptions {
     providerId: string,
     cliKind: LivenessCliKind,
     revision: string,
+    files: CliConfigFile[],
   ) => Promise<CliRuntimeSnapshot>;
 }
 
@@ -119,9 +121,9 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     }
   }
 
-  async function confirmCliConfigSwitch() {
+  async function confirmCliConfigSwitch(files?: CliConfigFile[]) {
     const preview = cliConfigPreview.value;
-    if (!preview || switchingCliConfig.value || preview.changes.length === 0) {
+    if (!preview || switchingCliConfig.value || preview.files.length === 0) {
       return;
     }
 
@@ -130,7 +132,12 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       cliKind: preview.cliKind,
     };
     try {
-      await options.switchConfig(preview.providerId, preview.cliKind, preview.revision);
+      await options.switchConfig(
+        preview.providerId,
+        preview.cliKind,
+        preview.revision,
+        files ?? preview.files,
+      );
       cliConfigPreviewVisible.value = false;
       Message.success(
         `已将 ${preview.providerName} 设为 ${preview.cliKind === "codex" ? "Codex" : "Claude Code"} 默认中转站`,

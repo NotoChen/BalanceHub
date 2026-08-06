@@ -74,6 +74,22 @@ pub(crate) async fn fetch_site_metadata(
     Ok(metadata)
 }
 
+/// Site metadata is optional for most business operations, but a failed shield
+/// solve is not. Once the transport has exhausted the one allowed attempt,
+/// propagate that error instead of silently falling back and issuing another
+/// protected request from the same operation.
+pub(crate) async fn fetch_site_metadata_or(
+    client: &ProviderTransport,
+    base_url: &str,
+    fallback: SiteMetadata,
+) -> Result<SiteMetadata, String> {
+    match fetch_site_metadata(client, base_url).await {
+        Ok(metadata) => Ok(metadata),
+        Err(error) if client.shield_blocked_for(base_url).await.is_some() => Err(error),
+        Err(_) => Ok(fallback),
+    }
+}
+
 async fn fetch_site_metadata_uncached(
     client: &ProviderTransport,
     base_url: &str,
@@ -90,10 +106,6 @@ async fn fetch_site_metadata_uncached(
     let response = client.send(request, "请求系统状态").await?;
     let status = response.status;
     let body = response.body;
-
-    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
-        return Err(crate::adapters::transport::shield_blocked_message(kind));
-    }
 
     if !status.is_success() {
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));

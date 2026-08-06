@@ -39,28 +39,32 @@ impl<'a> ProviderService<'a> {
     }
 
     async fn refresh_all_inner(&self) -> Result<RefreshResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let settings = Arc::new(data.settings);
         let refreshed = refresh_providers_concurrently(settings, data.providers, |_| true).await?;
-        let providers = self.mutate(|data| {
-            apply_refreshed(data, refreshed);
-            data.providers.clone()
-        })?;
+        let providers = self
+            .mutate_async(move |data| {
+                apply_refreshed(data, refreshed);
+                data.providers.clone()
+            })
+            .await?;
         Ok(RefreshResult { providers })
     }
 
     async fn refresh_by_ids_inner(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
-        let data = self.snapshot();
+        let data = self.snapshot_async().await?;
         let settings = Arc::new(data.settings);
         let id_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
         let refreshed = refresh_providers_concurrently(settings, data.providers, |provider| {
             id_set.contains(provider.identity.id.as_str())
         })
         .await?;
-        let providers = self.mutate(|data| {
-            apply_refreshed(data, refreshed);
-            data.providers.clone()
-        })?;
+        let providers = self
+            .mutate_async(move |data| {
+                apply_refreshed(data, refreshed);
+                data.providers.clone()
+            })
+            .await?;
         Ok(RefreshResult { providers })
     }
 }

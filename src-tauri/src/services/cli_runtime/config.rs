@@ -1,12 +1,13 @@
 use super::{home_dir, latest_modified_at, read_stable_optional};
 
 mod formats;
+mod json_source;
 #[cfg(test)]
 mod tests;
 use crate::{
     limits,
     models::{
-        normalize_api_key_for_protocol, CliConfigChange, CliConfigPreview, CliConfigSnapshot,
+        normalize_api_key_for_protocol, CliConfigFile, CliConfigPreview, CliConfigSnapshot,
         LivenessCliKind, Provider,
     },
     services::liveness::{anthropic_base_url, openai_base_url},
@@ -107,7 +108,8 @@ pub fn preview_config(
 ) -> Result<CliConfigPreview, String> {
     let (base_url, api_key) = cli_target(provider, cli_kind)?;
     let home = home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let mut changes = Vec::new();
+    let mut original_files = Vec::new();
+    let mut files = Vec::new();
 
     let revision = match cli_kind {
         LivenessCliKind::Codex => {
@@ -115,70 +117,38 @@ pub fn preview_config(
             let auth_path = home.join(".codex").join("auth.json");
             let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
             let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
-            let provider_document = config_text
-                .parse::<TomlDocument>()
-                .map_err(|_| "Codex 配置文件格式无效".to_string())?;
-            let provider_name = codex_provider_name(&provider_document)?;
-            let before_url = provider_document
-                .get("model_providers")
-                .and_then(toml_edit::Item::as_table_like)
-                .and_then(|providers| providers.get(&provider_name))
-                .and_then(toml_edit::Item::as_table_like)
-                .and_then(|selected| selected.get("base_url"))
-                .and_then(toml_edit::Item::as_str);
-            let auth_document = serde_json::from_str::<JsonValue>(&auth_text)
-                .map_err(|_| "Codex 认证文件格式无效".to_string())?;
-            let before_key = auth_document
-                .get("OPENAI_API_KEY")
-                .and_then(JsonValue::as_str);
-            push_config_change(
-                &mut changes,
-                config_path.to_string_lossy().as_ref(),
-                &format!("model_providers.{provider_name}.base_url"),
-                before_url,
-                Some(base_url.as_str()),
-                false,
-            );
-            push_config_change(
-                &mut changes,
-                auth_path.to_string_lossy().as_ref(),
-                "OPENAI_API_KEY",
-                before_key,
-                Some(api_key.as_str()),
-                true,
-            );
+            let (next_config, next_auth) =
+                rewrite_codex_config(&config_text, &auth_text, &base_url, &api_key)?;
+            original_files.push(CliConfigFile {
+                file_path: config_path.to_string_lossy().into_owned(),
+                content: config_text.clone(),
+            });
+            original_files.push(CliConfigFile {
+                file_path: auth_path.to_string_lossy().into_owned(),
+                content: auth_text.clone(),
+            });
+            files.push(CliConfigFile {
+                file_path: config_path.to_string_lossy().into_owned(),
+                content: next_config,
+            });
+            files.push(CliConfigFile {
+                file_path: auth_path.to_string_lossy().into_owned(),
+                content: next_auth,
+            });
             config_revision(&[&config_text, &auth_text, &base_url, &api_key])
         }
         LivenessCliKind::ClaudeCode => {
             let settings_path = home.join(".claude").join("settings.json");
             let settings_text = read_cli_config(&settings_path, "读取 Claude Code 配置文件")?;
-            let settings = serde_json::from_str::<JsonValue>(&settings_text)
-                .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
-            let env = settings.get("env").and_then(JsonValue::as_object);
             let next_settings = rewrite_claude_config(&settings_text, &base_url, &api_key)?;
-            let next = serde_json::from_str::<JsonValue>(&next_settings)
-                .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
-            let next_env = next.get("env").and_then(JsonValue::as_object);
-            for (field, sensitive) in [
-                ("ANTHROPIC_BASE_URL", false),
-                ("ANTHROPIC_AUTH_TOKEN", true),
-                ("ANTHROPIC_API_KEY", true),
-            ] {
-                let before = env
-                    .and_then(|values| values.get(field))
-                    .and_then(JsonValue::as_str);
-                let after = next_env
-                    .and_then(|values| values.get(field))
-                    .and_then(JsonValue::as_str);
-                push_config_change(
-                    &mut changes,
-                    settings_path.to_string_lossy().as_ref(),
-                    &format!("env.{field}"),
-                    before,
-                    after,
-                    sensitive,
-                );
-            }
+            original_files.push(CliConfigFile {
+                file_path: settings_path.to_string_lossy().into_owned(),
+                content: settings_text.clone(),
+            });
+            files.push(CliConfigFile {
+                file_path: settings_path.to_string_lossy().into_owned(),
+                content: next_settings,
+            });
             config_revision(&[&settings_text, &base_url, &api_key])
         }
     };
@@ -188,7 +158,8 @@ pub fn preview_config(
         provider_name: provider.identity.name.clone(),
         cli_kind,
         revision,
-        changes,
+        original_files,
+        files,
     })
 }
 
@@ -196,11 +167,16 @@ pub fn switch_config(
     provider: &Provider,
     cli_kind: LivenessCliKind,
     expected_revision: Option<&str>,
+    files: &[CliConfigFile],
 ) -> Result<(), String> {
     let (base_url, api_key) = cli_target(provider, cli_kind)?;
     match cli_kind {
-        LivenessCliKind::Codex => switch_codex_config(&base_url, &api_key, expected_revision),
-        LivenessCliKind::ClaudeCode => switch_claude_config(&base_url, &api_key, expected_revision),
+        LivenessCliKind::Codex => {
+            switch_codex_config(&base_url, &api_key, expected_revision, files)
+        }
+        LivenessCliKind::ClaudeCode => {
+            switch_claude_config(&base_url, &api_key, expected_revision, files)
+        }
     }
 }
 
@@ -225,18 +201,29 @@ fn switch_codex_config(
     base_url: &str,
     api_key: &str,
     expected_revision: Option<&str>,
+    files: &[CliConfigFile],
 ) -> Result<(), String> {
     let home = home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
     let config_path = home.join(".codex").join("config.toml");
     let auth_path = home.join(".codex").join("auth.json");
     let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
     let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
+    validate_file_set(files, [&config_path, &auth_path])?;
     ensure_revision(
         expected_revision,
         config_revision(&[&config_text, &auth_text, base_url, api_key]),
     )?;
-    let (next_config, next_auth) =
-        rewrite_codex_config(&config_text, &auth_text, base_url, api_key)?;
+    let edited_config = file_content(files, &config_path)?;
+    let edited_auth = file_content(files, &auth_path)?;
+    let config_document = edited_config
+        .parse::<TomlDocument>()
+        .map_err(|_| "Codex 配置文件格式无效".to_string())?;
+    let auth = serde_json::from_str::<JsonValue>(edited_auth)
+        .map_err(|_| "Codex 认证文件格式无效".to_string())?;
+    let next_config = config_document.to_string();
+    let next_auth = serde_json::to_string_pretty(&auth)
+        .map_err(|err| format!("生成 Codex 认证配置失败: {err}"))?
+        + "\n";
 
     write_config_text(&config_path, &next_config, "Codex 配置")?;
     if let Err(err) = write_config_text(&auth_path, &next_auth, "Codex 认证") {
@@ -253,50 +240,56 @@ fn switch_claude_config(
     base_url: &str,
     api_key: &str,
     expected_revision: Option<&str>,
+    files: &[CliConfigFile],
 ) -> Result<(), String> {
     let home = home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
     let settings_path = home.join(".claude").join("settings.json");
     let settings_text = read_cli_config(&settings_path, "读取 Claude Code 配置文件")?;
+    validate_file_set(files, [&settings_path])?;
     ensure_revision(
         expected_revision,
         config_revision(&[&settings_text, base_url, api_key]),
     )?;
-    let next_settings = rewrite_claude_config(&settings_text, base_url, api_key)?;
-    write_config_text(&settings_path, &next_settings, "Claude Code 配置")
-}
-
-fn codex_provider_name(document: &TomlDocument) -> Result<String, String> {
-    document
-        .get("model_provider")
-        .and_then(toml_edit::Item::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| "Codex 配置缺少 model_provider，无法只更新中转站地址".to_string())
+    let edited_settings = file_content(files, &settings_path)?;
+    serde_json::from_str::<JsonValue>(edited_settings)
+        .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
+    write_config_text(&settings_path, edited_settings, "Claude Code 配置")
 }
 
 fn read_cli_config(path: &std::path::Path, context: &str) -> Result<String, String> {
     read_text_file_limited(path, limits::MAX_CLI_CONFIG_FILE_BYTES, context)
 }
 
-fn push_config_change(
-    changes: &mut Vec<CliConfigChange>,
-    file_path: &str,
-    field_path: &str,
-    before: Option<&str>,
-    after: Option<&str>,
-    sensitive: bool,
-) {
-    if before == after {
-        return;
+fn file_content<'a>(files: &'a [CliConfigFile], path: &std::path::Path) -> Result<&'a str, String> {
+    let expected = path.to_string_lossy();
+    let matches = files
+        .iter()
+        .filter(|file| file.file_path == expected)
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(format!("缺少或重复提交 CLI 配置文件：{}", path.display()));
     }
-    changes.push(CliConfigChange {
-        file_path: file_path.to_string(),
-        field_path: field_path.to_string(),
-        before_value: before.map(str::to_string),
-        after_value: after.map(str::to_string),
-        sensitive,
-    });
+    let content = matches[0].content.as_str();
+    if content.len() > limits::MAX_CLI_CONFIG_FILE_BYTES {
+        return Err(format!("CLI 配置文件过大：{}", path.display()));
+    }
+    Ok(content)
+}
+
+fn validate_file_set<const N: usize>(
+    files: &[CliConfigFile],
+    expected_paths: [&std::path::Path; N],
+) -> Result<(), String> {
+    if files.len() != N
+        || files.iter().any(|file| {
+            !expected_paths
+                .iter()
+                .any(|path| file.file_path == path.to_string_lossy())
+        })
+    {
+        return Err("只能提交当前 CLI 预览中的配置文件".to_string());
+    }
+    Ok(())
 }
 
 fn config_revision(parts: &[&str]) -> String {

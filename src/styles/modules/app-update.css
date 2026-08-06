@@ -9,7 +9,6 @@
 
 .app-update-modal .arco-modal-body {
   min-height: 0;
-  padding: 0 24px 20px;
   overflow: hidden;
 }
 
@@ -250,10 +249,6 @@
 @media (max-width: 560px) {
   .app-update-modal .arco-modal-header {
     padding: 16px 18px 14px;
-  }
-
-  .app-update-modal .arco-modal-body {
-    padding: 0 18px 16px;
   }
 
   .app-update-modal .arco-modal-footer {

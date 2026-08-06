@@ -12,7 +12,7 @@ use super::response::{
     extract_bool_field, extract_i64_field, extract_string_field, parse_success_data, trim_message,
 };
 use super::site::{
-    apply_site_metadata, convert_quota_value, fetch_site_metadata, site_metadata_from_provider,
+    apply_site_metadata, convert_quota_value, fetch_site_metadata_or, site_metadata_from_provider,
     value_to_string, SiteMetadata,
 };
 
@@ -74,7 +74,12 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
 
     let mut quota_result =
         fetch_quota_with_access_token_fallback(client, &effective_provider).await;
-    if using_cached_password_session {
+    if using_cached_password_session
+        && client
+            .shield_blocked_for(&provider.identity.base_url)
+            .await
+            .is_none()
+    {
         if let Err(original_message) = quota_result {
             match login_password_provider(client, provider).await {
                 Ok(reauthenticated) => {
@@ -142,6 +147,17 @@ async fn fetch_quota_with_access_token_fallback(
     match fetch_quota(client, provider).await {
         Ok(profile) => Ok(profile),
         Err(message) => {
+            // A challenge failure is an operation-level breaker. It must not
+            // be mistaken for an authentication failure and sent through a
+            // second credential path, which would only duplicate the shield
+            // flow and obscure the original error.
+            if client
+                .shield_blocked_for(&provider.identity.base_url)
+                .await
+                .is_some()
+            {
+                return Err(message);
+            }
             if should_retry_with_access_token(&message) {
                 if let Some(fallback_provider) = access_token_fallback_provider(provider) {
                     return fetch_quota(client, &fallback_provider).await.map_err(
@@ -163,9 +179,8 @@ async fn fetch_quota(
     validate_credentials(provider)?;
 
     let base_url = normalize_base_url(&provider.identity.base_url);
-    let site = fetch_site_metadata(client, &base_url)
-        .await
-        .unwrap_or_else(|_| site_metadata_from_provider(provider));
+    let site =
+        fetch_site_metadata_or(client, &base_url, site_metadata_from_provider(provider)).await?;
     if matches!(provider.auth.mode, AuthMode::ApiKey) {
         return fetch_token_quota(client, provider, &base_url, site).await;
     }
@@ -186,11 +201,6 @@ async fn fetch_quota(
     let response = client.send(request, "请求余额").await?;
     let status = response.status;
     let body = response.body;
-
-    // 过盾已由 ProviderTransport 后验处理；走到这里仍是挑战页说明重试未通过。
-    if let Some(kind) = crate::network::shield::detect(&Default::default(), &body) {
-        return Err(crate::adapters::transport::shield_blocked_message(kind));
-    }
 
     if !status.is_success() {
         return Err(format!("HTTP {}: {}", status.as_u16(), trim_message(&body)));

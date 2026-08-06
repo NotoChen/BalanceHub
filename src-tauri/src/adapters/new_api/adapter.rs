@@ -36,7 +36,7 @@ impl NewApiAdapter {
             return Err("API Key 认证没有可补全的账号凭据".to_string());
         }
         let provider = Provider::from_input(input.clone(), provider_id);
-        let client = build_client(settings, &provider)?;
+        let client = build_client(settings, &provider).await?;
         super::credentials::complete_credentials(&client, input).await
     }
 
@@ -45,7 +45,7 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<ProviderConnectionTestResult, String> {
-        match build_client(settings, provider) {
+        match build_client(settings, provider).await {
             Ok(client) => super::quota::test_connection(&client, provider).await,
             Err(message) => Ok(ProviderConnectionTestResult {
                 ok: false,
@@ -63,7 +63,7 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<ProviderSiteProbeResult, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         match discover_site_metadata(&client, &provider.identity.base_url).await {
             Ok(site) => Ok(ProviderSiteProbeResult {
                 ok: true,
@@ -94,7 +94,7 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         list_api_keys(&client, &provider).await
     }
@@ -105,7 +105,7 @@ impl NewApiAdapter {
         provider: &Provider,
         name: &str,
     ) -> Result<ProviderApiKeyOption, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         create_managed_api_key(&client, &provider, name).await
     }
@@ -118,7 +118,7 @@ impl NewApiAdapter {
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("API Key 认证不支持生成访问令牌".to_string());
         }
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         super::credentials::create_access_token(&client, &provider).await
     }
@@ -129,7 +129,7 @@ impl NewApiAdapter {
         provider: &Provider,
         token_id: &str,
     ) -> Result<(), String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         delete_managed_api_key(&client, &provider, token_id).await
     }
@@ -140,7 +140,7 @@ impl NewApiAdapter {
         provider: &Provider,
         period: &str,
     ) -> Result<ProviderUsageSummary, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         super::usage::fetch_usage_summary(&client, &provider, period).await
     }
@@ -151,7 +151,7 @@ impl NewApiAdapter {
         provider: &Provider,
         query: ProviderRequestLogsQuery,
     ) -> Result<ProviderRequestLogsResult, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         super::logs::fetch_request_logs(&client, &provider, query).await
     }
@@ -163,7 +163,7 @@ impl NewApiAdapter {
         original_password: &str,
         password: &str,
     ) -> Result<String, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         super::account::change_user_password(&client, &provider, original_password, password).await
     }
@@ -173,7 +173,7 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<(ProviderCapabilities, String, Option<String>), String> {
-        match build_client(settings, provider) {
+        match build_client(settings, provider).await {
             Ok(client) => match authenticated_provider(&client, provider).await {
                 Ok(provider) => Ok(probe_capabilities(&client, &provider).await),
                 Err(message) => Ok((
@@ -195,7 +195,7 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<String, String> {
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         fetch_invite_link(&client, &provider).await
     }
@@ -205,7 +205,7 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Provider {
-        match build_client(settings, provider) {
+        match crate::adapters::transport::build_client(settings, provider).await {
             Ok(client) => super::quota::refresh_provider(&client, provider).await,
             Err(message) => provider_with_error(provider, message),
         }
@@ -219,7 +219,7 @@ impl NewApiAdapter {
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("API Key 认证不支持用户签到，请切换到 Cookie 或访问令牌".to_string());
         }
-        let client = build_client(settings, provider)?;
+        let client = crate::adapters::transport::build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         if provider_is_anyrouter(&provider) {
             anyrouter::check_in_provider(&client, &provider).await
@@ -237,7 +237,7 @@ impl NewApiAdapter {
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("API Key 认证不支持签到记录，请切换到 Cookie 或访问令牌".to_string());
         }
-        let client = build_client(settings, provider)?;
+        let client = build_client(settings, provider).await?;
         let provider = authenticated_provider(&client, provider).await?;
         if provider_is_anyrouter(&provider) {
             return Err("当前暂未发现 AnyRouter 的签到历史接口".to_string());

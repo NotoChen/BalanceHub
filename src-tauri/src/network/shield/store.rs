@@ -1,4 +1,4 @@
-use super::{ttl_secs, CacheKey, ChallengeState, ShieldCredential};
+use super::{ttl_secs, CacheKey, ShieldCredential};
 use crate::{limits, util::unix_secs};
 use lru::LruCache;
 use std::{
@@ -7,8 +7,6 @@ use std::{
     sync::{Arc, Mutex, OnceLock, Weak},
 };
 use tokio::sync::Mutex as AsyncMutex;
-
-const CHALLENGE_STATE_TTL: u64 = 30 * 60;
 
 fn credential_cache() -> &'static Mutex<LruCache<CacheKey, ShieldCredential>> {
     static CACHE: OnceLock<Mutex<LruCache<CacheKey, ShieldCredential>>> = OnceLock::new();
@@ -48,48 +46,8 @@ pub(super) fn invalidate_if_matches(key: &CacheKey, applied: &ShieldCredential) 
     }
 }
 
-fn challenge_cache() -> &'static Mutex<LruCache<String, ChallengeState>> {
-    static CACHE: OnceLock<Mutex<LruCache<String, ChallengeState>>> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        Mutex::new(LruCache::new(
-            NonZeroUsize::new(limits::MAX_PROVIDERS)
-                .expect("challenge cache capacity must be non-zero"),
-        ))
-    })
-}
-
-pub(super) fn mark_challenge(state: ChallengeState) -> bool {
-    if let Ok(mut cache) = challenge_cache().lock() {
-        let changed = cache
-            .peek(&state.provider_id)
-            .is_none_or(|current| current.kind != state.kind || current.url != state.url);
-        cache.put(state.provider_id.clone(), state);
-        changed
-    } else {
-        false
-    }
-}
-
-pub(super) fn challenge_for(provider_id: &str) -> Option<ChallengeState> {
-    let mut cache = challenge_cache().lock().ok()?;
-    let state = cache.get(provider_id).cloned()?;
-    if unix_secs().saturating_sub(state.recorded_at) >= CHALLENGE_STATE_TTL {
-        cache.pop(provider_id);
-        return None;
-    }
-    Some(state)
-}
-
-pub(super) fn clear_challenge(provider_id: &str) -> bool {
-    if let Ok(mut cache) = challenge_cache().lock() {
-        cache.pop(provider_id).is_some()
-    } else {
-        false
-    }
-}
-
 /// Keep keyed locks only while a solver is active. A weak entry avoids the
-/// unbounded host-lock map that previously retained every provider forever.
+/// unbounded provider-lock map that previously retained every provider forever.
 pub(super) fn lock_for(key: &CacheKey) -> Arc<AsyncMutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<CacheKey, Weak<AsyncMutex<()>>>>> = OnceLock::new();
     let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));

@@ -44,28 +44,8 @@
   color: var(--topbar-action-color, #ffffff);
 }
 
-:root.theme-dark .topbar .topbar-icon-add.arco-btn {
-  border-color: rgba(122, 167, 255, 0.34);
-  background: rgba(64, 128, 255, 0.14);
-}
-
 :root.theme-dark .topbar-filter-button {
   color: #a9aeb8;
-}
-
-:root.theme-dark .topbar-filter-button.reset-active {
-  border-color: rgba(122, 167, 255, 0.3);
-  background: rgba(64, 128, 255, 0.14);
-  color: #94bfff;
-}
-
-:root.theme-dark .topbar-filter-divider {
-  background: var(--glass-border);
-}
-
-:root.theme-dark .topbar-filter-active-dot {
-  background: #7aa7ff;
-  box-shadow: 0 0 0 3px rgba(122, 167, 255, 0.14);
 }
 
 :root.theme-dark .panel-title,

@@ -56,8 +56,7 @@
 :root.theme-dark .provider-editor-context-card,
 :root.theme-dark .app-update-modal .app-update-version-summary,
 :root.theme-dark .app-update-modal .app-update-release-scroll,
-:root.theme-dark .cli-config-preview-summary,
-:root.theme-dark .cli-config-preview-files { background: var(--surface-panel); }
+:root.theme-dark .cli-config-preview-summary { background: var(--surface-panel); }
 :root.theme-dark .settings-workspace-v3 .settings-panel-body,
 :root.theme-dark .provider-editor-stage,
 :root.theme-dark .provider-editor-context,
