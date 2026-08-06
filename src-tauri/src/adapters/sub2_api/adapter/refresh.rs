@@ -3,10 +3,11 @@ use crate::{
     adapters::{
         sub2_api::{
             auth::{
-                authenticate_account, is_refresh_chain_broken, needs_token_refresh, refresh_tokens,
+                authenticate_account, is_auth_failure, is_refresh_chain_broken,
+                needs_token_refresh, refresh_tokens,
             },
             json::string_field,
-            profile::{apply_user, fetch_models, fetch_site, quota_display},
+            profile::{apply_user, fetch_site, quota_display},
         },
         transport::{build_client, ProviderTransport},
     },
@@ -147,9 +148,13 @@ impl Sub2ApiAdapter {
         // 唯一使用 refresh_token 的地方：持久化刷新路径（配合刷新闸门单飞），避免
         // 已轮换的 refresh_token 被重复提交而触发服务端「重用攻击」吊销整个会话家族。
         let mut working = provider.clone();
+        let mut token_refresh_succeeded = false;
         if needs_token_refresh(&working) {
             match refresh_tokens(client, &working).await {
-                Ok(refreshed) => working = refreshed,
+                Ok(refreshed) => {
+                    working = refreshed;
+                    token_refresh_succeeded = true;
+                }
                 Err(err) if is_refresh_chain_broken(&err) => {
                     // 刷新链已断（过期/吊销/重用）：清空令牌，下面回退账号密码登录（无密码则报错）。
                     working.auth.access_token = String::new();
@@ -160,9 +165,6 @@ impl Sub2ApiAdapter {
                 Err(_) => {}
             }
         }
-        next.auth.access_token = working.auth.access_token.clone();
-        next.auth.refresh_token = working.auth.refresh_token.clone();
-        next.auth.access_token_expires_at = working.auth.access_token_expires_at;
 
         let site = match site_hint {
             Some(value) => Some(value),
@@ -179,7 +181,13 @@ impl Sub2ApiAdapter {
             }
         }
 
-        match authenticate_account(client, &working).await {
+        let authentication =
+            authenticate_account_with_refresh(client, &mut working, token_refresh_succeeded).await;
+        next.auth.access_token = working.auth.access_token.clone();
+        next.auth.refresh_token = working.auth.refresh_token.clone();
+        next.auth.access_token_expires_at = working.auth.access_token_expires_at;
+
+        match authentication {
             Ok((authenticated, user)) => {
                 if !authenticated.auth.access_token.trim().is_empty() {
                     next.auth.access_token = authenticated.auth.access_token.clone();
@@ -191,6 +199,7 @@ impl Sub2ApiAdapter {
                     next.auth.access_token_expires_at = authenticated.auth.access_token_expires_at;
                 }
                 apply_user(&mut next, &user);
+                let _ = refresh_models_if_available(client, &mut next).await;
                 next.runtime.status = if next.quota.available <= 0.0 {
                     ProviderStatus::Warning
                 } else {
@@ -204,8 +213,8 @@ impl Sub2ApiAdapter {
                 next
             }
             Err(_message) if matches!(provider.auth.mode, AuthMode::ApiKey) => {
-                match fetch_models(client, provider).await {
-                    Ok(_) => {
+                match refresh_models_if_available(client, &mut next).await {
+                    Ok(()) => {
                         next.quota.known = false;
                         next.quota.total_known = false;
                         next.quota.available = 0.0;
@@ -223,6 +232,54 @@ impl Sub2ApiAdapter {
             Err(message) => provider_with_error(&next, message),
         }
     }
+}
+
+async fn authenticate_account_with_refresh(
+    client: &ProviderTransport,
+    working: &mut Provider,
+    token_refresh_succeeded: bool,
+) -> Result<(Provider, Value), String> {
+    match authenticate_account(client, working).await {
+        Ok(result) => Ok(result),
+        Err(message)
+            if !token_refresh_succeeded
+                && is_auth_failure(&message)
+                && !working.auth.refresh_token.trim().is_empty() =>
+        {
+            match refresh_tokens(client, working).await {
+                Ok(refreshed) => {
+                    *working = refreshed;
+                    authenticate_account(client, working)
+                        .await
+                        .map_err(|retry_error| {
+                            format!("{message}；刷新令牌后重试失败: {retry_error}")
+                        })
+                }
+                Err(refresh_error) if is_refresh_chain_broken(&refresh_error) => {
+                    working.auth.access_token.clear();
+                    working.auth.refresh_token.clear();
+                    working.auth.access_token_expires_at = None;
+                    Err(format!("{message}；刷新 Sub2API 令牌失败: {refresh_error}"))
+                }
+                Err(refresh_error) => {
+                    Err(format!("{message}；刷新 Sub2API 令牌失败: {refresh_error}"))
+                }
+            }
+        }
+        Err(message) => Err(message),
+    }
+}
+
+async fn refresh_models_if_available(
+    client: &ProviderTransport,
+    provider: &mut Provider,
+) -> Result<(), String> {
+    if provider.auth.api_key.trim().is_empty() {
+        return Err("缺少 API Key，无法获取模型列表".to_string());
+    }
+    provider.capabilities.available_models =
+        crate::adapters::api::fetch_models(client, provider).await?;
+    Ok(())
 }
 
 fn provider_with_error(provider: &Provider, message: String) -> Provider {

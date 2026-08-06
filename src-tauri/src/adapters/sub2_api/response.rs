@@ -10,13 +10,12 @@ const API_PREFIX: &str = "/api/v1";
 #[derive(Clone)]
 pub(super) enum Credential {
     Jwt(String),
-    ApiKey(String),
 }
 
 impl Credential {
     fn value(&self) -> &str {
         match self {
-            Self::Jwt(value) | Self::ApiKey(value) => value.trim(),
+            Self::Jwt(value) => value.trim(),
         }
     }
 }
@@ -112,11 +111,6 @@ pub(super) fn api_url(base_url: &str, path: &str) -> Result<Url, String> {
         path
     ))
     .map_err(|err| format!("Sub2API 地址无效: {err}"))
-}
-
-pub(super) fn gateway_url(base_url: &str, path: &str) -> Result<Url, String> {
-    Url::parse(&format!("{}{}", normalize_base_url(base_url), path))
-        .map_err(|err| format!("Sub2API 网关地址无效: {err}"))
 }
 
 pub(super) fn normalize_base_url(value: &str) -> String {
