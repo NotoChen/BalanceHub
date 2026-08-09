@@ -4,6 +4,7 @@ import type {
   CliConfigPreview,
   CliConfigFile,
   CliRuntimeSnapshot,
+  CliSessionSummary,
   CliEnvironmentProbeResult,
   CodexModelSyncResult,
   LivenessCliKind,
@@ -23,6 +24,7 @@ import type {
   ProviderUsageSummary,
   TemporaryCliInstance,
   TemporaryCliLaunchInput,
+  TemporaryCliLaunchPreview,
   TemporaryCliLaunchResult,
   TemporaryCliPreference,
   Workspace,
@@ -173,6 +175,14 @@ export function previewLivenessPrompts(settings: AppSettings, count = 10) {
 
 export function launchTemporaryCli(input: TemporaryCliLaunchInput) {
   return invoke<TemporaryCliLaunchResult>("launch_temporary_cli", { input });
+}
+
+export function previewTemporaryCliLaunch(input: TemporaryCliLaunchInput) {
+  return invoke<TemporaryCliLaunchPreview>("preview_temporary_cli_launch", { input });
+}
+
+export function listCliSessions(cliKind: LivenessCliKind, workdir: string) {
+  return invoke<CliSessionSummary[]>("list_cli_sessions", { cliKind, workdir });
 }
 
 export function getCliRuntimeSnapshot() {

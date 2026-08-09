@@ -20,7 +20,9 @@ import {
   forgetWorkspace as forgetWorkspaceCommand,
   importAppData as importAppDataCommand,
   launchTemporaryCli as launchTemporaryCliCommand,
+  previewTemporaryCliLaunch as previewTemporaryCliLaunchCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
+  listCliSessions as listCliSessionsCommand,
   loadAppData,
   probeCliEnvironment as probeCliEnvironmentCommand,
   probeProviderSite as probeProviderSiteCommand,
@@ -48,6 +50,7 @@ import type {
   CliConfigFile,
   CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
+  CliSessionSummary,
   LivenessCliKind,
   Provider,
   ProviderInput,
@@ -55,6 +58,7 @@ import type {
   ProviderRequestLogsQuery,
   TemporaryCliLaunchResult,
   TemporaryCliLaunchInput,
+  TemporaryCliLaunchPreview,
   TemporaryCliPreference,
   Workspace,
 } from "./provider-types";
@@ -246,6 +250,14 @@ export const useProviderStore = defineStore("providers", {
           result.instance.status === "exited" ? instances : [result.instance, ...instances],
       };
       return result;
+    },
+    async previewTemporaryCliLaunch(
+      input: TemporaryCliLaunchInput,
+    ): Promise<TemporaryCliLaunchPreview> {
+      return previewTemporaryCliLaunchCommand(input);
+    },
+    async listCliSessions(cliKind: LivenessCliKind, workdir: string): Promise<CliSessionSummary[]> {
+      return listCliSessionsCommand(cliKind, workdir);
     },
     async activateTemporaryCli(instanceId: string) {
       await activateTemporaryCliCommand(instanceId);

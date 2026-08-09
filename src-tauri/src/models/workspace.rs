@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use super::{LivenessCliKind, TemporaryCliTerminalKind};
 
@@ -7,8 +8,7 @@ use super::{LivenessCliKind, TemporaryCliTerminalKind};
 pub enum TemporaryCliSessionMode {
     #[default]
     New,
-    Latest,
-    Picker,
+    History,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,7 +49,34 @@ pub struct TemporaryCliLaunchInput {
     pub session_mode: TemporaryCliSessionMode,
     #[serde(default)]
     pub session_name: String,
+    /// 历史模式下选中的会话 ID。
+    #[serde(default)]
+    pub resume_id: String,
     pub terminal_kind: TemporaryCliTerminalKind,
+}
+
+/// 启动前展示给用户确认的实际 CLI 参数。该结构只在当前确认弹窗内存中流转，
+/// 不写入应用配置、运行记录或日志。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporaryCliLaunchPreview {
+    pub provider_name: String,
+    pub cli_kind: LivenessCliKind,
+    pub cli_path: String,
+    pub args: Vec<String>,
+    pub command: String,
+    pub terminal_kind: TemporaryCliTerminalKind,
+    pub terminal_name: String,
+    pub workdir: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub session_mode: TemporaryCliSessionMode,
+    pub session_name: String,
+    pub resume_id: String,
+    pub environment: BTreeMap<String, String>,
+    pub settings_path: Option<String>,
+    pub settings_content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

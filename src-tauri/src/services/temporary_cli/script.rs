@@ -1,3 +1,7 @@
+#[cfg(target_os = "windows")]
+use super::environment::capture_shell_snapshot;
+#[cfg(any(target_os = "windows", test))]
+use super::environment::ShellEnvironmentSnapshot;
 #[cfg(not(target_os = "windows"))]
 use crate::services::liveness::LivenessRunner;
 use crate::{
@@ -66,6 +70,11 @@ fn temporary_claude_settings_path(script: &Path, cli_kind: LivenessCliKind) -> O
     })
 }
 
+pub(super) fn preview_claude_settings_path(cli_kind: LivenessCliKind) -> Option<PathBuf> {
+    matches!(cli_kind, LivenessCliKind::ClaudeCode)
+        .then(|| PathBuf::from("<temporary-claude-settings.json>"))
+}
+
 fn temporary_windows_launch_payload_path(script: &Path) -> PathBuf {
     script
         .parent()
@@ -96,6 +105,7 @@ pub(super) struct LaunchScriptInput<'a> {
     pub(super) base_url: &'a str,
     pub(super) model: &'a str,
     pub(super) session_name: &'a str,
+    pub(super) resume_id: &'a str,
     pub(super) session_mode: TemporaryCliSessionMode,
     pub(super) status_path: &'a Path,
     pub(super) proxy_environment: &'a ProxyEnvironment,
@@ -116,6 +126,8 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         input.session_mode,
         claude_settings_path.as_deref(),
     );
+    let mut args = args;
+    insert_resume_id(&mut args, input.cli_kind, input.resume_id);
     let path_export = LivenessRunner::runtime_path_for_cli(Path::new(input.cli_path))
         .map(|path| format!("export PATH={}\n", shell_quote(&path.to_string_lossy())))
         .unwrap_or_default();
@@ -138,12 +150,15 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         .as_ref()
         .map(|path| format!("rm -f {}\n", shell_quote(&path.to_string_lossy())))
         .unwrap_or_default();
+    let script_path = shell_quote(&input.script.to_string_lossy());
     let login_shell_bootstrap = login_shell_bootstrap(input.script);
+    let cli_invocation = unix_cli_invocation(input.cli_kind, input.cli_path, &args);
     let proxy_block = unix_proxy_block(input.proxy_environment);
 
     let text = format!(
         r#"#!/bin/sh
 set -u
+bh_script_path={script_path}
 {login_shell_bootstrap}bh_status_file={status_path}
 bh_write_status() {{
   bh_tmp="$bh_status_file.tmp.$$"
@@ -160,24 +175,20 @@ if [ "$status" -ne 0 ]; then
   exit "$status"
 fi
 {path_export}{color_block}{proxy_block}{auth_block}bh_write_status running "$$" null null
-{cli} {args}
+{cli_invocation}
 status=$?
 bh_write_status exited null "$(bh_now_ms)" "$status"
-rm -f "$0"
+rm -f "$bh_script_path"
 {cleanup_settings}rmdir {script_dir} 2>/dev/null || true
 exit "$status"
 "#,
         status_path = shell_quote(&input.status_path.to_string_lossy()),
         login_shell_bootstrap = login_shell_bootstrap,
+        script_path = script_path,
         workdir = shell_quote(&input.workdir.to_string_lossy()),
         color_block = unix_color_block(),
         proxy_block = proxy_block,
-        cli = shell_quote(input.cli_path),
-        args = args
-            .iter()
-            .map(|arg| shell_quote(arg))
-            .collect::<Vec<_>>()
-            .join(" "),
+        cli_invocation = cli_invocation,
         script_dir = shell_quote(&script_dir.to_string_lossy()),
     );
 
@@ -201,13 +212,17 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         input.session_mode,
         claude_settings_path.as_deref(),
     );
+    let mut args = args;
+    insert_resume_id(&mut args, input.cli_kind, input.resume_id);
     let launch_payload_path = temporary_windows_launch_payload_path(input.script);
+    let shell_snapshot = capture_shell_snapshot();
     let launch_payload = windows_launch_payload(
         input.cli_kind,
         input.cli_path,
         &args,
         input.api_key,
         input.proxy_environment,
+        &shell_snapshot,
     );
     let launch_payload_text = serde_json::to_string_pretty(&launch_payload)
         .map_err(|err| format!("生成 Windows 临时 CLI 启动参数失败: {err}"))?;
@@ -244,8 +259,15 @@ pub(super) const WINDOWS_LAUNCH_PAYLOAD_COMMAND: &str = concat!(
     "Remove-Item -LiteralPath ('Env:' + [string]$name) -ErrorAction SilentlyContinue }; ",
     "foreach ($entry in @($launch.setEnv.PSObject.Properties)) { ",
     "Set-Item -LiteralPath ('Env:' + $entry.Name) -Value ([string]$entry.Value) }; ",
+    // The payload is executed with -NoProfile; restore only the two CLI names
+    // so a user's profile wrapper does not silently disappear on Windows.
+    "if ($null -ne $launch.functions) { foreach ($entry in @($launch.functions.PSObject.Properties)) { ",
+    "Set-Item -LiteralPath ('Function:\\' + [string]$entry.Name) -Value ([scriptblock]::Create([string]$entry.Value)) -Force } }; ",
+    "if ($null -ne $launch.aliases) { foreach ($entry in @($launch.aliases.PSObject.Properties)) { ",
+    "Set-Alias -Name ([string]$entry.Name) -Value ([string]$entry.Value) -Scope Local -Force } }; ",
+    "$commandInfo = Get-Command -Name ([string]$launch.cliCommandName) -ErrorAction SilentlyContinue | Select-Object -First 1; ",
     "$arguments = @($launch.args | ForEach-Object { [string]$_ }); ",
-    "& ([string]$launch.cliPath) @arguments; ",
+    "if ($null -ne $commandInfo -and @('Alias', 'Function', 'Filter') -contains [string]$commandInfo.CommandType) { & ([string]$launch.cliCommandName) @arguments } else { & ([string]$launch.cliPath) @arguments }; ",
     "if ($null -eq $LASTEXITCODE) { exit 0 } else { exit $LASTEXITCODE }"
 );
 
@@ -256,18 +278,27 @@ pub(super) fn windows_launch_payload(
     args: &[String],
     api_key: &str,
     proxy_environment: &ProxyEnvironment,
+    shell_snapshot: &ShellEnvironmentSnapshot,
 ) -> serde_json::Value {
     let mut remove_env = proxy_environment
         .removed_names()
         .map(str::to_string)
         .collect::<BTreeSet<_>>();
-    let mut set_env = proxy_environment
+    let mut set_env = shell_snapshot.variables.clone();
+    let proxy_variables = proxy_environment
         .variables()
         .map(|(name, value)| (name.to_string(), value.to_string()))
-        .collect::<BTreeMap<_, _>>();
+        .collect::<Vec<_>>();
+    for (name, _) in &proxy_variables {
+        remove_environment_name(&mut set_env, name);
+    }
+    for (name, value) in proxy_variables {
+        set_env.insert(name, value);
+    }
 
     match cli_kind {
         LivenessCliKind::Codex => {
+            remove_environment_name(&mut set_env, "OPENAI_API_KEY");
             set_env.insert("OPENAI_API_KEY".to_string(), api_key.to_string());
             remove_env.insert("CODEX_API_KEY".to_string());
             remove_env.insert("CODEX_ACCESS_TOKEN".to_string());
@@ -281,10 +312,28 @@ pub(super) fn windows_launch_payload(
 
     serde_json::json!({
         "cliPath": cli_path,
+        "cliCommandName": match cli_kind {
+            LivenessCliKind::Codex => "codex",
+            LivenessCliKind::ClaudeCode => "claude",
+        },
         "args": args,
         "removeEnv": remove_env,
         "setEnv": set_env,
+        "aliases": shell_snapshot.aliases,
+        "functions": shell_snapshot.functions,
     })
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn remove_environment_name(target: &mut BTreeMap<String, String>, name: &str) {
+    let matching = target
+        .keys()
+        .filter(|existing| existing.eq_ignore_ascii_case(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    for existing in matching {
+        target.remove(&existing);
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -320,15 +369,18 @@ fn unix_proxy_block(environment: &ProxyEnvironment) -> String {
     block
 }
 
-fn write_claude_settings(path: &Path, api_key: &str, base_url: &str) -> Result<(), String> {
+pub(super) fn claude_settings_content(api_key: &str, base_url: &str) -> Result<String, String> {
     let config = serde_json::json!({
         "env": {
             "ANTHROPIC_AUTH_TOKEN": api_key.trim(),
             "ANTHROPIC_BASE_URL": base_url.trim(),
         }
     });
-    let text = serde_json::to_string_pretty(&config)
-        .map_err(|err| format!("生成 Claude 配置失败: {err}"))?;
+    serde_json::to_string_pretty(&config).map_err(|err| format!("生成 Claude 配置失败: {err}"))
+}
+
+fn write_claude_settings(path: &Path, api_key: &str, base_url: &str) -> Result<(), String> {
+    let text = claude_settings_content(api_key, base_url)?;
     fs::write(path, text).map_err(|err| format!("写入 Claude 临时配置失败: {err}"))?;
     restrict_to_owner(path)
 }
@@ -436,10 +488,7 @@ pub(super) fn cli_args(
             ]);
             match session_mode {
                 TemporaryCliSessionMode::New => {}
-                TemporaryCliSessionMode::Latest => {
-                    args.extend(["resume".to_string(), "--last".to_string()]);
-                }
-                TemporaryCliSessionMode::Picker => args.push("resume".to_string()),
+                TemporaryCliSessionMode::History => args.push("resume".to_string()),
             }
             args
         }
@@ -458,11 +507,23 @@ pub(super) fn cli_args(
             }
             match session_mode {
                 TemporaryCliSessionMode::New => {}
-                TemporaryCliSessionMode::Latest => args.push("--continue".to_string()),
-                TemporaryCliSessionMode::Picker => args.push("--resume".to_string()),
+                TemporaryCliSessionMode::History => args.push("--resume".to_string()),
             }
             args
         }
+    }
+}
+
+pub(super) fn insert_resume_id(args: &mut Vec<String>, cli_kind: LivenessCliKind, resume_id: &str) {
+    if resume_id.trim().is_empty() {
+        return;
+    }
+    let subcommand = match cli_kind {
+        LivenessCliKind::Codex => "resume",
+        LivenessCliKind::ClaudeCode => "--resume",
+    };
+    if let Some(index) = args.iter().position(|arg| arg == subcommand) {
+        args.insert(index + 1, resume_id.trim().to_string());
     }
 }
 
@@ -482,12 +543,115 @@ pub(super) fn shell_quote(value: &str) -> String {
 }
 
 #[cfg(not(target_os = "windows"))]
+fn preview_quote(value: &str) -> String {
+    shell_quote(value)
+}
+
+#[cfg(target_os = "windows")]
+fn preview_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+/// 生成确认弹窗中的 CLI 调用。临时 shell/cmd 包装脚本仍由启动链路负责，
+/// 这里只展示用户真正关心的可执行文件、参数和显式环境变量。
+pub(super) fn format_cli_command(
+    cli_kind: LivenessCliKind,
+    cli_path: &str,
+    args: &[String],
+    api_key: &str,
+    environment: &[(String, String)],
+) -> String {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut parts = Vec::new();
+        if matches!(cli_kind, LivenessCliKind::Codex) {
+            parts.push(format!("OPENAI_API_KEY={}", preview_quote(api_key)));
+        }
+        parts.extend(
+            environment
+                .iter()
+                .map(|(name, value)| format!("{name}={}", preview_quote(value))),
+        );
+        parts.push(preview_quote(cli_path));
+        parts.extend(args.iter().map(|arg| preview_quote(arg)));
+        parts.join(" ")
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut assignments = Vec::new();
+        if matches!(cli_kind, LivenessCliKind::Codex) {
+            assignments.push(format!("$env:OPENAI_API_KEY={}", preview_quote(api_key)));
+        }
+        assignments.extend(
+            environment
+                .iter()
+                .map(|(name, value)| format!("$env:{name}={}", preview_quote(value))),
+        );
+        let command = std::iter::once(preview_quote(cli_path))
+            .chain(args.iter().map(|arg| preview_quote(arg)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if assignments.is_empty() {
+            format!("& {command}")
+        } else {
+            format!("{}; & {command}", assignments.join("; "))
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 pub(super) fn login_shell_bootstrap(script: &Path) -> String {
-    let command = format!("exec /bin/sh {}", shell_quote(&script.to_string_lossy()));
+    let script = shell_quote(&script.to_string_lossy());
+    // POSIX-compatible shells can source the launcher in the same process, so
+    // aliases/functions from the interactive startup files remain available.
+    // fish and unknown shells still export their environment through a child
+    // /bin/sh because the launcher itself is POSIX syntax.
+    let command = if shell_supports_posix_source(&user_shell()) {
+        format!(". {script}")
+    } else {
+        format!("exec /bin/sh {script}")
+    };
     format!(
         "if [ \"${{BALANCEHUB_LOGIN_ENV_READY:-}}\" != \"1\" ]; then\n  export BALANCEHUB_LOGIN_ENV_READY=1\n  exec {} -lic {}\nfi\nunset BALANCEHUB_LOGIN_ENV_READY\n",
         shell_quote(&user_shell()),
         shell_quote(&command),
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(super) fn shell_supports_posix_source(shell: &str) -> bool {
+    let name = Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(shell)
+        .to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "ash" | "bash" | "busybox" | "dash" | "ksh" | "mksh" | "sh" | "zsh"
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(super) fn unix_cli_invocation(
+    cli_kind: LivenessCliKind,
+    cli_path: &str,
+    args: &[String],
+) -> String {
+    let command_name = match cli_kind {
+        LivenessCliKind::Codex => "codex",
+        LivenessCliKind::ClaudeCode => "claude",
+    };
+    let args = args
+        .iter()
+        .map(|arg| shell_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "bh_use_shell_cli=0\nif alias {command_name} >/dev/null 2>&1; then\n  bh_use_shell_cli=1\nelif command -v typeset >/dev/null 2>&1 && typeset -f {command_name} >/dev/null 2>&1; then\n  bh_use_shell_cli=1\nfi\nif [ \"$bh_use_shell_cli\" -eq 1 ]; then\n  {command_name} {args}\nelse\n  {cli_path} {args}\nfi",
+        command_name = command_name,
+        cli_path = shell_quote(cli_path),
+        args = args,
     )
 }
 
