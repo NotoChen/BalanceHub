@@ -4,6 +4,7 @@ import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
 import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
+import TemporaryCliLaunchPreviewModal from "./components/TemporaryCliLaunchPreviewModal.vue";
 import WorkspacePickerModal from "./components/WorkspacePickerModal.vue";
 import { useAppController } from "./composables/useAppController";
 import { useWindowGridSnap } from "./composables/useWindowGridSnap";
@@ -74,6 +75,7 @@ useWindowGridSnap();
       v-model:selected-model="app.workspaceSelectedModel"
       v-model:session-name="app.workspaceSessionName"
       v-model:session-mode="app.workspaceSessionMode"
+      v-model:selected-resume-id="app.workspaceSelectedResumeId"
       :can-name-session="app.workspaceCanNameSession"
       v-model:terminal-kind="app.workspaceTerminalKind"
       :provider="app.workspacePickerProvider"
@@ -88,11 +90,25 @@ useWindowGridSnap();
       :launching-path="app.workspaceLaunchingPath"
       :launch-progress="app.workspaceLaunchProgress"
       :launch-stage="app.workspaceLaunchStage"
+      :launch-preview-visible="app.workspaceLaunchPreviewVisible"
+      :launch-preview-loading="app.workspaceLaunchPreviewLoading"
       :forgetting-path="app.workspaceForgettingPath"
       :error="app.workspaceBrowserError"
+      :history-sessions="app.workspaceSessions"
+      :history-loading="app.workspaceSessionsLoading"
+      :history-error="app.workspaceSessionsError"
       @browse="app.browseWorkspaceDirectory"
       @launch="app.launchWorkspace"
       @forget="app.forgetWorkspace"
+      @select-session="app.selectWorkspaceSession"
+      @refresh-sessions="app.loadWorkspaceSessions"
+    />
+
+    <TemporaryCliLaunchPreviewModal
+      v-model:visible="app.workspaceLaunchPreviewVisible"
+      :preview="app.workspaceLaunchPreview"
+      :confirming="Boolean(app.workspaceLaunchingPath)"
+      @confirm="app.confirmWorkspaceLaunch"
     />
 
     <CliConfigPreviewModal

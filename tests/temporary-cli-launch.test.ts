@@ -105,6 +105,6 @@ test("launch-time session naming follows the CLI capability boundary", () => {
   } satisfies CliEnvironmentProbeResult;
 
   assert.equal(canNameSessionAtLaunch(probe, "claudeCode", "new"), true);
-  assert.equal(canNameSessionAtLaunch(probe, "claudeCode", "latest"), false);
+  assert.equal(canNameSessionAtLaunch(probe, "claudeCode", "history"), false);
   assert.equal(canNameSessionAtLaunch(probe, "codex", "new"), false);
 });

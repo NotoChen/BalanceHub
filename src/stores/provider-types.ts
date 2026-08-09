@@ -11,7 +11,7 @@ export type LivenessIntervalMode = "fixed" | "random";
 export type LivenessPromptMode = "fixed" | "random" | "roundRobin";
 export type LivenessCliKind = "codex" | "claudeCode";
 export type TemporaryCliInstanceStatus = "starting" | "running" | "exited";
-export type TemporaryCliSessionMode = "new" | "latest" | "picker";
+export type TemporaryCliSessionMode = "new" | "history";
 export type TemporaryCliTerminalKind =
   | "terminal"
   | "iTerm2"
@@ -506,7 +506,46 @@ export interface TemporaryCliLaunchInput {
   model: string;
   sessionMode: TemporaryCliSessionMode;
   sessionName: string;
+  resumeId: string;
   terminalKind: TemporaryCliTerminalKind;
+}
+
+export interface TemporaryCliLaunchPreview {
+  providerName: string;
+  cliKind: LivenessCliKind;
+  cliPath: string;
+  args: string[];
+  command: string;
+  terminalKind: TemporaryCliTerminalKind;
+  terminalName: string;
+  workdir: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  sessionMode: TemporaryCliSessionMode;
+  sessionName: string;
+  resumeId: string;
+  environment: Record<string, string>;
+  settingsPath: string | null;
+  settingsContent: string | null;
+}
+
+export type CliSessionMetadataSource = "codexStateDb" | "claudeTranscript";
+
+export interface CliSessionSummary {
+  id: string;
+  title: string;
+  preview: string | null;
+  model: string | null;
+  models: string[];
+  cliKind: LivenessCliKind;
+  createdAt: string | null;
+  updatedAt: string | null;
+  workdir: string;
+  cliVersion: string | null;
+  archived: boolean;
+  canResume: boolean;
+  metadataSource: CliSessionMetadataSource;
 }
 
 export interface WorkspaceDirectoryEntry {

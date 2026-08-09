@@ -76,8 +76,9 @@ const canRefresh = computed(() => Boolean(props.provider?.auth.apiKey.trim()));
       <a-alert
         v-if="provider && !provider.auth.apiKey.trim()"
         type="warning"
-        content="获取模型列表需要 API Key；当前实现会使用 API Key 调用 OpenAI 兼容的 /models 接口。"
-      />
+      >
+        获取模型列表需要 API Key；当前实现会使用 API Key 调用 OpenAI 兼容的 /models 接口。
+      </a-alert>
 
       <div class="available-models-toolbar">
         <a-input v-model="keyword" allow-clear placeholder="搜索模型">

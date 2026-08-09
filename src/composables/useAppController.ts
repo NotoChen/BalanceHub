@@ -146,7 +146,9 @@ export function useAppController() {
     browse: (path) => providerStore.browseWorkspaceDirectories(path),
     forget: (path) => providerStore.forgetWorkspace(path),
     launch: (input) => providerStore.launchTemporaryCli(input),
+    preview: (input) => providerStore.previewTemporaryCliLaunch(input),
     getInstance: (instanceId) => providerStore.getTemporaryCliInstance(instanceId),
+    listSessions: (cliKind, workdir) => providerStore.listCliSessions(cliKind, workdir),
   });
 
   const providerActions = useProviderActions({

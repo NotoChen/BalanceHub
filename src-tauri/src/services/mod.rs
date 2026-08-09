@@ -1,5 +1,6 @@
 pub mod app_updater;
 pub mod cli_runtime;
+pub mod cli_sessions;
 pub mod liveness;
 pub mod notifications;
 pub mod provider_service;

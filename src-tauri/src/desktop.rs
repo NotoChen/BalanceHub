@@ -37,6 +37,8 @@ pub(crate) fn run() {
             host_platform,
             open_ccswitch_deeplink,
             launch_temporary_cli,
+            preview_temporary_cli_launch,
+            list_cli_sessions,
             get_cli_runtime_snapshot,
             get_temporary_cli_instances,
             get_temporary_cli_instance,

@@ -1,33 +1,35 @@
 use crate::{
     models::{
-        CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot,
-        LivenessCliKind, TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchResult,
+        AppData, AppSettings, CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult,
+        CliRuntimeSnapshot, CliSessionSummary, LivenessCliKind, Provider, TemporaryCliInstance,
+        TemporaryCliLaunchInput, TemporaryCliLaunchPreview, TemporaryCliLaunchResult,
         TemporaryCliPreference, TemporaryCliSessionMode, Workspace, WorkspaceDirectoryListing,
     },
     services::{self, provider_service::ProviderService},
     state::AppState,
 };
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 use super::run_blocking;
 
-#[tauri::command]
-pub(crate) async fn launch_temporary_cli(
-    app: AppHandle,
+struct PreparedTemporaryCliLaunch {
+    data: AppData,
+    provider: Provider,
+    settings: AppSettings,
     input: TemporaryCliLaunchInput,
-) -> Result<TemporaryCliLaunchResult, String> {
-    // The launch path performs process probes, filesystem writes and terminal
-    // activation. Keep all of that work off both the UI and async worker pools.
-    run_blocking("启动临时 CLI", move || {
-        launch_temporary_cli_blocking(app, input)
-    })
-    .await
+    cli_path: String,
+    cli_kind: LivenessCliKind,
+    workdir: PathBuf,
+    api_key: String,
+    model: String,
+    preference_model: String,
 }
 
-fn launch_temporary_cli_blocking(
-    app: AppHandle,
+fn prepare_temporary_cli_launch(
+    app: &AppHandle,
     input: TemporaryCliLaunchInput,
-) -> Result<TemporaryCliLaunchResult, String> {
+) -> Result<PreparedTemporaryCliLaunch, String> {
     let data = app
         .state::<AppState>()
         .data
@@ -71,9 +73,7 @@ fn launch_temporary_cli_blocking(
         .find(|value| !value.is_empty())
         .unwrap_or_default()
         .to_string(),
-        TemporaryCliSessionMode::Latest | TemporaryCliSessionMode::Picker => {
-            input.model.trim().to_string()
-        }
+        TemporaryCliSessionMode::History => input.model.trim().to_string(),
     };
     // 恢复会话的显式模型只影响本次启动，不覆盖新会话的默认模型偏好。
     let preference_model = match session_mode {
@@ -98,43 +98,86 @@ fn launch_temporary_cli_blocking(
             format!("所选终端当前不可用，请重新扫描终端：{detail}")
         });
     }
-    let mut launch_settings = data.settings.clone();
-    launch_settings.temporary_cli_terminal_kind = input.terminal_kind;
+    let mut settings = data.settings.clone();
+    settings.temporary_cli_terminal_kind = input.terminal_kind;
     match cli_kind {
-        LivenessCliKind::Codex => launch_settings.codex_cli_path = cli.path.clone(),
-        LivenessCliKind::ClaudeCode => launch_settings.claude_cli_path = cli.path.clone(),
+        LivenessCliKind::Codex => settings.codex_cli_path = cli.path.clone(),
+        LivenessCliKind::ClaudeCode => settings.claude_cli_path = cli.path.clone(),
     }
     let workdir = services::workspaces::normalize_directory(std::path::Path::new(&input.workdir))?;
-    let instance = services::temporary_cli::launch(
-        &launch_settings,
-        &provider,
+    Ok(PreparedTemporaryCliLaunch {
+        data,
+        provider,
+        settings,
+        input,
+        cli_path: cli.path,
         cli_kind,
-        &workdir,
-        services::temporary_cli::LaunchOptions {
-            api_key_override: &api_key,
-            model_override: &model,
-            session_name_override: &input.session_name,
-            session_mode,
-        },
+        workdir,
+        api_key,
+        model,
+        preference_model,
+    })
+}
+
+fn launch_options<'a>(
+    prepared: &'a PreparedTemporaryCliLaunch,
+) -> services::temporary_cli::LaunchOptions<'a> {
+    services::temporary_cli::LaunchOptions {
+        api_key_override: &prepared.api_key,
+        model_override: &prepared.model,
+        session_name_override: &prepared.input.session_name,
+        resume_id: &prepared.input.resume_id,
+        session_mode: prepared.input.session_mode,
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn launch_temporary_cli(
+    app: AppHandle,
+    input: TemporaryCliLaunchInput,
+) -> Result<TemporaryCliLaunchResult, String> {
+    // The launch path performs process probes, filesystem writes and terminal
+    // activation. Keep all of that work off both the UI and async worker pools.
+    run_blocking("启动临时 CLI", move || {
+        launch_temporary_cli_blocking(app, input)
+    })
+    .await
+}
+
+fn launch_temporary_cli_blocking(
+    app: AppHandle,
+    input: TemporaryCliLaunchInput,
+) -> Result<TemporaryCliLaunchResult, String> {
+    let prepared = prepare_temporary_cli_launch(&app, input)?;
+    let instance = services::temporary_cli::launch(
+        &prepared.settings,
+        &prepared.provider,
+        prepared.cli_kind,
+        &prepared.workdir,
+        launch_options(&prepared),
     )?;
     let fallback_preference = TemporaryCliPreference {
-        provider_id: provider.identity.id.clone(),
-        cli_kind,
-        api_key_token_id: input.api_key_token_id.trim().to_string(),
-        model: preference_model.clone(),
-        workspace_path: workdir.to_string_lossy().to_string(),
+        provider_id: prepared.provider.identity.id.clone(),
+        cli_kind: prepared.cli_kind,
+        api_key_token_id: prepared.input.api_key_token_id.trim().to_string(),
+        model: prepared.preference_model.clone(),
+        workspace_path: prepared.workdir.to_string_lossy().to_string(),
     };
     let (workspaces, workspace_error, preference) = match ProviderService::new(&app)
         .record_temporary_cli_launch(
-            &provider.identity.id,
-            cli_kind,
-            &cli.path,
-            &workdir,
-            &input.api_key_token_id,
-            &preference_model,
+            &prepared.provider.identity.id,
+            prepared.cli_kind,
+            &prepared.cli_path,
+            &prepared.workdir,
+            &prepared.input.api_key_token_id,
+            &prepared.preference_model,
         ) {
         Ok((workspaces, preference)) => (workspaces, None, preference),
-        Err(err) => (data.workspaces, Some(err), fallback_preference),
+        Err(err) => (
+            prepared.data.workspaces.clone(),
+            Some(err),
+            fallback_preference,
+        ),
     };
     Ok(TemporaryCliLaunchResult {
         instance,
@@ -142,6 +185,35 @@ fn launch_temporary_cli_blocking(
         workspace_error,
         preference,
     })
+}
+
+#[tauri::command]
+pub(crate) async fn preview_temporary_cli_launch(
+    app: AppHandle,
+    input: TemporaryCliLaunchInput,
+) -> Result<TemporaryCliLaunchPreview, String> {
+    run_blocking("生成临时 CLI 启动预览", move || {
+        let prepared = prepare_temporary_cli_launch(&app, input)?;
+        services::temporary_cli::preview(
+            &prepared.settings,
+            &prepared.provider,
+            prepared.cli_kind,
+            &prepared.workdir,
+            launch_options(&prepared),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn list_cli_sessions(
+    cli_kind: LivenessCliKind,
+    workdir: String,
+) -> Result<Vec<CliSessionSummary>, String> {
+    run_blocking("读取 CLI 历史会话", move || {
+        services::cli_sessions::list(cli_kind, std::path::Path::new(&workdir))
+    })
+    .await
 }
 
 #[tauri::command]

@@ -1,0 +1,371 @@
+.temporary-cli-preview-modal .arco-modal-body {
+  max-height: calc(100dvh - 148px);
+  overflow: auto;
+  background: var(--surface-canvas);
+}
+
+.temporary-cli-preview {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  color: var(--surface-ink);
+}
+
+.temporary-cli-preview-title-icon {
+  overflow: hidden;
+}
+
+.temporary-cli-preview-title-icon .brand-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.temporary-cli-preview-context {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--surface-line);
+  padding: 0 0 13px;
+}
+
+.temporary-cli-preview-context-copy,
+.temporary-cli-preview-runtime-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.temporary-cli-preview-context-copy > span,
+.temporary-cli-preview-runtime-copy small {
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.temporary-cli-preview-context-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--surface-ink);
+  font-size: 15px;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-preview-session-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 999px;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 24px;
+  padding: 0 9px;
+}
+
+.temporary-cli-preview-session-badge svg,
+.temporary-cli-preview-section-title svg,
+.temporary-cli-preview-detail-item > span svg,
+.temporary-cli-preview-disclosure summary > span svg {
+  flex: 0 0 auto;
+  font-size: 14px;
+}
+
+.temporary-cli-preview-runtime {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.temporary-cli-preview-runtime-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--surface-line);
+  border-radius: 10px;
+  background: var(--surface-panel);
+  padding: 11px 12px;
+}
+
+.temporary-cli-preview-runtime-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border: 1px solid #dbe5f2;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.temporary-cli-preview-runtime-icon-terminal {
+  border-color: #d5e1ee;
+  background: #f7fafc;
+}
+
+.temporary-cli-preview-runtime-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--surface-ink);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-preview-runtime-copy code {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-preview-details {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--surface-line);
+  border-radius: 10px;
+  background: var(--surface-line);
+}
+
+.temporary-cli-preview-detail-item {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  background: var(--surface-panel);
+  padding: 10px 12px;
+}
+
+.temporary-cli-preview-detail-item-wide {
+  grid-column: 1 / -1;
+}
+
+.temporary-cli-preview-detail-item > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.temporary-cli-preview-detail-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--surface-ink);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-preview-secret {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap !important;
+}
+
+.temporary-cli-preview-command,
+.temporary-cli-preview-disclosure {
+  display: grid;
+  min-width: 0;
+  gap: 9px;
+  border: 1px solid var(--surface-line);
+  border-radius: 10px;
+  background: var(--surface-panel);
+  padding: 12px;
+}
+
+.temporary-cli-preview-section-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.temporary-cli-preview-section-title,
+.temporary-cli-preview-disclosure summary {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.temporary-cli-preview-section-title strong,
+.temporary-cli-preview-disclosure summary > span {
+  color: var(--surface-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.temporary-cli-preview-section-title > span {
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-preview-copy-command.arco-btn {
+  min-height: 28px;
+  border: 1px solid var(--surface-line);
+  border-radius: 7px;
+  color: var(--surface-accent);
+  padding: 0 8px;
+}
+
+.temporary-cli-preview-copy-command.arco-btn:hover,
+.temporary-cli-preview-copy-command.arco-btn:focus-visible {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: var(--surface-accent-soft);
+}
+
+.temporary-cli-preview pre {
+  max-height: 190px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--surface-line);
+  border-radius: 7px;
+  background: var(--surface-canvas);
+  color: var(--surface-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.temporary-cli-preview-disclosure {
+  gap: 10px;
+}
+
+.temporary-cli-preview-disclosure summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.temporary-cli-preview-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.temporary-cli-preview-disclosure summary::after {
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 1px solid var(--surface-muted);
+  border-bottom: 1px solid var(--surface-muted);
+  content: "";
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 160ms var(--surface-ease);
+}
+
+.temporary-cli-preview-disclosure[open] summary::after {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.temporary-cli-preview-disclosure summary small {
+  max-width: 48%;
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.temporary-cli-preview-kv-list {
+  display: grid;
+  min-width: 0;
+  max-height: 180px;
+  gap: 4px;
+  overflow: auto;
+  border-top: 1px solid var(--surface-line);
+  padding-top: 10px;
+}
+
+.temporary-cli-preview-kv-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--surface-ink-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.temporary-cli-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--surface-line);
+  padding-top: 14px;
+}
+
+:root.theme-dark .temporary-cli-preview-runtime-item,
+:root.theme-dark .temporary-cli-preview-detail-item,
+:root.theme-dark .temporary-cli-preview-command,
+:root.theme-dark .temporary-cli-preview-disclosure {
+  background: var(--surface-panel);
+}
+
+:root.theme-dark .temporary-cli-preview-runtime-icon {
+  border-color: #334155;
+  background: #1f2937;
+}
+
+:root.theme-dark .temporary-cli-preview-runtime-icon-terminal {
+  border-color: #334155;
+  background: #172231;
+}
+
+:root.theme-dark .temporary-cli-preview pre {
+  background: var(--surface-canvas);
+}
+
+@media (max-width: 560px) {
+  .temporary-cli-preview-runtime,
+  .temporary-cli-preview-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .temporary-cli-preview-detail-item-wide {
+    grid-column: auto;
+  }
+
+  .temporary-cli-preview-context {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .temporary-cli-preview-actions {
+    justify-content: stretch;
+  }
+
+  .temporary-cli-preview-actions .arco-btn {
+    flex: 1;
+  }
+}

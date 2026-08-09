@@ -1,12 +1,16 @@
+use super::environment::ShellEnvironmentSnapshot;
 use super::resolve_launch_model;
+use super::resolve_resume_id;
 use super::resolve_session_name;
 use super::script::{
-    cli_args, effective_model, escape_cmd_value, temporary_script_path, windows_launch_payload,
+    claude_settings_content, cli_args, effective_model, escape_cmd_value, format_cli_command,
+    insert_resume_id, preview_claude_settings_path, temporary_script_path, windows_launch_payload,
     WINDOWS_LAUNCH_PAYLOAD_COMMAND,
 };
 #[cfg(not(target_os = "windows"))]
 use super::script::{
-    login_shell_bootstrap, set_executable, shell_quote, write_launch_script, LaunchScriptInput,
+    login_shell_bootstrap, set_executable, shell_quote, shell_supports_posix_source, user_shell,
+    write_launch_script, LaunchScriptInput,
 };
 use super::terminal::WINDOWS_POWERSHELL_SCRIPT_COMMAND;
 #[cfg(target_os = "macos")]
@@ -84,7 +88,7 @@ fn resumed_session_without_override_preserves_its_model() {
     let provider = provider_with_liveness_model("claude-opus-4-6");
 
     assert_eq!(
-        resolve_launch_model(&settings, &provider, "", TemporaryCliSessionMode::Picker),
+        resolve_launch_model(&settings, &provider, "", TemporaryCliSessionMode::History),
         ""
     );
     assert_eq!(
@@ -92,9 +96,29 @@ fn resumed_session_without_override_preserves_its_model() {
             &settings,
             &provider,
             "claude-sonnet-4-5",
-            TemporaryCliSessionMode::Latest,
+            TemporaryCliSessionMode::History,
         ),
         "claude-sonnet-4-5"
+    );
+}
+
+#[test]
+fn history_launch_requires_a_concrete_resume_id() {
+    assert_eq!(
+        resolve_resume_id(TemporaryCliSessionMode::New, "").unwrap(),
+        ""
+    );
+    assert!(resolve_resume_id(TemporaryCliSessionMode::History, " ")
+        .unwrap_err()
+        .contains("请选择一个历史会话"));
+    assert!(
+        resolve_resume_id(TemporaryCliSessionMode::History, "session\n1")
+            .unwrap_err()
+            .contains("控制字符")
+    );
+    assert_eq!(
+        resolve_resume_id(TemporaryCliSessionMode::History, "  session-1  ").unwrap(),
+        "session-1"
     );
 }
 
@@ -112,7 +136,7 @@ fn session_name_is_only_forwarded_to_new_claude_sessions() {
     assert_eq!(
         resolve_session_name(
             LivenessCliKind::ClaudeCode,
-            TemporaryCliSessionMode::Picker,
+            TemporaryCliSessionMode::History,
             "Should not leak",
         )
         .unwrap(),
@@ -186,57 +210,105 @@ fn codex_args_escape_toml_values() {
 }
 
 #[test]
-fn official_session_modes_are_appended_after_provider_overrides() {
-    let codex_latest = cli_args(
+fn launch_preview_command_keeps_plaintext_codex_credentials() {
+    let command = format_cli_command(
         LivenessCliKind::Codex,
-        "Relay Site",
-        "https://relay.example.com/v1",
-        "gpt-5.5",
-        "",
-        TemporaryCliSessionMode::Latest,
-        None,
+        "/opt/codex",
+        &["--model".to_string(), "gpt-5.5".to_string()],
+        "sk-preview",
+        &[(
+            "HTTPS_PROXY".to_string(),
+            "socks5h://127.0.0.1:1080".to_string(),
+        )],
     );
+
+    assert!(command.contains("sk-preview"));
+    assert!(command.contains("/opt/codex"));
+    assert!(command.contains("gpt-5.5"));
+    assert!(command.contains("socks5h://127.0.0.1:1080"));
+}
+
+#[test]
+fn launch_preview_includes_plaintext_claude_settings() {
+    let content =
+        claude_settings_content("sk-preview", "https://relay.example.com/anthropic").unwrap();
+
+    assert!(content.contains("sk-preview"));
+    assert!(content.contains("https://relay.example.com/anthropic"));
     assert_eq!(
-        &codex_latest[codex_latest.len() - 2..],
-        ["resume".to_string(), "--last".to_string()]
+        preview_claude_settings_path(LivenessCliKind::ClaudeCode)
+            .unwrap()
+            .to_string_lossy(),
+        "<temporary-claude-settings.json>"
     );
+    assert!(preview_claude_settings_path(LivenessCliKind::Codex).is_none());
+}
 
-    let codex_picker = cli_args(
+#[test]
+fn official_session_modes_are_appended_after_provider_overrides() {
+    let codex_history = cli_args(
         LivenessCliKind::Codex,
         "Relay Site",
         "https://relay.example.com/v1",
         "",
         "",
-        TemporaryCliSessionMode::Picker,
+        TemporaryCliSessionMode::History,
         None,
     );
-    assert_eq!(codex_picker.last().map(String::as_str), Some("resume"));
-    assert!(!codex_picker.contains(&"-m".to_string()));
+    assert_eq!(codex_history.last().map(String::as_str), Some("resume"));
+    assert!(!codex_history.contains(&"-m".to_string()));
 
-    let claude_latest = cli_args(
+    let claude_history = cli_args(
         LivenessCliKind::ClaudeCode,
         "Relay Site",
         "https://relay.example.com",
         "claude-sonnet-4-5",
         "",
-        TemporaryCliSessionMode::Latest,
+        TemporaryCliSessionMode::History,
         None,
     );
-    assert_eq!(claude_latest.last().map(String::as_str), Some("--continue"));
-    assert!(claude_latest
+    assert_eq!(claude_history.last().map(String::as_str), Some("--resume"));
+    assert!(claude_history
         .windows(2)
         .any(|pair| pair == ["--model", "claude-sonnet-4-5"]));
 
-    let claude_picker = cli_args(
+    let mut codex_resume = cli_args(
+        LivenessCliKind::Codex,
+        "Relay Site",
+        "https://relay.example.com/v1",
+        "",
+        "",
+        TemporaryCliSessionMode::History,
+        None,
+    );
+    insert_resume_id(
+        &mut codex_resume,
+        LivenessCliKind::Codex,
+        "019facdb-session",
+    );
+    assert_eq!(
+        &codex_resume[codex_resume.len() - 2..],
+        ["resume".to_string(), "019facdb-session".to_string()]
+    );
+
+    let mut claude_resume = cli_args(
         LivenessCliKind::ClaudeCode,
         "Relay Site",
         "https://relay.example.com",
         "",
         "",
-        TemporaryCliSessionMode::Picker,
+        TemporaryCliSessionMode::History,
         None,
     );
-    assert_eq!(claude_picker.last().map(String::as_str), Some("--resume"));
+    insert_resume_id(
+        &mut claude_resume,
+        LivenessCliKind::ClaudeCode,
+        "019facdb-session",
+    );
+    assert_eq!(
+        &claude_resume[claude_resume.len() - 2..],
+        ["--resume".to_string(), "019facdb-session".to_string()]
+    );
 }
 
 #[test]
@@ -299,10 +371,10 @@ fn claude_args_include_name_only_for_new_sessions() {
         "https://relay.example.com",
         "",
         "Billing refactor",
-        TemporaryCliSessionMode::Latest,
+        TemporaryCliSessionMode::History,
         None,
     );
-    assert_eq!(resumed, vec!["--continue".to_string()]);
+    assert_eq!(resumed, vec!["--resume".to_string()]);
 }
 
 #[test]
@@ -342,12 +414,12 @@ fn cli_option_serialization_matches_frontend_values() {
         "\"powerShell\""
     );
     assert_eq!(
-        serde_json::to_string(&TemporaryCliSessionMode::Latest).unwrap(),
-        "\"latest\""
+        serde_json::to_string(&TemporaryCliSessionMode::History).unwrap(),
+        "\"history\""
     );
     assert_eq!(
-        serde_json::to_string(&TemporaryCliSessionMode::Picker).unwrap(),
-        "\"picker\""
+        serde_json::to_string(&TemporaryCliSessionMode::New).unwrap(),
+        "\"new\""
     );
 }
 
@@ -414,6 +486,7 @@ fi
         base_url: &openai_base_url(&provider),
         model: "gpt-5.5",
         session_name: "",
+        resume_id: "",
         session_mode: TemporaryCliSessionMode::New,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
@@ -521,6 +594,7 @@ cat "$settings_path"
         base_url: &anthropic_base_url(&provider),
         model: "claude-sonnet-4-5",
         session_name: "Release smoke test",
+        resume_id: "",
         session_mode: TemporaryCliSessionMode::New,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
@@ -568,8 +642,27 @@ fn temporary_script_enters_the_interactive_login_shell_once() {
 
     assert!(bootstrap.contains("BALANCEHUB_LOGIN_ENV_READY"));
     assert!(bootstrap.contains(" -lic "));
-    assert!(bootstrap.contains("exec /bin/sh"));
+    if shell_supports_posix_source(&user_shell()) {
+        assert!(bootstrap.contains(". "));
+    } else {
+        assert!(bootstrap.contains("exec /bin/sh"));
+    }
     assert!(bootstrap.contains("/tmp/launch test.command"));
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn unix_cli_invocation_prefers_login_shell_aliases_and_functions() {
+    let invocation = super::script::unix_cli_invocation(
+        LivenessCliKind::Codex,
+        "/opt/codex/bin/codex",
+        &["--model".to_string(), "gpt-5.5".to_string()],
+    );
+
+    assert!(invocation.contains("alias codex"));
+    assert!(invocation.contains("typeset -f codex"));
+    assert!(invocation.contains("  codex '--model' 'gpt-5.5'"));
+    assert!(invocation.contains("  '/opt/codex/bin/codex' '--model' 'gpt-5.5'"));
 }
 
 #[test]
@@ -597,6 +690,17 @@ fn windows_launch_payload_preserves_cli_arguments_and_credentials() {
             ..AppSettings::default()
         })
         .environment(),
+        &ShellEnvironmentSnapshot {
+            variables: std::collections::BTreeMap::from([
+                ("OPENAI_API_KEY".to_string(), "profile-key".to_string()),
+                ("Path".to_string(), "C:\\profile-bin".to_string()),
+            ]),
+            aliases: std::collections::BTreeMap::from([(
+                "codex".to_string(),
+                "codex.cmd".to_string(),
+            )]),
+            functions: std::collections::BTreeMap::new(),
+        },
     );
 
     assert_eq!(
@@ -608,6 +712,12 @@ fn windows_launch_payload_preserves_cli_arguments_and_credentials() {
         payload["setEnv"]["OPENAI_API_KEY"],
         serde_json::json!("sk-%TEMP%-\"quoted\"\r\nkey")
     );
+    assert_eq!(
+        payload["setEnv"]["Path"],
+        serde_json::json!(r#"C:\profile-bin"#)
+    );
+    assert_eq!(payload["cliCommandName"], serde_json::json!("codex"));
+    assert_eq!(payload["aliases"]["codex"], serde_json::json!("codex.cmd"));
     assert_eq!(
         payload["setEnv"]["HTTPS_PROXY"],
         serde_json::json!("socks5h://127.0.0.1:1080")
@@ -625,7 +735,8 @@ fn windows_launch_payload_preserves_cli_arguments_and_credentials() {
 
 #[test]
 fn windows_launch_commands_avoid_batch_command_string_quoting() {
-    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("& ([string]$launch.cliPath) @arguments"));
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("[string]$launch.cliPath"));
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("[string]$launch.cliCommandName"));
     assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("$launch.args"));
     assert!(!WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("cmd /c"));
     assert_eq!(

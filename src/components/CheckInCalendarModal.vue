@@ -151,7 +151,7 @@ function dayTitle(record: ProviderCheckInRecord | null) {
         </a-button>
       </div>
 
-      <a-alert v-if="error" type="warning" :content="error" />
+      <a-alert v-if="error" type="warning">{{ error }}</a-alert>
 
       <a-spin :loading="loading">
         <div class="checkin-calendar-summary">

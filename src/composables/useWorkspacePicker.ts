@@ -2,11 +2,13 @@ import { computed, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type {
   CliEnvironmentProbeResult,
+  CliSessionSummary,
   LivenessCliKind,
   Provider,
   ProviderApiKeyOption,
   TemporaryCliInstance,
   TemporaryCliLaunchInput,
+  TemporaryCliLaunchPreview,
   TemporaryCliLaunchResult,
   TemporaryCliPreference,
   TemporaryCliSessionMode,
@@ -34,7 +36,9 @@ interface UseWorkspacePickerOptions {
   browse: (path?: string) => Promise<WorkspaceDirectoryListing>;
   forget: (path: string) => Promise<Workspace[]>;
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
+  preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
   getInstance: (instanceId: string) => Promise<TemporaryCliInstance | null>;
+  listSessions: (cliKind: LivenessCliKind, workdir: string) => Promise<CliSessionSummary[]>;
 }
 
 export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
@@ -49,6 +53,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceNewSessionModel = ref("");
   const workspaceSessionName = ref("");
   const workspaceSessionMode = ref<TemporaryCliSessionMode>("new");
+  const workspaceSessions = ref<CliSessionSummary[]>([]);
+  const workspaceSessionsLoading = ref(false);
+  const workspaceSessionsError = ref("");
+  const workspaceSelectedResumeId = ref("");
   const workspaceCanNameSession = computed(() =>
     canNameSessionAtLaunch(
       options.cliEnvironmentProbe.value,
@@ -67,11 +75,16 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceLaunchingPath = ref<string | null>(null);
   const workspaceLaunchProgress = ref(0);
   const workspaceLaunchStage = ref("");
+  const workspaceLaunchPreviewVisible = ref(false);
+  const workspaceLaunchPreviewLoading = ref(false);
+  const workspaceLaunchPreview = ref<TemporaryCliLaunchPreview | null>(null);
+  const workspacePendingLaunchInput = ref<TemporaryCliLaunchInput | null>(null);
   const workspaceForgettingPath = ref<string | null>(null);
   const workspaceBrowserError = ref("");
   let browseRequestId = 0;
   let apiKeyRequestId = 0;
   let pickerRequestId = 0;
+  let sessionsRequestId = 0;
 
   async function loadWorkspaceApiKeys(provider: Provider) {
     const requestId = ++apiKeyRequestId;
@@ -151,6 +164,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
 
   async function browseWorkspaceDirectory(path?: string) {
     const requestId = ++browseRequestId;
+    workspaceSelectedResumeId.value = "";
     workspaceBrowsing.value = true;
     workspaceBrowserError.value = "";
     try {
@@ -160,6 +174,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       }
       workspaceDirectory.value = listing;
       workspacePathDraft.value = listing.currentPath;
+      void loadWorkspaceSessions(listing.currentPath);
       return true;
     } catch (error) {
       if (requestId === browseRequestId) {
@@ -171,6 +186,51 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
         workspaceBrowsing.value = false;
       }
     }
+  }
+
+  async function loadWorkspaceSessions(workdir?: string) {
+    const path = (workdir || workspaceDirectory.value?.currentPath || "").trim();
+    const requestId = ++sessionsRequestId;
+    const previousResumeId = workspaceSelectedResumeId.value;
+    workspaceSessionsError.value = "";
+    workspaceSessions.value = [];
+    if (!path || !workspacePickerVisible.value || workspaceSessionMode.value === "new") {
+      workspaceSessionsLoading.value = false;
+      return;
+    }
+    workspaceSessionsLoading.value = true;
+    try {
+      const sessions = await options.listSessions(workspacePickerCliKind.value, path);
+      if (
+        requestId !== sessionsRequestId
+        || !workspacePickerVisible.value
+        || workspaceDirectory.value?.currentPath !== path
+      ) {
+        return;
+      }
+      workspaceSessions.value = sessions;
+      workspaceSelectedResumeId.value = sessions.some(
+        (session) => session.id === previousResumeId && session.canResume,
+      )
+        ? previousResumeId
+        : "";
+    } catch (error) {
+      if (requestId === sessionsRequestId) {
+        workspaceSessionsError.value = error instanceof Error ? error.message : String(error);
+      }
+    } finally {
+      if (requestId === sessionsRequestId) {
+        workspaceSessionsLoading.value = false;
+      }
+    }
+  }
+
+  function selectWorkspaceSession(session: CliSessionSummary) {
+    if (!session.canResume) return;
+    workspaceSelectedResumeId.value = session.id;
+    workspaceSessionMode.value = "history";
+    // 空值表示不向官方 CLI 注入模型，让它按会话自己的元数据恢复。
+    workspaceSelectedModel.value = "";
   }
 
   async function openWorkspacePicker(provider: Provider, cliKind?: LivenessCliKind) {
@@ -199,8 +259,16 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSelectedModel.value = workspaceNewSessionModel.value;
     workspaceSessionName.value = "";
     workspaceSessionMode.value = "new";
+    workspaceSessions.value = [];
+    workspaceSessionsError.value = "";
+    workspaceSessionsLoading.value = false;
+    workspaceSelectedResumeId.value = "";
     workspaceLaunchProgress.value = 0;
     workspaceLaunchStage.value = "";
+    workspaceLaunchPreviewVisible.value = false;
+    workspaceLaunchPreviewLoading.value = false;
+    workspaceLaunchPreview.value = null;
+    workspacePendingLaunchInput.value = null;
     workspacePickerVisible.value = true;
     workspaceDirectory.value = null;
     workspacePathDraft.value = "";
@@ -224,11 +292,11 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     void loadWorkspaceApiKeys(provider);
   }
 
-  async function launchWorkspace(path?: string) {
+  function buildLaunchInput(path?: string): TemporaryCliLaunchInput | null {
     const provider = workspacePickerProvider.value;
     const workdir = (path || workspaceDirectory.value?.currentPath || "").trim();
-    if (!provider || !workdir || workspaceLaunchingPath.value) {
-      return;
+    if (!provider || !workdir || workspaceLaunchingPath.value || workspaceLaunchPreviewLoading.value) {
+      return null;
     }
     if (
       !workspaceCliOptions.value.some((option) => option.value === workspacePickerCliKind.value) ||
@@ -239,7 +307,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       const message = "未检测到可用的 Agent 或终端";
       workspaceBrowserError.value = message;
       Message.warning(message);
-      return;
+      return null;
     }
 
     const selectedKey = workspaceApiKeys.value.find(
@@ -252,17 +320,71 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     const sessionName = workspaceCanNameSession.value
       ? workspaceSessionName.value.trim()
       : "";
+    const resumeId = workspaceSessionMode.value === "history"
+      ? workspaceSelectedResumeId.value.trim()
+      : "";
     if (!apiKey) {
       const message = "请选择一个可用的 API Key";
       workspaceBrowserError.value = message;
       Message.warning(message);
-      workspaceLaunchingPath.value = null;
+      return null;
+    }
+    if (workspaceSessionMode.value === "history" && !resumeId) {
+      const message = "请选择一个历史会话后再启动";
+      workspaceBrowserError.value = message;
+      Message.warning(message);
+      return null;
+    }
+
+    return {
+      providerId: provider.identity.id,
+      cliKind: workspacePickerCliKind.value,
+      workdir,
+      apiKey,
+      apiKeyTokenId: workspaceApiKeyTokenId.value,
+      model,
+      sessionMode: workspaceSessionMode.value,
+      sessionName,
+      resumeId,
+      terminalKind: workspaceTerminalKind.value,
+    };
+  }
+
+  async function launchWorkspace(path?: string) {
+    const input = buildLaunchInput(path);
+    if (!input) {
+      return;
+    }
+    workspaceLaunchPreviewLoading.value = true;
+    workspaceBrowserError.value = "";
+    try {
+      workspaceLaunchPreview.value = await options.preview(input);
+      workspacePendingLaunchInput.value = input;
+      workspaceLaunchPreviewVisible.value = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      workspaceBrowserError.value = message;
+      Message.error(message);
+    } finally {
+      workspaceLaunchPreviewLoading.value = false;
+    }
+  }
+
+  async function confirmWorkspaceLaunch() {
+    const input = workspacePendingLaunchInput.value;
+    if (!input || workspaceLaunchingPath.value) {
+      return;
+    }
+    workspaceLaunchPreviewVisible.value = false;
+    workspacePendingLaunchInput.value = null;
+    const provider = workspacePickerProvider.value;
+    if (!provider) {
       return;
     }
 
-    const cliLabel = workspacePickerCliKind.value === "codex" ? "Codex" : "Claude Code";
+    const cliLabel = input.cliKind === "codex" ? "Codex" : "Claude Code";
     const terminalLabel = workspaceTerminalOptions.value.find(
-      (option) => option.value === workspaceTerminalKind.value,
+      (option) => option.value === input.terminalKind,
     )?.label ?? "终端";
     const launchStage = (phase: TemporaryCliLaunchPhase) => {
       if (phase === "waiting") return `${terminalLabel} 已打开，等待 ${cliLabel} 响应`;
@@ -271,7 +393,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     };
     let preparationTimer: number | null = null;
 
-    workspaceLaunchingPath.value = workdir;
+    workspaceLaunchingPath.value = input.workdir;
     workspaceBrowserError.value = "";
     workspaceLaunchProgress.value = 12;
     workspaceLaunchStage.value = `正在校验 ${cliLabel} 与 ${terminalLabel}`;
@@ -283,15 +405,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
         workspaceLaunchProgress.value = Math.min(60, workspaceLaunchProgress.value + 2);
       }, 250);
       const result = await options.launch({
-        providerId: provider.identity.id,
-        cliKind: workspacePickerCliKind.value,
-        workdir,
-        apiKey,
-        apiKeyTokenId: workspaceApiKeyTokenId.value,
-        model,
-        sessionMode: workspaceSessionMode.value,
-        sessionName,
-        terminalKind: workspaceTerminalKind.value,
+        ...input,
       });
       if (preparationTimer !== null) {
         window.clearInterval(preparationTimer);
@@ -350,18 +464,29 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   });
 
   watch(workspacePickerCliKind, () => {
+    workspaceSelectedResumeId.value = "";
     if (workspacePickerVisible.value && workspaceSessionMode.value !== "new") {
       workspaceSelectedModel.value = "";
+    }
+    if (workspacePickerVisible.value && workspaceDirectory.value) {
+      void loadWorkspaceSessions(workspaceDirectory.value.currentPath);
     }
   });
 
   watch(workspaceSessionMode, (mode, previousMode) => {
     if (mode === "new") {
       workspaceSelectedModel.value = workspaceNewSessionModel.value;
+      workspaceSelectedResumeId.value = "";
       return;
+    }
+    if (mode !== "history") {
+      workspaceSelectedResumeId.value = "";
     }
     if (previousMode === "new") {
       workspaceSelectedModel.value = "";
+    }
+    if (workspacePickerVisible.value && workspaceDirectory.value) {
+      void loadWorkspaceSessions(workspaceDirectory.value.currentPath);
     }
   });
 
@@ -389,10 +514,16 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     pickerRequestId += 1;
     browseRequestId += 1;
     apiKeyRequestId += 1;
+    sessionsRequestId += 1;
     workspaceBrowsing.value = false;
     workspaceApiKeyLoading.value = false;
+    workspaceSessionsLoading.value = false;
     workspaceLaunchProgress.value = 0;
     workspaceLaunchStage.value = "";
+    workspaceLaunchPreviewVisible.value = false;
+    workspaceLaunchPreviewLoading.value = false;
+    workspaceLaunchPreview.value = null;
+    workspacePendingLaunchInput.value = null;
   });
 
   return {
@@ -408,6 +539,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionName,
     workspaceCanNameSession,
     workspaceSessionMode,
+    workspaceSessions,
+    workspaceSessionsLoading,
+    workspaceSessionsError,
+    workspaceSelectedResumeId,
     workspaceTerminalKind,
     workspaceTerminalOptions,
     workspaceDirectory,
@@ -416,11 +551,17 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceLaunchingPath,
     workspaceLaunchProgress,
     workspaceLaunchStage,
+    workspaceLaunchPreviewVisible,
+    workspaceLaunchPreviewLoading,
+    workspaceLaunchPreview,
     workspaceForgettingPath,
     workspaceBrowserError,
     openWorkspacePicker,
     browseWorkspaceDirectory,
     launchWorkspace,
+    confirmWorkspaceLaunch,
+    loadWorkspaceSessions,
+    selectWorkspaceSession,
     forgetWorkspace,
   };
 }
