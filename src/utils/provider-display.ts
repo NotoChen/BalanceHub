@@ -121,6 +121,23 @@ export function formatProviderQuota(provider: Provider, value: number) {
   });
 }
 
+export function formatProviderSyncTime(value: string | null | undefined) {
+  if (!value) return "";
+  const raw = Number(value);
+  const date = Number.isFinite(raw)
+    ? new Date(raw < 1_000_000_000_000 ? raw * 1000 : raw)
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export function providerQuotaUnlimited(provider: Provider) {
   return provider.quota.unlimited === true;
 }

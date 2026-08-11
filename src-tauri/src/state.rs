@@ -13,6 +13,8 @@ pub struct AppState {
     /// 结果又按 id 合并互相覆盖。手动路径 `lock().await` 排队，调度器 `try_lock`
     /// 拿不到直接跳过本 tick（下个 tick 重新评估到期），两边都不会饿死。
     pub refresh_gate: tokio::sync::Mutex<()>,
+    /// 串行化手动和批量签到，避免同一账号在两个入口同时提交签到请求。
+    pub check_in_gate: tokio::sync::Mutex<()>,
     /// 串行化“基于快照修改并落盘”的事务。持有该锁时不会长期占用 `data` 写锁，
     /// 因此 JSON 序列化和磁盘替换期间读取方仍可继续读取上一份完整状态。
     pub mutation_gate: Mutex<()>,
@@ -28,6 +30,7 @@ impl AppState {
         Self {
             data: RwLock::new(data),
             refresh_gate: tokio::sync::Mutex::new(()),
+            check_in_gate: tokio::sync::Mutex::new(()),
             mutation_gate: Mutex::new(()),
             load_error: RwLock::new(load_error),
         }

@@ -217,6 +217,7 @@ async fn check_in_provider_once(
             message: "今日已签到".to_string(),
             last_checked_in_at: None,
             last_check_in_user: None,
+            quota_delta: None,
         });
     }
 
@@ -312,6 +313,7 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
             message: format!("HTTP {}: {}", status.as_u16(), trim_message(body)),
             last_checked_in_at: None,
             last_check_in_user: None,
+            quota_delta: None,
         };
     }
 
@@ -323,6 +325,7 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
                 message: format!("解析签到响应失败: {err}: {}", trim_message(body)),
                 last_checked_in_at: None,
                 last_check_in_user: None,
+                quota_delta: None,
             };
         }
     };
@@ -345,6 +348,7 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
             },
             last_checked_in_at: None,
             last_check_in_user: None,
+            quota_delta: None,
         }
     } else {
         ProviderCheckInResult {
@@ -356,6 +360,7 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
             },
             last_checked_in_at: None,
             last_check_in_user: None,
+            quota_delta: None,
         }
     }
 }

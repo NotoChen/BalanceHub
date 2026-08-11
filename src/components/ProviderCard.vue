@@ -6,6 +6,8 @@ import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import ProviderCardHeader from "./provider-card/ProviderCardHeader.vue";
 import ProviderCardBody from "./provider-card/ProviderCardBody.vue";
 import ProviderCardActions from "./provider-card/ProviderCardActions.vue";
+import ProviderCardCliOrbits from "./provider-card/ProviderCardCliOrbits.vue";
+import type { ProviderCardCliOrbitSpec } from "../utils/provider-card-cli-orbit";
 
 const props = withDefaults(
   defineProps<{
@@ -20,6 +22,7 @@ const props = withDefaults(
     showLivenessTimeline?: boolean;
     codexDefault?: boolean;
     claudeDefault?: boolean;
+    cliOrbits?: readonly ProviderCardCliOrbitSpec[];
     codexActiveCliCount?: number;
     claudeActiveCliCount?: number;
     switchingCliKind?: LivenessCliKind | null;
@@ -38,6 +41,7 @@ const props = withDefaults(
     showLivenessTimeline: false,
     codexDefault: false,
     claudeDefault: false,
+    cliOrbits: () => [],
     codexActiveCliCount: 0,
     claudeActiveCliCount: 0,
     switchingCliKind: null,
@@ -147,6 +151,7 @@ function forwardOpenCliInstances(provider: Provider, cliKind: LivenessCliKind) {
         'provider-card-api-key': isApiKeyAuth,
         'provider-card-generic-api': isGenericApi,
         'provider-card-standard': !showLivenessTimeline,
+        'provider-card-has-cli-orbits': cliOrbits.length > 0,
         'provider-card-interacting': interactionActive,
       },
     ]"
@@ -162,13 +167,12 @@ function forwardOpenCliInstances(provider: Provider, cliKind: LivenessCliKind) {
     @pointerdown="handlePointerDown"
     @keydown.enter="handleEnter"
   >
+    <ProviderCardCliOrbits :orbits="cliOrbits" />
     <ProviderCardHeader
       :provider="provider"
       :tone="tone"
       :title="title"
       :interactive="interactive"
-      :codex-default="codexDefault"
-      :claude-default="claudeDefault"
       :codex-active-cli-count="codexActiveCliCount"
       :claude-active-cli-count="claudeActiveCliCount"
       @open-cli-instances="forwardOpenCliInstances"

@@ -3,6 +3,7 @@ import AppOnboardingModal from "./AppOnboardingModal.vue";
 import AppUpdateModal from "./AppUpdateModal.vue";
 import ApiKeyManagerModal from "./ApiKeyManagerModal.vue";
 import AvailableModelsModal from "./AvailableModelsModal.vue";
+import BatchOperationProgressModal from "./BatchOperationProgressModal.vue";
 import CheckInCalendarModal from "./CheckInCalendarModal.vue";
 import CapabilityProbeModal from "./CapabilityProbeModal.vue";
 import LivenessDetailsModal from "./LivenessDetailsModal.vue";
@@ -19,6 +20,7 @@ import type {
   ProviderUsageSummary,
   TemporaryCliInstance,
 } from "../stores/providers";
+import type { ProviderBatchOperation, ProviderBatchProgressItem } from "../api/batch-operation";
 import type { UsagePeriod } from "../utils/usage-trend";
 
 defineProps<{
@@ -67,6 +69,13 @@ defineProps<{
   cancellingUpdate: boolean;
   updateDownloadProgress: number | null;
   updateInstallStatus: string;
+  batchOperation: ProviderBatchOperation | null;
+  batchOperationRunning: boolean;
+  batchOperationItems: ProviderBatchProgressItem[];
+  batchOperationError: string;
+  batchOperationStartedAt: number | null;
+  batchOperationFinishedAt: number | null;
+  batchOperationCompleted: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -110,6 +119,7 @@ const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { requir
 const checkInRecordsVisible = defineModel<boolean>("checkInRecordsVisible", { required: true });
 const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { required: true });
 const capabilityProbeVisible = defineModel<boolean>("capabilityProbeVisible", { required: true });
+const batchOperationVisible = defineModel<boolean>("batchOperationVisible", { required: true });
 </script>
 
 <template>
@@ -137,6 +147,17 @@ const capabilityProbeVisible = defineModel<boolean>("capabilityProbeVisible", { 
     @dismiss="emit('dismissUpdate')"
     @cancel="emit('cancelUpdate')"
     @install="emit('installUpdate')"
+  />
+
+  <BatchOperationProgressModal
+    v-model:visible="batchOperationVisible"
+    :operation="batchOperation"
+    :running="batchOperationRunning"
+    :items="batchOperationItems"
+    :error="batchOperationError"
+    :started-at="batchOperationStartedAt"
+    :finished-at="batchOperationFinishedAt"
+    :completed="batchOperationCompleted"
   />
 
   <ApiKeyManagerModal

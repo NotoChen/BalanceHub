@@ -1,27 +1,38 @@
 use crate::{
     limits,
     models::{
-        AppSettings, CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult,
-        LivenessCliKind, LivenessPromptMode, LivenessRecord,
+        CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult, LivenessCliKind,
+        LivenessPromptMode, LivenessRecord, TerminalEnvironmentProbeResult,
     },
-    services::{
-        liveness::{effective_interval, LivenessRunner},
-        temporary_cli,
-    },
+    services::liveness::{effective_interval, LivenessRunner},
     util::unix_millis as current_timestamp_millis,
 };
 
 use super::{find_provider, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
-    pub fn probe_cli_environment(&self) -> Result<CliEnvironmentProbeResult, String> {
+    pub fn probe_cli_tools(
+        &self,
+        include_shell: bool,
+    ) -> Result<CliEnvironmentProbeResult, String> {
         let snapshot = self.snapshot();
         let codex_path = snapshot.settings.codex_cli_path.clone();
         let claude_path = snapshot.settings.claude_cli_path.clone();
-        let (codex, claude_code, terminals) = std::thread::scope(|scope| {
-            let codex_handle = scope.spawn(|| LivenessRunner::find_codex_cli(&codex_path));
-            let claude_handle = scope.spawn(|| LivenessRunner::find_claude_cli(&claude_path));
-            let terminal_handle = scope.spawn(temporary_cli::probe_available_terminals);
+        let (codex, claude_code) = std::thread::scope(|scope| {
+            let codex_handle = scope.spawn(|| {
+                if include_shell {
+                    LivenessRunner::find_codex_cli(&codex_path)
+                } else {
+                    LivenessRunner::find_codex_cli_without_shell(&codex_path)
+                }
+            });
+            let claude_handle = scope.spawn(|| {
+                if include_shell {
+                    LivenessRunner::find_claude_cli(&claude_path)
+                } else {
+                    LivenessRunner::find_claude_cli_without_shell(&claude_path)
+                }
+            });
 
             let codex = codex_handle
                 .join()
@@ -29,32 +40,20 @@ impl<'a> ProviderService<'a> {
             let claude = claude_handle
                 .join()
                 .unwrap_or_else(|_| Err("Claude Code CLI 自动检测异常".to_string()));
-            let terminals = terminal_handle.join().unwrap_or_default();
 
             (
                 cli_tool_probe_result(LivenessCliKind::Codex, codex),
                 cli_tool_probe_result(LivenessCliKind::ClaudeCode, claude),
-                terminals,
             )
         });
 
-        let stored_codex_path = codex.available.then(|| codex.path.clone());
-        let stored_claude_path = claude_code.available.then(|| claude_code.path.clone());
-        self.mutate(|data| {
-            apply_detected_cli_paths(
-                &mut data.settings,
-                &codex_path,
-                &claude_path,
-                stored_codex_path,
-                stored_claude_path,
-            );
-        })?;
+        Ok(CliEnvironmentProbeResult { codex, claude_code })
+    }
 
-        Ok(CliEnvironmentProbeResult {
-            codex,
-            claude_code,
-            terminals,
-        })
+    pub fn probe_terminals(&self) -> TerminalEnvironmentProbeResult {
+        TerminalEnvironmentProbeResult {
+            terminals: crate::services::temporary_cli::probe_available_terminals(),
+        }
     }
 
     pub fn run_liveness(
@@ -120,29 +119,10 @@ impl<'a> ProviderService<'a> {
                     Some((current_timestamp_millis() + next_after as u128 * 1000).to_string());
             }
             // 注意：mutate 闭包持有状态写锁，严禁在这里做磁盘扫描/子进程探测之类的
-            // 阻塞操作。CLI 路径的自动发现由启动时的 probe_cli_environment（锁外）负责。
+            // 阻塞操作。CLI 探测由独立命令（锁外）负责。
         })?;
 
         Ok(record)
-    }
-}
-
-fn apply_detected_cli_paths(
-    settings: &mut AppSettings,
-    expected_codex_path: &str,
-    expected_claude_path: &str,
-    detected_codex_path: Option<String>,
-    detected_claude_path: Option<String>,
-) {
-    if settings.codex_cli_path == expected_codex_path {
-        if let Some(path) = detected_codex_path {
-            settings.codex_cli_path = path;
-        }
-    }
-    if settings.claude_cli_path == expected_claude_path {
-        if let Some(path) = detected_claude_path {
-            settings.claude_cli_path = path;
-        }
     }
 }
 
@@ -170,8 +150,8 @@ fn cli_tool_probe_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_detected_cli_paths, cli_tool_probe_result};
-    use crate::models::{AppSettings, CodexCliProbeResult, LivenessCliKind};
+    use super::cli_tool_probe_result;
+    use crate::models::{CodexCliProbeResult, LivenessCliKind};
 
     #[test]
     fn cli_probe_exposes_launch_naming_capability_from_rust() {
@@ -192,45 +172,5 @@ mod tests {
 
         assert!(claude.supports_session_name);
         assert!(!codex.supports_session_name);
-    }
-
-    #[test]
-    fn cli_probe_does_not_overwrite_paths_edited_during_scan() {
-        let mut settings = AppSettings {
-            codex_cli_path: "/new/codex".to_string(),
-            claude_cli_path: "/new/claude".to_string(),
-            ..AppSettings::default()
-        };
-
-        apply_detected_cli_paths(
-            &mut settings,
-            "/old/codex",
-            "/old/claude",
-            Some("/detected/codex".to_string()),
-            Some("/detected/claude".to_string()),
-        );
-
-        assert_eq!(settings.codex_cli_path, "/new/codex");
-        assert_eq!(settings.claude_cli_path, "/new/claude");
-    }
-
-    #[test]
-    fn cli_probe_updates_unchanged_version_managed_paths() {
-        let mut settings = AppSettings {
-            codex_cli_path: "/old/codex".to_string(),
-            claude_cli_path: "/old/claude".to_string(),
-            ..AppSettings::default()
-        };
-
-        apply_detected_cli_paths(
-            &mut settings,
-            "/old/codex",
-            "/old/claude",
-            Some("/detected/codex".to_string()),
-            Some("/detected/claude".to_string()),
-        );
-
-        assert_eq!(settings.codex_cli_path, "/detected/codex");
-        assert_eq!(settings.claude_cli_path, "/detected/claude");
     }
 }

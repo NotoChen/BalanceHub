@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed } from "vue";
 import { IconCommand, IconDesktop, IconExperiment } from "@arco-design/web-vue/es/icon";
 import CliIconSelector from "../CliIconSelector.vue";
 import SettingsCodexPromptSection from "./SettingsCodexPromptSection.vue";
@@ -19,19 +19,6 @@ const props = defineProps<{
 
 const store = useProviderStore();
 const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe));
-
-watch(
-  cliOptions,
-  (options) => {
-    if (
-      options.length > 0 &&
-      !options.some((option) => option.value === props.settings.livenessCliKind)
-    ) {
-      props.settings.livenessCliKind = options[0].value;
-    }
-  },
-  { immediate: true },
-);
 
 const codexModelSelectOptions = computed(() =>
   Array.from(

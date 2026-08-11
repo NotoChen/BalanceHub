@@ -1,10 +1,14 @@
 use crate::{
     adapters::protocol::ProtocolAdapter,
-    models::{AppData, AppSettings, AuthMode, Provider, ProviderProtocol, RefreshResult},
+    models::{
+        AppData, AppSettings, AuthMode, Provider, ProviderBatchDetails, ProviderBatchOperation,
+        ProviderBatchProgressEvent, ProviderBatchProgressItem, ProviderBatchStatus,
+        ProviderProtocol, ProviderStatus, RefreshResult,
+    },
     state::AppState,
 };
 use std::{collections::HashSet, sync::Arc};
-use tauri::Manager;
+use tauri::{ipc::Channel, Manager};
 
 use super::{ProviderRequestContext, ProviderService};
 
@@ -14,10 +18,13 @@ pub(super) struct RefreshedProvider {
 }
 
 impl<'a> ProviderService<'a> {
-    pub async fn refresh_all(&self) -> Result<RefreshResult, String> {
+    pub async fn refresh_all_with_progress(
+        &self,
+        channel: Channel<ProviderBatchProgressEvent>,
+    ) -> Result<RefreshResult, String> {
         let state = self.app.state::<AppState>();
         let _gate = state.refresh_gate.lock().await;
-        self.refresh_all_inner().await
+        self.refresh_all_inner(channel).await
     }
 
     pub async fn refresh_by_ids(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
@@ -38,16 +45,60 @@ impl<'a> ProviderService<'a> {
         Some(self.refresh_by_ids_inner(ids).await)
     }
 
-    async fn refresh_all_inner(&self) -> Result<RefreshResult, String> {
+    async fn refresh_all_inner(
+        &self,
+        progress: Channel<ProviderBatchProgressEvent>,
+    ) -> Result<RefreshResult, String> {
         let data = self.snapshot_async().await?;
+        let mut progress_items = data
+            .providers
+            .iter()
+            .map(|provider| {
+                if provider.runtime.enabled {
+                    ProviderBatchProgressItem::pending(provider)
+                } else {
+                    ProviderBatchProgressItem::skipped(provider, "中转站已停用")
+                }
+            })
+            .collect::<Vec<_>>();
+        send_progress(
+            Some(&progress),
+            ProviderBatchProgressEvent::Started {
+                operation: ProviderBatchOperation::Refresh,
+                total: progress_items.len(),
+                items: progress_items.clone(),
+            },
+        );
         let settings = Arc::new(data.settings);
-        let refreshed = refresh_providers_concurrently(settings, data.providers, |_| true).await?;
+        let refreshed = refresh_providers_concurrently(
+            settings,
+            data.providers,
+            |_| true,
+            Some(progress.clone()),
+        )
+        .await?;
+        for result in &refreshed {
+            let item = refresh_progress_item(&result.provider);
+            if let Some(slot) = progress_items
+                .iter_mut()
+                .find(|item| item.provider_id == result.provider.identity.id)
+            {
+                *slot = item;
+            }
+        }
         let providers = self
             .mutate_async(move |data| {
                 apply_refreshed(data, refreshed);
                 data.providers.clone()
             })
             .await?;
+        send_progress(
+            Some(&progress),
+            ProviderBatchProgressEvent::Completed {
+                operation: ProviderBatchOperation::Refresh,
+                summary: crate::models::ProviderBatchSummary::from_items(&progress_items),
+            },
+        );
         Ok(RefreshResult { providers })
     }
 
@@ -55,9 +106,12 @@ impl<'a> ProviderService<'a> {
         let data = self.snapshot_async().await?;
         let settings = Arc::new(data.settings);
         let id_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
-        let refreshed = refresh_providers_concurrently(settings, data.providers, |provider| {
-            id_set.contains(provider.identity.id.as_str())
-        })
+        let refreshed = refresh_providers_concurrently(
+            settings,
+            data.providers,
+            |provider| id_set.contains(provider.identity.id.as_str()),
+            None,
+        )
         .await?;
         let providers = self
             .mutate_async(move |data| {
@@ -158,6 +212,7 @@ pub(super) async fn refresh_providers_concurrently(
     settings: Arc<AppSettings>,
     providers: Vec<Provider>,
     should_refresh: impl Fn(&Provider) -> bool,
+    progress: Option<Channel<ProviderBatchProgressEvent>>,
 ) -> Result<Vec<RefreshedProvider>, String> {
     const MAX_CONCURRENT_REFRESH: usize = 6;
 
@@ -167,15 +222,53 @@ pub(super) async fn refresh_providers_concurrently(
         .into_iter()
         .filter(|provider| provider.runtime.enabled && should_refresh(provider))
     {
+        let provider_for_progress = provider.clone();
+        send_progress(
+            progress.as_ref(),
+            ProviderBatchProgressEvent::ProviderStarted {
+                operation: ProviderBatchOperation::Refresh,
+                item: ProviderBatchProgressItem::new(
+                    &provider_for_progress,
+                    ProviderBatchStatus::Running,
+                    refresh_started_message(&provider_for_progress),
+                    None,
+                ),
+            },
+        );
         let settings = Arc::clone(&settings);
         let semaphore = Arc::clone(&semaphore);
         let request_context = ProviderRequestContext::capture(&provider);
+        let progress = progress.clone();
         handles.push(tauri::async_runtime::spawn(async move {
             // 信号量只在本函数生命周期内使用、从不 close，acquire 不会失败。
             let _permit = semaphore.acquire().await.expect("refresh semaphore closed");
             let refreshed = ProtocolAdapter
                 .refresh_provider(settings.as_ref(), &provider)
                 .await;
+            let status = if matches!(refreshed.runtime.status, ProviderStatus::Error) {
+                ProviderBatchStatus::Failed
+            } else {
+                ProviderBatchStatus::Success
+            };
+            let message = refreshed.runtime.error_message.clone().unwrap_or_else(|| {
+                if matches!(status, ProviderBatchStatus::Success) {
+                    refresh_finished_message(&refreshed)
+                } else {
+                    "刷新失败".to_string()
+                }
+            });
+            send_progress(
+                progress.as_ref(),
+                ProviderBatchProgressEvent::ProviderFinished {
+                    operation: ProviderBatchOperation::Refresh,
+                    item: ProviderBatchProgressItem::new(
+                        &refreshed,
+                        status,
+                        message,
+                        Some(ProviderBatchDetails::from_provider(&refreshed, None)),
+                    ),
+                },
+            );
             RefreshedProvider {
                 provider: refreshed,
                 request_context,
@@ -189,6 +282,60 @@ pub(super) async fn refresh_providers_concurrently(
     }
 
     Ok(refreshed)
+}
+
+fn refresh_progress_item(provider: &Provider) -> ProviderBatchProgressItem {
+    let status = if matches!(provider.runtime.status, ProviderStatus::Error) {
+        ProviderBatchStatus::Failed
+    } else {
+        ProviderBatchStatus::Success
+    };
+    let message = provider.runtime.error_message.clone().unwrap_or_else(|| {
+        if matches!(status, ProviderBatchStatus::Success) {
+            refresh_finished_message(provider)
+        } else {
+            "刷新失败".to_string()
+        }
+    });
+    ProviderBatchProgressItem::new(
+        provider,
+        status,
+        message,
+        Some(ProviderBatchDetails::from_provider(provider, None)),
+    )
+}
+
+fn is_model_refresh_provider(provider: &Provider) -> bool {
+    matches!(provider.identity.protocol, ProviderProtocol::Api)
+        || matches!(provider.auth.mode, AuthMode::ApiKey)
+}
+
+fn refresh_started_message(provider: &Provider) -> String {
+    if is_model_refresh_provider(provider) {
+        "正在获取最新模型列表".to_string()
+    } else {
+        "正在刷新额度和账号能力".to_string()
+    }
+}
+
+fn refresh_finished_message(provider: &Provider) -> String {
+    if is_model_refresh_provider(provider) {
+        format!(
+            "模型列表已更新（{} 个）",
+            provider.capabilities.available_models.len()
+        )
+    } else {
+        "刷新完成".to_string()
+    }
+}
+
+fn send_progress(
+    channel: Option<&Channel<ProviderBatchProgressEvent>>,
+    event: ProviderBatchProgressEvent,
+) {
+    if let Some(channel) = channel {
+        let _ = channel.send(event);
+    }
 }
 
 #[cfg(test)]

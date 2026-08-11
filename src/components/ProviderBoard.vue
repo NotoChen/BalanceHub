@@ -4,6 +4,10 @@ import ProviderCard from "./ProviderCard.vue";
 import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
+import {
+  providerCardCliOrbitSpec,
+  type ProviderCardCliOrbitSpec,
+} from "../utils/provider-card-cli-orbit";
 
 interface ProviderDragState {
   providerId: string | null;
@@ -55,7 +59,7 @@ const emit = defineEmits<{
   remove: [provider: Provider];
   openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
   switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
-  resetFilters: [];
+  clearSearch: [];
 }>();
 
 const filteredLivenessProviders = computed(() => props.livenessProviders);
@@ -71,6 +75,19 @@ const visibleProviderCount = computed(
 );
 function providerIsCliDefault(provider: Provider, cliKind: LivenessCliKind) {
   return props.cliRuntime[cliKind].providerId === provider.identity.id;
+}
+
+function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
+  return Object.entries(props.cliRuntime)
+    .filter(
+      ([key, snapshot]) =>
+        key !== "instances" &&
+        typeof snapshot === "object" &&
+        snapshot !== null &&
+        "providerId" in snapshot &&
+        snapshot.providerId === provider.identity.id,
+    )
+    .map(([key]) => providerCardCliOrbitSpec(key));
 }
 
 function providerActiveCliCount(provider: Provider, cliKind: LivenessCliKind) {
@@ -118,6 +135,7 @@ function providerSwitchingCliKind(provider: Provider) {
           :show-liveness-timeline="true"
           :codex-default="providerIsCliDefault(provider, 'codex')"
           :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :cli-orbits="providerCliOrbits(provider)"
           :codex-active-cli-count="providerActiveCliCount(provider, 'codex')"
           :claude-active-cli-count="providerActiveCliCount(provider, 'claudeCode')"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
@@ -168,6 +186,7 @@ function providerSwitchingCliKind(provider: Provider) {
           :show-liveness-timeline="false"
           :codex-default="providerIsCliDefault(provider, 'codex')"
           :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :cli-orbits="providerCliOrbits(provider)"
           :codex-active-cli-count="providerActiveCliCount(provider, 'codex')"
           :claude-active-cli-count="providerActiveCliCount(provider, 'claudeCode')"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
@@ -218,6 +237,7 @@ function providerSwitchingCliKind(provider: Provider) {
           :show-liveness-timeline="false"
           :codex-default="providerIsCliDefault(provider, 'codex')"
           :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :cli-orbits="providerCliOrbits(provider)"
           :codex-active-cli-count="providerActiveCliCount(provider, 'codex')"
           :claude-active-cli-count="providerActiveCliCount(provider, 'claudeCode')"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
@@ -259,11 +279,11 @@ function providerSwitchingCliKind(provider: Provider) {
 
     <div
       v-else-if="!loadError && providers.length > 0 && visibleProviderCount === 0"
-      class="empty-state provider-board-filter-empty"
+      class="empty-state provider-board-search-empty"
     >
       <h3>没有匹配的中转站</h3>
-      <p>当前搜索或筛选条件没有结果。</p>
-      <a-button @click="emit('resetFilters')">重置筛选</a-button>
+      <p>当前搜索条件没有结果。</p>
+      <a-button @click="emit('clearSearch')">清除搜索</a-button>
     </div>
 
     <ProviderCard
@@ -276,6 +296,7 @@ function providerSwitchingCliKind(provider: Provider) {
       :show-liveness-timeline="showLivenessTimeline(draggedProvider)"
       :codex-default="providerIsCliDefault(draggedProvider, 'codex')"
       :claude-default="providerIsCliDefault(draggedProvider, 'claudeCode')"
+      :cli-orbits="providerCliOrbits(draggedProvider)"
       :codex-active-cli-count="providerActiveCliCount(draggedProvider, 'codex')"
       :claude-active-cli-count="providerActiveCliCount(draggedProvider, 'claudeCode')"
       aria-hidden

@@ -292,24 +292,6 @@
   height: 18px;
 }
 
-.provider-card-cli-signal-default b {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  display: grid;
-  min-width: 12px;
-  height: 12px;
-  place-items: center;
-  border: 1px solid var(--provider-card-surface);
-  border-radius: 4px;
-  background: #4e5969;
-  color: #ffffff;
-  font-size: 7px;
-  font-weight: 750;
-  line-height: 1;
-  text-align: center;
-}
-
 button.provider-card-cli-signal {
   appearance: none;
   cursor: pointer;

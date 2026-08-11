@@ -3,7 +3,8 @@ use crate::{
         AppData, AppSettings, CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult,
         CliRuntimeSnapshot, CliSessionSummary, LivenessCliKind, Provider, TemporaryCliInstance,
         TemporaryCliLaunchInput, TemporaryCliLaunchPreview, TemporaryCliLaunchResult,
-        TemporaryCliPreference, TemporaryCliSessionMode, Workspace, WorkspaceDirectoryListing,
+        TemporaryCliPreference, TemporaryCliSessionMode, TerminalEnvironmentProbeResult, Workspace,
+        WorkspaceDirectoryListing,
     },
     services::{self, provider_service::ProviderService},
     state::AppState,
@@ -332,11 +333,22 @@ pub(crate) async fn switch_cli_config(
 }
 
 #[tauri::command]
-pub(crate) async fn probe_cli_environment(
+pub(crate) async fn probe_cli_tools(
     app: AppHandle,
+    deep: bool,
 ) -> Result<CliEnvironmentProbeResult, String> {
-    run_blocking("探测 CLI 环境", move || {
-        ProviderService::new(&app).probe_cli_environment()
+    run_blocking("探测 CLI", move || {
+        ProviderService::new(&app).probe_cli_tools(deep)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn probe_terminals(
+    app: AppHandle,
+) -> Result<TerminalEnvironmentProbeResult, String> {
+    run_blocking("探测终端", move || {
+        Ok(ProviderService::new(&app).probe_terminals())
     })
     .await
 }

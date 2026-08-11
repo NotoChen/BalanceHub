@@ -51,7 +51,7 @@ async function runProbe() {
   probeError.value = "";
   const settingsAtStart = captureCliEnvironmentSettings(props.settings);
   try {
-    const result = await store.probeCliEnvironment();
+    const result = await store.probeCliTools(true);
     applyCliEnvironmentProbeResult(props.settings, result, settingsAtStart);
   } catch (error) {
     probeError.value = error instanceof Error ? error.message : String(error);
@@ -69,12 +69,12 @@ async function runProbe() {
       </span>
       <span class="settings-detection-summary">
         {{ detectedKinds.length }} 个可用
-        <a-tooltip content="重新扫描 Agent 与终端">
+        <a-tooltip content="重新扫描 Agent">
           <a-button
             shape="circle"
             size="mini"
             :loading="store.cliEnvironmentLoading"
-            aria-label="重新扫描 Agent 与终端"
+            aria-label="重新扫描 Agent"
             @click="runProbe"
           >
             <template #icon><IconRefresh /></template>

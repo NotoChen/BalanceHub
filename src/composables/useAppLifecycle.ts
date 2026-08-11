@@ -20,7 +20,7 @@ interface UseAppLifecycleOptions {
   setupThemeListener: () => void;
   cleanupThemeListener: () => void;
   syncLaunchAtLogin: () => Promise<unknown>;
-  autoProbeCliEnvironment: () => Promise<unknown>;
+  autoProbeCliTools: () => Promise<unknown>;
   /// 后端调度任务变更状态后会发出 `providers-changed` 事件，前端据此重新拉取内存状态。
   reloadProviders: () => Promise<unknown> | unknown;
   applyTheme: (themeMode: AppSettings["themeMode"]) => void;
@@ -82,7 +82,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     }
     await options.syncLaunchAtLogin();
     if (disposed) return;
-    await options.autoProbeCliEnvironment();
+    await options.autoProbeCliTools();
   });
 
   onUnmounted(() => {

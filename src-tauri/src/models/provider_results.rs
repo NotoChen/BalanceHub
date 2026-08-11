@@ -246,6 +246,171 @@ pub struct ProviderCheckInResult {
     pub last_checked_in_at: Option<String>,
     #[serde(rename = "lastCheckInUser", skip_serializing_if = "Option::is_none")]
     pub last_check_in_user: Option<String>,
+    #[serde(rename = "quotaDelta", skip_serializing_if = "Option::is_none")]
+    pub quota_delta: Option<f64>,
+}
+
+/// 批量刷新/签到通过 Tauri Channel 推送的安全展示数据。
+///
+/// 这里刻意不携带完整 `Provider`，避免 API Key、Cookie、访问令牌和密码进入
+/// 进度事件或前端临时状态。最终完整卡片仍由批量 command 的返回值统一写回。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderBatchOperation {
+    Refresh,
+    CheckIn,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderBatchStatus {
+    Pending,
+    Running,
+    Success,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderBatchDetails {
+    pub username: String,
+    pub user_id: String,
+    pub available: f64,
+    pub used: f64,
+    pub known: bool,
+    pub total_known: bool,
+    pub quota_display_type: String,
+    pub currency_symbol: String,
+    pub unlimited: bool,
+    pub model_count: usize,
+    pub last_synced_at: Option<String>,
+    pub last_checked_in_at: Option<String>,
+    pub last_check_in_user: String,
+    pub quota_delta: Option<f64>,
+}
+
+impl ProviderBatchDetails {
+    pub fn from_provider(provider: &Provider, quota_delta: Option<f64>) -> Self {
+        Self {
+            username: provider.identity.username.clone(),
+            user_id: provider.identity.user_id.clone(),
+            available: provider.quota.available,
+            used: provider.quota.used,
+            known: provider.quota.known,
+            total_known: provider.quota.total_known,
+            quota_display_type: provider.quota.display_type.clone(),
+            currency_symbol: provider.quota.currency_symbol.clone(),
+            unlimited: provider.quota.unlimited,
+            model_count: provider.capabilities.available_models.len(),
+            last_synced_at: provider.automation.last_synced_at.clone(),
+            last_checked_in_at: provider.automation.last_checked_in_at.clone(),
+            last_check_in_user: provider.automation.last_check_in_user.clone(),
+            quota_delta,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderBatchProgressItem {
+    pub provider_id: String,
+    pub name: String,
+    pub base_url: String,
+    pub status: ProviderBatchStatus,
+    pub message: String,
+    pub details: Option<ProviderBatchDetails>,
+}
+
+impl ProviderBatchProgressItem {
+    pub fn pending(provider: &Provider) -> Self {
+        Self::new(provider, ProviderBatchStatus::Pending, "", None)
+    }
+
+    pub fn skipped(provider: &Provider, message: impl Into<String>) -> Self {
+        Self::new(
+            provider,
+            ProviderBatchStatus::Skipped,
+            message,
+            Some(ProviderBatchDetails::from_provider(provider, None)),
+        )
+    }
+
+    pub fn new(
+        provider: &Provider,
+        status: ProviderBatchStatus,
+        message: impl Into<String>,
+        details: Option<ProviderBatchDetails>,
+    ) -> Self {
+        Self {
+            provider_id: provider.identity.id.clone(),
+            name: provider.identity.name.clone(),
+            base_url: provider.identity.base_url.clone(),
+            status,
+            message: message.into(),
+            details,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderBatchSummary {
+    pub total: usize,
+    pub completed: usize,
+    pub success: usize,
+    pub failed: usize,
+    pub skipped: usize,
+}
+
+impl ProviderBatchSummary {
+    pub fn from_items(items: &[ProviderBatchProgressItem]) -> Self {
+        let success = items
+            .iter()
+            .filter(|item| matches!(item.status, ProviderBatchStatus::Success))
+            .count();
+        let failed = items
+            .iter()
+            .filter(|item| matches!(item.status, ProviderBatchStatus::Failed))
+            .count();
+        let skipped = items
+            .iter()
+            .filter(|item| matches!(item.status, ProviderBatchStatus::Skipped))
+            .count();
+        Self {
+            total: items.len(),
+            completed: success + failed + skipped,
+            success,
+            failed,
+            skipped,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "event", content = "data")]
+pub enum ProviderBatchProgressEvent {
+    #[serde(rename = "started")]
+    Started {
+        operation: ProviderBatchOperation,
+        total: usize,
+        items: Vec<ProviderBatchProgressItem>,
+    },
+    #[serde(rename = "providerStarted")]
+    ProviderStarted {
+        operation: ProviderBatchOperation,
+        item: ProviderBatchProgressItem,
+    },
+    #[serde(rename = "providerFinished")]
+    ProviderFinished {
+        operation: ProviderBatchOperation,
+        item: ProviderBatchProgressItem,
+    },
+    #[serde(rename = "completed")]
+    Completed {
+        operation: ProviderBatchOperation,
+        summary: ProviderBatchSummary,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,4 +624,24 @@ pub struct TemporaryCliLaunchResult {
     pub workspaces: Vec<super::Workspace>,
     pub workspace_error: Option<String>,
     pub preference: super::TemporaryCliPreference,
+}
+
+#[cfg(test)]
+mod batch_operation_tests {
+    use super::*;
+
+    #[test]
+    fn batch_progress_event_uses_frontend_event_names() {
+        let provider = Provider::from_input(ProviderInput::default(), "provider-1".to_string());
+        let event = ProviderBatchProgressEvent::Started {
+            operation: ProviderBatchOperation::CheckIn,
+            total: 1,
+            items: vec![ProviderBatchProgressItem::pending(&provider)],
+        };
+        let value = serde_json::to_value(event).expect("batch event should serialize");
+        assert_eq!(value["event"], "started");
+        assert_eq!(value["data"]["operation"], "checkIn");
+        assert_eq!(value["data"]["items"][0]["status"], "pending");
+        assert!(value["data"]["items"][0]["providerId"] == "provider-1");
+    }
 }

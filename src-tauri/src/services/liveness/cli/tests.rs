@@ -101,6 +101,7 @@ fn cli_probe_keeps_symlink_entrypoint_runtime_path() {
             require_version_substring: None,
             not_found_message: "not found",
         },
+        true,
     )
     .unwrap();
 

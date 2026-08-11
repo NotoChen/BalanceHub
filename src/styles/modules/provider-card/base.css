@@ -8,6 +8,11 @@
   --provider-card-surface: var(--glass-card);
   --provider-card-state: #c9cdd4;
   --provider-quota-color: #165dff;
+  --provider-card-beam-duration: 6s;
+  --provider-card-cli-codex-color: #151515;
+  --provider-card-cli-codex-glow: rgba(21, 21, 21, 0.28);
+  --provider-card-cli-claude-color: #d97757;
+  --provider-card-cli-claude-glow: rgba(217, 119, 87, 0.34);
   position: relative;
   display: flex;
   width: 100%;
@@ -71,10 +76,10 @@
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  padding: 3px;
-  filter:
-    drop-shadow(0 0 5px color-mix(in srgb, var(--provider-card-state) 58%, transparent))
-    drop-shadow(0 0 11px color-mix(in srgb, var(--provider-card-state) 28%, transparent));
+  padding: 2px;
+  filter: drop-shadow(
+      0 0 5px color-mix(in srgb, var(--provider-card-state) 42%, transparent)
+    );
   transition: opacity 180ms ease;
   will-change: --provider-card-beam-angle, opacity;
 }
@@ -96,6 +101,53 @@
   z-index: 1;
 }
 
+.provider-card-cli-orbits {
+  position: absolute !important;
+  z-index: 2 !important;
+  /* The path centerline matches the card border centerline. Icons straddle it. */
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.provider-card-cli-orbit-icon {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  offset-path: var(--provider-card-cli-orbit-path, inset(-1px round 8px));
+  -webkit-offset-path: var(--provider-card-cli-orbit-path, inset(-1px round 8px));
+  offset-distance: var(--provider-card-cli-orbit-progress);
+  -webkit-offset-distance: var(--provider-card-cli-orbit-progress);
+  offset-anchor: 50% 50%;
+  -webkit-offset-anchor: 50% 50%;
+  offset-rotate: 0deg;
+  -webkit-offset-rotate: 0deg;
+  color: var(--provider-card-cli-orbit-color);
+  filter: drop-shadow(0 0 4px var(--provider-card-cli-orbit-glow));
+  pointer-events: none;
+  will-change: offset-distance;
+}
+
+.provider-card-cli-orbit-icon .brand-icon,
+.provider-card-cli-orbit-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.provider-card-disabled .provider-card-cli-orbits {
+  opacity: 0.45;
+}
+
+.provider-card-placeholder .provider-card-cli-orbits,
+.provider-card-dragging .provider-card-cli-orbits {
+  display: none;
+}
+
 .provider-card:hover,
 .provider-card:focus-visible,
 .provider-card-interacting {
@@ -107,7 +159,7 @@
 .provider-card:focus-visible::before,
 .provider-card-interacting::before {
   opacity: 1;
-  animation: provider-card-border-flow 2.15s linear infinite;
+  animation: provider-card-border-flow var(--provider-card-beam-duration) linear infinite;
 }
 
 .provider-card:focus-visible {
@@ -115,7 +167,9 @@
 }
 
 @keyframes provider-card-border-flow {
-  to { --provider-card-beam-angle: 360deg; }
+  to {
+    --provider-card-beam-angle: 360deg;
+  }
 }
 
 .provider-card-dragging {
@@ -204,7 +258,6 @@
   .provider-card:focus-visible::before,
   .provider-card-interacting::before {
     animation: none;
-    opacity: 0.82;
   }
 }
 
@@ -590,6 +643,13 @@
 .provider-card-section-heading span:last-child {
   color: #86909c;
   font-weight: 500;
+}
+
+.provider-card-model-sync-time {
+  color: #86909c;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .provider-card-model-list {

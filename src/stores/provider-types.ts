@@ -269,6 +269,9 @@ export interface TemporaryTerminalProbeResult {
 export interface CliEnvironmentProbeResult {
   codex: CliToolProbeResult;
   claudeCode: CliToolProbeResult;
+}
+
+export interface TerminalEnvironmentProbeResult {
   terminals: TemporaryTerminalProbeResult[];
 }
 

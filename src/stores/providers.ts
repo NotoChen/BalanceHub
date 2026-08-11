@@ -24,10 +24,10 @@ import {
   listProviderApiKeys as listProviderApiKeysCommand,
   listCliSessions as listCliSessionsCommand,
   loadAppData,
-  probeCliEnvironment as probeCliEnvironmentCommand,
+  probeCliTools as probeCliToolsCommand,
+  probeTerminals as probeTerminalsCommand,
   probeProviderSite as probeProviderSiteCommand,
   previewCliConfig as previewCliConfigCommand,
-  refreshAllProviders,
   refreshProviders,
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
@@ -39,16 +39,13 @@ import {
   switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
 import { providerToInput } from "../utils/provider-input";
-import {
-  applyCliEnvironmentProbeResult,
-  captureCliEnvironmentSettings,
-} from "../utils/cli-environment";
 import { defaultSettings } from "./provider-defaults";
 import type {
   AppSettings,
   CliConfigPreview,
   CliConfigFile,
   CliEnvironmentProbeResult,
+  TerminalEnvironmentProbeResult,
   CliRuntimeSnapshot,
   CliSessionSummary,
   LivenessCliKind,
@@ -74,7 +71,6 @@ export const useProviderStore = defineStore("providers", {
     refreshInProgress: false,
     cliRuntimeLoading: false,
     refreshingIds: new Set<string>(),
-    refreshingAllIds: new Set<string>(),
     providerReloadPending: false,
     providers: [] as Provider[],
     settings: defaultSettings(),
@@ -83,6 +79,8 @@ export const useProviderStore = defineStore("providers", {
     cliRuntime: emptyCliRuntimeSnapshot(),
     cliEnvironmentProbe: null as CliEnvironmentProbeResult | null,
     cliEnvironmentLoading: false,
+    terminalEnvironmentProbe: null as TerminalEnvironmentProbeResult | null,
+    terminalEnvironmentLoading: false,
   }),
   getters: {},
   actions: {
@@ -156,7 +154,7 @@ export const useProviderStore = defineStore("providers", {
       return result;
     },
     async reload() {
-      if (this.refreshInProgress || this.refreshingIds.size > 0 || this.refreshingAllIds.size > 0) {
+      if (this.refreshInProgress || this.refreshingIds.size > 0) {
         this.providerReloadPending = true;
         return;
       }
@@ -183,9 +181,7 @@ export const useProviderStore = defineStore("providers", {
      */
     async reloadProviders() {
       if (
-        this.refreshInProgress ||
-        this.refreshingIds.size > 0 ||
-        this.refreshingAllIds.size > 0
+        this.refreshInProgress || this.refreshingIds.size > 0
       ) {
         this.providerReloadPending = true;
         return;
@@ -195,9 +191,7 @@ export const useProviderStore = defineStore("providers", {
     async flushPendingProviderReload() {
       if (
         !this.providerReloadPending ||
-        this.refreshInProgress ||
-        this.refreshingIds.size > 0 ||
-        this.refreshingAllIds.size > 0
+        this.refreshInProgress || this.refreshingIds.size > 0
       ) {
         return;
       }
@@ -220,16 +214,24 @@ export const useProviderStore = defineStore("providers", {
       }
       return result;
     },
-    async probeCliEnvironment() {
-      const settingsAtStart = captureCliEnvironmentSettings(this.settings);
+    async probeCliTools(deep = false) {
       this.cliEnvironmentLoading = true;
       try {
-        const result = await probeCliEnvironmentCommand();
+        const result = await probeCliToolsCommand(deep);
         this.cliEnvironmentProbe = result;
-        applyCliEnvironmentProbeResult(this.settings, result, settingsAtStart);
         return result;
       } finally {
         this.cliEnvironmentLoading = false;
+      }
+    },
+    async probeTerminals() {
+      this.terminalEnvironmentLoading = true;
+      try {
+        const result = await probeTerminalsCommand();
+        this.terminalEnvironmentProbe = result;
+        return result;
+      } finally {
+        this.terminalEnvironmentLoading = false;
       }
     },
     async launchTemporaryCli(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchResult> {
@@ -357,52 +359,9 @@ export const useProviderStore = defineStore("providers", {
     async getInviteLink(id: string) {
       return getProviderInviteLinkCommand(id);
     },
-    /** 全量刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
-    async refreshAll(): Promise<string | null> {
-      if (this.refreshInProgress || this.refreshingIds.size > 0) {
-        return null;
-      }
-
-      this.refreshInProgress = true;
-      this.refreshingAllIds = new Set(
-        this.providers
-          .filter((provider) => provider.runtime.enabled)
-          .map((provider) => provider.identity.id),
-      );
-      const previousProviders = this.providers;
-      this.providers = this.providers.map((provider) =>
-        provider.runtime.enabled
-          ? { ...provider, runtime: { ...provider.runtime, status: "syncing", errorMessage: null } }
-          : provider,
-      );
-
-      try {
-        const result = await refreshAllProviders();
-        this.providers = result.providers;
-        return null;
-      } catch (error) {
-        this.providers = previousProviders.map((provider) =>
-          provider.runtime.enabled
-            ? {
-                ...provider,
-                runtime: {
-                  ...provider.runtime,
-                  status: "error",
-                  errorMessage: error instanceof Error ? error.message : String(error),
-                },
-              }
-            : provider,
-        );
-        return errorToMessage(error);
-      } finally {
-        this.refreshingAllIds.clear();
-        this.refreshInProgress = false;
-        void this.flushPendingProviderReload();
-      }
-    },
     /** 按 id 刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
     async refreshByIds(ids: string[]): Promise<string | null> {
-      if (this.refreshInProgress || this.refreshingAllIds.size > 0) {
+      if (this.refreshInProgress || this.refreshingIds.size > 0) {
         return null;
       }
       const todo = ids.filter((id) => !this.refreshingIds.has(id));

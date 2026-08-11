@@ -2,11 +2,15 @@ use crate::{
     adapters::protocol::ProtocolAdapter,
     limits,
     models::{
-        check_in_message_indicates_disabled, provider_domain, Provider, ProviderCheckInRecord,
-        ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderQuotaDisplay, ProviderStatus,
+        check_in_message_indicates_disabled, provider_domain, Provider, ProviderBatchDetails,
+        ProviderBatchOperation, ProviderBatchProgressEvent, ProviderBatchProgressItem,
+        ProviderBatchStatus, ProviderCheckInRecord, ProviderCheckInRecordsResult,
+        ProviderCheckInResult, ProviderQuotaDisplay, ProviderStatus, RefreshResult,
     },
     util::unix_millis as current_timestamp_millis,
 };
+use std::sync::Arc;
+use tauri::{ipc::Channel, Manager};
 
 use super::{
     find_provider, refresh::apply_refresh_owned_fields, ProviderRequestContext, ProviderService,
@@ -34,6 +38,12 @@ impl<'a> ProviderService<'a> {
     }
 
     pub async fn check_in(&self, id: String) -> Result<ProviderCheckInResult, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _gate = state.check_in_gate.lock().await;
+        self.check_in_inner(id).await
+    }
+
+    async fn check_in_inner(&self, id: String) -> Result<ProviderCheckInResult, String> {
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
@@ -53,6 +63,7 @@ impl<'a> ProviderService<'a> {
             let quota_delta = refreshed_provider
                 .as_ref()
                 .and_then(|refreshed| check_in_quota_delta(&provider, refreshed));
+            result.quota_delta = quota_delta;
             let checked_date = local_date_from_timestamp(&checked_in_at)
                 .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
 
@@ -157,6 +168,148 @@ impl<'a> ProviderService<'a> {
 
         Ok(result)
     }
+
+    /// 批量签到的唯一后端入口。目标清单、跳过原因和逐站结果均由 Rust 根据当前
+    /// 存储状态计算，前端只负责订阅事件和展示，不再维护第二套签到筛选规则。
+    pub async fn check_in_all_with_progress(
+        &self,
+        channel: Channel<ProviderBatchProgressEvent>,
+    ) -> Result<RefreshResult, String> {
+        const MAX_CONCURRENT_CHECK_IN: usize = 6;
+
+        // 与全局刷新共用闸门，避免签到后的静默刷新和全量刷新同时写同一张卡片。
+        let state = self.app.state::<crate::state::AppState>();
+        let _refresh_gate = state.refresh_gate.lock().await;
+        let _check_in_gate = state.check_in_gate.lock().await;
+        let data = self.snapshot_async().await?;
+        let mut progress_items = Vec::with_capacity(data.providers.len());
+        let mut targets = Vec::new();
+        for provider in &data.providers {
+            let item = if !provider.runtime.enabled {
+                ProviderBatchProgressItem::skipped(provider, "中转站已停用")
+            } else {
+                let is_anyrouter = ProtocolAdapter.is_anyrouter(provider);
+                let supports =
+                    provider_domain::capabilities::supports_check_in(provider, is_anyrouter);
+                if !supports {
+                    ProviderBatchProgressItem::skipped(provider, "当前协议或站点不支持签到")
+                } else if provider_domain::capabilities::checked_in_today(provider, is_anyrouter) {
+                    ProviderBatchProgressItem::skipped(provider, "今日已签到")
+                } else {
+                    targets.push(provider.clone());
+                    ProviderBatchProgressItem::pending(provider)
+                }
+            };
+            progress_items.push(item);
+        }
+        send_progress(
+            &channel,
+            ProviderBatchProgressEvent::Started {
+                operation: ProviderBatchOperation::CheckIn,
+                total: progress_items.len(),
+                items: progress_items.clone(),
+            },
+        );
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CHECK_IN));
+        let mut handles = Vec::with_capacity(targets.len());
+        for provider in targets {
+            let app = self.app.clone();
+            let semaphore = Arc::clone(&semaphore);
+            let progress = channel.clone();
+            handles.push(tauri::async_runtime::spawn(async move {
+                let _permit = semaphore
+                    .acquire()
+                    .await
+                    .expect("check-in semaphore closed");
+                send_progress(
+                    &progress,
+                    ProviderBatchProgressEvent::ProviderStarted {
+                        operation: ProviderBatchOperation::CheckIn,
+                        item: ProviderBatchProgressItem::new(
+                            &provider,
+                            ProviderBatchStatus::Running,
+                            "正在签到",
+                            None,
+                        ),
+                    },
+                );
+
+                let provider_id = provider.identity.id.clone();
+                let service = ProviderService::new(&app);
+                let (status, message, quota_delta) = match service.check_in_inner(provider_id).await
+                {
+                    Ok(result) => (
+                        if result.ok {
+                            ProviderBatchStatus::Success
+                        } else {
+                            ProviderBatchStatus::Failed
+                        },
+                        non_empty(
+                            &result.message,
+                            if result.ok {
+                                "签到成功"
+                            } else {
+                                "签到失败"
+                            },
+                        )
+                        .to_string(),
+                        result.quota_delta,
+                    ),
+                    Err(error) => (ProviderBatchStatus::Failed, error, None),
+                };
+                let latest = service
+                    .snapshot_async()
+                    .await
+                    .ok()
+                    .and_then(|data| find_provider(&data, &provider.identity.id).ok());
+                let display_provider = latest.as_ref().unwrap_or(&provider);
+                let item = ProviderBatchProgressItem::new(
+                    display_provider,
+                    status,
+                    message,
+                    Some(ProviderBatchDetails::from_provider(
+                        display_provider,
+                        quota_delta,
+                    )),
+                );
+                send_progress(
+                    &progress,
+                    ProviderBatchProgressEvent::ProviderFinished {
+                        operation: ProviderBatchOperation::CheckIn,
+                        item: item.clone(),
+                    },
+                );
+                item
+            }));
+        }
+
+        for handle in handles {
+            let item = handle
+                .await
+                .map_err(|error| format!("签到任务异常: {error}"))?;
+            if let Some(slot) = progress_items
+                .iter_mut()
+                .find(|slot| slot.provider_id == item.provider_id)
+            {
+                *slot = item;
+            }
+        }
+
+        let providers = self.snapshot_async().await?.providers;
+        send_progress(
+            &channel,
+            ProviderBatchProgressEvent::Completed {
+                operation: ProviderBatchOperation::CheckIn,
+                summary: crate::models::ProviderBatchSummary::from_items(&progress_items),
+            },
+        );
+        Ok(RefreshResult { providers })
+    }
+}
+
+fn send_progress(channel: &Channel<ProviderBatchProgressEvent>, event: ProviderBatchProgressEvent) {
+    let _ = channel.send(event);
 }
 
 fn is_auto_check_in_error(message: &str) -> bool {

@@ -16,7 +16,7 @@ interface UseSettingsControllerOptions {
   settings: Ref<AppSettings>;
   initialSettings: AppSettings;
   saveSettings: (settings: AppSettings) => Promise<unknown>;
-  probeCliEnvironment: () => Promise<CliEnvironmentProbeResult>;
+  probeCliTools: (deep?: boolean) => Promise<CliEnvironmentProbeResult>;
 }
 
 export type SettingsSaveState = "saved" | "pending" | "saving" | "error";
@@ -143,7 +143,7 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     }
   }
 
-  async function probeCliEnvironment() {
+  async function probeCliTools() {
     if (probingCliEnvironment.value) {
       return;
     }
@@ -151,7 +151,7 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     const settingsAtStart = captureCliEnvironmentSettings(settingsForm);
     probingCliEnvironment.value = true;
     try {
-      const result = await options.probeCliEnvironment();
+      const result = await options.probeCliTools(true);
       applyCliEnvironmentProbeResult(settingsForm, result, settingsAtStart);
     } catch (error) {
       // 自动探测失败只在设置卡片内呈现，不打断启动流程。
@@ -163,11 +163,9 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     }
   }
 
-  async function autoProbeCliEnvironment() {
-    const settingsAtStart = captureCliEnvironmentSettings(settingsForm);
+  async function autoProbeCliTools() {
     try {
-      const result = await options.probeCliEnvironment();
-      applyCliEnvironmentProbeResult(settingsForm, result, settingsAtStart);
+      await options.probeCliTools(false);
     } catch {
       // Keep startup quiet; the settings panel presents the unavailable state.
     }
@@ -231,8 +229,8 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     setupThemeListener,
     cleanupThemeListener,
     flushSettingsSave,
-    probeCliEnvironment,
-    autoProbeCliEnvironment,
+    probeCliTools,
+    autoProbeCliTools,
     syncLaunchAtLogin,
     syncFromSettings,
     resetDraftOnClose,

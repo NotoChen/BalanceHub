@@ -5,6 +5,7 @@ export interface ProviderCheckInResult {
   message: string;
   lastCheckedInAt?: string;
   lastCheckInUser?: string;
+  quotaDelta?: number;
 }
 
 export function checkInProvider(id: string) {
