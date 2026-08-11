@@ -1,11 +1,17 @@
 use super::SystemProxyConfig;
+#[cfg(target_os = "macos")]
 use crate::{limits, platform::process::run_command_with_output_timeout};
+#[cfg(target_os = "macos")]
 use std::{process::Command, time::Duration};
 
+#[cfg(target_os = "macos")]
 const SCUTIL_PATH: &str = "/usr/sbin/scutil";
+#[cfg(target_os = "macos")]
 const NETWORKSETUP_PATH: &str = "/usr/sbin/networksetup";
+#[cfg(target_os = "macos")]
 const SYSTEM_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
+#[cfg(target_os = "macos")]
 pub(super) fn system_proxy_config() -> SystemProxyConfig {
     if let Some(scutil_text) = command_stdout(SCUTIL_PATH, &["--proxy"]) {
         if automatic_proxy_enabled(&scutil_text) {
@@ -60,10 +66,12 @@ fn automatic_proxy_enabled(text: &str) -> bool {
     proxy_enabled(text, "ProxyAutoConfigEnable") || proxy_enabled(text, "ProxyAutoDiscoveryEnable")
 }
 
+#[cfg(target_os = "macos")]
 fn has_static_proxy(config: &SystemProxyConfig) -> bool {
     !config.http_url.is_empty() || !config.https_url.is_empty() || !config.all_url.is_empty()
 }
 
+#[cfg(target_os = "macos")]
 fn networksetup_proxy_config() -> Option<SystemProxyConfig> {
     let services = command_stdout(NETWORKSETUP_PATH, &["-listallnetworkservices"])?;
     network_service_names(&services)
@@ -72,6 +80,7 @@ fn networksetup_proxy_config() -> Option<SystemProxyConfig> {
         .next()
 }
 
+#[cfg(target_os = "macos")]
 fn networksetup_proxy_for_service(service: &str) -> Option<SystemProxyConfig> {
     let http_url = networksetup_proxy_url("-getwebproxy", service, "http").unwrap_or_default();
     let https_url = networksetup_proxy_url("-getsecurewebproxy", service, "http");
@@ -89,6 +98,7 @@ fn networksetup_proxy_for_service(service: &str) -> Option<SystemProxyConfig> {
     has_static_proxy(&config).then_some(config)
 }
 
+#[cfg(target_os = "macos")]
 fn networksetup_proxy_url(command_name: &str, service: &str, scheme: &str) -> Option<String> {
     let output = command_stdout(NETWORKSETUP_PATH, &[command_name, service])?;
     parse_networksetup_proxy(&output, scheme)
@@ -125,6 +135,7 @@ fn network_service_names(text: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(target_os = "macos")]
 fn command_stdout(program: &str, args: &[&str]) -> Option<String> {
     let mut command = Command::new(program);
     command.args(args);
