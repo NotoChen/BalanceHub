@@ -363,6 +363,36 @@ impl<'a> ProviderService<'a> {
         .await
     }
 
+    /// Persist credentials produced by an authenticated adapter operation.
+    ///
+    /// Authentication can refresh a JWT, rotate a refresh token, or turn a
+    /// password login into a reusable NewAPI session. The operation started
+    /// from a snapshot, so merge only when that exact snapshot is still the
+    /// active provider; otherwise a concurrent edit wins and the network
+    /// result is discarded.
+    pub(super) async fn persist_operation_provider(
+        &self,
+        request_context: &ProviderRequestContext,
+        authenticated: &Provider,
+    ) -> Result<Option<Provider>, String> {
+        let request_context = request_context.clone();
+        let authenticated = authenticated.clone();
+        self.mutate_async(move |data| {
+            data.providers
+                .iter_mut()
+                .find(|stored| request_context.matches(stored))
+                .map(|stored| {
+                    let previous_auth = stored.auth.clone();
+                    merge_authenticated_credentials(stored, &authenticated);
+                    if stored.auth != previous_auth {
+                        stored.capabilities = Default::default();
+                    }
+                    stored.clone()
+                })
+        })
+        .await
+    }
+
     pub fn export_app_data(&self, path: String) -> Result<AppDataTransferResult, String> {
         self.ensure_storage_ready()?;
         let target = PathBuf::from(path);
@@ -408,4 +438,39 @@ fn find_provider(data: &AppData, id: &str) -> Result<Provider, String> {
         .find(|provider| provider.identity.id == id)
         .cloned()
         .ok_or_else(|| "中转站不存在".to_string())
+}
+
+pub(super) fn merge_authenticated_credentials(stored: &mut Provider, authenticated: &Provider) {
+    match stored.identity.protocol {
+        ProviderProtocol::Sub2Api => {
+            stored.auth.access_token = authenticated.auth.access_token.clone();
+            stored.auth.refresh_token = authenticated.auth.refresh_token.clone();
+            stored.auth.access_token_expires_at = authenticated.auth.access_token_expires_at;
+            if stored.auth.login_username.trim().is_empty()
+                && !authenticated.auth.login_username.trim().is_empty()
+            {
+                stored.auth.login_username = authenticated.auth.login_username.clone();
+            }
+        }
+        ProviderProtocol::NewApi => {
+            // Keep the configured mode as the user's source of truth. A
+            // password operation may use a temporary Session mode internally,
+            // but its session cookie and user id are still reusable.
+            if !authenticated.auth.session_cookie.trim().is_empty() {
+                stored.auth.session_cookie = authenticated.auth.session_cookie.clone();
+            }
+            if !authenticated.auth.api_user.trim().is_empty() {
+                stored.auth.api_user = authenticated.auth.api_user.clone();
+            }
+            if !authenticated.auth.access_token.trim().is_empty() {
+                stored.auth.access_token = authenticated.auth.access_token.clone();
+            }
+            if stored.auth.login_username.trim().is_empty()
+                && !authenticated.auth.login_username.trim().is_empty()
+            {
+                stored.auth.login_username = authenticated.auth.login_username.clone();
+            }
+        }
+        ProviderProtocol::Api => {}
+    }
 }

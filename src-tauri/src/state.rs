@@ -9,9 +9,10 @@ use std::sync::{Mutex, RwLock};
 #[derive(Default)]
 pub struct AppState {
     pub data: RwLock<AppData>,
-    /// 刷新互斥闸门：手动刷新与调度刷新并发时会对同一批站点重复打请求，
-    /// 结果又按 id 合并互相覆盖。手动路径 `lock().await` 排队，调度器 `try_lock`
-    /// 拿不到直接跳过本 tick（下个 tick 重新评估到期），两边都不会饿死。
+    /// 网络认证互斥闸门：手动刷新、调度刷新以及可能轮换 Sub2API
+    /// `refresh_token` 的交互操作不能同时运行。手动路径 `lock().await` 排队，
+    /// 调度器 `try_lock` 拿不到直接跳过本 tick（下个 tick 重新评估到期），
+    /// 两边都不会饿死。
     pub refresh_gate: tokio::sync::Mutex<()>,
     /// 串行化手动和批量签到，避免同一账号在两个入口同时提交签到请求。
     pub check_in_gate: tokio::sync::Mutex<()>,

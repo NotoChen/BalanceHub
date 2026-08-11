@@ -1,8 +1,6 @@
 use super::{
     api::ApiAdapter,
-    new_api::{
-        anyrouter_message_indicates_already_checked_in, provider_is_anyrouter, NewApiAdapter,
-    },
+    new_api::{provider_is_anyrouter, NewApiAdapter},
     sub2_api::Sub2ApiAdapter,
 };
 use crate::models::{
@@ -11,20 +9,23 @@ use crate::models::{
     ProviderCredentialCompletionResult, ProviderInput, ProviderProtocol, ProviderRequestLogsQuery,
     ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary,
 };
+
+/// Result of a provider operation together with the credentials that were
+/// actually used. Account protocols may refresh or re-issue credentials while
+/// serving an otherwise successful request; callers must persist this provider
+/// atomically instead of discarding the rotated token/session.
+#[derive(Debug)]
+pub(crate) struct ProviderOperationResult<T> {
+    pub(crate) provider: Provider,
+    pub(crate) value: T,
+}
+
 pub(crate) struct ProtocolAdapter;
 
 impl ProtocolAdapter {
     pub(crate) fn is_anyrouter(&self, provider: &Provider) -> bool {
         matches!(provider.identity.protocol, ProviderProtocol::NewApi)
             && provider_is_anyrouter(provider)
-    }
-
-    pub(crate) fn check_in_message_indicates_already_checked_in(
-        &self,
-        provider: &Provider,
-        message: &str,
-    ) -> bool {
-        self.is_anyrouter(provider) && anyrouter_message_indicates_already_checked_in(message)
     }
 
     pub(crate) async fn complete_credentials(
@@ -56,11 +57,20 @@ impl ProtocolAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderConnectionTestResult, String> {
+    ) -> Result<ProviderOperationResult<ProviderConnectionTestResult>, String> {
         match provider.identity.protocol {
-            ProviderProtocol::NewApi => NewApiAdapter.test_connection(settings, provider).await,
-            ProviderProtocol::Sub2Api => Sub2ApiAdapter.test_connection(settings, provider).await,
-            ProviderProtocol::Api => ApiAdapter.test_connection(settings, provider).await,
+            ProviderProtocol::NewApi => {
+                let (provider, value) = NewApiAdapter.test_connection(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Sub2Api => {
+                let (provider, value) = Sub2ApiAdapter.test_connection(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.test_connection(settings, provider).await?,
+            }),
         }
     }
 
@@ -80,11 +90,20 @@ impl ProtocolAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<Vec<ProviderApiKeyOption>, String> {
+    ) -> Result<ProviderOperationResult<Vec<ProviderApiKeyOption>>, String> {
         match provider.identity.protocol {
-            ProviderProtocol::NewApi => NewApiAdapter.list_api_keys(settings, provider).await,
-            ProviderProtocol::Sub2Api => Sub2ApiAdapter.list_api_keys(settings, provider).await,
-            ProviderProtocol::Api => ApiAdapter.list_api_keys(settings, provider).await,
+            ProviderProtocol::NewApi => {
+                let (provider, value) = NewApiAdapter.list_api_keys(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Sub2Api => {
+                let (provider, value) = Sub2ApiAdapter.list_api_keys(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.list_api_keys(settings, provider).await?,
+            }),
         }
     }
 
@@ -93,17 +112,24 @@ impl ProtocolAdapter {
         settings: &AppSettings,
         provider: &Provider,
         name: &str,
-    ) -> Result<ProviderApiKeyOption, String> {
+    ) -> Result<ProviderOperationResult<ProviderApiKeyOption>, String> {
         match provider.identity.protocol {
             ProviderProtocol::NewApi => {
-                NewApiAdapter.create_api_key(settings, provider, name).await
+                let (provider, value) = NewApiAdapter
+                    .create_api_key(settings, provider, name)
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
             ProviderProtocol::Sub2Api => {
-                Sub2ApiAdapter
+                let (provider, value) = Sub2ApiAdapter
                     .create_api_key(settings, provider, name)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
-            ProviderProtocol::Api => ApiAdapter.create_api_key(settings, provider, name).await,
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.create_api_key(settings, provider, name).await?,
+            }),
         }
     }
 
@@ -132,23 +158,26 @@ impl ProtocolAdapter {
         settings: &AppSettings,
         provider: &Provider,
         token_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<ProviderOperationResult<()>, String> {
         match provider.identity.protocol {
             ProviderProtocol::NewApi => {
-                NewApiAdapter
+                let (provider, value) = NewApiAdapter
                     .delete_api_key(settings, provider, token_id)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
             ProviderProtocol::Sub2Api => {
-                Sub2ApiAdapter
+                let (provider, value) = Sub2ApiAdapter
                     .delete_api_key(settings, provider, token_id)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
-            ProviderProtocol::Api => {
-                ApiAdapter
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter
                     .delete_api_key(settings, provider, token_id)
-                    .await
-            }
+                    .await?,
+            }),
         }
     }
 
@@ -157,19 +186,24 @@ impl ProtocolAdapter {
         settings: &AppSettings,
         provider: &Provider,
         period: &str,
-    ) -> Result<ProviderUsageSummary, String> {
+    ) -> Result<ProviderOperationResult<ProviderUsageSummary>, String> {
         match provider.identity.protocol {
             ProviderProtocol::NewApi => {
-                NewApiAdapter
+                let (provider, value) = NewApiAdapter
                     .usage_summary(settings, provider, period)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
             ProviderProtocol::Sub2Api => {
-                Sub2ApiAdapter
+                let (provider, value) = Sub2ApiAdapter
                     .usage_summary(settings, provider, period)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
-            ProviderProtocol::Api => ApiAdapter.usage_summary(settings, provider, period).await,
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.usage_summary(settings, provider, period).await?,
+            }),
         }
     }
 
@@ -178,13 +212,24 @@ impl ProtocolAdapter {
         settings: &AppSettings,
         provider: &Provider,
         query: ProviderRequestLogsQuery,
-    ) -> Result<ProviderRequestLogsResult, String> {
+    ) -> Result<ProviderOperationResult<ProviderRequestLogsResult>, String> {
         match provider.identity.protocol {
-            ProviderProtocol::NewApi => NewApiAdapter.request_logs(settings, provider, query).await,
-            ProviderProtocol::Sub2Api => {
-                Sub2ApiAdapter.request_logs(settings, provider, query).await
+            ProviderProtocol::NewApi => {
+                let (provider, value) = NewApiAdapter
+                    .request_logs(settings, provider, query)
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
-            ProviderProtocol::Api => ApiAdapter.request_logs(settings, provider, query).await,
+            ProviderProtocol::Sub2Api => {
+                let (provider, value) = Sub2ApiAdapter
+                    .request_logs(settings, provider, query)
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.request_logs(settings, provider, query).await?,
+            }),
         }
     }
 
@@ -194,23 +239,26 @@ impl ProtocolAdapter {
         provider: &Provider,
         original_password: &str,
         password: &str,
-    ) -> Result<String, String> {
+    ) -> Result<ProviderOperationResult<String>, String> {
         match provider.identity.protocol {
             ProviderProtocol::NewApi => {
-                NewApiAdapter
+                let (provider, value) = NewApiAdapter
                     .change_password(settings, provider, original_password, password)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
             ProviderProtocol::Sub2Api => {
-                Sub2ApiAdapter
+                let (provider, value) = Sub2ApiAdapter
                     .change_password(settings, provider, original_password, password)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
-            ProviderProtocol::Api => {
-                ApiAdapter
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter
                     .change_password(settings, provider, original_password, password)
-                    .await
-            }
+                    .await?,
+            }),
         }
     }
 
@@ -218,13 +266,24 @@ impl ProtocolAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<(ProviderCapabilities, String, Option<String>), String> {
+    ) -> Result<ProviderOperationResult<(ProviderCapabilities, String, Option<String>)>, String>
+    {
         match provider.identity.protocol {
-            ProviderProtocol::NewApi => NewApiAdapter.probe_capabilities(settings, provider).await,
-            ProviderProtocol::Sub2Api => {
-                Sub2ApiAdapter.probe_capabilities(settings, provider).await
+            ProviderProtocol::NewApi => {
+                let (provider, value) =
+                    NewApiAdapter.probe_capabilities(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
             }
-            ProviderProtocol::Api => ApiAdapter.probe_capabilities(settings, provider).await,
+            ProviderProtocol::Sub2Api => {
+                let (provider, value) = Sub2ApiAdapter
+                    .probe_capabilities(settings, provider)
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.probe_capabilities(settings, provider).await?,
+            }),
         }
     }
 
@@ -232,11 +291,20 @@ impl ProtocolAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<String, String> {
+    ) -> Result<ProviderOperationResult<String>, String> {
         match provider.identity.protocol {
-            ProviderProtocol::NewApi => NewApiAdapter.invite_link(settings, provider).await,
-            ProviderProtocol::Sub2Api => Sub2ApiAdapter.invite_link(settings, provider).await,
-            ProviderProtocol::Api => ApiAdapter.invite_link(settings, provider).await,
+            ProviderProtocol::NewApi => {
+                let (provider, value) = NewApiAdapter.invite_link(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Sub2Api => {
+                let (provider, value) = Sub2ApiAdapter.invite_link(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.invite_link(settings, provider).await?,
+            }),
         }
     }
 
@@ -256,11 +324,20 @@ impl ProtocolAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderCheckInResult, String> {
+    ) -> Result<ProviderOperationResult<ProviderCheckInResult>, String> {
         match provider.identity.protocol {
-            ProviderProtocol::NewApi => NewApiAdapter.check_in(settings, provider).await,
-            ProviderProtocol::Sub2Api => Sub2ApiAdapter.check_in(settings, provider).await,
-            ProviderProtocol::Api => ApiAdapter.check_in(settings, provider).await,
+            ProviderProtocol::NewApi => {
+                let (provider, value) = NewApiAdapter.check_in(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Sub2Api => {
+                let (provider, value) = Sub2ApiAdapter.check_in(settings, provider).await?;
+                Ok(ProviderOperationResult { provider, value })
+            }
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter.check_in(settings, provider).await?,
+            }),
         }
     }
 
@@ -269,19 +346,26 @@ impl ProtocolAdapter {
         settings: &AppSettings,
         provider: &Provider,
         month: &str,
-    ) -> Result<ProviderCheckInRecordsResult, String> {
+    ) -> Result<ProviderOperationResult<ProviderCheckInRecordsResult>, String> {
         match provider.identity.protocol {
             ProviderProtocol::NewApi => {
-                NewApiAdapter
+                let (provider, value) = NewApiAdapter
                     .check_in_records(settings, provider, month)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
             ProviderProtocol::Sub2Api => {
-                Sub2ApiAdapter
+                let (provider, value) = Sub2ApiAdapter
                     .check_in_records(settings, provider, month)
-                    .await
+                    .await?;
+                Ok(ProviderOperationResult { provider, value })
             }
-            ProviderProtocol::Api => ApiAdapter.check_in_records(settings, provider, month).await,
+            ProviderProtocol::Api => Ok(ProviderOperationResult {
+                provider: provider.clone(),
+                value: ApiAdapter
+                    .check_in_records(settings, provider, month)
+                    .await?,
+            }),
         }
     }
 }

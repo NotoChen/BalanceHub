@@ -73,7 +73,7 @@ fn parse_check_in_response(response_status: StatusCode, body_text: &str) -> Acco
     if response_status == StatusCode::UNAUTHORIZED {
         return AccountResult {
             ok: false,
-            message: "认证无效(401)".to_string(),
+            message: format!("认证无效(401): {}", trim_message(body_text)),
         };
     }
 
@@ -128,8 +128,12 @@ fn parse_check_in_response(response_status: StatusCode, body_text: &str) -> Acco
             },
         },
         None => AccountResult {
-            ok: true,
-            message: format!("返回: {data}"),
+            ok: anyrouter_message_indicates_already_checked_in(message),
+            message: if message.is_empty() {
+                format!("响应缺少 success 字段: {data}")
+            } else {
+                format!("响应缺少 success 字段: {message}")
+            },
         },
     }
 }
@@ -212,5 +216,20 @@ mod tests {
         assert!(!anyrouter_message_indicates_already_checked_in(
             "签到失败，余额不足"
         ));
+    }
+
+    #[test]
+    fn missing_success_is_not_treated_as_success() {
+        let result = parse_check_in_response(StatusCode::OK, r#"{"message":"ok"}"#);
+        assert!(!result.ok);
+        assert!(result.message.contains("响应缺少 success 字段"));
+    }
+
+    #[test]
+    fn unauthorized_response_keeps_server_detail() {
+        let result =
+            parse_check_in_response(StatusCode::UNAUTHORIZED, r#"{"message":"session expired"}"#);
+        assert!(!result.ok);
+        assert!(result.message.contains("session expired"));
     }
 }

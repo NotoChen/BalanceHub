@@ -25,21 +25,16 @@ impl Sub2ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderConnectionTestResult, String> {
+    ) -> Result<(Provider, ProviderConnectionTestResult), String> {
         let client = build_client(settings, provider).await?;
         let site = fetch_site(&client, &provider.identity.base_url).await.ok();
         let mut steps = Vec::new();
 
-        // 测试连接只做只读验证，不能使用会轮换的 refresh_token。Sub2API 每次刷新都会
-        // 立即作废旧 token，而连接测试的返回结构不负责持久化新 token；若在这里轮换，
-        // 存储中就会留下已失效的旧 token。访问令牌失效时仍可用账号密码临时重登验证。
-        let mut connection_provider = provider.clone();
-        connection_provider.auth.refresh_token.clear();
         let refreshed = self
-            .refresh_provider_with_client(&client, &connection_provider, site)
+            .refresh_provider_with_client(&client, provider, site)
             .await;
-        match refreshed.runtime.status {
-            ProviderStatus::Error => Ok(ProviderConnectionTestResult {
+        let value = match refreshed.runtime.status {
+            ProviderStatus::Error => ProviderConnectionTestResult {
                 ok: false,
                 message: refreshed
                     .runtime
@@ -50,7 +45,7 @@ impl Sub2ApiAdapter {
                 used: None,
                 quota_display: quota_display(&refreshed),
                 steps,
-            }),
+            },
             _ => {
                 let available = refreshed.quota.known.then_some(refreshed.quota.available);
                 let used = refreshed.quota.total_known.then_some(refreshed.quota.used);
@@ -66,16 +61,17 @@ impl Sub2ApiAdapter {
                     used,
                     quota_display: quota_display(&refreshed),
                 });
-                Ok(ProviderConnectionTestResult {
+                ProviderConnectionTestResult {
                     ok: true,
                     message: steps[0].message.clone(),
                     available,
                     used,
                     quota_display: quota_display(&refreshed),
                     steps,
-                })
+                }
             }
-        }
+        };
+        Ok((refreshed, value))
     }
 
     pub(crate) async fn probe_site(
@@ -121,7 +117,7 @@ impl Sub2ApiAdapter {
         &self,
         _settings: &AppSettings,
         _provider: &Provider,
-    ) -> Result<ProviderCheckInResult, String> {
+    ) -> Result<(Provider, ProviderCheckInResult), String> {
         Err("Sub2API 不提供用户签到接口".to_string())
     }
 
@@ -130,7 +126,7 @@ impl Sub2ApiAdapter {
         _settings: &AppSettings,
         _provider: &Provider,
         _month: &str,
-    ) -> Result<ProviderCheckInRecordsResult, String> {
+    ) -> Result<(Provider, ProviderCheckInRecordsResult), String> {
         Err("Sub2API 不提供签到记录接口".to_string())
     }
 
@@ -145,8 +141,8 @@ impl Sub2ApiAdapter {
             return next;
         }
 
-        // 唯一使用 refresh_token 的地方：持久化刷新路径（配合刷新闸门单飞），避免
-        // 已轮换的 refresh_token 被重复提交而触发服务端「重用攻击」吊销整个会话家族。
+        // 刷新路径会轮换 refresh_token。服务层在进入该适配器前持有网络认证闸门，
+        // 交互式账号请求也复用同一闸门，避免已轮换的令牌被并发重复提交。
         let mut working = provider.clone();
         let mut token_refresh_succeeded = false;
         if needs_token_refresh(&working) {

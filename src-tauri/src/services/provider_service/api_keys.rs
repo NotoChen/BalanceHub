@@ -7,18 +7,30 @@ use crate::{
     },
     util::unix_millis as current_timestamp_millis,
 };
+use tauri::Manager;
 
 use super::{find_provider, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn list_api_keys(&self, id: String) -> Result<Vec<ProviderApiKeyOption>, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
-        let options = ProtocolAdapter
+        let operation = ProtocolAdapter
             .list_api_keys(&data.settings, &provider)
             .await?;
-        self.persist_api_key_options(&request_context, &options, None)
+        let options = operation.value;
+        let authenticated = operation.provider;
+        let persisted_provider = self
+            .persist_operation_provider(&request_context, &authenticated)
+            .await?;
+        let options_context = persisted_provider
+            .as_ref()
+            .map(ProviderRequestContext::capture)
+            .unwrap_or(request_context);
+        self.persist_api_key_options(&options_context, &options, None)
             .await?;
         Ok(options)
     }
@@ -28,15 +40,34 @@ impl<'a> ProviderService<'a> {
         id: String,
         name: String,
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
-        adapter
+        let created = adapter
             .create_api_key(&data.settings, &provider, &name)
             .await?;
-        let options = adapter.list_api_keys(&data.settings, &provider).await?;
-        self.persist_api_key_options(&request_context, &options, None)
+        let persisted_created = self
+            .persist_operation_provider(&request_context, &created.provider)
+            .await?;
+        let list_provider = persisted_created
+            .clone()
+            .unwrap_or_else(|| created.provider.clone());
+        let list_context = ProviderRequestContext::capture(&list_provider);
+        let listed = adapter
+            .list_api_keys(&data.settings, &list_provider)
+            .await?;
+        let persisted_listed = self
+            .persist_operation_provider(&list_context, &listed.provider)
+            .await?;
+        let options_context = persisted_listed
+            .as_ref()
+            .map(ProviderRequestContext::capture)
+            .unwrap_or(list_context);
+        let options = listed.value;
+        self.persist_api_key_options(&options_context, &options, None)
             .await?;
         Ok(options)
     }
@@ -46,15 +77,18 @@ impl<'a> ProviderService<'a> {
         input: ProviderInput,
         name: String,
     ) -> Result<ProviderApiKeyOption, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider_id = input
             .id
             .clone()
             .unwrap_or_else(|| format!("provider-{}", current_timestamp_millis()));
         let provider = Provider::from_input(input, provider_id);
-        ProtocolAdapter
+        let operation = ProtocolAdapter
             .create_api_key(&data.settings, &provider, &name)
-            .await
+            .await?;
+        Ok(operation.value)
     }
 
     pub async fn delete_api_key(
@@ -62,15 +96,34 @@ impl<'a> ProviderService<'a> {
         id: String,
         token_id: String,
     ) -> Result<Vec<ProviderApiKeyOption>, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
-        adapter
+        let deleted = adapter
             .delete_api_key(&data.settings, &provider, &token_id)
             .await?;
-        let options = adapter.list_api_keys(&data.settings, &provider).await?;
-        self.persist_api_key_options(&request_context, &options, Some(&token_id))
+        let persisted_deleted = self
+            .persist_operation_provider(&request_context, &deleted.provider)
+            .await?;
+        let list_provider = persisted_deleted
+            .clone()
+            .unwrap_or_else(|| deleted.provider.clone());
+        let list_context = ProviderRequestContext::capture(&list_provider);
+        let listed = adapter
+            .list_api_keys(&data.settings, &list_provider)
+            .await?;
+        let persisted_listed = self
+            .persist_operation_provider(&list_context, &listed.provider)
+            .await?;
+        let options_context = persisted_listed
+            .as_ref()
+            .map(ProviderRequestContext::capture)
+            .unwrap_or(list_context);
+        let options = listed.value;
+        self.persist_api_key_options(&options_context, &options, Some(&token_id))
             .await?;
         Ok(options)
     }

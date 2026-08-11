@@ -219,6 +219,8 @@ impl Provider {
     pub fn apply_input(&mut self, input: ProviderInput) {
         let previous_check_in_user = self.auth.api_user.trim();
         let protocol_changed = self.identity.protocol != input.identity.protocol;
+        let base_url_changed = self.identity.base_url.trim_end_matches('/')
+            != input.identity.base_url.trim_end_matches('/');
         let next_auth_mode = if matches!(input.identity.protocol, ProviderProtocol::Api) {
             AuthMode::ApiKey
         } else {
@@ -264,11 +266,23 @@ impl Provider {
         } else {
             input.auth.access_token_expires_at
         };
+        let auth_material_changed = protocol_changed
+            || base_url_changed
+            || self.auth.mode != next_auth_mode
+            || self.auth.api_key != input.auth.api_key
+            || self.auth.access_token != next_access_token
+            || self.auth.session_cookie != next_session_cookie
+            || self.auth.api_user != next_api_user
+            || self.auth.login_username != input.auth.login_username
+            || self.auth.login_password != input.auth.login_password
+            || self.auth.refresh_token != next_refresh_token
+            || self.auth.access_token_expires_at != next_access_token_expires_at;
         let next_check_in_user = next_api_user.trim();
         let session_changed = previous_check_in_user.is_empty()
             && next_check_in_user.is_empty()
             && session_value(&self.auth.session_cookie) != session_value(&next_session_cookie);
-        if protocol_changed || previous_check_in_user != next_check_in_user || session_changed {
+        if auth_material_changed || previous_check_in_user != next_check_in_user || session_changed
+        {
             self.automation.last_checked_in_at = None;
             self.automation.last_check_in_user = String::new();
             self.automation.check_in_records.clear();
@@ -279,7 +293,7 @@ impl Provider {
         } else {
             input.auth.api_user.trim().to_string()
         };
-        let identity_user_id = if protocol_changed
+        let identity_user_id = if auth_material_changed
             || matches!(next_auth_mode, AuthMode::ApiKey)
             || previous_check_in_user != next_check_in_user
             || session_changed
@@ -295,7 +309,7 @@ impl Provider {
         self.identity.protocol = input.identity.protocol;
         self.identity.user_id = identity_user_id;
         self.identity.backup_urls = backup_url_list(input.identity.backup_urls);
-        if protocol_changed {
+        if auth_material_changed {
             self.identity.display_name.clear();
             self.identity.username.clear();
             self.identity.user_id.clear();
@@ -571,5 +585,36 @@ mod tests {
         assert!(provider.capabilities.available_models.is_empty());
         assert!(!provider.capabilities.api_key_management_known);
         assert!(provider.automation.last_checked_in_at.is_none());
+    }
+
+    #[test]
+    fn changing_credentials_invalidates_capability_cache() {
+        let mut input = ProviderInput::default();
+        input.identity.base_url = "https://relay.example.com".to_string();
+        input.auth.login_username = "alice".to_string();
+        input.auth.login_password = "old-password".to_string();
+        let mut provider = Provider::from_input(input.clone(), "provider-test".to_string());
+        provider.capabilities.available_models = vec!["cached-model".to_string()];
+        provider.capabilities.probed_at = Some("123".to_string());
+
+        input.auth.login_password = "new-password".to_string();
+        provider.apply_input(input);
+
+        assert!(provider.capabilities.available_models.is_empty());
+        assert_eq!(provider.capabilities.probed_at, None);
+        assert!(matches!(provider.runtime.status, ProviderStatus::Warning));
+    }
+
+    #[test]
+    fn changing_endpoint_invalidates_capability_cache() {
+        let mut input = ProviderInput::default();
+        input.identity.base_url = "https://relay.example.com".to_string();
+        let mut provider = Provider::from_input(input.clone(), "provider-test".to_string());
+        provider.capabilities.available_models = vec!["cached-model".to_string()];
+
+        input.identity.base_url = "https://relay-two.example.com".to_string();
+        provider.apply_input(input);
+
+        assert!(provider.capabilities.available_models.is_empty());
     }
 }

@@ -23,7 +23,7 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         period: &str,
-    ) -> Result<ProviderUsageSummary, String> {
+    ) -> Result<(Provider, ProviderUsageSummary), String> {
         let client = build_client(settings, provider).await?;
         let (start, end) = usage_dates(period);
         let query = format!("?start_date={start}&end_date={end}");
@@ -36,7 +36,7 @@ impl Sub2ApiAdapter {
             "读取用量趋势",
         )
         .await?;
-        let (_authenticated, models) = request_account_json(
+        let (authenticated, models) = request_account_json(
             &client,
             &authenticated,
             Method::GET,
@@ -65,16 +65,19 @@ impl Sub2ApiAdapter {
                 token_used: integer_field(&item, &["total_tokens"]),
             })
             .collect::<Vec<_>>();
-        Ok(ProviderUsageSummary {
-            provider_id: provider.identity.id.clone(),
-            provider_name: provider.identity.name.clone(),
-            quota_display: quota_display(provider),
-            points,
-            model_stats,
-            // Sub2API only exposes aggregate daily trend and aggregate model
-            // statistics. Do not fabricate per-model daily zero points.
-            model_points: Vec::new(),
-        })
+        Ok((
+            authenticated,
+            ProviderUsageSummary {
+                provider_id: provider.identity.id.clone(),
+                provider_name: provider.identity.name.clone(),
+                quota_display: quota_display(provider),
+                points,
+                model_stats,
+                // Sub2API only exposes aggregate daily trend and aggregate model
+                // statistics. Do not fabricate per-model daily zero points.
+                model_points: Vec::new(),
+            },
+        ))
     }
 
     pub(crate) async fn request_logs(
@@ -82,7 +85,7 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         query: ProviderRequestLogsQuery,
-    ) -> Result<ProviderRequestLogsResult, String> {
+    ) -> Result<(Provider, ProviderRequestLogsResult), String> {
         let client = build_client(settings, provider).await?;
         let page = query.page + 1;
         let mut path = format!("/usage?page={page}&page_size={}", query.page_size.max(1));
@@ -90,7 +93,7 @@ impl Sub2ApiAdapter {
             path.push_str("&model=");
             path.push_str(&urlencoding(query.keyword.trim()));
         }
-        let (_authenticated, data) =
+        let (authenticated, data) =
             request_account_json(&client, provider, Method::GET, &path, None, "读取请求日志")
                 .await?;
         let logs = object_array(&data, "items")
@@ -98,16 +101,19 @@ impl Sub2ApiAdapter {
             .map(normalize_log)
             .collect::<Vec<_>>();
         let total = data.get("total").map(|_| integer_field(&data, &["total"]));
-        Ok(ProviderRequestLogsResult {
-            provider_id: provider.identity.id.clone(),
-            provider_name: provider.identity.name.clone(),
-            page: query.page,
-            page_size: query.page_size,
-            total,
-            quota_display: quota_display(provider),
-            stats: ProviderRequestLogStats::default(),
-            logs,
-            message: "请求日志已加载".to_string(),
-        })
+        Ok((
+            authenticated,
+            ProviderRequestLogsResult {
+                provider_id: provider.identity.id.clone(),
+                provider_name: provider.identity.name.clone(),
+                page: query.page,
+                page_size: query.page_size,
+                total,
+                quota_display: quota_display(provider),
+                stats: ProviderRequestLogStats::default(),
+                logs,
+                message: "请求日志已加载".to_string(),
+            },
+        ))
     }
 }

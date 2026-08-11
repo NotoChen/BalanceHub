@@ -6,13 +6,23 @@ use crate::{
 use reqwest::{header::COOKIE, Client, IntoUrl, Method, Request, RequestBuilder, StatusCode, Url};
 use std::{
     collections::{HashMap, HashSet},
+    error::Error,
     sync::Arc,
 };
 use tokio::sync::Mutex as AsyncMutex;
 
-/// Provider requests use a stable desktop browser UA for protocol compatibility.
+/// Provider requests use a desktop browser UA appropriate for the current
+/// platform. A macOS Safari UA sent by Linux/Windows clients is rejected by
+/// some WAFs and can also select the wrong response variant.
+#[cfg(target_os = "macos")]
 pub(crate) const USER_AGENT_VALUE: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15";
+#[cfg(target_os = "windows")]
+pub(crate) const USER_AGENT_VALUE: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+pub(crate) const USER_AGENT_VALUE: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const MAX_SHIELD_ROUNDS: usize = 2;
 
 /// A provider-scoped HTTP client. Raw execution stays private so every provider
@@ -208,7 +218,7 @@ impl ProviderTransport {
             .client
             .execute(request)
             .await
-            .map_err(|err| format!("{context}失败: {err}"))?;
+            .map_err(|err| format_request_error(context, &err))?;
         let status = response.status();
         let headers = response.headers().clone();
         let url = response.url().clone();
@@ -219,6 +229,24 @@ impl ProviderTransport {
             body,
             url,
         })
+    }
+}
+
+fn format_request_error(context: &str, error: &reqwest::Error) -> String {
+    let mut causes = Vec::new();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !detail.is_empty() && causes.last() != Some(&detail) {
+            causes.push(detail);
+        }
+        source = cause.source();
+    }
+
+    if causes.is_empty() {
+        format!("{context}失败: {error}")
+    } else {
+        format!("{context}失败: {error}; 底层原因: {}", causes.join(" -> "))
     }
 }
 

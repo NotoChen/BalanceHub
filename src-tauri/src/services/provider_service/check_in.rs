@@ -13,7 +13,8 @@ use std::sync::Arc;
 use tauri::{ipc::Channel, Manager};
 
 use super::{
-    find_provider, refresh::apply_refresh_owned_fields, ProviderRequestContext, ProviderService,
+    find_provider, merge_authenticated_credentials, refresh::apply_refresh_owned_fields,
+    ProviderRequestContext, ProviderService,
 };
 
 impl<'a> ProviderService<'a> {
@@ -22,13 +23,22 @@ impl<'a> ProviderService<'a> {
         id: String,
         month: String,
     ) -> Result<ProviderCheckInRecordsResult, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         match ProtocolAdapter
             .check_in_records(&data.settings, &provider, &month)
             .await
         {
-            Ok(result) => Ok(result),
+            Ok(operation) => {
+                self.persist_operation_provider(
+                    &ProviderRequestContext::capture(&provider),
+                    &operation.provider,
+                )
+                .await?;
+                Ok(operation.value)
+            }
             Err(message) => Ok(local_check_in_records_result(
                 &provider,
                 &month,
@@ -39,6 +49,7 @@ impl<'a> ProviderService<'a> {
 
     pub async fn check_in(&self, id: String) -> Result<ProviderCheckInResult, String> {
         let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let _gate = state.check_in_gate.lock().await;
         self.check_in_inner(id).await
     }
@@ -48,10 +59,20 @@ impl<'a> ProviderService<'a> {
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
-        let mut result = adapter.check_in(&data.settings, &provider).await?;
+        let operation = adapter.check_in(&data.settings, &provider).await?;
+        self.persist_operation_provider(&request_context, &operation.provider)
+            .await?;
+        let mut effective_provider = provider.clone();
+        merge_authenticated_credentials(&mut effective_provider, &operation.provider);
+        let mutation_context = ProviderRequestContext::capture(&effective_provider);
+        let mut result = operation.value;
         let is_anyrouter = adapter.is_anyrouter(&provider);
         let refreshed_provider = if result.ok {
-            Some(adapter.refresh_provider(&data.settings, &provider).await)
+            Some(
+                adapter
+                    .refresh_provider(&data.settings, &effective_provider)
+                    .await,
+            )
         } else {
             None
         };
@@ -64,34 +85,6 @@ impl<'a> ProviderService<'a> {
                 .as_ref()
                 .and_then(|refreshed| check_in_quota_delta(&provider, refreshed));
             result.quota_delta = quota_delta;
-            let checked_date = local_date_from_timestamp(&checked_in_at)
-                .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
-
-            if is_anyrouter
-                && quota_delta.is_none()
-                && !has_rewarded_local_check_in(&provider, &checked_date)
-                && !adapter
-                    .check_in_message_indicates_already_checked_in(&provider, &result.message)
-            {
-                let provider_id = id.clone();
-                let mutation_context = request_context.clone();
-                let checked_date_for_mutation = checked_date.clone();
-                self.mutate_async(move |data| {
-                    if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
-                        stored.identity.id == provider_id && mutation_context.matches(stored)
-                    }) {
-                        clear_unrewarded_local_check_in(
-                            stored_provider,
-                            &checked_date_for_mutation,
-                        );
-                    }
-                })
-                .await?;
-                result.ok = false;
-                result.message = anyrouter_no_reward_message(&result.message);
-                return Ok(result);
-            }
-
             let stored_checked_in_at = checked_in_at.clone();
             let stored_user = check_in_user.clone();
             let stored_record = local_check_in_record(
@@ -101,7 +94,6 @@ impl<'a> ProviderService<'a> {
             );
             let refreshed_provider = refreshed_provider.filter(is_successful_quota_refresh);
             let provider_id = id.clone();
-            let mutation_context = request_context.clone();
             let checked_in_at_for_mutation = stored_checked_in_at.clone();
             let check_in_user_for_mutation = stored_user.clone();
             let persisted = self
@@ -152,10 +144,10 @@ impl<'a> ProviderService<'a> {
         } else if check_in_message_indicates_disabled(&result.message) {
             let probed_at = current_timestamp_millis().to_string();
             let provider_id = id.clone();
-            let mutation_context = request_context.clone();
+            let mutation_context_for_probe = mutation_context.clone();
             self.mutate_async(move |data| {
                 if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
-                    stored.identity.id == provider_id && mutation_context.matches(stored)
+                    stored.identity.id == provider_id && mutation_context_for_probe.matches(stored)
                 }) {
                     stored_provider.capabilities.check_in_known = true;
                     stored_provider.capabilities.check_in_supported = false;
@@ -395,52 +387,6 @@ fn upsert_local_check_in_record(provider: &mut Provider, record: ProviderCheckIn
     }
 }
 
-fn clear_unrewarded_local_check_in(provider: &mut Provider, date: &str) {
-    if has_rewarded_local_check_in(provider, date) {
-        return;
-    }
-
-    provider
-        .automation
-        .check_in_records
-        .retain(|record| record.date != date);
-    if provider
-        .automation
-        .last_checked_in_at
-        .as_deref()
-        .and_then(local_date_from_timestamp)
-        .as_deref()
-        == Some(date)
-    {
-        provider.automation.last_checked_in_at = None;
-        provider.automation.last_check_in_user.clear();
-    }
-}
-
-fn has_rewarded_local_check_in(provider: &Provider, date: &str) -> bool {
-    provider
-        .automation
-        .check_in_records
-        .iter()
-        .any(|record| record.date == date && record.quota_delta.is_some())
-}
-
-fn anyrouter_no_reward_message(site_message: &str) -> String {
-    let site_message = site_message.trim();
-    let suffix = if site_message.is_empty() {
-        String::new()
-    } else {
-        format!("站点返回：{site_message}")
-    };
-    non_empty(
-        &format!(
-            "AnyRouter 本次签到未获得余额增量，未写入签到记录。通常 08:00 前签到不会发放余额，请 08:00 后重试。{suffix}"
-        ),
-        "AnyRouter 本次签到未获得余额增量，请 08:00 后重试。",
-    )
-    .to_string()
-}
-
 fn check_in_quota_delta(before: &Provider, after: &Provider) -> Option<f64> {
     if !is_successful_quota_refresh(after) || before.quota.scope != after.quota.scope {
         return None;
@@ -523,44 +469,6 @@ mod tests {
         assert_eq!(
             provider.automation.check_in_records[0].message,
             "今日已签到"
-        );
-    }
-
-    #[test]
-    fn clear_unrewarded_local_check_in_removes_empty_record_and_last_check_in() {
-        let mut provider = provider_with_available(10.0);
-        let mut record = local_check_in_record("1782460800000", "签到成功", None);
-        record.date = "2026-06-26".to_string();
-        upsert_local_check_in_record(&mut provider, record);
-        provider.automation.last_checked_in_at = Some("1782460800000".to_string());
-        provider.automation.last_check_in_user = "provider-test".to_string();
-
-        clear_unrewarded_local_check_in(&mut provider, "2026-06-26");
-
-        assert!(provider.automation.check_in_records.is_empty());
-        assert_eq!(provider.automation.last_checked_in_at, None);
-        assert!(provider.automation.last_check_in_user.is_empty());
-    }
-
-    #[test]
-    fn clear_unrewarded_local_check_in_preserves_rewarded_record() {
-        let mut provider = provider_with_available(10.0);
-        let mut record = local_check_in_record("1782460800000", "签到成功", Some(5.0));
-        record.date = "2026-06-26".to_string();
-        upsert_local_check_in_record(&mut provider, record);
-        provider.automation.last_checked_in_at = Some("1782460800000".to_string());
-        provider.automation.last_check_in_user = "provider-test".to_string();
-
-        clear_unrewarded_local_check_in(&mut provider, "2026-06-26");
-
-        assert_eq!(provider.automation.check_in_records.len(), 1);
-        assert_eq!(
-            provider.automation.check_in_records[0].quota_delta,
-            Some(5.0)
-        );
-        assert_eq!(
-            provider.automation.last_checked_in_at,
-            Some("1782460800000".to_string())
         );
     }
 }
