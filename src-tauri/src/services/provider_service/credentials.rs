@@ -3,6 +3,7 @@ use crate::{
     models::{Provider, ProviderCredentialCompletionResult, ProviderInput},
     util::unix_millis as current_timestamp_millis,
 };
+use tauri::Manager;
 
 use super::ProviderService;
 
@@ -11,6 +12,8 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<ProviderCredentialCompletionResult, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider_id = input
             .id
@@ -25,6 +28,8 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<String, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider_id = input
             .id

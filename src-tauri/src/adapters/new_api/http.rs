@@ -4,6 +4,7 @@ use reqwest::{
     Method, Url,
 };
 use serde_json::{json, Value};
+use std::future::Future;
 
 pub(crate) use crate::adapters::transport::{
     build_client, merge_cookie_headers, ProviderTransport, USER_AGENT_VALUE,
@@ -33,6 +34,43 @@ pub(crate) async fn login_password_provider(
     provider: &Provider,
 ) -> Result<Provider, String> {
     authenticate_password_provider_inner(client, provider, true).await
+}
+
+pub(crate) fn extract_login_cookie(
+    headers: &reqwest::header::HeaderMap,
+    base_url: &str,
+) -> Option<String> {
+    let pairs = headers
+        .get_all(SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .filter_map(|value| value.split(';').next())
+        .filter_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            let name = name.trim();
+            let value = value.trim();
+            (!name.is_empty() && !value.is_empty()).then(|| (name.to_string(), value.to_string()))
+        })
+        .collect::<Vec<_>>();
+    if is_anyrouter_base_url(base_url) {
+        return pairs
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("session"))
+            .map(|(name, value)| format!("{name}={value}"));
+    }
+    if !pairs
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("session"))
+    {
+        return None;
+    }
+    Some(
+        pairs
+            .into_iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join("; "),
+    )
 }
 
 async fn authenticate_password_provider_inner(
@@ -77,7 +115,7 @@ async fn authenticate_password_provider_inner(
 
     let response = client.send(request, "账号密码登录").await?;
     let status = response.status;
-    let session_cookie = extract_session_cookie(&response.headers);
+    let session_cookie = extract_login_cookie(&response.headers, &base_url);
     let body = response.body;
     let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
     let success = payload
@@ -135,20 +173,6 @@ async fn authenticate_password_provider_inner(
     Ok(authenticated)
 }
 
-fn extract_session_cookie(headers: &reqwest::header::HeaderMap) -> Option<String> {
-    headers.get_all(SET_COOKIE).iter().find_map(|value| {
-        let text = value.to_str().ok()?;
-        text.split(';').find_map(|part| {
-            let (name, value) = part.trim().split_once('=')?;
-            if name.trim().eq_ignore_ascii_case("session") && !value.trim().is_empty() {
-                Some(value.trim().to_string())
-            } else {
-                None
-            }
-        })
-    })
-}
-
 pub(crate) fn build_user_request(
     client: &ProviderTransport,
     method: Method,
@@ -174,7 +198,7 @@ pub(crate) fn build_user_request(
             request = request.bearer_auth(access_token.trim());
         }
         UserCredential::Session(session_cookie) => {
-            let session_cookie = provider_cookie_header(&session_cookie);
+            let session_cookie = provider_cookie_header_for_base(&session_cookie, base_url);
             cookie_header =
                 merge_cookie_headers(&[cookie_header.as_str(), session_cookie.as_str()]);
         }
@@ -260,13 +284,53 @@ pub(crate) fn access_token_fallback_provider(provider: &Provider) -> Option<Prov
 
 pub(crate) fn should_retry_with_access_token(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
-    message.contains("HTTP 403")
+    normalized.contains("http 401")
+        || normalized.contains("http 403")
         || message.contains("API 密钥不支持用户签到")
         || message.contains("Cookie 签到需要")
         || message.contains("未登录")
         || normalized.contains("unauthorized")
         || normalized.contains("not logged in")
         || normalized.contains("no access token")
+}
+
+/// Execute an authenticated account operation and retry it once with the
+/// stored access token when a Session/Cookie credential is rejected. The
+/// shield breaker is checked by the caller's transport so a WAF challenge is
+/// never mistaken for a credential failure.
+pub(crate) async fn retry_with_access_token<T, Initial, Fallback, Fut>(
+    client: &ProviderTransport,
+    provider: &Provider,
+    initial: Initial,
+    fallback: Fallback,
+) -> Result<(Provider, T), String>
+where
+    T: Send,
+    Initial: Future<Output = Result<T, String>>,
+    Fallback: FnOnce(Provider) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    match initial.await {
+        Ok(value) => Ok((provider.clone(), value)),
+        Err(message)
+            if client
+                .shield_blocked_for(&provider.identity.base_url)
+                .await
+                .is_none()
+                && should_retry_with_access_token(&message) =>
+        {
+            let Some(fallback_provider) = access_token_fallback_provider(provider) else {
+                return Err(message);
+            };
+            let value = fallback(fallback_provider.clone())
+                .await
+                .map_err(|fallback_error| {
+                    format!("{message}；已尝试改用访问令牌，仍失败: {fallback_error}")
+                })?;
+            Ok((fallback_provider, value))
+        }
+        Err(message) => Err(message),
+    }
 }
 
 pub(crate) fn apply_auth_headers(
@@ -293,18 +357,47 @@ pub(crate) fn apply_session_cookie(
 
     request.header(
         COOKIE,
-        provider_cookie_header(&provider.auth.session_cookie),
+        provider_cookie_header_for_base(&provider.auth.session_cookie, &provider.identity.base_url),
     )
 }
 
-pub(crate) fn provider_cookie_header(raw: &str) -> String {
+fn provider_cookie_header_for_base(raw: &str, base_url: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
     }
 
-    let session = super::anyrouter::normalize_session_cookie(trimmed);
-    format!("session={session}")
+    if is_anyrouter_base_url(base_url) {
+        let session = super::anyrouter::normalize_session_cookie(trimmed);
+        return if session.is_empty() {
+            String::new()
+        } else {
+            format!("session={session}")
+        };
+    }
+
+    // Cookie input may be copied from a browser as `name=value; ...`. Keep all
+    // cookie pairs for ordinary NewAPI sites, dropping Set-Cookie attributes
+    // such as Path/HttpOnly that are not valid request cookies.
+    trimmed
+        .split(';')
+        .filter_map(|part| {
+            let (name, value) = part.trim().split_once('=')?;
+            let name = name.trim();
+            let value = value.trim();
+            if name.is_empty()
+                || value.is_empty()
+                || matches!(
+                    name.to_ascii_lowercase().as_str(),
+                    "path" | "domain" | "expires" | "max-age" | "secure" | "httponly" | "samesite"
+                )
+            {
+                return None;
+            }
+            Some(format!("{name}={value}"))
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 pub(crate) fn build_url(base_url: &str, path: &str) -> Result<Url, String> {
@@ -408,5 +501,36 @@ mod tests {
             "命中阿里云 WAF 验证，自动过盾后仍未通过。；已尝试改用访问令牌，仍失败"
         ));
         assert!(should_retry_with_access_token("HTTP 403: 未登录"));
+        assert!(should_retry_with_access_token("HTTP 401: session expired"));
+    }
+
+    #[test]
+    fn ordinary_newapi_cookie_keeps_all_cookie_pairs() {
+        assert_eq!(
+            provider_cookie_header_for_base("session=abc; csrf=def; Path=/; HttpOnly", ""),
+            "session=abc; csrf=def"
+        );
+    }
+
+    #[test]
+    fn anyrouter_cookie_is_reduced_to_session_only() {
+        assert_eq!(
+            provider_cookie_header_for_base(
+                "session=abc; csrf=def; Path=/",
+                "https://anyrouter.top"
+            ),
+            "session=abc"
+        );
+    }
+
+    #[test]
+    fn login_cookie_extraction_keeps_non_session_cookies_for_newapi() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.append(SET_COOKIE, "session=abc; Path=/".parse().expect("header"));
+        headers.append(SET_COOKIE, "csrf=def; Path=/".parse().expect("header"));
+
+        let cookie = extract_login_cookie(&headers, "https://relay.example.com")
+            .expect("session cookie should be present");
+        assert_eq!(cookie, "session=abc; csrf=def");
     }
 }

@@ -25,11 +25,21 @@ pub(crate) fn parse_success_data(
     let decoded = serde_json::from_str::<Value>(&body)
         .map_err(|err| format!("解析{context}响应失败: {err}: {}", trim_message(&body)))?;
 
-    if decoded
+    // Most NewAPI endpoints use `success`; the token-usage endpoint follows
+    // its OpenAI-compatible response shape and uses boolean `code` instead.
+    // Accept only an explicit boolean from either contract so arbitrary JSON
+    // cannot be mistaken for a successful business response.
+    let success = decoded
         .get("success")
         .and_then(Value::as_bool)
-        .is_some_and(|success| !success)
-    {
+        .or_else(|| decoded.get("code").and_then(Value::as_bool))
+        .ok_or_else(|| {
+            format!(
+                "{context}响应缺少 success/code 字段: {}",
+                trim_message(&body)
+            )
+        })?;
+    if !success {
         let message = decoded
             .get("message")
             .and_then(Value::as_str)
@@ -133,5 +143,55 @@ pub(crate) fn trim_message(value: &str) -> String {
         format!("{truncated}...")
     } else {
         truncated
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_success_data;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn rejects_success_response_without_success_flag() {
+        let error = parse_success_data(
+            &StatusCode::OK,
+            r#"{"data": {"id": 1}}"#.to_string(),
+            "测试",
+        )
+        .expect_err("missing success must not be accepted");
+        assert!(error.contains("缺少 success/code"));
+    }
+
+    #[test]
+    fn unwraps_explicit_success_data() {
+        let value = parse_success_data(
+            &StatusCode::OK,
+            r#"{"success":true,"data":{"id":1}}"#.to_string(),
+            "测试",
+        )
+        .expect("success response should parse");
+        assert_eq!(value["id"], 1);
+    }
+
+    #[test]
+    fn accepts_token_usage_code_flag() {
+        let value = parse_success_data(
+            &StatusCode::OK,
+            r#"{"code":true,"data":{"total_available":10}}"#.to_string(),
+            "API 密钥额度",
+        )
+        .expect("token usage response should parse");
+        assert_eq!(value["total_available"], 10);
+    }
+
+    #[test]
+    fn rejects_false_token_usage_code_flag() {
+        let error = parse_success_data(
+            &StatusCode::OK,
+            r#"{"code":false,"message":"无效密钥"}"#.to_string(),
+            "API 密钥额度",
+        )
+        .expect_err("failed token usage response must be rejected");
+        assert!(error.contains("无效密钥"));
     }
 }

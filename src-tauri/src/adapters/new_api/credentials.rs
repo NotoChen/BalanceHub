@@ -7,8 +7,8 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 use super::http::{
-    build_url, build_user_request, login_password_provider, normalize_base_url, ProviderTransport,
-    UserCredential,
+    access_token_fallback_provider, build_url, build_user_request, login_password_provider,
+    normalize_base_url, should_retry_with_access_token, ProviderTransport, UserCredential,
 };
 use super::keys::fetch_api_key_options;
 use super::response::{extract_string_field, parse_success_data, send_text};
@@ -59,14 +59,7 @@ pub async fn complete_credentials(
             ));
         } else {
             user_self_fetched = true;
-            match fetch_user_self(
-                client,
-                &base_url,
-                &updated.auth.api_user,
-                UserCredential::Session(updated.auth.session_cookie.clone()),
-            )
-            .await
-            {
+            match fetch_user_self_with_fallback(client, &updated, &base_url).await {
                 Ok(data) => {
                     if fill_api_user_from_self(&mut updated, &data) {
                         changed_fields.insert("apiUser".to_string());
@@ -141,15 +134,8 @@ pub async fn complete_credentials(
                 "缺少 API User ID，无法读取 API 密钥列表",
             ));
         }
-    } else if let Some(credential) = credential {
-        match fetch_api_key_options(
-            client,
-            &base_url,
-            &updated.auth.api_user,
-            credential.clone(),
-        )
-        .await
-        {
+    } else if credential.is_some() {
+        match fetch_api_key_options_with_fallback(client, &updated, &base_url).await {
             Ok(mut options) if !options.is_empty() => {
                 let current_key = normalize_api_key(&updated.auth.api_key);
                 let current_token_id = updated.auth.api_key_token_id.trim().to_string();
@@ -399,6 +385,74 @@ async fn fetch_user_self(
     let request = build_user_request(client, Method::GET, url, base_url, api_user, credential);
     let body = send_text(client, request, "读取用户信息").await?;
     parse_success_data(&body.0, body.1, "用户信息")
+}
+
+async fn fetch_user_self_with_fallback(
+    client: &ProviderTransport,
+    input: &ProviderInput,
+    base_url: &str,
+) -> Result<Value, String> {
+    let credential = user_self_credential(input)
+        .ok_or_else(|| "缺少访问令牌或会话 Cookie，无法读取用户信息".to_string())?;
+    let first = fetch_user_self(client, base_url, &input.auth.api_user, credential).await;
+    let Err(message) = first else {
+        return first;
+    };
+    if client
+        .shield_blocked_for(&input.identity.base_url)
+        .await
+        .is_some()
+        || !should_retry_with_access_token(&message)
+    {
+        return Err(message);
+    }
+
+    let provider = Provider::from_input(input.clone(), "credential-completion".to_string());
+    let Some(fallback) = access_token_fallback_provider(&provider) else {
+        return Err(message);
+    };
+    fetch_user_self(
+        client,
+        base_url,
+        &fallback.auth.api_user,
+        UserCredential::AccessToken(fallback.auth.access_token),
+    )
+    .await
+    .map_err(|fallback_error| format!("{message}；已尝试改用访问令牌，仍失败: {fallback_error}"))
+}
+
+async fn fetch_api_key_options_with_fallback(
+    client: &ProviderTransport,
+    input: &ProviderInput,
+    base_url: &str,
+) -> Result<Vec<ProviderApiKeyOption>, String> {
+    let credential = user_self_credential(input)
+        .ok_or_else(|| "缺少访问令牌或会话 Cookie，无法读取 API 密钥".to_string())?;
+    let first = fetch_api_key_options(client, base_url, &input.auth.api_user, credential).await;
+    let Err(message) = first else {
+        return first;
+    };
+    if client
+        .shield_blocked_for(&input.identity.base_url)
+        .await
+        .is_some()
+        || !should_retry_with_access_token(&message)
+    {
+        return Err(message);
+    }
+
+    let provider = Provider::from_input(input.clone(), "credential-completion".to_string());
+    let Some(fallback) = access_token_fallback_provider(&provider) else {
+        return Err(message);
+    };
+    fetch_api_key_options(
+        client,
+        base_url,
+        &fallback.auth.api_user,
+        UserCredential::AccessToken(fallback.auth.access_token),
+    )
+    .await
+    .map_err(|fallback_error| format!("{message}；已尝试改用访问令牌，仍失败: {fallback_error}"))
 }
 
 async fn generate_access_token(

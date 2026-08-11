@@ -3,6 +3,7 @@ use crate::{
     models::{Provider, ProviderConnectionTestResult, ProviderInput, ProviderStatus},
     util::{unix_millis as current_timestamp_millis, unix_secs},
 };
+use tauri::Manager;
 
 use super::{ProviderRequestContext, ProviderService};
 
@@ -11,6 +12,8 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<ProviderConnectionTestResult, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider_id = input
             .id
@@ -18,11 +21,19 @@ impl<'a> ProviderService<'a> {
             .unwrap_or_else(|| format!("provider-{}", current_timestamp_millis()));
         let provider = Provider::from_input(input, provider_id);
         let request_context = ProviderRequestContext::capture(&provider);
-        let result = ProtocolAdapter
+        let operation = ProtocolAdapter
             .test_connection(&data.settings, &provider)
             .await?;
+        let result = operation.value;
+        let persisted_provider = self
+            .persist_operation_provider(&request_context, &operation.provider)
+            .await?;
+        let result_context = persisted_provider
+            .as_ref()
+            .map(ProviderRequestContext::capture)
+            .unwrap_or(request_context);
         if result.ok {
-            self.apply_connection_test_result(&request_context, &result)
+            self.apply_connection_test_result(&result_context, &result)
                 .await?;
         }
         Ok(result)

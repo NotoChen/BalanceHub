@@ -14,9 +14,8 @@ use serde_json::Value;
 mod records;
 
 use super::http::{
-    access_token_fallback_provider, apply_auth_headers, apply_session_cookie, build_url,
-    normalize_base_url, provider_is_anyrouter, should_retry_with_access_token, ProviderTransport,
-    USER_AGENT_VALUE,
+    apply_auth_headers, apply_session_cookie, build_url, normalize_base_url, provider_is_anyrouter,
+    ProviderTransport, USER_AGENT_VALUE,
 };
 use super::response::{parse_success_data, send_text, trim_message};
 use super::site::{apply_site_metadata, fetch_site_metadata_or, site_metadata_from_provider};
@@ -73,18 +72,7 @@ pub async fn check_in_provider(
         return Err("AnyRouter 签到需要走专用逻辑".to_string());
     }
 
-    let result = check_in_provider_once(client, provider).await;
-    if client
-        .shield_blocked_for(&provider.identity.base_url)
-        .await
-        .is_none()
-        && should_retry_check_in_with_access_token(&result)
-    {
-        if let Some(fallback_provider) = access_token_fallback_provider(provider) {
-            return check_in_provider_once(client, &fallback_provider).await;
-        }
-    }
-    result
+    check_in_provider_once(client, provider).await
 }
 
 pub async fn fetch_check_in_records(
@@ -92,18 +80,7 @@ pub async fn fetch_check_in_records(
     provider: &Provider,
     month: &str,
 ) -> Result<ProviderCheckInRecordsResult, String> {
-    let result = fetch_check_in_records_once(client, provider, month).await;
-    if client
-        .shield_blocked_for(&provider.identity.base_url)
-        .await
-        .is_none()
-        && should_retry_check_in_records_with_access_token(&result)
-    {
-        if let Some(fallback_provider) = access_token_fallback_provider(provider) {
-            return fetch_check_in_records_once(client, &fallback_provider, month).await;
-        }
-    }
-    result
+    fetch_check_in_records_once(client, provider, month).await
 }
 
 async fn fetch_check_in_records_once(
@@ -158,15 +135,6 @@ async fn fetch_check_in_records_once(
         records,
         quota_display,
     })
-}
-
-fn should_retry_check_in_records_with_access_token(
-    result: &Result<ProviderCheckInRecordsResult, String>,
-) -> bool {
-    result
-        .as_ref()
-        .err()
-        .is_some_and(|message| should_retry_with_access_token(message))
 }
 
 async fn check_in_status_probe(
@@ -240,13 +208,6 @@ async fn check_in_provider_once(
     let body = response.body;
 
     Ok(parse_check_in_response(status, &body))
-}
-
-fn should_retry_check_in_with_access_token(result: &Result<ProviderCheckInResult, String>) -> bool {
-    match result {
-        Ok(result) => !result.ok && should_retry_with_access_token(&result.message),
-        Err(message) => should_retry_with_access_token(message),
-    }
 }
 
 async fn check_in_status(

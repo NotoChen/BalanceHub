@@ -20,10 +20,10 @@ impl Sub2ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<Vec<ProviderApiKeyOption>, String> {
+    ) -> Result<(Provider, Vec<ProviderApiKeyOption>), String> {
         let client = build_client(settings, provider).await?;
-        let (_authenticated, options) = fetch_api_keys(&client, provider).await?;
-        Ok(options)
+        let (authenticated, options) = fetch_api_keys(&client, provider).await?;
+        Ok((authenticated, options))
     }
 
     pub(crate) async fn create_api_key(
@@ -31,13 +31,13 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         name: &str,
-    ) -> Result<ProviderApiKeyOption, String> {
+    ) -> Result<(Provider, ProviderApiKeyOption), String> {
         let name = name.trim();
         if name.is_empty() {
             return Err("请填写 API 密钥名称".to_string());
         }
         let client = build_client(settings, provider).await?;
-        let (_authenticated, data) = request_account_json(
+        let (authenticated, data) = request_account_json(
             &client,
             provider,
             Method::POST,
@@ -46,7 +46,9 @@ impl Sub2ApiAdapter {
             "创建 API Key",
         )
         .await?;
-        api_key_from_value(&data).ok_or_else(|| "创建成功但响应中没有返回 API Key".to_string())
+        let option = api_key_from_value(&data)
+            .ok_or_else(|| "创建成功但响应中没有返回 API Key".to_string())?;
+        Ok((authenticated, option))
     }
 
     pub(crate) async fn generate_access_token(
@@ -65,13 +67,13 @@ impl Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         token_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(Provider, ()), String> {
         let token_id = token_id.trim();
         if token_id.is_empty() {
             return Err("缺少 API Key ID".to_string());
         }
         let client = build_client(settings, provider).await?;
-        request_account_json(
+        let (authenticated, _) = request_account_json(
             &client,
             provider,
             Method::DELETE,
@@ -80,7 +82,7 @@ impl Sub2ApiAdapter {
             "删除 API Key",
         )
         .await?;
-        Ok(())
+        Ok((authenticated, ()))
     }
 
     pub(crate) async fn change_password(
@@ -89,12 +91,12 @@ impl Sub2ApiAdapter {
         provider: &Provider,
         original_password: &str,
         password: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(Provider, String), String> {
         if password.trim().is_empty() {
             return Err("请输入新密码".to_string());
         }
         let client = build_client(settings, provider).await?;
-        request_account_json(
+        let (authenticated, _) = request_account_json(
             &client,
             provider,
             Method::PUT,
@@ -106,14 +108,14 @@ impl Sub2ApiAdapter {
             "修改 Sub2API 密码",
         )
         .await?;
-        Ok("密码已更新".to_string())
+        Ok((authenticated, "密码已更新".to_string()))
     }
 
     pub(crate) async fn probe_capabilities(
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<(ProviderCapabilities, String, Option<String>), String> {
+    ) -> Result<(Provider, (ProviderCapabilities, String, Option<String>)), String> {
         let mut capabilities = ProviderCapabilities {
             check_in_known: true,
             check_in_supported: false,
@@ -124,7 +126,7 @@ impl Sub2ApiAdapter {
             ..Default::default()
         };
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
-            return Ok((capabilities, String::new(), None));
+            return Ok((provider.clone(), (capabilities, String::new(), None)));
         }
         let client = build_client(settings, provider).await?;
         let mut errors = Vec::new();
@@ -137,7 +139,8 @@ impl Sub2ApiAdapter {
             Err(message) => errors.push(format!("密钥管理: {message}")),
         }
         let invite = match self.invite_link_with_client(&client, &authenticated).await {
-            Ok(link) => {
+            Ok((next, link)) => {
+                authenticated = next;
                 capabilities.invitation_supported = true;
                 link
             }
@@ -147,9 +150,12 @@ impl Sub2ApiAdapter {
             }
         };
         Ok((
-            capabilities,
-            invite,
-            (!errors.is_empty()).then(|| errors.join("；")),
+            authenticated,
+            (
+                capabilities,
+                invite,
+                (!errors.is_empty()).then(|| errors.join("；")),
+            ),
         ))
     }
 
@@ -157,7 +163,7 @@ impl Sub2ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<String, String> {
+    ) -> Result<(Provider, String), String> {
         let client = build_client(settings, provider).await?;
         self.invite_link_with_client(&client, provider).await
     }
@@ -166,8 +172,8 @@ impl Sub2ApiAdapter {
         &self,
         client: &ProviderTransport,
         provider: &Provider,
-    ) -> Result<String, String> {
-        let (_authenticated, data) = request_account_json(
+    ) -> Result<(Provider, String), String> {
+        let (authenticated, data) = request_account_json(
             client,
             provider,
             Method::GET,
@@ -178,10 +184,13 @@ impl Sub2ApiAdapter {
         .await?;
         let code = string_field(&data, &["aff_code", "affCode", "code"])
             .ok_or_else(|| "Sub2API 没有返回邀请编码".to_string())?;
-        Ok(format!(
-            "{}/register?aff_code={}",
-            normalize_base_url(&provider.identity.base_url),
-            urlencoding(&code)
+        Ok((
+            authenticated,
+            format!(
+                "{}/register?aff_code={}",
+                normalize_base_url(&provider.identity.base_url),
+                urlencoding(&code)
+            ),
         ))
     }
 }

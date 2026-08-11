@@ -2,8 +2,11 @@ use crate::{
     adapters::protocol::ProtocolAdapter,
     models::{AuthMode, Provider},
 };
+use tauri::Manager;
 
-use super::{find_provider, ProviderRequestContext, ProviderService};
+use super::{
+    find_provider, merge_authenticated_credentials, ProviderRequestContext, ProviderService,
+};
 
 impl<'a> ProviderService<'a> {
     pub async fn change_password(
@@ -12,11 +15,21 @@ impl<'a> ProviderService<'a> {
         original_password: String,
         password: String,
     ) -> Result<String, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
-        let message = ProtocolAdapter
+        let operation = ProtocolAdapter
             .change_password(&data.settings, &provider, &original_password, &password)
             .await?;
+        let mut authenticated_context = provider.clone();
+        merge_authenticated_credentials(&mut authenticated_context, &operation.provider);
+        self.persist_operation_provider(
+            &ProviderRequestContext::capture(&provider),
+            &operation.provider,
+        )
+        .await?;
+        let message = operation.value;
 
         // Cookie / 访问令牌也代表同一个用户账号。只要已经有登录账号，
         // 就把新密码缓存下来，后续切换到账号密码模式时可以直接使用。
@@ -32,7 +45,11 @@ impl<'a> ProviderService<'a> {
                     .iter_mut()
                     .find(|stored| stored.identity.id == provider_id)
                     .is_some_and(|stored| {
-                        sync_password_if_context_unchanged(stored, &provider, &new_password)
+                        sync_password_if_context_unchanged(
+                            stored,
+                            &authenticated_context,
+                            &new_password,
+                        )
                     })
             })
             .await

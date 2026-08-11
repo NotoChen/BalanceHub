@@ -8,21 +8,35 @@ use crate::models::{
 pub async fn test_connection(
     client: &ProviderTransport,
     provider: &Provider,
-) -> Result<ProviderConnectionTestResult, String> {
+) -> Result<(Provider, ProviderConnectionTestResult), String> {
     let mut steps = Vec::new();
 
     if matches!(provider.auth.mode, AuthMode::Password) {
-        let step = match login_password_provider(client, provider).await {
-            Ok(authenticated) => match fetch_quota(client, &authenticated).await {
-                Ok(profile) => ProviderConnectionTestStep {
-                    name: "账号密码".to_string(),
-                    ok: true,
-                    message: "登录和余额接口可用".to_string(),
-                    available: Some(profile.available),
-                    used: Some(profile.used),
-                    quota_display: profile.quota_display,
-                },
-                Err(message) => ProviderConnectionTestStep {
+        let (authenticated, step) = match login_password_provider(client, provider).await {
+            Ok(authenticated) => {
+                let step = match fetch_quota(client, &authenticated).await {
+                    Ok(profile) => ProviderConnectionTestStep {
+                        name: "账号密码".to_string(),
+                        ok: true,
+                        message: "登录和余额接口可用".to_string(),
+                        available: Some(profile.available),
+                        used: Some(profile.used),
+                        quota_display: profile.quota_display,
+                    },
+                    Err(message) => ProviderConnectionTestStep {
+                        name: "账号密码".to_string(),
+                        ok: false,
+                        message,
+                        available: None,
+                        used: None,
+                        quota_display: ProviderQuotaDisplay::default(),
+                    },
+                };
+                (authenticated, step)
+            }
+            Err(message) => (
+                provider.clone(),
+                ProviderConnectionTestStep {
                     name: "账号密码".to_string(),
                     ok: false,
                     message,
@@ -30,44 +44,42 @@ pub async fn test_connection(
                     used: None,
                     quota_display: ProviderQuotaDisplay::default(),
                 },
-            },
-            Err(message) => ProviderConnectionTestStep {
-                name: "账号密码".to_string(),
-                ok: false,
-                message,
-                available: None,
-                used: None,
-                quota_display: ProviderQuotaDisplay::default(),
-            },
+            ),
         };
-        return Ok(ProviderConnectionTestResult {
-            ok: step.ok,
-            message: if step.ok {
-                "账号密码测试通过".to_string()
-            } else {
-                "测试未通过".to_string()
+        return Ok((
+            authenticated,
+            ProviderConnectionTestResult {
+                ok: step.ok,
+                message: if step.ok {
+                    "账号密码测试通过".to_string()
+                } else {
+                    "测试未通过".to_string()
+                },
+                available: step.available,
+                used: step.used,
+                quota_display: step.quota_display.clone(),
+                steps: vec![step],
             },
-            available: step.available,
-            used: step.used,
-            quota_display: step.quota_display.clone(),
-            steps: vec![step],
-        });
+        ));
     }
 
     if matches!(provider.auth.mode, AuthMode::ApiKey) {
         let step = test_connection_with_auth(client, provider, AuthMode::ApiKey).await;
-        return Ok(ProviderConnectionTestResult {
-            ok: step.ok,
-            message: if step.ok {
-                "API 密钥测试通过".to_string()
-            } else {
-                "测试未通过".to_string()
+        return Ok((
+            provider.clone(),
+            ProviderConnectionTestResult {
+                ok: step.ok,
+                message: if step.ok {
+                    "API 密钥测试通过".to_string()
+                } else {
+                    "测试未通过".to_string()
+                },
+                available: step.available,
+                used: step.used,
+                quota_display: step.quota_display.clone(),
+                steps: vec![step],
             },
-            available: step.available,
-            used: step.used,
-            quota_display: step.quota_display.clone(),
-            steps: vec![step],
-        });
+        ));
     }
 
     if !provider.auth.session_cookie.trim().is_empty() {
@@ -90,23 +102,29 @@ pub async fn test_connection(
 
     let first_success = steps.iter().find(|step| step.ok);
     if let Some(step) = first_success {
-        Ok(ProviderConnectionTestResult {
-            ok: true,
-            message: format!("{}测试通过", step.name),
-            available: step.available,
-            used: step.used,
-            quota_display: step.quota_display.clone(),
-            steps,
-        })
+        Ok((
+            provider.clone(),
+            ProviderConnectionTestResult {
+                ok: true,
+                message: format!("{}测试通过", step.name),
+                available: step.available,
+                used: step.used,
+                quota_display: step.quota_display.clone(),
+                steps,
+            },
+        ))
     } else {
-        Ok(ProviderConnectionTestResult {
-            ok: false,
-            message: "测试未通过".to_string(),
-            available: None,
-            used: None,
-            quota_display: ProviderQuotaDisplay::default(),
-            steps,
-        })
+        Ok((
+            provider.clone(),
+            ProviderConnectionTestResult {
+                ok: false,
+                message: "测试未通过".to_string(),
+                available: None,
+                used: None,
+                quota_display: ProviderQuotaDisplay::default(),
+                steps,
+            },
+        ))
     }
 }
 

@@ -2,27 +2,31 @@ use super::SystemProxyConfig;
 use crate::{limits, platform::process::run_command_with_output_timeout};
 use std::{process::Command, time::Duration};
 
+const SCUTIL_PATH: &str = "/usr/sbin/scutil";
+const NETWORKSETUP_PATH: &str = "/usr/sbin/networksetup";
+const SYSTEM_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub(super) fn system_proxy_config() -> SystemProxyConfig {
-    let mut command = Command::new("scutil");
-    command.arg("--proxy");
-    let Ok(output) = run_command_with_output_timeout(
-        &mut command,
-        Duration::from_secs(3),
-        limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
-    ) else {
-        return SystemProxyConfig::default();
-    };
-    if output.timed_out || !output.status.is_some_and(|status| status.success()) {
-        return SystemProxyConfig::default();
+    if let Some(scutil_text) = command_stdout(SCUTIL_PATH, &["--proxy"]) {
+        if automatic_proxy_enabled(&scutil_text) {
+            // PAC/WPAD 依赖按目标 URL 计算规则，不能安全压成静态代理地址。
+            return SystemProxyConfig::default();
+        }
+
+        let config = parse_scutil_proxy(&scutil_text);
+        if has_static_proxy(&config) {
+            return config;
+        }
     }
-    parse_scutil_proxy(&output.stdout)
+
+    // `scutil --proxy` 只反映 SystemConfiguration 的全局代理。在 macOS 上，
+    // networksetup 还可能保存每个网络服务自己的代理（例如 Wi-Fi），而 Finder
+    // 启动的 App 又没有 shell 环境变量可供 reqwest 继承，因此必须读取这个回退。
+    networksetup_proxy_config().unwrap_or_default()
 }
 
 fn parse_scutil_proxy(text: &str) -> SystemProxyConfig {
-    if proxy_enabled(text, "ProxyAutoConfigEnable")
-        || proxy_enabled(text, "ProxyAutoDiscoveryEnable")
-    {
-        // PAC 与自动发现依赖按目标 URL 计算规则，不能安全压成静态代理地址。
+    if automatic_proxy_enabled(text) {
         return SystemProxyConfig::default();
     }
 
@@ -52,6 +56,90 @@ fn parse_scutil_proxy(text: &str) -> SystemProxyConfig {
     }
 }
 
+fn automatic_proxy_enabled(text: &str) -> bool {
+    proxy_enabled(text, "ProxyAutoConfigEnable") || proxy_enabled(text, "ProxyAutoDiscoveryEnable")
+}
+
+fn has_static_proxy(config: &SystemProxyConfig) -> bool {
+    !config.http_url.is_empty() || !config.https_url.is_empty() || !config.all_url.is_empty()
+}
+
+fn networksetup_proxy_config() -> Option<SystemProxyConfig> {
+    let services = command_stdout(NETWORKSETUP_PATH, &["-listallnetworkservices"])?;
+    network_service_names(&services)
+        .into_iter()
+        .filter_map(|service| networksetup_proxy_for_service(&service))
+        .next()
+}
+
+fn networksetup_proxy_for_service(service: &str) -> Option<SystemProxyConfig> {
+    let http_url = networksetup_proxy_url("-getwebproxy", service, "http").unwrap_or_default();
+    let https_url = networksetup_proxy_url("-getsecurewebproxy", service, "http");
+    let all_url = networksetup_proxy_url("-getsocksfirewallproxy", service, "socks5h");
+
+    let config = SystemProxyConfig {
+        http_url,
+        https_url: https_url.unwrap_or_default(),
+        all_url: all_url.unwrap_or_default(),
+        // networksetup does not expose the bypass list in these commands. Keep
+        // the loopback defaults and let reqwest bypass local app endpoints.
+        no_proxy: String::new(),
+        inherit_environment: false,
+    };
+    has_static_proxy(&config).then_some(config)
+}
+
+fn networksetup_proxy_url(command_name: &str, service: &str, scheme: &str) -> Option<String> {
+    let output = command_stdout(NETWORKSETUP_PATH, &[command_name, service])?;
+    parse_networksetup_proxy(&output, scheme)
+}
+
+fn parse_networksetup_proxy(text: &str, scheme: &str) -> Option<String> {
+    if !find_proxy_value(text, "Enabled").is_some_and(|value| value.eq_ignore_ascii_case("yes")) {
+        return None;
+    }
+    let host = find_proxy_value(text, "Server")?;
+    let port = find_proxy_value(text, "Port")?;
+    if host.is_empty() || port.is_empty() || port == "0" {
+        return None;
+    }
+    Some(format_proxy_url(scheme, &host, &port))
+}
+
+fn format_proxy_url(scheme: &str, host: &str, port: &str) -> String {
+    let host = host.trim();
+    let host = if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    format!("{scheme}://{host}:{port}")
+}
+
+fn network_service_names(text: &str) -> Vec<String> {
+    text.lines()
+        .skip(1)
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('*'))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn command_stdout(program: &str, args: &[&str]) -> Option<String> {
+    let mut command = Command::new(program);
+    command.args(args);
+    let output = run_command_with_output_timeout(
+        &mut command,
+        SYSTEM_COMMAND_TIMEOUT,
+        limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
+    )
+    .ok()?;
+    if output.timed_out || !output.status.is_some_and(|status| status.success()) {
+        return None;
+    }
+    Some(output.stdout)
+}
+
 fn proxy_enabled(text: &str, key: &str) -> bool {
     find_proxy_value(text, key).is_some_and(|value| value.trim() == "1")
 }
@@ -62,7 +150,7 @@ fn proxy_url(text: &str, host_key: &str, port_key: &str, scheme: &str) -> Option
     if host.trim().is_empty() || port.trim().is_empty() {
         return None;
     }
-    Some(format!("{scheme}://{}:{}", host.trim(), port.trim()))
+    Some(format_proxy_url(scheme, host.trim(), port.trim()))
 }
 
 fn find_proxy_value(text: &str, key: &str) -> Option<String> {
@@ -102,6 +190,45 @@ fn exception_list(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_networksetup_http_proxy_output() {
+        assert_eq!(
+            parse_networksetup_proxy(
+                "Enabled: Yes\nServer: 127.0.0.1\nPort: 6152\nAuthenticated Proxy Enabled: 0\n",
+                "http"
+            ),
+            Some("http://127.0.0.1:6152".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_disabled_or_empty_networksetup_proxy() {
+        for text in [
+            "Enabled: No\nServer: 127.0.0.1\nPort: 6152\n",
+            "Enabled: Yes\nServer: 127.0.0.1\nPort: 0\n",
+        ] {
+            assert_eq!(parse_networksetup_proxy(text, "http"), None);
+        }
+    }
+
+    #[test]
+    fn parses_network_service_names_and_skips_disabled_services() {
+        assert_eq!(
+            network_service_names(
+                "An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*USB 10/100/1000 LAN\nVPN\n"
+            ),
+            vec!["Wi-Fi".to_string(), "VPN".to_string()]
+        );
+    }
+
+    #[test]
+    fn formats_ipv6_proxy_hosts() {
+        assert_eq!(
+            format_proxy_url("socks5h", "::1", "1080"),
+            "socks5h://[::1]:1080"
+        );
+    }
 
     #[test]
     fn parses_protocol_specific_scutil_proxies_and_exceptions() {

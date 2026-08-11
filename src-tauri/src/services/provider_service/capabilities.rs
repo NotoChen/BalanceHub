@@ -7,6 +7,7 @@ use crate::{
     },
     util::unix_millis as current_timestamp_millis,
 };
+use tauri::Manager;
 
 use super::{
     codex_models::fetch_codex_models, find_provider, ProviderRequestContext, ProviderService,
@@ -57,14 +58,24 @@ impl<'a> ProviderService<'a> {
         &self,
         id: String,
     ) -> Result<ProviderCapabilityProbeResult, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
-        let (mut capabilities, invite_link, error) = ProtocolAdapter
+        let operation = ProtocolAdapter
             .probe_capabilities(&data.settings, &provider)
             .await?;
-        let models_result = if provider_domain::auth::has_api_key(&provider) {
-            Some(fetch_codex_models(&data.settings, &provider).await)
+        let persisted_provider = self
+            .persist_operation_provider(&request_context, &operation.provider)
+            .await?;
+        let operation_context = persisted_provider
+            .as_ref()
+            .map(ProviderRequestContext::capture)
+            .unwrap_or(request_context);
+        let (mut capabilities, invite_link, error) = operation.value;
+        let models_result = if provider_domain::auth::has_api_key(&operation.provider) {
+            Some(fetch_codex_models(&data.settings, &operation.provider).await)
         } else {
             None
         };
@@ -86,7 +97,7 @@ impl<'a> ProviderService<'a> {
             .map(|count| format!("站点能力已探测，已获取 {count} 个模型"))
             .unwrap_or_else(|| "站点能力已探测".to_string());
         let provider_id = id.clone();
-        let mutation_context = request_context.clone();
+        let mutation_context = operation_context;
         let (providers, update_result) = self
             .mutate_async(move |data| {
                 let update_result = match data
@@ -149,6 +160,8 @@ impl<'a> ProviderService<'a> {
     }
 
     pub async fn invite_link(&self, id: String) -> Result<String, String> {
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
@@ -170,12 +183,19 @@ impl<'a> ProviderService<'a> {
             return Ok(invite_link);
         }
 
-        let invite_link = ProtocolAdapter
+        let operation = ProtocolAdapter
             .invite_link(&data.settings, &provider)
             .await?;
+        let persisted_provider = self
+            .persist_operation_provider(&request_context, &operation.provider)
+            .await?;
+        let mutation_context = persisted_provider
+            .as_ref()
+            .map(ProviderRequestContext::capture)
+            .unwrap_or(request_context);
+        let invite_link = operation.value;
         let stored_link = invite_link.clone();
         let provider_id = id.clone();
-        let mutation_context = request_context.clone();
         let persisted = self
             .mutate_async(move |data| {
                 if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {

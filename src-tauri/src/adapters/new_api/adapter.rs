@@ -1,12 +1,13 @@
 use super::anyrouter;
 use super::check_in::probe_check_in_capability;
+use super::http::{
+    access_token_fallback_provider, build_url, build_user_request, normalize_base_url,
+    provider_user_management_context, retry_with_access_token, should_retry_with_access_token,
+    ProviderTransport,
+};
 pub(crate) use super::http::{
     authenticate_password_provider, build_client, is_anyrouter_base_url, login_password_provider,
     provider_is_anyrouter,
-};
-use super::http::{
-    build_url, build_user_request, normalize_base_url, provider_user_management_context,
-    ProviderTransport,
 };
 use super::keys::{
     create_api_key, delete_api_key, fetch_api_key_options, probe_api_key_management,
@@ -44,17 +45,20 @@ impl NewApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderConnectionTestResult, String> {
+    ) -> Result<(Provider, ProviderConnectionTestResult), String> {
         match build_client(settings, provider).await {
             Ok(client) => super::quota::test_connection(&client, provider).await,
-            Err(message) => Ok(ProviderConnectionTestResult {
-                ok: false,
-                message,
-                available: None,
-                used: None,
-                quota_display: ProviderQuotaDisplay::default(),
-                steps: Vec::new(),
-            }),
+            Err(message) => Ok((
+                provider.clone(),
+                ProviderConnectionTestResult {
+                    ok: false,
+                    message,
+                    available: None,
+                    used: None,
+                    quota_display: ProviderQuotaDisplay::default(),
+                    steps: Vec::new(),
+                },
+            )),
         }
     }
 
@@ -93,10 +97,20 @@ impl NewApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<Vec<ProviderApiKeyOption>, String> {
+    ) -> Result<(Provider, Vec<ProviderApiKeyOption>), String> {
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        list_api_keys(&client, &provider).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, options) = retry_with_access_token(
+            &client,
+            &authenticated,
+            list_api_keys(&client, &authenticated),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { list_api_keys(&retry_client, &candidate).await }
+            },
+        )
+        .await?;
+        Ok((provider, options))
     }
 
     pub(crate) async fn create_api_key(
@@ -104,10 +118,20 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         name: &str,
-    ) -> Result<ProviderApiKeyOption, String> {
+    ) -> Result<(Provider, ProviderApiKeyOption), String> {
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        create_managed_api_key(&client, &provider, name).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, option) = retry_with_access_token(
+            &client,
+            &authenticated,
+            create_managed_api_key(&client, &authenticated, name),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { create_managed_api_key(&retry_client, &candidate, name).await }
+            },
+        )
+        .await?;
+        Ok((provider, option))
     }
 
     pub(crate) async fn generate_access_token(
@@ -128,10 +152,20 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         token_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(Provider, ()), String> {
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        delete_managed_api_key(&client, &provider, token_id).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, ()) = retry_with_access_token(
+            &client,
+            &authenticated,
+            delete_managed_api_key(&client, &authenticated, token_id),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { delete_managed_api_key(&retry_client, &candidate, token_id).await }
+            },
+        )
+        .await?;
+        Ok((provider, ()))
     }
 
     pub(crate) async fn usage_summary(
@@ -139,10 +173,23 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         period: &str,
-    ) -> Result<ProviderUsageSummary, String> {
+    ) -> Result<(Provider, ProviderUsageSummary), String> {
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        super::usage::fetch_usage_summary(&client, &provider, period).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) =
+            retry_with_access_token(
+                &client,
+                &authenticated,
+                super::usage::fetch_usage_summary(&client, &authenticated, period),
+                |candidate| {
+                    let retry_client = client.clone();
+                    async move {
+                        super::usage::fetch_usage_summary(&retry_client, &candidate, period).await
+                    }
+                },
+            )
+            .await?;
+        Ok((provider, value))
     }
 
     pub(crate) async fn request_logs(
@@ -150,10 +197,22 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         query: ProviderRequestLogsQuery,
-    ) -> Result<ProviderRequestLogsResult, String> {
+    ) -> Result<(Provider, ProviderRequestLogsResult), String> {
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        super::logs::fetch_request_logs(&client, &provider, query).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::logs::fetch_request_logs(&client, &authenticated, query.clone()),
+            |candidate| {
+                let retry_client = client.clone();
+                async move {
+                    super::logs::fetch_request_logs(&retry_client, &candidate, query.clone()).await
+                }
+            },
+        )
+        .await?;
+        Ok((provider, value))
     }
 
     pub(crate) async fn change_password(
@@ -162,30 +221,72 @@ impl NewApiAdapter {
         provider: &Provider,
         original_password: &str,
         password: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(Provider, String), String> {
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        super::account::change_user_password(&client, &provider, original_password, password).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::account::change_user_password(
+                &client,
+                &authenticated,
+                original_password,
+                password,
+            ),
+            |candidate| {
+                let retry_client = client.clone();
+                async move {
+                    super::account::change_user_password(
+                        &retry_client,
+                        &candidate,
+                        original_password,
+                        password,
+                    )
+                    .await
+                }
+            },
+        )
+        .await?;
+        Ok((provider, value))
     }
 
     pub(crate) async fn probe_capabilities(
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<(ProviderCapabilities, String, Option<String>), String> {
+    ) -> Result<(Provider, (ProviderCapabilities, String, Option<String>)), String> {
         match build_client(settings, provider).await {
             Ok(client) => match authenticated_provider(&client, provider).await {
-                Ok(provider) => Ok(probe_capabilities(&client, &provider).await),
+                Ok(provider) => {
+                    let first = probe_capabilities(&client, &provider).await;
+                    if first
+                        .2
+                        .as_deref()
+                        .is_some_and(should_retry_with_access_token)
+                    {
+                        if let Some(fallback) = access_token_fallback_provider(&provider) {
+                            let retry = probe_capabilities(&client, &fallback).await;
+                            return Ok((fallback, retry));
+                        }
+                    }
+                    Ok((provider, first))
+                }
                 Err(message) => Ok((
-                    ProviderCapabilities::default(),
-                    String::new(),
-                    Some(message),
+                    provider.clone(),
+                    (
+                        ProviderCapabilities::default(),
+                        String::new(),
+                        Some(message),
+                    ),
                 )),
             },
             Err(message) => Ok((
-                ProviderCapabilities::default(),
-                String::new(),
-                Some(message),
+                provider.clone(),
+                (
+                    ProviderCapabilities::default(),
+                    String::new(),
+                    Some(message),
+                ),
             )),
         }
     }
@@ -194,10 +295,20 @@ impl NewApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<String, String> {
+    ) -> Result<(Provider, String), String> {
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        fetch_invite_link(&client, &provider).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            fetch_invite_link(&client, &authenticated),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { fetch_invite_link(&retry_client, &candidate).await }
+            },
+        )
+        .await?;
+        Ok((provider, value))
     }
 
     pub(crate) async fn refresh_provider(
@@ -262,16 +373,52 @@ impl NewApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderCheckInResult, String> {
+    ) -> Result<(Provider, ProviderCheckInResult), String> {
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("API Key 认证不支持用户签到，请切换到 Cookie 或访问令牌".to_string());
         }
         let client = crate::adapters::transport::build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        if provider_is_anyrouter(&provider) {
-            anyrouter::check_in_provider(&client, &provider).await
-        } else {
-            super::check_in::check_in_provider(&client, &provider).await
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let first = check_in_for_provider(&client, &authenticated).await;
+        match first {
+            Ok(value)
+                if value.ok
+                    || client
+                        .shield_blocked_for(&authenticated.identity.base_url)
+                        .await
+                        .is_some()
+                    || !should_retry_with_access_token(&value.message) =>
+            {
+                Ok((authenticated, value))
+            }
+            Ok(value) => {
+                let Some(fallback_provider) = access_token_fallback_provider(&authenticated) else {
+                    return Ok((authenticated, value));
+                };
+                let retry_client = client.clone();
+                let retry = check_in_for_provider(&retry_client, &fallback_provider)
+                    .await
+                    .map_err(|retry_error| {
+                        format!(
+                            "{}；已尝试改用访问令牌，仍失败: {retry_error}",
+                            value.message
+                        )
+                    })?;
+                Ok((fallback_provider, retry))
+            }
+            Err(message) => {
+                let (provider, value) = retry_with_access_token(
+                    &client,
+                    &authenticated,
+                    async { Err::<ProviderCheckInResult, String>(message.clone()) },
+                    |candidate| {
+                        let retry_client = client.clone();
+                        async move { check_in_for_provider(&retry_client, &candidate).await }
+                    },
+                )
+                .await?;
+                Ok((provider, value))
+            }
         }
     }
 
@@ -280,16 +427,28 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
         month: &str,
-    ) -> Result<ProviderCheckInRecordsResult, String> {
+    ) -> Result<(Provider, ProviderCheckInRecordsResult), String> {
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("API Key 认证不支持签到记录，请切换到 Cookie 或访问令牌".to_string());
         }
         let client = build_client(settings, provider).await?;
-        let provider = authenticated_provider(&client, provider).await?;
-        if provider_is_anyrouter(&provider) {
+        let authenticated = authenticated_provider(&client, provider).await?;
+        if provider_is_anyrouter(&authenticated) {
             return Err("当前暂未发现 AnyRouter 的签到历史接口".to_string());
         }
-        super::check_in::fetch_check_in_records(&client, &provider, month).await
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::check_in::fetch_check_in_records(&client, &authenticated, month),
+            |candidate| {
+                let retry_client = client.clone();
+                async move {
+                    super::check_in::fetch_check_in_records(&retry_client, &candidate, month).await
+                }
+            },
+        )
+        .await?;
+        Ok((provider, value))
     }
 }
 
@@ -308,6 +467,17 @@ async fn authenticated_provider(
         login_password_provider(client, provider).await
     } else {
         authenticate_password_provider(client, provider).await
+    }
+}
+
+async fn check_in_for_provider(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Result<ProviderCheckInResult, String> {
+    if provider_is_anyrouter(provider) {
+        anyrouter::check_in_provider(client, provider).await
+    } else {
+        super::check_in::check_in_provider(client, provider).await
     }
 }
 
