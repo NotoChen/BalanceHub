@@ -4,7 +4,7 @@ use rusqlite::{Connection, OpenFlags, Row};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
-    env, fs,
+    fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
 };
@@ -243,43 +243,18 @@ fn row_to_summary(
 }
 
 fn codex_home() -> Result<PathBuf, String> {
-    if let Some(value) = env::var_os("CODEX_HOME") {
-        let path = PathBuf::from(value);
-        if !path.as_os_str().is_empty() {
-            return Ok(path);
-        }
-    }
-    home_dir()
-        .map(|home| home.join(".codex"))
+    crate::services::cli_paths::codex_home()
         .ok_or_else(|| "无法定位用户目录，无法读取 Codex 历史会话".to_string())
-}
-
-fn home_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        env::var_os("USERPROFILE").map(PathBuf::from).or_else(|| {
-            let drive = env::var_os("HOMEDRIVE")?;
-            let path = env::var_os("HOMEPATH")?;
-            Some(PathBuf::from(drive).join(path))
-        })
-    }
-    #[cfg(not(windows))]
-    {
-        env::var_os("HOME").map(PathBuf::from)
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{codex_home, home_dir, read_database, read_session_titles};
+    use super::{codex_home, read_database, read_session_titles};
     use rusqlite::Connection;
-    use std::{fs, path::PathBuf};
+    use std::fs;
 
     #[test]
     fn default_home_uses_user_home() {
-        if std::env::var_os("HOME").is_some() {
-            assert_eq!(home_dir(), std::env::var_os("HOME").map(PathBuf::from));
-        }
         assert!(codex_home().is_ok());
     }
 

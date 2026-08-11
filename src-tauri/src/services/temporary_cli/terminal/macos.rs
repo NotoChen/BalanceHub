@@ -52,46 +52,76 @@ pub fn probe_terminal(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeR
 }
 
 fn probe_macos_terminal_app(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
-    let (name, app) = match kind {
-        TemporaryCliTerminalKind::Terminal => ("Terminal", "Terminal"),
-        TemporaryCliTerminalKind::ITerm2 => ("iTerm2", "iTerm"),
-        TemporaryCliTerminalKind::Warp => ("Warp", "Warp"),
-        TemporaryCliTerminalKind::WezTerm => ("WezTerm", "WezTerm"),
-        TemporaryCliTerminalKind::Kaku => ("Kaku", "Kaku"),
-        TemporaryCliTerminalKind::Ghostty => ("Ghostty", "Ghostty"),
-        TemporaryCliTerminalKind::Kitty => ("Kitty", "kitty"),
-        TemporaryCliTerminalKind::Alacritty => ("Alacritty", "Alacritty"),
+    let (name, application, bundle_id) = match kind {
+        TemporaryCliTerminalKind::Terminal => ("Terminal", "Terminal", "com.apple.Terminal"),
+        TemporaryCliTerminalKind::ITerm2 => ("iTerm2", "iTerm", "com.googlecode.iterm2"),
+        TemporaryCliTerminalKind::Warp => ("Warp", "Warp", "dev.warp.Warp-Stable"),
+        TemporaryCliTerminalKind::WezTerm => ("WezTerm", "WezTerm", "org.wezfurlong.wezterm"),
+        TemporaryCliTerminalKind::Kaku => ("Kaku", "Kaku", "com.kaku.Kaku"),
+        TemporaryCliTerminalKind::Ghostty => ("Ghostty", "Ghostty", "com.mitchellh.ghostty"),
+        TemporaryCliTerminalKind::Kitty => ("Kitty", "kitty", "net.kovidgoyal.kitty"),
+        TemporaryCliTerminalKind::Alacritty => {
+            ("Alacritty", "Alacritty", "org.alacritty.Alacritty")
+        }
         _ => return terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
     };
-    if !app_exists_macos(app) {
+    let Some(bundle) = locate_macos_application(application, bundle_id) else {
         return terminal_probe_unavailable(kind, name, format!("未检测到 {name}"));
-    }
-    terminal_probe_available(kind, name, macos_app_version(app))
+    };
+    terminal_probe_available(kind, name, macos_app_version(&bundle))
 }
 
-fn macos_app_version(app: &str) -> String {
-    let script = format!(
-        "POSIX path of (path to application {})",
-        apple_script_quote(app)
-    );
-    let mut command = Command::new("osascript");
-    command.arg("-e").arg(script);
-    let Ok(output) = run_command_with_output_timeout(
+/// Locate a macOS application without sending it an Apple Event or activating it.
+/// Known install locations are checked first; Spotlight is only a fallback for apps
+/// installed outside the standard locations.
+fn locate_macos_application(application: &str, bundle_id: &str) -> Option<PathBuf> {
+    let mut candidates = vec![
+        PathBuf::from("/Applications").join(format!("{application}.app")),
+        PathBuf::from("/System/Applications").join(format!("{application}.app")),
+        PathBuf::from("/System/Applications/Utilities").join(format!("{application}.app")),
+    ];
+    if let Some(home) = env::var_os("HOME") {
+        candidates.push(
+            PathBuf::from(home)
+                .join("Applications")
+                .join(format!("{application}.app")),
+        );
+    }
+    if let Some(bundle) = candidates
+        .into_iter()
+        .find(|path| path.join("Contents/Info.plist").is_file())
+    {
+        return Some(bundle);
+    }
+
+    let query = format!("kMDItemCFBundleIdentifier == '{bundle_id}'");
+    let mut command = Command::new("/usr/bin/mdfind");
+    command.arg(&query);
+    let output = run_command_with_output_timeout(
         &mut command,
         SYSTEM_COMMAND_TIMEOUT,
         limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
-    ) else {
-        return String::new();
-    };
+    )
+    .ok()?;
     if output.timed_out || !output.status.is_some_and(|status| status.success()) {
-        return String::new();
+        return None;
     }
-    let bundle = PathBuf::from(output.stdout.trim()).join("Contents/Info.plist");
+    output
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .find(|path| path.join("Contents/Info.plist").is_file())
+}
+
+fn macos_app_version(bundle: &Path) -> String {
+    let info_plist = bundle.join("Contents/Info.plist");
     for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
         let mut command = Command::new("plutil");
         command
             .args(["-extract", key, "raw", "-o", "-"])
-            .arg(&bundle);
+            .arg(&info_plist);
         let Ok(output) = run_command_with_output_timeout(
             &mut command,
             SYSTEM_COMMAND_TIMEOUT,
@@ -337,20 +367,6 @@ fn open_macos_shell_app(app: &str, prefix_args: &[&str], script: &Path) -> Resul
         .arg("-c")
         .arg(script_command(script));
     run_command(&mut command, &format!("无法调用 {app}"))
-}
-
-fn app_exists_macos(app: &str) -> bool {
-    let mut command = Command::new("osascript");
-    command
-        .arg("-e")
-        .arg(format!("id of application {}", apple_script_quote(app)));
-    run_command_with_output_timeout(
-        &mut command,
-        SYSTEM_COMMAND_TIMEOUT,
-        limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
-    )
-    .map(|output| !output.timed_out && output.status.is_some_and(|status| status.success()))
-    .unwrap_or(false)
 }
 
 fn run_command(command: &mut Command, context: &str) -> Result<(), String> {

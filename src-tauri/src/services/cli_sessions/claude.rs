@@ -3,15 +3,14 @@ use crate::models::{CliSessionMetadataSource, CliSessionSummary, LivenessCliKind
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
-    env,
     fs::{self, File},
     io::{BufRead, BufReader},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 pub(super) fn list(workdir: &Path) -> Result<Vec<CliSessionSummary>, String> {
-    let projects = home_dir()
-        .map(|home| home.join(".claude").join("projects"))
+    let projects = crate::services::cli_paths::claude_config_dir()
+        .map(|config_dir| config_dir.join("projects"))
         .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
     let encoded = encode_project_path(workdir);
     let project_dir = projects.join(encoded);
@@ -253,21 +252,6 @@ fn encode_project_path(path: &Path) -> String {
             other => other,
         })
         .collect()
-}
-
-fn home_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        env::var_os("USERPROFILE").map(PathBuf::from).or_else(|| {
-            let drive = env::var_os("HOMEDRIVE")?;
-            let path = env::var_os("HOMEPATH")?;
-            Some(PathBuf::from(drive).join(path))
-        })
-    }
-    #[cfg(not(windows))]
-    {
-        env::var_os("HOME").map(PathBuf::from)
-    }
 }
 
 #[cfg(test)]

@@ -1,8 +1,5 @@
 import type { Provider } from "../stores/provider-types";
 
-export type ProviderAuthFilter = "all" | "account" | "apiKey";
-export type ProviderStatusFilter = "all" | "warning" | "error";
-
 /** Search only user-visible provider metadata; credentials are intentionally excluded. */
 export function providerMatchesSearch(provider: Provider, query: string) {
   const terms = query

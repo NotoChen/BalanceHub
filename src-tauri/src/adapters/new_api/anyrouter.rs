@@ -56,6 +56,7 @@ pub async fn check_in_provider(
         message: result.message,
         last_checked_in_at: None,
         last_check_in_user: None,
+        quota_delta: None,
     })
 }
 

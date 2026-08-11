@@ -1,4 +1,4 @@
-use super::cli::runtime_path_for;
+use super::cli::{runtime_path_for, runtime_path_for_without_shell};
 use crate::{
     limits,
     platform::process::{
@@ -19,9 +19,18 @@ pub(super) fn wait_with_output_timeout(
     wait_with_shared_output_timeout(child, timeout, limits::MAX_COMMAND_OUTPUT_BYTES)
 }
 
-pub(super) fn cli_version(path: &Path, require_substring: Option<&str>) -> Result<String, String> {
+pub(super) fn cli_version(
+    path: &Path,
+    require_substring: Option<&str>,
+    include_shell: bool,
+) -> Result<String, String> {
     let mut command = Command::new(path);
-    if let Some(path_env) = runtime_path_for(path) {
+    let runtime_path = if include_shell {
+        runtime_path_for(path)
+    } else {
+        runtime_path_for_without_shell(path)
+    };
+    if let Some(path_env) = runtime_path {
         command.env("PATH", path_env);
     }
     command.arg("--version");

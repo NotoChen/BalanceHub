@@ -13,6 +13,7 @@ import type {
   TemporaryCliPreference,
   TemporaryCliSessionMode,
   TemporaryCliTerminalKind,
+  TerminalEnvironmentProbeResult,
   Workspace,
   WorkspaceDirectoryListing,
 } from "../stores/providers";
@@ -32,6 +33,9 @@ interface UseWorkspacePickerOptions {
   preferences: Ref<TemporaryCliPreference[]>;
   terminalKind: Ref<TemporaryCliTerminalKind>;
   cliEnvironmentProbe: Ref<CliEnvironmentProbeResult | null>;
+  terminalEnvironmentProbe: Ref<TerminalEnvironmentProbeResult | null>;
+  probeCliTools: (deep?: boolean) => Promise<CliEnvironmentProbeResult>;
+  probeTerminals: () => Promise<TerminalEnvironmentProbeResult>;
   listApiKeys: (providerId: string) => Promise<ProviderApiKeyOption[]>;
   browse: (path?: string) => Promise<WorkspaceDirectoryListing>;
   forget: (path: string) => Promise<Workspace[]>;
@@ -67,7 +71,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(options.terminalKind.value);
   const workspaceCliOptions = computed(() => availableCliOptions(options.cliEnvironmentProbe.value));
   const workspaceTerminalOptions = computed(() =>
-    availableTerminalOptions(options.cliEnvironmentProbe.value),
+    availableTerminalOptions(options.terminalEnvironmentProbe.value),
   );
   const workspaceDirectory = ref<WorkspaceDirectoryListing | null>(null);
   const workspacePathDraft = ref("");
@@ -240,16 +244,6 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       (item) => item.providerId === provider.identity.id,
     );
     const preferredCliKind = cliKind ?? preference?.cliKind ?? "codex";
-    workspacePickerCliKind.value = workspaceCliOptions.value.some(
-      (option) => option.value === preferredCliKind,
-    )
-      ? preferredCliKind
-      : (workspaceCliOptions.value[0]?.value ?? preferredCliKind);
-    workspaceTerminalKind.value = workspaceTerminalOptions.value.some(
-      (option) => option.value === options.terminalKind.value,
-    )
-      ? options.terminalKind.value
-      : (workspaceTerminalOptions.value[0]?.value ?? options.terminalKind.value);
     workspaceApiKeyTokenId.value = preference?.apiKeyTokenId ?? "";
     workspaceNewSessionModel.value =
       provider.cli.preferredModel?.trim() ||
@@ -272,6 +266,32 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspacePickerVisible.value = true;
     workspaceDirectory.value = null;
     workspacePathDraft.value = "";
+    const probes: Promise<unknown>[] = [];
+    // 启动阶段只做浅探测；用户明确打开临时 CLI 时重新执行深探测，
+    // 以覆盖 shell 初始化脚本、版本管理器和刚刚安装的 CLI。
+    probes.push(options.probeCliTools(true).catch(() => undefined));
+    if (!options.terminalEnvironmentProbe.value) {
+      probes.push(options.probeTerminals().catch(() => undefined));
+    }
+    if (probes.length > 0) {
+      await Promise.all(probes);
+    }
+    if (
+      requestId !== pickerRequestId
+      || workspacePickerProvider.value?.identity.id !== provider.identity.id
+    ) {
+      return;
+    }
+    workspacePickerCliKind.value = workspaceCliOptions.value.some(
+      (option) => option.value === preferredCliKind,
+    )
+      ? preferredCliKind
+      : (workspaceCliOptions.value[0]?.value ?? preferredCliKind);
+    workspaceTerminalKind.value = workspaceTerminalOptions.value.some(
+      (option) => option.value === options.terminalKind.value,
+    )
+      ? options.terminalKind.value
+      : (workspaceTerminalOptions.value[0]?.value ?? options.terminalKind.value);
     const initialPath = preference?.workspacePath || options.workspaces.value[0]?.path;
     const loaded = await browseWorkspaceDirectory(initialPath);
     if (

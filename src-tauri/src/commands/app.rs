@@ -11,6 +11,7 @@ use crate::{
     tray,
 };
 use tauri::{ipc::Channel, AppHandle};
+use tauri_plugin_opener::OpenerExt;
 
 use super::run_blocking;
 
@@ -24,6 +25,18 @@ pub(crate) async fn open_ccswitch_deeplink(app: AppHandle, url: String) -> Resul
     let trimmed = validate_ccswitch_deeplink(&url)?;
     let trimmed = trimmed.to_string();
     run_blocking("打开 CC Switch", move || cc_switch::open(&app, &trimmed)).await
+}
+
+const PROJECT_REPOSITORY_URL: &str = "https://github.com/NotoChen/BalanceHub";
+
+#[tauri::command]
+pub(crate) async fn open_project_repository(app: AppHandle) -> Result<(), String> {
+    run_blocking("打开 BalanceHub GitHub", move || {
+        app.opener()
+            .open_url(PROJECT_REPOSITORY_URL, None::<&str>)
+            .map_err(|err| format!("无法打开 GitHub: {err}"))
+    })
+    .await
 }
 
 fn validate_ccswitch_deeplink(url: &str) -> Result<&str, String> {

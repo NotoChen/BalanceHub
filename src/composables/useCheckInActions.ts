@@ -2,7 +2,6 @@ import { computed, ref, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { checkInProvider } from "../api/checkin";
 import type { Provider } from "../stores/providers";
-import { providerCheckedInToday, supportsCheckIn } from "../utils/provider-actions";
 
 interface UseCheckInActionsOptions {
   providers: Ref<Provider[]>;
@@ -19,7 +18,6 @@ type CheckInRunStatus = "success" | "failed" | "skipped";
 export function useCheckInActions(options: UseCheckInActionsOptions) {
   const checkingInProviderIdSet = ref<Set<string>>(new Set());
   const checkingInProviderIds = computed(() => [...checkingInProviderIdSet.value]);
-  const globalCheckInInProgress = ref(false);
 
   async function runCheckIn(
     provider: Provider,
@@ -66,43 +64,9 @@ export function useCheckInActions(options: UseCheckInActionsOptions) {
     await runCheckIn(provider, { reload: true, showMessage: true });
   }
 
-  async function checkInAllProviders() {
-    const targets = options.providers.value.filter(
-      (provider) =>
-        provider.runtime.enabled && supportsCheckIn(provider) && !providerCheckedInToday(provider),
-    );
-    if (targets.length === 0) {
-      Message.info("没有需要签到的中转站");
-      return;
-    }
-
-    globalCheckInInProgress.value = true;
-    try {
-      const results = await Promise.all(
-        targets.map((provider) => runCheckIn(provider, { reload: false, showMessage: false })),
-      );
-      await options.reload().catch(() => {});
-      const succeeded = results.filter((result) => result === "success").length;
-      const failed = results.filter((result) => result === "failed").length;
-      const skipped = results.filter((result) => result === "skipped").length;
-      const skippedText = skipped > 0 ? `，${skipped} 个正在签到已跳过` : "";
-      if (succeeded === 0 && failed === 0 && skipped > 0) {
-        Message.info(`并行签到未重复执行：${skipped} 个中转站正在签到`);
-      } else if (failed === 0) {
-        Message.success(`并行签到完成：${succeeded} 个中转站成功${skippedText}`);
-      } else {
-        Message.warning(`并行签到完成：${succeeded} 个成功，${failed} 个失败${skippedText}`);
-      }
-    } finally {
-      globalCheckInInProgress.value = false;
-    }
-  }
-
   return {
     checkingInProviderIds,
-    globalCheckInInProgress,
     checkInProviderAction,
-    checkInAllProviders,
   };
 }
 

@@ -8,6 +8,7 @@ import { useAppLifecycle } from "./useAppLifecycle";
 import { useAppUpdater } from "./useAppUpdater";
 import { useAppVersion } from "./useAppVersion";
 import { useAvailableModels } from "./useAvailableModels";
+import { useBatchOperation } from "./useBatchOperation";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
@@ -22,6 +23,7 @@ import { useSystemNotification } from "./useSystemNotification";
 import { useUsageSummary } from "./useUsageSummary";
 import { useWindowDrag } from "./useWindowDrag";
 import { useWorkspacePicker } from "./useWorkspacePicker";
+import { openProjectRepository as openProjectRepositoryCommand } from "../api/app";
 
 export function useAppController() {
   const providerStore = useProviderStore();
@@ -30,6 +32,7 @@ export function useAppController() {
     cliRuntime,
     cliRuntimeLoading,
     cliEnvironmentProbe,
+    terminalEnvironmentProbe,
     loadError,
     loading,
     providers,
@@ -46,7 +49,7 @@ export function useAppController() {
     settings,
     initialSettings: providerStore.settings,
     saveSettings: (value) => providerStore.saveSettings(value),
-    probeCliEnvironment: () => providerStore.probeCliEnvironment(),
+    probeCliTools: (deep) => providerStore.probeCliTools(deep),
   });
 
   const { notifySystem, sendTestNotification } = useSystemNotification(
@@ -67,6 +70,21 @@ export function useAppController() {
   const checkIn = useCheckInActions({
     providers,
     reload: () => providerStore.reload(),
+    notifySystem,
+  });
+
+  const batchOperation = useBatchOperation({
+    providers,
+    replaceProviders: (nextProviders) => {
+      providerStore.providers = nextProviders;
+    },
+    setRefreshInProgress: (value) => {
+      providerStore.refreshInProgress = value;
+      if (!value) {
+        void providerStore.flushPendingProviderReload();
+      }
+    },
+    refreshCliRuntime: () => providerStore.refreshCliRuntime(),
     notifySystem,
   });
 
@@ -142,6 +160,9 @@ export function useAppController() {
     preferences: temporaryCliPreferences,
     terminalKind: computed(() => settings.value.temporaryCliTerminalKind),
     cliEnvironmentProbe,
+    terminalEnvironmentProbe,
+    probeCliTools: (deep) => providerStore.probeCliTools(deep),
+    probeTerminals: () => providerStore.probeTerminals(),
     listApiKeys: (providerId) => providerStore.listApiKeys(providerId),
     browse: (path) => providerStore.browseWorkspaceDirectories(path),
     forget: (path) => providerStore.forgetWorkspace(path),
@@ -206,7 +227,7 @@ export function useAppController() {
     setupThemeListener: settingsController.setupThemeListener,
     cleanupThemeListener: settingsController.cleanupThemeListener,
     syncLaunchAtLogin: settingsController.syncLaunchAtLogin,
-    autoProbeCliEnvironment: settingsController.autoProbeCliEnvironment,
+    autoProbeCliTools: settingsController.autoProbeCliTools,
     reloadProviders: () => providerStore.reloadProviders().catch(() => {}),
     applyTheme: settingsController.applyTheme,
     resetSettingsDraft: settingsController.resetDraftOnClose,
@@ -215,16 +236,25 @@ export function useAppController() {
     loadCheckInRecords: checkInRecords.loadCheckInRecords,
   });
 
-  // 全量刷新失败此前只把卡片染红、无任何提示，用户无从得知失败原因。
   async function refreshAllProviders() {
-    const [error] = await Promise.all([
-      providerStore.refreshAll(),
-      providerStore.refreshCliRuntime().catch(() => null),
-    ]);
-    if (error) {
-      Message.error(`刷新失败：${error}`);
+    await batchOperation.runRefresh();
+  }
+
+  async function checkInAllProviders() {
+    await batchOperation.runCheckIn();
+  }
+
+  async function openProjectRepository() {
+    try {
+      await openProjectRepositoryCommand();
+    } catch (error) {
+      Message.error(`无法打开 GitHub：${error instanceof Error ? error.message : String(error)}`);
     }
   }
+
+  const globalCheckInInProgress = computed(
+    () => batchOperation.running.value && batchOperation.operation.value === "checkIn",
+  );
 
   return reactive({
     initialized,
@@ -244,6 +274,15 @@ export function useAppController() {
     ...appUpdater,
     ...appDataTransfer,
     ...checkIn,
+    batchOperation: batchOperation.operation,
+    batchOperationRunning: batchOperation.running,
+    batchOperationVisible: batchOperation.visible,
+    batchOperationItems: batchOperation.items,
+    batchOperationError: batchOperation.error,
+    batchOperationStartedAt: batchOperation.startedAt,
+    batchOperationFinishedAt: batchOperation.finishedAt,
+    batchOperationCompleted: batchOperation.completed,
+    globalCheckInInProgress,
     ...checkInRecords,
     ...usage,
     ...requestLogs,
@@ -256,5 +295,7 @@ export function useAppController() {
     ...providerActions,
     ...workspace,
     refreshAllProviders,
+    checkInAllProviders,
+    openProjectRepository,
   });
 }

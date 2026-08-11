@@ -4,15 +4,16 @@ use crate::{
         ProviderSaveResultView, ProviderView, RefreshResultView,
     },
     models::{
-        ProviderApiKeyOption, ProviderCheckInRecordsResult, ProviderCheckInResult,
-        ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
-        ProviderProtocolDetectionResult, ProviderRequestLogsQuery, ProviderRequestLogsResult,
-        ProviderSaveOptions, ProviderSiteProbeResult, ProviderUsageSummary,
+        ProviderApiKeyOption, ProviderBatchProgressEvent, ProviderCheckInRecordsResult,
+        ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
+        ProviderInput, ProviderProtocolDetectionResult, ProviderRequestLogsQuery,
+        ProviderRequestLogsResult, ProviderSaveOptions, ProviderSiteProbeResult,
+        ProviderUsageSummary,
     },
     services::provider_service::ProviderService,
     tray,
 };
-use tauri::AppHandle;
+use tauri::{ipc::Channel, AppHandle};
 
 use super::run_blocking;
 
@@ -209,8 +210,13 @@ pub(crate) async fn get_provider_invite_link(app: AppHandle, id: String) -> Resu
 }
 
 #[tauri::command]
-pub(crate) async fn refresh_all_providers(app: AppHandle) -> Result<RefreshResultView, String> {
-    let result = ProviderService::new(&app).refresh_all().await?;
+pub(crate) async fn refresh_all_providers_with_progress(
+    app: AppHandle,
+    on_event: Channel<ProviderBatchProgressEvent>,
+) -> Result<RefreshResultView, String> {
+    let result = ProviderService::new(&app)
+        .refresh_all_with_progress(on_event)
+        .await?;
     tray::refresh_from_state(&app);
     Ok(result.into())
 }
@@ -231,4 +237,16 @@ pub(crate) async fn check_in_provider(
     id: String,
 ) -> Result<ProviderCheckInResult, String> {
     ProviderService::new(&app).check_in(id).await
+}
+
+#[tauri::command]
+pub(crate) async fn check_in_all_providers(
+    app: AppHandle,
+    on_event: Channel<ProviderBatchProgressEvent>,
+) -> Result<RefreshResultView, String> {
+    let result = ProviderService::new(&app)
+        .check_in_all_with_progress(on_event)
+        .await?;
+    tray::refresh_from_state(&app);
+    Ok(result.into())
 }

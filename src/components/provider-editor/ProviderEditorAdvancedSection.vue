@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import {
   IconCalendarClock,
   IconCommand,
@@ -136,19 +136,6 @@ const livenessCliKindModel = computed({
     props.draft.liveness.cliKind = value;
   },
 });
-
-watch(
-  cliOptions,
-  (options) => {
-    if (
-      options.length > 0 &&
-      !options.some((option) => option.value === livenessCliKindModel.value)
-    ) {
-      livenessCliKindModel.value = options[0].value;
-    }
-  },
-  { immediate: true },
-);
 
 const fixedLivenessAmount = computed({
   get: () => secondsToDurationValue(props.draft.liveness.interval, fixedLivenessUnit.value),

@@ -1,4 +1,5 @@
 pub mod app_updater;
+pub(crate) mod cli_paths;
 pub mod cli_runtime;
 pub mod cli_sessions;
 pub mod liveness;

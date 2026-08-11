@@ -15,6 +15,7 @@ import {
   providerQuotaScopeLabel,
   providerQuotaTotalKnown,
   providerQuotaUnlimited,
+  formatProviderSyncTime,
 } from "../../utils/provider-display";
 
 const props = withDefaults(
@@ -35,6 +36,9 @@ const identityUsername = computed(() => providerIdentitySecondaryUsername(props.
 const identityId = computed(() => providerIdentityId(props.provider));
 const identityEmptyLabel = computed(() =>
   props.provider.identity.protocol === "api" ? "通用模型接口" : "用户信息未同步",
+);
+const modelSyncTime = computed(() =>
+  formatProviderSyncTime(props.provider.automation.lastSyncedAt),
 );
 const quotaTone = computed(() => {
   if (providerQuotaUnlimited(props.provider)) {
@@ -101,6 +105,7 @@ const quotaTone = computed(() => {
 <ProviderModelPreview
   :models="provider.capabilities.availableModels"
   :rows="isApiKeyAuth ? 5 : 2"
+  :sync-time="isApiKeyAuth ? modelSyncTime : ''"
 />
 
 <ProviderLivenessTimeline

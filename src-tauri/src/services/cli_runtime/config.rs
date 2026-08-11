@@ -1,4 +1,4 @@
-use super::{home_dir, latest_modified_at, read_stable_optional};
+use super::{latest_modified_at, read_stable_optional};
 
 mod formats;
 mod json_source;
@@ -10,6 +10,7 @@ use crate::{
         normalize_api_key_for_protocol, CliConfigFile, CliConfigPreview, CliConfigSnapshot,
         LivenessCliKind, Provider,
     },
+    services::cli_paths::{claude_config_dir, codex_home},
     services::liveness::{anthropic_base_url, openai_base_url},
     util::read_text_file_limited,
 };
@@ -23,11 +24,11 @@ use formats::{
 };
 
 pub(super) fn codex_config_snapshot(providers: &[Provider]) -> CliConfigSnapshot {
-    let Some(home) = home_dir() else {
+    let Some(codex_home) = codex_home() else {
         return config_error("无法定位用户目录");
     };
-    let config_path = home.join(".codex").join("config.toml");
-    let auth_path = home.join(".codex").join("auth.json");
+    let config_path = codex_home.join("config.toml");
+    let auth_path = codex_home.join("auth.json");
     let config = match read_stable_optional(&config_path) {
         Ok(value) => value,
         Err(_) => return config_error("读取 Codex 配置文件失败"),
@@ -63,10 +64,10 @@ pub(super) fn codex_config_snapshot(providers: &[Provider]) -> CliConfigSnapshot
 }
 
 pub(super) fn claude_config_snapshot(providers: &[Provider]) -> CliConfigSnapshot {
-    let Some(home) = home_dir() else {
+    let Some(config_dir) = claude_config_dir() else {
         return config_error("无法定位用户目录");
     };
-    let settings_path = home.join(".claude").join("settings.json");
+    let settings_path = config_dir.join("settings.json");
     let settings = match read_stable_optional(&settings_path) {
         Ok(value) => value,
         Err(_) => return config_error("读取 Claude Code 配置文件失败"),
@@ -107,14 +108,14 @@ pub fn preview_config(
     cli_kind: LivenessCliKind,
 ) -> Result<CliConfigPreview, String> {
     let (base_url, api_key) = cli_target(provider, cli_kind)?;
-    let home = home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
     let mut original_files = Vec::new();
     let mut files = Vec::new();
 
     let revision = match cli_kind {
         LivenessCliKind::Codex => {
-            let config_path = home.join(".codex").join("config.toml");
-            let auth_path = home.join(".codex").join("auth.json");
+            let codex_home = codex_home().ok_or_else(|| "无法定位用户目录".to_string())?;
+            let config_path = codex_home.join("config.toml");
+            let auth_path = codex_home.join("auth.json");
             let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
             let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
             let (next_config, next_auth) =
@@ -138,7 +139,8 @@ pub fn preview_config(
             config_revision(&[&config_text, &auth_text, &base_url, &api_key])
         }
         LivenessCliKind::ClaudeCode => {
-            let settings_path = home.join(".claude").join("settings.json");
+            let config_dir = claude_config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+            let settings_path = config_dir.join("settings.json");
             let settings_text = read_cli_config(&settings_path, "读取 Claude Code 配置文件")?;
             let next_settings = rewrite_claude_config(&settings_text, &base_url, &api_key)?;
             original_files.push(CliConfigFile {
@@ -203,9 +205,9 @@ fn switch_codex_config(
     expected_revision: Option<&str>,
     files: &[CliConfigFile],
 ) -> Result<(), String> {
-    let home = home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let config_path = home.join(".codex").join("config.toml");
-    let auth_path = home.join(".codex").join("auth.json");
+    let codex_home = codex_home().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let config_path = codex_home.join("config.toml");
+    let auth_path = codex_home.join("auth.json");
     let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
     let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
     validate_file_set(files, [&config_path, &auth_path])?;
@@ -242,8 +244,8 @@ fn switch_claude_config(
     expected_revision: Option<&str>,
     files: &[CliConfigFile],
 ) -> Result<(), String> {
-    let home = home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let settings_path = home.join(".claude").join("settings.json");
+    let config_dir = claude_config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let settings_path = config_dir.join("settings.json");
     let settings_text = read_cli_config(&settings_path, "读取 Claude Code 配置文件")?;
     validate_file_set(files, [&settings_path])?;
     ensure_revision(

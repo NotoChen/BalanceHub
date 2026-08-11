@@ -10,6 +10,16 @@ use std::{
 };
 
 pub(in crate::services::liveness) fn runtime_path_for(cli_path: &Path) -> Option<OsString> {
+    runtime_path_for_mode(cli_path, true)
+}
+
+pub(in crate::services::liveness) fn runtime_path_for_without_shell(
+    cli_path: &Path,
+) -> Option<OsString> {
+    runtime_path_for_mode(cli_path, false)
+}
+
+fn runtime_path_for_mode(cli_path: &Path, include_shell: bool) -> Option<OsString> {
     let mut dirs = Vec::new();
     if let Some(parent) = cli_path.parent() {
         dirs.push(parent.to_path_buf());
@@ -20,8 +30,10 @@ pub(in crate::services::liveness) fn runtime_path_for(cli_path: &Path) -> Option
     for dir in platform_global_dirs() {
         dirs.push(PathBuf::from(dir));
     }
-    if let Some(path) = login_shell_path() {
-        dirs.extend(env::split_paths(&path));
+    if include_shell {
+        if let Some(path) = login_shell_path() {
+            dirs.extend(env::split_paths(&path));
+        }
     }
     if let Some(path) = env::var_os("PATH") {
         dirs.extend(env::split_paths(&path));
@@ -72,16 +84,18 @@ pub(super) fn has_path_separator(value: &str) -> bool {
     value.contains('/') || value.contains('\\')
 }
 
-pub(super) fn path_candidates(binary: &str) -> Vec<PathBuf> {
+pub(super) fn path_candidates(binary: &str, include_shell: bool) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(path) = env::var("PATH") {
         for dir in env::split_paths(&path) {
             candidates.extend(binary_names(binary).into_iter().map(|name| dir.join(name)));
         }
     }
-    if let Some(path) = login_shell_path() {
-        for dir in env::split_paths(&path) {
-            candidates.extend(binary_names(binary).into_iter().map(|name| dir.join(name)));
+    if include_shell {
+        if let Some(path) = login_shell_path() {
+            for dir in env::split_paths(&path) {
+                candidates.extend(binary_names(binary).into_iter().map(|name| dir.join(name)));
+            }
         }
     }
     candidates

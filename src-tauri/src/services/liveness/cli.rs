@@ -11,12 +11,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) use paths::runtime_path_for;
 use paths::{
     binary_names, clean_preferred_path, expand_home_path, has_path_separator, home_bin_candidates,
     home_dir, node_manager_bin_dirs, normalize_path, path_candidates, shell_command_candidates,
     windows_npm_candidates,
 };
+pub(super) use paths::{runtime_path_for, runtime_path_for_without_shell};
 
 struct CliSpec {
     env_keys: &'static [&'static str],
@@ -46,11 +46,23 @@ const CLAUDE_SPEC: CliSpec = CliSpec {
 };
 
 pub(super) fn find_codex_cli(preferred_path: &str) -> Result<CodexCliProbeResult, String> {
-    find_cli(preferred_path, &CODEX_SPEC)
+    find_cli(preferred_path, &CODEX_SPEC, true)
 }
 
 pub(super) fn find_claude_cli(preferred_path: &str) -> Result<CodexCliProbeResult, String> {
-    find_cli(preferred_path, &CLAUDE_SPEC)
+    find_cli(preferred_path, &CLAUDE_SPEC, true)
+}
+
+pub(super) fn find_codex_cli_without_shell(
+    preferred_path: &str,
+) -> Result<CodexCliProbeResult, String> {
+    find_cli(preferred_path, &CODEX_SPEC, false)
+}
+
+pub(super) fn find_claude_cli_without_shell(
+    preferred_path: &str,
+) -> Result<CodexCliProbeResult, String> {
+    find_cli(preferred_path, &CLAUDE_SPEC, false)
 }
 
 fn codex_home_candidates(home: &Path) -> Vec<PathBuf> {
@@ -75,7 +87,7 @@ fn claude_home_candidates(home: &Path) -> Vec<PathBuf> {
     candidates
 }
 
-fn explicit_env_candidates(spec: &CliSpec) -> Vec<PathBuf> {
+fn explicit_env_candidates(spec: &CliSpec, include_shell: bool) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for key in spec.env_keys {
         if let Ok(path) = env::var(key) {
@@ -83,7 +95,7 @@ fn explicit_env_candidates(spec: &CliSpec) -> Vec<PathBuf> {
             if !path.is_empty() {
                 candidates.push(expand_home_path(&path));
                 if !has_path_separator(&path) {
-                    candidates.extend(path_candidates(&path));
+                    candidates.extend(path_candidates(&path, include_shell));
                 }
             }
         }
@@ -96,6 +108,7 @@ fn cli_candidates(
     preferred_path: &str,
     explicit_env_candidates: &[PathBuf],
     spec: &CliSpec,
+    include_shell: bool,
 ) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     let preferred_path = clean_preferred_path(preferred_path);
@@ -103,7 +116,7 @@ fn cli_candidates(
         let preferred = expand_home_path(&preferred_path);
         candidates.push(preferred.clone());
         if !has_path_separator(&preferred_path) {
-            candidates.extend(path_candidates(&preferred_path));
+            candidates.extend(path_candidates(&preferred_path, include_shell));
         }
     }
     candidates.extend(explicit_env_candidates.iter().cloned());
@@ -126,19 +139,30 @@ fn cli_candidates(
             );
         }
     }
-    candidates.extend(shell_command_candidates(spec.binary));
+    if include_shell {
+        candidates.extend(shell_command_candidates(spec.binary));
+    }
     candidates
 }
 
 /// 显式自定义路径有效时优先使用；NVM/FNM 版本路径与自动发现候选则选择最高版本。
-fn find_cli(preferred_path: &str, spec: &CliSpec) -> Result<CodexCliProbeResult, String> {
+fn find_cli(
+    preferred_path: &str,
+    spec: &CliSpec,
+    include_shell: bool,
+) -> Result<CodexCliProbeResult, String> {
     let preferred_path = clean_preferred_path(preferred_path);
     let preferred_can_move = preferred_path_is_version_managed(&preferred_path);
-    let explicit_env_candidates = explicit_env_candidates(spec);
+    let explicit_env_candidates = explicit_env_candidates(spec, include_shell);
     let mut seen = Vec::new();
     let mut best: Option<(CodexCliProbeResult, Vec<u64>)> = None;
     let mut failures = Vec::new();
-    for candidate in cli_candidates(&preferred_path, &explicit_env_candidates, spec) {
+    for candidate in cli_candidates(
+        &preferred_path,
+        &explicit_env_candidates,
+        spec,
+        include_shell,
+    ) {
         if seen.iter().any(|item: &PathBuf| item == &candidate) {
             continue;
         }
@@ -160,7 +184,7 @@ fn find_cli(preferred_path: &str, spec: &CliSpec) -> Result<CodexCliProbeResult,
             }
             continue;
         }
-        match cli_version(&candidate, spec.require_version_substring) {
+        match cli_version(&candidate, spec.require_version_substring, include_shell) {
             Ok(version) => {
                 let result = CodexCliProbeResult {
                     path: candidate.to_string_lossy().to_string(),

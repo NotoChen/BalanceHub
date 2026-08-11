@@ -208,16 +208,49 @@ impl NewApiAdapter {
         match crate::adapters::transport::build_client(settings, provider).await {
             Ok(client) => {
                 let mut refreshed = super::quota::refresh_provider(&client, provider).await;
-                if !matches!(
+                if refreshed.auth.api_key.trim().is_empty() {
+                    return refreshed;
+                }
+
+                let quota_failed = matches!(
                     refreshed.runtime.status,
                     crate::models::ProviderStatus::Error
-                ) && !refreshed.auth.api_key.trim().is_empty()
-                {
-                    if let Ok(models) =
-                        crate::adapters::api::fetch_models(&client, &refreshed).await
-                    {
+                );
+                match crate::adapters::api::fetch_models(&client, &refreshed).await {
+                    Ok(models) => {
                         refreshed.capabilities.available_models = models;
+                        if quota_failed && matches!(provider.auth.mode, AuthMode::ApiKey) {
+                            // API Key endpoints often expose /models but not account quota.
+                            // A model refresh is still useful and should not leave the card
+                            // permanently in an error state just because quota is unavailable.
+                            refreshed.quota.available = 0.0;
+                            refreshed.quota.used = 0.0;
+                            refreshed.quota.known = false;
+                            refreshed.quota.total_known = false;
+                            refreshed.quota.unlimited = false;
+                            refreshed.quota.scope = crate::models::ProviderQuotaScope::Token;
+                            refreshed.runtime.status = crate::models::ProviderStatus::Ok;
+                            refreshed.runtime.error_message = None;
+                            refreshed.automation.last_synced_at =
+                                Some(crate::util::unix_secs().to_string());
+                        }
                     }
+                    Err(model_error) if matches!(provider.auth.mode, AuthMode::ApiKey) => {
+                        if quota_failed {
+                            let quota_error = refreshed
+                                .runtime
+                                .error_message
+                                .take()
+                                .unwrap_or_else(|| "额度刷新失败".to_string());
+                            refreshed.runtime.error_message =
+                                Some(format!("{quota_error}；模型列表获取失败: {model_error}"));
+                        } else {
+                            refreshed.runtime.status = crate::models::ProviderStatus::Warning;
+                            refreshed.runtime.error_message =
+                                Some(format!("额度已更新；模型列表获取失败: {model_error}"));
+                        }
+                    }
+                    Err(_) => {}
                 }
                 refreshed
             }

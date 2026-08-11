@@ -5,11 +5,7 @@ import ProviderBoard from "./ProviderBoard.vue";
 import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
-import {
-  providerMatchesSearch,
-  type ProviderAuthFilter,
-  type ProviderStatusFilter,
-} from "../utils/provider-filters";
+import { providerMatchesSearch } from "../utils/provider-filters";
 
 interface ProviderDragState {
   providerId: string | null;
@@ -27,6 +23,8 @@ const props = defineProps<{
   switchingCliConfig: { providerId: string; cliKind: LivenessCliKind } | null;
   refreshInProgress: boolean;
   globalCheckInInProgress: boolean;
+  appVersion: string;
+  checkingForUpdate: boolean;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
   providerDrag: ProviderDragState;
@@ -38,47 +36,15 @@ const props = defineProps<{
   showLivenessTimeline: (provider: Provider) => boolean;
 }>();
 
-const authFilter = ref<ProviderAuthFilter>("all");
-const statusFilter = ref<ProviderStatusFilter>("all");
 const searchQuery = ref("");
 
-function matchesFilters(provider: Provider) {
-  const authMatches =
-    authFilter.value === "all" ||
-    (authFilter.value === "apiKey" && provider.auth.mode === "apiKey") ||
-    (authFilter.value === "account" && provider.auth.mode !== "apiKey");
-  const statusMatches =
-    statusFilter.value === "all" || props.providerCardTone(provider) === statusFilter.value;
-  return authMatches && statusMatches && providerMatchesSearch(provider, searchQuery.value);
+function matchesSearch(provider: Provider) {
+  return providerMatchesSearch(provider, searchQuery.value);
 }
 
-const filteredLivenessProviders = computed(() => props.livenessProviders.filter(matchesFilters));
-const filteredRegularProviders = computed(() => props.regularProviders.filter(matchesFilters));
-const visibleProviderCount = computed(
-  () => filteredLivenessProviders.value.length + filteredRegularProviders.value.length,
-);
-const hasActiveFilters = computed(
-  () =>
-    authFilter.value !== "all" ||
-    statusFilter.value !== "all" ||
-    searchQuery.value.trim().length > 0,
-);
-
-function setAuthFilter(value: ProviderAuthFilter) {
-  authFilter.value = value;
-}
-
-function setStatusFilter(value: ProviderStatusFilter) {
-  statusFilter.value = value;
-}
-
-function toggleStatusFilter(value: Exclude<ProviderStatusFilter, "all">) {
-  statusFilter.value = statusFilter.value === value ? "all" : value;
-}
-
-function resetFilters() {
-  authFilter.value = "all";
-  statusFilter.value = "all";
+const filteredLivenessProviders = computed(() => props.livenessProviders.filter(matchesSearch));
+const filteredRegularProviders = computed(() => props.regularProviders.filter(matchesSearch));
+function clearSearch() {
   searchQuery.value = "";
 }
 
@@ -86,6 +52,8 @@ const emit = defineEmits<{
   startDrag: [event: MouseEvent];
   add: [];
   importData: [];
+  checkForUpdate: [];
+  openGithub: [];
   refreshAll: [];
   checkInAll: [];
   settings: [];
@@ -118,19 +86,15 @@ const emit = defineEmits<{
   <AppTopbar
     :refresh-in-progress="refreshInProgress"
     :global-check-in-in-progress="globalCheckInInProgress"
-    :auth-filter="authFilter"
-    :status-filter="statusFilter"
     :search-query="searchQuery"
-    :visible-provider-count="visibleProviderCount"
-    :total-provider-count="providers.length"
-    :has-active-filters="hasActiveFilters"
+    :app-version="appVersion"
+    :checking-for-update="checkingForUpdate"
     @start-drag="emit('startDrag', $event)"
-    @set-auth-filter="setAuthFilter"
-    @set-status-filter="setStatusFilter"
-    @toggle-status-filter="toggleStatusFilter"
     @set-search-query="searchQuery = $event"
-    @reset-filters="resetFilters"
     @add="emit('add')"
+    @import-data="emit('importData')"
+    @check-for-update="emit('checkForUpdate')"
+    @open-github="emit('openGithub')"
     @refresh="emit('refreshAll')"
     @check-in="emit('checkInAll')"
     @settings="emit('settings')"
@@ -178,6 +142,6 @@ const emit = defineEmits<{
     @remove="emit('remove', $event)"
     @open-cli-instances="(provider, cliKind) => emit('openCliInstances', provider, cliKind)"
     @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
-    @reset-filters="resetFilters"
+    @clear-search="clearSearch"
   />
 </template>

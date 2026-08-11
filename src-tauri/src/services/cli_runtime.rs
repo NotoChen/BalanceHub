@@ -306,24 +306,6 @@ fn merge_instance(
     }
 }
 
-fn home_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        env::var_os("USERPROFILE")
-            .or_else(|| {
-                let mut home = env::var_os("HOMEDRIVE")?;
-                home.push(env::var_os("HOMEPATH")?);
-                Some(home)
-            })
-            .map(PathBuf::from)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        env::var_os("HOME").map(PathBuf::from)
-    }
-}
-
 fn read_stable_optional(path: &Path) -> Result<Option<StableFile>, String> {
     for _ in 0..2 {
         let before = match file_signature(path) {

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import BrandIcon from "../BrandIcon.vue";
-import { useProviderStore, type LivenessCliKind, type Provider } from "../../stores/providers";
-import { availableCliKinds } from "../../utils/cli-environment";
+import type { LivenessCliKind, Provider } from "../../stores/providers";
 import {
   maskApiKey,
   providerProtocolLabel,
@@ -16,16 +15,12 @@ const props = withDefaults(
     tone: ProviderCardTone;
     title?: string;
     interactive?: boolean;
-    codexDefault?: boolean;
-    claudeDefault?: boolean;
     codexActiveCliCount?: number;
     claudeActiveCliCount?: number;
   }>(),
   {
     title: "",
     interactive: true,
-    codexDefault: false,
-    claudeDefault: false,
     codexActiveCliCount: 0,
     claudeActiveCliCount: 0,
   },
@@ -35,10 +30,6 @@ const emit = defineEmits<{
   openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
 }>();
 
-const store = useProviderStore();
-const detectedCliKinds = computed(() => availableCliKinds(store.cliEnvironmentProbe));
-const codexDetected = computed(() => detectedCliKinds.value.includes("codex"));
-const claudeDetected = computed(() => detectedCliKinds.value.includes("claudeCode"));
 const isApiKeyAuth = computed(() => props.provider.auth.mode === "apiKey");
 const apiKeyMasked = computed(() => maskApiKey(props.provider.auth.apiKey));
 const apiKeyConfigured = computed(() => Boolean(props.provider.auth.apiKey.trim()));
@@ -120,29 +111,11 @@ function openCliInstances(cliKind: LivenessCliKind) {
   </div>
   <div class="provider-card-header-meta">
     <div
-      v-if="(codexDefault && codexDetected) || (claudeDefault && claudeDetected) || codexActiveCliCount > 0 || claudeActiveCliCount > 0"
+      v-if="codexActiveCliCount > 0 || claudeActiveCliCount > 0"
       class="provider-card-cli-signals"
       :class="{ 'provider-card-cli-signals-standalone': !showProviderStatus }"
       aria-label="CLI 使用状态"
     >
-      <span
-        v-if="codexDefault && codexDetected"
-        class="provider-card-cli-signal provider-card-cli-signal-default"
-        title="Codex 默认 CLI 配置"
-        aria-label="Codex 默认 CLI 配置"
-      >
-        <BrandIcon brand="codex" :size="17" />
-        <b>D</b>
-      </span>
-      <span
-        v-if="claudeDefault && claudeDetected"
-        class="provider-card-cli-signal provider-card-cli-signal-default"
-        title="Claude Code 默认 CLI 配置"
-        aria-label="Claude Code 默认 CLI 配置"
-      >
-        <BrandIcon brand="claude" :size="17" />
-        <b>D</b>
-      </span>
       <button
         v-if="codexActiveCliCount > 0 && interactive"
         type="button"

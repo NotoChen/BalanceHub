@@ -4,6 +4,7 @@ import type {
   LivenessCliKind,
   TemporaryCliSessionMode,
   TemporaryCliTerminalKind,
+  TerminalEnvironmentProbeResult,
   TemporaryTerminalProbeResult,
 } from "../stores/providers";
 import type { SelectOption } from "./liveness-options";
@@ -46,7 +47,7 @@ export function availableCliOptions(
 }
 
 export function availableTerminalResults(
-  probe: CliEnvironmentProbeResult | null | undefined,
+  probe: TerminalEnvironmentProbeResult | null | undefined,
 ): TemporaryTerminalProbeResult[] {
   if (!probe) return [];
   const seen = new Set<TemporaryCliTerminalKind>();
@@ -58,7 +59,7 @@ export function availableTerminalResults(
 }
 
 export function availableTerminalOptions(
-  probe: CliEnvironmentProbeResult | null | undefined,
+  probe: TerminalEnvironmentProbeResult | null | undefined,
 ): SelectOption<TemporaryCliTerminalKind>[] {
   return availableTerminalResults(probe).map((terminal) => ({
     value: terminal.kind,
@@ -66,19 +67,30 @@ export function availableTerminalOptions(
   }));
 }
 
-export function applyCliEnvironmentDefaults(
-  settings: AppSettings,
-  probe: CliEnvironmentProbeResult,
-) {
-  const cliKinds = availableCliKinds(probe);
-  if (cliKinds.length > 0 && !cliKinds.includes(settings.livenessCliKind)) {
-    settings.livenessCliKind = cliKinds[0];
-  }
+export type TerminalEnvironmentSettingsSnapshot = Pick<
+  AppSettings,
+  "temporaryCliTerminalKind"
+>;
 
+export function captureTerminalEnvironmentSettings(
+  settings: AppSettings,
+): TerminalEnvironmentSettingsSnapshot {
+  return {
+    temporaryCliTerminalKind: settings.temporaryCliTerminalKind,
+  };
+}
+
+/** 只在用户明确触发设置页扫描时修正已失效的终端选择，并保留扫描期间的用户修改。 */
+export function applyTerminalEnvironmentProbeResult(
+  settings: AppSettings,
+  probe: TerminalEnvironmentProbeResult,
+  expected: TerminalEnvironmentSettingsSnapshot,
+) {
   const terminalKinds = availableTerminalResults(probe).map((terminal) => terminal.kind);
   if (
-    terminalKinds.length > 0 &&
-    !terminalKinds.includes(settings.temporaryCliTerminalKind)
+    settings.temporaryCliTerminalKind === expected.temporaryCliTerminalKind
+    && terminalKinds.length > 0
+    && !terminalKinds.includes(settings.temporaryCliTerminalKind)
   ) {
     settings.temporaryCliTerminalKind = terminalKinds[0];
   }
@@ -89,7 +101,6 @@ export type CliEnvironmentSettingsSnapshot = Pick<
   | "codexCliPath"
   | "claudeCliPath"
   | "livenessCliKind"
-  | "temporaryCliTerminalKind"
 >;
 
 export function captureCliEnvironmentSettings(
@@ -99,14 +110,10 @@ export function captureCliEnvironmentSettings(
     codexCliPath: settings.codexCliPath,
     claudeCliPath: settings.claudeCliPath,
     livenessCliKind: settings.livenessCliKind,
-    temporaryCliTerminalKind: settings.temporaryCliTerminalKind,
   };
 }
 
-/**
- * 把扫描结果写回发起扫描时的设置快照。扫描期间用户已经修改的字段不再覆盖，
- * 其余字段仍可跟随 CLI 升级、版本管理器目录迁移和终端安装变化自动更新。
- */
+/** 把设置页手动扫描结果写回发起扫描时的草稿快照，避免覆盖扫描期间的用户修改。 */
 export function applyCliEnvironmentProbeResult(
   settings: AppSettings,
   probe: CliEnvironmentProbeResult,
@@ -127,12 +134,12 @@ export function applyCliEnvironmentProbeResult(
     settings.claudeCliPath = probe.claudeCode.path;
   }
 
-  const next = { ...settings };
-  applyCliEnvironmentDefaults(next, probe);
-  if (settings.livenessCliKind === expected.livenessCliKind) {
-    settings.livenessCliKind = next.livenessCliKind;
-  }
-  if (settings.temporaryCliTerminalKind === expected.temporaryCliTerminalKind) {
-    settings.temporaryCliTerminalKind = next.temporaryCliTerminalKind;
+  const cliKinds = availableCliKinds(probe);
+  if (
+    settings.livenessCliKind === expected.livenessCliKind
+    && cliKinds.length > 0
+    && !cliKinds.includes(settings.livenessCliKind)
+  ) {
+    settings.livenessCliKind = cliKinds[0];
   }
 }

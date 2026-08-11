@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { IconLoading, IconRefresh } from "@arco-design/web-vue/es/icon";
 import { useProviderStore, type AppSettings } from "../../stores/providers";
 import {
-  applyCliEnvironmentProbeResult,
+  applyTerminalEnvironmentProbeResult,
   availableTerminalOptions,
   availableTerminalResults,
-  captureCliEnvironmentSettings,
+  captureTerminalEnvironmentSettings,
 } from "../../utils/cli-environment";
 import TerminalBrandIcon from "../TerminalBrandIcon.vue";
 import TerminalIconSelector from "../TerminalIconSelector.vue";
@@ -20,36 +20,25 @@ const props = defineProps<{
 const store = useProviderStore();
 const probeError = ref("");
 
-const terminals = computed(() => availableTerminalResults(store.cliEnvironmentProbe));
-const terminalOptions = computed(() => availableTerminalOptions(store.cliEnvironmentProbe));
+const terminals = computed(() => availableTerminalResults(store.terminalEnvironmentProbe));
+const terminalOptions = computed(() => availableTerminalOptions(store.terminalEnvironmentProbe));
 
-async function runProbe() {
-  if (store.cliEnvironmentLoading) return;
+async function runProbe(applySelection = false) {
+  if (store.terminalEnvironmentLoading) return;
   probeError.value = "";
-  const settingsAtStart = captureCliEnvironmentSettings(props.settings);
+  const settingsAtStart = captureTerminalEnvironmentSettings(props.settings);
   try {
-    const result = await store.probeCliEnvironment();
-    applyCliEnvironmentProbeResult(props.settings, result, settingsAtStart);
+    const result = await store.probeTerminals();
+    if (applySelection) {
+      applyTerminalEnvironmentProbeResult(props.settings, result, settingsAtStart);
+    }
   } catch (error) {
     probeError.value = error instanceof Error ? error.message : String(error);
   }
 }
 
-watch(
-  terminalOptions,
-  (options) => {
-    if (
-      options.length > 0 &&
-      !options.some((option) => option.value === props.settings.temporaryCliTerminalKind)
-    ) {
-      props.settings.temporaryCliTerminalKind = options[0].value;
-    }
-  },
-  { immediate: true },
-);
-
 onMounted(() => {
-  if (!store.cliEnvironmentProbe) void runProbe();
+  if (!store.terminalEnvironmentProbe) void runProbe();
 });
 
 </script>
@@ -58,19 +47,19 @@ onMounted(() => {
   <div class="settings-terminal-panel">
     <header class="settings-terminal-head">
       <span class="settings-terminal-mode">
-        <IconLoading v-if="store.cliEnvironmentLoading" />
+        <IconLoading v-if="store.terminalEnvironmentLoading" />
         <i v-else />
         自动检测
       </span>
       <span class="settings-terminal-summary">
         {{ terminals.length }} 个可用
-        <a-tooltip content="重新扫描 Agent 与终端">
+        <a-tooltip content="重新扫描终端">
           <a-button
             shape="circle"
             size="mini"
-            :loading="store.cliEnvironmentLoading"
-            aria-label="重新扫描 Agent 与终端"
-            @click="runProbe"
+            :loading="store.terminalEnvironmentLoading"
+            aria-label="重新扫描终端"
+            @click="runProbe(true)"
           >
             <template #icon><IconRefresh /></template>
           </a-button>
@@ -92,7 +81,7 @@ onMounted(() => {
       </SettingsDetectionItem>
     </SettingsDetectionGrid>
     <div v-else class="settings-terminal-empty">
-      {{ store.cliEnvironmentLoading ? "正在扫描本机终端" : "未检测到可用终端" }}
+      {{ store.terminalEnvironmentLoading ? "正在扫描本机终端" : "未检测到可用终端" }}
     </div>
 
     <div v-if="terminalOptions.length > 0" class="settings-terminal-preference">
@@ -100,7 +89,7 @@ onMounted(() => {
       <TerminalIconSelector
         v-model="settings.temporaryCliTerminalKind"
         :options="terminalOptions"
-        :loading="store.cliEnvironmentLoading && !store.cliEnvironmentProbe"
+        :loading="store.terminalEnvironmentLoading && !store.terminalEnvironmentProbe"
       />
     </div>
     <div v-if="probeError" class="settings-terminal-error">{{ probeError }}</div>

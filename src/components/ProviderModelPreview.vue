@@ -6,9 +6,11 @@ const props = withDefaults(
   defineProps<{
     models: string[] | null | undefined;
     rows?: 2 | 5;
+    syncTime?: string;
   }>(),
   {
     rows: 2,
+    syncTime: "",
   },
 );
 
@@ -151,6 +153,13 @@ onBeforeUnmount(() => {
   <section class="provider-card-models" aria-label="可用模型">
     <div class="provider-card-section-heading">
       <span>可用模型</span>
+      <span
+        v-if="syncTime"
+        class="provider-card-model-sync-time"
+        :title="`模型同步于 ${syncTime}`"
+      >
+        同步 {{ syncTime }}
+      </span>
       <span>{{ availableModelCount > 0 ? `${availableModelCount} 个` : "未同步" }}</span>
     </div>
 

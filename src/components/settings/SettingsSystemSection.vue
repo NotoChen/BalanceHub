@@ -7,6 +7,7 @@ import {
   IconWifi,
 } from "@arco-design/web-vue/es/icon";
 import type { AppSettings, ProxyMode } from "../../stores/providers";
+import { formatAppVersionLabel } from "../../utils/app-version";
 
 interface SelectOption<T extends string = string> {
   label: string;
@@ -35,12 +36,6 @@ const proxyModeOptions: SelectOption<ProxyMode>[] = [
   { label: "自定义代理", value: "custom" },
 ];
 
-function versionLabel(value: unknown) {
-  if (typeof value === "string" && value.trim()) {
-    return `v${value.trim()}`;
-  }
-  return "开发环境";
-}
 </script>
 
 <template>
@@ -79,7 +74,7 @@ function versionLabel(value: unknown) {
         <div>
           <strong>版本更新</strong>
         </div>
-        <span class="settings-version-badge">{{ versionLabel(appVersion) }}</span>
+        <span class="settings-version-badge">{{ formatAppVersionLabel(appVersion) }}</span>
       </header>
 
       <div class="settings-setting-row settings-setting-row-action">

@@ -222,6 +222,11 @@
   border-color: var(--glass-border);
 }
 
+:root.theme-dark .provider-card {
+  --provider-card-cli-codex-color: #f1f1f1;
+  --provider-card-cli-codex-glow: rgba(241, 241, 241, 0.26);
+}
+
 :root.theme-dark .provider-card-cli-signal {
   border-color: transparent;
   background: transparent;
@@ -331,49 +336,4 @@
 
 :root.theme-dark .provider-card-action-panel-section-title {
   color: #a9aeb8;
-}
-
-:root.theme-dark .provider-board-toolbar {
-  border-color: var(--glass-border);
-}
-
-:root.theme-dark .provider-board-filter-summary {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .provider-board-filter-summary strong {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .provider-board-filter-label {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .provider-board-filter-segment {
-  background: rgba(36, 38, 47, 0.82);
-}
-
-:root.theme-dark .provider-board-filter-segment button {
-  border-color: var(--glass-border);
-  color: #a9aeb8;
-}
-
-:root.theme-dark .provider-board-filter-segment button:hover,
-:root.theme-dark .provider-board-filter-segment button:focus-visible {
-  background: rgba(122, 167, 255, 0.12);
-  color: #c9dcff;
-}
-
-:root.theme-dark .provider-board-filter-segment button.active {
-  background: rgba(122, 167, 255, 0.17);
-  color: #94bfff;
-}
-
-:root.theme-dark .provider-board-filter-reset {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .provider-board-filter-reset:hover,
-:root.theme-dark .provider-board-filter-reset:focus-visible {
-  color: #94bfff;
 }

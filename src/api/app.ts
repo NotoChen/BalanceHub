@@ -6,6 +6,7 @@ import type {
   CliRuntimeSnapshot,
   CliSessionSummary,
   CliEnvironmentProbeResult,
+  TerminalEnvironmentProbeResult,
   CodexModelSyncResult,
   LivenessCliKind,
   Provider,
@@ -89,6 +90,10 @@ export function openCcSwitchDeeplink(url: string) {
   return invoke<void>("open_ccswitch_deeplink", { url });
 }
 
+export function openProjectRepository() {
+  return invoke<void>("open_project_repository");
+}
+
 export function checkAppUpdate() {
   return invoke<AppUpdateInfo | null>("check_app_update");
 }
@@ -165,8 +170,12 @@ export function testProviderConnection(input: ProviderInput) {
   return invoke<ProviderConnectionTestResult>("test_provider_connection", { input });
 }
 
-export function probeCliEnvironment() {
-  return invoke<CliEnvironmentProbeResult>("probe_cli_environment");
+export function probeCliTools(deep = false) {
+  return invoke<CliEnvironmentProbeResult>("probe_cli_tools", { deep });
+}
+
+export function probeTerminals() {
+  return invoke<TerminalEnvironmentProbeResult>("probe_terminals");
 }
 
 export function previewLivenessPrompts(settings: AppSettings, count = 10) {
@@ -268,10 +277,6 @@ export function probeProviderCapabilities(id: string) {
 
 export function getProviderInviteLink(id: string) {
   return invoke<string>("get_provider_invite_link", { id });
-}
-
-export function refreshAllProviders() {
-  return invoke<RefreshResult>("refresh_all_providers");
 }
 
 export function refreshProviders(ids: string[]) {
