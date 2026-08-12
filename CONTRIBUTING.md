@@ -95,6 +95,17 @@ npm run build
 npm test
 ```
 
+推荐使用统一自检入口：
+
+```bash
+npm run doctor:platform  # 只检查平台脚本变量命名和构建缓存体量
+npm run doctor           # 再执行前端与 Rust 的完整质量检查
+```
+
+生成给平台 shell 执行的脚本时，内部控制变量必须避开宿主解释器的自动变量和保留字，并使用项目命名空间：Unix shell 使用 `bh_` 前缀，Windows 批处理使用 `BH_` 前缀。CLI 协议要求的外部环境变量（例如 `OPENAI_API_KEY`、`TERM`）按其约定名称保留，不属于内部控制变量。重点规避 zsh 的 `status`、`pipestatus`、`argv`、`commands`、`funcstack`、`history`、`options`、`signals`、`words`，POSIX shell 的 `PWD`、`OLDPWD`、`PPID`，PowerShell 的 `$PID`、`$HOME`、`$PWD`、`$?`、`$LASTEXITCODE`，以及 cmd 的 `ERRORLEVEL`、`CD`、`DATE`、`TIME`、`RANDOM`。平台脚本改动后必须运行 `npm run doctor:platform`。
+
+`npm run tauri dev` 和 `npm run tauri build` 会默认把 Cargo target 放到系统开发缓存目录，避免反复开发构建把 `src-tauri/target` 留在仓库并持续膨胀。可以通过 `CARGO_TARGET_DIR` 显式覆盖。自检只读报告缓存，不会自动删除；确认没有运行中的开发构建后，再按提示执行 `cargo clean --target-dir ...`。
+
 本地打包桌面应用：
 
 ```bash
@@ -117,6 +128,8 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
+
+日常开发优先运行 `npm run doctor`，它会将 Rust 检查放入隔离 target。上面的 Cargo 命令适用于 CI 或已显式设置 `CARGO_TARGET_DIR` 的环境；不建议在仓库根目录长期保留 Cargo 构建产物。
 
 文档或配置改动也应检查：
 

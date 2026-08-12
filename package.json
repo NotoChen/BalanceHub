@@ -1,7 +1,7 @@
 {
   "name": "balancehub",
   "private": true,
-  "version": "0.4.9",
+  "version": "0.5.0",
   "description": "用于集中管理 AI 中转站账号的跨平台桌面应用。",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -14,8 +14,10 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "doctor": "node scripts/doctor.mjs",
+    "doctor:platform": "node scripts/doctor.mjs --static-only",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "node scripts/tauri.mjs"
   },
   "dependencies": {
     "@arco-design/web-vue": "^2.58.0",

@@ -170,6 +170,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # CI runner 的 target 与 rust-cache 保持一致；本地开发仍由 npm 脚本隔离到系统缓存。
+          CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           tagName: ${{ github.ref_name }}

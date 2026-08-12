@@ -169,18 +169,18 @@ bh_now_ms() {{
   echo $(( $(date +%s) * 1000 ))
 }}
 cd {workdir}
-status=$?
-if [ "$status" -ne 0 ]; then
-  bh_write_status exited null "$(bh_now_ms)" "$status"
-  exit "$status"
+bh_exit_code=$?
+if [ "$bh_exit_code" -ne 0 ]; then
+  bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
+  exit "$bh_exit_code"
 fi
 {path_export}{color_block}{proxy_block}{auth_block}bh_write_status running "$$" null null
 {cli_invocation}
-status=$?
-bh_write_status exited null "$(bh_now_ms)" "$status"
+bh_exit_code=$?
+bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
 rm -f "$bh_script_path"
 {cleanup_settings}rmdir {script_dir} 2>/dev/null || true
-exit "$status"
+exit "$bh_exit_code"
 "#,
         status_path = shell_quote(&input.status_path.to_string_lossy()),
         login_shell_bootstrap = login_shell_bootstrap,
@@ -235,7 +235,7 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
     let text = format!(
-        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_LAUNCH_FILE={launch_payload_path}\"\r\nset \"BH_POWERSHELL=\"\r\nwhere pwsh.exe >nul 2>nul && set \"BH_POWERSHELL=pwsh.exe\"\r\nif not defined BH_POWERSHELL where powershell.exe >nul 2>nul && set \"BH_POWERSHELL=powershell.exe\"\r\nset \"BH_PID=null\"\r\nif defined BH_POWERSHELL for /f %%P in ('%BH_POWERSHELL% -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\nif not defined BH_POWERSHELL goto BH_POWERSHELL_ERROR\r\n{color_block}call :BH_WRITE_STATUS running %BH_PID% null null\r\n%BH_POWERSHELL% -NoProfile -ExecutionPolicy Bypass -Command \"{powershell_launch_command}\"\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset STATUS=%ERRORLEVEL%\r\ngoto BH_FINISH\r\n:BH_POWERSHELL_ERROR\r\nset STATUS=9009\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nif defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %STATUS%\r\ndel \"{launch_payload_path}\" 2>nul\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %STATUS%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
+        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_LAUNCH_FILE={launch_payload_path}\"\r\nset \"BH_POWERSHELL=\"\r\nwhere pwsh.exe >nul 2>nul && set \"BH_POWERSHELL=pwsh.exe\"\r\nif not defined BH_POWERSHELL where powershell.exe >nul 2>nul && set \"BH_POWERSHELL=powershell.exe\"\r\nset \"BH_PID=null\"\r\nif defined BH_POWERSHELL for /f %%P in ('%BH_POWERSHELL% -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\nif not defined BH_POWERSHELL goto BH_POWERSHELL_ERROR\r\n{color_block}call :BH_WRITE_STATUS running %BH_PID% null null\r\n%BH_POWERSHELL% -NoProfile -ExecutionPolicy Bypass -Command \"{powershell_launch_command}\"\r\nset \"BH_EXIT_CODE=%ERRORLEVEL%\"\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset \"BH_EXIT_CODE=%ERRORLEVEL%\"\r\ngoto BH_FINISH\r\n:BH_POWERSHELL_ERROR\r\nset \"BH_EXIT_CODE=9009\"\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nif defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %BH_EXIT_CODE%\r\ndel \"{launch_payload_path}\" 2>nul\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %BH_EXIT_CODE%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
         status_path = escape_cmd_value(&input.status_path.display().to_string()),
         launch_payload_path = escape_cmd_value(&launch_payload_path.display().to_string()),
         workdir = escape_cmd_value(&input.workdir.display().to_string()),
