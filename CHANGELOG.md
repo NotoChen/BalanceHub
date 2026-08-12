@@ -2,6 +2,20 @@
 
 BalanceHub 的重要变更会记录在这里。
 
+## 0.5.0
+
+### 修复
+
+- 修复 macOS 临时 CLI 启动脚本使用 zsh 保留变量 `status` 导致启动后直接报错的问题。
+- 修复 Windows 临时 CLI 批处理脚本使用通用 `STATUS` 变量的问题，统一使用项目命名空间变量。
+
+### 变更
+
+- 新增 `npm run doctor` 应用自检入口，覆盖平台脚本变量、缓存体量、前端构建测试、Rust 格式、Clippy 和 Rust 测试。
+- 新增 `npm run doctor:platform` 快速检查平台变量和构建缓存。
+- 本地 `npm run tauri dev/build` 默认将 Cargo target 隔离到系统开发缓存目录，避免仓库内构建缓存持续膨胀。
+- 增加平台脚本变量命名约束和临时 CLI zsh 回归测试，并让 CI/Release 构建缓存路径与 Rust 缓存配置保持一致。
+
 ## 0.4.9
 
 ### 修复

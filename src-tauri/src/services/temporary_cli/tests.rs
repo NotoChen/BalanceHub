@@ -522,6 +522,55 @@ fi
     let _ = fs::remove_dir_all(root);
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn generated_launch_script_can_be_sourced_by_zsh() {
+    let root = env::temp_dir().join(format!(
+        "balancehub-temporary-zsh-launch-test-{}-{}",
+        std::process::id(),
+        now_millis()
+    ));
+    let workdir = root.join("work dir");
+    let script_dir = root.join("launch");
+    fs::create_dir_all(&workdir).unwrap();
+    fs::create_dir_all(&script_dir).unwrap();
+
+    let script = script_dir.join("codex.command");
+    let status_path = root.join("status.json");
+    let proxy_environment = network::resolve_global_proxy(&AppSettings::default()).environment();
+    let provider = provider_with_liveness_model("");
+    write_launch_script(&LaunchScriptInput {
+        script: &script,
+        cli_kind: LivenessCliKind::Codex,
+        cli_path: "/usr/bin/true",
+        workdir: &workdir,
+        provider_name: &provider.identity.name,
+        api_key: &provider.auth.api_key,
+        base_url: &openai_base_url(&provider),
+        model: "gpt-5.5",
+        session_name: "",
+        resume_id: "",
+        session_mode: TemporaryCliSessionMode::New,
+        status_path: &status_path,
+        proxy_environment: &proxy_environment,
+    })
+    .unwrap();
+
+    let source_command = format!(". {}", shell_quote(&script.to_string_lossy()));
+    let status = Command::new("/bin/zsh")
+        .args(["-lic", source_command.as_str()])
+        .env("BALANCEHUB_LOGIN_ENV_READY", "1")
+        .status()
+        .unwrap();
+
+    assert!(status.success());
+    let stored = fs::read_to_string(&status_path).unwrap();
+    assert!(stored.contains("\"status\":\"exited\""));
+    assert!(stored.contains("\"exitCode\":0"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn generated_claude_launch_script_uses_settings_without_env_api_key() {
