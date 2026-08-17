@@ -73,7 +73,7 @@ pub(crate) fn run() {
             change_provider_password,
             get_provider_check_in_records,
             probe_provider_capabilities,
-            sync_codex_models,
+            sync_available_models,
             get_provider_invite_link,
             refresh_all_providers_with_progress,
             refresh_providers,

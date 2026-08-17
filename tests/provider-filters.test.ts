@@ -25,8 +25,7 @@ function provider(values: {
     cli: { preferredModel: "" },
     liveness: {
       model: "",
-      openaiBaseUrl: "",
-      anthropicBaseUrl: "",
+      agentBaseUrls: {},
       records: [],
     },
     capabilities: { availableModels: values.models ?? ["claude-sonnet-4"] },

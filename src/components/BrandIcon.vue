@@ -6,7 +6,12 @@ import opencodeLogo from "../assets/logos/opencode.svg";
 import openclawLogo from "../assets/logos/openclaw.svg";
 import hermesLogo from "../assets/logos/hermes.png";
 
-export type BrandIconName = "codex" | "claude" | "opencode" | "openclaw" | "hermes";
+export type BrandIconName =
+  | "codex"
+  | "claude"
+  | "opencode"
+  | "openclaw"
+  | "hermes";
 
 const props = withDefaults(
   defineProps<{
@@ -31,7 +36,7 @@ const sources: Record<BrandIconName, string> = {
 };
 
 const labels: Record<BrandIconName, string> = {
-  codex: "Codex",
+  codex: "Codex CLI",
   claude: "Claude Code",
   opencode: "OpenCode",
   openclaw: "OpenClaw",

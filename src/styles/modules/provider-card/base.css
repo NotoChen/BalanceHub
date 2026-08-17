@@ -9,10 +9,6 @@
   --provider-card-state: #c9cdd4;
   --provider-quota-color: #165dff;
   --provider-card-beam-duration: 6s;
-  --provider-card-cli-codex-color: #151515;
-  --provider-card-cli-codex-glow: rgba(21, 21, 21, 0.28);
-  --provider-card-cli-claude-color: #d97757;
-  --provider-card-cli-claude-glow: rgba(217, 119, 87, 0.34);
   position: relative;
   display: flex;
   width: 100%;

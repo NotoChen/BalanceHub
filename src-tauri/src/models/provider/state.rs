@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use super::defaults;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
-    default_true, AuthMode, AuthSource, LivenessCliKind, LivenessIntervalMode, LivenessPromptMode,
+    default_true, AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode,
     LivenessRecord, ProviderApiKeyOption, ProviderCheckInRecord, ProviderNotificationMode,
     ProviderProtocol, ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
 };
@@ -182,11 +183,9 @@ pub struct ProviderLiveness {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
-    pub openai_base_url: String,
+    pub agent_base_urls: BTreeMap<AgentCliKind, String>,
     #[serde(default)]
-    pub anthropic_base_url: String,
-    #[serde(default)]
-    pub cli_kind: Option<LivenessCliKind>,
+    pub cli_kind: Option<AgentCliKind>,
     #[serde(default)]
     pub interval_mode: LivenessIntervalMode,
     #[serde(default = "default_liveness_interval")]
@@ -230,11 +229,9 @@ pub struct ProviderLivenessInput {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
-    pub openai_base_url: String,
+    pub agent_base_urls: BTreeMap<AgentCliKind, String>,
     #[serde(default)]
-    pub anthropic_base_url: String,
-    #[serde(default)]
-    pub cli_kind: Option<LivenessCliKind>,
+    pub cli_kind: Option<AgentCliKind>,
     #[serde(default)]
     pub interval_mode: LivenessIntervalMode,
     #[serde(default = "default_liveness_interval")]

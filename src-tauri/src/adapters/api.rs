@@ -330,11 +330,10 @@ fn parse_models(body: &str) -> Result<Vec<String>, String> {
 }
 
 fn models_url(provider: &Provider) -> Result<Url, String> {
-    let raw = if provider.liveness.openai_base_url.trim().is_empty() {
-        provider.identity.base_url.trim()
-    } else {
-        provider.liveness.openai_base_url.trim()
-    };
+    let raw = crate::services::agent_cli::provider_raw_base_url(
+        crate::models::AgentCliKind::Codex,
+        provider,
+    );
     if raw.is_empty() {
         return Err("缺少模型 Base URL 或中转站地址".to_string());
     }
@@ -390,7 +389,7 @@ fn connection_failure(message: String) -> ProviderConnectionTestResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ProviderIdentityInput, ProviderInput, ProviderProtocol};
+    use crate::models::{AgentCliKind, ProviderIdentityInput, ProviderInput, ProviderProtocol};
 
     fn provider() -> Provider {
         Provider::from_input(
@@ -426,6 +425,19 @@ mod tests {
         assert_eq!(
             models_url(&provider).unwrap().as_str(),
             "https://relay.example.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn keeps_an_explicit_v1_models_agent_override() {
+        let mut provider = provider();
+        provider.liveness.agent_base_urls.insert(
+            AgentCliKind::Codex,
+            "https://relay.example.com/override/v1/models".to_string(),
+        );
+        assert_eq!(
+            models_url(&provider).unwrap().as_str(),
+            "https://relay.example.com/override/v1/models"
         );
     }
 

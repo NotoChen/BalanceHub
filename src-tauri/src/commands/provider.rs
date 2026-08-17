@@ -1,6 +1,6 @@
 use crate::{
     contracts::{
-        provider_views, CodexModelSyncResultView, ProviderCapabilityProbeResultView,
+        provider_views, ProviderCapabilityProbeResultView, ProviderModelSyncResultView,
         ProviderSaveResultView, ProviderView, RefreshResultView,
     },
     models::{
@@ -194,14 +194,14 @@ pub(crate) async fn probe_provider_capabilities(
 }
 
 #[tauri::command]
-pub(crate) async fn sync_codex_models(
+pub(crate) async fn sync_available_models(
     app: AppHandle,
     id: String,
-) -> Result<CodexModelSyncResultView, String> {
+) -> Result<ProviderModelSyncResultView, String> {
     ProviderService::new(&app)
-        .sync_codex_models(id)
+        .sync_available_models(id)
         .await
-        .map(CodexModelSyncResultView::from)
+        .map(ProviderModelSyncResultView::from)
 }
 
 #[tauri::command]

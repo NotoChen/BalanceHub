@@ -17,9 +17,11 @@ import {
 
 for (const count of [1, 2, 3, 7, 20, 30]) {
   test(`provider card CLI orbits lay out ${count} agent slots`, () => {
-    const specs = Array.from({ length: count }, (_, index) =>
-      providerCardCliOrbitSpec(`agent-${index}`),
-    );
+    const kinds = ["codex", "claudeCode", "gemini", "grok"] as const;
+    const specs = Array.from({ length: count }, (_, index) => ({
+      ...providerCardCliOrbitSpec(kinds[index % kinds.length]),
+      id: `agent-${index}`,
+    }));
     const layouts = layoutProviderCardCliOrbits(specs);
 
     assert.equal(layouts.length, count);
@@ -51,10 +53,12 @@ for (const count of [1, 2, 3, 7, 20, 30]) {
   });
 }
 
-test("provider card CLI orbit registry uses native brands and generic fallback", () => {
-  assert.equal(providerCardCliOrbitSpec("codex").brand, "codex");
-  assert.equal(providerCardCliOrbitSpec("claudeCode").brand, "claude");
-  assert.equal(providerCardCliOrbitSpec("future-agent").brand, undefined);
+test("provider card CLI orbit specs reuse the central Agent visual registry", () => {
+  assert.equal(providerCardCliOrbitSpec("codex").cliKind, "codex");
+  assert.equal(providerCardCliOrbitSpec("claudeCode").cliKind, "claudeCode");
+  assert.equal(providerCardCliOrbitSpec("gemini").cliKind, "gemini");
+  assert.equal(providerCardCliOrbitSpec("grok").cliKind, "grok");
+  assert.ok(providerCardCliOrbitSpec("gemini").color.includes("4285f4"));
 });
 
 test("adding an agent appends to the tail without moving existing icons", () => {
@@ -62,7 +66,7 @@ test("adding an agent appends to the tail without moving existing icons", () => 
   const two = layoutProviderCardCliOrbits(first);
   const three = layoutProviderCardCliOrbits([
     ...first,
-    providerCardCliOrbitSpec("future-agent"),
+    providerCardCliOrbitSpec("gemini"),
   ]);
 
   assert.equal(three[0].phaseProgress, two[0].phaseProgress);

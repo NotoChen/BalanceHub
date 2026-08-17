@@ -14,10 +14,12 @@ use super::{
 use crate::limits;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
-    AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode, ProviderNotificationMode,
-    ProviderProtocol, ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
+    AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode,
+    ProviderNotificationMode, ProviderProtocol, ProviderProxyMode, ProviderQuotaScope,
+    ProviderStatus,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,8 +69,7 @@ impl Default for ProviderInput {
             liveness: ProviderLivenessInput {
                 use_global: true,
                 enabled: false,
-                openai_base_url: String::new(),
-                anthropic_base_url: String::new(),
+                agent_base_urls: BTreeMap::new(),
                 cli_kind: None,
                 interval_mode: LivenessIntervalMode::default(),
                 interval: default_liveness_interval(),
@@ -154,8 +155,7 @@ impl Provider {
             liveness: ProviderLiveness {
                 use_global: input.liveness.use_global,
                 enabled: input.liveness.enabled,
-                openai_base_url: input.liveness.openai_base_url,
-                anthropic_base_url: input.liveness.anthropic_base_url,
+                agent_base_urls: normalize_agent_base_urls(input.liveness.agent_base_urls),
                 cli_kind: input.liveness.cli_kind,
                 interval_mode: input.liveness.interval_mode,
                 interval: input.liveness.interval,
@@ -365,8 +365,7 @@ impl Provider {
         self.notification.channel_ids = string_list(input.notification.channel_ids);
         self.liveness.use_global = input.liveness.use_global;
         self.liveness.enabled = input.liveness.enabled;
-        self.liveness.openai_base_url = input.liveness.openai_base_url;
-        self.liveness.anthropic_base_url = input.liveness.anthropic_base_url;
+        self.liveness.agent_base_urls = normalize_agent_base_urls(input.liveness.agent_base_urls);
         self.liveness.cli_kind = input.liveness.cli_kind;
         self.liveness.interval_mode = input.liveness.interval_mode;
         self.liveness.interval = input.liveness.interval;
@@ -460,6 +459,18 @@ pub(crate) fn normalize_provider_auth(
     }
     auth.api_key_options = options;
     auth
+}
+
+fn normalize_agent_base_urls(
+    values: BTreeMap<AgentCliKind, String>,
+) -> BTreeMap<AgentCliKind, String> {
+    values
+        .into_iter()
+        .filter_map(|(kind, value)| {
+            let value = value.trim().to_string();
+            (!value.is_empty()).then_some((kind, value))
+        })
+        .collect()
 }
 
 #[cfg(test)]

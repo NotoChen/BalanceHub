@@ -266,6 +266,70 @@ fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String
             }
             Ok(())
         }
+        7 => {
+            if let Some(settings) = data
+                .get_mut("settings")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                let mut paths = settings
+                    .remove("agentCliPaths")
+                    .and_then(|value| value.as_object().cloned())
+                    .unwrap_or_default();
+                for (legacy_key, agent_key) in
+                    [("codexCliPath", "codex"), ("claudeCliPath", "claudeCode")]
+                {
+                    if let Some(path) = settings
+                        .remove(legacy_key)
+                        .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+                        .filter(|path| !path.is_empty())
+                    {
+                        paths
+                            .entry(agent_key.to_string())
+                            .or_insert_with(|| serde_json::Value::String(path));
+                    }
+                }
+                settings.insert(
+                    "agentCliPaths".to_string(),
+                    serde_json::Value::Object(paths),
+                );
+            }
+            if let Some(providers) = data
+                .get_mut("providers")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for provider in providers {
+                    let Some(liveness) = provider
+                        .get_mut("liveness")
+                        .and_then(serde_json::Value::as_object_mut)
+                    else {
+                        continue;
+                    };
+                    let mut base_urls = liveness
+                        .remove("agentBaseUrls")
+                        .and_then(|value| value.as_object().cloned())
+                        .unwrap_or_default();
+                    for (legacy_key, agent_key) in [
+                        ("openaiBaseUrl", "codex"),
+                        ("anthropicBaseUrl", "claudeCode"),
+                    ] {
+                        if let Some(url) = liveness
+                            .remove(legacy_key)
+                            .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+                            .filter(|url| !url.is_empty())
+                        {
+                            base_urls
+                                .entry(agent_key.to_string())
+                                .or_insert_with(|| serde_json::Value::String(url));
+                        }
+                    }
+                    liveness.insert(
+                        "agentBaseUrls".to_string(),
+                        serde_json::Value::Object(base_urls),
+                    );
+                }
+            }
+            Ok(())
+        }
         other => Err(format!(
             "没有从 schemaVersion {other} 出发的迁移路径，请重新初始化配置或导入新版配置"
         )),

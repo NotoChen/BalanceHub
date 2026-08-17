@@ -10,14 +10,14 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import SettingsAppearanceSection from "./settings/SettingsAppearanceSection.vue";
 import SettingsAutomationSection from "./settings/SettingsAutomationSection.vue";
-import SettingsCodexSection from "./settings/SettingsCodexSection.vue";
+import SettingsAgentSection from "./settings/SettingsAgentSection.vue";
 import SettingsNotificationSection from "./settings/SettingsNotificationSection.vue";
 import SettingsSystemSection from "./settings/SettingsSystemSection.vue";
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { AppSettings } from "../stores/providers";
 import type { DurationUnit } from "../utils/duration";
 
-type SettingsSectionKey = "appearance" | "automation" | "codex" | "notification" | "system";
+type SettingsSectionKey = "appearance" | "automation" | "agent" | "notification" | "system";
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
@@ -57,7 +57,7 @@ const sectionMeta: Record<SettingsSectionKey, {
     label: "自动化",
     icon: IconCalendarClock,
   },
-  codex: {
+  agent: {
     label: "Agent 与终端",
     icon: IconCommand,
   },
@@ -160,8 +160,8 @@ function saveStateLabel(state: SettingsSaveState) {
                 @update:global-refresh-amount="emit('update:globalRefreshAmount', $event)"
                 @update:global-refresh-unit="emit('update:globalRefreshUnit', $event)"
               />
-              <SettingsCodexSection
-                v-else-if="activeSection === 'codex'"
+              <SettingsAgentSection
+                v-else-if="activeSection === 'agent'"
                 :settings="settings"
                 :expanded="true"
                 :liveness-model-options="livenessModelOptions"

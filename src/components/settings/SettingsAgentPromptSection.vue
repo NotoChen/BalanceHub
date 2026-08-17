@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { previewLivenessPrompts } from "../../api/app";
 import { defaultSettings, type AppSettings } from "../../stores/providers";
-import { codexPromptModeOptions } from "../../utils/liveness-options";
+import { livenessPromptModeOptions } from "../../utils/liveness-options";
 
 const props = defineProps<{
   settings: AppSettings;
@@ -89,15 +89,15 @@ function resetPromptProfile() {
   <a-form-item label="话术策略">
     <a-select
       v-model="settings.livenessPromptMode"
-      :options="codexPromptModeOptions"
+      :options="livenessPromptModeOptions"
     />
   </a-form-item>
-  <div class="codex-prompt-toolbar">
+  <div class="agent-prompt-toolbar">
     <div>
       <strong>话术配置</strong>
       <span>{{ promptProfileStats }}</span>
     </div>
-    <div class="codex-prompt-actions">
+    <div class="agent-prompt-actions">
       <a-button size="small" :loading="previewingPrompts" @click="refreshPromptPreviews">
         生成 10 条
       </a-button>
@@ -107,7 +107,7 @@ function resetPromptProfile() {
       </a-button>
     </div>
   </div>
-  <div v-if="promptPreviews.length > 0" class="codex-prompt-preview">
+  <div v-if="promptPreviews.length > 0" class="agent-prompt-preview">
     <ol>
       <li v-for="(prompt, index) in promptPreviews" :key="`${index}-${prompt}`">
         {{ prompt }}
@@ -116,7 +116,7 @@ function resetPromptProfile() {
   </div>
   <div
     v-if="promptAdvancedVisible || settings.livenessPromptMode === 'fixed'"
-    class="codex-prompt-advanced"
+    class="agent-prompt-advanced"
   >
     <a-form-item label="固定话术">
       <a-textarea

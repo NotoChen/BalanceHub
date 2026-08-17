@@ -35,8 +35,10 @@ function provider(overrides: Partial<Provider> = {}): Provider {
     liveness: {
       useGlobal: true,
       enabled: false,
-      openaiBaseUrl: "https://openai.example.com/root/",
-      anthropicBaseUrl: "https://claude.example.com/root/",
+      agentBaseUrls: {
+        codex: "https://openai.example.com/root/",
+        claudeCode: "https://claude.example.com/root/",
+      },
       intervalMode: "fixed",
       interval: 0,
       randomMinInterval: 0,

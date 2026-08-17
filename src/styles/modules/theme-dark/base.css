@@ -281,17 +281,11 @@
   color: #c9cdd4;
 }
 
-:root.theme-dark .codex-command-preview code {
-  border-color: var(--glass-border);
-  background: #1f2026;
+:root.theme-dark .agent-prompt-toolbar strong {
   color: #f2f3f5;
 }
 
-:root.theme-dark .codex-prompt-toolbar strong {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .codex-prompt-preview ol {
+:root.theme-dark .agent-prompt-preview ol {
   color: #c9cdd4;
 }
 

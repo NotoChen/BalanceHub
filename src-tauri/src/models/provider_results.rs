@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    LivenessCliKind, Provider, ProviderInput, ProviderProtocol, ProviderQuotaDisplay,
+    AgentCliKind, Provider, ProviderInput, ProviderProtocol, ProviderQuotaDisplay,
     TemporaryCliTerminalKind,
 };
 
@@ -557,9 +557,19 @@ pub struct ProviderRequestLogStats {
     pub tpm: f64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelSyncResult {
+    pub providers: Vec<Provider>,
+    pub provider: Provider,
+    pub models: Vec<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliConfigSnapshot {
+    pub cli_kind: AgentCliKind,
     pub configured: bool,
     pub provider_id: Option<String>,
     pub modified_at: Option<String>,
@@ -578,7 +588,7 @@ pub struct CliConfigFile {
 pub struct CliConfigPreview {
     pub provider_id: String,
     pub provider_name: String,
-    pub cli_kind: LivenessCliKind,
+    pub cli_kind: AgentCliKind,
     pub revision: String,
     pub original_files: Vec<CliConfigFile>,
     pub files: Vec<CliConfigFile>,
@@ -598,7 +608,7 @@ pub struct TemporaryCliInstance {
     pub id: String,
     pub provider_id: String,
     pub provider_name: String,
-    pub cli_kind: LivenessCliKind,
+    pub cli_kind: AgentCliKind,
     pub workdir: String,
     pub terminal_kind: TemporaryCliTerminalKind,
     pub started_at: String,
@@ -612,8 +622,7 @@ pub struct TemporaryCliInstance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliRuntimeSnapshot {
-    pub codex: CliConfigSnapshot,
-    pub claude_code: CliConfigSnapshot,
+    pub configs: Vec<CliConfigSnapshot>,
     pub instances: Vec<TemporaryCliInstance>,
 }
 

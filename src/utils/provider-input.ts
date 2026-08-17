@@ -46,8 +46,7 @@ export function emptyDraft(): ProviderInput {
     liveness: {
       useGlobal: true,
       enabled: false,
-      openaiBaseUrl: "",
-      anthropicBaseUrl: "",
+      agentBaseUrls: {},
       cliKind: null,
       intervalMode: "fixed",
       interval: DEFAULT_LIVENESS_INTERVAL,
@@ -99,8 +98,7 @@ export function providerToInput(
     liveness: {
       useGlobal: provider.liveness.useGlobal,
       enabled: provider.liveness.enabled,
-      openaiBaseUrl: provider.liveness.openaiBaseUrl,
-      anthropicBaseUrl: provider.liveness.anthropicBaseUrl,
+      agentBaseUrls: { ...(provider.liveness.agentBaseUrls || {}) },
       cliKind: provider.liveness.cliKind ?? null,
       intervalMode: provider.liveness.intervalMode,
       interval: provider.liveness.interval,

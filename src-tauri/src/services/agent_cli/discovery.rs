@@ -1,95 +1,32 @@
-use crate::models::CodexCliProbeResult;
+use crate::{limits, platform::process::run_command_with_output_timeout};
 
-mod paths;
+pub(super) mod paths;
 #[cfg(test)]
 mod tests;
 
-use super::process::cli_version;
+use super::{AgentCliDefinition, AgentCliExecutable};
 use std::{
     cmp::Ordering,
     env,
     path::{Path, PathBuf},
+    process::Command,
+    time::Duration,
 };
 
+pub(super) use paths::runtime_path_for;
 use paths::{
-    binary_names, clean_preferred_path, expand_home_path, has_path_separator, home_bin_candidates,
-    home_dir, node_manager_bin_dirs, normalize_path, path_candidates, shell_command_candidates,
-    windows_npm_candidates,
-};
-pub(super) use paths::{runtime_path_for, runtime_path_for_without_shell};
-
-struct CliSpec {
-    env_keys: &'static [&'static str],
-    binary: &'static str,
-    global_dirs: &'static [&'static str],
-    home_candidates: fn(&Path) -> Vec<PathBuf>,
-    require_version_substring: Option<&'static str>,
-    not_found_message: &'static str,
-}
-
-const CODEX_SPEC: CliSpec = CliSpec {
-    env_keys: &["CODEX_CLI_PATH"],
-    binary: "codex",
-    global_dirs: &["/opt/homebrew/bin", "/usr/local/bin"],
-    home_candidates: codex_home_candidates,
-    require_version_substring: None,
-    not_found_message: "未自动检测到可用的 Codex CLI",
+    binary_names, clean_preferred_path, expand_home_path, has_path_separator, home_dir,
+    normalize_path, path_candidates, platform_global_dirs, shell_command_candidates,
 };
 
-const CLAUDE_SPEC: CliSpec = CliSpec {
-    env_keys: &["CLAUDE_CODE_CLI_PATH", "CLAUDE_CLI_PATH"],
-    binary: "claude",
-    global_dirs: &["/opt/homebrew/bin", "/usr/local/bin"],
-    home_candidates: claude_home_candidates,
-    require_version_substring: Some("claude"),
-    not_found_message: "未自动检测到可用的 Claude Code CLI",
-};
+const CLI_VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub(super) fn find_codex_cli(preferred_path: &str) -> Result<CodexCliProbeResult, String> {
-    find_cli(preferred_path, &CODEX_SPEC, true)
-}
-
-pub(super) fn find_claude_cli(preferred_path: &str) -> Result<CodexCliProbeResult, String> {
-    find_cli(preferred_path, &CLAUDE_SPEC, true)
-}
-
-pub(super) fn find_codex_cli_without_shell(
-    preferred_path: &str,
-) -> Result<CodexCliProbeResult, String> {
-    find_cli(preferred_path, &CODEX_SPEC, false)
-}
-
-pub(super) fn find_claude_cli_without_shell(
-    preferred_path: &str,
-) -> Result<CodexCliProbeResult, String> {
-    find_cli(preferred_path, &CLAUDE_SPEC, false)
-}
-
-fn codex_home_candidates(home: &Path) -> Vec<PathBuf> {
-    let mut candidates = node_manager_bin_dirs(home)
-        .into_iter()
-        .map(|dir| dir.join("codex"))
-        .collect::<Vec<_>>();
-    candidates.push(home.join(".codex/bin/codex"));
-    candidates.extend(home_bin_candidates(home, "codex"));
-    candidates.extend(windows_npm_candidates("codex"));
-    candidates
-}
-
-fn claude_home_candidates(home: &Path) -> Vec<PathBuf> {
-    let mut candidates = node_manager_bin_dirs(home)
-        .into_iter()
-        .map(|dir| dir.join("claude"))
-        .collect::<Vec<_>>();
-    candidates.extend(home_bin_candidates(home, "claude"));
-    candidates.push(home.join(".claude/local/claude"));
-    candidates.extend(windows_npm_candidates("claude"));
-    candidates
-}
-
-fn explicit_env_candidates(spec: &CliSpec, include_shell: bool) -> Vec<PathBuf> {
+fn explicit_env_candidates(spec: &AgentCliDefinition, include_shell: bool) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    for key in spec.env_keys {
+    let balancehub_key = balancehub_cli_path_env_key(spec.kind);
+    for key in
+        std::iter::once(balancehub_key.as_str()).chain(spec.additional_env_keys.iter().copied())
+    {
         if let Ok(path) = env::var(key) {
             let path = clean_preferred_path(&path);
             if !path.is_empty() {
@@ -107,7 +44,7 @@ fn explicit_env_candidates(spec: &CliSpec, include_shell: bool) -> Vec<PathBuf> 
 fn cli_candidates(
     preferred_path: &str,
     explicit_env_candidates: &[PathBuf],
-    spec: &CliSpec,
+    spec: &AgentCliDefinition,
     include_shell: bool,
 ) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
@@ -123,9 +60,9 @@ fn cli_candidates(
     if let Some(home) = home_dir() {
         candidates.extend((spec.home_candidates)(&home));
     }
-    for dir in spec.global_dirs {
+    for dir in platform_global_dirs() {
         candidates.extend(
-            binary_names(spec.binary)
+            binary_names(spec.executable)
                 .into_iter()
                 .map(|name| PathBuf::from(dir).join(name)),
         );
@@ -133,30 +70,49 @@ fn cli_candidates(
     if let Ok(path) = env::var("PATH") {
         for dir in env::split_paths(&path) {
             candidates.extend(
-                binary_names(spec.binary)
+                binary_names(spec.executable)
                     .into_iter()
                     .map(|name| dir.join(name)),
             );
         }
     }
     if include_shell {
-        candidates.extend(shell_command_candidates(spec.binary));
+        candidates.extend(shell_command_candidates(spec.executable));
     }
     candidates
 }
 
 /// 显式自定义路径有效时优先使用；NVM/FNM 版本路径与自动发现候选则选择最高版本。
-fn find_cli(
+pub(super) fn find_cli(
     preferred_path: &str,
-    spec: &CliSpec,
+    spec: &AgentCliDefinition,
     include_shell: bool,
-) -> Result<CodexCliProbeResult, String> {
+) -> Result<AgentCliExecutable, String> {
     let preferred_path = clean_preferred_path(preferred_path);
     let preferred_can_move = preferred_path_is_version_managed(&preferred_path);
     let explicit_env_candidates = explicit_env_candidates(spec, include_shell);
     let mut seen = Vec::new();
-    let mut best: Option<(CodexCliProbeResult, Vec<u64>)> = None;
+    let mut best: Option<(AgentCliExecutable, Vec<u64>)> = None;
     let mut failures = Vec::new();
+
+    // 固定路径不需要等待登录 shell 扫描。优先探测它们既符合用户选择，
+    // 也避免 shell 插件或版本管理器让一次本地 CLI 扫描无谓阻塞数秒。
+    let mut fixed_candidates = Vec::new();
+    if !preferred_path.is_empty() && !preferred_can_move {
+        fixed_candidates.push(expand_home_path(&preferred_path));
+    }
+    fixed_candidates.extend(explicit_env_candidates.iter().cloned());
+    for candidate in fixed_candidates {
+        if seen.iter().any(|item: &PathBuf| item == &candidate) {
+            continue;
+        }
+        seen.push(candidate.clone());
+        match probe_cli_candidate(&candidate, spec, include_shell) {
+            Ok(result) => return Ok(result),
+            Err(message) => failures.push(format!("{}: {message}", candidate.display())),
+        }
+    }
+
     for candidate in cli_candidates(
         &preferred_path,
         &explicit_env_candidates,
@@ -168,28 +124,8 @@ fn find_cli(
         }
         seen.push(candidate.clone());
         let explicit_env = explicit_env_candidates.contains(&candidate);
-        if is_unsupported_cli_path(&normalize_path(candidate.clone()), spec) {
-            if candidate_matches_preferred(&candidate, &preferred_path) || explicit_env {
-                failures.push(format!(
-                    "{}: {}",
-                    candidate.display(),
-                    unsupported_cli_path_message(spec)
-                ));
-            }
-            continue;
-        }
-        if !candidate.is_file() {
-            if candidate_matches_preferred(&candidate, &preferred_path) || explicit_env {
-                failures.push(format!("{}: 文件不存在", candidate.display()));
-            }
-            continue;
-        }
-        match cli_version(&candidate, spec.require_version_substring, include_shell) {
-            Ok(version) => {
-                let result = CodexCliProbeResult {
-                    path: candidate.to_string_lossy().to_string(),
-                    version,
-                };
+        match probe_cli_candidate(&candidate, spec, include_shell) {
+            Ok(result) => {
                 if candidate_has_fixed_priority(
                     &candidate,
                     &preferred_path,
@@ -222,15 +158,54 @@ fn find_cli(
     }
 
     failures.truncate(4);
+    let not_found_message = format!(
+        "未自动检测到可用的 {}{}",
+        spec.label,
+        if spec.label.to_ascii_lowercase().ends_with("cli") {
+            ""
+        } else {
+            " CLI"
+        }
+    );
     if failures.is_empty() {
-        Err(spec.not_found_message.to_string())
+        Err(not_found_message)
     } else {
-        Err(format!(
-            "{}；{}",
-            spec.not_found_message,
-            failures.join("；")
-        ))
+        Err(format!("{not_found_message}；{}", failures.join("；")))
     }
+}
+
+fn probe_cli_candidate(
+    candidate: &Path,
+    spec: &AgentCliDefinition,
+    include_shell: bool,
+) -> Result<AgentCliExecutable, String> {
+    if let Some(validate) = spec.invalid_path_reason {
+        if let Some(message) = validate(&normalize_path(candidate.to_path_buf())) {
+            return Err(message.to_string());
+        }
+    }
+    if !candidate.is_file() {
+        return Err("文件不存在".to_string());
+    }
+    let version = cli_version(candidate, spec.require_version_substring, include_shell)?;
+    Ok(AgentCliExecutable {
+        path: candidate.to_string_lossy().to_string(),
+        version,
+    })
+}
+
+fn balancehub_cli_path_env_key(kind: crate::models::AgentCliKind) -> String {
+    let mut key = String::from("BALANCEHUB_");
+    let mut previous_was_lowercase = false;
+    for character in kind.key().chars() {
+        if character.is_ascii_uppercase() && previous_was_lowercase {
+            key.push('_');
+        }
+        key.push(character.to_ascii_uppercase());
+        previous_was_lowercase = character.is_ascii_lowercase();
+    }
+    key.push_str("_CLI_PATH");
+    key
 }
 
 fn candidate_matches_preferred(candidate: &Path, preferred_path: &str) -> bool {
@@ -284,19 +259,57 @@ fn compare_version_keys(left: &[u64], right: &[u64]) -> Ordering {
     Ordering::Equal
 }
 
-fn is_unsupported_cli_path(path: &Path, spec: &CliSpec) -> bool {
-    spec.binary == "codex" && is_macos_app_bundle_path(path)
-}
-
-fn unsupported_cli_path_message(spec: &CliSpec) -> &'static str {
-    if spec.binary == "codex" {
-        "不支持使用 Codex Desktop App 内置二进制作为测活 CLI，请安装并选择独立的 codex CLI"
+fn cli_version(
+    path: &Path,
+    require_substring: Option<&str>,
+    include_shell: bool,
+) -> Result<String, String> {
+    let mut command = Command::new(path);
+    let runtime_path = if include_shell {
+        paths::runtime_path_for(path)
     } else {
-        "不支持该 CLI 路径"
+        paths::runtime_path_for_without_shell(path)
+    };
+    if let Some(path_env) = runtime_path {
+        command.env("PATH", path_env);
     }
-}
-
-fn is_macos_app_bundle_path(path: &Path) -> bool {
-    let value = path.to_string_lossy().replace('\\', "/");
-    value.contains(".app/Contents/")
+    command.arg("--version");
+    let outcome = run_command_with_output_timeout(
+        &mut command,
+        CLI_VERSION_TIMEOUT,
+        limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
+    )
+    .map_err(|err| err.to_string())?;
+    if outcome.timed_out {
+        return Err("CLI 版本探测超时".to_string());
+    }
+    if !outcome.status.is_some_and(|status| status.success()) {
+        let detail = outcome
+            .stderr
+            .lines()
+            .chain(outcome.stdout.lines())
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(|line| line.chars().take(180).collect::<String>());
+        return Err(detail
+            .map(|detail| format!("CLI 不可用：{detail}"))
+            .unwrap_or_else(|| "CLI 不可用".to_string()));
+    }
+    let version = outcome
+        .stdout
+        .lines()
+        .chain(outcome.stderr.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_string();
+    if version.is_empty() {
+        return Err("CLI 未返回版本信息".to_string());
+    }
+    if let Some(substring) = require_substring {
+        if !version.to_ascii_lowercase().contains(substring) {
+            return Err("CLI 版本信息不匹配".to_string());
+        }
+    }
+    Ok(version)
 }

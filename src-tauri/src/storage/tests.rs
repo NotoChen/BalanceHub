@@ -150,6 +150,125 @@ fn schema_six_migration_replaces_removed_terminal_modes() {
 }
 
 #[test]
+fn schema_seven_migration_moves_agent_cli_fields_into_dynamic_maps() {
+    let mut old = AppData {
+        schema_version: 7,
+        ..AppData::default()
+    };
+    old.providers.push(crate::models::Provider::from_input(
+        crate::models::ProviderInput::default(),
+        "provider-test".to_string(),
+    ));
+    let mut value = serde_json::to_value(old).expect("app data should serialize");
+    let settings = value["settings"]
+        .as_object_mut()
+        .expect("settings should be an object");
+    settings.remove("agentCliPaths");
+    settings.insert(
+        "codexCliPath".to_string(),
+        serde_json::Value::String("/opt/tools/codex".to_string()),
+    );
+    settings.insert(
+        "claudeCliPath".to_string(),
+        serde_json::Value::String("/opt/tools/claude".to_string()),
+    );
+    let liveness = value["providers"][0]["liveness"]
+        .as_object_mut()
+        .expect("provider liveness should be an object");
+    liveness.remove("agentBaseUrls");
+    liveness.insert(
+        "openaiBaseUrl".to_string(),
+        serde_json::Value::String("https://openai.example.com/v1".to_string()),
+    );
+    liveness.insert(
+        "anthropicBaseUrl".to_string(),
+        serde_json::Value::String("https://anthropic.example.com".to_string()),
+    );
+
+    let migrated = migrate_app_data(
+        &serde_json::to_string(&value).expect("legacy app data should serialize"),
+        7,
+    )
+    .expect("schema seven should migrate");
+
+    assert_eq!(
+        migrated
+            .settings
+            .agent_cli_paths
+            .get(&crate::models::AgentCliKind::Codex)
+            .map(String::as_str),
+        Some("/opt/tools/codex")
+    );
+    assert_eq!(
+        migrated
+            .settings
+            .agent_cli_paths
+            .get(&crate::models::AgentCliKind::ClaudeCode)
+            .map(String::as_str),
+        Some("/opt/tools/claude")
+    );
+    assert_eq!(
+        migrated.providers[0]
+            .liveness
+            .agent_base_urls
+            .get(&crate::models::AgentCliKind::Codex)
+            .map(String::as_str),
+        Some("https://openai.example.com/v1")
+    );
+    assert_eq!(
+        migrated.providers[0]
+            .liveness
+            .agent_base_urls
+            .get(&crate::models::AgentCliKind::ClaudeCode)
+            .map(String::as_str),
+        Some("https://anthropic.example.com")
+    );
+}
+
+#[test]
+fn current_settings_serialize_agent_cli_paths_by_kind() {
+    let mut data = AppData::default();
+    data.settings.set_agent_cli_path(
+        crate::models::AgentCliKind::ClaudeCode,
+        "/opt/tools/claude".to_string(),
+    );
+
+    let value = serde_json::to_value(data).expect("app data should serialize");
+    assert_eq!(
+        value["settings"]["agentCliPaths"]["claudeCode"],
+        "/opt/tools/claude"
+    );
+    assert!(value["settings"].get("codexCliPath").is_none());
+    assert!(value["settings"].get("claudeCliPath").is_none());
+}
+
+#[test]
+fn current_provider_serializes_agent_base_urls_by_kind() {
+    let mut data = AppData::default();
+    let mut provider = crate::models::Provider::from_input(
+        crate::models::ProviderInput::default(),
+        "provider-test".to_string(),
+    );
+    provider.liveness.agent_base_urls.insert(
+        crate::models::AgentCliKind::Gemini,
+        "https://gemini.example.com".to_string(),
+    );
+    data.providers.push(provider);
+
+    let value = serde_json::to_value(data).expect("app data should serialize");
+    assert_eq!(
+        value["providers"][0]["liveness"]["agentBaseUrls"]["gemini"],
+        "https://gemini.example.com"
+    );
+    assert!(value["providers"][0]["liveness"]
+        .get("openaiBaseUrl")
+        .is_none());
+    assert!(value["providers"][0]["liveness"]
+        .get("anthropicBaseUrl")
+        .is_none());
+}
+
+#[test]
 fn read_app_data_file_migrates_old_file_and_backs_up_original() {
     let dir = unique_test_dir("migrate-old");
     let target = dir.join(DATA_FILE_NAME);

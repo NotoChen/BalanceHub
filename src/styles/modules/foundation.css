@@ -35,7 +35,8 @@
 }
 
 :root.theme-dark .brand-icon-codex,
-:root.theme-dark .brand-icon-opencode {
+:root.theme-dark .brand-icon-opencode,
+:root.theme-dark .agent-cli-icon-grok {
   filter: invert(1);
 }
 

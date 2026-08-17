@@ -1,5 +1,5 @@
-use super::{clean_text, first_non_empty, timestamp_from_value};
-use crate::models::{CliSessionMetadataSource, CliSessionSummary, LivenessCliKind};
+use crate::services::cli_sessions::{clean_text, first_non_empty, timestamp_from_value};
+use crate::models::{AgentCliKind, CliSessionSummary};
 use rusqlite::{Connection, OpenFlags, Row};
 use serde_json::Value;
 use std::{
@@ -12,7 +12,11 @@ use std::{
 const STATE_DB_PREFIX: &str = "state_";
 const SESSION_INDEX_FILE: &str = "session_index.jsonl";
 
-pub(super) fn list(workdir: &Path, limit: usize) -> Result<Vec<CliSessionSummary>, String> {
+pub(super) fn list(
+    cli_kind: AgentCliKind,
+    workdir: &Path,
+    limit: usize,
+) -> Result<Vec<CliSessionSummary>, String> {
     let codex_home = codex_home()?;
     // The official resume picker keeps explicit session names separately from
     // the SQLite thread metadata. Read it independently so a missing or stale
@@ -48,7 +52,7 @@ pub(super) fn list(workdir: &Path, limit: usize) -> Result<Vec<CliSessionSummary
     let mut last_error = None;
     let mut readable_database = false;
     for database in databases {
-        match read_database(&database, &workdir, &canonical_workdir, limit) {
+        match read_database(cli_kind, &database, &workdir, &canonical_workdir, limit) {
             Ok(items) => {
                 readable_database = true;
                 for item in items {
@@ -113,6 +117,7 @@ fn read_session_titles(codex_home: &Path) -> Result<HashMap<String, String>, Str
 }
 
 fn read_database(
+    cli_kind: AgentCliKind,
     path: &Path,
     workdir: &str,
     canonical_workdir: &str,
@@ -193,7 +198,12 @@ fn read_database(
         .map_err(|err| format!("读取 Codex 会话索引失败：{err}"))?;
     let rows = statement
         .query_map((workdir, canonical_workdir, limit as i64), |row| {
-            row_to_summary(row, created_milliseconds, updated_milliseconds)
+            row_to_summary(
+                row,
+                cli_kind,
+                created_milliseconds,
+                updated_milliseconds,
+            )
         })
         .map_err(|err| format!("查询 Codex 历史会话失败：{err}"))?;
     rows.map(|row| row.map_err(|err| format!("解析 Codex 历史会话失败：{err}")))
@@ -202,6 +212,7 @@ fn read_database(
 
 fn row_to_summary(
     row: &Row<'_>,
+    cli_kind: AgentCliKind,
     created_milliseconds: bool,
     updated_milliseconds: bool,
 ) -> rusqlite::Result<CliSessionSummary> {
@@ -231,25 +242,26 @@ fn row_to_summary(
         preview,
         model,
         models,
-        cli_kind: LivenessCliKind::Codex,
+        cli_kind,
         created_at: created,
         updated_at: updated,
         workdir,
         cli_version: cli_version.and_then(|value| clean_text(value, 50)),
         archived,
         can_resume: !archived,
-        metadata_source: CliSessionMetadataSource::CodexStateDb,
+        metadata_source: "codexStateDb".to_string(),
     })
 }
 
 fn codex_home() -> Result<PathBuf, String> {
-    crate::services::cli_paths::codex_home()
+    super::config::config_dir()
         .ok_or_else(|| "无法定位用户目录，无法读取 Codex 历史会话".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{codex_home, read_database, read_session_titles};
+    use crate::models::AgentCliKind;
     use rusqlite::Connection;
     use std::fs;
 
@@ -272,7 +284,14 @@ mod tests {
             )
             .unwrap();
         drop(connection);
-        let sessions = read_database(&path, "/tmp/project", "/tmp/project", 10).unwrap();
+        let sessions = read_database(
+            AgentCliKind::Codex,
+            &path,
+            "/tmp/project",
+            "/tmp/project",
+            10,
+        )
+        .unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].title, "显式标题");
         assert_eq!(sessions[0].preview.as_deref(), Some("摘要"));

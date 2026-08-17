@@ -33,7 +33,7 @@ import {
   reorderProviders as reorderProvidersCommand,
   saveProvider as saveProviderCommand,
   saveSettings as saveSettingsCommand,
-  syncCodexModels as syncCodexModelsCommand,
+  syncAvailableModels as syncAvailableModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
   testProviderConnection as testProviderConnectionCommand,
   switchCliConfig as switchCliConfigCommand,
@@ -48,7 +48,7 @@ import type {
   TerminalEnvironmentProbeResult,
   CliRuntimeSnapshot,
   CliSessionSummary,
-  LivenessCliKind,
+  AgentCliKind,
   Provider,
   ProviderInput,
   ProviderSaveOptions,
@@ -258,7 +258,7 @@ export const useProviderStore = defineStore("providers", {
     ): Promise<TemporaryCliLaunchPreview> {
       return previewTemporaryCliLaunchCommand(input);
     },
-    async listCliSessions(cliKind: LivenessCliKind, workdir: string): Promise<CliSessionSummary[]> {
+    async listCliSessions(cliKind: AgentCliKind, workdir: string): Promise<CliSessionSummary[]> {
       return listCliSessionsCommand(cliKind, workdir);
     },
     async activateTemporaryCli(instanceId: string) {
@@ -288,12 +288,12 @@ export const useProviderStore = defineStore("providers", {
       );
       return this.workspaces;
     },
-    async previewCliConfig(id: string, cliKind: LivenessCliKind): Promise<CliConfigPreview> {
+    async previewCliConfig(id: string, cliKind: AgentCliKind): Promise<CliConfigPreview> {
       return previewCliConfigCommand(id, cliKind);
     },
     async switchCliConfig(
       id: string,
-      cliKind: LivenessCliKind,
+      cliKind: AgentCliKind,
       revision: string,
       files: CliConfigFile[],
     ) {
@@ -351,8 +351,8 @@ export const useProviderStore = defineStore("providers", {
       this.providers = result.providers;
       return result;
     },
-    async syncCodexModels(id: string) {
-      const result = await syncCodexModelsCommand(id);
+    async syncAvailableModels(id: string) {
+      const result = await syncAvailableModelsCommand(id);
       this.providers = result.providers;
       return result;
     },
@@ -409,15 +409,8 @@ function errorToMessage(error: unknown) {
 }
 
 function emptyCliRuntimeSnapshot(): CliRuntimeSnapshot {
-  const emptyConfig = () => ({
-    configured: false,
-    providerId: null,
-    modifiedAt: null,
-    errorMessage: null,
-  });
   return {
-    codex: emptyConfig(),
-    claudeCode: emptyConfig(),
+    configs: [],
     instances: [],
   };
 }

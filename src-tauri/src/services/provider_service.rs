@@ -1,8 +1,8 @@
 mod account;
 mod api_keys;
+mod available_models;
 mod capabilities;
 mod check_in;
-mod codex_models;
 mod credentials;
 mod liveness;
 mod quota;
@@ -331,7 +331,7 @@ impl<'a> ProviderService<'a> {
     }
 
     pub fn save_settings(&self, mut settings: AppSettings) -> Result<AppSettings, String> {
-        limits::normalize_settings(&mut settings);
+        let _ = limits::normalize_settings(&mut settings);
         if settings.notification_channels.len() > limits::MAX_NOTIFICATION_CHANNELS {
             return Err(format!(
                 "通知渠道数量超过上限（最多 {} 个）",

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+#[path = "models/agent_cli.rs"]
+mod agent_cli;
 #[path = "models/app_settings.rs"]
 mod app_settings;
 #[path = "models/cli_sessions.rs"]
@@ -17,6 +19,7 @@ mod provider_results;
 #[path = "models/workspace.rs"]
 mod workspace;
 
+pub use agent_cli::*;
 pub(crate) use app_settings::{
     default_liveness_interval, default_liveness_placeholder_pools,
     default_liveness_random_min_interval, default_liveness_timeout, default_true,
@@ -24,14 +27,14 @@ pub(crate) use app_settings::{
 pub use app_settings::{
     AppSettings, LivenessPlaceholderPool, NotificationChannel, NotificationChannelKind,
 };
-pub use cli_sessions::{CliSessionMetadataSource, CliSessionSummary};
+pub use cli_sessions::CliSessionSummary;
 pub use enums::*;
 pub use liveness::*;
 pub use provider::*;
 pub use provider_results::*;
 pub use workspace::*;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

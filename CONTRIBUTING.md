@@ -164,6 +164,19 @@ BalanceHub 的真实账号配置保存在系统应用配置目录，不在仓库
 
 保持改动边界清晰。UI、前端状态、后端 command、存储模型和协议接口尽量分开修改；涉及持久化数据结构时，需要同步前后端类型和本地配置迁移逻辑。账号管理、签到、密钥管理、邀请等操作能力由 Rust 计算，经 `contracts.rs` 返回；前端 `provider-actions.ts` 只读取结果，不复制业务判断。
 
+### 新增 Agent CLI
+
+Agent CLI 使用内置静态注册表和能力 Adapter，不依赖插件系统或代码生成。新增 Agent 时：
+
+1. 在 `src-tauri/src/agent_cli_catalog.rs` 增加一条身份、序列化 key 和模块名声明。
+2. 新增 `src-tauri/src/services/agent_cli/<agent>/`，在 `mod.rs` 返回定义，并按实际能力提供 `launch.rs`、`liveness.rs`、`sessions.rs`、`config.rs`。不支持的能力保持为 `None`，不要添加空壳实现。
+3. 在 `src/agent-cli/visuals.ts` 增加原生图标和卡片轨道颜色；名称、可用状态和能力仍以 Rust 探测结果为准。
+4. 不修改 `temporary_cli.rs`、`liveness.rs`、`cli_sessions/mod.rs`、`cli_runtime/config.rs` 等通用编排，也不在前端增加具体 Agent 分支。需要修改这些文件通常意味着 Adapter 契约仍不完整。
+
+`BALANCEHUB_<AGENT>_CLI_PATH` 会从 catalog key 自动生成；Agent 定义中的 `additional_env_keys` 只登记 CLI 自身或历史兼容变量。设置中的 CLI 路径、站点 Agent Base URL、会话来源和能力列表都使用动态结构，增加内置 Agent 不需要新增一套持久化字段或前端布尔规则。
+
+完成后至少运行 `npm run build`、`npm test`、`npm run doctor:platform`、Rust fmt / clippy / test 和 `git diff --check`。注册完整性、通用编排分支和 Agent 身份硬编码都有回归测试，不要通过忽略告警绕过。
+
 ## 维护者发布
 
 发布新版本时，下面几个位置必须保持一致：

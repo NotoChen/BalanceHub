@@ -1,4 +1,5 @@
 import type { Provider } from "../stores/providers";
+import { providerAgentBaseUrl } from "./cli-environment.ts";
 
 export type CcSwitchAppTarget =
   | "codex"
@@ -15,7 +16,7 @@ const OPENAI_TARGETS = new Set<CcSwitchAppTarget>([
 ]);
 
 export const ccSwitchTargetLabels: Record<CcSwitchAppTarget, string> = {
-  codex: "Codex",
+  codex: "Codex CLI",
   claude: "Claude Code",
   opencode: "OpenCode",
   openclaw: "OpenClaw",
@@ -50,11 +51,11 @@ export function buildCcSwitchProviderDeeplink(
 
 function endpointForTarget(provider: Provider, target: CcSwitchAppTarget) {
   if (target === "claude") {
-    const raw = provider.liveness.anthropicBaseUrl.trim() || provider.identity.baseUrl.trim();
+    const raw = providerAgentBaseUrl(provider, "claudeCode");
     return normalizeUrl(raw);
   }
   if (OPENAI_TARGETS.has(target)) {
-    const raw = provider.liveness.openaiBaseUrl.trim() || provider.identity.baseUrl.trim();
+    const raw = providerAgentBaseUrl(provider, "codex");
     const normalized = normalizeUrl(raw);
     return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
   }

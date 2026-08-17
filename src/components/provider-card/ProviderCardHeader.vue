@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import BrandIcon from "../BrandIcon.vue";
-import type { LivenessCliKind, Provider } from "../../stores/providers";
+import AgentCliIcon from "../AgentCliIcon.vue";
+import { useProviderStore, type AgentCliKind, type Provider } from "../../stores/providers";
+import { agentCliLabel } from "../../utils/cli-environment";
 import {
   maskApiKey,
   providerProtocolLabel,
@@ -15,20 +16,19 @@ const props = withDefaults(
     tone: ProviderCardTone;
     title?: string;
     interactive?: boolean;
-    codexActiveCliCount?: number;
-    claudeActiveCliCount?: number;
+    activeCliCounts?: Partial<Record<AgentCliKind, number>>;
   }>(),
   {
     title: "",
     interactive: true,
-    codexActiveCliCount: 0,
-    claudeActiveCliCount: 0,
+    activeCliCounts: () => ({}),
   },
 );
 
 const emit = defineEmits<{
-  openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
+  openCliInstances: [provider: Provider, cliKind: AgentCliKind];
 }>();
+const store = useProviderStore();
 
 const isApiKeyAuth = computed(() => props.provider.auth.mode === "apiKey");
 const apiKeyMasked = computed(() => maskApiKey(props.provider.auth.apiKey));
@@ -44,6 +44,15 @@ const providerHeaderSubtitle = computed(() =>
   providerProtocolLabel(props.provider.identity.protocol),
 );
 const showProviderStatus = computed(() => !isApiKeyAuth.value || props.tone !== "ok");
+const activeCliSignals = computed(() =>
+  Object.entries(props.activeCliCounts)
+    .filter((entry): entry is [AgentCliKind, number] => Number(entry[1]) > 0)
+    .map(([cliKind, count]) => ({
+      cliKind,
+      count,
+      label: agentCliLabel(store.cliEnvironmentProbe, cliKind),
+    })),
+);
 
 const toneLabels: Record<Exclude<ProviderCardTone, "disabled">, string> = {
   ok: "正常",
@@ -62,7 +71,7 @@ function handleProviderLogoError(event: Event) {
   applyProviderLogoFallback(event, props.provider);
 }
 
-function openCliInstances(cliKind: LivenessCliKind) {
+function openCliInstances(cliKind: AgentCliKind) {
   emit("openCliInstances", props.provider, cliKind);
 }
 </script>
@@ -111,53 +120,34 @@ function openCliInstances(cliKind: LivenessCliKind) {
   </div>
   <div class="provider-card-header-meta">
     <div
-      v-if="codexActiveCliCount > 0 || claudeActiveCliCount > 0"
+      v-if="activeCliSignals.length > 0"
       class="provider-card-cli-signals"
       :class="{ 'provider-card-cli-signals-standalone': !showProviderStatus }"
       aria-label="CLI 使用状态"
     >
-      <button
-        v-if="codexActiveCliCount > 0 && interactive"
-        type="button"
-        class="provider-card-cli-signal provider-card-cli-signal-active"
-        :title="`查看 ${codexActiveCliCount} 个 Codex 临时 CLI`"
-        :aria-label="`查看 ${codexActiveCliCount} 个 Codex 临时 CLI`"
-        @click.stop="openCliInstances('codex')"
-        @pointerdown.stop
-      >
-        <BrandIcon brand="codex" :size="17" />
-        <b>{{ codexActiveCliCount }}</b>
-      </button>
-      <span
-        v-else-if="codexActiveCliCount > 0"
-        class="provider-card-cli-signal provider-card-cli-signal-active"
-        :title="`${codexActiveCliCount} 个 Codex 临时 CLI`"
-        :aria-label="`${codexActiveCliCount} 个 Codex 临时 CLI`"
-      >
-        <BrandIcon brand="codex" :size="17" />
-        <b>{{ codexActiveCliCount }}</b>
-      </span>
-      <button
-        v-if="claudeActiveCliCount > 0 && interactive"
-        type="button"
-        class="provider-card-cli-signal provider-card-cli-signal-active"
-        :title="`查看 ${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
-        :aria-label="`查看 ${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
-        @click.stop="openCliInstances('claudeCode')"
-        @pointerdown.stop
-      >
-        <BrandIcon brand="claude" :size="17" />
-        <b>{{ claudeActiveCliCount }}</b>
-      </button>
-      <span
-        v-else-if="claudeActiveCliCount > 0"
-        class="provider-card-cli-signal provider-card-cli-signal-active"
-        :title="`${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
-        :aria-label="`${claudeActiveCliCount} 个 Claude Code 临时 CLI`"
-      >
-        <BrandIcon brand="claude" :size="17" />
-        <b>{{ claudeActiveCliCount }}</b>
-      </span>
+      <template v-for="signal in activeCliSignals" :key="signal.cliKind">
+        <button
+          v-if="interactive"
+          type="button"
+          class="provider-card-cli-signal provider-card-cli-signal-active"
+          :title="`查看 ${signal.count} 个 ${signal.label} 临时 CLI`"
+          :aria-label="`查看 ${signal.count} 个 ${signal.label} 临时 CLI`"
+          @click.stop="openCliInstances(signal.cliKind)"
+          @pointerdown.stop
+        >
+          <AgentCliIcon :kind="signal.cliKind" :size="17" />
+          <b>{{ signal.count }}</b>
+        </button>
+        <span
+          v-else
+          class="provider-card-cli-signal provider-card-cli-signal-active"
+          :title="`${signal.count} 个 ${signal.label} 临时 CLI`"
+          :aria-label="`${signal.count} 个 ${signal.label} 临时 CLI`"
+        >
+          <AgentCliIcon :kind="signal.cliKind" :size="17" />
+          <b>{{ signal.count }}</b>
+        </span>
+      </template>
     </div>
     <div v-if="showProviderStatus" class="provider-card-status" :title="title">
       <i aria-hidden="true"></i>

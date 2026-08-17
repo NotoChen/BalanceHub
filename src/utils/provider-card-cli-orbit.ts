@@ -1,5 +1,6 @@
 import type { CSSProperties } from "vue";
-import type { BrandIconName } from "../components/BrandIcon.vue";
+import { agentCliVisuals } from "../agent-cli/visuals.ts";
+import type { AgentCliKind } from "../stores/providers";
 
 // Motion bounds are expressed per full card perimeter. The card's own hover
 // beam is independent from these CLI icon motion settings.
@@ -13,7 +14,7 @@ export const PROVIDER_CARD_CLI_ORBIT_QUEUE_HEAD_PROGRESS = 75;
 
 export interface ProviderCardCliOrbitSpec {
   id: string;
-  brand?: BrandIconName;
+  cliKind: AgentCliKind;
   color: string;
   glow?: string;
 }
@@ -30,30 +31,13 @@ export interface ProviderCardCliOrbitMotion {
   speedProgressPerSecond: number;
 }
 
-const CLI_ORBIT_REGISTRY: Record<string, Omit<ProviderCardCliOrbitSpec, "id">> = {
-  codex: {
-    brand: "codex",
-    color: "var(--provider-card-cli-codex-color)",
-    glow: "var(--provider-card-cli-codex-glow)",
-  },
-  claudeCode: {
-    brand: "claude",
-    color: "var(--provider-card-cli-claude-color)",
-    glow: "var(--provider-card-cli-claude-glow)",
-  },
-};
-
-/**
- * Adding an agent only needs a registry entry. Unknown agents still orbit
- * with a generic icon supplied by the component.
- */
-export function providerCardCliOrbitSpec(cliKind: string): ProviderCardCliOrbitSpec {
+export function providerCardCliOrbitSpec(cliKind: AgentCliKind): ProviderCardCliOrbitSpec {
+  const visual = agentCliVisuals[cliKind];
   return {
     id: cliKind,
-    ...(CLI_ORBIT_REGISTRY[cliKind] || {
-      color: "var(--provider-card-state)",
-      glow: "color-mix(in srgb, var(--provider-card-state) 58%, transparent)",
-    }),
+    cliKind,
+    color: visual.orbitColor,
+    glow: visual.orbitGlow,
   };
 }
 

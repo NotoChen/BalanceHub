@@ -2,12 +2,12 @@
 import { computed } from "vue";
 import { IconCommand, IconDesktop, IconExperiment } from "@arco-design/web-vue/es/icon";
 import CliIconSelector from "../CliIconSelector.vue";
-import SettingsCodexPromptSection from "./SettingsCodexPromptSection.vue";
+import SettingsAgentPromptSection from "./SettingsAgentPromptSection.vue";
 import SettingsCliManager from "./SettingsCliManager.vue";
 import SettingsTerminalManager from "./SettingsTerminalManager.vue";
 import { availableCliOptions } from "../../utils/cli-environment";
 import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
-import { codexIntervalModeOptions } from "../../utils/liveness-options";
+import { livenessIntervalModeOptions } from "../../utils/liveness-options";
 import { useProviderStore, type AppSettings } from "../../stores/providers";
 
 const props = defineProps<{
@@ -18,9 +18,9 @@ const props = defineProps<{
 }>();
 
 const store = useProviderStore();
-const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe));
+const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe, "liveness"));
 
-const codexModelSelectOptions = computed(() =>
+const livenessModelSelectOptions = computed(() =>
   Array.from(
     new Set(
       [props.settings.livenessModel.trim(), ...props.livenessModelOptions.map((model) => model.trim())].filter(
@@ -81,7 +81,7 @@ const minimumRandomMaxInterval = computed(() =>
           <a-form-item label="默认模型">
             <a-select
               v-model="settings.livenessModel"
-              :options="codexModelSelectOptions"
+              :options="livenessModelSelectOptions"
               allow-create
               allow-search
               placeholder="选择或输入模型"
@@ -104,7 +104,7 @@ const minimumRandomMaxInterval = computed(() =>
           <a-form-item label="周期策略">
             <a-select
               v-model="settings.livenessIntervalMode"
-              :options="codexIntervalModeOptions"
+              :options="livenessIntervalModeOptions"
             />
           </a-form-item>
           <a-form-item v-if="settings.livenessIntervalMode === 'fixed'" label="执行周期（秒）">
@@ -136,7 +136,7 @@ const minimumRandomMaxInterval = computed(() =>
         </div>
 
         <div class="settings-liveness-prompt">
-          <SettingsCodexPromptSection :settings="settings" />
+          <SettingsAgentPromptSection :settings="settings" />
         </div>
       </div>
     </section>

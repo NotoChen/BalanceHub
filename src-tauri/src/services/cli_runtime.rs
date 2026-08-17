@@ -3,9 +3,10 @@ mod config;
 use crate::{
     limits,
     models::{
-        CliRuntimeSnapshot, LivenessCliKind, Provider, TemporaryCliInstance,
+        AgentCliKind, CliRuntimeSnapshot, Provider, TemporaryCliInstance,
         TemporaryCliInstanceStatus, TemporaryCliTerminalKind,
     },
+    services::agent_cli,
     util::{read_text_file_limited, unix_millis},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -13,7 +14,6 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
-    time::SystemTime,
 };
 
 pub use config::{preview_config, switch_config};
@@ -46,7 +46,7 @@ struct StoredInstanceMetadata {
     id: String,
     provider_id: String,
     provider_name: String,
-    cli_kind: LivenessCliKind,
+    cli_kind: AgentCliKind,
     workdir: String,
     terminal_kind: TemporaryCliTerminalKind,
     terminal_locator: Option<CliTerminalLocator>,
@@ -62,21 +62,13 @@ struct StoredInstanceStatus {
     exit_code: Option<i32>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-struct FileSignature {
-    len: u64,
-    modified: Option<SystemTime>,
-}
-
-struct StableFile {
-    text: String,
-    modified_at: Option<u128>,
-}
-
 pub fn snapshot(providers: &[Provider]) -> CliRuntimeSnapshot {
     CliRuntimeSnapshot {
-        codex: config::codex_config_snapshot(providers),
-        claude_code: config::claude_config_snapshot(providers),
+        configs: agent_cli::definitions()
+            .iter()
+            .filter(|definition| definition.default_config().is_some())
+            .map(|definition| config::config_snapshot(providers, definition.kind))
+            .collect(),
         instances: load_instances(),
     }
 }
@@ -102,7 +94,7 @@ pub fn instance(id: &str) -> Result<Option<TemporaryCliInstance>, String> {
 
 pub fn register_instance(
     provider: &Provider,
-    cli_kind: LivenessCliKind,
+    cli_kind: AgentCliKind,
     workdir: &Path,
     terminal_kind: TemporaryCliTerminalKind,
 ) -> Result<RegisteredCliInstance, String> {
@@ -306,56 +298,6 @@ fn merge_instance(
     }
 }
 
-fn read_stable_optional(path: &Path) -> Result<Option<StableFile>, String> {
-    for _ in 0..2 {
-        let before = match file_signature(path) {
-            Ok(Some(signature)) => signature,
-            Ok(None) => return Ok(None),
-            Err(err) => return Err(err),
-        };
-        let text =
-            read_text_file_limited(path, limits::MAX_CLI_CONFIG_FILE_BYTES, "读取 CLI 配置文件")?;
-        let after = match file_signature(path)? {
-            Some(signature) => signature,
-            None => continue,
-        };
-        if before == after {
-            return Ok(Some(StableFile {
-                text,
-                modified_at: after.modified.and_then(system_time_millis),
-            }));
-        }
-    }
-    Err(format!("文件读取期间发生变化({})", path.display()))
-}
-
-fn file_signature(path: &Path) -> Result<Option<FileSignature>, String> {
-    match fs::metadata(path) {
-        Ok(metadata) => Ok(Some(FileSignature {
-            len: metadata.len(),
-            modified: metadata.modified().ok(),
-        })),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(format!("读取文件元数据失败({}): {err}", path.display())),
-    }
-}
-
-fn latest_modified_at<const N: usize>(files: [Option<&StableFile>; N]) -> Option<String> {
-    files
-        .into_iter()
-        .flatten()
-        .filter_map(|file| file.modified_at)
-        .max()
-        .map(|value| value.to_string())
-}
-
-fn system_time_millis(value: SystemTime) -> Option<u128> {
-    value
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .ok()
-        .map(|duration| duration.as_millis())
-}
-
 fn instances_dir() -> PathBuf {
     env::temp_dir()
         .join(RUNTIME_DIR_NAME)
@@ -498,7 +440,7 @@ mod tests {
             id: id.clone(),
             provider_id: "provider-test".to_string(),
             provider_name: "Relay".to_string(),
-            cli_kind: LivenessCliKind::Codex,
+            cli_kind: AgentCliKind::Codex,
             workdir: "/workspace".to_string(),
             terminal_kind: TemporaryCliTerminalKind::Terminal,
             terminal_locator: None,

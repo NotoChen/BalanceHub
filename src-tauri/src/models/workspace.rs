@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use super::{LivenessCliKind, TemporaryCliTerminalKind};
+use super::{AgentCliKind, TemporaryCliTerminalKind};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,7 +24,7 @@ pub struct Workspace {
 pub struct TemporaryCliPreference {
     pub provider_id: String,
     #[serde(default)]
-    pub cli_kind: LivenessCliKind,
+    pub cli_kind: AgentCliKind,
     #[serde(default)]
     pub api_key_token_id: String,
     #[serde(default)]
@@ -37,7 +37,7 @@ pub struct TemporaryCliPreference {
 #[serde(rename_all = "camelCase")]
 pub struct TemporaryCliLaunchInput {
     pub provider_id: String,
-    pub cli_kind: LivenessCliKind,
+    pub cli_kind: AgentCliKind,
     pub workdir: String,
     #[serde(default)]
     pub api_key: String,
@@ -61,7 +61,7 @@ pub struct TemporaryCliLaunchInput {
 #[serde(rename_all = "camelCase")]
 pub struct TemporaryCliLaunchPreview {
     pub provider_name: String,
-    pub cli_kind: LivenessCliKind,
+    pub cli_kind: AgentCliKind,
     pub cli_path: String,
     pub args: Vec<String>,
     pub command: String,

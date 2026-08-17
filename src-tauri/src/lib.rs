@@ -1,4 +1,5 @@
 mod adapters;
+mod agent_cli_catalog;
 mod app_events;
 mod commands;
 mod contracts;

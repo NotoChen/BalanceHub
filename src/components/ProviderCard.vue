@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, type CSSProperties } from "vue";
-import type { LivenessCliKind, Provider } from "../stores/providers";
+import type { AgentCliKind, Provider } from "../stores/providers";
 import type { ProviderCardTone } from "../utils/provider-display";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import ProviderCardHeader from "./provider-card/ProviderCardHeader.vue";
@@ -20,12 +20,10 @@ const props = withDefaults(
     dragging?: boolean;
     dragStyle?: CSSProperties;
     showLivenessTimeline?: boolean;
-    codexDefault?: boolean;
-    claudeDefault?: boolean;
+    defaultCliKinds?: readonly AgentCliKind[];
     cliOrbits?: readonly ProviderCardCliOrbitSpec[];
-    codexActiveCliCount?: number;
-    claudeActiveCliCount?: number;
-    switchingCliKind?: LivenessCliKind | null;
+    activeCliCounts?: Partial<Record<AgentCliKind, number>>;
+    switchingCliKind?: AgentCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
     checkingIn?: boolean;
@@ -39,11 +37,9 @@ const props = withDefaults(
     dragging: false,
     dragStyle: undefined,
     showLivenessTimeline: false,
-    codexDefault: false,
-    claudeDefault: false,
+    defaultCliKinds: () => [],
     cliOrbits: () => [],
-    codexActiveCliCount: 0,
-    claudeActiveCliCount: 0,
+    activeCliCounts: () => ({}),
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
@@ -56,8 +52,8 @@ const emit = defineEmits<{
   click: [provider: Provider, event: MouseEvent];
   pointerdown: [provider: Provider, event: PointerEvent];
   enter: [provider: Provider, event: KeyboardEvent];
-  openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
-  switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
+  openCliInstances: [provider: Provider, cliKind: AgentCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
   probeCapabilities: [provider: Provider];
   openApiKeyManager: [provider: Provider];
   openAvailableModels: [provider: Provider];
@@ -84,7 +80,7 @@ const isGenericApi = computed(() => props.provider.identity.protocol === "api");
 const interactionActive = ref(false);
 
 const actionListeners = {
-  switchCliConfig: (provider: Provider, cliKind: LivenessCliKind) =>
+  switchCliConfig: (provider: Provider, cliKind: AgentCliKind) =>
     emit("switchCliConfig", provider, cliKind),
   probeCapabilities: (provider: Provider) => emit("probeCapabilities", provider),
   openApiKeyManager: (provider: Provider) => emit("openApiKeyManager", provider),
@@ -132,7 +128,7 @@ function handleEnter(event: KeyboardEvent) {
   }
 }
 
-function forwardOpenCliInstances(provider: Provider, cliKind: LivenessCliKind) {
+function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
   emit("openCliInstances", provider, cliKind);
 }
 </script>
@@ -173,8 +169,7 @@ function forwardOpenCliInstances(provider: Provider, cliKind: LivenessCliKind) {
       :tone="tone"
       :title="title"
       :interactive="interactive"
-      :codex-active-cli-count="codexActiveCliCount"
-      :claude-active-cli-count="claudeActiveCliCount"
+      :active-cli-counts="activeCliCounts"
       @open-cli-instances="forwardOpenCliInstances"
     />
 
@@ -186,8 +181,7 @@ function forwardOpenCliInstances(provider: Provider, cliKind: LivenessCliKind) {
       <ProviderCardActions
         :provider="provider"
         :interactive="interactive"
-        :codex-default="codexDefault"
-        :claude-default="claudeDefault"
+        :default-cli-kinds="defaultCliKinds"
         :switching-cli-kind="switchingCliKind"
         :cli-config-switching="cliConfigSwitching"
         :probing-capabilities="probingCapabilities"

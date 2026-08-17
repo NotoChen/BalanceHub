@@ -1,10 +1,10 @@
 use crate::{
     models::{
-        AppData, AppSettings, CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult,
-        CliRuntimeSnapshot, CliSessionSummary, LivenessCliKind, Provider, TemporaryCliInstance,
-        TemporaryCliLaunchInput, TemporaryCliLaunchPreview, TemporaryCliLaunchResult,
-        TemporaryCliPreference, TemporaryCliSessionMode, TerminalEnvironmentProbeResult, Workspace,
-        WorkspaceDirectoryListing,
+        AgentCliKind, AppData, AppSettings, CliConfigFile, CliConfigPreview,
+        CliEnvironmentProbeResult, CliRuntimeSnapshot, CliSessionSummary, Provider,
+        TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchPreview,
+        TemporaryCliLaunchResult, TemporaryCliPreference, TemporaryCliSessionMode,
+        TerminalEnvironmentProbeResult, Workspace, WorkspaceDirectoryListing,
     },
     services::{self, provider_service::ProviderService},
     state::AppState,
@@ -20,7 +20,7 @@ struct PreparedTemporaryCliLaunch {
     settings: AppSettings,
     input: TemporaryCliLaunchInput,
     cli_path: String,
-    cli_kind: LivenessCliKind,
+    cli_kind: AgentCliKind,
     workdir: PathBuf,
     api_key: String,
     model: String,
@@ -82,14 +82,7 @@ fn prepare_temporary_cli_launch(
         _ => saved_model,
     };
 
-    let cli = match cli_kind {
-        LivenessCliKind::Codex => {
-            services::liveness::LivenessRunner::find_codex_cli(&data.settings.codex_cli_path)?
-        }
-        LivenessCliKind::ClaudeCode => {
-            services::liveness::LivenessRunner::find_claude_cli(&data.settings.claude_cli_path)?
-        }
-    };
+    let cli = services::agent_cli::find(&data.settings, cli_kind, true)?;
     let terminal = services::temporary_cli::probe_terminal(input.terminal_kind);
     if !terminal.available {
         let detail = terminal.message.trim();
@@ -101,10 +94,7 @@ fn prepare_temporary_cli_launch(
     }
     let mut settings = data.settings.clone();
     settings.temporary_cli_terminal_kind = input.terminal_kind;
-    match cli_kind {
-        LivenessCliKind::Codex => settings.codex_cli_path = cli.path.clone(),
-        LivenessCliKind::ClaudeCode => settings.claude_cli_path = cli.path.clone(),
-    }
+    settings.set_agent_cli_path(cli_kind, cli.path.clone());
     let workdir = services::workspaces::normalize_directory(std::path::Path::new(&input.workdir))?;
     Ok(PreparedTemporaryCliLaunch {
         data,
@@ -208,7 +198,7 @@ pub(crate) async fn preview_temporary_cli_launch(
 
 #[tauri::command]
 pub(crate) async fn list_cli_sessions(
-    cli_kind: LivenessCliKind,
+    cli_kind: AgentCliKind,
     workdir: String,
 ) -> Result<Vec<CliSessionSummary>, String> {
     run_blocking("读取 CLI 历史会话", move || {
@@ -283,7 +273,7 @@ pub(crate) async fn browse_workspace_directories(
 pub(crate) async fn preview_cli_config(
     app: AppHandle,
     id: String,
-    cli_kind: LivenessCliKind,
+    cli_kind: AgentCliKind,
 ) -> Result<CliConfigPreview, String> {
     run_blocking("读取 CLI 配置预览", move || {
         let data = app
@@ -308,7 +298,7 @@ pub(crate) async fn preview_cli_config(
 pub(crate) async fn switch_cli_config(
     app: AppHandle,
     id: String,
-    cli_kind: LivenessCliKind,
+    cli_kind: AgentCliKind,
     revision: String,
     files: Vec<CliConfigFile>,
 ) -> Result<CliRuntimeSnapshot, String> {
@@ -338,7 +328,14 @@ pub(crate) async fn probe_cli_tools(
     deep: bool,
 ) -> Result<CliEnvironmentProbeResult, String> {
     run_blocking("探测 CLI", move || {
-        ProviderService::new(&app).probe_cli_tools(deep)
+        let settings = app
+            .state::<AppState>()
+            .data
+            .read()
+            .unwrap_or_else(|err| err.into_inner())
+            .settings
+            .clone();
+        Ok(services::agent_cli::probe_all(&settings, deep))
     })
     .await
 }

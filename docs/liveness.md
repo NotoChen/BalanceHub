@@ -1,6 +1,6 @@
 # 测活配置
 
-测活用于观察某个中转站在 Codex 或 Claude Code 场景下是否可用。测活只通过本机 CLI 执行真实请求，不提供直接 HTTP 调用。它不是普通余额刷新，也不会替代请求日志。
+测活用于观察某个中转站在 Agent CLI 场景下是否可用。当前内置 Codex CLI、Claude Code、Gemini CLI 和 Grok Build；测活只通过所选本机 CLI 执行真实请求，不提供直接 HTTP 调用。它不是普通余额刷新，也不会替代请求日志。
 
 ## 全局与单站配置
 
@@ -14,17 +14,17 @@
 
 ## CLI 路径
 
-BalanceHub 会自动查找 Codex CLI 和 Claude Code CLI。自动查找失败时，可以在设置里手动填写路径。
+BalanceHub 会自动查找已注册的 Agent CLI。自动查找失败时，可以在设置里为对应 CLI 手动填写路径。
 
 如果换电脑后提示找不到 CLI，优先检查：
 
 - CLI 是否已安装。
-- 终端里是否能执行 `codex --version` 或 `claude --version`。
+- 终端里是否能执行对应的版本命令，例如 `codex --version`、`claude --version`、`gemini --version` 或 `grok --version`。
 - 手动路径是否指向真实可执行文件。
 - Windows 下路径是否包含 `.cmd` 或 `.exe`。
 
 ## 模型与凭据
 
-测活应使用当前中转站配置的模型、Base URL 和认证信息。不要依赖本机已有的 Codex 或 Claude 默认配置，否则可能测到错误的账号。
+测活使用当前中转站配置的模型、Base URL 和认证信息，并在隔离目录内构造所选 Agent 的运行环境。不要依赖本机已有的 CLI 默认配置，否则可能测到错误的账号。
 
 如果测活记录显示“无效令牌”，优先检查当前中转站使用的是 Cookie、访问令牌还是 API Key，以及测活命令里对应的认证参数。

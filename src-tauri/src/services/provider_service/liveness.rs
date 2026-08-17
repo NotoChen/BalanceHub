@@ -1,9 +1,6 @@
 use crate::{
     limits,
-    models::{
-        CliEnvironmentProbeResult, CliToolProbeResult, CodexCliProbeResult, LivenessCliKind,
-        LivenessPromptMode, LivenessRecord, TerminalEnvironmentProbeResult,
-    },
+    models::{LivenessPromptMode, LivenessRecord, TerminalEnvironmentProbeResult},
     services::liveness::{effective_interval, LivenessRunner},
     util::unix_millis as current_timestamp_millis,
 };
@@ -11,45 +8,6 @@ use crate::{
 use super::{find_provider, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
-    pub fn probe_cli_tools(
-        &self,
-        include_shell: bool,
-    ) -> Result<CliEnvironmentProbeResult, String> {
-        let snapshot = self.snapshot();
-        let codex_path = snapshot.settings.codex_cli_path.clone();
-        let claude_path = snapshot.settings.claude_cli_path.clone();
-        let (codex, claude_code) = std::thread::scope(|scope| {
-            let codex_handle = scope.spawn(|| {
-                if include_shell {
-                    LivenessRunner::find_codex_cli(&codex_path)
-                } else {
-                    LivenessRunner::find_codex_cli_without_shell(&codex_path)
-                }
-            });
-            let claude_handle = scope.spawn(|| {
-                if include_shell {
-                    LivenessRunner::find_claude_cli(&claude_path)
-                } else {
-                    LivenessRunner::find_claude_cli_without_shell(&claude_path)
-                }
-            });
-
-            let codex = codex_handle
-                .join()
-                .unwrap_or_else(|_| Err("Codex CLI 自动检测异常".to_string()));
-            let claude = claude_handle
-                .join()
-                .unwrap_or_else(|_| Err("Claude Code CLI 自动检测异常".to_string()));
-
-            (
-                cli_tool_probe_result(LivenessCliKind::Codex, codex),
-                cli_tool_probe_result(LivenessCliKind::ClaudeCode, claude),
-            )
-        });
-
-        Ok(CliEnvironmentProbeResult { codex, claude_code })
-    }
-
     pub fn probe_terminals(&self) -> TerminalEnvironmentProbeResult {
         TerminalEnvironmentProbeResult {
             terminals: crate::services::temporary_cli::probe_available_terminals(),
@@ -123,54 +81,5 @@ impl<'a> ProviderService<'a> {
         })?;
 
         Ok(record)
-    }
-}
-
-fn cli_tool_probe_result(
-    cli_kind: LivenessCliKind,
-    result: Result<CodexCliProbeResult, String>,
-) -> CliToolProbeResult {
-    match result {
-        Ok(result) => CliToolProbeResult {
-            available: true,
-            path: result.path,
-            version: result.version,
-            message: String::new(),
-            supports_session_name: cli_kind.supports_session_name(),
-        },
-        Err(message) => CliToolProbeResult {
-            available: false,
-            path: String::new(),
-            version: String::new(),
-            message,
-            supports_session_name: false,
-        },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::cli_tool_probe_result;
-    use crate::models::{CodexCliProbeResult, LivenessCliKind};
-
-    #[test]
-    fn cli_probe_exposes_launch_naming_capability_from_rust() {
-        let claude = cli_tool_probe_result(
-            LivenessCliKind::ClaudeCode,
-            Ok(CodexCliProbeResult {
-                path: "/usr/local/bin/claude".to_string(),
-                version: "2.1.221".to_string(),
-            }),
-        );
-        let codex = cli_tool_probe_result(
-            LivenessCliKind::Codex,
-            Ok(CodexCliProbeResult {
-                path: "/usr/local/bin/codex".to_string(),
-                version: "0.146.0".to_string(),
-            }),
-        );
-
-        assert!(claude.supports_session_name);
-        assert!(!codex.supports_session_name);
     }
 }

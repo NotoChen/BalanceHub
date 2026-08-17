@@ -1,5 +1,5 @@
 use super::ShellEnvironmentSnapshot;
-use crate::{limits, platform::process::run_command_with_output_timeout};
+use crate::{limits, platform::process::run_command_with_output_timeout, services::agent_cli};
 use std::{collections::BTreeMap, env, process::Command, time::Duration};
 
 const ENV_START: &str = "__BALANCEHUB_ENV_START__";
@@ -36,8 +36,13 @@ fn current_process_environment() -> BTreeMap<String, String> {
 
 fn capture_powershell() -> Option<ShellEnvironmentSnapshot> {
     let binary = powershell_binary()?;
+    let cli_names = agent_cli::definitions()
+        .iter()
+        .map(|definition| format!("'{}'", definition.executable.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(", ");
     let command = format!(
-        "$profiles = @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost, $PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost) | Where-Object {{ $_ -and (Test-Path -LiteralPath $_) }} | Select-Object -Unique; foreach ($profilePath in $profiles) {{ try {{ . $profilePath }} catch {{ }} }}; $values = [ordered]@{{}}; Get-ChildItem Env: | ForEach-Object {{ $values[[string]$_.Name] = [string]$_.Value }}; $aliases = [ordered]@{{}}; $functions = [ordered]@{{}}; foreach ($name in @('codex', 'claude')) {{ $commandInfo = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1; if ($null -ne $commandInfo -and $commandInfo.CommandType -eq 'Alias') {{ $aliases[$name] = [string]$commandInfo.Definition }} elseif ($null -ne $commandInfo -and @('Function', 'Filter') -contains [string]$commandInfo.CommandType) {{ $functions[$name] = [string]$commandInfo.Definition }} }}; $snapshot = [ordered]@{{ environment = $values; aliases = $aliases; functions = $functions }}; [Console]::Out.WriteLine('{ENV_START}'); [Console]::Out.WriteLine(($snapshot | ConvertTo-Json -Compress -Depth 8)); [Console]::Out.WriteLine('{ENV_END}')"
+        "$profiles = @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost, $PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost) | Where-Object {{ $_ -and (Test-Path -LiteralPath $_) }} | Select-Object -Unique; foreach ($profilePath in $profiles) {{ try {{ . $profilePath }} catch {{ }} }}; $values = [ordered]@{{}}; Get-ChildItem Env: | ForEach-Object {{ $values[[string]$_.Name] = [string]$_.Value }}; $aliases = [ordered]@{{}}; $functions = [ordered]@{{}}; foreach ($name in @({cli_names})) {{ $commandInfo = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1; if ($null -ne $commandInfo -and $commandInfo.CommandType -eq 'Alias') {{ $aliases[$name] = [string]$commandInfo.Definition }} elseif ($null -ne $commandInfo -and @('Function', 'Filter') -contains [string]$commandInfo.CommandType) {{ $functions[$name] = [string]$commandInfo.Definition }} }}; $snapshot = [ordered]@{{ environment = $values; aliases = $aliases; functions = $functions }}; [Console]::Out.WriteLine('{ENV_START}'); [Console]::Out.WriteLine(($snapshot | ConvertTo-Json -Compress -Depth 8)); [Console]::Out.WriteLine('{ENV_END}')"
     );
     let mut process = Command::new(binary);
     process.args([

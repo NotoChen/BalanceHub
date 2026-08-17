@@ -9,11 +9,11 @@ use std::{
     time::Duration,
 };
 
-pub(in crate::services::liveness) fn runtime_path_for(cli_path: &Path) -> Option<OsString> {
+pub(in crate::services::agent_cli) fn runtime_path_for(cli_path: &Path) -> Option<OsString> {
     runtime_path_for_mode(cli_path, true)
 }
 
-pub(in crate::services::liveness) fn runtime_path_for_without_shell(
+pub(in crate::services::agent_cli) fn runtime_path_for_without_shell(
     cli_path: &Path,
 ) -> Option<OsString> {
     runtime_path_for_mode(cli_path, false)
@@ -209,7 +209,7 @@ pub(super) fn binary_names(binary: &str) -> Vec<String> {
     names
 }
 
-fn platform_global_dirs() -> &'static [&'static str] {
+pub(super) fn platform_global_dirs() -> &'static [&'static str] {
     if cfg!(target_os = "macos") {
         &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
     } else if cfg!(target_os = "windows") {
@@ -219,7 +219,10 @@ fn platform_global_dirs() -> &'static [&'static str] {
     }
 }
 
-pub(super) fn home_bin_candidates(home: &Path, binary: &str) -> Vec<PathBuf> {
+pub(in crate::services::agent_cli) fn home_bin_candidates(
+    home: &Path,
+    binary: &str,
+) -> Vec<PathBuf> {
     runtime_home_dirs(home)
         .into_iter()
         .flat_map(|dir| {
@@ -228,6 +231,15 @@ pub(super) fn home_bin_candidates(home: &Path, binary: &str) -> Vec<PathBuf> {
                 .map(move |name| dir.join(name))
         })
         .collect()
+}
+
+pub(in crate::services::agent_cli) fn node_cli_home_candidates(
+    home: &Path,
+    binary: &str,
+) -> Vec<PathBuf> {
+    let mut candidates = home_bin_candidates(home, binary);
+    candidates.extend(windows_npm_candidates(binary));
+    candidates
 }
 
 fn runtime_home_dirs(home: &Path) -> Vec<PathBuf> {
@@ -247,7 +259,7 @@ fn runtime_home_dirs(home: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-pub(super) fn node_manager_bin_dirs(home: &Path) -> Vec<PathBuf> {
+fn node_manager_bin_dirs(home: &Path) -> Vec<PathBuf> {
     let mut dirs = versioned_bin_dirs(&home.join(".nvm/versions/node"), "bin");
     dirs.extend(versioned_bin_dirs(
         &home.join(".fnm/node-versions"),
@@ -288,7 +300,7 @@ fn fnm_multishell_dirs(home: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-pub(super) fn windows_npm_candidates(binary: &str) -> Vec<PathBuf> {
+fn windows_npm_candidates(binary: &str) -> Vec<PathBuf> {
     if !cfg!(target_os = "windows") {
         return Vec::new();
     }

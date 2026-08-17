@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconExperiment } from "@arco-design/web-vue/es/icon";
-import type { LivenessCliKind, LivenessRecord, Provider } from "../stores/providers";
-import { cliKindMeta } from "../utils/cli-environment";
-import BrandIcon from "./BrandIcon.vue";
+import { useProviderStore, type AgentCliKind, type LivenessRecord, type Provider } from "../stores/providers";
+import { agentCliLabel, isAgentCliKind } from "../utils/cli-environment";
+import AgentCliIcon from "./AgentCliIcon.vue";
 
 const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
 }>();
+const store = useProviderStore();
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
@@ -48,25 +49,13 @@ function sourceLabel(source: string | undefined) {
   return source || "未知来源";
 }
 
-function recordCliKind(record: LivenessRecord): LivenessCliKind | null {
-  if (record.cliKind === "claudeCode" || record.cliKind === "codex") return record.cliKind;
-  const command = record.commandPreview.toLowerCase();
-  if (command.includes("anthropic_api_key") || command.includes("claude")) {
-    return "claudeCode";
-  }
-  if (command.includes("openai_api_key") || command.includes("codex")) {
-    return "codex";
-  }
-  return null;
+function recordCliKind(record: LivenessRecord): AgentCliKind | null {
+  return isAgentCliKind(record.cliKind) ? record.cliKind : null;
 }
 
 function cliLabel(record: LivenessRecord) {
   const kind = recordCliKind(record);
-  return kind ? cliKindMeta[kind].label : "未知方式";
-}
-
-function cliBrand(record: LivenessRecord) {
-  return recordCliKind(record) === "claudeCode" ? "claude" : "codex";
+  return kind ? agentCliLabel(store.cliEnvironmentProbe, kind) : "未知方式";
 }
 
 function durationLabel(value: number) {
@@ -152,9 +141,9 @@ function responseText(record: LivenessRecord) {
             <span>{{ sourceLabel(record.source) }}</span>
             <a-tooltip :content="cliLabel(record)">
               <span class="liveness-record-cli" :aria-label="cliLabel(record)">
-                <BrandIcon
+                <AgentCliIcon
                   v-if="recordCliKind(record)"
-                  :brand="cliBrand(record)"
+                  :kind="recordCliKind(record) || 'codex'"
                   :size="17"
                 />
                 <span v-else>--</span>

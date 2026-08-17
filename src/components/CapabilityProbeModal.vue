@@ -10,6 +10,7 @@ import {
   IconSafe,
 } from "@arco-design/web-vue/es/icon";
 import type { AuthMode, Provider } from "../stores/providers";
+import { providerAgentBaseUrl } from "../utils/cli-environment";
 import { providerAuthModeLabel, providerProtocolLabel } from "../utils/provider-display";
 
 type ProbeStepKey = "checkIn" | "apiKeys" | "invitation" | "models";
@@ -201,7 +202,7 @@ function invitationMethod(provider: Provider) {
 }
 
 function modelMethod(provider: Provider) {
-  const baseUrl = provider.liveness.openaiBaseUrl.trim() || provider.identity.baseUrl.trim();
+  const baseUrl = providerAgentBaseUrl(provider, "codex");
   return baseUrl ? "GET OpenAI 兼容 /models" : "OpenAI 兼容模型接口";
 }
 
