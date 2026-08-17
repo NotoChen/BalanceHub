@@ -70,7 +70,7 @@ export type ProviderBatchProgressEvent =
     };
 
 export interface BatchOperationResult {
-  providers: Provider[];
+  updatedProviders: Provider[];
 }
 
 export function refreshAllProvidersWithProgress(onEvent: Channel<ProviderBatchProgressEvent>) {

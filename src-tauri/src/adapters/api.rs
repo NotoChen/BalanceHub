@@ -4,16 +4,16 @@
 //! calls and model discovery, but it must never be treated as a NewAPI or
 //! Sub2API account endpoint merely because the user supplied an API key.
 
+mod protocol;
+
 use crate::{
     adapters::transport::{build_client, ProviderTransport, USER_AGENT_VALUE},
     limits,
     models::{
         AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCapabilities,
-        ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
-        ProviderConnectionTestStep, ProviderCredentialCompletionResult,
-        ProviderCredentialCompletionStep, ProviderInput, ProviderQuotaDisplay, ProviderQuotaScope,
-        ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
-        ProviderStatus, ProviderUsageSummary,
+        ProviderConnectionTestResult, ProviderConnectionTestStep,
+        ProviderCredentialCompletionResult, ProviderCredentialCompletionStep, ProviderInput,
+        ProviderQuotaDisplay, ProviderQuotaScope, ProviderSiteProbeResult, ProviderStatus,
     },
 };
 use reqwest::{header::ACCEPT, header::USER_AGENT, Url};
@@ -127,68 +127,6 @@ impl ApiAdapter {
         }
     }
 
-    pub(crate) async fn list_api_keys(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-    ) -> Result<Vec<ProviderApiKeyOption>, String> {
-        Err(unsupported("查询 API Key 列表"))
-    }
-
-    pub(crate) async fn create_api_key(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-        _name: &str,
-    ) -> Result<ProviderApiKeyOption, String> {
-        Err(unsupported("创建 API Key"))
-    }
-
-    pub(crate) async fn generate_access_token(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-    ) -> Result<String, String> {
-        Err(unsupported("生成访问令牌"))
-    }
-
-    pub(crate) async fn delete_api_key(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-        _token_id: &str,
-    ) -> Result<(), String> {
-        Err(unsupported("删除 API Key"))
-    }
-
-    pub(crate) async fn usage_summary(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-        _period: &str,
-    ) -> Result<ProviderUsageSummary, String> {
-        Err(unsupported("读取用量趋势"))
-    }
-
-    pub(crate) async fn request_logs(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-        _query: ProviderRequestLogsQuery,
-    ) -> Result<ProviderRequestLogsResult, String> {
-        Err(unsupported("读取请求日志"))
-    }
-
-    pub(crate) async fn change_password(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-        _original_password: &str,
-        _password: &str,
-    ) -> Result<String, String> {
-        Err(unsupported("修改密码"))
-    }
-
     pub(crate) async fn probe_capabilities(
         &self,
         _settings: &AppSettings,
@@ -207,14 +145,6 @@ impl ApiAdapter {
             String::new(),
             None,
         ))
-    }
-
-    pub(crate) async fn invite_link(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-    ) -> Result<String, String> {
-        Err(unsupported("读取邀请链接"))
     }
 
     pub(crate) async fn refresh_provider(
@@ -250,23 +180,6 @@ impl ApiAdapter {
             }
             Err(message) => provider_with_error(&next, message),
         }
-    }
-
-    pub(crate) async fn check_in(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-    ) -> Result<ProviderCheckInResult, String> {
-        Err(unsupported("用户签到"))
-    }
-
-    pub(crate) async fn check_in_records(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-        _month: &str,
-    ) -> Result<ProviderCheckInRecordsResult, String> {
-        Err(unsupported("读取签到记录"))
     }
 }
 
@@ -330,10 +243,7 @@ fn parse_models(body: &str) -> Result<Vec<String>, String> {
 }
 
 fn models_url(provider: &Provider) -> Result<Url, String> {
-    let raw = crate::services::agent_cli::provider_raw_base_url(
-        crate::models::AgentCliKind::Codex,
-        provider,
-    );
+    let raw = provider.identity.base_url.trim();
     if raw.is_empty() {
         return Err("缺少模型 Base URL 或中转站地址".to_string());
     }
@@ -352,10 +262,6 @@ fn host_name(base_url: &str) -> Option<String> {
     Url::parse(base_url.trim())
         .ok()
         .and_then(|url| url.host_str().map(str::to_string))
-}
-
-fn unsupported(operation: &str) -> String {
-    format!("通用 API Key 协议不支持{operation}；请切换到已识别的站点协议")
 }
 
 fn provider_with_error(provider: &Provider, message: String) -> Provider {
@@ -429,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_an_explicit_v1_models_agent_override() {
+    fn ignores_agent_specific_model_endpoint_overrides() {
         let mut provider = provider();
         provider.liveness.agent_base_urls.insert(
             AgentCliKind::Codex,
@@ -437,7 +343,7 @@ mod tests {
         );
         assert_eq!(
             models_url(&provider).unwrap().as_str(),
-            "https://relay.example.com/override/v1/models"
+            "https://relay.example.com/openai/v1/models"
         );
     }
 

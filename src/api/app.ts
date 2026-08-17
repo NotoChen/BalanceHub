@@ -10,6 +10,7 @@ import type {
   ProviderModelSyncResult,
   AgentCliKind,
   Provider,
+  ProviderProtocolDescriptor,
   ProviderApiKeyOption,
   ProviderCapabilityProbeResult,
   ProviderCheckInRecordsResult,
@@ -19,6 +20,7 @@ import type {
   ProviderSaveOptions,
   ProviderSaveResult,
   ProviderProtocolDetectionResult,
+  ProviderRemovalResult,
   ProviderRequestLogsQuery,
   ProviderRequestLogsResult,
   ProviderSiteProbeResult,
@@ -33,15 +35,17 @@ import type {
 } from "../stores/providers";
 
 export interface AppData {
+  revision: number;
   schemaVersion: number;
   providers: Provider[];
+  providerProtocols: ProviderProtocolDescriptor[];
   settings: AppSettings;
   workspaces: Workspace[];
   temporaryCliPreferences: TemporaryCliPreference[];
 }
 
 export interface RefreshResult {
-  providers: Provider[];
+  updatedProviders: Provider[];
 }
 
 export interface NotificationDeliveryResult {
@@ -61,6 +65,11 @@ export interface AppDataTransferResult {
   path: string;
   schemaVersion: number;
   providerCount: number;
+}
+
+export interface AppDataImportResult {
+  data: AppData;
+  transfer: AppDataTransferResult;
 }
 
 export interface AppUpdateInfo {
@@ -119,11 +128,11 @@ export function saveProvider(input: ProviderInput, options: ProviderSaveOptions 
 }
 
 export function removeProvider(id: string) {
-  return invoke<Provider[]>("remove_provider", { id });
+  return invoke<ProviderRemovalResult>("remove_provider", { id });
 }
 
 export function reorderProviders(ids: string[]) {
-  return invoke<Provider[]>("reorder_providers", { ids });
+  return invoke<string[]>("reorder_providers", { ids });
 }
 
 export function saveSettings(settings: AppSettings) {
@@ -151,7 +160,7 @@ export function exportAppData(path: string) {
 }
 
 export function importAppData(path: string) {
-  return invoke<AppDataTransferResult>("import_app_data", { path });
+  return invoke<AppDataImportResult>("import_app_data", { path });
 }
 
 export function completeProviderCredentials(input: ProviderInput) {

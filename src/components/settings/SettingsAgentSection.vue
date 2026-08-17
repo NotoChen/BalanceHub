@@ -8,7 +8,8 @@ import SettingsTerminalManager from "./SettingsTerminalManager.vue";
 import { availableCliOptions } from "../../utils/cli-environment";
 import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
 import { livenessIntervalModeOptions } from "../../utils/liveness-options";
-import { useProviderStore, type AppSettings } from "../../stores/providers";
+import { useCliRuntimeStore } from "../../stores/cli-runtime";
+import type { AppSettings } from "../../stores/providers";
 
 const props = defineProps<{
   settings: AppSettings;
@@ -17,7 +18,7 @@ const props = defineProps<{
   selectedLivenessModelProviders: { id: string; name: string }[];
 }>();
 
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe, "liveness"));
 
 const livenessModelSelectOptions = computed(() =>

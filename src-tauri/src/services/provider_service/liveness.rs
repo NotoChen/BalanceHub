@@ -1,19 +1,13 @@
 use crate::{
     limits,
-    models::{LivenessPromptMode, LivenessRecord, TerminalEnvironmentProbeResult},
+    models::{LivenessPromptMode, LivenessRecord},
     services::liveness::{effective_interval, LivenessRunner},
     util::unix_millis as current_timestamp_millis,
 };
 
-use super::{find_provider, ProviderRequestContext, ProviderService};
+use super::{find_provider, MutationDecision, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
-    pub fn probe_terminals(&self) -> TerminalEnvironmentProbeResult {
-        TerminalEnvironmentProbeResult {
-            terminals: crate::services::temporary_cli::probe_available_terminals(),
-        }
-    }
-
     pub fn run_liveness(
         &self,
         id: String,
@@ -34,7 +28,7 @@ impl<'a> ProviderService<'a> {
         let run_output_tokens = record.output_tokens.unwrap_or(0);
         let run_total_tokens = record.total_tokens.unwrap_or(0);
         let run_cost_usd = record.total_cost_usd.unwrap_or(0.0);
-        self.mutate(|data| {
+        let persisted = self.mutate_decided(|data| {
             if let Some(stored_provider) = data
                 .providers
                 .iter_mut()
@@ -75,10 +69,16 @@ impl<'a> ProviderService<'a> {
                 let next_after = effective_interval(&data.settings, stored_provider);
                 stored_provider.liveness.next_at =
                     Some((current_timestamp_millis() + next_after as u128 * 1000).to_string());
+                return Ok(MutationDecision::changed(true));
             }
-            // 注意：mutate 闭包持有状态写锁，严禁在这里做磁盘扫描/子进程探测之类的
-            // 阻塞操作。CLI 探测由独立命令（锁外）负责。
+            // 注意：事务闭包持有 mutation gate，严禁在这里做磁盘扫描/子进程探测。
+            // CLI 探测由独立命令在锁外完成。
+            Ok(MutationDecision::unchanged(false))
         })?;
+
+        if !persisted {
+            return Err("本地配置已变更，本次测活结果已忽略".to_string());
+        }
 
         Ok(record)
     }

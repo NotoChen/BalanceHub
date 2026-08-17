@@ -144,7 +144,7 @@ fn merge_map(target: &mut BTreeMap<String, String>, source: BTreeMap<String, Str
 #[cfg(test)]
 mod tests {
     use super::marked_block;
-    use crate::services::temporary_cli::environment::insert_environment;
+    use crate::services::temporary_cli::shell_runtime::environment::insert_environment;
     use std::collections::BTreeMap;
 
     #[test]

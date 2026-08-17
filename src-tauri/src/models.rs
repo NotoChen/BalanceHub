@@ -39,6 +39,9 @@ pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
+    /// 仅用于当前进程内 IPC 快照排序，不写入本地配置或导出文件。
+    #[serde(skip)]
+    pub revision: u64,
     #[serde(default)]
     pub schema_version: u32,
     pub providers: Vec<Provider>,
@@ -60,6 +63,7 @@ pub struct AppDataTransferResult {
 impl AppData {
     pub fn new_current(providers: Vec<Provider>, settings: AppSettings) -> Self {
         Self {
+            revision: 0,
             schema_version: CURRENT_SCHEMA_VERSION,
             providers,
             settings,

@@ -6,6 +6,7 @@ import type {
   ProviderApiKeyOption,
   ProviderInput,
   ProviderProtocol,
+  ProviderProtocolDescriptor,
   ProviderProtocolDetectionResult,
   ProviderSiteProbeResult,
 } from "../stores/providers";
@@ -28,6 +29,7 @@ defineProps<{
   checkingForUpdate: boolean;
   providerEditorTitle: string;
   draftProvider: ProviderInput;
+  providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderApiKeyOption[];
   availableModels: string[];
   siteProbeResult: ProviderSiteProbeResult | null;
@@ -87,6 +89,7 @@ const providerEditorVisible = defineModel<boolean>("providerEditorVisible", { re
     v-model:visible="providerEditorVisible"
     :title="providerEditorTitle"
     :draft="draftProvider"
+    :provider-protocols="providerProtocols"
     :api-key-options="apiKeyOptions"
     :available-models="availableModels"
     :site-probe-result="siteProbeResult"

@@ -1,4 +1,8 @@
-import type { ProviderInput } from "../stores/providers";
+import type { ProviderInput, ProviderProtocolDescriptor } from "../stores/providers";
+import {
+  providerAuthModeDescriptor,
+  providerProtocolDescriptor,
+} from "../utils/provider-protocol.ts";
 
 interface CredentialResultStep {
   name: string;
@@ -6,26 +10,34 @@ interface CredentialResultStep {
   message: string;
 }
 
-export function canRunCredentialAssistantForInput(input: ProviderInput, busy: boolean) {
-  if (busy || input.auth.mode === "apiKey" || input.identity.protocol === "api") {
+export function canRunCredentialAssistantForInput(
+  input: ProviderInput,
+  descriptors: ProviderProtocolDescriptor[],
+  busy: boolean,
+) {
+  if (busy || input.auth.mode === "apiKey") {
     return false;
   }
   if (!input.identity.baseUrl.trim()) {
     return false;
   }
-  if (input.identity.protocol === "sub2Api") {
-    if (input.auth.mode === "password") {
-      return Boolean(input.auth.loginUsername.trim() && input.auth.loginPassword.trim());
-    }
-    return Boolean(input.auth.accessToken.trim());
+  const protocol = providerProtocolDescriptor(descriptors, input.identity.protocol);
+  if (!protocol?.credentialAssistant.enabled) {
+    return false;
   }
-  if (input.auth.mode === "session") {
-    return Boolean(input.auth.sessionCookie.trim());
-  }
-  if (input.auth.mode === "password") {
-    return Boolean(input.auth.loginUsername.trim() && input.auth.loginPassword.trim());
-  }
-  return Boolean(input.auth.accessToken.trim() && input.auth.apiUser.trim());
+  const schema = providerAuthModeDescriptor(
+    descriptors,
+    input.identity.protocol,
+    input.auth.mode,
+  );
+  return Boolean(
+    schema && schema.requiredFields.every((field) => credentialFieldHasValue(input, field)),
+  );
+}
+
+function credentialFieldHasValue(input: ProviderInput, field: string) {
+  const value = input.auth[field as keyof ProviderInput["auth"]];
+  return typeof value === "string" && Boolean(value.trim());
 }
 
 export function blockingCredentialCompletionFailures(steps: CredentialResultStep[]) {

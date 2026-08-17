@@ -9,7 +9,7 @@ use crate::{
 };
 use tauri::Manager;
 
-use super::{find_provider, ProviderRequestContext, ProviderService};
+use super::{find_provider, MutationDecision, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn list_api_keys(&self, id: String) -> Result<Vec<ProviderApiKeyOption>, String> {
@@ -22,9 +22,8 @@ impl<'a> ProviderService<'a> {
             .list_api_keys(&data.settings, &provider)
             .await?;
         let options = operation.value;
-        let authenticated = operation.provider;
         let persisted_provider = self
-            .persist_operation_provider(&request_context, &authenticated)
+            .persist_operation_credentials(&request_context, &operation.credentials)
             .await?;
         let options_context = persisted_provider
             .as_ref()
@@ -50,17 +49,16 @@ impl<'a> ProviderService<'a> {
             .create_api_key(&data.settings, &provider, &name)
             .await?;
         let persisted_created = self
-            .persist_operation_provider(&request_context, &created.provider)
+            .persist_operation_credentials(&request_context, &created.credentials)
             .await?;
         let list_provider = persisted_created
-            .clone()
-            .unwrap_or_else(|| created.provider.clone());
+            .ok_or_else(|| "本地配置已变更，本次 API Key 创建结果已忽略".to_string())?;
         let list_context = ProviderRequestContext::capture(&list_provider);
         let listed = adapter
             .list_api_keys(&data.settings, &list_provider)
             .await?;
         let persisted_listed = self
-            .persist_operation_provider(&list_context, &listed.provider)
+            .persist_operation_credentials(&list_context, &listed.credentials)
             .await?;
         let options_context = persisted_listed
             .as_ref()
@@ -106,17 +104,16 @@ impl<'a> ProviderService<'a> {
             .delete_api_key(&data.settings, &provider, &token_id)
             .await?;
         let persisted_deleted = self
-            .persist_operation_provider(&request_context, &deleted.provider)
+            .persist_operation_credentials(&request_context, &deleted.credentials)
             .await?;
         let list_provider = persisted_deleted
-            .clone()
-            .unwrap_or_else(|| deleted.provider.clone());
+            .ok_or_else(|| "本地配置已变更，本次 API Key 删除结果已忽略".to_string())?;
         let list_context = ProviderRequestContext::capture(&list_provider);
         let listed = adapter
             .list_api_keys(&data.settings, &list_provider)
             .await?;
         let persisted_listed = self
-            .persist_operation_provider(&list_context, &listed.provider)
+            .persist_operation_credentials(&list_context, &listed.credentials)
             .await?;
         let options_context = persisted_listed
             .as_ref()
@@ -138,21 +135,25 @@ impl<'a> ProviderService<'a> {
         let options = options.to_vec();
         let removed_token_id = removed_token_id.map(str::to_string);
         let persisted = self
-            .mutate_async(move |data| {
+            .mutate_decided_async(move |data| {
                 if let Some(provider) = data
                     .providers
                     .iter_mut()
                     .find(|provider| mutation_context.matches(provider))
                 {
-                    sync_api_key_options(
+                    let changed = sync_api_key_options(
                         &mut provider.auth,
                         provider.identity.protocol,
                         &options,
                         removed_token_id.as_deref(),
                     );
-                    true
+                    Ok(if changed {
+                        MutationDecision::changed(true)
+                    } else {
+                        MutationDecision::unchanged(true)
+                    })
                 } else {
-                    false
+                    Ok(MutationDecision::unchanged(false))
                 }
             })
             .await?;
@@ -169,7 +170,8 @@ fn sync_api_key_options(
     protocol: ProviderProtocol,
     options: &[ProviderApiKeyOption],
     removed_token_id: Option<&str>,
-) {
+) -> bool {
+    let previous = auth.clone();
     let removed_token_id = removed_token_id.unwrap_or("").trim();
     let current_key = normalize_api_key_for_protocol(&auth.api_key, protocol);
     let current_token_id = auth.api_key_token_id.trim().to_string();
@@ -238,6 +240,7 @@ fn sync_api_key_options(
     }
     cached.truncate(limits::MAX_API_KEYS_PER_PROVIDER);
     auth.api_key_options = cached;
+    auth != &previous
 }
 
 #[cfg(test)]
@@ -286,6 +289,25 @@ mod tests {
         assert!(auth.api_key.is_empty());
         assert!(auth.api_key_token_id.is_empty());
         assert_eq!(auth.api_key_options, options);
+    }
+
+    #[test]
+    fn sync_reports_unchanged_when_cached_keys_are_identical() {
+        let options = vec![option(ProviderProtocol::NewApi, "11", "sk-only", "Only")];
+        let mut auth = ProviderInput::default().auth;
+        assert!(sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::NewApi,
+            &options,
+            None,
+        ));
+
+        assert!(!sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::NewApi,
+            &options,
+            None,
+        ));
     }
 
     #[test]

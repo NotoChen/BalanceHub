@@ -1,7 +1,7 @@
 import { computed, onUnmounted, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
 import {
-  useProviderStore,
   type CliConfigPreview,
   type CliConfigFile,
   type CliRuntimeSnapshot,
@@ -26,7 +26,7 @@ interface UseCliRuntimeOptions {
 }
 
 export function useCliRuntime(options: UseCliRuntimeOptions) {
-  const store = useProviderStore();
+  const store = useCliRuntimeStore();
   const cliInstancesVisible = ref(false);
   const cliInstancesProviderId = ref<string | null>(null);
   const cliInstancesKind = ref<AgentCliKind | null>(null);

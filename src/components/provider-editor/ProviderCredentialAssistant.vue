@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { ProviderInput } from "../../stores/providers";
+import type { ProviderInput, ProviderProtocolDescriptor } from "../../stores/providers";
+import {
+  providerAuthModeDescriptor,
+  providerProtocolDescriptor,
+} from "../../utils/provider-protocol";
 import type {
   CredentialCompletionState,
   CredentialCompletionStep,
@@ -8,6 +12,7 @@ import type {
 
 const props = defineProps<{
   draft: ProviderInput;
+  providerProtocols: ProviderProtocolDescriptor[];
   state: CredentialCompletionState;
   steps: CredentialCompletionStep[];
   message: string;
@@ -20,8 +25,20 @@ const emit = defineEmits<{
   run: [];
 }>();
 
+const currentProtocol = computed(() =>
+  providerProtocolDescriptor(props.providerProtocols, props.draft.identity.protocol),
+);
+
+const currentAuthMode = computed(() =>
+  providerAuthModeDescriptor(
+    props.providerProtocols,
+    props.draft.identity.protocol,
+    props.draft.auth.mode,
+  ),
+);
+
 const visible = computed(() =>
-  props.draft.auth.mode !== "apiKey" && props.draft.identity.protocol !== "api",
+  props.draft.auth.mode !== "apiKey" && currentProtocol.value?.credentialAssistant.enabled === true,
 );
 
 const titleText = computed(() => {
@@ -42,37 +59,31 @@ const descriptionText = computed(() => {
   if (props.state === "failed") {
     return props.message || "处理失败，请按失败步骤调整后重试。";
   }
-  if (props.draft.auth.mode === "session") {
-    if (!props.draft.identity.baseUrl.trim() || !props.draft.auth.sessionCookie.trim()) {
-      return "填写中转站地址和会话 Cookie 后，可以解析用户并补全配置。";
+  const schema = currentAuthMode.value;
+  if (!schema) return "认证 Schema 尚未加载，请重新打开编辑窗口。";
+  const missing = [];
+  if (!props.draft.identity.baseUrl.trim()) {
+    missing.push("中转站地址");
+  }
+  for (const field of schema.requiredFields) {
+    if (!authFieldValue(field).trim()) {
+      missing.push(schema.fields.find((candidate) => candidate.field === field)?.label || field);
     }
-    return "已填写会话 Cookie，可以同步用户信息并继续获取访问令牌和 API 密钥。";
   }
-  if (props.draft.auth.mode === "password") {
-    if (
-      !props.draft.identity.baseUrl.trim() ||
-      !props.draft.auth.loginUsername.trim() ||
-      !props.draft.auth.loginPassword.trim()
-    ) {
-      return "填写中转站地址、账号和密码后，可以登录并补全账号凭据。";
-    }
-    return props.draft.identity.protocol === "sub2Api"
-      ? "账号信息已填写，可以登录并补全访问令牌和 API Key。"
-      : "账号信息已填写，可以登录并补全会话、访问令牌和 API 密钥。";
+  if (missing.length > 0) {
+    return `填写${missing.join("、")}后，可以自动补全配置。`;
   }
-  if (
-    !props.draft.identity.baseUrl.trim() ||
-    !props.draft.auth.accessToken.trim() ||
-    (props.draft.identity.protocol !== "sub2Api" && !props.draft.auth.apiUser.trim())
-  ) {
-    return props.draft.identity.protocol === "sub2Api"
-      ? "填写中转站地址和访问令牌后，可以同步 API Key。"
-      : "填写中转站地址、访问令牌和 API User ID 后，可以补全 API 密钥。";
-  }
-  return props.draft.identity.protocol === "sub2Api"
-    ? "已填写访问令牌，可以解析账号并同步 API Key。"
-    : "已填写访问令牌，可以解析登录账号、补全 API 密钥并保存配置。";
+  const targets = [];
+  if (currentProtocol.value?.capabilities.accessToken) targets.push("访问令牌");
+  if (currentProtocol.value?.capabilities.apiKeyManagement) targets.push("API Key");
+  const targetText = targets.length > 0 ? `，并同步${targets.join("和")}` : "";
+  return `所需信息已填写，将${schema.description}${targetText}。`;
 });
+
+function authFieldValue(field: string) {
+  const value = props.draft.auth[field as keyof ProviderInput["auth"]];
+  return typeof value === "string" ? value : "";
+}
 
 const actionText = computed(() => {
   if (props.state === "failed") return "重新尝试";

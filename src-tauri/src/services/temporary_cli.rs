@@ -1,5 +1,5 @@
-mod environment;
-mod script;
+mod orchestrator;
+mod shell_runtime;
 mod terminal;
 #[cfg(test)]
 mod tests;
@@ -15,14 +15,19 @@ use crate::{
         cli_runtime,
     },
 };
-use script::{
-    cleanup_launch_files, effective_model, format_cli_command, preview_cli_auxiliary_path,
-    temporary_cli_auxiliary_path, temporary_script_path, write_launch_script, LaunchScriptInput,
+use shell_runtime::{
+    environment,
+    script::{
+        cleanup_launch_files, effective_model, format_cli_command, preview_cli_auxiliary_path,
+        temporary_cli_auxiliary_path, temporary_script_path, write_launch_script,
+        LaunchScriptInput,
+    },
 };
 use std::{fs, path::Path};
 use terminal::{activate_terminal_target, open_script_in_terminal};
 
-pub use script::cleanup_stale;
+pub(crate) use orchestrator::TemporaryCliLaunchService;
+pub use shell_runtime::script::cleanup_stale;
 pub use terminal::{probe_available_terminals, probe_terminal};
 
 /// 本次临时 CLI 启动的调用方覆盖项。配置解析和实例注册仍由本模块统一负责，

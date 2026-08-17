@@ -13,8 +13,8 @@ use std::sync::Arc;
 use tauri::{ipc::Channel, Manager};
 
 use super::{
-    find_provider, merge_authenticated_credentials, refresh::apply_refresh_owned_fields,
-    ProviderRequestContext, ProviderService,
+    find_provider, refresh::apply_refresh_owned_fields, MutationDecision, ProviderRequestContext,
+    ProviderService,
 };
 
 impl<'a> ProviderService<'a> {
@@ -27,23 +27,27 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let request_context = ProviderRequestContext::capture(&provider);
         match ProtocolAdapter
             .check_in_records(&data.settings, &provider, &month)
             .await
         {
             Ok(operation) => {
-                self.persist_operation_provider(
-                    &ProviderRequestContext::capture(&provider),
-                    &operation.provider,
-                )
-                .await?;
+                self.persist_operation_credentials(&request_context, &operation.credentials)
+                    .await?
+                    .ok_or_else(|| "本地配置已变更，本次签到记录结果已忽略".to_string())?;
                 Ok(operation.value)
             }
-            Err(message) => Ok(local_check_in_records_result(
-                &provider,
-                &month,
-                Some(message),
-            )),
+            Err(message) => {
+                self.current_operation_provider(&request_context)
+                    .await?
+                    .ok_or_else(|| "本地配置已变更，本次签到记录结果已忽略".to_string())?;
+                Ok(local_check_in_records_result(
+                    &provider,
+                    &month,
+                    Some(message),
+                ))
+            }
         }
     }
 
@@ -54,25 +58,54 @@ impl<'a> ProviderService<'a> {
         self.check_in_inner(id).await
     }
 
+    pub async fn mark_auto_check_in_failure(
+        &self,
+        provider: &Provider,
+        message: String,
+    ) -> Result<(), String> {
+        let request_context = ProviderRequestContext::capture(provider);
+        self.mutate_decided_async(move |data| {
+            if let Some(provider) = data
+                .providers
+                .iter_mut()
+                .find(|provider| request_context.matches(provider))
+            {
+                let changed = !matches!(provider.runtime.status, ProviderStatus::Error)
+                    || provider.runtime.error_message.as_deref() != Some(message.as_str());
+                if !changed {
+                    return Ok(MutationDecision::unchanged(()));
+                }
+                provider.runtime.status = ProviderStatus::Error;
+                provider.runtime.error_message = Some(message);
+                return Ok(MutationDecision::changed(()));
+            }
+            Ok(MutationDecision::unchanged(()))
+        })
+        .await
+    }
+
     async fn check_in_inner(&self, id: String) -> Result<ProviderCheckInResult, String> {
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
         let operation = adapter.check_in(&data.settings, &provider).await?;
-        self.persist_operation_provider(&request_context, &operation.provider)
-            .await?;
-        let mut effective_provider = provider.clone();
-        merge_authenticated_credentials(&mut effective_provider, &operation.provider);
+        let effective_provider = self
+            .persist_operation_credentials(&request_context, &operation.credentials)
+            .await?
+            .ok_or_else(|| {
+                "签到请求已完成，但本地配置已变更，本次结果未写入当前账号".to_string()
+            })?;
         let mutation_context = ProviderRequestContext::capture(&effective_provider);
         let mut result = operation.value;
-        let is_anyrouter = adapter.is_anyrouter(&provider);
+        let is_anyrouter = adapter.is_anyrouter(&effective_provider);
         let refreshed_provider = if result.ok {
-            Some(
-                adapter
-                    .refresh_provider(&data.settings, &effective_provider)
-                    .await,
-            )
+            let refresh_outcome = adapter
+                .refresh_provider(&data.settings, &effective_provider)
+                .await;
+            let mut refreshed = effective_provider.clone();
+            refresh_outcome.apply_to(&mut refreshed);
+            Some(refreshed)
         } else {
             None
         };
@@ -80,10 +113,10 @@ impl<'a> ProviderService<'a> {
         if result.ok {
             let checked_in_at = current_timestamp_millis().to_string();
             let check_in_user =
-                provider_domain::capabilities::check_in_user(&provider, is_anyrouter);
+                provider_domain::capabilities::check_in_user(&effective_provider, is_anyrouter);
             let quota_delta = refreshed_provider
                 .as_ref()
-                .and_then(|refreshed| check_in_quota_delta(&provider, refreshed));
+                .and_then(|refreshed| check_in_quota_delta(&effective_provider, refreshed));
             result.quota_delta = quota_delta;
             let stored_checked_in_at = checked_in_at.clone();
             let stored_user = check_in_user.clone();
@@ -97,12 +130,12 @@ impl<'a> ProviderService<'a> {
             let checked_in_at_for_mutation = stored_checked_in_at.clone();
             let check_in_user_for_mutation = stored_user.clone();
             let persisted = self
-                .mutate_async(move |data| {
+                .mutate_decided_async(move |data| {
                     if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
                         stored.identity.id == provider_id && mutation_context.matches(stored)
                     }) {
                         if let Some(refreshed) = refreshed_provider {
-                            apply_refresh_owned_fields(
+                            let _ = apply_refresh_owned_fields(
                                 stored_provider,
                                 refreshed,
                                 &mutation_context,
@@ -126,9 +159,9 @@ impl<'a> ProviderService<'a> {
                                     ProviderStatus::Warning
                                 };
                         }
-                        true
+                        Ok(MutationDecision::changed(true))
                     } else {
-                        false
+                        Ok(MutationDecision::unchanged(false))
                     }
                 })
                 .await?;
@@ -145,7 +178,7 @@ impl<'a> ProviderService<'a> {
             let probed_at = current_timestamp_millis().to_string();
             let provider_id = id.clone();
             let mutation_context_for_probe = mutation_context.clone();
-            self.mutate_async(move |data| {
+            self.mutate_decided_async(move |data| {
                 if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
                     stored.identity.id == provider_id && mutation_context_for_probe.matches(stored)
                 }) {
@@ -153,7 +186,9 @@ impl<'a> ProviderService<'a> {
                     stored_provider.capabilities.check_in_supported = false;
                     stored_provider.capabilities.check_in_auth_modes.clear();
                     stored_provider.capabilities.probed_at = Some(probed_at);
+                    return Ok(MutationDecision::changed(()));
                 }
+                Ok(MutationDecision::unchanged(()))
             })
             .await?;
         }
@@ -203,6 +238,10 @@ impl<'a> ProviderService<'a> {
             },
         );
 
+        let target_ids = targets
+            .iter()
+            .map(|provider| provider.identity.id.clone())
+            .collect::<Vec<_>>();
         let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CHECK_IN));
         let mut handles = Vec::with_capacity(targets.len());
         for provider in targets {
@@ -288,7 +327,7 @@ impl<'a> ProviderService<'a> {
             }
         }
 
-        let providers = self.snapshot_async().await?.providers;
+        let updated_providers = self.providers_by_ids_async(&target_ids).await?;
         send_progress(
             &channel,
             ProviderBatchProgressEvent::Completed {
@@ -296,7 +335,7 @@ impl<'a> ProviderService<'a> {
                 summary: crate::models::ProviderBatchSummary::from_items(&progress_items),
             },
         );
-        Ok(RefreshResult { providers })
+        Ok(RefreshResult { updated_providers })
     }
 }
 

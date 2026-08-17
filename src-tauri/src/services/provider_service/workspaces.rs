@@ -5,7 +5,7 @@ use crate::{
 };
 use std::path::Path;
 
-use super::ProviderService;
+use super::{MutationDecision, ProviderService};
 
 impl ProviderService<'_> {
     pub fn record_temporary_cli_launch(
@@ -52,15 +52,25 @@ impl ProviderService<'_> {
     }
 
     pub fn forget_workspace(&self, path: String) -> Result<Vec<Workspace>, String> {
-        self.mutate(|data| {
+        self.mutate_decided(|data| {
+            let workspace_count = data.workspaces.len();
             data.workspaces.retain(|workspace| workspace.path != path);
+            let mut changed = workspace_count != data.workspaces.len();
             for preference in &mut data.temporary_cli_preferences {
                 if preference.workspace_path == path {
                     preference.workspace_path.clear();
+                    changed = true;
                 }
             }
-            sort_workspaces(&mut data.workspaces);
-            data.workspaces.clone()
+            if changed {
+                sort_workspaces(&mut data.workspaces);
+            }
+            let workspaces = data.workspaces.clone();
+            Ok(if changed {
+                MutationDecision::changed(workspaces)
+            } else {
+                MutationDecision::unchanged(workspaces)
+            })
         })
     }
 }

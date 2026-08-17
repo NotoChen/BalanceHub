@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { IconLoading, IconRefresh } from "@arco-design/web-vue/es/icon";
-import { useProviderStore, type AppSettings } from "../../stores/providers";
+import { useCliRuntimeStore } from "../../stores/cli-runtime";
+import type { AppSettings } from "../../stores/providers";
 import {
   applyTerminalEnvironmentProbeResult,
   availableTerminalOptions,
@@ -17,7 +18,7 @@ const props = defineProps<{
   settings: AppSettings;
 }>();
 
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 const probeError = ref("");
 
 const terminals = computed(() => availableTerminalResults(store.terminalEnvironmentProbe));

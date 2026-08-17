@@ -4,6 +4,7 @@ import type {
   ProviderApiKeyOption,
   ProviderInput,
   ProviderProtocolDetectionResult,
+  ProviderProtocolDescriptor,
   ProviderSiteProbeResult,
 } from "../stores/providers";
 import type { ProtocolSelectionSource } from "./provider-editor-shared";
@@ -30,6 +31,7 @@ export interface CredentialCompletionStep {
 
 export interface UseProviderCredentialCompletionOptions {
   draftProvider: ProviderInput;
+  providerProtocols: () => ProviderProtocolDescriptor[];
   drawerVisible: Ref<boolean>;
   editorSession: Ref<number>;
   editingProviderId: Ref<string | null>;

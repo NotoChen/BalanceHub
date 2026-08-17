@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconCheck, IconLock } from "@arco-design/web-vue/es/icon";
-import type { ProviderApiKeyOption, ProviderProtocol } from "../../stores/providers";
+import type { ProviderApiKeyOption } from "../../stores/providers";
 import { formatQuotaValue, maskApiKey } from "../../utils/provider-display";
 
 const props = withDefaults(
@@ -9,11 +9,11 @@ const props = withDefaults(
     options: ProviderApiKeyOption[];
     currentKey: string;
     currentTokenId: string;
-    protocol?: ProviderProtocol;
+    remoteManaged?: boolean;
     selectable?: boolean;
   }>(),
   {
-    protocol: "newApi",
+    remoteManaged: true,
     selectable: true,
   },
 );
@@ -68,20 +68,20 @@ function hasRemoteMetadata(option: ProviderApiKeyOption) {
 
 function displayStatus(option: ProviderApiKeyOption) {
   if (!option.keyAvailable) return "不可读取";
-  if (props.protocol === "api") return "已保存";
+  if (!props.remoteManaged) return "已保存";
   if (!hasRemoteMetadata(option) && !option.status.trim()) return "待同步";
   return statusLabel(option.status);
 }
 
 function displayStatusTone(option: ProviderApiKeyOption) {
   if (!option.keyAvailable) return "unknown";
-  if (props.protocol === "api") return "ready";
+  if (!props.remoteManaged) return "ready";
   if (!hasRemoteMetadata(option) && !option.status.trim()) return "pending";
   return statusTone(option.status);
 }
 
 function quotaText(option: ProviderApiKeyOption) {
-  if (props.protocol === "api") {
+  if (!props.remoteManaged) {
     return "服务商未提供额度";
   }
   if (!hasRemoteMetadata(option)) {
@@ -94,7 +94,7 @@ function quotaText(option: ProviderApiKeyOption) {
 }
 
 function quotaSupplement(option: ProviderApiKeyOption) {
-  if (props.protocol === "api") {
+  if (!props.remoteManaged) {
     return "仅验证模型接口连通性";
   }
   if (!hasRemoteMetadata(option)) {
@@ -111,7 +111,7 @@ function formatKeyQuota(value: number, option: ProviderApiKeyOption) {
 }
 
 function restrictionText(option: ProviderApiKeyOption) {
-  if (props.protocol === "api") {
+  if (!props.remoteManaged) {
     return "模型与 IP 策略由接口服务商控制";
   }
   if (!hasRemoteMetadata(option)) {
@@ -129,7 +129,7 @@ function restrictionText(option: ProviderApiKeyOption) {
 }
 
 function timeText(option: ProviderApiKeyOption) {
-  if (props.protocol === "api") {
+  if (!props.remoteManaged) {
     return "已保存到本机配置";
   }
   if (!hasRemoteMetadata(option)) {

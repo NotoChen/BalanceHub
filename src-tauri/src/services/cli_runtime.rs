@@ -1,3 +1,4 @@
+mod app;
 mod config;
 
 use crate::{
@@ -16,6 +17,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+pub(crate) use app::CliRuntimeService;
 pub use config::{preview_config, switch_config};
 
 const RUNTIME_DIR_NAME: &str = "balancehub-cli-runtime-v1";
@@ -38,6 +40,11 @@ pub struct RegisteredCliInstance {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum CliTerminalLocator {
     Ghostty { terminal_id: String },
+}
+
+pub(crate) struct CliTerminalActivationTarget {
+    pub(crate) terminal_kind: TemporaryCliTerminalKind,
+    pub(crate) locator: CliTerminalLocator,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,7 +167,7 @@ pub(crate) fn record_terminal_launch(
     Ok(merge_instance(metadata, status))
 }
 
-pub(crate) fn activation_target(id: &str) -> Result<CliTerminalLocator, String> {
+pub(crate) fn activation_target(id: &str) -> Result<CliTerminalActivationTarget, String> {
     let instance_dir = validated_instance_dir(id)?;
     let metadata = read_json::<StoredInstanceMetadata>(&instance_dir.join(METADATA_FILE_NAME))?;
     let status_path = instance_dir.join(STATUS_FILE_NAME);
@@ -174,6 +181,10 @@ pub(crate) fn activation_target(id: &str) -> Result<CliTerminalLocator, String> 
 
     metadata
         .terminal_locator
+        .map(|locator| CliTerminalActivationTarget {
+            terminal_kind: metadata.terminal_kind,
+            locator,
+        })
         .ok_or_else(|| "当前终端不支持精确定位临时 CLI 窗口".to_string())
 }
 
@@ -287,6 +298,7 @@ fn merge_instance(
         cli_kind: metadata.cli_kind,
         workdir: metadata.workdir,
         terminal_kind: metadata.terminal_kind,
+        terminal_name: metadata.terminal_kind.label().to_string(),
         started_at: metadata.started_at,
         ended_at: status
             .ended_at

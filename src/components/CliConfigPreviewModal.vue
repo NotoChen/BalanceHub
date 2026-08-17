@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { IconFile } from "@arco-design/web-vue/es/icon";
-import { useProviderStore, type CliConfigFile, type CliConfigPreview } from "../stores/providers";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
+import type { CliConfigFile, CliConfigPreview } from "../stores/providers";
 import { agentCliLabel } from "../utils/cli-environment";
 import AgentCliIcon from "./AgentCliIcon.vue";
 
@@ -32,7 +33,7 @@ const emit = defineEmits<{
   "update:visible": [visible: boolean];
   confirm: [files: CliConfigFile[]];
 }>();
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 
 const cliLabel = computed(() =>
   props.preview ? agentCliLabel(store.cliEnvironmentProbe, props.preview.cliKind) : "Agent CLI",

@@ -19,7 +19,8 @@ import { Bot, GitCompareArrows } from "@lucide/vue";
 import BrandIcon from "../BrandIcon.vue";
 import AgentCliIcon from "../AgentCliIcon.vue";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
-import { useProviderStore, type AgentCliKind, type Provider } from "../../stores/providers";
+import { useCliRuntimeStore } from "../../stores/cli-runtime";
+import type { AgentCliKind, Provider } from "../../stores/providers";
 import {
   agentCliLabel,
   availableCliKinds,
@@ -72,7 +73,7 @@ const emit = defineEmits<{
   interaction: [active: boolean];
 }>();
 
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 const temporaryCliKinds = computed(() =>
   availableCliKinds(store.cliEnvironmentProbe, "temporaryLaunch"),
 );

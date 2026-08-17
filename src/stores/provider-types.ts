@@ -5,6 +5,59 @@ export type { AgentCliKind } from "../agent-cli/visuals.ts";
 export type AuthMode = "apiKey" | "accessToken" | "session" | "password";
 export type AuthSource = "manual" | "password" | "oauth";
 export type ProviderProtocol = "newApi" | "sub2Api" | "api";
+
+export interface ProviderAuthModeDescriptor {
+  mode: AuthMode;
+  label: string;
+  description: string;
+  note: string;
+  requiredFields: string[];
+  optionalFields: string[];
+  fields: ProviderAuthFieldDescriptor[];
+}
+
+export interface ProviderAuthFieldDescriptor {
+  field: string;
+  label: string;
+  placeholder: string;
+  secret: boolean;
+  wide: boolean;
+  readonly: boolean;
+  showWhenEmpty: boolean;
+}
+
+export interface ProviderProtocolCapabilitiesDescriptor {
+  accessToken: boolean;
+  apiKeyManagement: boolean;
+  usage: boolean;
+  account: boolean;
+  checkIn: boolean;
+}
+
+export interface ProviderProtocolOperationMethodsDescriptor {
+  checkIn: string | null;
+  apiKeys: string | null;
+  invitation: string | null;
+  models: string;
+}
+
+export interface ProviderCredentialAssistantDescriptor {
+  enabled: boolean;
+  accessTokenFlow: "none" | "credentialCompletion" | "sessionGeneration";
+  apiKeyRequiredFields: string[];
+  apiKeyRequiredAnyFields: string[];
+}
+
+export interface ProviderProtocolDescriptor {
+  kind: ProviderProtocol;
+  label: string;
+  description: string;
+  defaultAuthMode: AuthMode;
+  authModes: ProviderAuthModeDescriptor[];
+  capabilities: ProviderProtocolCapabilitiesDescriptor;
+  operationMethods: ProviderProtocolOperationMethodsDescriptor;
+  credentialAssistant: ProviderCredentialAssistantDescriptor;
+}
 export type ProviderQuotaScope = "account" | "token";
 export type ProviderStatus = "ok" | "warning" | "error" | "syncing";
 export type ProxyMode = "system" | "noProxy" | "custom";
@@ -36,6 +89,11 @@ export type NotificationChannelKind =
   | "generic";
 
 export interface Provider {
+  revision: number;
+  protocolLabel: string;
+  protocolDescription: string;
+  authModeLabel: string;
+  authModeDescription: string;
   identity: ProviderIdentity;
   auth: ProviderAuth;
   quota: ProviderQuota;
@@ -55,6 +113,7 @@ export interface ProviderActions {
   checkedInToday: boolean;
   apiKeyManagement: boolean;
   invitation: boolean;
+  refreshModelsOnly: boolean;
 }
 
 export interface ProviderIdentity {
@@ -224,10 +283,14 @@ export interface ProviderSaveConflict {
 }
 
 export interface ProviderSaveResult {
-  providers: Provider[];
   saved: boolean;
-  savedProviderId: string | null;
+  provider: Provider | null;
   conflict: ProviderSaveConflict | null;
+}
+
+export interface ProviderRemovalResult {
+  id: string;
+  revision: number;
 }
 
 export interface LivenessRecord {
@@ -290,7 +353,6 @@ export interface TerminalEnvironmentProbeResult {
 }
 
 export interface ProviderModelSyncResult {
-  providers: Provider[];
   provider: Provider;
   models: string[];
   message: string;
@@ -445,7 +507,6 @@ export interface ProviderCheckInRecordsResult {
 }
 
 export interface ProviderCapabilityProbeResult {
-  providers: Provider[];
   provider: Provider;
   message: string;
 }
@@ -494,6 +555,7 @@ export interface TemporaryCliInstance {
   cliKind: AgentCliKind;
   workdir: string;
   terminalKind: TemporaryCliTerminalKind;
+  terminalName: string;
   startedAt: string;
   endedAt: string | null;
   pid: number | null;

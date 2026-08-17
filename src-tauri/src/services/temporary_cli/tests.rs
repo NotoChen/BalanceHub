@@ -1,14 +1,14 @@
-use super::environment::ShellEnvironmentSnapshot;
 use super::resolve_launch_model;
 use super::resolve_resume_id;
 use super::resolve_session_name;
-use super::script::{
+use super::shell_runtime::environment::ShellEnvironmentSnapshot;
+use super::shell_runtime::script::{
     effective_model, escape_cmd_value, format_cli_command, preview_cli_auxiliary_path,
     temporary_script_path, windows_launch_payload, WindowsLaunchPayloadInput,
     WINDOWS_LAUNCH_PAYLOAD_COMMAND,
 };
 #[cfg(not(target_os = "windows"))]
-use super::script::{
+use super::shell_runtime::script::{
     login_shell_bootstrap, set_executable, shell_quote, shell_supports_posix_source, user_shell,
     write_launch_script, LaunchScriptInput,
 };
@@ -927,7 +927,7 @@ fn temporary_script_enters_the_interactive_login_shell_once() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn unix_cli_invocation_prefers_login_shell_aliases_and_functions() {
-    let invocation = super::script::unix_cli_invocation(
+    let invocation = super::shell_runtime::script::unix_cli_invocation(
         "codex",
         "/opt/codex/bin/codex",
         &["--model".to_string(), "gpt-5.5".to_string()],

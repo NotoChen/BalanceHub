@@ -112,7 +112,7 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
                             settings,
                             &data.providers,
                             &due,
-                            &result.providers,
+                            &result.updated_providers,
                         )
                         .await;
                     }

@@ -350,8 +350,8 @@ mod tests {
         let sources = [
             ("temporary_cli.rs", include_str!("temporary_cli.rs")),
             (
-                "temporary_cli/script.rs",
-                include_str!("temporary_cli/script.rs"),
+                "temporary_cli/shell_runtime/script.rs",
+                include_str!("temporary_cli/shell_runtime/script.rs"),
             ),
             ("liveness.rs", include_str!("liveness.rs")),
             ("cli_sessions/mod.rs", include_str!("cli_sessions/mod.rs")),

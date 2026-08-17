@@ -6,6 +6,7 @@ mod credentials;
 mod http;
 mod keys;
 mod logs;
+mod protocol;
 mod quota;
 mod response;
 mod session;

@@ -4,9 +4,7 @@ use crate::{
 };
 use tauri::Manager;
 
-use super::{
-    find_provider, merge_authenticated_credentials, ProviderRequestContext, ProviderService,
-};
+use super::{find_provider, MutationDecision, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn change_password(
@@ -23,10 +21,10 @@ impl<'a> ProviderService<'a> {
             .change_password(&data.settings, &provider, &original_password, &password)
             .await?;
         let mut authenticated_context = provider.clone();
-        merge_authenticated_credentials(&mut authenticated_context, &operation.provider);
-        self.persist_operation_provider(
+        operation.credentials.apply(&mut authenticated_context);
+        self.persist_operation_credentials(
             &ProviderRequestContext::capture(&provider),
-            &operation.provider,
+            &operation.credentials,
         )
         .await?;
         let message = operation.value;
@@ -40,17 +38,27 @@ impl<'a> ProviderService<'a> {
         let new_password = password.trim().to_string();
         let provider_id = id.clone();
         let synced = self
-            .mutate_async(move |data| {
-                data.providers
+            .mutate_decided_async(move |data| {
+                let Some(stored) = data
+                    .providers
                     .iter_mut()
                     .find(|stored| stored.identity.id == provider_id)
-                    .is_some_and(|stored| {
-                        sync_password_if_context_unchanged(
-                            stored,
-                            &authenticated_context,
-                            &new_password,
-                        )
-                    })
+                else {
+                    return Ok(MutationDecision::unchanged(false));
+                };
+                let previous_password = stored.auth.login_password.clone();
+                if !sync_password_if_context_unchanged(
+                    stored,
+                    &authenticated_context,
+                    &new_password,
+                ) {
+                    return Ok(MutationDecision::unchanged(false));
+                }
+                Ok(if stored.auth.login_password == previous_password {
+                    MutationDecision::unchanged(true)
+                } else {
+                    MutationDecision::changed(true)
+                })
             })
             .await
             .map_err(|error| format!("站点密码已更新，但本地登录密码保存失败：{error}"))?;

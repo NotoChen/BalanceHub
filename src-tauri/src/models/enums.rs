@@ -1,15 +1,34 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(clippy::enum_variant_names)]
-pub enum ProviderProtocol {
-    #[default]
-    NewApi,
-    Sub2Api,
-    /// OpenAI-compatible gateway with no known account-management protocol.
-    Api,
+macro_rules! define_provider_protocols {
+    (
+        $default_variant:ident => { key: $default_key:literal, module: $default_module:ident }
+        $(, $variant:ident => { key: $key:literal, module: $module:ident })*
+        $(,)?
+    ) => {
+        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[allow(clippy::enum_variant_names)]
+        pub enum ProviderProtocol {
+            #[default]
+            #[serde(rename = $default_key)]
+            $default_variant,
+            $(
+                #[serde(rename = $key)]
+                $variant,
+            )*
+        }
+
+        impl ProviderProtocol {
+            pub const ALL: &'static [Self] = &[
+                Self::$default_variant,
+                $(Self::$variant,)*
+            ];
+        }
+    };
 }
+
+// 后端持久化身份与运行时协议注册表共用一份目录。
+crate::provider_protocol_catalog::for_each_provider_protocol!(define_provider_protocols);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,25 +127,34 @@ macro_rules! define_agent_cli_kinds {
 // 后端身份和服务模块注册共用一份目录；新增内置 Agent 只改 agent_cli_catalog.rs。
 crate::agent_cli_catalog::for_each_agent_cli!(define_agent_cli_kinds);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum TemporaryCliTerminalKind {
-    Terminal,
-    #[serde(rename = "iTerm2")]
-    ITerm2,
-    Warp,
-    #[serde(rename = "wezTerm")]
-    WezTerm,
-    Ghostty,
-    Kitty,
-    Alacritty,
-    Kaku,
-    #[serde(rename = "windowsTerminal")]
-    WindowsTerminal,
-    CommandPrompt,
-    #[serde(rename = "powerShell")]
-    PowerShell,
+macro_rules! define_terminal_kinds {
+    (
+        $(
+            $variant:ident => { key: $key:literal, label: $label:literal }
+        ),+
+        $(,)?
+    ) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum TemporaryCliTerminalKind {
+            $(
+                #[serde(rename = $key)]
+                $variant,
+            )+
+        }
+
+        impl TemporaryCliTerminalKind {
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub const fn label(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $label),+
+                }
+            }
+        }
+    };
 }
+
+crate::terminal_catalog::for_each_terminal!(define_terminal_kinds);
 
 // 默认终端随目标平台变化，不能使用单一的 `#[default]` 枚举项。
 #[allow(clippy::derivable_impls)]

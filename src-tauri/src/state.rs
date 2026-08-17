@@ -1,5 +1,8 @@
 use crate::models::AppData;
-use std::sync::{Mutex, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex, RwLock,
+};
 
 /// 内存中的应用状态。
 ///
@@ -19,6 +22,7 @@ pub struct AppState {
     /// 串行化“基于快照修改并落盘”的事务。持有该锁时不会长期占用 `data` 写锁，
     /// 因此 JSON 序列化和磁盘替换期间读取方仍可继续读取上一份完整状态。
     pub mutation_gate: Mutex<()>,
+    revision: AtomicU64,
     load_error: RwLock<Option<String>>,
 }
 
@@ -27,12 +31,17 @@ impl AppState {
         Self::with_load_error(data, None)
     }
 
-    pub fn with_load_error(data: AppData, load_error: Option<String>) -> Self {
+    pub fn with_load_error(mut data: AppData, load_error: Option<String>) -> Self {
+        data.revision = 1;
+        for provider in &mut data.providers {
+            provider.revision = 1;
+        }
         Self {
             data: RwLock::new(data),
             refresh_gate: tokio::sync::Mutex::new(()),
             check_in_gate: tokio::sync::Mutex::new(()),
             mutation_gate: Mutex::new(()),
+            revision: AtomicU64::new(1),
             load_error: RwLock::new(load_error),
         }
     }
@@ -49,5 +58,26 @@ impl AppState {
             .load_error
             .write()
             .unwrap_or_else(|err| err.into_inner()) = None;
+    }
+
+    pub fn next_revision(&self) -> u64 {
+        self.revision.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn current_revision(&self) -> u64 {
+        self.revision.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn revisions_are_monotonic_within_the_process() {
+        let state = AppState::new(AppData::default());
+        assert_eq!(state.next_revision(), 2);
+        assert_eq!(state.next_revision(), 3);
+        assert_eq!(state.current_revision(), 3);
     }
 }

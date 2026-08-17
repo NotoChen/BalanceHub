@@ -4,13 +4,16 @@ import { IconCloud, IconDelete, IconLink, IconPlus, IconRefresh } from "@arco-de
 import type {
   ProviderInput,
   ProviderProtocol,
+  ProviderProtocolDescriptor,
   ProviderProtocolDetectionResult,
   ProviderSiteProbeResult,
 } from "../../stores/providers";
 import type { ProtocolSelectionSource } from "../../composables/provider-editor-shared";
+import { providerProtocolLabel } from "../../utils/provider-protocol";
 
 const props = defineProps<{
   draft: ProviderInput;
+  providerProtocols: ProviderProtocolDescriptor[];
   siteProbeResult: ProviderSiteProbeResult | null;
   protocolDetectionResult: ProviderProtocolDetectionResult | null;
   protocolSelectionSource: ProtocolSelectionSource;
@@ -64,17 +67,11 @@ const detectionLabel = computed(() => {
   return "待识别";
 });
 
-const knownProtocolOptions: { value: ProviderProtocol; label: string; description: string }[] = [
-  { value: "newApi", label: "NewAPI", description: "兼容 NewAPI / AnyRouter 协议" },
-  { value: "sub2Api", label: "Sub2API", description: "JWT 账号与 OpenAI 兼容网关" },
-  {
-    value: "api",
-    label: "通用 API Key",
-    description: "未知站点的 OpenAI 兼容模型接口，仅支持 API Key",
-  },
-];
-
-const protocolOptions = knownProtocolOptions;
+const protocolOptions = computed(() => props.providerProtocols.map((descriptor) => ({
+  value: descriptor.kind,
+  label: descriptor.label,
+  description: descriptor.description,
+})));
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
@@ -89,9 +86,7 @@ function removeBackupUrl(index: number) {
 }
 
 function protocolLabel(protocol: ProviderProtocol) {
-  if (protocol === "sub2Api") return "Sub2API";
-  if (protocol === "api") return "通用 API Key";
-  return "NewAPI";
+  return providerProtocolLabel(props.providerProtocols, protocol);
 }
 </script>
 

@@ -10,7 +10,6 @@ use super::{
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCapabilityProbeResult {
-    pub providers: Vec<Provider>,
     pub provider: Provider,
     pub message: String,
 }
@@ -51,10 +50,16 @@ pub struct ProviderSaveConflict {
 
 #[derive(Debug, Clone)]
 pub struct ProviderSaveResult {
-    pub providers: Vec<Provider>,
     pub saved: bool,
-    pub saved_provider_id: Option<String>,
+    pub provider: Option<Provider>,
     pub conflict: Option<ProviderSaveConflict>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderRemovalResult {
+    pub id: String,
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -234,7 +239,7 @@ pub struct ProviderConnectionTestStep {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefreshResult {
-    pub providers: Vec<Provider>,
+    pub updated_providers: Vec<Provider>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -560,7 +565,6 @@ pub struct ProviderRequestLogStats {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderModelSyncResult {
-    pub providers: Vec<Provider>,
     pub provider: Provider,
     pub models: Vec<String>,
     pub message: String,
@@ -611,6 +615,7 @@ pub struct TemporaryCliInstance {
     pub cli_kind: AgentCliKind,
     pub workdir: String,
     pub terminal_kind: TemporaryCliTerminalKind,
+    pub terminal_name: String,
     pub started_at: String,
     pub ended_at: Option<String>,
     pub pid: Option<u32>,

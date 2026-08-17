@@ -1,11 +1,12 @@
 use crate::{
-    adapters::protocol::ProtocolAdapter,
+    adapters::protocol::{contracts::ProviderCredentialPatch, ProtocolAdapter},
     models::{Provider, ProviderCredentialCompletionResult, ProviderInput},
+    state::AppState,
     util::unix_millis as current_timestamp_millis,
 };
 use tauri::Manager;
 
-use super::ProviderService;
+use super::{MutationDecision, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn complete_credentials(
@@ -39,5 +40,60 @@ impl<'a> ProviderService<'a> {
         ProtocolAdapter
             .generate_access_token(&data.settings, &provider)
             .await
+    }
+
+    /// Persist credentials produced by an authenticated adapter operation.
+    ///
+    /// Authentication can refresh a JWT, rotate a refresh token, or turn a
+    /// password login into a reusable NewAPI session. The operation started
+    /// from a snapshot, so merge only when that exact snapshot is still active.
+    pub(super) async fn current_operation_provider(
+        &self,
+        request_context: &ProviderRequestContext,
+    ) -> Result<Option<Provider>, String> {
+        let app = self.app.clone();
+        let request_context = request_context.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<AppState>()
+                .data
+                .read()
+                .unwrap_or_else(|err| err.into_inner())
+                .providers
+                .iter()
+                .find(|stored| request_context.matches(stored))
+                .cloned()
+        })
+        .await
+        .map_err(|err| format!("读取认证快照任务异常: {err}"))
+    }
+
+    pub(super) async fn persist_operation_credentials(
+        &self,
+        request_context: &ProviderRequestContext,
+        credentials: &ProviderCredentialPatch,
+    ) -> Result<Option<Provider>, String> {
+        if credentials.is_empty() {
+            return self.current_operation_provider(request_context).await;
+        }
+
+        let request_context = request_context.clone();
+        let credentials = credentials.clone();
+        self.mutate_decided_async(move |data| {
+            let Some(stored) = data
+                .providers
+                .iter_mut()
+                .find(|stored| request_context.matches(stored))
+            else {
+                return Ok(MutationDecision::unchanged(None));
+            };
+            let changed = credentials.apply(stored);
+            let provider = Some(stored.clone());
+            Ok(if changed {
+                MutationDecision::changed(provider)
+            } else {
+                MutationDecision::unchanged(provider)
+            })
+        })
+        .await
     }
 }

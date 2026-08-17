@@ -10,8 +10,8 @@ use crate::{
 use tauri::Manager;
 
 use super::{
-    available_models::fetch_available_models, find_provider, ProviderRequestContext,
-    ProviderService,
+    available_models::fetch_available_models, find_provider, MutationDecision,
+    ProviderRequestContext, ProviderService,
 };
 
 impl<'a> ProviderService<'a> {
@@ -68,15 +68,14 @@ impl<'a> ProviderService<'a> {
             .probe_capabilities(&data.settings, &provider)
             .await?;
         let persisted_provider = self
-            .persist_operation_provider(&request_context, &operation.provider)
+            .persist_operation_credentials(&request_context, &operation.credentials)
             .await?;
-        let operation_context = persisted_provider
-            .as_ref()
-            .map(ProviderRequestContext::capture)
-            .unwrap_or(request_context);
+        let effective_provider = persisted_provider
+            .ok_or_else(|| "本地配置已变更，本次能力探测结果已忽略".to_string())?;
+        let operation_context = ProviderRequestContext::capture(&effective_provider);
         let (mut capabilities, invite_link, error) = operation.value;
-        let models_result = if provider_domain::auth::has_api_key(&operation.provider) {
-            Some(fetch_available_models(&data.settings, &operation.provider).await)
+        let models_result = if provider_domain::auth::has_api_key(&effective_provider) {
+            Some(fetch_available_models(&data.settings, &effective_provider).await)
         } else {
             None
         };
@@ -99,28 +98,25 @@ impl<'a> ProviderService<'a> {
             .unwrap_or_else(|| "站点能力已探测".to_string());
         let provider_id = id.clone();
         let mutation_context = operation_context;
-        let (providers, update_result) = self
-            .mutate_async(move |data| {
-                let update_result = match data
-                    .providers
-                    .iter_mut()
-                    .find(|stored| stored.identity.id == provider_id)
-                {
-                    Some(stored_provider) if mutation_context.matches(stored_provider) => {
-                        stored_provider.capabilities = capabilities;
-                        stored_provider.capabilities.invite_link = invite_link;
-                        stored_provider.capabilities.probed_at = Some(probed_at);
-                        Ok(stored_provider.clone())
-                    }
-                    Some(_) => Err("本地配置已变更，本次能力探测结果已忽略".to_string()),
-                    None => Err("中转站已删除，本次能力探测结果已忽略".to_string()),
-                };
-                (data.providers.clone(), update_result)
-            })
-            .await?;
-        let updated_provider = update_result?;
+        self.mutate_decided_async(move |data| {
+            match data
+                .providers
+                .iter_mut()
+                .find(|stored| stored.identity.id == provider_id)
+            {
+                Some(stored_provider) if mutation_context.matches(stored_provider) => {
+                    stored_provider.capabilities = capabilities;
+                    stored_provider.capabilities.invite_link = invite_link;
+                    stored_provider.capabilities.probed_at = Some(probed_at);
+                    Ok(MutationDecision::changed(()))
+                }
+                Some(_) => Err("本地配置已变更，本次能力探测结果已忽略".to_string()),
+                None => Err("中转站已删除，本次能力探测结果已忽略".to_string()),
+            }
+        })
+        .await?;
+        let updated_provider = find_provider(&self.snapshot_async().await?, &id)?;
         Ok(ProviderCapabilityProbeResult {
-            providers,
             provider: updated_provider,
             message,
         })
@@ -137,26 +133,29 @@ impl<'a> ProviderService<'a> {
         let stored_models = models.clone();
         let provider_id = id.clone();
         let mutation_context = request_context.clone();
-        let (providers, updated_provider) = self
-            .mutate_async(move |data| {
-                let mut updated_provider = None;
+        let updated = self
+            .mutate_decided_async(move |data| {
                 if let Some(stored_provider) = data
                     .providers
                     .iter_mut()
                     .find(|stored| stored.identity.id == provider_id)
                 {
                     if mutation_context.matches(stored_provider) {
+                        if stored_provider.capabilities.available_models == stored_models {
+                            return Ok(MutationDecision::unchanged(true));
+                        }
                         stored_provider.capabilities.available_models = stored_models;
-                        updated_provider = Some(stored_provider.clone());
+                        return Ok(MutationDecision::changed(true));
                     }
                 }
-                (data.providers.clone(), updated_provider)
+                Ok(MutationDecision::unchanged(false))
             })
             .await?;
-        let updated_provider =
-            updated_provider.ok_or_else(|| "本地配置已变更，本次模型列表结果已忽略".to_string())?;
+        if !updated {
+            return Err("本地配置已变更，本次模型列表结果已忽略".to_string());
+        }
+        let updated_provider = find_provider(&self.snapshot_async().await?, &id)?;
         Ok(ProviderModelSyncResult {
-            providers,
             provider: updated_provider,
             message: format!("已获取 {} 个模型", models.len()),
             models,
@@ -175,14 +174,27 @@ impl<'a> ProviderService<'a> {
                 let stored_link = invite_link.clone();
                 let provider_id = id.clone();
                 let mutation_context = request_context.clone();
-                self.mutate_async(move |data| {
-                    if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
-                        stored.identity.id == provider_id && mutation_context.matches(stored)
-                    }) {
-                        stored_provider.capabilities.invite_link = stored_link;
-                    }
-                })
-                .await?;
+                let persisted = self
+                    .mutate_decided_async(move |data| {
+                        if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
+                            stored.identity.id == provider_id && mutation_context.matches(stored)
+                        }) {
+                            if stored_provider.capabilities.invite_link == stored_link {
+                                return Ok(MutationDecision::unchanged(true));
+                            }
+                            stored_provider.capabilities.invite_link = stored_link;
+                            return Ok(MutationDecision::changed(true));
+                        }
+                        Ok(MutationDecision::unchanged(false))
+                    })
+                    .await?;
+                if !persisted {
+                    return Err("本地配置已变更，本次邀请链接结果已忽略".to_string());
+                }
+            } else {
+                self.current_operation_provider(&request_context)
+                    .await?
+                    .ok_or_else(|| "本地配置已变更，本次邀请链接结果已忽略".to_string())?;
             }
             return Ok(invite_link);
         }
@@ -191,7 +203,7 @@ impl<'a> ProviderService<'a> {
             .invite_link(&data.settings, &provider)
             .await?;
         let persisted_provider = self
-            .persist_operation_provider(&request_context, &operation.provider)
+            .persist_operation_credentials(&request_context, &operation.credentials)
             .await?;
         let mutation_context = persisted_provider
             .as_ref()
@@ -201,7 +213,7 @@ impl<'a> ProviderService<'a> {
         let stored_link = invite_link.clone();
         let provider_id = id.clone();
         let persisted = self
-            .mutate_async(move |data| {
+            .mutate_decided_async(move |data| {
                 if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
                     stored.identity.id == provider_id && mutation_context.matches(stored)
                 }) {
@@ -211,9 +223,9 @@ impl<'a> ProviderService<'a> {
                     stored_provider.capabilities.probed_at =
                         Some(current_timestamp_millis().to_string());
                     stored_provider.capabilities.error_message = None;
-                    true
+                    Ok(MutationDecision::changed(true))
                 } else {
-                    false
+                    Ok(MutationDecision::unchanged(false))
                 }
             })
             .await?;

@@ -631,36 +631,6 @@
   font-size: 12px;
 }
 
-.workspace-launch-progress {
-  display: grid;
-  min-width: 0;
-  gap: 7px;
-}
-
-.workspace-launch-progress-label {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: #4e5969;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.workspace-launch-progress-label strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #1d2129;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-launch-progress-label span {
-  flex: 0 0 auto;
-}
-
 .workspace-picker-footer {
   min-width: 0;
   justify-content: space-between;
@@ -733,14 +703,6 @@
   border-color: var(--glass-border);
   background: rgba(36, 38, 47, 0.82);
   color: #c9cdd4;
-}
-
-:root.theme-dark .workspace-launch-progress-label {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .workspace-launch-progress-label strong {
-  color: #f2f3f5;
 }
 
 :root.theme-dark .workspace-session-capability-note {

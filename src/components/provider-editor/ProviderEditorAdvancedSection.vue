@@ -15,7 +15,7 @@ import type {
   ProviderInput,
   ProviderNotificationMode,
 } from "../../stores/providers";
-import { useProviderStore } from "../../stores/providers";
+import { useCliRuntimeStore } from "../../stores/cli-runtime";
 import {
   availableCliOptions,
   registeredCliTools,
@@ -44,7 +44,7 @@ const props = defineProps<{
   initiallyExpanded?: boolean;
 }>();
 
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe, "liveness"));
 const agentEndpointOptions = computed(() =>
   registeredCliTools(store.cliEnvironmentProbe).map((tool) => ({

@@ -8,8 +8,8 @@ import {
   IconRefresh,
 } from "@arco-design/web-vue/es/icon";
 import { Cpu, FolderOpen, Terminal } from "@lucide/vue";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
 import {
-  useProviderStore,
   type AgentCliKind,
   type Provider,
   type TemporaryCliInstance,
@@ -33,7 +33,7 @@ const emit = defineEmits<{
   refresh: [];
   activate: [instance: TemporaryCliInstance];
 }>();
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 
 const title = computed(() => props.provider?.identity.name || "活动 CLI");
 const selectedCliLabel = computed(() => (props.cliKind ? cliLabel(props.cliKind) : "CLI"));
@@ -45,23 +45,6 @@ function cliLabel(kind: TemporaryCliInstance["cliKind"]) {
 function statusLabel(status: TemporaryCliInstance["status"]) {
   if (status === "starting") return "正在启动";
   return "运行中";
-}
-
-function terminalLabel(kind: TemporaryCliInstance["terminalKind"]) {
-  const labels: Record<TemporaryCliInstance["terminalKind"], string> = {
-    terminal: "Terminal",
-    iTerm2: "iTerm2",
-    warp: "Warp",
-    wezTerm: "WezTerm",
-    ghostty: "Ghostty",
-    kitty: "Kitty",
-    alacritty: "Alacritty",
-    kaku: "Kaku",
-    windowsTerminal: "Windows Terminal",
-    commandPrompt: "命令提示符",
-    powerShell: "PowerShell",
-  };
-  return labels[kind];
 }
 
 function directoryName(value: string) {
@@ -162,13 +145,13 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
                   <span class="temporary-cli-terminal-icon">
                     <TerminalBrandIcon
                       :kind="instance.terminalKind"
-                      :name="terminalLabel(instance.terminalKind)"
+                      :name="instance.terminalName"
                       :size="22"
                     />
                   </span>
                   <span class="temporary-cli-runtime-copy">
                     <small>终端</small>
-                    <strong>{{ terminalLabel(instance.terminalKind) }}</strong>
+                    <strong>{{ instance.terminalName }}</strong>
                   </span>
                 </div>
               </div>
