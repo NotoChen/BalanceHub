@@ -5,7 +5,7 @@ use crate::{
 };
 use tauri::Manager;
 
-use super::{ProviderRequestContext, ProviderService};
+use super::{MutationDecision, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn test_connection(
@@ -26,7 +26,7 @@ impl<'a> ProviderService<'a> {
             .await?;
         let result = operation.value;
         let persisted_provider = self
-            .persist_operation_provider(&request_context, &operation.provider)
+            .persist_operation_credentials(&request_context, &operation.credentials)
             .await?;
         let result_context = persisted_provider
             .as_ref()
@@ -51,7 +51,7 @@ impl<'a> ProviderService<'a> {
         let quota_display = result.quota_display.clone();
         let synced_at = unix_secs().to_string();
         let mutation_context = request_context.clone();
-        self.mutate_async(move |data| {
+        self.mutate_decided_async(move |data| {
             if let Some(provider) = data
                 .providers
                 .iter_mut()
@@ -66,7 +66,9 @@ impl<'a> ProviderService<'a> {
                 provider.runtime.status = ProviderStatus::Ok;
                 provider.automation.last_synced_at = Some(synced_at);
                 provider.runtime.error_message = None;
+                return Ok(MutationDecision::changed(()));
             }
+            Ok(MutationDecision::unchanged(()))
         })
         .await
     }

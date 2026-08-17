@@ -18,13 +18,13 @@ const providerAuthModeLabels: Record<AuthMode, string> = {
 };
 
 export function providerAuthModeLabel(provider: Provider) {
-  if (provider.identity.protocol === "sub2Api" && provider.auth.mode === "accessToken") {
-    return "Access Token";
-  }
-  return providerAuthModeLabels[provider.auth.mode];
+  return provider.authModeLabel?.trim() || providerAuthModeLabels[provider.auth.mode];
 }
 
-export function providerProtocolLabel(protocol: ProviderProtocol) {
+export function providerProtocolLabel(protocol: ProviderProtocol | Provider): string {
+  if (typeof protocol !== "string") {
+    return protocol.protocolLabel?.trim() || providerProtocolLabel(protocol.identity.protocol);
+  }
   if (protocol === "sub2Api") return "Sub2API";
   if (protocol === "api") return "API";
   return "NewAPI";
@@ -39,22 +39,14 @@ export function providerQuotaTotalKnown(provider: Provider) {
 }
 
 export function providerAuthModeDescription(provider: Provider) {
-  if (provider.identity.protocol === "api") {
-    return "当前使用 API Key 调用模型接口";
-  }
-  if (provider.identity.protocol === "sub2Api") {
-    switch (provider.auth.mode) {
-      case "password":
-        return "当前使用账号密码登录 Sub2API，缓存 Access / Refresh Token";
-      case "accessToken":
-        return provider.auth.refreshToken.trim()
-          ? "当前使用 Sub2API Access Token（含 Refresh Token，可自动续期）"
-          : "当前使用 Sub2API Access Token（无 Refresh Token，过期需重新获取）";
-      case "apiKey":
-        return "当前使用 Sub2API 网关 API Key";
-      case "session":
-        break;
+  const declared = provider.authModeDescription?.trim();
+  if (declared) {
+    if (provider.auth.mode === "accessToken") {
+      return provider.auth.refreshToken.trim()
+        ? `${declared}（包含刷新令牌，可自动续期）`
+        : `${declared}（没有刷新令牌）`;
     }
+    return declared;
   }
   switch (provider.auth.mode) {
     case "password":
@@ -143,9 +135,6 @@ export function providerQuotaUnlimited(provider: Provider) {
 }
 
 export function providerQuotaScopeLabel(provider: Provider) {
-  if (provider.identity.protocol === "api") {
-    return "API Key 可用额度";
-  }
   return provider.quota.scope === "token" ? "API Key 可用额度" : "账号可用额度";
 }
 

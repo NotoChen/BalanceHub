@@ -1,5 +1,4 @@
 import type {
-  Provider,
   ProviderApiKeyOption,
   ProviderCapabilityProbeResult,
   ProviderConnectionTestResult,
@@ -7,10 +6,12 @@ import type {
   ProviderSaveOptions,
   ProviderSaveResult,
   ProviderProtocolDetectionResult,
+  ProviderProtocolDescriptor,
   ProviderSiteProbeResult,
 } from "../stores/providers";
 
 export interface ProviderEditorStore {
+  providerProtocols: ProviderProtocolDescriptor[];
   saveProvider: (input: ProviderInput, options?: ProviderSaveOptions) => Promise<ProviderSaveResult>;
   detectProviderProtocol: (input: ProviderInput) => Promise<ProviderProtocolDetectionResult>;
   probeProviderSite: (input: ProviderInput) => Promise<ProviderSiteProbeResult>;
@@ -31,18 +32,6 @@ export type ProtocolSelectionSource = "auto" | "unresolved" | "manual" | "saved"
 
 export function normalizeProviderBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "").toLowerCase();
-}
-
-export function findSavedProvider(savedProviders: Provider[], input: ProviderInput) {
-  if (input.id) {
-    const provider = savedProviders.find((item) => item.identity.id === input.id);
-    if (provider) {
-      return provider;
-    }
-  }
-
-  const baseUrl = normalizeProviderBaseUrl(input.identity.baseUrl);
-  return [...savedProviders].reverse().find((provider) => normalizeProviderBaseUrl(provider.identity.baseUrl) === baseUrl);
 }
 
 export function fieldLabel(field: string) {

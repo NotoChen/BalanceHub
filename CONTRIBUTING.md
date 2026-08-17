@@ -177,6 +177,31 @@ Agent CLI 使用内置静态注册表和能力 Adapter，不依赖插件系统�
 
 完成后至少运行 `npm run build`、`npm test`、`npm run doctor:platform`、Rust fmt / clippy / test 和 `git diff --check`。注册完整性、通用编排分支和 Agent 身份硬编码都有回归测试，不要通过忽略告警绕过。
 
+### 新增中转站协议
+
+中转站协议使用编译期 catalog、能力契约和描述注册表，不使用代码生成。Rust 负责协议身份、认证 Schema、能力和操作语义，前端只接收 IPC 描述并渲染：
+
+1. 在 `src-tauri/src/provider_protocol_catalog.rs` 登记 Rust 枚举名、序列化 key 和描述模块名；`ProviderProtocol` 与运行时注册表会同时生成，不能只改其中一处。
+2. 在 `src-tauri/src/adapters/<protocol>/` 实现真实站点请求，并在该模块的 `protocol.rs` 实现 `adapters/protocol/contracts.rs` 中确实支持的能力。未支持的能力保持未注册，不添加返回固定错误的空壳 Adapter。
+3. 新增 `src-tauri/src/adapters/protocol/registry/<protocol>.rs`，声明认证方式、字段 Schema、探测角色、操作说明、凭据助手策略和能力对象。`adapters/protocol.rs` 只负责运行时分发，不放协议字段或站点分支。
+4. 协议探测复用注册表中的 `ConnectionCapability::probe_site` 和 `ProtocolDetectionRole`。通用 fallback 只能在对应认证边界内启用，不能因为请求失败就把已知账号协议降级成通用 API。
+5. 同步 `src/stores/provider-types.ts` 的 IPC 字面量类型；只有图标或卡片视觉确实不同才增加前端映射，不在 Vue、Pinia 或 composable 中复制认证和能力判断。
+6. 如果新增了持久化字段或改变数据结构，必须同步 Rust 模型、默认值、存储迁移和前端接收类型。单纯新增协议枚举不应伪造旧配置兼容分支。
+
+注册表测试会检查协议身份唯一性、默认认证 Schema、必填字段、能力与操作说明、探测边界和 IPC 序列化。新增协议后应先补齐这些契约，再编写具体 UI。
+
+### 新增终端
+
+终端身份、平台探测和启动策略彼此分离：
+
+1. 在 `src-tauri/src/terminal_catalog.rs` 登记枚举名、序列化 key 和 fallback 名称；Rust 模型的 `TemporaryCliTerminalKind` 由 catalog 生成。
+2. 在 `src-tauri/src/services/temporary_cli/terminal/<platform>.rs` 或对应平台子目录实现探测与启动，并加入该平台 `TerminalDefinition` 注册表。某个平台不支持时不要注册，也不要提供假成功实现。
+3. 精确激活窗口是可选能力，只有终端能返回稳定 locator 时才登记 activator；否则保持普通未跟踪启动。
+4. 同步 `src/stores/provider-types.ts` 的终端字面量类型；需要原生图标时更新 `TerminalBrandIcon.vue`，没有图标时沿用统一终端 fallback，不复制探测名称。
+5. Unix、PowerShell、cmd 脚本继续复用 `temporary_cli/shell_runtime/`，内部变量遵守 `bh_`、`BH_` 和 `BALANCEHUB_` 命名规则。不要在单个终端策略中重新实现一套环境变量或代理拼接。
+
+平台注册表完整性已有单元测试；脚本或启动参数变化后必须额外运行 `npm run doctor:platform`。
+
 ## 维护者发布
 
 发布新版本时，下面几个位置必须保持一致：

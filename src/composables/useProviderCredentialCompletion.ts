@@ -9,6 +9,10 @@ import {
   normalizeProviderBaseUrl,
   type ProtocolSelectionSource,
 } from "./provider-editor-shared";
+import {
+  providerProtocolDescriptor,
+  providerProtocolLabel,
+} from "../utils/provider-protocol";
 import { confirmAction } from "./provider-credential-dialogs";
 import { useProviderCredentialAssistant } from "./useProviderCredentialAssistant";
 import type {
@@ -308,6 +312,11 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     if (!requestContextIsCurrent(expectedContext)) {
       return false;
     }
+    const descriptor = providerProtocolDescriptor(options.providerProtocols(), protocol);
+    if (!descriptor) {
+      Message.error("中转站协议目录未加载，请重新打开编辑窗口");
+      return false;
+    }
     if (options.draftProvider.identity.protocol === protocol) {
       options.protocolSelectionSource.value = source;
       options.protocolSelectionBaseUrl.value = baseUrl;
@@ -346,10 +355,8 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     options.draftProvider.auth.apiKeyTokenId = "";
     options.draftProvider.auth.apiKeyOptions = [];
     options.setApiKeyOptions([]);
-    if (protocol === "api") {
-      options.draftProvider.auth.mode = "apiKey";
-    } else if (protocol === "sub2Api" && options.draftProvider.auth.mode === "session") {
-      options.draftProvider.auth.mode = "password";
+    if (!descriptor.authModes.some((mode) => mode.mode === options.draftProvider.auth.mode)) {
+      options.draftProvider.auth.mode = descriptor.defaultAuthMode;
     }
     options.protocolSelectionSource.value = source;
     options.protocolSelectionBaseUrl.value = baseUrl;
@@ -368,9 +375,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
   }
 
   function protocolLabel(protocol: ProviderProtocol) {
-    if (protocol === "sub2Api") return "Sub2API";
-    if (protocol === "api") return "通用 API Key";
-    return "NewAPI";
+    return providerProtocolLabel(options.providerProtocols(), protocol);
   }
 
   return {

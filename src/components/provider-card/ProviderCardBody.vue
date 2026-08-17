@@ -34,9 +34,7 @@ const identityDisplayName = computed(
 );
 const identityUsername = computed(() => providerIdentitySecondaryUsername(props.provider));
 const identityId = computed(() => providerIdentityId(props.provider));
-const identityEmptyLabel = computed(() =>
-  props.provider.identity.protocol === "api" ? "通用模型接口" : "用户信息未同步",
-);
+const identityEmptyLabel = computed(() => "用户信息未同步");
 const modelSyncTime = computed(() =>
   formatProviderSyncTime(props.provider.automation.lastSyncedAt),
 );

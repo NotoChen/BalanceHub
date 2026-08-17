@@ -12,7 +12,6 @@ import {
   IconUp,
 } from "@arco-design/web-vue/es/icon";
 import {
-  useProviderStore,
   type AgentCliKind,
   type CliSessionSummary,
   type Provider,
@@ -22,8 +21,10 @@ import {
   type Workspace,
   type WorkspaceDirectoryListing,
 } from "../stores/providers";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
 import type { SelectOption } from "../utils/liveness-options";
 import { agentCliLabel, agentCliTool } from "../utils/cli-environment";
+import { effectiveProviderApiKeyOptions } from "../utils/provider-api-key-options.ts";
 import { copyText } from "../composables/useClipboard";
 import CliIconSelector from "./CliIconSelector.vue";
 import ProviderAuthIcon from "./ProviderAuthIcon.vue";
@@ -50,8 +51,6 @@ const props = defineProps<{
   pathDraft: string;
   browsing: boolean;
   launchingPath: string | null;
-  launchProgress: number;
-  launchStage: string;
   launchPreviewVisible: boolean;
   launchPreviewLoading: boolean;
   forgettingPath: string | null;
@@ -79,7 +78,7 @@ const emit = defineEmits<{
 }>();
 
 const showHidden = ref(false);
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 
 const pathModel = computed({
   get: () => props.pathDraft,
@@ -123,9 +122,6 @@ const fixedModel = computed(() => (props.sessionMode === "new" ? preferredModel.
 const modelPlaceholder = computed(() =>
   props.sessionMode === "new" ? "选择或输入模型（可选）" : "不指定则沿用原会话模型",
 );
-const launchProgressPercent = computed(() =>
-  Math.min(1, Math.max(0, props.launchProgress / 100)),
-);
 const selectedResumeIdModel = computed(() => props.selectedResumeId);
 const selectedSession = computed(() =>
   props.historySessions.find((session) => session.id === props.selectedResumeId) ?? null,
@@ -142,40 +138,7 @@ const modelOptions = computed(() => {
 });
 const effectiveApiKeys = computed(() => {
   const providerKey = props.provider?.auth.apiKey.trim() || "";
-  const keys: ProviderApiKeyOption[] = [];
-  if (providerKey) {
-    keys.push({
-      name: "当前配置 API Key",
-      key: providerKey,
-      maskedKey: "",
-      keyAvailable: true,
-      tokenId: "",
-      userId: "",
-      status: "enabled",
-      usedQuota: 0,
-      remainQuota: 0,
-      usedQuotaRaw: 0,
-      remainQuotaRaw: 0,
-      unlimitedQuota: false,
-      group: "",
-      crossGroupRetry: false,
-      modelLimitsEnabled: false,
-      modelLimits: [],
-      allowIps: [],
-      quotaDisplayType: "currency",
-      currencySymbol: "$",
-    });
-  }
-  const knownKeys = new Set([providerKey]);
-  for (const option of props.apiKeys) {
-    const key = option.key.trim();
-    if (!key || knownKeys.has(key)) {
-      continue;
-    }
-    knownKeys.add(key);
-    keys.push(option);
-  }
-  return keys;
+  return effectiveProviderApiKeyOptions(providerKey, props.apiKeys);
 });
 const hasSingleApiKey = computed(() => effectiveApiKeys.value.length === 1);
 const singleApiKey = computed(() => effectiveApiKeys.value[0] ?? null);
@@ -586,19 +549,6 @@ async function copySessionId(id: string) {
             </a-spin>
           </div>
         </template>
-
-        <div v-if="launching" class="workspace-launch-progress" aria-live="polite">
-          <div class="workspace-launch-progress-label">
-            <strong>{{ launchStage || `正在启动 ${cliLabel}` }}</strong>
-            <span>{{ Math.round(launchProgress) }}%</span>
-          </div>
-          <a-progress
-            :percent="launchProgressPercent"
-            :show-text="false"
-            size="small"
-            animation
-          />
-        </div>
 
         <footer class="workspace-picker-footer">
           <div class="workspace-current-selection">

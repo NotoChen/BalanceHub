@@ -17,6 +17,7 @@ function instance(status: TemporaryCliInstanceStatus, exitCode: number | null = 
     cliKind: "codex",
     workdir: "/workspace",
     terminalKind: "terminal",
+    terminalName: "系统终端",
     startedAt: "1",
     endedAt: status === "exited" ? "2" : null,
     pid: status === "running" ? 123 : null,
@@ -29,7 +30,6 @@ function instance(status: TemporaryCliInstanceStatus, exitCode: number | null = 
 test("temporary CLI launch waits for a stable running state", async () => {
   let clock = 0;
   const statuses: TemporaryCliInstanceStatus[] = ["starting", "running", "running", "running"];
-  const phases: string[] = [];
 
   const result = await waitForTemporaryCliStart(
     "instance-1",
@@ -42,12 +42,10 @@ test("temporary CLI launch waits for a stable running state", async () => {
       wait: async (milliseconds) => {
         clock += milliseconds;
       },
-      onProgress: (_percent, phase) => phases.push(phase),
     },
   );
 
   assert.equal(result.status, "running");
-  assert.deepEqual(phases, ["waiting", "confirming", "confirming", "ready"]);
 });
 
 test("temporary CLI launch reports an immediate process exit", async () => {

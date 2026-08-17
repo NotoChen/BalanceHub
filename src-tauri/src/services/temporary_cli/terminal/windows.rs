@@ -1,47 +1,72 @@
 pub(crate) const WINDOWS_POWERSHELL_SCRIPT_COMMAND: &str = "& $env:BALANCEHUB_TEMPORARY_CLI_SCRIPT";
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 use super::{
-    probe_terminal_command, spawn_visible_command, terminal_probe_unavailable, TerminalLaunch,
+    probe_terminal_command, spawn_visible_command, terminal_probe_unavailable, TerminalDefinition,
+    TerminalLaunch,
 };
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 use crate::{
     limits,
-    models::{AppSettings, TemporaryCliTerminalKind, TemporaryTerminalProbeResult},
+    models::{TemporaryCliTerminalKind, TemporaryTerminalProbeResult},
     platform::process::run_command_with_output_timeout,
-    services::cli_runtime,
 };
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 use std::{path::Path, process::Command, time::Duration};
 
-#[cfg(target_os = "windows")]
-pub fn probe_available_terminals() -> Vec<TemporaryTerminalProbeResult> {
-    [
+#[cfg(any(target_os = "windows", test))]
+const DEFINITIONS: &[TerminalDefinition] = &[
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::WindowsTerminal,
+        probe_windows_terminal,
+        launch_windows_terminal,
+        None,
+    ),
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::CommandPrompt,
+        probe_command_prompt,
+        launch_command_prompt,
+        None,
+    ),
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::PowerShell,
-    ]
-    .into_iter()
-    .map(probe_terminal)
-    .filter(|result| result.available)
-    .collect()
+        probe_powershell,
+        launch_powershell,
+        None,
+    ),
+];
+
+#[cfg(any(target_os = "windows", test))]
+pub(super) const fn definitions() -> &'static [TerminalDefinition] {
+    DEFINITIONS
 }
 
-#[cfg(target_os = "windows")]
-pub fn probe_terminal(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
-    match kind {
-        TemporaryCliTerminalKind::WindowsTerminal => {
-            probe_terminal_command(kind, "Windows Terminal", "wt", &["--version"])
-        }
-        TemporaryCliTerminalKind::CommandPrompt => {
-            probe_terminal_command(kind, "命令提示符", "cmd", &["/C", "ver"])
-        }
-        TemporaryCliTerminalKind::PowerShell => probe_windows_powershell(kind),
-        _ => terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
-    }
+#[cfg(any(target_os = "windows", test))]
+fn probe_windows_terminal() -> TemporaryTerminalProbeResult {
+    probe_terminal_command(
+        TemporaryCliTerminalKind::WindowsTerminal,
+        "Windows Terminal",
+        "wt",
+        &["--version"],
+    )
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
+fn probe_command_prompt() -> TemporaryTerminalProbeResult {
+    probe_terminal_command(
+        TemporaryCliTerminalKind::CommandPrompt,
+        "命令提示符",
+        "cmd",
+        &["/C", "ver"],
+    )
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn probe_powershell() -> TemporaryTerminalProbeResult {
+    probe_windows_powershell(TemporaryCliTerminalKind::PowerShell)
+}
+
+#[cfg(any(target_os = "windows", test))]
 fn windows_powershell_binary() -> Option<&'static str> {
     ["pwsh", "powershell"].into_iter().find(|binary| {
         let mut command = Command::new(binary);
@@ -60,7 +85,7 @@ fn windows_powershell_binary() -> Option<&'static str> {
     })
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn probe_windows_powershell(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
     let Some(binary) = windows_powershell_binary() else {
         return terminal_probe_unavailable(kind, "PowerShell", "未检测到 PowerShell");
@@ -77,31 +102,25 @@ fn probe_windows_powershell(kind: TemporaryCliTerminalKind) -> TemporaryTerminal
     )
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn activate_terminal_target(
-    _target: &cli_runtime::CliTerminalLocator,
-) -> Result<(), String> {
-    Err("当前系统暂不支持精确定位临时 CLI 窗口".to_string())
+#[cfg(any(target_os = "windows", test))]
+fn launch_windows_terminal(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_windows_terminal(script, workdir)
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WindowsTerminal))
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn open_script_in_terminal(
-    settings: &AppSettings,
-    script: &Path,
-    workdir: &Path,
-) -> Result<TerminalLaunch, String> {
-    match settings.temporary_cli_terminal_kind {
-        TemporaryCliTerminalKind::WindowsTerminal => open_windows_terminal(script, workdir)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WindowsTerminal)),
-        TemporaryCliTerminalKind::CommandPrompt => open_windows_command_prompt(script)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::CommandPrompt)),
-        TemporaryCliTerminalKind::PowerShell => open_windows_powershell(script)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::PowerShell)),
-        _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
-    }
+#[cfg(any(target_os = "windows", test))]
+fn launch_command_prompt(script: &Path, _workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_windows_command_prompt(script)
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::CommandPrompt))
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
+fn launch_powershell(script: &Path, _workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_windows_powershell(script)
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::PowerShell))
+}
+
+#[cfg(any(target_os = "windows", test))]
 fn open_windows_terminal(script: &Path, workdir: &Path) -> Result<(), String> {
     spawn_visible_command(
         Command::new("wt")
@@ -114,7 +133,7 @@ fn open_windows_terminal(script: &Path, workdir: &Path) -> Result<(), String> {
     )
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn open_windows_command_prompt(script: &Path) -> Result<(), String> {
     spawn_visible_command(
         Command::new("cmd")
@@ -124,7 +143,7 @@ fn open_windows_command_prompt(script: &Path) -> Result<(), String> {
     )
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn open_windows_powershell(script: &Path) -> Result<(), String> {
     let binary = windows_powershell_binary().ok_or_else(|| "未检测到 PowerShell".to_string())?;
     spawn_visible_command(

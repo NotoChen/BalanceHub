@@ -1,7 +1,7 @@
 import { Message } from "@arco-design/web-vue";
 import type { Provider, ProviderInput } from "../stores/providers";
 import { copyText } from "./useClipboard";
-import { findSavedProvider, normalizeProviderBaseUrl, type ProviderEditorStore } from "./provider-editor-shared";
+import { normalizeProviderBaseUrl, type ProviderEditorStore } from "./provider-editor-shared";
 import { useProviderConnectionTest } from "./useProviderConnectionTest";
 import { useProviderCredentialCompletion } from "./useProviderCredentialCompletion";
 import { useProviderEditorState } from "./useProviderEditorState";
@@ -48,6 +48,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
 
   const credentialAssistant = useProviderCredentialCompletion({
     draftProvider,
+    providerProtocols: () => options.store.providerProtocols,
     drawerVisible,
     editorSession,
     editingProviderId,
@@ -146,9 +147,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
       return saveDraftAndFindProvider(isCurrent, retryOptions);
     }
 
-    const savedProvider = result.savedProviderId
-      ? result.providers.find((provider) => provider.identity.id === result.savedProviderId)
-      : findSavedProvider(result.providers, input);
+    const savedProvider = result.provider ?? undefined;
     if (savedProvider && isCurrent()) {
       editingProviderId.value = savedProvider.identity.id;
       siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(savedProvider.identity.baseUrl);

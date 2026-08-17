@@ -108,6 +108,7 @@ impl Provider {
             auth.mode = AuthMode::ApiKey;
         }
         Self {
+            revision: 0,
             identity: ProviderIdentity {
                 id,
                 name,

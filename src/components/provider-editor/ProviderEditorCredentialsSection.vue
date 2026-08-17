@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { IconCheckCircle, IconCopy, IconLock, IconRight } from "@arco-design/web-vue/es/icon";
-import type { AuthMode, ProviderInput } from "../../stores/providers";
+import { IconCheckCircle, IconLock, IconRight } from "@arco-design/web-vue/es/icon";
+import type {
+  AuthMode,
+  ProviderAuthFieldDescriptor,
+  ProviderInput,
+  ProviderProtocolDescriptor,
+} from "../../stores/providers";
+import { providerProtocolDescriptor } from "../../utils/provider-protocol";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
-import ProviderApiKeyPicker from "./ProviderApiKeyPicker.vue";
+import ProviderCredentialFields from "./ProviderCredentialFields.vue";
 
 const props = defineProps<{
   draft: ProviderInput;
+  providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderInput["auth"]["apiKeyOptions"];
 }>();
 
@@ -15,68 +22,51 @@ const emit = defineEmits<{
   "select-api-key": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
 }>();
 
-const authModes: { value: AuthMode; label: string; description: string }[] = [
-  { value: "password", label: "账号密码", description: "登录并建立会话" },
-  { value: "session", label: "Cookie", description: "已有浏览器会话" },
-  { value: "accessToken", label: "访问令牌", description: "账号接口令牌" },
-  { value: "apiKey", label: "API Key", description: "仅密钥额度" },
-];
-const supplementModes: Record<AuthMode, AuthMode[]> = {
-  password: ["session", "accessToken", "apiKey"],
-  session: ["accessToken", "apiKey"],
-  accessToken: ["apiKey"],
-  apiKey: [],
-};
-
-const visibleAuthModes = computed(() => {
-  if (props.draft.identity.protocol === "api") {
-    return authModes.filter((mode) => mode.value === "apiKey");
-  }
-  return authModes.filter((mode) => props.draft.identity.protocol !== "sub2Api" || mode.value !== "session");
-});
-
-const apiUserPlaceholder = computed(() =>
-  props.draft.auth.mode === "session" ? "自动解析，也可手动填写" : "输入用户 ID",
+const currentProtocol = computed(() =>
+  providerProtocolDescriptor(props.providerProtocols, props.draft.identity.protocol),
 );
 
-const apiKeyPlaceholder = computed(() => {
-  if (props.draft.identity.protocol === "newApi") {
-    return "粘贴 API Key（可不含 sk-）";
-  }
-  if (props.draft.identity.protocol === "sub2Api") {
-    return "粘贴完整 API Key（前缀以站点为准）";
-  }
-  return "粘贴完整 API Key";
-});
+const visibleAuthModes = computed(() => currentProtocol.value?.authModes ?? []);
 
-const secondaryApiKeyPlaceholder = computed(() =>
-  props.draft.identity.protocol === "sub2Api"
-    ? "自动获取或粘贴完整 Key（前缀以站点为准）"
-    : "自动获取或手动填写（可不含 sk-）",
+const currentAuthMode = computed(() =>
+  visibleAuthModes.value.find((mode) => mode.mode === props.draft.auth.mode),
 );
+
+const activeFields = computed(() => currentAuthMode.value?.fields ?? []);
 
 const secondaryModes = computed(() => {
-  if (props.draft.identity.protocol === "api") {
-    return [];
-  }
-  const modes = supplementModes[props.draft.auth.mode] || [];
-  return props.draft.identity.protocol === "sub2Api"
-    ? modes.filter((mode) => mode !== "session")
-    : modes;
+  const modes = visibleAuthModes.value;
+  const index = modes.findIndex((mode) => mode.mode === props.draft.auth.mode);
+  return index < 0 ? [] : modes.slice(index + 1);
 });
 
-const secondaryOrderText = computed(() => secondaryModes.value.map(stageLabel).join(" → "));
+const secondaryOrderText = computed(() => secondaryModes.value.map((mode) => mode.label).join(" → "));
 
-function stageLabel(mode: AuthMode) {
-  return authModes.find((item) => item.value === mode)?.label || mode;
+function fieldsForMode(mode: AuthMode) {
+  return visibleAuthModes.value.find((candidate) => candidate.mode === mode)?.fields ?? [];
+}
+
+function fieldValue(field: ProviderAuthFieldDescriptor) {
+  const value = props.draft.auth[field.field as keyof ProviderInput["auth"]];
+  return typeof value === "string" ? value : "";
+}
+
+function updateField(field: ProviderAuthFieldDescriptor, value: string) {
+  if (field.readonly) return;
+  const key = field.field as keyof ProviderInput["auth"];
+  if (!(key in props.draft.auth)) return;
+  (props.draft.auth as unknown as Record<string, unknown>)[key as string] = value;
+  if (field.field === "apiKey") {
+    syncApiKeySelection();
+  } else if (field.field === "accessToken") {
+    invalidateRefreshTokenChain();
+  } else if (field.field === "loginUsername" || field.field === "loginPassword") {
+    invalidatePasswordSession();
+  }
 }
 
 function stageHasValue(mode: AuthMode) {
-  const auth = props.draft.auth;
-  if (mode === "password") return Boolean(auth.loginUsername.trim() && auth.loginPassword.trim());
-  if (mode === "session") return Boolean(auth.sessionCookie.trim());
-  if (mode === "accessToken") return Boolean(auth.accessToken.trim());
-  return Boolean(auth.apiKey.trim());
+  return fieldsForMode(mode).some((field) => Boolean(fieldValue(field).trim()));
 }
 
 function stageStatus(mode: AuthMode) {
@@ -105,7 +95,7 @@ function stageStatusClass(mode: AuthMode) {
 }
 
 function selectMode(mode: AuthMode) {
-  if (props.draft.identity.protocol === "api" && mode !== "apiKey") {
+  if (!visibleAuthModes.value.some((candidate) => candidate.mode === mode)) {
     return;
   }
   if (mode === props.draft.auth.mode) {
@@ -117,9 +107,7 @@ function selectMode(mode: AuthMode) {
   if (mode === "password" && props.draft.auth.mode !== "password") {
     props.draft.auth.sessionCookie = "";
     props.draft.auth.apiUser = "";
-    if (props.draft.identity.protocol === "sub2Api") {
-      clearSub2TokenChain();
-    }
+    clearTokenChain();
   }
   props.draft.auth.mode = mode;
 }
@@ -128,20 +116,17 @@ function invalidatePasswordSession() {
   if (props.draft.auth.mode === "password") {
     props.draft.auth.sessionCookie = "";
     props.draft.auth.apiUser = "";
-    if (props.draft.identity.protocol === "sub2Api") {
-      clearSub2TokenChain();
-    }
+    clearTokenChain();
   }
 }
 
-function clearSub2TokenChain() {
+function clearTokenChain() {
   props.draft.auth.accessToken = "";
   props.draft.auth.refreshToken = "";
   props.draft.auth.accessTokenExpiresAt = null;
 }
 
-function invalidateSub2RefreshToken() {
-  if (props.draft.identity.protocol !== "sub2Api") return;
+function invalidateRefreshTokenChain() {
   props.draft.auth.refreshToken = "";
   props.draft.auth.accessTokenExpiresAt = null;
 }
@@ -153,7 +138,7 @@ function syncApiKeySelection() {
 }
 
 function activeLabel() {
-  return authModes.find((item) => item.value === props.draft.auth.mode)?.label || "认证凭据";
+  return currentAuthMode.value?.label || "认证凭据";
 }
 </script>
 
@@ -169,20 +154,20 @@ function activeLabel() {
         <div class="provider-auth-mode-grid" role="radiogroup" aria-label="认证方式">
           <button
             v-for="mode in visibleAuthModes"
-            :key="mode.value"
+            :key="mode.mode"
             type="button"
             class="provider-auth-mode-option"
-            :class="[`is-${mode.value}`, { active: draft.auth.mode === mode.value }]"
-            :aria-checked="draft.auth.mode === mode.value"
+            :class="[`is-${mode.mode}`, { active: draft.auth.mode === mode.mode }]"
+            :aria-checked="draft.auth.mode === mode.mode"
             :title="mode.description"
             role="radio"
-            @click="selectMode(mode.value)"
+            @click="selectMode(mode.mode)"
           >
             <span class="provider-auth-mode-icon">
-              <ProviderAuthIcon :mode="mode.value" :size="20" :decorative="true" />
+              <ProviderAuthIcon :mode="mode.mode" :size="20" :decorative="true" />
             </span>
             <span class="provider-auth-mode-copy"><strong>{{ mode.label }}</strong></span>
-            <IconCheckCircle v-if="draft.auth.mode === mode.value" class="provider-auth-mode-check" />
+            <IconCheckCircle v-if="draft.auth.mode === mode.mode" class="provider-auth-mode-check" />
           </button>
         </div>
       </div>
@@ -197,105 +182,19 @@ function activeLabel() {
         <span class="provider-form-block-required">当前使用</span>
       </header>
       <div class="provider-form-block-body provider-field-grid">
-        <a-form-item
-          v-if="draft.auth.mode === 'session'"
-          class="provider-field provider-field-wide"
-          field="auth.sessionCookie"
-          label="会话 Cookie"
-          required
-        >
-          <a-input-password v-model="draft.auth.sessionCookie" placeholder="session=xxx 或直接粘贴 Cookie 值" allow-clear />
-        </a-form-item>
-
-        <a-form-item
-          v-if="draft.auth.mode === 'accessToken'"
-          class="provider-field"
-          field="auth.accessToken"
-          :label="draft.identity.protocol === 'sub2Api' ? 'Access Token' : '访问令牌'"
-          required
-        >
-          <a-input-password
-            v-model="draft.auth.accessToken"
-            :placeholder="draft.identity.protocol === 'sub2Api' ? '粘贴 Access Token (JWT)' : '粘贴访问令牌'"
-            allow-clear
-            @update:model-value="invalidateSub2RefreshToken"
-          />
-        </a-form-item>
-
-        <a-form-item
-          v-if="draft.auth.mode === 'accessToken' && draft.identity.protocol === 'sub2Api'"
-          class="provider-field"
-          field="auth.refreshToken"
-          label="Refresh Token（选填）"
-        >
-          <a-input-password
-            v-model="draft.auth.refreshToken"
-            placeholder="填了可在过期前自动续期；留空则过期后需重新获取"
-            allow-clear
-          />
-        </a-form-item>
-
-        <a-form-item
-          v-if="(draft.auth.mode === 'session' || draft.auth.mode === 'accessToken') && draft.identity.protocol !== 'sub2Api'"
-          class="provider-field"
-          field="auth.apiUser"
-          label="API User ID"
-          :required="draft.auth.mode === 'accessToken'"
-        >
-          <a-input v-model="draft.auth.apiUser" :placeholder="apiUserPlaceholder" allow-clear />
-        </a-form-item>
-
-        <a-form-item v-if="draft.auth.mode === 'apiKey'" class="provider-field provider-field-wide" field="auth.apiKey" label="API Key" required>
-          <div class="input-action-row">
-            <a-input-password
-              v-model="draft.auth.apiKey"
-              :placeholder="apiKeyPlaceholder"
-              allow-clear
-              @update:model-value="syncApiKeySelection"
-            />
-            <a-button :disabled="!draft.auth.apiKey.trim()" aria-label="复制 API Key" @click="emit('copy-api-key')">
-              <template #icon><IconCopy /></template>
-            </a-button>
-          </div>
-        </a-form-item>
-        <ProviderApiKeyPicker
-          v-if="draft.auth.mode === 'apiKey' && apiKeyOptions.length > 0"
-          class="provider-field-wide"
-          :options="apiKeyOptions"
-          :current-key="draft.auth.apiKey"
-          :current-token-id="draft.auth.apiKeyTokenId"
-          :protocol="draft.identity.protocol"
-          :selectable="apiKeyOptions.length > 1"
-          @select="emit('select-api-key', $event)"
+        <ProviderCredentialFields
+          :mode="draft.auth.mode"
+          :fields="activeFields"
+          :required-fields="currentAuthMode?.requiredFields ?? []"
+          :draft="draft"
+          :api-key-options="apiKeyOptions"
+          :remote-managed="currentProtocol?.capabilities.apiKeyManagement ?? false"
+          @copy-api-key="emit('copy-api-key')"
+          @select-api-key="emit('select-api-key', $event)"
+          @update-field="updateField"
         />
-        <a-form-item v-if="draft.auth.mode === 'password'" class="provider-field" field="auth.loginUsername" label="账号" required>
-          <a-input
-            v-model="draft.auth.loginUsername"
-            :placeholder="draft.identity.protocol === 'sub2Api' ? '邮箱' : '用户名或邮箱'"
-            allow-clear
-            @update:model-value="invalidatePasswordSession"
-          />
-        </a-form-item>
-        <a-form-item v-if="draft.auth.mode === 'password'" class="provider-field" field="auth.loginPassword" label="密码" required>
-          <a-input-password
-            v-model="draft.auth.loginPassword"
-            :placeholder="draft.identity.protocol === 'sub2Api' ? 'Sub2API 登录密码' : 'NewAPI 登录密码'"
-            allow-clear
-            @update:model-value="invalidatePasswordSession"
-          />
-        </a-form-item>
-        <a-form-item
-          v-if="draft.auth.mode === 'password' && draft.auth.apiUser && draft.identity.protocol !== 'sub2Api'"
-          class="provider-field provider-field-wide"
-          field="auth.apiUser"
-          label="登录后用户 ID"
-        >
-          <a-input v-model="draft.auth.apiUser" readonly />
-        </a-form-item>
-        <p v-if="draft.auth.mode === 'password'" class="provider-credential-inline-note provider-field-wide">
-          {{ draft.identity.protocol === 'sub2Api'
-            ? '保存后首次同步会登录站点并缓存访问令牌；启用 2FA 时请先在站点完成登录后粘贴令牌。'
-            : '保存后首次同步会登录站点并缓存会话；开启 2FA 或验证码的站点请改用 Cookie。' }}
+        <p v-if="currentAuthMode?.note" class="provider-credential-inline-note provider-field-wide">
+          {{ currentAuthMode.note }}
         </p>
       </div>
     </section>
@@ -309,60 +208,39 @@ function activeLabel() {
       <div class="provider-credential-chain-list">
         <details
           v-for="mode in secondaryModes"
-          :key="mode"
+          :key="mode.mode"
           class="provider-credential-stage"
-          :class="[`is-${mode}`, { 'has-value': stageHasValue(mode) }]"
-          :open="mode === 'apiKey' && apiKeyOptions.length > 0"
+          :class="[`is-${mode.mode}`, { 'has-value': stageHasValue(mode.mode) }]"
+          :open="mode.mode === 'apiKey' && apiKeyOptions.length > 0"
         >
           <summary>
             <span class="provider-credential-stage-main">
               <span class="provider-credential-stage-icon">
-                <ProviderAuthIcon :mode="mode" :size="16" :decorative="true" />
+                <ProviderAuthIcon :mode="mode.mode" :size="16" :decorative="true" />
               </span>
-              <strong>{{ stageLabel(mode) }}</strong>
+              <strong>{{ mode.label }}</strong>
             </span>
-            <span class="provider-credential-stage-status" :class="stageStatusClass(mode)">
-              {{ stageStatus(mode) }}
+            <span class="provider-credential-stage-status" :class="stageStatusClass(mode.mode)">
+              {{ stageStatus(mode.mode) }}
             </span>
             <IconRight class="provider-credential-stage-chevron" />
           </summary>
 
-          <div v-if="mode === 'session'" class="provider-credential-stage-fields provider-field-grid">
-            <a-form-item class="provider-field provider-field-wide" field="auth.sessionCookie" label="会话 Cookie">
-              <a-input-password v-model="draft.auth.sessionCookie" placeholder="session=xxx" allow-clear />
-            </a-form-item>
-          </div>
-
-          <div v-else-if="mode === 'accessToken'" class="provider-credential-stage-fields provider-field-grid">
-            <a-form-item class="provider-field provider-field-wide" field="auth.accessToken" label="访问令牌">
-              <a-input-password v-model="draft.auth.accessToken" placeholder="自动获取或手动填写" allow-clear />
-            </a-form-item>
-          </div>
-
-          <div v-else class="provider-credential-stage-fields provider-field-grid">
-            <a-form-item class="provider-field provider-field-wide" field="auth.apiKey" label="API Key">
-              <div class="input-action-row">
-                <a-input-password
-                  v-model="draft.auth.apiKey"
-                  :placeholder="secondaryApiKeyPlaceholder"
-                  allow-clear
-                  @update:model-value="syncApiKeySelection"
-                />
-                <a-button :disabled="!draft.auth.apiKey.trim()" aria-label="复制 API Key" @click="emit('copy-api-key')">
-                  <template #icon><IconCopy /></template>
-                </a-button>
-              </div>
-            </a-form-item>
-            <ProviderApiKeyPicker
-              v-if="apiKeyOptions.length > 0"
-              class="provider-field-wide"
-              :options="apiKeyOptions"
-              :current-key="draft.auth.apiKey"
-              :current-token-id="draft.auth.apiKeyTokenId"
-              :protocol="draft.identity.protocol"
-              :selectable="apiKeyOptions.length > 1"
-              @select="emit('select-api-key', $event)"
+          <div class="provider-credential-stage-fields provider-field-grid">
+            <ProviderCredentialFields
+              :mode="mode.mode"
+              :fields="mode.fields"
+              :required-fields="mode.requiredFields"
+              :draft="draft"
+              :api-key-options="apiKeyOptions"
+              :remote-managed="currentProtocol?.capabilities.apiKeyManagement ?? false"
+              @copy-api-key="emit('copy-api-key')"
+              @select-api-key="emit('select-api-key', $event)"
+              @update-field="updateField"
             />
+            <p v-if="mode.note" class="provider-credential-inline-note provider-field-wide">
+              {{ mode.note }}
+            </p>
           </div>
         </details>
       </div>

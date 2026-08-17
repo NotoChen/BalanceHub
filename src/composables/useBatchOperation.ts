@@ -13,6 +13,7 @@ import type { Provider } from "../stores/providers";
 interface UseBatchOperationOptions {
   providers: Ref<Provider[]>;
   replaceProviders: (providers: Provider[]) => void;
+  upsertProviders: (providers: Provider[]) => void;
   setRefreshInProgress?: (value: boolean) => void;
   refreshCliRuntime?: () => Promise<unknown>;
   notifySystem?: (
@@ -93,9 +94,9 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     );
   }
 
-  function markCommandFailure(message: string, previousProviders: Provider[]) {
+  function markCommandFailure(message: string) {
     options.replaceProviders(
-      previousProviders.map((provider) => {
+      options.providers.value.map((provider) => {
         const marked =
           provider.runtime.enabled &&
           (operation.value === "refresh" ||
@@ -127,7 +128,6 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     items.value = [];
     startedAt.value = Date.now();
     finishedAt.value = null;
-    const previousProviders = options.providers.value;
     markRefreshing(operationKind);
     if (operationKind === "refresh") {
       options.setRefreshInProgress?.(true);
@@ -140,7 +140,7 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
           ? await refreshAllProvidersWithProgress(channel)
           : await checkInAllProviders(channel);
       if (sequence !== runSequence) return;
-      options.replaceProviders(result.providers);
+      options.upsertProviders(result.updatedProviders);
       if (operationKind === "refresh") {
         if (options.refreshCliRuntime) {
           await options.refreshCliRuntime().catch(() => {});
@@ -150,7 +150,7 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     } catch (cause) {
       if (sequence !== runSequence) return;
       error.value = cause instanceof Error ? cause.message : String(cause);
-      markCommandFailure(error.value, previousProviders);
+      markCommandFailure(error.value);
       Message.error(
         operationKind === "refresh" ? `刷新失败：${error.value}` : `签到失败：${error.value}`,
       );

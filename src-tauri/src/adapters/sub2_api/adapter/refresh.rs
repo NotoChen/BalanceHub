@@ -13,9 +13,8 @@ use crate::{
     },
     limits,
     models::{
-        AppSettings, AuthMode, Provider, ProviderCheckInRecordsResult, ProviderCheckInResult,
-        ProviderConnectionTestResult, ProviderConnectionTestStep, ProviderQuotaDisplay,
-        ProviderSiteProbeResult, ProviderStatus,
+        AppSettings, AuthMode, Provider, ProviderConnectionTestResult, ProviderConnectionTestStep,
+        ProviderQuotaDisplay, ProviderSiteProbeResult, ProviderStatus,
     },
 };
 use serde_json::Value;
@@ -111,23 +110,6 @@ impl Sub2ApiAdapter {
             }
             Err(message) => provider_with_error(provider, message),
         }
-    }
-
-    pub(crate) async fn check_in(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-    ) -> Result<(Provider, ProviderCheckInResult), String> {
-        Err("Sub2API 不提供用户签到接口".to_string())
-    }
-
-    pub(crate) async fn check_in_records(
-        &self,
-        _settings: &AppSettings,
-        _provider: &Provider,
-        _month: &str,
-    ) -> Result<(Provider, ProviderCheckInRecordsResult), String> {
-        Err("Sub2API 不提供签到记录接口".to_string())
     }
 
     async fn refresh_provider_with_client(

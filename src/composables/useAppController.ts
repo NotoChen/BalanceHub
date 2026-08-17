@@ -2,6 +2,9 @@ import { computed, reactive } from "vue";
 import { storeToRefs } from "pinia";
 import { Message } from "@arco-design/web-vue";
 import { useProviderStore, type Provider } from "../stores/providers";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
+import { useSettingsStore } from "../stores/settings";
+import { useWorkspaceStore } from "../stores/workspaces";
 import { useApiKeyManager } from "./useApiKeyManager";
 import { useAppDataTransfer } from "./useAppDataTransfer";
 import { useAppLifecycle } from "./useAppLifecycle";
@@ -27,29 +30,34 @@ import { openProjectRepository as openProjectRepositoryCommand } from "../api/ap
 
 export function useAppController() {
   const providerStore = useProviderStore();
+  const settingsStore = useSettingsStore();
+  const workspaceStore = useWorkspaceStore();
+  const cliRuntimeStore = useCliRuntimeStore();
   const {
     initialized,
+    loadError,
+    loading,
+    providers,
+    providerProtocols,
+    refreshInProgress,
+  } = storeToRefs(providerStore);
+  const { settings } = storeToRefs(settingsStore);
+  const { workspaces, temporaryCliPreferences } = storeToRefs(workspaceStore);
+  const {
     cliRuntime,
     cliRuntimeLoading,
     cliEnvironmentProbe,
     terminalEnvironmentProbe,
-    loadError,
-    loading,
-    providers,
-    refreshInProgress,
-    settings,
-    workspaces,
-    temporaryCliPreferences,
-  } = storeToRefs(providerStore);
+  } = storeToRefs(cliRuntimeStore);
 
   const { startWindowDrag } = useWindowDrag();
 
   const settingsController = useSettingsController({
     providers,
     settings,
-    initialSettings: providerStore.settings,
-    saveSettings: (value) => providerStore.saveSettings(value),
-    probeCliTools: (deep) => providerStore.probeCliTools(deep),
+    initialSettings: settingsStore.settings,
+    saveSettings: (value) => settingsStore.save(value),
+    probeCliTools: (deep) => cliRuntimeStore.probeCliTools(deep),
   });
 
   const { notifySystem, sendTestNotification } = useSystemNotification(
@@ -76,15 +84,16 @@ export function useAppController() {
   const batchOperation = useBatchOperation({
     providers,
     replaceProviders: (nextProviders) => {
-      providerStore.providers = nextProviders;
+      providerStore.replaceProviders(nextProviders);
     },
+    upsertProviders: (nextProviders) => providerStore.upsertProviders(nextProviders),
     setRefreshInProgress: (value) => {
       providerStore.refreshInProgress = value;
       if (!value) {
         void providerStore.flushPendingProviderReload();
       }
     },
-    refreshCliRuntime: () => providerStore.refreshCliRuntime(),
+    refreshCliRuntime: () => cliRuntimeStore.refresh(),
     notifySystem,
   });
 
@@ -123,11 +132,11 @@ export function useAppController() {
   const cliRuntimeController = useCliRuntime({
     providers,
     cliRuntime,
-    refreshInstances: () => providerStore.refreshTemporaryCliInstances(),
-    activate: (instanceId) => providerStore.activateTemporaryCli(instanceId),
-    previewConfig: (providerId, cliKind) => providerStore.previewCliConfig(providerId, cliKind),
+    refreshInstances: () => cliRuntimeStore.refreshInstances(),
+    activate: (instanceId) => cliRuntimeStore.activate(instanceId),
+    previewConfig: (providerId, cliKind) => cliRuntimeStore.previewConfig(providerId, cliKind),
     switchConfig: (providerId, cliKind, revision, files) =>
-      providerStore.switchCliConfig(providerId, cliKind, revision, files),
+      cliRuntimeStore.switchConfig(providerId, cliKind, revision, files),
   });
 
   async function removeProvider(provider: Provider) {
@@ -146,7 +155,7 @@ export function useAppController() {
     providers,
     settings,
     settingsForm: settingsController.settingsForm,
-    saveSettings: (value) => providerStore.saveSettings(value),
+    saveSettings: (value) => settingsStore.save(value),
     syncFromSettings: settingsController.syncFromSettings,
     importAppData: appDataTransfer.importAppData,
     openAddProvider: providerEditor.openAddProvider,
@@ -161,15 +170,15 @@ export function useAppController() {
     terminalKind: computed(() => settings.value.temporaryCliTerminalKind),
     cliEnvironmentProbe,
     terminalEnvironmentProbe,
-    probeCliTools: (deep) => providerStore.probeCliTools(deep),
-    probeTerminals: () => providerStore.probeTerminals(),
+    probeCliTools: (deep) => cliRuntimeStore.probeCliTools(deep),
+    probeTerminals: () => cliRuntimeStore.probeTerminals(),
     listApiKeys: (providerId) => providerStore.listApiKeys(providerId),
-    browse: (path) => providerStore.browseWorkspaceDirectories(path),
-    forget: (path) => providerStore.forgetWorkspace(path),
-    launch: (input) => providerStore.launchTemporaryCli(input),
-    preview: (input) => providerStore.previewTemporaryCliLaunch(input),
-    getInstance: (instanceId) => providerStore.getTemporaryCliInstance(instanceId),
-    listSessions: (cliKind, workdir) => providerStore.listCliSessions(cliKind, workdir),
+    browse: (path) => workspaceStore.browse(path),
+    forget: (path) => workspaceStore.forget(path),
+    launch: (input) => cliRuntimeStore.launch(input),
+    preview: (input) => cliRuntimeStore.previewLaunch(input),
+    getInstance: (instanceId) => cliRuntimeStore.getInstance(instanceId),
+    listSessions: (cliKind, workdir) => cliRuntimeStore.listSessions(cliKind, workdir),
   });
 
   const providerActions = useProviderActions({
@@ -261,6 +270,7 @@ export function useAppController() {
     loadError,
     loading,
     providers,
+    providerProtocols,
     workspaces,
     temporaryCliPreferences,
     cliRuntime,

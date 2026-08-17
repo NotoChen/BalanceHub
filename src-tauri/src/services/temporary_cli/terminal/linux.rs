@@ -1,42 +1,99 @@
 use super::{
     probe_terminal_command, spawn_visible_command, terminal_probe_available,
-    terminal_probe_unavailable, TerminalLaunch,
+    terminal_probe_unavailable, TerminalDefinition, TerminalLaunch,
 };
 use crate::{
-    models::{AppSettings, TemporaryCliTerminalKind, TemporaryTerminalProbeResult},
-    services::{agent_cli, cli_runtime},
+    models::{TemporaryCliTerminalKind, TemporaryTerminalProbeResult},
+    services::agent_cli,
 };
 use std::{env, ffi::OsString, path::Path, process::Command};
 
-pub fn probe_available_terminals() -> Vec<TemporaryTerminalProbeResult> {
-    [
+const DEFINITIONS: &[TerminalDefinition] = &[
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::Terminal,
+        probe_linux_default_terminal,
+        launch_linux_default,
+        None,
+    ),
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::Warp,
+        probe_warp,
+        launch_warp,
+        None,
+    ),
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::WezTerm,
+        probe_wezterm,
+        launch_wezterm,
+        None,
+    ),
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::Ghostty,
+        probe_ghostty,
+        launch_ghostty,
+        None,
+    ),
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::Kitty,
+        probe_kitty,
+        launch_kitty,
+        None,
+    ),
+    TerminalDefinition::new(
         TemporaryCliTerminalKind::Alacritty,
-    ]
-    .into_iter()
-    .map(probe_terminal)
-    .filter(|result| result.available)
-    .collect()
+        probe_alacritty,
+        launch_alacritty,
+        None,
+    ),
+];
+
+pub(super) const fn definitions() -> &'static [TerminalDefinition] {
+    DEFINITIONS
 }
 
-pub fn probe_terminal(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
-    if matches!(kind, TemporaryCliTerminalKind::Terminal) {
-        return probe_linux_default_terminal();
-    }
-    let requested = match kind {
-        TemporaryCliTerminalKind::Warp => (kind, "Warp", "warp-terminal"),
-        TemporaryCliTerminalKind::WezTerm => (kind, "WezTerm", "wezterm"),
-        TemporaryCliTerminalKind::Ghostty => (kind, "Ghostty", "ghostty"),
-        TemporaryCliTerminalKind::Kitty => (kind, "Kitty", "kitty"),
-        TemporaryCliTerminalKind::Alacritty => (kind, "Alacritty", "alacritty"),
-        _ => return terminal_probe_unavailable(kind, "临时终端", "当前系统不支持该终端"),
-    };
+fn probe_warp() -> TemporaryTerminalProbeResult {
+    probe_terminal_command(
+        TemporaryCliTerminalKind::Warp,
+        "Warp",
+        "warp-terminal",
+        &["--version"],
+    )
+}
 
-    probe_terminal_command(requested.0, requested.1, requested.2, &["--version"])
+fn probe_wezterm() -> TemporaryTerminalProbeResult {
+    probe_terminal_command(
+        TemporaryCliTerminalKind::WezTerm,
+        "WezTerm",
+        "wezterm",
+        &["--version"],
+    )
+}
+
+fn probe_ghostty() -> TemporaryTerminalProbeResult {
+    probe_terminal_command(
+        TemporaryCliTerminalKind::Ghostty,
+        "Ghostty",
+        "ghostty",
+        &["--version"],
+    )
+}
+
+fn probe_kitty() -> TemporaryTerminalProbeResult {
+    probe_terminal_command(
+        TemporaryCliTerminalKind::Kitty,
+        "Kitty",
+        "kitty",
+        &["--version"],
+    )
+}
+
+fn probe_alacritty() -> TemporaryTerminalProbeResult {
+    probe_terminal_command(
+        TemporaryCliTerminalKind::Alacritty,
+        "Alacritty",
+        "alacritty",
+        &["--version"],
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -141,58 +198,60 @@ fn probe_linux_default_terminal() -> TemporaryTerminalProbeResult {
     )
 }
 
-pub(crate) fn activate_terminal_target(
-    _target: &cli_runtime::CliTerminalLocator,
-) -> Result<(), String> {
-    Err("当前系统暂不支持精确定位临时 CLI 窗口".to_string())
+fn launch_linux_default(script: &Path, _workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_linux_default(script)
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Terminal))
 }
 
-pub(crate) fn open_script_in_terminal(
-    settings: &AppSettings,
-    script: &Path,
-    workdir: &Path,
-) -> Result<TerminalLaunch, String> {
-    match settings.temporary_cli_terminal_kind {
-        TemporaryCliTerminalKind::Terminal => open_linux_default(script)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Terminal)),
-        TemporaryCliTerminalKind::Warp => open_linux_command("warp-terminal", &[], script)
-            .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Warp)),
-        TemporaryCliTerminalKind::WezTerm => open_linux_command(
-            "wezterm",
-            &["start", "--cwd", &workdir.to_string_lossy()],
-            script,
-        )
-        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WezTerm)),
-        TemporaryCliTerminalKind::Ghostty => open_linux_command(
-            "ghostty",
-            &[
-                "--working-directory",
-                &workdir.to_string_lossy(),
-                "-e",
-                "/bin/sh",
-            ],
-            script,
-        )
-        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Ghostty)),
-        TemporaryCliTerminalKind::Kitty => open_linux_command(
-            "kitty",
-            &["--directory", &workdir.to_string_lossy(), "/bin/sh"],
-            script,
-        )
-        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Kitty)),
-        TemporaryCliTerminalKind::Alacritty => open_linux_command(
-            "alacritty",
-            &[
-                "--working-directory",
-                &workdir.to_string_lossy(),
-                "-e",
-                "/bin/sh",
-            ],
-            script,
-        )
-        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Alacritty)),
-        _ => Err("当前系统不支持所选临时 CLI 终端".to_string()),
-    }
+fn launch_warp(script: &Path, _workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_linux_command("warp-terminal", &[], script)
+        .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Warp))
+}
+
+fn launch_wezterm(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_linux_command(
+        "wezterm",
+        &["start", "--cwd", &workdir.to_string_lossy()],
+        script,
+    )
+    .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::WezTerm))
+}
+
+fn launch_ghostty(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_linux_command(
+        "ghostty",
+        &[
+            "--working-directory",
+            &workdir.to_string_lossy(),
+            "-e",
+            "/bin/sh",
+        ],
+        script,
+    )
+    .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Ghostty))
+}
+
+fn launch_kitty(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_linux_command(
+        "kitty",
+        &["--directory", &workdir.to_string_lossy(), "/bin/sh"],
+        script,
+    )
+    .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Kitty))
+}
+
+fn launch_alacritty(script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
+    open_linux_command(
+        "alacritty",
+        &[
+            "--working-directory",
+            &workdir.to_string_lossy(),
+            "-e",
+            "/bin/sh",
+        ],
+        script,
+    )
+    .map(|()| TerminalLaunch::untracked(TemporaryCliTerminalKind::Alacritty))
 }
 
 fn open_linux_default(script: &Path) -> Result<(), String> {

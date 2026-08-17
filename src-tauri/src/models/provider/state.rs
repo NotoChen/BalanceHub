@@ -12,6 +12,12 @@ use crate::models::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Provider {
+    /// 仅用于当前进程内 IPC 合并的单调版本号，不属于用户配置，也不写入导出文件。
+    ///
+    /// 每次成功持久化事务由 `AppState` 统一递增。前端据此拒绝晚到的旧响应，避免
+    /// 单卡操作重新覆盖较新的卡片状态。
+    #[serde(skip)]
+    pub revision: u64,
     pub identity: ProviderIdentity,
     pub auth: ProviderAuth,
     pub quota: ProviderQuota,

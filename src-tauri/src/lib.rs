@@ -8,9 +8,11 @@ mod limits;
 mod models;
 mod network;
 mod platform;
+mod provider_protocol_catalog;
 mod services;
 mod state;
 mod storage;
+mod terminal_catalog;
 mod tray;
 mod util;
 

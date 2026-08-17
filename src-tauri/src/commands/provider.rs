@@ -1,14 +1,14 @@
 use crate::{
     contracts::{
-        provider_views, ProviderCapabilityProbeResultView, ProviderModelSyncResultView,
-        ProviderSaveResultView, ProviderView, RefreshResultView,
+        ProviderCapabilityProbeResultView, ProviderModelSyncResultView, ProviderSaveResultView,
+        RefreshResultView,
     },
     models::{
         ProviderApiKeyOption, ProviderBatchProgressEvent, ProviderCheckInRecordsResult,
         ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
-        ProviderInput, ProviderProtocolDetectionResult, ProviderRequestLogsQuery,
-        ProviderRequestLogsResult, ProviderSaveOptions, ProviderSiteProbeResult,
-        ProviderUsageSummary,
+        ProviderInput, ProviderProtocolDetectionResult, ProviderRemovalResult,
+        ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSaveOptions,
+        ProviderSiteProbeResult, ProviderUsageSummary,
     },
     services::provider_service::ProviderService,
     tray,
@@ -38,28 +38,28 @@ pub(crate) async fn save_provider(
 pub(crate) async fn remove_provider(
     app: AppHandle,
     id: String,
-) -> Result<Vec<ProviderView>, String> {
+) -> Result<ProviderRemovalResult, String> {
     let task_app = app.clone();
-    let providers = run_blocking("删除中转站", move || {
+    let result = run_blocking("删除中转站", move || {
         ProviderService::new(&task_app).remove_provider(id)
     })
     .await?;
     tray::refresh_from_state(&app);
-    Ok(provider_views(providers))
+    Ok(result)
 }
 
 #[tauri::command]
 pub(crate) async fn reorder_providers(
     app: AppHandle,
     ids: Vec<String>,
-) -> Result<Vec<ProviderView>, String> {
+) -> Result<Vec<String>, String> {
     let task_app = app.clone();
-    let providers = run_blocking("调整中转站顺序", move || {
+    let order = run_blocking("调整中转站顺序", move || {
         ProviderService::new(&task_app).reorder_providers(ids)
     })
     .await?;
     tray::refresh_from_state(&app);
-    Ok(provider_views(providers))
+    Ok(order)
 }
 
 #[tauri::command]

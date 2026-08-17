@@ -16,6 +16,7 @@ import type {
   Provider,
   ProviderApiKeyOption,
   ProviderCheckInRecordsResult,
+  ProviderProtocolDescriptor,
   ProviderRequestLogsResult,
   ProviderUsageSummary,
   TemporaryCliInstance,
@@ -54,6 +55,7 @@ defineProps<{
   checkInRecordsLoading: boolean;
   checkInRecordsResult: ProviderCheckInRecordsResult | null;
   checkInRecordsError: string;
+  providerProtocols: ProviderProtocolDescriptor[];
   capabilityProbeProvider: Provider | null;
   capabilityProbeRunning: boolean;
   capabilityProbeError: string;
@@ -241,6 +243,7 @@ const batchOperationVisible = defineModel<boolean>("batchOperationVisible", { re
 
   <CapabilityProbeModal
     v-model:visible="capabilityProbeVisible"
+    :provider-protocols="providerProtocols"
     :provider="capabilityProbeProvider"
     :running="capabilityProbeRunning"
     :error="capabilityProbeError"

@@ -12,7 +12,8 @@ import {
   IconLink,
   IconLock,
 } from "@arco-design/web-vue/es/icon";
-import { useProviderStore, type TemporaryCliLaunchPreview } from "../stores/providers";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
+import type { TemporaryCliLaunchPreview } from "../stores/providers";
 import { agentCliLabel } from "../utils/cli-environment";
 import { copyText } from "../composables/useClipboard";
 import AgentCliIcon from "./AgentCliIcon.vue";
@@ -28,7 +29,7 @@ const emit = defineEmits<{
   "update:visible": [visible: boolean];
   confirm: [];
 }>();
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 
 const cliLabel = computed(() =>
   props.preview ? agentCliLabel(store.cliEnvironmentProbe, props.preview.cliKind) : "Agent CLI",

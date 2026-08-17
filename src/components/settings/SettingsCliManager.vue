@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { IconLoading, IconRefresh } from "@arco-design/web-vue/es/icon";
-import {
-  useProviderStore,
-  type AppSettings,
-  type CliToolProbeResult,
-} from "../../stores/providers";
+import { useCliRuntimeStore } from "../../stores/cli-runtime";
+import type { AppSettings, CliToolProbeResult } from "../../stores/providers";
 import {
   agentCliVersionLabel,
   applyCliEnvironmentProbeResult,
@@ -16,7 +13,7 @@ import AgentCliIcon from "../AgentCliIcon.vue";
 import SettingsDetectionGrid from "./SettingsDetectionGrid.vue";
 import SettingsDetectionItem from "./SettingsDetectionItem.vue";
 
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 const props = defineProps<{
   settings: AppSettings;
 }>();

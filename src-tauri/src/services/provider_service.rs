@@ -5,24 +5,17 @@ mod capabilities;
 mod check_in;
 mod credentials;
 mod liveness;
+mod persistence;
 mod quota;
 mod refresh;
+mod transaction;
 mod usage;
 mod workspaces;
 
-use crate::{
-    limits,
-    models::{
-        provider_duplicate_kind, AppData, AppDataTransferResult, AppSettings, AuthMode, AuthSource,
-        Provider, ProviderDuplicateKind, ProviderInput, ProviderProtocol, ProviderSaveConflict,
-        ProviderSaveOptions, ProviderSaveResult, ProviderStatus,
-    },
-    state::AppState,
-    storage,
-    util::unix_millis as current_timestamp_millis,
-};
-use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use crate::models::{AppData, AuthMode, AuthSource, Provider, ProviderProtocol};
+use tauri::AppHandle;
+
+use transaction::MutationDecision;
 
 pub struct ProviderService<'a> {
     app: &'a AppHandle,
@@ -97,342 +90,9 @@ impl<'a> ProviderService<'a> {
     pub fn background(app: &'a AppHandle) -> Self {
         Self { app }
     }
-
-    /// 读取内存状态的快照（克隆）。
-    fn snapshot(&self) -> AppData {
-        self.app
-            .state::<AppState>()
-            .data
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .clone()
-    }
-
-    /// Clone the in-memory state without ever making an async worker wait on a
-    /// synchronous lock. The state is normally tiny, but a provider can carry
-    /// model, usage, and liveness history; a writer may also briefly hold the
-    /// lock while committing a snapshot. Keep that wait on the blocking pool.
-    pub(super) async fn snapshot_async(&self) -> Result<AppData, String> {
-        let app = self.app.clone();
-        tauri::async_runtime::spawn_blocking(move || ProviderService { app: &app }.snapshot())
-            .await
-            .map_err(|err| format!("读取配置快照任务异常: {err}"))
-    }
-
-    /// Load the configuration with the same protection checks as the startup
-    /// command, while keeping the synchronous state/configuration path off the
-    /// async runtime.
-    pub(super) async fn load_app_data_async(&self) -> Result<AppData, String> {
-        let app = self.app.clone();
-        tauri::async_runtime::spawn_blocking(move || ProviderService { app: &app }.load_app_data())
-            .await
-            .map_err(|err| format!("加载应用配置任务异常: {err}"))?
-    }
-
-    fn storage_protection_error(&self) -> Option<String> {
-        self.app.state::<AppState>().load_error().map(|err| {
-            format!(
-                "本地配置加载失败，为避免覆盖原配置，已暂停保存类操作。请先导入有效配置或修复 data.json 后重启。原始错误：{err}"
-            )
-        })
-    }
-
-    fn ensure_storage_ready(&self) -> Result<(), String> {
-        self.storage_protection_error().map_or(Ok(()), Err)
-    }
-
-    /// 在串行事务锁下基于克隆状态修改并原子落盘，落盘成功后才提交到内存。
-    ///
-    /// 闭包内严禁 `.await`：持锁跨越 await 会序列化所有网络请求并有死锁风险。
-    /// 异步流程一律先用 [`snapshot`](Self::snapshot) 取数据、在锁外完成网络调用，
-    /// 再用本方法把结果按 id 合并回最新状态。
-    fn mutate<R>(&self, apply: impl FnOnce(&mut AppData) -> R) -> Result<R, String> {
-        self.mutate_fallible(|data| Ok(apply(data)))
-    }
-
-    fn mutate_fallible<R>(
-        &self,
-        apply: impl FnOnce(&mut AppData) -> Result<R, String>,
-    ) -> Result<R, String> {
-        self.ensure_storage_ready()?;
-        let state = self.app.state::<AppState>();
-        let transaction = state
-            .mutation_gate
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        let mut next_data = state
-            .data
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .clone();
-        let result = apply(&mut next_data)?;
-        limits::normalize_app_data(&mut next_data);
-        storage::save_app_data(self.app, &next_data)?;
-        let previous_data = {
-            let mut current = state.data.write().unwrap_or_else(|err| err.into_inner());
-            std::mem::replace(&mut *current, next_data)
-        };
-        drop(transaction);
-        drop(previous_data);
-        Ok(result)
-    }
-
-    /// Run a synchronous storage transaction off the async worker.
-    ///
-    /// Network-facing service methods must not hold the runtime thread while
-    /// waiting on the mutation gate or writing the JSON store. The app handle
-    /// is owned by the blocking task so the borrowed service can return before
-    /// the task starts.
-    pub(super) async fn mutate_async<R, F>(&self, apply: F) -> Result<R, String>
-    where
-        R: Send + 'static,
-        F: FnOnce(&mut AppData) -> R + Send + 'static,
-    {
-        let app = self.app.clone();
-        tauri::async_runtime::spawn_blocking(move || ProviderService { app: &app }.mutate(apply))
-            .await
-            .map_err(|err| format!("配置事务任务异常: {err}"))?
-    }
-
-    pub fn load_app_data(&self) -> Result<AppData, String> {
-        if let Some(err) = self.storage_protection_error() {
-            return Err(err);
-        }
-        Ok(self.snapshot())
-    }
-
-    pub fn save_provider(
-        &self,
-        input: ProviderInput,
-        options: ProviderSaveOptions,
-    ) -> Result<ProviderSaveResult, String> {
-        self.mutate_fallible(|data| {
-            let conflict = data.providers.iter().find_map(|provider| {
-                if Some(provider.identity.id.as_str()) == input.id.as_deref() {
-                    return None;
-                }
-                provider_duplicate_kind(provider, &input).map(|kind| ProviderSaveConflict {
-                    kind,
-                    existing_provider_id: provider.identity.id.clone(),
-                    existing_provider_name: provider.identity.name.clone(),
-                })
-            });
-
-            if let Some(conflict) = conflict {
-                if conflict.kind == ProviderDuplicateKind::UrlDifferentApiKey
-                    && options.merge_api_key_into_provider_id.as_deref()
-                        == Some(conflict.existing_provider_id.as_str())
-                {
-                    let provider = data
-                        .providers
-                        .iter_mut()
-                        .find(|provider| provider.identity.id == conflict.existing_provider_id)
-                        .ok_or_else(|| "目标中转站已不存在，请重新保存".to_string())?;
-                    provider.add_api_key(&input.auth.api_key)?;
-                    return Ok(ProviderSaveResult {
-                        providers: data.providers.clone(),
-                        saved: true,
-                        saved_provider_id: Some(conflict.existing_provider_id.clone()),
-                        conflict: None,
-                    });
-                }
-
-                if matches!(
-                    conflict.kind,
-                    ProviderDuplicateKind::Account | ProviderDuplicateKind::ApiKey
-                ) && options.overwrite_provider_id.as_deref()
-                    == Some(conflict.existing_provider_id.as_str())
-                {
-                    let mut overwrite_input = input.clone();
-                    overwrite_input.id = Some(conflict.existing_provider_id.clone());
-                    let provider = data
-                        .providers
-                        .iter_mut()
-                        .find(|provider| provider.identity.id == conflict.existing_provider_id)
-                        .ok_or_else(|| "目标中转站已不存在，请重新保存".to_string())?;
-                    provider.apply_input(overwrite_input);
-                    return Ok(ProviderSaveResult {
-                        providers: data.providers.clone(),
-                        saved: true,
-                        saved_provider_id: Some(conflict.existing_provider_id.clone()),
-                        conflict: None,
-                    });
-                }
-
-                return Ok(ProviderSaveResult {
-                    providers: data.providers.clone(),
-                    saved: false,
-                    saved_provider_id: None,
-                    conflict: Some(conflict),
-                });
-            }
-            let saved_provider_id = if let Some(id) = input.id.clone() {
-                if let Some(provider) = data
-                    .providers
-                    .iter_mut()
-                    .find(|provider| provider.identity.id == id)
-                {
-                    provider.apply_input(input);
-                } else {
-                    if data.providers.len() >= limits::MAX_PROVIDERS {
-                        return Err(format!(
-                            "中转站数量已达到上限（{} 个）",
-                            limits::MAX_PROVIDERS
-                        ));
-                    }
-                    data.providers.push(Provider::from_input(input, id.clone()));
-                }
-                Some(id)
-            } else {
-                if data.providers.len() >= limits::MAX_PROVIDERS {
-                    return Err(format!(
-                        "中转站数量已达到上限（{} 个）",
-                        limits::MAX_PROVIDERS
-                    ));
-                }
-                let id = format!("provider-{}", current_timestamp_millis());
-                data.providers.push(Provider::from_input(input, id.clone()));
-                Some(id)
-            };
-            Ok(ProviderSaveResult {
-                providers: data.providers.clone(),
-                saved: true,
-                saved_provider_id,
-                conflict: None,
-            })
-        })
-    }
-
-    pub fn remove_provider(&self, id: String) -> Result<Vec<Provider>, String> {
-        self.mutate(|data| {
-            data.providers.retain(|provider| provider.identity.id != id);
-            data.temporary_cli_preferences
-                .retain(|preference| preference.provider_id != id);
-            data.providers.clone()
-        })
-    }
-
-    pub fn reorder_providers(&self, ids: Vec<String>) -> Result<Vec<Provider>, String> {
-        self.mutate(|data| {
-            let order: std::collections::HashMap<&str, usize> = ids
-                .iter()
-                .enumerate()
-                .map(|(index, id)| (id.as_str(), index))
-                .collect();
-            let fallback = ids.len();
-            data.providers.sort_by_key(|provider| {
-                order
-                    .get(provider.identity.id.as_str())
-                    .copied()
-                    .unwrap_or(fallback)
-            });
-            data.providers.clone()
-        })
-    }
-
-    pub fn save_settings(&self, mut settings: AppSettings) -> Result<AppSettings, String> {
-        let _ = limits::normalize_settings(&mut settings);
-        if settings.notification_channels.len() > limits::MAX_NOTIFICATION_CHANNELS {
-            return Err(format!(
-                "通知渠道数量超过上限（最多 {} 个）",
-                limits::MAX_NOTIFICATION_CHANNELS
-            ));
-        }
-        self.mutate(|data| {
-            data.settings = settings;
-            data.settings.clone()
-        })
-    }
-
-    pub async fn mark_auto_check_in_failure(
-        &self,
-        provider: &Provider,
-        message: String,
-    ) -> Result<(), String> {
-        let request_context = ProviderRequestContext::capture(provider);
-        self.mutate_async(move |data| {
-            if let Some(provider) = data
-                .providers
-                .iter_mut()
-                .find(|provider| request_context.matches(provider))
-            {
-                provider.runtime.status = ProviderStatus::Error;
-                provider.runtime.error_message = Some(message);
-            }
-        })
-        .await
-    }
-
-    /// Persist credentials produced by an authenticated adapter operation.
-    ///
-    /// Authentication can refresh a JWT, rotate a refresh token, or turn a
-    /// password login into a reusable NewAPI session. The operation started
-    /// from a snapshot, so merge only when that exact snapshot is still the
-    /// active provider; otherwise a concurrent edit wins and the network
-    /// result is discarded.
-    pub(super) async fn persist_operation_provider(
-        &self,
-        request_context: &ProviderRequestContext,
-        authenticated: &Provider,
-    ) -> Result<Option<Provider>, String> {
-        let request_context = request_context.clone();
-        let authenticated = authenticated.clone();
-        self.mutate_async(move |data| {
-            data.providers
-                .iter_mut()
-                .find(|stored| request_context.matches(stored))
-                .map(|stored| {
-                    let previous_auth = stored.auth.clone();
-                    merge_authenticated_credentials(stored, &authenticated);
-                    if stored.auth != previous_auth {
-                        stored.capabilities = Default::default();
-                    }
-                    stored.clone()
-                })
-        })
-        .await
-    }
-
-    pub fn export_app_data(&self, path: String) -> Result<AppDataTransferResult, String> {
-        self.ensure_storage_ready()?;
-        let target = PathBuf::from(path);
-        let data = self.snapshot();
-        storage::export_app_data(&target, &data)?;
-        Ok(AppDataTransferResult {
-            path: target.display().to_string(),
-            schema_version: data.schema_version,
-            provider_count: data.providers.len(),
-        })
-    }
-
-    pub fn import_app_data(
-        &self,
-        path: String,
-    ) -> Result<(AppData, AppDataTransferResult), String> {
-        let source = PathBuf::from(path);
-        let state = self.app.state::<AppState>();
-        let transaction = state
-            .mutation_gate
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        let data = storage::import_app_data(self.app, &source)?;
-        let previous_data = {
-            let mut current = state.data.write().unwrap_or_else(|err| err.into_inner());
-            std::mem::replace(&mut *current, data.clone())
-        };
-        state.clear_load_error();
-        drop(transaction);
-        drop(previous_data);
-        let result = AppDataTransferResult {
-            path: source.display().to_string(),
-            schema_version: data.schema_version,
-            provider_count: data.providers.len(),
-        };
-        Ok((data, result))
-    }
 }
 
-fn find_provider(data: &AppData, id: &str) -> Result<Provider, String> {
+pub(super) fn find_provider(data: &AppData, id: &str) -> Result<Provider, String> {
     data.providers
         .iter()
         .find(|provider| provider.identity.id == id)
@@ -440,37 +100,29 @@ fn find_provider(data: &AppData, id: &str) -> Result<Provider, String> {
         .ok_or_else(|| "中转站不存在".to_string())
 }
 
-pub(super) fn merge_authenticated_credentials(stored: &mut Provider, authenticated: &Provider) {
-    match stored.identity.protocol {
-        ProviderProtocol::Sub2Api => {
-            stored.auth.access_token = authenticated.auth.access_token.clone();
-            stored.auth.refresh_token = authenticated.auth.refresh_token.clone();
-            stored.auth.access_token_expires_at = authenticated.auth.access_token_expires_at;
-            if stored.auth.login_username.trim().is_empty()
-                && !authenticated.auth.login_username.trim().is_empty()
-            {
-                stored.auth.login_username = authenticated.auth.login_username.clone();
-            }
-        }
-        ProviderProtocol::NewApi => {
-            // Keep the configured mode as the user's source of truth. A
-            // password operation may use a temporary Session mode internally,
-            // but its session cookie and user id are still reusable.
-            if !authenticated.auth.session_cookie.trim().is_empty() {
-                stored.auth.session_cookie = authenticated.auth.session_cookie.clone();
-            }
-            if !authenticated.auth.api_user.trim().is_empty() {
-                stored.auth.api_user = authenticated.auth.api_user.clone();
-            }
-            if !authenticated.auth.access_token.trim().is_empty() {
-                stored.auth.access_token = authenticated.auth.access_token.clone();
-            }
-            if stored.auth.login_username.trim().is_empty()
-                && !authenticated.auth.login_username.trim().is_empty()
-            {
-                stored.auth.login_username = authenticated.auth.login_username.clone();
-            }
-        }
-        ProviderProtocol::Api => {}
+#[cfg(test)]
+mod tests {
+    use crate::models::{Provider, ProviderInput};
+
+    fn provider(id: &str) -> Provider {
+        Provider::from_input(ProviderInput::default(), id.to_string())
+    }
+
+    #[test]
+    fn provider_revision_is_not_persisted() {
+        let mut provider = provider("provider-1");
+        provider.revision = 9;
+        let serialized = serde_json::to_value(provider).expect("serialize provider");
+        assert!(serialized.get("revision").is_none());
+    }
+
+    #[test]
+    fn app_revision_is_not_persisted() {
+        let data = crate::models::AppData {
+            revision: 9,
+            ..Default::default()
+        };
+        let serialized = serde_json::to_value(data).expect("serialize app data");
+        assert!(serialized.get("revision").is_none());
     }
 }

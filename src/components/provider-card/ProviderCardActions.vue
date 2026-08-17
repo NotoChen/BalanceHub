@@ -66,7 +66,7 @@ const canCheckInAction = computed(
 );
 const checkedInToday = computed(() => providerCheckedInToday(props.provider));
 const refreshActionTitle = computed(() =>
-  props.provider.identity.protocol === "api" ? "刷新模型列表" : "刷新额度",
+  props.provider.actions.refreshModelsOnly ? "刷新模型列表" : "刷新额度",
 );
 
 const menuListeners = {

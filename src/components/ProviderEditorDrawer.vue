@@ -17,9 +17,11 @@ import type {
   ProviderApiKeyOption,
   ProviderInput,
   ProviderProtocol,
+  ProviderProtocolDescriptor,
   ProviderProtocolDetectionResult,
   ProviderSiteProbeResult,
 } from "../stores/providers";
+import { providerAuthModeDescriptor } from "../utils/provider-protocol";
 import type { ProtocolSelectionSource } from "../composables/provider-editor-shared";
 import type {
   CredentialCompletionState,
@@ -32,6 +34,7 @@ const props = defineProps<{
   visible: boolean;
   title: string;
   draft: ProviderInput;
+  providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderApiKeyOption[];
   availableModels: string[];
   siteProbeResult: ProviderSiteProbeResult | null;
@@ -72,28 +75,36 @@ const activeStepMeta = computed(() => steps[activeStep.value]);
 const activeStepIndex = computed(() => Object.keys(steps).indexOf(activeStep.value) + 1);
 const stepKeys = Object.keys(steps) as EditorStep[];
 
-const authLabel = computed(() => {
-  if (props.draft.auth.mode === "session") return "Cookie";
-  if (props.draft.auth.mode === "accessToken") return "访问令牌";
-  if (props.draft.auth.mode === "password") return "账号密码";
-  return "API Key";
-});
+const authLabel = computed(() =>
+  providerAuthModeDescriptor(
+    props.providerProtocols,
+    props.draft.identity.protocol,
+    props.draft.auth.mode,
+  )?.label || "认证凭据",
+);
 
 const credentialReady = computed(() => {
-  if (props.draft.auth.mode === "session") {
-    return Boolean(props.draft.auth.sessionCookie.trim());
-  }
-  if (props.draft.auth.mode === "accessToken") {
-    return Boolean(
-      props.draft.auth.accessToken.trim()
-        && (props.draft.identity.protocol === "sub2Api" || props.draft.auth.apiUser.trim()),
-    );
-  }
-  if (props.draft.auth.mode === "password") {
-    return Boolean(props.draft.auth.loginUsername.trim() && props.draft.auth.loginPassword.trim());
-  }
-  return Boolean(props.draft.auth.apiKey.trim());
+  const schema = providerAuthModeDescriptor(
+    props.providerProtocols,
+    props.draft.identity.protocol,
+    props.draft.auth.mode,
+  );
+  return Boolean(schema?.requiredFields.every((field) => authFieldValue(field).trim()));
 });
+
+function authFieldValue(field: string) {
+  const auth = props.draft.auth;
+  const values: Record<string, string> = {
+    apiKey: auth.apiKey,
+    accessToken: auth.accessToken,
+    refreshToken: auth.refreshToken,
+    sessionCookie: auth.sessionCookie,
+    apiUser: auth.apiUser,
+    loginUsername: auth.loginUsername,
+    loginPassword: auth.loginPassword,
+  };
+  return values[field] ?? "";
+}
 
 const connectionReady = computed(() =>
   Boolean(props.draft.identity.baseUrl.trim()) && credentialReady.value,
@@ -185,6 +196,7 @@ watch(
                 <ProviderEditorBasicsSection
                   v-if="activeStep === 'basics'"
                   :draft="draft"
+                  :provider-protocols="providerProtocols"
                   :site-probe-result="siteProbeResult"
                   :protocol-detection-result="protocolDetectionResult"
                   :protocol-selection-source="protocolSelectionSource"
@@ -196,12 +208,14 @@ watch(
                 <template v-else-if="activeStep === 'credentials'">
                   <ProviderEditorCredentialsSection
                     :draft="draft"
+                    :provider-protocols="providerProtocols"
                     :api-key-options="apiKeyOptions"
                     @copy-api-key="emit('copy-api-key')"
                     @select-api-key="emit('select-api-key', $event)"
                   />
                   <ProviderCredentialAssistant
                     :draft="draft"
+                    :provider-protocols="providerProtocols"
                     :state="credentialAssistantState"
                     :steps="credentialAssistantSteps"
                     :message="credentialAssistantMessage"

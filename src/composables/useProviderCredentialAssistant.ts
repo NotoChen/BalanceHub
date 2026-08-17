@@ -1,6 +1,6 @@
 import { computed, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
-import type { ProviderApiKeyOption } from "../stores/providers";
+import type { ProviderApiKeyOption, ProviderInput } from "../stores/providers";
 import { confirmAction, promptApiKeyName } from "./provider-credential-dialogs";
 import {
   blockingCredentialCompletionFailures,
@@ -8,6 +8,10 @@ import {
   isEmptyApiKeyMessage,
 } from "./provider-credential-rules";
 import { fieldLabel } from "./provider-editor-shared";
+import {
+  providerAuthModeDescriptor,
+  providerProtocolDescriptor,
+} from "../utils/provider-protocol";
 import type {
   CompletionRunOptions,
   CredentialCompletionState,
@@ -48,6 +52,7 @@ export function useProviderCredentialAssistant(
   const canRunCredentialAssistant = computed(() =>
     canRunCredentialAssistantForInput(
       options.draftProvider,
+      options.providerProtocols(),
       credentialAssistantBusy.value,
     ),
   );
@@ -58,6 +63,37 @@ export function useProviderCredentialAssistant(
     credentialAssistantMessage.value = "";
     credentialAssistantChangedFields.value = [];
     credentialAssistantSaved.value = false;
+  }
+
+  function currentProtocolDescriptor() {
+    return providerProtocolDescriptor(
+      options.providerProtocols(),
+      options.draftProvider.identity.protocol,
+    );
+  }
+
+  function currentAuthModeDescriptor() {
+    return providerAuthModeDescriptor(
+      options.providerProtocols(),
+      options.draftProvider.identity.protocol,
+      options.draftProvider.auth.mode,
+    );
+  }
+
+  function authFieldValue(field: string) {
+    const value = options.draftProvider.auth[field as keyof ProviderInput["auth"]];
+    return typeof value === "string" ? value : "";
+  }
+
+  function authFieldLabel(field: string) {
+    const protocols = options.providerProtocols();
+    for (const protocol of protocols) {
+      for (const mode of protocol.authModes) {
+        const descriptor = mode.fields.find((candidate) => candidate.field === field);
+        if (descriptor) return descriptor.label;
+      }
+    }
+    return fieldLabel(field);
   }
 
   async function completeCredentials(runOptions: CompletionRunOptions = {}) {
@@ -226,16 +262,18 @@ export function useProviderCredentialAssistant(
   }
 
   async function ensureAccessToken() {
-    if (options.draftProvider.identity.protocol === "api") {
-      setAssistantStep("accessToken", "获取访问令牌", "skipped", "通用 API Key 协议不需要访问令牌");
+    const protocol = currentProtocolDescriptor();
+    const flow = protocol?.credentialAssistant.accessTokenFlow ?? "none";
+    if (flow === "none") {
+      setAssistantStep("accessToken", "获取访问令牌", "skipped", "当前协议不需要访问令牌");
       return true;
     }
-    if (options.draftProvider.identity.protocol === "sub2Api") {
+    if (flow === "credentialCompletion") {
       if (options.draftProvider.auth.accessToken.trim()) {
         setAssistantStep("accessToken", "获取访问令牌", "skipped", "访问令牌已存在");
         return true;
       }
-      failAssistantStep("accessToken", "Sub2API 登录没有返回访问令牌");
+      failAssistantStep("accessToken", `${protocol?.label || "当前协议"} 凭据补全没有返回访问令牌`);
       return false;
     }
     const canGenerateFromSession = ["session", "password"].includes(options.draftProvider.auth.mode);
@@ -300,6 +338,11 @@ export function useProviderCredentialAssistant(
   }
 
   async function ensureApiKey() {
+    const protocol = currentProtocolDescriptor();
+    if (!protocol?.capabilities.apiKeyManagement) {
+      setAssistantStep("apiKey", "同步 API 密钥", "skipped", "当前协议不提供 API Key 管理能力");
+      return true;
+    }
     const apiKeyStep = options.credentialCompletionSteps.value.find((step) =>
       step.name.includes("API 密钥") || step.name.includes("API Key"),
     );
@@ -343,21 +386,22 @@ export function useProviderCredentialAssistant(
       failAssistantStep("apiKey", "站点已有 API Key，但当前凭据无法读取完整 Key，未自动创建新 Key");
       return false;
     }
-    if (
-      options.draftProvider.identity.protocol !== "sub2Api" &&
-      options.draftProvider.identity.protocol !== "api" &&
-      !options.draftProvider.auth.apiUser.trim()
-    ) {
-      failAssistantStep("apiKey", "缺少 API User ID，无法创建 API 密钥");
+    const requiredFields = protocol.credentialAssistant.apiKeyRequiredFields.filter(
+      (field) => !authFieldValue(field).trim(),
+    );
+    if (requiredFields.length > 0) {
+      failAssistantStep(
+        "apiKey",
+        `缺少${requiredFields.map(authFieldLabel).join("、")}，无法创建 API 密钥`,
+      );
       return false;
     }
-    if (
-      options.draftProvider.identity.protocol !== "sub2Api" &&
-      options.draftProvider.identity.protocol !== "api" &&
-      !options.draftProvider.auth.sessionCookie.trim() &&
-      !options.draftProvider.auth.accessToken.trim()
-    ) {
-      failAssistantStep("apiKey", "缺少会话 Cookie 或访问令牌，无法创建 API 密钥");
+    const anyFields = protocol.credentialAssistant.apiKeyRequiredAnyFields;
+    if (anyFields.length > 0 && !anyFields.some((field) => authFieldValue(field).trim())) {
+      failAssistantStep(
+        "apiKey",
+        `至少需要${anyFields.map(authFieldLabel).join("或")}，无法创建 API 密钥`,
+      );
       return false;
     }
 
@@ -468,37 +512,21 @@ export function useProviderCredentialAssistant(
       Message.info("API 密钥模式不需要自动补全");
       return false;
     }
-    if (options.draftProvider.identity.protocol === "api") {
-      Message.info("通用 API Key 协议不需要账号凭据补全");
+    const protocol = currentProtocolDescriptor();
+    if (!protocol?.credentialAssistant.enabled) {
+      Message.info(`${protocol?.label || "当前协议"}不需要账号凭据补全`);
       return false;
     }
     if (!options.draftProvider.identity.baseUrl.trim()) {
       Message.warning("请先填写中转站地址");
       return false;
     }
-    if (options.draftProvider.auth.mode === "session" && !options.draftProvider.auth.sessionCookie.trim()) {
-      Message.warning("请先填写会话 Cookie");
-      return false;
-    }
-    if (
-      options.draftProvider.auth.mode === "password" &&
-      (!options.draftProvider.auth.loginUsername.trim() ||
-        !options.draftProvider.auth.loginPassword.trim())
-    ) {
-      Message.warning("请先填写账号和密码");
-      return false;
-    }
-    if (
-      options.draftProvider.auth.mode === "accessToken" &&
-      (!options.draftProvider.auth.accessToken.trim()
-        || (options.draftProvider.identity.protocol !== "sub2Api"
-          && !options.draftProvider.auth.apiUser.trim()))
-    ) {
-      Message.warning(
-        options.draftProvider.identity.protocol === "sub2Api"
-          ? "请先填写访问令牌"
-          : "请先填写访问令牌和 API User ID",
-      );
+    const schema = currentAuthModeDescriptor();
+    const missingFields = schema?.requiredFields.filter(
+      (field) => !authFieldValue(field).trim(),
+    ) ?? [];
+    if (missingFields.length > 0) {
+      Message.warning(`请先填写${missingFields.map(authFieldLabel).join("、")}`);
       return false;
     }
     return true;

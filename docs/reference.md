@@ -9,7 +9,7 @@
 | 中转站账号管理 | 把 NewAPI、Sub2API 和通用 OpenAI 兼容 API 集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`src-tauri/src/services/provider_service/` | AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
 | 认证方式管理 | 按协议保存账号密码、Cookie、访问令牌、Refresh Token、API Key 等认证信息。 | `src/stores/provider-types.ts`、`src-tauri/src/models/`、`src-tauri/src/adapters/` | NewAPI / Sub2API 默认账号密码；通用 API 只使用 API Key。 |
 | 操作能力契约 | 由 Rust 统一判断账号管理、签到、密钥管理和邀请等操作是否可用。 | `src-tauri/src/models/provider_domain/capabilities.rs`、`src-tauri/src/contracts.rs`、`src/utils/provider-actions.ts` | 不引入类型生成工具；TypeScript 只声明 IPC 结构并读取 Rust 返回结果。 |
-| 协议探测 | 并发探测 NewAPI、Sub2API，并在 API Key 模式下通过模型接口识别通用 API。 | `src-tauri/src/adapters/detector.rs`、`src-tauri/src/adapters/protocol.rs` | 识别冲突或失败时允许用户手动选择协议。 |
+| 协议探测 | 并发探测 NewAPI、Sub2API，并在 API Key 模式下通过模型接口识别通用 API。 | `src-tauri/src/adapters/detector.rs`、`src-tauri/src/adapters/protocol/registry/` | 识别冲突或失败时允许用户手动选择协议。 |
 | 站点探测 | 从中转站读取名称、图标、额度单位和货币符号。 | `src-tauri/src/adapters/new_api/site.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs`、`src-tauri/src/adapters/api.rs` | 用于减少手动填写，并保证余额、日志、签到记录单位显示一致。 |
 | 余额刷新 | 查询账号或 API Key 当前额度、已用额度和可用额度。 | `src-tauri/src/adapters/new_api/quota.rs`、`src-tauri/src/adapters/sub2_api/`、`src-tauri/src/services/provider_service/quota.rs` | API Key 查询明确按 Key 维度展示；无限额度按无限状态处理。 |
 | 自动刷新 | 按用户配置周期刷新中转站状态。 | `src-tauri/src/services/scheduler.rs` | 适合多站点长期挂后台观察余额和异常状态。 |
@@ -63,7 +63,7 @@ Vue 3 UI
       -> src-tauri/src/desktop.rs 注册 command
         -> src-tauri/src/commands/ command 实现
         -> services/provider_service 调度业务
-          -> adapters/protocol 分发协议
+          -> adapters/protocol 运行时分发与描述注册表
             -> adapters/new_api
             -> adapters/sub2_api
             -> adapters/api
@@ -125,7 +125,9 @@ Vue 3 UI
         ├── network/                  # 跨平台系统代理解析和统一网络语义
         ├── platform/                 # 深链、后台进程等平台能力封装
         ├── contracts.rs              # Rust 派生操作能力和 IPC View
-        ├── adapters/                 # 协议探测、分发及各协议实现
+        ├── adapters/                 # 协议探测、运行时分发、描述注册表及各协议实现
+        ├── provider_protocol_catalog.rs # 协议枚举身份与描述模块目录
+        ├── terminal_catalog.rs       # 终端枚举身份与 fallback 名称目录
         ├── models/                   # Rust 数据模型
         └── services/                 # 业务服务、测活、通知和调度
 ```

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import AgentCliIcon from "../AgentCliIcon.vue";
-import { useProviderStore, type AgentCliKind, type Provider } from "../../stores/providers";
+import { useCliRuntimeStore } from "../../stores/cli-runtime";
+import type { AgentCliKind, Provider } from "../../stores/providers";
 import { agentCliLabel } from "../../utils/cli-environment";
 import {
   maskApiKey,
@@ -28,7 +29,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   openCliInstances: [provider: Provider, cliKind: AgentCliKind];
 }>();
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 
 const isApiKeyAuth = computed(() => props.provider.auth.mode === "apiKey");
 const apiKeyMasked = computed(() => maskApiKey(props.provider.auth.apiKey));
@@ -41,7 +42,7 @@ const providerUrlDisplay = computed(() =>
 );
 const providerHeaderTitle = computed(() => props.provider.identity.name);
 const providerHeaderSubtitle = computed(() =>
-  providerProtocolLabel(props.provider.identity.protocol),
+  providerProtocolLabel(props.provider),
 );
 const showProviderStatus = computed(() => !isApiKeyAuth.value || props.tone !== "ok");
 const activeCliSignals = computed(() =>

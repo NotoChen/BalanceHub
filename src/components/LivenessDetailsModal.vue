@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconExperiment } from "@arco-design/web-vue/es/icon";
-import { useProviderStore, type AgentCliKind, type LivenessRecord, type Provider } from "../stores/providers";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
+import type { AgentCliKind, LivenessRecord, Provider } from "../stores/providers";
 import { agentCliLabel, isAgentCliKind } from "../utils/cli-environment";
 import AgentCliIcon from "./AgentCliIcon.vue";
 
@@ -9,7 +10,7 @@ const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
 }>();
-const store = useProviderStore();
+const store = useCliRuntimeStore();
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];

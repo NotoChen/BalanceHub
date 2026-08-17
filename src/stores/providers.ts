@@ -1,7 +1,5 @@
 import { defineStore } from "pinia";
 import {
-  activateTemporaryCli as activateTemporaryCliCommand,
-  browseWorkspaceDirectories as browseWorkspaceDirectoriesCommand,
   changeProviderPassword as changeProviderPasswordCommand,
   completeProviderCredentials as completeProviderCredentialsCommand,
   createProviderApiKey as createProviderApiKeyCommand,
@@ -10,54 +8,38 @@ import {
   detectProviderProtocol as detectProviderProtocolCommand,
   exportAppData as exportAppDataCommand,
   generateProviderAccessTokenForInput as generateProviderAccessTokenForInputCommand,
-  getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
-  getTemporaryCliInstance as getTemporaryCliInstanceCommand,
-  getTemporaryCliInstances as getTemporaryCliInstancesCommand,
   getProviderCheckInRecords as getProviderCheckInRecordsCommand,
   getProviderInviteLink as getProviderInviteLinkCommand,
   getProviderRequestLogs as getProviderRequestLogsCommand,
   getProviderUsage as getProviderUsageCommand,
-  forgetWorkspace as forgetWorkspaceCommand,
   importAppData as importAppDataCommand,
-  launchTemporaryCli as launchTemporaryCliCommand,
-  previewTemporaryCliLaunch as previewTemporaryCliLaunchCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
-  listCliSessions as listCliSessionsCommand,
   loadAppData,
-  probeCliTools as probeCliToolsCommand,
-  probeTerminals as probeTerminalsCommand,
   probeProviderSite as probeProviderSiteCommand,
-  previewCliConfig as previewCliConfigCommand,
   refreshProviders,
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
   saveProvider as saveProviderCommand,
-  saveSettings as saveSettingsCommand,
   syncAvailableModels as syncAvailableModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
   testProviderConnection as testProviderConnectionCommand,
-  switchCliConfig as switchCliConfigCommand,
+  type AppData,
 } from "../api/app";
 import { providerToInput } from "../utils/provider-input";
-import { defaultSettings } from "./provider-defaults";
+import {
+  mergeProvidersByRevision,
+  pruneProviderTombstones,
+  type ProviderRevisionTombstones,
+} from "../utils/provider-revision";
+import { useCliRuntimeStore } from "./cli-runtime";
+import { useSettingsStore } from "./settings";
+import { useWorkspaceStore } from "./workspaces";
 import type {
-  AppSettings,
-  CliConfigPreview,
-  CliConfigFile,
-  CliEnvironmentProbeResult,
-  TerminalEnvironmentProbeResult,
-  CliRuntimeSnapshot,
-  CliSessionSummary,
-  AgentCliKind,
   Provider,
   ProviderInput,
+  ProviderProtocolDescriptor,
   ProviderSaveOptions,
   ProviderRequestLogsQuery,
-  TemporaryCliLaunchResult,
-  TemporaryCliLaunchInput,
-  TemporaryCliLaunchPreview,
-  TemporaryCliPreference,
-  Workspace,
 } from "./provider-types";
 
 export { defaultSettings } from "./provider-defaults";
@@ -69,21 +51,61 @@ export const useProviderStore = defineStore("providers", {
     loading: false,
     loadError: null as string | null,
     refreshInProgress: false,
-    cliRuntimeLoading: false,
     refreshingIds: new Set<string>(),
     providerReloadPending: false,
     providers: [] as Provider[],
-    settings: defaultSettings(),
-    workspaces: [] as Workspace[],
-    temporaryCliPreferences: [] as TemporaryCliPreference[],
-    cliRuntime: emptyCliRuntimeSnapshot(),
-    cliEnvironmentProbe: null as CliEnvironmentProbeResult | null,
-    cliEnvironmentLoading: false,
-    terminalEnvironmentProbe: null as TerminalEnvironmentProbeResult | null,
-    terminalEnvironmentLoading: false,
+    providerProtocols: [] as ProviderProtocolDescriptor[],
+    providerSnapshotRevision: 0,
+    providerTombstones: {} as ProviderRevisionTombstones,
   }),
   getters: {},
   actions: {
+    replaceProviders(providers: Provider[]) {
+      this.providers = providers;
+    },
+    replaceProviderSnapshot(providers: Provider[], revision: number) {
+      if (revision < this.providerSnapshotRevision) return false;
+      this.providers = providers;
+      this.providerSnapshotRevision = revision;
+      this.providerTombstones = pruneProviderTombstones(this.providerTombstones, revision);
+      return true;
+    },
+    hydrateAppData(data: AppData) {
+      if (!this.replaceProviderSnapshot(data.providers, data.revision)) {
+        return false;
+      }
+      this.providerProtocols = data.providerProtocols;
+      useSettingsStore().hydrate(data.settings);
+      useWorkspaceStore().hydrate(data.workspaces, data.temporaryCliPreferences);
+      this.loadError = null;
+      return true;
+    },
+    upsertProvider(provider: Provider) {
+      this.upsertProviders([provider]);
+    },
+    upsertProviders(providers: Provider[]) {
+      this.providers = mergeProvidersByRevision(
+        this.providers,
+        providers,
+        this.providerSnapshotRevision,
+        this.providerTombstones,
+      );
+    },
+    removeProviderById(id: string) {
+      this.providers = this.providers.filter((provider) => provider.identity.id !== id);
+    },
+    applyProviderOrder(ids: string[]) {
+      const providers = new Map(
+        this.providers.map((provider) => [provider.identity.id, provider] as const),
+      );
+      const ordered = ids.flatMap((id) => {
+        const provider = providers.get(id);
+        if (!provider) return [];
+        providers.delete(id);
+        return [provider];
+      });
+      this.providers = [...ordered, ...providers.values()];
+    },
     async initialize() {
       if (this.initialized || this.loading) {
         return;
@@ -92,18 +114,16 @@ export const useProviderStore = defineStore("providers", {
       this.loading = true;
       try {
         const data = await loadAppData();
-        this.providers = data.providers;
-        this.settings = data.settings;
-        this.workspaces = data.workspaces;
-        this.temporaryCliPreferences = data.temporaryCliPreferences;
-        this.loadError = null;
+        this.hydrateAppData(data);
         try {
-          this.cliRuntime = await getCliRuntimeSnapshotCommand();
+          await useCliRuntimeStore().refresh();
         } catch {
-          this.cliRuntime = emptyCliRuntimeSnapshot();
+          useCliRuntimeStore().resetRuntime();
         }
       } catch (error) {
         this.providers = [];
+        this.providerSnapshotRevision = 0;
+        this.providerTombstones = {};
         this.loadError = errorToMessage(error);
       } finally {
         this.initialized = true;
@@ -112,21 +132,24 @@ export const useProviderStore = defineStore("providers", {
     },
     async saveProvider(input: ProviderInput, options: ProviderSaveOptions = {}) {
       const result = await saveProviderCommand(input, options);
-      if (result.saved) {
-        this.providers = result.providers;
-        await this.refreshCliRuntime().catch(() => {});
+      if (result.saved && result.provider) {
+        this.upsertProvider(result.provider);
+        await useCliRuntimeStore().refresh().catch(() => {});
       }
       return result;
     },
     async removeProvider(id: string) {
-      this.providers = await removeProviderCommand(id);
-      this.temporaryCliPreferences = this.temporaryCliPreferences.filter(
-        (preference) => preference.providerId !== id,
+      const result = await removeProviderCommand(id);
+      this.providerTombstones[result.id] = Math.max(
+        this.providerTombstones[result.id] ?? 0,
+        result.revision,
       );
-      await this.refreshCliRuntime().catch(() => {});
+      this.removeProviderById(result.id);
+      useWorkspaceStore().removeProviderPreference(result.id);
+      await useCliRuntimeStore().refresh().catch(() => {});
     },
     async reorderProviders(ids: string[]) {
-      this.providers = await reorderProvidersCommand(ids);
+      this.applyProviderOrder(await reorderProvidersCommand(ids));
     },
     async toggleProvider(id: string, enabled: boolean) {
       const provider = this.providers.find((item) => item.identity.id === id);
@@ -136,22 +159,21 @@ export const useProviderStore = defineStore("providers", {
 
       await this.saveProvider(providerToInput(provider, { runtime: { enabled } }));
     },
-    async saveSettings(settings: AppSettings) {
-      this.settings = await saveSettingsCommand(settings);
-    },
     async exportAppData(path: string) {
       return exportAppDataCommand(path);
     },
     async importAppData(path: string) {
       const result = await importAppDataCommand(path);
-      const data = await loadAppData();
-      this.providers = data.providers;
-      this.settings = data.settings;
-      this.workspaces = data.workspaces;
-      this.temporaryCliPreferences = data.temporaryCliPreferences;
-      this.loadError = null;
-      await this.refreshCliRuntime().catch(() => {});
-      return result;
+      if (!this.hydrateAppData(result.data)) {
+        // 另一个后端事务可能在导入命令返回到 WebView 前已经产生了更新版本。
+        // 只接受再次读取到的最新完整快照，绝不把旧 settings/workspaces 灌回前端。
+        const latest = await loadAppData();
+        if (!this.hydrateAppData(latest)) {
+          this.providerReloadPending = true;
+        }
+      }
+      await useCliRuntimeStore().refresh().catch(() => {});
+      return result.transfer;
     },
     async reload() {
       if (this.refreshInProgress || this.refreshingIds.size > 0) {
@@ -160,11 +182,9 @@ export const useProviderStore = defineStore("providers", {
       }
       try {
         const data = await loadAppData();
-        this.providers = data.providers;
-        this.settings = data.settings;
-        this.workspaces = data.workspaces;
-        this.temporaryCliPreferences = data.temporaryCliPreferences;
-        this.loadError = null;
+        if (!this.hydrateAppData(data)) {
+          return;
+        }
       } catch (error) {
         // 看板已有数据时，后台 tick 的一次瞬时失败不值得把整个界面切到全屏错误态；
         // 只有从未成功加载过才进入错误态。调用方可自行 catch 决定是否提示。
@@ -198,6 +218,21 @@ export const useProviderStore = defineStore("providers", {
       this.providerReloadPending = false;
       await this.reload().catch(() => {});
     },
+    async reloadProvider(id: string) {
+      const data = await loadAppData();
+      this.providerProtocols = data.providerProtocols;
+      const provider = data.providers.find((candidate) => candidate.identity.id === id);
+      if (provider) {
+        this.upsertProvider(provider);
+      } else {
+        this.providerTombstones[id] = Math.max(
+          this.providerTombstones[id] ?? 0,
+          data.revision,
+        );
+        this.removeProviderById(id);
+      }
+      return provider ?? null;
+    },
     async probeProviderSite(input: ProviderInput) {
       return probeProviderSiteCommand(input);
     },
@@ -210,113 +245,18 @@ export const useProviderStore = defineStore("providers", {
     async testProviderConnection(input: ProviderInput) {
       const result = await testProviderConnectionCommand(input);
       if (input.id && result.ok) {
-        await this.reload();
+        await this.reloadProvider(input.id);
       }
       return result;
-    },
-    async probeCliTools(deep = false) {
-      this.cliEnvironmentLoading = true;
-      try {
-        const result = await probeCliToolsCommand(deep);
-        this.cliEnvironmentProbe = result;
-        return result;
-      } finally {
-        this.cliEnvironmentLoading = false;
-      }
-    },
-    async probeTerminals() {
-      this.terminalEnvironmentLoading = true;
-      try {
-        const result = await probeTerminalsCommand();
-        this.terminalEnvironmentProbe = result;
-        return result;
-      } finally {
-        this.terminalEnvironmentLoading = false;
-      }
-    },
-    async launchTemporaryCli(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchResult> {
-      const result = await launchTemporaryCliCommand(input);
-      this.workspaces = result.workspaces;
-      this.temporaryCliPreferences = [
-        ...this.temporaryCliPreferences.filter(
-          (preference) => preference.providerId !== result.preference.providerId,
-        ),
-        result.preference,
-      ];
-      const instances = this.cliRuntime.instances.filter(
-        (instance) => instance.id !== result.instance.id,
-      );
-      this.cliRuntime = {
-        ...this.cliRuntime,
-        instances:
-          result.instance.status === "exited" ? instances : [result.instance, ...instances],
-      };
-      return result;
-    },
-    async previewTemporaryCliLaunch(
-      input: TemporaryCliLaunchInput,
-    ): Promise<TemporaryCliLaunchPreview> {
-      return previewTemporaryCliLaunchCommand(input);
-    },
-    async listCliSessions(cliKind: AgentCliKind, workdir: string): Promise<CliSessionSummary[]> {
-      return listCliSessionsCommand(cliKind, workdir);
-    },
-    async activateTemporaryCli(instanceId: string) {
-      await activateTemporaryCliCommand(instanceId);
-    },
-    async refreshTemporaryCliInstances() {
-      const instances = await getTemporaryCliInstancesCommand();
-      this.cliRuntime = { ...this.cliRuntime, instances };
-      return instances;
-    },
-    async getTemporaryCliInstance(instanceId: string) {
-      const instance = await getTemporaryCliInstanceCommand(instanceId);
-      const remaining = this.cliRuntime.instances.filter((item) => item.id !== instanceId);
-      this.cliRuntime = {
-        ...this.cliRuntime,
-        instances: instance && instance.status !== "exited" ? [instance, ...remaining] : remaining,
-      };
-      return instance;
-    },
-    async browseWorkspaceDirectories(path?: string) {
-      return browseWorkspaceDirectoriesCommand(path);
-    },
-    async forgetWorkspace(path: string) {
-      this.workspaces = await forgetWorkspaceCommand(path);
-      this.temporaryCliPreferences = this.temporaryCliPreferences.map((preference) =>
-        preference.workspacePath === path ? { ...preference, workspacePath: "" } : preference,
-      );
-      return this.workspaces;
-    },
-    async previewCliConfig(id: string, cliKind: AgentCliKind): Promise<CliConfigPreview> {
-      return previewCliConfigCommand(id, cliKind);
-    },
-    async switchCliConfig(
-      id: string,
-      cliKind: AgentCliKind,
-      revision: string,
-      files: CliConfigFile[],
-    ) {
-      this.cliRuntime = await switchCliConfigCommand(id, cliKind, revision, files);
-      return this.cliRuntime;
-    },
-    async refreshCliRuntime(): Promise<CliRuntimeSnapshot> {
-      this.cliRuntimeLoading = true;
-      try {
-        this.cliRuntime = await getCliRuntimeSnapshotCommand();
-        return this.cliRuntime;
-      } finally {
-        this.cliRuntimeLoading = false;
-      }
     },
     async listApiKeys(id: string) {
       const options = await listProviderApiKeysCommand(id);
-      await this.reload().catch(() => {});
+      await this.reloadProvider(id).catch(() => {});
       return options;
     },
     async createApiKey(id: string, name: string) {
       const options = await createProviderApiKeyCommand(id, name);
-      await this.reload().catch(() => {});
+      await this.reloadProvider(id).catch(() => {});
       return options;
     },
     async createApiKeyForInput(input: ProviderInput, name: string) {
@@ -327,7 +267,7 @@ export const useProviderStore = defineStore("providers", {
     },
     async deleteApiKey(id: string, tokenId: string) {
       const options = await deleteProviderApiKeyCommand(id, tokenId);
-      await this.reload().catch(() => {});
+      await this.reloadProvider(id).catch(() => {});
       return options;
     },
     async getUsage(id: string, period = "24h") {
@@ -340,7 +280,7 @@ export const useProviderStore = defineStore("providers", {
       const message = await changeProviderPasswordCommand(id, originalPassword, password);
       // 用户认证模式下后端会同步本地 loginPassword；重新读取让编辑器拿到最新凭据，
       // 避免用户随后保存编辑表单时把旧密码写回去。
-      await this.reload().catch(() => {});
+      await this.reloadProvider(id).catch(() => {});
       return message;
     },
     async getCheckInRecords(id: string, month: string) {
@@ -348,16 +288,18 @@ export const useProviderStore = defineStore("providers", {
     },
     async probeCapabilities(id: string) {
       const result = await probeProviderCapabilitiesCommand(id);
-      this.providers = result.providers;
+      this.upsertProvider(result.provider);
       return result;
     },
     async syncAvailableModels(id: string) {
       const result = await syncAvailableModelsCommand(id);
-      this.providers = result.providers;
+      this.upsertProvider(result.provider);
       return result;
     },
     async getInviteLink(id: string) {
-      return getProviderInviteLinkCommand(id);
+      const link = await getProviderInviteLinkCommand(id);
+      await this.reloadProvider(id).catch(() => {});
+      return link;
     },
     /** 按 id 刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
     async refreshByIds(ids: string[]): Promise<string | null> {
@@ -371,7 +313,6 @@ export const useProviderStore = defineStore("providers", {
 
       todo.forEach((id) => this.refreshingIds.add(id));
       const idSet = new Set(todo);
-      const previousProviders = this.providers;
       this.providers = this.providers.map((provider) =>
         provider.runtime.enabled && idSet.has(provider.identity.id)
           ? { ...provider, runtime: { ...provider.runtime, status: "syncing", errorMessage: null } }
@@ -380,10 +321,10 @@ export const useProviderStore = defineStore("providers", {
 
       try {
         const result = await refreshProviders(todo);
-        this.providers = result.providers;
+        this.upsertProviders(result.updatedProviders);
         return null;
       } catch (error) {
-        this.providers = previousProviders.map((provider) =>
+        this.providers = this.providers.map((provider) =>
           provider.runtime.enabled && idSet.has(provider.identity.id)
             ? {
                 ...provider,
@@ -406,11 +347,4 @@ export const useProviderStore = defineStore("providers", {
 
 function errorToMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
-}
-
-function emptyCliRuntimeSnapshot(): CliRuntimeSnapshot {
-  return {
-    configs: [],
-    instances: [],
-  };
 }

@@ -1,5 +1,5 @@
 use crate::{
-    contracts::AppDataView,
+    contracts::{AppDataImportResultView, AppDataView},
     models::{AppDataTransferResult, AppSettings, Provider},
     platform::cc_switch,
     services::{
@@ -129,14 +129,17 @@ pub(crate) async fn export_app_data(
 pub(crate) async fn import_app_data(
     app: AppHandle,
     path: String,
-) -> Result<AppDataTransferResult, String> {
+) -> Result<AppDataImportResultView, String> {
     let task_app = app.clone();
-    let (_data, result) = run_blocking("导入应用配置", move || {
+    let (data, transfer) = run_blocking("导入应用配置", move || {
         ProviderService::new(&task_app).import_app_data(path)
     })
     .await?;
     tray::refresh_from_state(&app);
-    Ok(result)
+    Ok(AppDataImportResultView {
+        data: data.into(),
+        transfer,
+    })
 }
 
 #[tauri::command]

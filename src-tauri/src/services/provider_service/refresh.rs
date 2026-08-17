@@ -1,5 +1,5 @@
 use crate::{
-    adapters::protocol::ProtocolAdapter,
+    adapters::protocol::{contracts::ProviderOperationOutcome, ProtocolAdapter},
     models::{
         AppData, AppSettings, AuthMode, Provider, ProviderBatchDetails, ProviderBatchOperation,
         ProviderBatchProgressEvent, ProviderBatchProgressItem, ProviderBatchStatus,
@@ -10,7 +10,7 @@ use crate::{
 use std::{collections::HashSet, sync::Arc};
 use tauri::{ipc::Channel, Manager};
 
-use super::{ProviderRequestContext, ProviderService};
+use super::{MutationDecision, ProviderRequestContext, ProviderService};
 
 pub(super) struct RefreshedProvider {
     pub(super) provider: Provider,
@@ -86,12 +86,19 @@ impl<'a> ProviderService<'a> {
                 *slot = item;
             }
         }
-        let providers = self
-            .mutate_async(move |data| {
-                apply_refreshed(data, refreshed);
-                data.providers.clone()
+        let refreshed_ids = refreshed
+            .iter()
+            .map(|result| result.provider.identity.id.clone())
+            .collect::<Vec<_>>();
+        self.mutate_decided_async(move |data| {
+            Ok(if apply_refreshed(data, refreshed) {
+                MutationDecision::changed(())
+            } else {
+                MutationDecision::unchanged(())
             })
-            .await?;
+        })
+        .await?;
+        let updated_providers = self.providers_by_ids_async(&refreshed_ids).await?;
         send_progress(
             Some(&progress),
             ProviderBatchProgressEvent::Completed {
@@ -99,7 +106,7 @@ impl<'a> ProviderService<'a> {
                 summary: crate::models::ProviderBatchSummary::from_items(&progress_items),
             },
         );
-        Ok(RefreshResult { providers })
+        Ok(RefreshResult { updated_providers })
     }
 
     async fn refresh_by_ids_inner(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
@@ -113,13 +120,21 @@ impl<'a> ProviderService<'a> {
             None,
         )
         .await?;
-        let providers = self
-            .mutate_async(move |data| {
-                apply_refreshed(data, refreshed);
-                data.providers.clone()
+        let refreshed_ids = refreshed
+            .iter()
+            .map(|result| result.provider.identity.id.clone())
+            .collect::<Vec<_>>();
+        self.mutate_decided_async(move |data| {
+            Ok(if apply_refreshed(data, refreshed) {
+                MutationDecision::changed(())
+            } else {
+                MutationDecision::unchanged(())
             })
-            .await?;
-        Ok(RefreshResult { providers })
+        })
+        .await?;
+        Ok(RefreshResult {
+            updated_providers: self.providers_by_ids_async(&refreshed_ids).await?,
+        })
     }
 }
 
@@ -128,7 +143,8 @@ impl<'a> ProviderService<'a> {
 /// 只合并 [`apply_refresh_owned_fields`] 列出的「刷新拥有」字段，而非整体替换结构体：
 /// 刷新是后台常态操作，网络往返期间用户可能正在编辑凭据/名称/自动化配置并保存，
 /// 整体替换会把这些并发编辑静默回滚。期间被删除的中转站不会重新插入，新增的不受影响。
-pub(super) fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvider>) {
+pub(super) fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvider>) -> bool {
+    let mut changed = false;
     for refreshed in refreshed {
         let RefreshedProvider {
             provider: next,
@@ -139,9 +155,10 @@ pub(super) fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvid
             .iter_mut()
             .find(|provider| provider.identity.id == next.identity.id)
         {
-            apply_refresh_owned_fields(slot, next, &request_context);
+            changed |= apply_refresh_owned_fields(slot, next, &request_context);
         }
     }
+    changed
 }
 
 /// 刷新流程「拥有」的字段集合，须与具体协议适配器的刷新写入面保持一致：
@@ -151,56 +168,14 @@ pub(super) fn apply_refresh_owned_fields(
     provider: &mut Provider,
     refreshed: Provider,
     request_context: &ProviderRequestContext,
-) {
+) -> bool {
     // 身份、额度和凭据必须作为同一个原子结果写回。只校验 URL/协议会让同站点旧账号
     // 的刷新结果覆盖新账号；完整请求上下文变化时，本次网络结果全部作废。
     if !request_context.matches(provider) {
-        return;
+        return false;
     }
-    provider.quota = refreshed.quota;
-    provider.identity.name = refreshed.identity.name;
-    provider.identity.display_name = refreshed.identity.display_name;
-    provider.identity.username = refreshed.identity.username;
-    provider.identity.user_id = refreshed.identity.user_id;
-    provider.identity.site_logo = refreshed.identity.site_logo;
-    // 账号密码模式的登录会在刷新时产生可复用 Session。
-    if matches!(provider.auth.mode, AuthMode::Password)
-        && !refreshed.auth.session_cookie.trim().is_empty()
-    {
-        provider.auth.session_cookie = refreshed.auth.session_cookie;
-        provider.auth.api_user = refreshed.auth.api_user;
-    }
-
-    // Sub2API account login yields a JWT instead of a Cookie.
-    if matches!(provider.identity.protocol, ProviderProtocol::Sub2Api)
-        && matches!(
-            provider.auth.mode,
-            AuthMode::Password | AuthMode::AccessToken
-        )
-    {
-        // 刷新链断裂时适配器会显式清空三项令牌。这里必须连同空值一起写回，
-        // 否则存储中的失效 refresh_token 会被永久保留，并在每轮刷新时重复提交。
-        provider.auth.access_token = refreshed.auth.access_token;
-        provider.auth.refresh_token = refreshed.auth.refresh_token;
-        provider.auth.access_token_expires_at = refreshed.auth.access_token_expires_at;
-    }
-
-    // 用户名由 Cookie/访问令牌认证后的用户信息派生，只补空值，不改用户手动填写的账号。
-    if request_context.login_username.trim().is_empty()
-        && provider.auth.login_username.trim().is_empty()
-        && !refreshed.auth.login_username.trim().is_empty()
-    {
-        provider.auth.login_username = refreshed.auth.login_username;
-    }
-    if !matches!(
-        refreshed.runtime.status,
-        crate::models::ProviderStatus::Error
-    ) {
-        provider.capabilities.available_models = refreshed.capabilities.available_models;
-    }
-    provider.automation.last_synced_at = refreshed.automation.last_synced_at;
-    provider.runtime.status = refreshed.runtime.status;
-    provider.runtime.error_message = refreshed.runtime.error_message;
+    ProviderOperationOutcome::<()>::refreshed(provider, refreshed).apply_to(provider);
+    true
 }
 
 /// 并发刷新中转站：启用且满足条件的并发拉取，返回值只包含实际刷新过的中转站。
@@ -242,9 +217,11 @@ pub(super) async fn refresh_providers_concurrently(
         handles.push(tauri::async_runtime::spawn(async move {
             // 信号量只在本函数生命周期内使用、从不 close，acquire 不会失败。
             let _permit = semaphore.acquire().await.expect("refresh semaphore closed");
-            let refreshed = ProtocolAdapter
+            let outcome = ProtocolAdapter
                 .refresh_provider(settings.as_ref(), &provider)
                 .await;
+            let mut refreshed = provider;
+            outcome.apply_to(&mut refreshed);
             let status = if matches!(refreshed.runtime.status, ProviderStatus::Error) {
                 ProviderBatchStatus::Failed
             } else {
@@ -372,13 +349,13 @@ mod tests {
 
         let mut data = AppData::default();
         data.providers.push(stored);
-        apply_refreshed(
+        assert!(apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: refreshed,
                 request_context,
             }],
-        );
+        ));
 
         let merged = &data.providers[0];
         // 刷新拥有的字段：跟随刷新结果。
@@ -398,7 +375,10 @@ mod tests {
         data.providers.push(provider("kept"));
 
         let removed = provider("removed");
-        apply_refreshed(&mut data, vec![refreshed_provider(&removed)]);
+        assert!(!apply_refreshed(
+            &mut data,
+            vec![refreshed_provider(&removed)]
+        ));
 
         assert_eq!(data.providers.len(), 1);
         assert_eq!(data.providers[0].identity.id, "kept");
@@ -413,13 +393,13 @@ mod tests {
         let mut data = AppData::default();
         data.providers.push(stored);
         let request_context = ProviderRequestContext::capture(&data.providers[0]);
-        apply_refreshed(
+        assert!(apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: refreshed,
                 request_context,
             }],
-        );
+        ));
 
         assert_eq!(data.providers[0].auth.login_username, "alice");
     }
@@ -434,13 +414,13 @@ mod tests {
 
         let mut data = AppData::default();
         data.providers.push(current_provider);
-        apply_refreshed(
+        assert!(!apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: refreshed,
                 request_context: ProviderRequestContext::capture(&snapshot_provider),
             }],
-        );
+        ));
 
         assert_eq!(data.providers[0].auth.login_username, "manual-account");
     }
@@ -460,13 +440,13 @@ mod tests {
         let snapshot = ProviderRequestContext::capture(&stored);
         let mut data = AppData::default();
         data.providers.push(stored);
-        apply_refreshed(
+        assert!(apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: refreshed,
                 request_context: snapshot,
             }],
-        );
+        ));
 
         assert_eq!(data.providers[0].auth.access_token, "new-token");
     }
@@ -489,13 +469,13 @@ mod tests {
 
         let mut data = AppData::default();
         data.providers.push(stored);
-        apply_refreshed(
+        assert!(apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: refreshed,
                 request_context,
             }],
-        );
+        ));
 
         assert!(data.providers[0].auth.access_token.is_empty());
         assert!(data.providers[0].auth.refresh_token.is_empty());
@@ -515,13 +495,13 @@ mod tests {
 
         let mut data = AppData::default();
         data.providers.push(current);
-        apply_refreshed(
+        assert!(!apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: old,
                 request_context: snapshot,
             }],
-        );
+        ));
 
         assert_eq!(data.providers[0].quota.available, 99.0);
     }
@@ -541,13 +521,13 @@ mod tests {
 
         let mut data = AppData::default();
         data.providers.push(current);
-        apply_refreshed(
+        assert!(!apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: refreshed,
                 request_context,
             }],
-        );
+        ));
 
         assert_eq!(data.providers[0].identity.username, "new-user");
         assert_eq!(data.providers[0].quota.available, 99.0);
@@ -574,13 +554,13 @@ mod tests {
 
         let mut data = AppData::default();
         data.providers.push(current);
-        apply_refreshed(
+        assert!(!apply_refreshed(
             &mut data,
             vec![RefreshedProvider {
                 provider: refreshed,
                 request_context,
             }],
-        );
+        ));
 
         assert_eq!(data.providers[0].auth.refresh_token, "new-refresh");
         assert_eq!(data.providers[0].auth.access_token_expires_at, Some(200));

@@ -19,11 +19,12 @@ impl<'a> ProviderService<'a> {
         let operation = ProtocolAdapter
             .usage_summary(&data.settings, &provider, &period)
             .await?;
-        self.persist_operation_provider(
+        self.persist_operation_credentials(
             &ProviderRequestContext::capture(&provider),
-            &operation.provider,
+            &operation.credentials,
         )
-        .await?;
+        .await?
+        .ok_or_else(|| "本地配置已变更，本次用量结果已忽略".to_string())?;
         Ok(operation.value)
     }
 
@@ -39,11 +40,12 @@ impl<'a> ProviderService<'a> {
         let operation = ProtocolAdapter
             .request_logs(&data.settings, &provider, query)
             .await?;
-        self.persist_operation_provider(
+        self.persist_operation_credentials(
             &ProviderRequestContext::capture(&provider),
-            &operation.provider,
+            &operation.credentials,
         )
-        .await?;
+        .await?
+        .ok_or_else(|| "本地配置已变更，本次请求日志结果已忽略".to_string())?;
         Ok(operation.value)
     }
 }

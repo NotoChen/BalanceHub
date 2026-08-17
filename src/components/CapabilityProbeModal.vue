@@ -9,15 +9,18 @@ import {
   IconRefresh,
   IconSafe,
 } from "@arco-design/web-vue/es/icon";
-import type { AuthMode, Provider } from "../stores/providers";
-import { providerAgentBaseUrl } from "../utils/cli-environment";
-import { providerAuthModeLabel, providerProtocolLabel } from "../utils/provider-display";
+import type { AuthMode, Provider, ProviderProtocolDescriptor } from "../stores/providers";
+import {
+  providerAuthModeDescriptor,
+  providerProtocolDescriptor,
+} from "../utils/provider-protocol";
 
 type ProbeStepKey = "checkIn" | "apiKeys" | "invitation" | "models";
 type ProbeStepStatus = "running" | "supported" | "unsupported" | "skipped" | "error" | "pending";
 
 const props = defineProps<{
   visible: boolean;
+  providerProtocols: ProviderProtocolDescriptor[];
   provider: Provider | null;
   running: boolean;
   error: string;
@@ -31,18 +34,16 @@ const emit = defineEmits<{
   retry: [];
 }>();
 
-const authModeLabels: Record<AuthMode, string> = {
-  session: "Cookie",
-  accessToken: "访问令牌",
-  apiKey: "API Key",
-  password: "账号密码",
-};
-
 const modalTitle = computed(() =>
   props.provider ? `${props.provider.identity.name} · 站点能力探测` : "站点能力探测",
 );
 
 const probeFinished = computed(() => !props.running && props.finishedAt !== null);
+const protocolDescriptor = computed(() =>
+  props.provider
+    ? providerProtocolDescriptor(props.providerProtocols, props.provider.identity.protocol)
+    : undefined,
+);
 const partialError = computed(() => props.provider?.capabilities.errorMessage?.trim() || "");
 const scopedErrors = computed(() => parseScopedErrors(partialError.value));
 const unscopedPartialError = computed(() =>
@@ -68,10 +69,10 @@ const steps = computed(() => {
   const provider = props.provider;
   if (!provider) return [];
   return [
-    makeStep("checkIn", "签到能力", IconCalendar, checkInMethod(provider)),
-    makeStep("apiKeys", "密钥管理", IconSafe, apiKeyMethod(provider)),
-    makeStep("invitation", "邀请能力", IconLink, invitationMethod(provider)),
-    makeStep("models", "模型列表", IconApps, modelMethod(provider)),
+    makeStep("checkIn", "签到能力", IconCalendar, checkInMethod()),
+    makeStep("apiKeys", "密钥管理", IconSafe, apiKeyMethod()),
+    makeStep("invitation", "邀请能力", IconLink, invitationMethod()),
+    makeStep("models", "模型列表", IconApps, modelMethod()),
   ];
 });
 
@@ -116,8 +117,7 @@ function stepStatus(key: ProbeStepKey): ProbeStepStatus {
 
 function isSkipped(provider: Provider, key: ProbeStepKey) {
   if (key === "models") return !provider.auth.apiKey.trim();
-  if (provider.identity.protocol === "api") return true;
-  return provider.auth.mode === "apiKey";
+  return provider.auth.mode === "apiKey" || protocolDescriptor.value?.capabilities.account === false;
 }
 
 function stepStatusLabel(status: ProbeStepStatus) {
@@ -137,14 +137,18 @@ function stepDetail(key: ProbeStepKey, status: ProbeStepStatus) {
   if (status === "pending") return "尚未开始";
   if (status === "skipped") {
     if (key === "models") return "当前没有 API Key，未请求 OpenAI 兼容模型列表";
-    if (provider.identity.protocol === "api") return "通用 API 协议不提供账号级能力";
+    if (protocolDescriptor.value?.capabilities.account === false) {
+      return "当前协议不提供账号级能力";
+    }
     return "API Key 认证仅具备 Key 维度能力，不探测账号功能";
   }
 
   const capabilities = provider.capabilities;
   if (key === "checkIn") {
     if (!capabilities.checkInSupported) return "站点接口未确认可用的签到方式";
-    const modes = capabilities.checkInAuthModes.map((mode) => authModeLabels[mode]).join("、");
+    const modes = capabilities.checkInAuthModes
+      .map((mode) => authModeLabel(mode))
+      .join("、");
     return modes ? `可用认证方式：${modes}` : "站点支持签到";
   }
   if (key === "apiKeys") {
@@ -183,27 +187,25 @@ function parseScopedErrors(message: string) {
   return errors;
 }
 
-function checkInMethod(provider: Provider) {
-  if (provider.identity.protocol === "newApi") return "GET /api/user/checkin?month=YYYY-MM";
-  if (provider.identity.protocol === "sub2Api") return "按 Sub2API 协议声明判定";
-  return "通用 API 协议声明";
+function authModeLabel(mode: AuthMode) {
+  if (!props.provider) return mode;
+  return providerAuthModeDescriptor(props.providerProtocols, props.provider.identity.protocol, mode)?.label || mode;
 }
 
-function apiKeyMethod(provider: Provider) {
-  if (provider.identity.protocol === "newApi") return "GET /api/token/";
-  if (provider.identity.protocol === "sub2Api") return "Sub2API 密钥列表接口";
-  return "通用 API 协议声明";
+function checkInMethod() {
+  return protocolDescriptor.value?.operationMethods.checkIn || "协议未声明签到接口";
 }
 
-function invitationMethod(provider: Provider) {
-  if (provider.identity.protocol === "newApi") return "GET /api/user/aff";
-  if (provider.identity.protocol === "sub2Api") return "Sub2API 邀请信息接口";
-  return "通用 API 协议声明";
+function apiKeyMethod() {
+  return protocolDescriptor.value?.operationMethods.apiKeys || "协议未声明密钥管理接口";
 }
 
-function modelMethod(provider: Provider) {
-  const baseUrl = providerAgentBaseUrl(provider, "codex");
-  return baseUrl ? "GET OpenAI 兼容 /models" : "OpenAI 兼容模型接口";
+function invitationMethod() {
+  return protocolDescriptor.value?.operationMethods.invitation || "协议未声明邀请接口";
+}
+
+function modelMethod() {
+  return protocolDescriptor.value?.operationMethods.models || "OpenAI 兼容模型接口";
 }
 
 function formatTime(value: number | null) {
@@ -273,11 +275,11 @@ function durationLabel() {
       <section class="capability-probe-context" aria-label="探测上下文">
         <div>
           <span>协议</span>
-          <strong>{{ providerProtocolLabel(provider.identity.protocol) }}</strong>
+          <strong>{{ protocolDescriptor?.label || provider.identity.protocol }}</strong>
         </div>
         <div>
           <span>认证</span>
-          <strong>{{ providerAuthModeLabel(provider) }}</strong>
+          <strong>{{ authModeLabel(provider.auth.mode) }}</strong>
         </div>
         <div>
           <span>开始</span>

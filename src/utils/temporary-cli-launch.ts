@@ -1,14 +1,11 @@
 import type { TemporaryCliInstance } from "../stores/provider-types";
 
-export type TemporaryCliLaunchPhase = "waiting" | "confirming" | "ready";
-
 interface TemporaryCliLaunchMonitorOptions {
   timeoutMs?: number;
   pollIntervalMs?: number;
   stableForMs?: number;
   now?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
-  onProgress?: (percent: number, phase: TemporaryCliLaunchPhase) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -63,14 +60,10 @@ export async function waitForTemporaryCliStart(
       const observedAt = now();
       runningSince ??= observedAt;
       if (observedAt - runningSince >= stableForMs) {
-        options.onProgress?.(100, "ready");
         return instance;
       }
-      options.onProgress?.(94, "confirming");
     } else if (instance?.status === "starting" || instance === null) {
       runningSince = null;
-      const progress = 68 + Math.floor((Math.min(elapsed, timeoutMs) / timeoutMs) * 22);
-      options.onProgress?.(Math.min(90, progress), "waiting");
     }
 
     const remaining = Math.max(1, timeoutMs - Math.max(0, now() - startedAt));

@@ -1,4 +1,7 @@
-#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+#[cfg(any(
+    all(not(target_os = "macos"), not(target_os = "windows")),
+    all(target_os = "macos", test)
+))]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -14,17 +17,16 @@ use windows as platform;
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 use crate::services::agent_cli;
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 use crate::{limits, platform::process::run_command_with_output_timeout};
 use crate::{
-    models::{TemporaryCliTerminalKind, TemporaryTerminalProbeResult},
+    models::{AppSettings, TemporaryCliTerminalKind, TemporaryTerminalProbeResult},
     services::cli_runtime,
 };
-#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 use std::path::Path;
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 use std::process::Command;
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 use std::time::Duration;
 
 #[cfg(all(target_os = "macos", test))]
@@ -32,10 +34,51 @@ pub(super) use macos::{
     build_macos_ghostty_activation_applescript, build_macos_ghostty_applescript,
     build_macos_iterm2_applescript, build_macos_terminal_applescript, warp_launcher_script_path,
 };
-pub(super) use platform::{activate_terminal_target, open_script_in_terminal};
-pub use platform::{probe_available_terminals, probe_terminal};
 #[cfg(test)]
 pub(super) use windows::WINDOWS_POWERSHELL_SCRIPT_COMMAND;
+
+type TerminalProbe = fn() -> TemporaryTerminalProbeResult;
+type TerminalLauncher = fn(&Path, &Path) -> Result<TerminalLaunch, String>;
+type TerminalActivator = fn(&cli_runtime::CliTerminalLocator) -> Result<(), String>;
+
+#[derive(Clone, Copy)]
+pub(super) struct TerminalDefinition {
+    pub(super) kind: TemporaryCliTerminalKind,
+    probe: TerminalProbe,
+    launch: TerminalLauncher,
+    activate: Option<TerminalActivator>,
+}
+
+impl TerminalDefinition {
+    pub(super) const fn new(
+        kind: TemporaryCliTerminalKind,
+        probe: TerminalProbe,
+        launch: TerminalLauncher,
+        activate: Option<TerminalActivator>,
+    ) -> Self {
+        Self {
+            kind,
+            probe,
+            launch,
+            activate,
+        }
+    }
+
+    fn probe(&self) -> TemporaryTerminalProbeResult {
+        (self.probe)()
+    }
+
+    fn launch(&self, script: &Path, workdir: &Path) -> Result<TerminalLaunch, String> {
+        (self.launch)(script, workdir)
+    }
+
+    fn activate(&self, locator: &cli_runtime::CliTerminalLocator) -> Result<(), String> {
+        self.activate
+            .ok_or_else(|| "当前终端不支持精确定位临时 CLI 窗口".to_string())?(
+            locator,
+        )
+    }
+}
 
 pub(super) struct TerminalLaunch {
     pub(super) terminal_kind: TemporaryCliTerminalKind,
@@ -60,6 +103,46 @@ impl TerminalLaunch {
             locator: Some(locator),
         }
     }
+}
+
+fn definition(kind: TemporaryCliTerminalKind) -> Option<&'static TerminalDefinition> {
+    platform::definitions()
+        .iter()
+        .find(|definition| definition.kind == kind)
+}
+
+pub fn probe_available_terminals() -> Vec<TemporaryTerminalProbeResult> {
+    TemporaryCliTerminalKind::ALL
+        .iter()
+        .filter_map(|kind| definition(*kind))
+        .map(TerminalDefinition::probe)
+        .filter(|result| result.available)
+        .collect()
+}
+
+pub fn probe_terminal(kind: TemporaryCliTerminalKind) -> TemporaryTerminalProbeResult {
+    definition(kind).map_or_else(
+        || terminal_probe_unavailable(kind, kind.label(), "当前系统不支持该终端"),
+        TerminalDefinition::probe,
+    )
+}
+
+pub(super) fn open_script_in_terminal(
+    settings: &AppSettings,
+    script: &Path,
+    workdir: &Path,
+) -> Result<TerminalLaunch, String> {
+    definition(settings.temporary_cli_terminal_kind)
+        .ok_or_else(|| "当前系统不支持所选临时 CLI 终端".to_string())?
+        .launch(script, workdir)
+}
+
+pub(super) fn activate_terminal_target(
+    target: &cli_runtime::CliTerminalActivationTarget,
+) -> Result<(), String> {
+    definition(target.terminal_kind)
+        .ok_or_else(|| "当前系统不支持所选临时 CLI 终端".to_string())?
+        .activate(&target.locator)
 }
 
 pub(super) fn terminal_probe_available(
@@ -90,7 +173,7 @@ pub(super) fn terminal_probe_unavailable(
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 pub(super) fn probe_terminal_command(
     kind: TemporaryCliTerminalKind,
     name: &str,
@@ -131,7 +214,7 @@ pub(super) fn probe_terminal_command(
     terminal_probe_available(kind, name, version)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 pub(super) fn spawn_visible_command(command: &mut Command, context: &str) -> Result<(), String> {
     command
         .stdin(std::process::Stdio::null())
@@ -140,4 +223,89 @@ pub(super) fn spawn_visible_command(command: &mut Command, context: &str) -> Res
         .spawn()
         .map(|_| ())
         .map_err(|err| format!("{context}: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn assert_registry_is_valid(
+        platform_name: &str,
+        definitions: &[TerminalDefinition],
+        expected_default: TemporaryCliTerminalKind,
+    ) {
+        let kinds = definitions
+            .iter()
+            .map(|definition| definition.kind)
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            kinds.len(),
+            definitions.len(),
+            "{platform_name} 终端注册表存在重复 kind"
+        );
+        assert!(
+            kinds.contains(&expected_default),
+            "{platform_name} 终端注册表缺少默认终端 {expected_default:?}"
+        );
+        assert!(
+            kinds
+                .iter()
+                .all(|kind| TemporaryCliTerminalKind::ALL.contains(kind)),
+            "{platform_name} 终端注册表包含未登记的 kind"
+        );
+    }
+
+    #[test]
+    fn terminal_identity_catalog_has_unique_keys() {
+        let keys = TemporaryCliTerminalKind::ALL
+            .iter()
+            .map(|kind| serde_json::to_string(kind).expect("serialize terminal kind"))
+            .collect::<HashSet<_>>();
+        assert_eq!(keys.len(), TemporaryCliTerminalKind::ALL.len());
+        assert!(TemporaryCliTerminalKind::ALL
+            .iter()
+            .all(|kind| !kind.label().is_empty()));
+    }
+
+    #[test]
+    fn native_terminal_registry_has_unique_supported_kinds() {
+        assert_registry_is_valid(
+            "当前平台",
+            platform::definitions(),
+            TemporaryCliTerminalKind::default(),
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_terminal_registry_is_valid() {
+        assert_registry_is_valid(
+            "macOS",
+            macos::definitions(),
+            TemporaryCliTerminalKind::Terminal,
+        );
+    }
+
+    #[cfg(any(
+        all(not(target_os = "macos"), not(target_os = "windows")),
+        target_os = "macos"
+    ))]
+    #[test]
+    fn linux_terminal_registry_is_valid() {
+        assert_registry_is_valid(
+            "Linux",
+            linux::definitions(),
+            TemporaryCliTerminalKind::Terminal,
+        );
+    }
+
+    #[test]
+    fn windows_terminal_registry_is_valid() {
+        assert_registry_is_valid(
+            "Windows",
+            windows::definitions(),
+            TemporaryCliTerminalKind::WindowsTerminal,
+        );
+    }
 }
