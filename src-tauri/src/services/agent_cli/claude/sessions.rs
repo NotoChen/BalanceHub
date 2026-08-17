@@ -1,5 +1,5 @@
-use super::{clean_text, first_non_empty, normalize_timestamp};
-use crate::models::{CliSessionMetadataSource, CliSessionSummary, LivenessCliKind};
+use crate::services::cli_sessions::{clean_text, first_non_empty, normalize_timestamp};
+use crate::models::{AgentCliKind, CliSessionSummary};
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
@@ -8,8 +8,11 @@ use std::{
     path::Path,
 };
 
-pub(super) fn list(workdir: &Path) -> Result<Vec<CliSessionSummary>, String> {
-    let projects = crate::services::cli_paths::claude_config_dir()
+pub(super) fn list(
+    cli_kind: AgentCliKind,
+    workdir: &Path,
+) -> Result<Vec<CliSessionSummary>, String> {
+    let projects = super::config::config_dir()
         .map(|config_dir| config_dir.join("projects"))
         .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
     let encoded = encode_project_path(workdir);
@@ -37,7 +40,7 @@ pub(super) fn list(workdir: &Path) -> Result<Vec<CliSessionSummary>, String> {
     let mut last_error = None;
     let mut failed_files = 0;
     for path in files.iter() {
-        match parse_transcript(path, workdir) {
+        match parse_transcript(cli_kind, path, workdir) {
             Ok(Some(session)) if session.can_resume => sessions.push(session),
             Ok(_) => {}
             Err(error) => {
@@ -53,6 +56,7 @@ pub(super) fn list(workdir: &Path) -> Result<Vec<CliSessionSummary>, String> {
 }
 
 fn parse_transcript(
+    cli_kind: AgentCliKind,
     path: &Path,
     expected_workdir: &Path,
 ) -> Result<Option<CliSessionSummary>, String> {
@@ -109,14 +113,14 @@ fn parse_transcript(
         preview,
         model,
         models,
-        cli_kind: LivenessCliKind::ClaudeCode,
+        cli_kind,
         created_at: normalize_timestamp(summary.created_at.as_deref()),
         updated_at: normalize_timestamp(summary.updated_at.as_deref()),
         workdir,
         cli_version: summary.cli_version.and_then(|value| clean_text(value, 50)),
         archived: false,
         can_resume: true,
-        metadata_source: CliSessionMetadataSource::ClaudeTranscript,
+        metadata_source: "claudeTranscript".to_string(),
     }))
 }
 
@@ -257,6 +261,7 @@ fn encode_project_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{encode_project_path, message_text, parse_transcript};
+    use crate::models::AgentCliKind;
     use serde_json::json;
     use std::{fs, path::Path};
 
@@ -338,7 +343,9 @@ mod tests {
         .collect::<Vec<_>>()
         .join("\n");
         fs::write(&transcript, lines).unwrap();
-        let summary = parse_transcript(&transcript, &root).unwrap().unwrap();
+        let summary = parse_transcript(AgentCliKind::ClaudeCode, &transcript, &root)
+            .unwrap()
+            .unwrap();
         assert_eq!(summary.preview.as_deref(), Some("actual request"));
         fs::remove_dir_all(root).unwrap();
     }
@@ -362,7 +369,9 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let summary = parse_transcript(&transcript, &root).unwrap().unwrap();
+        let summary = parse_transcript(AgentCliKind::ClaudeCode, &transcript, &root)
+            .unwrap()
+            .unwrap();
         assert_eq!(summary.workdir, root.to_string_lossy());
         fs::remove_dir_all(root).unwrap();
     }
@@ -405,7 +414,9 @@ mod tests {
         .collect::<Vec<_>>()
         .join("\n");
         fs::write(&transcript, lines).unwrap();
-        let summary = parse_transcript(&transcript, &root).unwrap().unwrap();
+        let summary = parse_transcript(AgentCliKind::ClaudeCode, &transcript, &root)
+            .unwrap()
+            .unwrap();
         assert_eq!(summary.id, "session-1");
         assert_eq!(summary.title, "修复历史会话");
         assert_eq!(summary.preview.as_deref(), Some("first request"));

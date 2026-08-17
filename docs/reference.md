@@ -17,14 +17,14 @@
 | 签到记录 | 展示每日签到结果和余额增量。 | `src/components/CheckInCalendarModal.vue`、`src-tauri/src/adapters/new_api/check_in/records.rs` | 兼容站点返回的显示额度和 NewAPI 原始额度单位转换。 |
 | 用量趋势 | 查看周期内请求量和额度消耗趋势。 | `src/components/UsageTrendModal.vue`、`src/composables/useUsageTrendChart.ts`、`src-tauri/src/adapters/new_api/usage.rs`、`src-tauri/src/adapters/sub2_api/usage.rs` | 用于判断站点消耗变化、请求峰值和账户使用节奏。 |
 | 请求日志 | 查看模型请求记录、状态、Token 和消耗。 | `src/components/RequestLogsModal.vue`、`src-tauri/src/adapters/new_api/logs.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 消耗金额沿用站点元数据中的额度单位、货币符号和换算规则。 |
-| API Key 管理 | 查看、创建、删除中转站 API Key，并读取 Key 额度。 | `src/components/ApiKeyManagerModal.vue`、`src-tauri/src/adapters/new_api/keys.rs`、`src-tauri/src/adapters/sub2_api/keys.rs` | 适合从桌面端快速生成 Codex / Claude Code 使用的 Key。 |
+| API Key 管理 | 查看、创建、删除中转站 API Key，并读取 Key 额度。 | `src/components/ApiKeyManagerModal.vue`、`src-tauri/src/adapters/new_api/keys.rs`、`src-tauri/src/adapters/sub2_api/keys.rs` | 适合从桌面端快速生成 Agent CLI 使用的 Key。 |
 | 修改密码 | 在支持的账号协议上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/adapters/new_api/account.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 仅在协议、站点能力和认证信息满足要求时展示操作入口。 |
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
-| CLI 测活 | 使用 Codex / Claude Code CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness/command.rs`、`src-tauri/src/services/liveness/process.rs` | 测活会消耗真实额度，首次开启自动测活前会要求确认。 |
-| CLI 候选扫描 | 扫描本机 Codex / Claude Code 可执行文件。 | `src-tauri/src/services/liveness/cli.rs`、`src/components/settings/SettingsCliManager.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
-| 临时 CLI 启动 | 使用当前中转站临时启动 Codex / Claude Code CLI。 | `src-tauri/src/services/temporary_cli/`、`src/components/ProviderCard.vue`、`src/composables/useProviderActions.ts` | 覆盖 API Key、Base URL、模型和当前中转站的有效代理；工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
+| CLI 测活 | 使用已注册的 Agent CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness.rs`、`src-tauri/src/services/agent_cli/<agent>/liveness.rs` | 当前内置 Codex CLI、Claude Code、Gemini CLI、Grok Build；测活会消耗真实额度，首次开启自动测活前会要求确认。 |
+| CLI 候选扫描 | 扫描本机已注册 Agent CLI 的可执行文件。 | `src-tauri/src/services/agent_cli/discovery.rs`、`src/components/settings/SettingsCliManager.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
+| 临时 CLI 启动 | 使用当前中转站临时启动已注册的 Agent CLI。 | `src-tauri/src/services/temporary_cli/`、`src-tauri/src/services/agent_cli/<agent>/launch.rs`、`src/components/TemporaryCliModal.vue` | 覆盖 API Key、Base URL、模型和当前中转站的有效代理；工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
 | 统一代理 | 为业务请求、Webhook、updater、测活 CLI 和临时 CLI 解析同一套代理语义。 | `src-tauri/src/network/` | 支持无代理、自定义 HTTP/SOCKS 代理及系统手工 HTTP/HTTPS/SOCKS 配置；PAC/WPAD 或无法静态读取的桌面配置保留运行环境，不虚构已解析结果。 |
-| CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/commands/app.rs`、`src-tauri/src/platform/cc_switch.rs` | 支持 Codex、Claude Code、OpenCode、OpenClaw、Hermes 目标；macOS 优先定位 CC Switch bundle，其他情况交给安全的系统处理器。 |
+| CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/commands/app.rs`、`src-tauri/src/platform/cc_switch.rs` | 支持 Codex CLI、Claude Code、OpenCode、OpenClaw、Hermes 目标；macOS 优先定位 CC Switch bundle，其他情况交给安全的系统处理器。 |
 | 测活时间线 | 保存并展示每个中转站最近的测活结果。 | `src/components/ProviderLivenessTimeline.vue`、`src/utils/provider-liveness.ts` | 用于区分余额正常但 CLI 不可用、模型不可用或网络异常。 |
 | 系统通知 | 对自动刷新、自动签到等结果发出系统通知。 | `src-tauri/src/services/notifications/adapters/system.rs` | 系统通知使用纯文本内容，避免显示 Markdown 语法。 |
 | Webhook 通知 | 通过钉钉、企业微信、飞书、Slack 或通用 Webhook 推送消息。 | `src-tauri/src/services/notifications/adapters/` | 不同渠道按各自消息格式发送，并处理签名和返回校验。 |
@@ -67,7 +67,9 @@ Vue 3 UI
             -> adapters/new_api
             -> adapters/sub2_api
             -> adapters/api
-          -> services/liveness 执行 CLI 测活
+          -> services/agent_cli 注册 Agent 能力 Adapter
+            -> services/liveness 执行 CLI 测活
+            -> services/temporary_cli 启动临时 CLI
           -> services/notifications 发送通知
           -> storage.rs 读写本地配置
 ```
@@ -85,7 +87,7 @@ Vue 3 UI
 │   ├── index.html                    # 项目主页
 │   ├── getting-started.md            # 快速开始
 │   ├── provider-config.md            # 中转站配置说明
-│   ├── liveness.md                   # Codex / Claude Code 测活说明
+│   ├── liveness.md                   # Agent CLI 测活说明
 │   ├── release.md                    # 发布包和自动更新说明
 │   ├── faq.md                        # 常见问题
 │   ├── reference.md                  # 功能与架构参考

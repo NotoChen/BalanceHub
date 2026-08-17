@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, type CSSProperties } from "vue";
 import ProviderCard from "./ProviderCard.vue";
-import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
+import type { CliRuntimeSnapshot, AgentCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 import {
@@ -22,7 +22,7 @@ const props = defineProps<{
   livenessProviders: Provider[];
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
-  switchingCliConfig: { providerId: string; cliKind: LivenessCliKind } | null;
+  switchingCliConfig: { providerId: string; cliKind: AgentCliKind } | null;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
   providerDrag: ProviderDragState;
@@ -42,7 +42,7 @@ const emit = defineEmits<{
   toggle: [provider: Provider];
   refresh: [provider: Provider];
   probeCapabilities: [provider: Provider];
-  launchTemporaryCli: [provider: Provider, cliKind?: LivenessCliKind];
+  launchTemporaryCli: [provider: Provider, cliKind?: AgentCliKind];
   edit: [provider: Provider];
   checkIn: [provider: Provider];
   openApiKeyManager: [provider: Provider];
@@ -57,8 +57,8 @@ const emit = defineEmits<{
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
-  openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
-  switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
+  openCliInstances: [provider: Provider, cliKind: AgentCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
   clearSearch: [];
 }>();
 
@@ -73,30 +73,26 @@ const apiKeyProviders = computed(() =>
 const visibleProviderCount = computed(
   () => filteredLivenessProviders.value.length + filteredRegularProviders.value.length,
 );
-function providerIsCliDefault(provider: Provider, cliKind: LivenessCliKind) {
-  return props.cliRuntime[cliKind].providerId === provider.identity.id;
+function providerDefaultCliKinds(provider: Provider) {
+  return props.cliRuntime.configs
+    .filter((snapshot) => snapshot.providerId === provider.identity.id)
+    .map((snapshot) => snapshot.cliKind);
 }
 
 function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
-  return Object.entries(props.cliRuntime)
-    .filter(
-      ([key, snapshot]) =>
-        key !== "instances" &&
-        typeof snapshot === "object" &&
-        snapshot !== null &&
-        "providerId" in snapshot &&
-        snapshot.providerId === provider.identity.id,
-    )
-    .map(([key]) => providerCardCliOrbitSpec(key));
+  return providerDefaultCliKinds(provider).map((kind) => providerCardCliOrbitSpec(kind));
 }
 
-function providerActiveCliCount(provider: Provider, cliKind: LivenessCliKind) {
-  return props.cliRuntime.instances.filter(
-    (instance) =>
-      instance.providerId === provider.identity.id &&
-      instance.cliKind === cliKind &&
-      instance.status !== "exited",
-  ).length;
+function providerActiveCliCounts(provider: Provider) {
+  return props.cliRuntime.instances.reduce<Partial<Record<AgentCliKind, number>>>(
+    (counts, instance) => {
+      if (instance.providerId === provider.identity.id && instance.status !== "exited") {
+        counts[instance.cliKind] = (counts[instance.cliKind] || 0) + 1;
+      }
+      return counts;
+    },
+    {},
+  );
 }
 
 function providerSwitchingCliKind(provider: Provider) {
@@ -133,11 +129,9 @@ function providerSwitchingCliKind(provider: Provider) {
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="true"
-          :codex-default="providerIsCliDefault(provider, 'codex')"
-          :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :default-cli-kinds="providerDefaultCliKinds(provider)"
           :cli-orbits="providerCliOrbits(provider)"
-          :codex-active-cli-count="providerActiveCliCount(provider, 'codex')"
-          :claude-active-cli-count="providerActiveCliCount(provider, 'claudeCode')"
+          :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
@@ -184,11 +178,9 @@ function providerSwitchingCliKind(provider: Provider) {
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="false"
-          :codex-default="providerIsCliDefault(provider, 'codex')"
-          :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :default-cli-kinds="providerDefaultCliKinds(provider)"
           :cli-orbits="providerCliOrbits(provider)"
-          :codex-active-cli-count="providerActiveCliCount(provider, 'codex')"
-          :claude-active-cli-count="providerActiveCliCount(provider, 'claudeCode')"
+          :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
@@ -235,11 +227,9 @@ function providerSwitchingCliKind(provider: Provider) {
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="false"
-          :codex-default="providerIsCliDefault(provider, 'codex')"
-          :claude-default="providerIsCliDefault(provider, 'claudeCode')"
+          :default-cli-kinds="providerDefaultCliKinds(provider)"
           :cli-orbits="providerCliOrbits(provider)"
-          :codex-active-cli-count="providerActiveCliCount(provider, 'codex')"
-          :claude-active-cli-count="providerActiveCliCount(provider, 'claudeCode')"
+          :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
@@ -294,11 +284,9 @@ function providerSwitchingCliKind(provider: Provider) {
       :interactive="false"
       :drag-style="dragStyle"
       :show-liveness-timeline="showLivenessTimeline(draggedProvider)"
-      :codex-default="providerIsCliDefault(draggedProvider, 'codex')"
-      :claude-default="providerIsCliDefault(draggedProvider, 'claudeCode')"
+      :default-cli-kinds="providerDefaultCliKinds(draggedProvider)"
       :cli-orbits="providerCliOrbits(draggedProvider)"
-      :codex-active-cli-count="providerActiveCliCount(draggedProvider, 'codex')"
-      :claude-active-cli-count="providerActiveCliCount(draggedProvider, 'claudeCode')"
+      :active-cli-counts="providerActiveCliCounts(draggedProvider)"
       aria-hidden
     />
   </section>

@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { IconLoading } from "@arco-design/web-vue/es/icon";
-import type { LivenessCliKind } from "../stores/providers";
-import { cliKindMeta } from "../utils/cli-environment";
+import type { AgentCliKind } from "../stores/providers";
 import type { SelectOption } from "../utils/liveness-options";
-import BrandIcon from "./BrandIcon.vue";
+import AgentCliIcon from "./AgentCliIcon.vue";
 
 withDefaults(
   defineProps<{
-    modelValue: LivenessCliKind;
-    options: SelectOption<LivenessCliKind>[];
+    modelValue: AgentCliKind;
+    options: SelectOption<AgentCliKind>[];
     disabled?: boolean;
     loading?: boolean;
     emptyLabel?: string;
@@ -21,7 +20,7 @@ withDefaults(
 );
 
 const emit = defineEmits<{
-  "update:modelValue": [value: LivenessCliKind];
+  "update:modelValue": [value: AgentCliKind];
 }>();
 </script>
 
@@ -40,7 +39,7 @@ const emit = defineEmits<{
       role="radio"
       @click="emit('update:modelValue', option.value)"
     >
-      <BrandIcon :brand="cliKindMeta[option.value].brand" :size="20" />
+      <AgentCliIcon :kind="option.value" :size="20" />
     </button>
     <span v-if="options.length === 0" class="environment-icon-empty">
       <IconLoading v-if="loading" />

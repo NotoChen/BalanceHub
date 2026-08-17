@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     models::{AppSettings, TemporaryCliTerminalKind, TemporaryTerminalProbeResult},
-    services::{cli_runtime, liveness::LivenessRunner},
+    services::{agent_cli, cli_runtime},
 };
 use std::{env, ffi::OsString, path::Path, process::Command};
 
@@ -106,7 +106,7 @@ fn linux_command_available(binary: &std::ffi::OsStr) -> bool {
     if binary_path.components().count() > 1 {
         return executable(binary_path);
     }
-    LivenessRunner::runtime_path_for_cli(binary_path)
+    agent_cli::runtime_path_for(binary_path)
         .map(|path| env::split_paths(&path).any(|dir| executable(&dir.join(binary))))
         .unwrap_or(false)
 }
@@ -117,7 +117,7 @@ fn linux_terminal_command(candidate: &LinuxTerminalCandidate, script: &Path) -> 
         command.arg("-e");
     }
     command.arg(script);
-    if let Some(path) = LivenessRunner::runtime_path_for_cli(Path::new(&candidate.binary)) {
+    if let Some(path) = agent_cli::runtime_path_for(Path::new(&candidate.binary)) {
         command.env("PATH", path);
     }
     command
@@ -214,7 +214,7 @@ fn open_linux_default(script: &Path) -> Result<(), String> {
 fn open_linux_command(binary: &str, args: &[&str], script: &Path) -> Result<(), String> {
     let mut command = Command::new(binary);
     command.args(args).arg(script);
-    if let Some(path) = LivenessRunner::runtime_path_for_cli(Path::new(binary)) {
+    if let Some(path) = agent_cli::runtime_path_for(Path::new(binary)) {
         command.env("PATH", path);
     }
     spawn_visible_command(&mut command, &format!("无法调用 {binary}"))

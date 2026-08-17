@@ -1,16 +1,17 @@
 use crate::{
     adapters::{detector::ProtocolDetector, protocol::ProtocolAdapter},
     models::{
-        normalize_invite_link, provider_domain, AuthMode, CodexModelSyncResult, Provider,
-        ProviderCapabilityProbeResult, ProviderInput, ProviderProtocol,
-        ProviderProtocolDetectionResult, ProviderSiteProbeResult,
+        normalize_invite_link, provider_domain, AuthMode, Provider, ProviderCapabilityProbeResult,
+        ProviderInput, ProviderModelSyncResult, ProviderProtocol, ProviderProtocolDetectionResult,
+        ProviderSiteProbeResult,
     },
     util::unix_millis as current_timestamp_millis,
 };
 use tauri::Manager;
 
 use super::{
-    codex_models::fetch_codex_models, find_provider, ProviderRequestContext, ProviderService,
+    available_models::fetch_available_models, find_provider, ProviderRequestContext,
+    ProviderService,
 };
 
 impl<'a> ProviderService<'a> {
@@ -75,7 +76,7 @@ impl<'a> ProviderService<'a> {
             .unwrap_or(request_context);
         let (mut capabilities, invite_link, error) = operation.value;
         let models_result = if provider_domain::auth::has_api_key(&operation.provider) {
-            Some(fetch_codex_models(&data.settings, &operation.provider).await)
+            Some(fetch_available_models(&data.settings, &operation.provider).await)
         } else {
             None
         };
@@ -125,11 +126,14 @@ impl<'a> ProviderService<'a> {
         })
     }
 
-    pub async fn sync_codex_models(&self, id: String) -> Result<CodexModelSyncResult, String> {
+    pub async fn sync_available_models(
+        &self,
+        id: String,
+    ) -> Result<ProviderModelSyncResult, String> {
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
-        let models = fetch_codex_models(&data.settings, &provider).await?;
+        let models = fetch_available_models(&data.settings, &provider).await?;
         let stored_models = models.clone();
         let provider_id = id.clone();
         let mutation_context = request_context.clone();
@@ -151,7 +155,7 @@ impl<'a> ProviderService<'a> {
             .await?;
         let updated_provider =
             updated_provider.ok_or_else(|| "本地配置已变更，本次模型列表结果已忽略".to_string())?;
-        Ok(CodexModelSyncResult {
+        Ok(ProviderModelSyncResult {
             providers,
             provider: updated_provider,
             message: format!("已获取 {} 个模型", models.len()),

@@ -1,11 +1,11 @@
 import { computed, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
-import type { CodexModelSyncResult, Provider } from "../stores/providers";
+import type { ProviderModelSyncResult, Provider } from "../stores/providers";
 import { copyText } from "./useClipboard";
 
 interface UseAvailableModelsOptions {
   providers: { value: Provider[] };
-  syncModels: (providerId: string) => Promise<CodexModelSyncResult>;
+  syncModels: (providerId: string) => Promise<ProviderModelSyncResult>;
 }
 
 export function useAvailableModels(options: UseAvailableModelsOptions) {

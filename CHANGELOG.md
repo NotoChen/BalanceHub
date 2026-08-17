@@ -2,6 +2,27 @@
 
 BalanceHub 的重要变更会记录在这里。
 
+## 0.5.1
+
+### 新增
+
+- 新增统一 Agent CLI 注册表与能力适配层，内置 Codex CLI、Claude Code、Gemini CLI 和 Grok Build，并按各自官方能力提供路径发现、临时启动、模型选择、历史会话、测活和默认配置管理。
+- 新增 Gemini CLI 与 Grok Build 的历史会话读取、指定会话恢复、模型与 Token 统计、默认配置预览编辑及切换能力。
+- 新增通用 Agent 图标组件和卡片边缘轨道展示；设置页 Agent 卡片改为响应式排列，名称下仅展示版本号，完整版本与可执行路径通过悬浮提示查看。
+
+### 变更
+
+- Codex CLI 与 Claude Code 迁移到统一 Agent CLI 架构，临时 CLI、测活、会话、配置、可用模型和路径扫描改为复用同一份 Rust 能力契约与动态前端结构。
+- 新增 Agent 时只需登记 catalog、实现对应能力 Adapter 并补充前端视觉资源；移除原 Codex、Claude Code 专用的重复编排、配置、会话和测活实现。
+- 会话列表根据 Agent 的实际数据源解析标题、模型、时间和 Resume ID，过滤无有效内容的空会话，并根据能力动态展示新会话、命名与恢复入口。
+- 统一官方产品名称为 Codex CLI、Claude Code、Gemini CLI 和 Grok Build，并同步更新 README、Pages、使用说明和架构文档。
+
+### 修复
+
+- 修复 Claude Code 会话标题误取首条短消息、不同 Agent 路径与环境变量硬编码，以及新增 Agent 时需要修改多处通用编排的问题。
+- 修复 Agent 默认配置、临时 CLI 预览和测活流程中部分能力状态、Base URL、模型与配置路径未按所选 Agent 动态处理的问题。
+- 将传递依赖 `nanoid` 升级至 3.3.18，修复自定义生成器在零长度输入下可能无限循环的高危依赖问题。
+
 ## 0.5.0
 
 ### 修复

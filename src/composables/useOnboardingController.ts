@@ -21,10 +21,8 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
   const onboardingProviderCount = computed(() => options.providers.value.length);
   const onboardingCliConfigured = computed(() =>
     Boolean(
-      options.settings.value.codexCliPath.trim() ||
-        options.settings.value.claudeCliPath.trim() ||
-        options.settingsForm.codexCliPath.trim() ||
-        options.settingsForm.claudeCliPath.trim(),
+      Object.values(options.settings.value.agentCliPaths).some((path) => path?.trim()) ||
+        Object.values(options.settingsForm.agentCliPaths).some((path) => path?.trim()),
     ),
   );
   const onboardingVisible = computed(

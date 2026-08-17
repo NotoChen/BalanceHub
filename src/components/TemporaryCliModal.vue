@@ -8,15 +8,21 @@ import {
   IconRefresh,
 } from "@arco-design/web-vue/es/icon";
 import { Cpu, FolderOpen, Terminal } from "@lucide/vue";
-import type { LivenessCliKind, Provider, TemporaryCliInstance } from "../stores/providers";
+import {
+  useProviderStore,
+  type AgentCliKind,
+  type Provider,
+  type TemporaryCliInstance,
+} from "../stores/providers";
+import { agentCliLabel } from "../utils/cli-environment";
 import { copyText } from "../composables/useClipboard";
-import BrandIcon, { type BrandIconName } from "./BrandIcon.vue";
+import AgentCliIcon from "./AgentCliIcon.vue";
 import TerminalBrandIcon from "./TerminalBrandIcon.vue";
 
 const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
-  cliKind: LivenessCliKind | null;
+  cliKind: AgentCliKind | null;
   loading: boolean;
   instances: TemporaryCliInstance[];
   activatingId: string | null;
@@ -27,16 +33,13 @@ const emit = defineEmits<{
   refresh: [];
   activate: [instance: TemporaryCliInstance];
 }>();
+const store = useProviderStore();
 
 const title = computed(() => props.provider?.identity.name || "活动 CLI");
 const selectedCliLabel = computed(() => (props.cliKind ? cliLabel(props.cliKind) : "CLI"));
 
 function cliLabel(kind: TemporaryCliInstance["cliKind"]) {
-  return kind === "codex" ? "Codex" : "Claude Code";
-}
-
-function cliBrand(kind: TemporaryCliInstance["cliKind"]): BrandIconName {
-  return kind === "codex" ? "codex" : "claude";
+  return agentCliLabel(store.cliEnvironmentProbe, kind);
 }
 
 function statusLabel(status: TemporaryCliInstance["status"]) {
@@ -148,7 +151,7 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
               <div class="temporary-cli-runtime-pair">
                 <div class="temporary-cli-runtime-item">
                   <span class="temporary-cli-agent-icon">
-                    <BrandIcon :brand="cliBrand(instance.cliKind)" :size="22" />
+                    <AgentCliIcon :kind="instance.cliKind" :size="22" />
                   </span>
                   <span class="temporary-cli-runtime-copy">
                     <small>智能体</small>

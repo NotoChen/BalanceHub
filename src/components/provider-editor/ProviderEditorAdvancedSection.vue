@@ -11,12 +11,15 @@ import {
 import type { SelectOptionData } from "@arco-design/web-vue";
 import type {
   AppSettings,
-  LivenessCliKind,
+  AgentCliKind,
   ProviderInput,
   ProviderNotificationMode,
 } from "../../stores/providers";
 import { useProviderStore } from "../../stores/providers";
-import { availableCliOptions } from "../../utils/cli-environment";
+import {
+  availableCliOptions,
+  registeredCliTools,
+} from "../../utils/cli-environment";
 import {
   durationUnitOptions,
   durationValueToSeconds,
@@ -25,8 +28,8 @@ import {
 } from "../../utils/duration";
 import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
 import {
-  codexIntervalModeOptions,
-  codexPromptModeOptions,
+  livenessIntervalModeOptions,
+  livenessPromptModeOptions,
   providerProxyModeOptions,
   type SelectOption,
 } from "./options";
@@ -42,7 +45,13 @@ const props = defineProps<{
 }>();
 
 const store = useProviderStore();
-const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe));
+const cliOptions = computed(() => availableCliOptions(store.cliEnvironmentProbe, "liveness"));
+const agentEndpointOptions = computed(() =>
+  registeredCliTools(store.cliEnvironmentProbe).map((tool) => ({
+    kind: tool.kind,
+    label: `${tool.label} Base URL`,
+  })),
+);
 
 const refreshUnit = ref<DurationUnit>("minute");
 const fixedLivenessUnit = ref<DurationUnit>("minute");
@@ -132,7 +141,7 @@ function onLivenessModeChange(value: unknown) {
 
 const livenessCliKindModel = computed({
   get: () => props.draft.liveness.cliKind || props.settings.livenessCliKind,
-  set: (value: LivenessCliKind) => {
+  set: (value: AgentCliKind) => {
     props.draft.liveness.cliKind = value;
   },
 });
@@ -274,18 +283,24 @@ function minLivenessAmount(unit: DurationUnit) {
             </a-form-item>
           </div>
 
-          <div class="provider-field-grid">
-            <a-form-item class="provider-field" label="OpenAI Base URL">
-              <a-input v-model="draft.liveness.openaiBaseUrl" placeholder="留空使用中转站地址" allow-clear />
-            </a-form-item>
-            <a-form-item class="provider-field" label="Anthropic Base URL">
-              <a-input v-model="draft.liveness.anthropicBaseUrl" placeholder="留空使用中转站地址" allow-clear />
+          <div class="provider-field-grid provider-field-grid-three">
+            <a-form-item
+              v-for="option in agentEndpointOptions"
+              :key="option.kind"
+              class="provider-field"
+              :label="option.label"
+            >
+              <a-input
+                v-model="draft.liveness.agentBaseUrls[option.kind]"
+                placeholder="留空使用中转站地址"
+                allow-clear
+              />
             </a-form-item>
           </div>
 
           <div class="provider-field-grid provider-field-grid-three">
             <a-form-item class="provider-field" label="周期策略">
-              <a-select v-model="draft.liveness.intervalMode" :options="codexIntervalModeOptions" />
+              <a-select v-model="draft.liveness.intervalMode" :options="livenessIntervalModeOptions" />
             </a-form-item>
             <a-form-item v-if="draft.liveness.intervalMode === 'fixed'" class="provider-field provider-field-span-two" label="执行周期">
               <div class="duration-control">
@@ -311,7 +326,7 @@ function minLivenessAmount(unit: DurationUnit) {
 
           <div class="provider-field-grid">
             <a-form-item class="provider-field" label="话术策略">
-              <a-select v-model="draft.liveness.promptMode" :options="codexPromptModeOptions" />
+              <a-select v-model="draft.liveness.promptMode" :options="livenessPromptModeOptions" />
             </a-form-item>
             <a-form-item v-if="draft.liveness.promptMode === 'fixed'" class="provider-field" label="固定话术">
               <a-textarea

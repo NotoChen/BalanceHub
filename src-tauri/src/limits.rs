@@ -28,20 +28,43 @@ pub const MAX_CHECK_IN_RECORDS: usize = 730;
 pub const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 16;
 pub const MAX_SITE_METADATA_CACHE_ENTRIES: usize = 128;
 pub const MAX_SHIELD_CACHE_ENTRIES: usize = 64;
+pub const MAX_AGENT_CLI_PATH_CHARS: usize = 4_096;
 
-pub fn normalize_settings(settings: &mut AppSettings) {
-    settings.liveness_timeout = settings
+pub fn normalize_settings(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+    for path in settings.agent_cli_paths.values_mut() {
+        let normalized = path
+            .trim()
+            .chars()
+            .take(MAX_AGENT_CLI_PATH_CHARS)
+            .collect::<String>();
+        changed |= *path != normalized;
+        *path = normalized;
+    }
+    let path_count = settings.agent_cli_paths.len();
+    settings.agent_cli_paths.retain(|_, path| !path.is_empty());
+    changed |= path_count != settings.agent_cli_paths.len();
+    let timeout = settings
         .liveness_timeout
         .clamp(10, MAX_LIVENESS_TIMEOUT_SECS);
+    changed |= settings.liveness_timeout != timeout;
+    settings.liveness_timeout = timeout;
+    let prompt_count = settings.liveness_prompt_library.len();
     settings
         .liveness_prompt_library
         .truncate(MAX_LIVENESS_PROMPTS);
+    changed |= prompt_count != settings.liveness_prompt_library.len();
+    let pool_count = settings.liveness_placeholder_pools.len();
     settings
         .liveness_placeholder_pools
         .truncate(MAX_PLACEHOLDER_POOLS);
+    changed |= pool_count != settings.liveness_placeholder_pools.len();
     for pool in &mut settings.liveness_placeholder_pools {
+        let value_count = pool.values.len();
         pool.values.truncate(MAX_PLACEHOLDER_VALUES);
+        changed |= value_count != pool.values.len();
     }
+    changed
 }
 
 pub fn normalize_provider(provider: &mut Provider) -> bool {
@@ -109,9 +132,7 @@ pub fn normalize_provider(provider: &mut Provider) -> bool {
 }
 
 pub fn normalize_app_data(data: &mut AppData) -> bool {
-    let previous_timeout = data.settings.liveness_timeout;
-    normalize_settings(&mut data.settings);
-    let mut changed = data.settings.liveness_timeout != previous_timeout;
+    let mut changed = normalize_settings(&mut data.settings);
     for provider in &mut data.providers {
         changed |= normalize_provider(provider);
     }
@@ -161,7 +182,28 @@ pub fn site_logo_allowed(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Provider, ProviderInput};
+    use crate::models::{AgentCliKind, Provider, ProviderInput};
+
+    #[test]
+    fn normalization_bounds_and_trims_agent_cli_paths() {
+        let mut settings = AppSettings::default();
+        settings.agent_cli_paths.insert(
+            AgentCliKind::Codex,
+            format!("  {}  ", "x".repeat(MAX_AGENT_CLI_PATH_CHARS + 10)),
+        );
+        settings
+            .agent_cli_paths
+            .insert(AgentCliKind::ClaudeCode, "   ".to_string());
+
+        assert!(normalize_settings(&mut settings));
+        assert_eq!(
+            settings.agent_cli_path(AgentCliKind::Codex).chars().count(),
+            MAX_AGENT_CLI_PATH_CHARS
+        );
+        assert!(!settings
+            .agent_cli_paths
+            .contains_key(&AgentCliKind::ClaudeCode));
+    }
 
     #[test]
     fn normalization_bounds_provider_runtime_collections() {

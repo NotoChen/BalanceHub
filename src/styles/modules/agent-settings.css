@@ -202,40 +202,7 @@
   color: #d25f00;
 }
 
-.codex-command-preview {
-  display: grid;
-  gap: 8px;
-}
-
-.codex-command-preview > span {
-  color: #86909c;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.codex-command-preview code {
-  display: block;
-  max-height: 120px;
-  overflow: auto;
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  background: #f7f8fa;
-  color: #1d2129;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  padding: 10px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.codex-command-preview p {
-  margin: 0;
-  color: #86909c;
-  font-size: 12px;
-}
-
-.codex-prompt-toolbar {
+.agent-prompt-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -246,19 +213,19 @@
   padding: 10px;
 }
 
-.codex-prompt-toolbar > div:first-child {
+.agent-prompt-toolbar > div:first-child {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.codex-prompt-toolbar strong {
+.agent-prompt-toolbar strong {
   color: #1d2129;
   font-size: 13px;
   font-weight: 650;
 }
 
-.codex-prompt-toolbar span {
+.agent-prompt-toolbar span {
   overflow: hidden;
   color: #86909c;
   font-size: 12px;
@@ -266,7 +233,7 @@
   white-space: nowrap;
 }
 
-.codex-prompt-actions {
+.agent-prompt-actions {
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
@@ -274,14 +241,14 @@
   gap: 6px;
 }
 
-.codex-prompt-advanced {
+.agent-prompt-advanced {
   display: grid;
   gap: 10px;
   border-left: 2px solid #4080ff;
   padding-left: 10px;
 }
 
-.codex-prompt-preview {
+.agent-prompt-preview {
   display: grid;
   gap: 8px;
   border: 1px solid var(--glass-border);
@@ -290,20 +257,20 @@
   padding: 10px;
 }
 
-.codex-prompt-preview-header {
+.agent-prompt-preview-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.codex-prompt-preview-header span {
+.agent-prompt-preview-header span {
   color: #86909c;
   font-size: 12px;
   font-weight: 650;
 }
 
-.codex-prompt-preview ol {
+.agent-prompt-preview ol {
   display: grid;
   gap: 6px;
   margin: 0;

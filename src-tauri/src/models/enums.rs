@@ -60,19 +60,53 @@ pub enum ThemeMode {
     Dark,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum LivenessCliKind {
-    #[default]
-    Codex,
-    ClaudeCode,
+macro_rules! define_agent_cli_kinds {
+    (
+        $default_variant:ident => { key: $default_key:literal, module: $default_module:ident }
+        $(, $variant:ident => { key: $key:literal, module: $module:ident })*
+        $(,)?
+    ) => {
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            Default,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Serialize,
+            Deserialize,
+        )]
+        pub enum AgentCliKind {
+            #[default]
+            #[serde(rename = $default_key)]
+            $default_variant,
+            $(
+                #[serde(rename = $key)]
+                $variant,
+            )*
+        }
+
+        impl AgentCliKind {
+            pub const ALL: &'static [Self] = &[
+                Self::$default_variant,
+                $(Self::$variant,)*
+            ];
+
+            pub const fn key(self) -> &'static str {
+                match self {
+                    Self::$default_variant => $default_key,
+                    $(Self::$variant => $key,)*
+                }
+            }
+        }
+    };
 }
 
-impl LivenessCliKind {
-    pub(crate) fn supports_session_name(self) -> bool {
-        matches!(self, Self::ClaudeCode)
-    }
-}
+// 后端身份和服务模块注册共用一份目录；新增内置 Agent 只改 agent_cli_catalog.rs。
+crate::agent_cli_catalog::for_each_agent_cli!(define_agent_cli_kinds);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

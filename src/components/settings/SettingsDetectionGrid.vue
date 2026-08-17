@@ -1,5 +1,16 @@
+<script setup lang="ts">
+withDefaults(
+  defineProps<{
+    wide?: boolean;
+  }>(),
+  {
+    wide: false,
+  },
+);
+</script>
+
 <template>
-  <div class="settings-detection-grid">
+  <div class="settings-detection-grid" :class="{ 'is-wide': wide }">
     <slot />
   </div>
 </template>
@@ -18,5 +29,14 @@
 .settings-detection-grid :deep(.settings-detection-item) {
   width: 100%;
   max-width: 170px;
+}
+
+.settings-detection-grid.is-wide {
+  max-width: 760px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr));
+}
+
+.settings-detection-grid.is-wide :deep(.settings-detection-item) {
+  max-width: none;
 }
 </style>

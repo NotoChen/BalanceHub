@@ -7,8 +7,8 @@ import type {
   CliSessionSummary,
   CliEnvironmentProbeResult,
   TerminalEnvironmentProbeResult,
-  CodexModelSyncResult,
-  LivenessCliKind,
+  ProviderModelSyncResult,
+  AgentCliKind,
   Provider,
   ProviderApiKeyOption,
   ProviderCapabilityProbeResult,
@@ -190,7 +190,7 @@ export function previewTemporaryCliLaunch(input: TemporaryCliLaunchInput) {
   return invoke<TemporaryCliLaunchPreview>("preview_temporary_cli_launch", { input });
 }
 
-export function listCliSessions(cliKind: LivenessCliKind, workdir: string) {
+export function listCliSessions(cliKind: AgentCliKind, workdir: string) {
   return invoke<CliSessionSummary[]>("list_cli_sessions", { cliKind, workdir });
 }
 
@@ -218,21 +218,21 @@ export function forgetWorkspace(path: string) {
   return invoke<Workspace[]>("forget_workspace", { path });
 }
 
-export function previewCliConfig(id: string, cliKind: LivenessCliKind) {
+export function previewCliConfig(id: string, cliKind: AgentCliKind) {
   return invoke<CliConfigPreview>("preview_cli_config", { id, cliKind });
 }
 
 export function switchCliConfig(
   id: string,
-  cliKind: LivenessCliKind,
+  cliKind: AgentCliKind,
   revision: string,
   files: CliConfigFile[],
 ) {
   return invoke<CliRuntimeSnapshot>("switch_cli_config", { id, cliKind, revision, files });
 }
 
-export function syncCodexModels(id: string) {
-  return invoke<CodexModelSyncResult>("sync_codex_models", { id });
+export function syncAvailableModels(id: string) {
+  return invoke<ProviderModelSyncResult>("sync_available_models", { id });
 }
 
 export function listProviderApiKeys(id: string) {

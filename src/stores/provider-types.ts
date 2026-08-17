@@ -1,3 +1,7 @@
+import type { AgentCliKind } from "../agent-cli/visuals.ts";
+
+export type { AgentCliKind } from "../agent-cli/visuals.ts";
+
 export type AuthMode = "apiKey" | "accessToken" | "session" | "password";
 export type AuthSource = "manual" | "password" | "oauth";
 export type ProviderProtocol = "newApi" | "sub2Api" | "api";
@@ -9,7 +13,6 @@ export type ProviderNotificationMode = "inherit" | "custom" | "disabled";
 export type ThemeMode = "system" | "light" | "dark";
 export type LivenessIntervalMode = "fixed" | "random";
 export type LivenessPromptMode = "fixed" | "random" | "roundRobin";
-export type LivenessCliKind = "codex" | "claudeCode";
 export type TemporaryCliInstanceStatus = "starting" | "running" | "exited";
 export type TemporaryCliSessionMode = "new" | "history";
 export type TemporaryCliTerminalKind =
@@ -141,9 +144,8 @@ export interface ProviderAutomationInput {
 export interface ProviderLiveness {
   useGlobal: boolean;
   enabled: boolean;
-  openaiBaseUrl: string;
-  anthropicBaseUrl: string;
-  cliKind?: LivenessCliKind | null;
+  agentBaseUrls: Partial<Record<AgentCliKind, string>>;
+  cliKind?: AgentCliKind | null;
   intervalMode: LivenessIntervalMode;
   interval: number;
   randomMinInterval: number;
@@ -165,9 +167,8 @@ export interface ProviderLiveness {
 export interface ProviderLivenessInput {
   useGlobal: boolean;
   enabled: boolean;
-  openaiBaseUrl: string;
-  anthropicBaseUrl: string;
-  cliKind?: LivenessCliKind | null;
+  agentBaseUrls: Partial<Record<AgentCliKind, string>>;
+  cliKind?: AgentCliKind | null;
   intervalMode: LivenessIntervalMode;
   interval: number;
   randomMinInterval: number;
@@ -232,7 +233,7 @@ export interface ProviderSaveResult {
 export interface LivenessRecord {
   checkedAt: string;
   source?: "manual" | "automatic" | string;
-  cliKind?: LivenessCliKind | string;
+  cliKind?: AgentCliKind | string;
   ok: boolean;
   latencyMs: number;
   model: string;
@@ -251,11 +252,25 @@ export interface LivenessRecord {
 }
 
 export interface CliToolProbeResult {
+  kind: AgentCliKind;
+  label: string;
+  executable: string;
+  sessionNameHint: string;
+  capabilities: AgentCliCapabilities;
   available: boolean;
   path: string;
   version: string;
   message: string;
-  supportsSessionName: boolean;
+}
+
+export interface AgentCliCapabilities {
+  temporaryLaunch: boolean;
+  modelSelection: boolean;
+  sessionHistory: boolean;
+  sessionResume: boolean;
+  sessionName: boolean;
+  liveness: boolean;
+  defaultConfig: boolean;
 }
 
 export interface TemporaryTerminalProbeResult {
@@ -267,15 +282,14 @@ export interface TemporaryTerminalProbeResult {
 }
 
 export interface CliEnvironmentProbeResult {
-  codex: CliToolProbeResult;
-  claudeCode: CliToolProbeResult;
+  tools: CliToolProbeResult[];
 }
 
 export interface TerminalEnvironmentProbeResult {
   terminals: TemporaryTerminalProbeResult[];
 }
 
-export interface CodexModelSyncResult {
+export interface ProviderModelSyncResult {
   providers: Provider[];
   provider: Provider;
   models: string[];
@@ -452,6 +466,7 @@ export interface ProviderProtocolDetectionResult {
 }
 
 export interface CliConfigSnapshot {
+  cliKind: AgentCliKind;
   configured: boolean;
   providerId: string | null;
   modifiedAt: string | null;
@@ -466,7 +481,7 @@ export interface CliConfigFile {
 export interface CliConfigPreview {
   providerId: string;
   providerName: string;
-  cliKind: LivenessCliKind;
+  cliKind: AgentCliKind;
   revision: string;
   originalFiles: CliConfigFile[];
   files: CliConfigFile[];
@@ -476,7 +491,7 @@ export interface TemporaryCliInstance {
   id: string;
   providerId: string;
   providerName: string;
-  cliKind: LivenessCliKind;
+  cliKind: AgentCliKind;
   workdir: string;
   terminalKind: TemporaryCliTerminalKind;
   startedAt: string;
@@ -494,7 +509,7 @@ export interface Workspace {
 
 export interface TemporaryCliPreference {
   providerId: string;
-  cliKind: LivenessCliKind;
+  cliKind: AgentCliKind;
   apiKeyTokenId: string;
   model: string;
   workspacePath: string;
@@ -502,7 +517,7 @@ export interface TemporaryCliPreference {
 
 export interface TemporaryCliLaunchInput {
   providerId: string;
-  cliKind: LivenessCliKind;
+  cliKind: AgentCliKind;
   workdir: string;
   apiKey: string;
   apiKeyTokenId: string;
@@ -515,7 +530,7 @@ export interface TemporaryCliLaunchInput {
 
 export interface TemporaryCliLaunchPreview {
   providerName: string;
-  cliKind: LivenessCliKind;
+  cliKind: AgentCliKind;
   cliPath: string;
   args: string[];
   command: string;
@@ -533,22 +548,20 @@ export interface TemporaryCliLaunchPreview {
   settingsContent: string | null;
 }
 
-export type CliSessionMetadataSource = "codexStateDb" | "claudeTranscript";
-
 export interface CliSessionSummary {
   id: string;
   title: string;
   preview: string | null;
   model: string | null;
   models: string[];
-  cliKind: LivenessCliKind;
+  cliKind: AgentCliKind;
   createdAt: string | null;
   updatedAt: string | null;
   workdir: string;
   cliVersion: string | null;
   archived: boolean;
   canResume: boolean;
-  metadataSource: CliSessionMetadataSource;
+  metadataSource: string;
 }
 
 export interface WorkspaceDirectoryEntry {
@@ -572,8 +585,7 @@ export interface TemporaryCliLaunchResult {
 }
 
 export interface CliRuntimeSnapshot {
-  codex: CliConfigSnapshot;
-  claudeCode: CliConfigSnapshot;
+  configs: CliConfigSnapshot[];
   instances: TemporaryCliInstance[];
 }
 
@@ -590,9 +602,8 @@ export interface AppSettings {
   checkInTime: string;
   notificationEnabled: boolean;
   notificationChannels: NotificationChannel[];
-  livenessCliKind: LivenessCliKind;
-  codexCliPath: string;
-  claudeCliPath: string;
+  livenessCliKind: AgentCliKind;
+  agentCliPaths: Partial<Record<AgentCliKind, string>>;
   temporaryCliTerminalKind: TemporaryCliTerminalKind;
   livenessEnabled: boolean;
   livenessModel: string;

@@ -1,55 +1,60 @@
 use serde_json::Value as JsonValue;
 
-pub(super) fn rewrite_claude_config(
-    settings: &str,
-    base_url: &str,
-    api_key: &str,
+pub(crate) fn rewrite_json_string_fields(
+    source_text: &str,
+    object_path: &[&str],
+    fields: &[(&str, &str)],
 ) -> Result<String, String> {
-    let parsed = serde_json::from_str::<JsonValue>(settings)
-        .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
-    let root = parsed
+    if object_path.is_empty() {
+        return Err("JSON 字段路径不能为空".to_string());
+    }
+    let parsed = serde_json::from_str::<JsonValue>(source_text)
+        .map_err(|_| "JSON 配置格式无效".to_string())?;
+    let mut parsed_object = parsed
         .as_object()
-        .ok_or_else(|| "Claude Code 配置文件格式无效".to_string())?;
-    let source = JsonSourceParser::new(settings).parse_root_object()?;
-    let env_value = root.get("env");
-    let env = env_value.and_then(JsonValue::as_object);
-    if env_value.is_some() && env.is_none() {
-        return Err("Claude Code 配置中的 env 不是对象".to_string());
+        .ok_or_else(|| "JSON 配置根节点不是对象".to_string())?;
+    let source = JsonSourceParser::new(source_text).parse_root_object()?;
+
+    let mut parsed_depth = 0;
+    for key in object_path {
+        match parsed_object.get(*key) {
+            Some(value) => {
+                parsed_object = value.as_object().ok_or_else(|| {
+                    format!(
+                        "JSON 配置中的 {} 不是对象",
+                        object_path[..=parsed_depth].join(".")
+                    )
+                })?;
+                parsed_depth += 1;
+            }
+            None => break,
+        }
     }
 
-    let env_source = source
-        .members
-        .iter()
-        .rev()
-        .find(|member| member.key == "env")
-        .and_then(|member| member.object.as_ref());
-    if env_value.is_some() && env_source.is_none() {
-        return Err("Claude Code 配置中的 env 不是对象".to_string());
+    let mut source_object = &source;
+    let mut source_depth = 0;
+    for key in object_path {
+        let Some(next) = find_object(source_object, key) else {
+            break;
+        };
+        source_object = next;
+        source_depth += 1;
     }
-
-    let base_url = base_url.trim();
-    let api_key = api_key.trim();
-    let has_auth_token = env.is_some_and(|env| env.contains_key("ANTHROPIC_AUTH_TOKEN"));
-    let has_api_key = env.is_some_and(|env| env.contains_key("ANTHROPIC_API_KEY"));
-    let mut fields = vec![("ANTHROPIC_BASE_URL", base_url)];
-    if has_auth_token || !has_api_key {
-        fields.push(("ANTHROPIC_AUTH_TOKEN", api_key));
-    }
-    if has_api_key {
-        fields.push(("ANTHROPIC_API_KEY", api_key));
+    if source_depth != parsed_depth {
+        return Err("JSON 配置字段位置无效".to_string());
     }
 
     let mut edits = Vec::new();
-    if let Some(env_source) = env_source {
+    if source_depth == object_path.len() {
         let mut missing = Vec::new();
-        for (key, value) in fields {
-            if let Some(member) = env_source
+        for &(key, value) in fields {
+            if let Some(member) = source_object
                 .members
                 .iter()
                 .rev()
                 .find(|member| member.key == key)
             {
-                if !json_string_matches(settings, member.value_start, member.value_end, value) {
+                if !json_string_matches(source_text, member.value_start, member.value_end, value) {
                     edits.push(JsonTextEdit {
                         start: member.value_start,
                         end: member.value_end,
@@ -61,13 +66,18 @@ pub(super) fn rewrite_claude_config(
             }
         }
         if !missing.is_empty() {
-            edits.push(insert_missing_fields(settings, env_source, &missing));
+            edits.push(insert_missing_fields(source_text, source_object, &missing));
         }
     } else {
-        edits.push(insert_missing_env(settings, &source, &fields));
+        edits.push(insert_nested_object_member(
+            source_text,
+            source_object,
+            &object_path[source_depth..],
+            fields,
+        ));
     }
 
-    apply_json_edits(settings, edits)
+    apply_json_edits(source_text, edits)
 }
 
 #[derive(Debug)]
@@ -113,7 +123,7 @@ impl<'a> JsonSourceParser<'a> {
         let object = self.parse_object()?;
         self.skip_whitespace();
         if self.position != self.bytes.len() {
-            return Err("Claude Code 配置文件格式无效".to_string());
+            return Err("JSON 配置格式无效".to_string());
         }
         Ok(object)
     }
@@ -136,7 +146,7 @@ impl<'a> JsonSourceParser<'a> {
             let key_start = self.position;
             let key_end = self.parse_string_end()?;
             let key = serde_json::from_str::<String>(&self.source[key_start..key_end])
-                .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
+                .map_err(|_| "JSON 配置格式无效".to_string())?;
             self.skip_whitespace();
             self.expect(b':')?;
             self.skip_whitespace();
@@ -163,7 +173,7 @@ impl<'a> JsonSourceParser<'a> {
                         members,
                     });
                 }
-                _ => return Err("Claude Code 配置文件格式无效".to_string()),
+                _ => return Err("JSON 配置格式无效".to_string()),
             }
         }
     }
@@ -195,7 +205,7 @@ impl<'a> JsonSourceParser<'a> {
                 self.parse_number();
                 Ok(None)
             }
-            _ => Err("Claude Code 配置文件格式无效".to_string()),
+            _ => Err("JSON 配置格式无效".to_string()),
         }
     }
 
@@ -216,7 +226,7 @@ impl<'a> JsonSourceParser<'a> {
                     self.position += 1;
                     return Ok(());
                 }
-                _ => return Err("Claude Code 配置文件格式无效".to_string()),
+                _ => return Err("JSON 配置格式无效".to_string()),
             }
         }
     }
@@ -229,15 +239,15 @@ impl<'a> JsonSourceParser<'a> {
                 b'"' => return Ok(self.position),
                 b'\\' => {
                     if self.peek().is_none() {
-                        return Err("Claude Code 配置文件格式无效".to_string());
+                        return Err("JSON 配置格式无效".to_string());
                     }
                     self.position += 1;
                 }
-                0..=0x1f => return Err("Claude Code 配置文件格式无效".to_string()),
+                0..=0x1f => return Err("JSON 配置格式无效".to_string()),
                 _ => {}
             }
         }
-        Err("Claude Code 配置文件格式无效".to_string())
+        Err("JSON 配置格式无效".to_string())
     }
 
     fn parse_number(&mut self) {
@@ -252,7 +262,7 @@ impl<'a> JsonSourceParser<'a> {
     fn expect_literal(&mut self, literal: &[u8]) -> Result<(), String> {
         let end = self.position.saturating_add(literal.len());
         if self.bytes.get(self.position..end) != Some(literal) {
-            return Err("Claude Code 配置文件格式无效".to_string());
+            return Err("JSON 配置格式无效".to_string());
         }
         self.position = end;
         Ok(())
@@ -264,7 +274,7 @@ impl<'a> JsonSourceParser<'a> {
             self.position += 1;
             Ok(position)
         } else {
-            Err("Claude Code 配置文件格式无效".to_string())
+            Err("JSON 配置格式无效".to_string())
         }
     }
 
@@ -325,45 +335,110 @@ fn insert_missing_fields(
     }
 }
 
-fn insert_missing_env(
+fn find_object<'a>(object: &'a JsonObjectSpan, key: &str) -> Option<&'a JsonObjectSpan> {
+    object
+        .members
+        .iter()
+        .rev()
+        .find(|member| member.key == key)
+        .and_then(|member| member.object.as_ref())
+}
+
+fn insert_nested_object_member(
     source: &str,
-    root: &JsonObjectSpan,
+    parent: &JsonObjectSpan,
+    object_path: &[&str],
     fields: &[(&str, &str)],
 ) -> JsonTextEdit {
-    let multiline = is_multiline(source, root);
-    if root.members.is_empty() {
+    debug_assert!(!object_path.is_empty());
+    let multiline = is_multiline(source, parent);
+    let member_indent = member_indent(source, parent);
+    let member = if multiline {
+        let newline = newline_for(source);
+        format_nested_member_multiline(
+            object_path,
+            fields,
+            &member_indent,
+            &indentation_unit(source),
+            newline,
+        )
+    } else {
+        format_nested_member_inline(object_path, fields)
+    };
+    insert_raw_member(source, parent, &member, &member_indent)
+}
+
+fn format_nested_member_inline(object_path: &[&str], fields: &[(&str, &str)]) -> String {
+    let key = json_string(object_path[0]);
+    if object_path.len() == 1 {
+        format!("{key}: {{{}}}", format_members_inline(fields))
+    } else {
+        format!(
+            "{key}: {{{}}}",
+            format_nested_member_inline(&object_path[1..], fields)
+        )
+    }
+}
+
+fn format_nested_member_multiline(
+    object_path: &[&str],
+    fields: &[(&str, &str)],
+    current_indent: &str,
+    indentation_unit: &str,
+    newline: &str,
+) -> String {
+    let key = json_string(object_path[0]);
+    let child_indent = format!("{current_indent}{indentation_unit}");
+    let contents = if object_path.len() == 1 {
+        format_members_multiline(fields, &child_indent, newline)
+    } else {
+        format!(
+            "{child_indent}{}",
+            format_nested_member_multiline(
+                &object_path[1..],
+                fields,
+                &child_indent,
+                indentation_unit,
+                newline,
+            )
+        )
+    };
+    format!("{key}: {{{newline}{contents}{newline}{current_indent}}}")
+}
+
+fn insert_raw_member(
+    source: &str,
+    parent: &JsonObjectSpan,
+    member: &str,
+    member_indent: &str,
+) -> JsonTextEdit {
+    if parent.members.is_empty() {
+        let replacement = if is_multiline(source, parent) {
+            let newline = newline_for(source);
+            let closing_indent = line_indent_at(source, parent.close);
+            format!("{newline}{member_indent}{member}{newline}{closing_indent}")
+        } else if parent.close > parent.open + 1 {
+            format!(" {member} ")
+        } else {
+            member.to_string()
+        };
         return JsonTextEdit {
-            start: root.open + 1,
-            end: root.close,
-            replacement: format_empty_root_contents(source, root, fields),
+            start: parent.open + 1,
+            end: parent.close,
+            replacement,
         };
     }
 
-    let member_indent = member_indent(source, root);
-    let replacement = if multiline {
-        let child_indent = format!("{member_indent}{}", indentation_unit(source));
-        let env = format!(
-            "{}: {{{}{}{}{}{}",
-            json_string("env"),
-            newline_for(source),
-            format_members_multiline(fields, &child_indent, newline_for(source)),
-            newline_for(source),
-            member_indent,
-            "}"
-        );
-        format!(",{}{}{}", newline_for(source), member_indent, env)
+    let replacement = if is_multiline(source, parent) {
+        format!(",{}{}{}", newline_for(source), member_indent, member)
     } else {
-        format!(
-            ", {}: {{{}}}",
-            json_string("env"),
-            format_members_inline(fields)
-        )
+        format!(", {member}")
     };
-    let last_value_end = root
+    let last_value_end = parent
         .members
         .last()
         .map(|member| member.value_end)
-        .unwrap_or(root.open + 1);
+        .unwrap_or(parent.open + 1);
     JsonTextEdit {
         start: last_value_end,
         end: last_value_end,
@@ -391,49 +466,6 @@ fn format_empty_object_contents(
         format!(" {} ", format_members_inline(fields))
     } else {
         format_members_inline(fields)
-    }
-}
-
-fn format_empty_root_contents(
-    source: &str,
-    root: &JsonObjectSpan,
-    fields: &[(&str, &str)],
-) -> String {
-    if is_multiline(source, root) {
-        let newline = newline_for(source);
-        let closing_indent = line_indent_at(source, root.close);
-        let member_indent = format!("{closing_indent}{}", indentation_unit(source));
-        let child_indent = format!("{member_indent}{}", indentation_unit(source));
-        let nested = format!(
-            "{}{}{}{}{}",
-            newline,
-            format_members_multiline(fields, &child_indent, newline),
-            newline,
-            member_indent,
-            "}"
-        );
-        format!(
-            "{}{}{}{}{}{}{}",
-            newline,
-            member_indent,
-            json_string("env"),
-            ": {",
-            nested,
-            newline,
-            closing_indent
-        )
-    } else if root.close > root.open + 1 {
-        format!(
-            " {}: {{{}}} ",
-            json_string("env"),
-            format_members_inline(fields)
-        )
-    } else {
-        format!(
-            "{}: {{{}}}",
-            json_string("env"),
-            format_members_inline(fields)
-        )
     }
 }
 
@@ -468,7 +500,7 @@ fn apply_json_edits(source: &str, mut edits: Vec<JsonTextEdit>) -> Result<String
     let mut output = source.to_string();
     for edit in edits {
         if edit.start > edit.end || edit.end > output.len() {
-            return Err("生成 Claude Code 配置失败: JSON 字段位置无效".to_string());
+            return Err("生成 JSON 配置失败: 字段位置无效".to_string());
         }
         output.replace_range(edit.start..edit.end, &edit.replacement);
     }

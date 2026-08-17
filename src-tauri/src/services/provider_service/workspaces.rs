@@ -1,6 +1,6 @@
 use crate::{
     limits,
-    models::{LivenessCliKind, TemporaryCliPreference, Workspace},
+    models::{AgentCliKind, TemporaryCliPreference, Workspace},
     services::workspaces::normalize_directory,
 };
 use std::path::Path;
@@ -11,7 +11,7 @@ impl ProviderService<'_> {
     pub fn record_temporary_cli_launch(
         &self,
         provider_id: &str,
-        cli_kind: LivenessCliKind,
+        cli_kind: AgentCliKind,
         cli_path: &str,
         path: &Path,
         api_key_token_id: &str,
@@ -19,10 +19,8 @@ impl ProviderService<'_> {
     ) -> Result<(Vec<Workspace>, TemporaryCliPreference), String> {
         let normalized = normalize_directory(path)?.to_string_lossy().to_string();
         self.mutate(|data| {
-            match cli_kind {
-                LivenessCliKind::Codex => data.settings.codex_cli_path = cli_path.to_string(),
-                LivenessCliKind::ClaudeCode => data.settings.claude_cli_path = cli_path.to_string(),
-            }
+            data.settings
+                .set_agent_cli_path(cli_kind, cli_path.to_string());
             if let Some(workspace) = data
                 .workspaces
                 .iter_mut()

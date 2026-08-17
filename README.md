@@ -30,7 +30,7 @@
   <a href="https://github.com/NotoChen/BalanceHub/issues">反馈问题</a>
 </p>
 
-BalanceHub 用来集中管理 AI 中转站账号与 OpenAI 兼容 API。它把余额、签到、用量趋势、请求日志、API Key、Codex / Claude Code 测活这些高频操作放到一个本地桌面应用里，减少在多个中转站后台之间来回切换。
+BalanceHub 用来集中管理 AI 中转站账号与 OpenAI 兼容 API。它把余额、签到、用量趋势、请求日志、API Key、Agent CLI 测活这些高频操作放到一个本地桌面应用里，减少在多个中转站后台之间来回切换。
 
 ## 为什么需要 BalanceHub
 
@@ -38,8 +38,8 @@ BalanceHub 用来集中管理 AI 中转站账号与 OpenAI 兼容 API。它把�
 
 - **集中观察**：余额、额度、账号状态、站点元数据和异常状态集中展示。
 - **减少切换**：签到、签到记录、用量趋势、请求日志、API Key 管理都在 App 内完成。
-- **贴近 CLI 使用场景**：支持 Codex / Claude Code 的真实 CLI 测活，记录模型、延迟和错误原因。
-- **衔接本地工具**：在中转站卡片内临时启动 Codex / Claude Code CLI，也可以把当前配置添加到 CC Switch。
+- **贴近 CLI 使用场景**：支持 Codex CLI、Claude Code、Gemini CLI 和 Grok Build 的真实 CLI 测活，记录模型、延迟和错误原因。
+- **衔接本地工具**：在中转站卡片内临时启动 Codex CLI、Claude Code、Gemini CLI 或 Grok Build，也可以把兼容配置添加到 CC Switch。
 - **本地优先**：账号密码、Cookie、Token、API Key 和中转站配置保存在本机，后端请求由 Tauri / Rust 在本地执行。
 - **适合后台运行**：系统托盘、自动刷新、自动签到、自动测活和通知围绕日常挂后台使用设计。
 
@@ -69,9 +69,9 @@ BalanceHub 适合已经在使用多个 AI 中转站，并希望把账号观察�
 3. NewAPI / Sub2API 优先使用账号密码；已有凭据时可按协议选择 Cookie、访问令牌或 API Key。通用 API 使用 API Key。
 4. 测试连接并保存，中转站会出现在主面板。
 5. 按需开启自动刷新、自动签到、自动测活和通知。
-6. 需要临时使用某个中转站时，在卡片快捷操作中选择 Codex / Claude Code，选择工作目录后启动终端。
+6. 需要临时使用某个中转站时，在卡片快捷操作中选择 Agent CLI，选择工作目录后启动终端。
 
-测活需要真实 API Key，并会消耗中转站额度。CLI 测活请安装独立的 Codex CLI 或 Claude Code CLI；Codex Desktop App 内置二进制不是稳定 CLI 入口，不会作为测活候选。
+测活需要真实 API Key，并会消耗中转站额度。CLI 测活请安装对应的独立 Codex CLI、Claude Code、Gemini CLI 或 Grok Build；Codex Desktop App 内置二进制不是稳定 CLI 入口，不会作为测活候选。
 
 ## 核心能力
 
@@ -80,8 +80,8 @@ BalanceHub 适合已经在使用多个 AI 中转站，并希望把账号观察�
 | 中转站管理 | 新增、编辑、排序、协议识别、连接测试、站点探测、认证方式管理。 | 统一维护 NewAPI、Sub2API 和通用 OpenAI 兼容 API。 |
 | 余额与账单 | 账号额度、API Key 额度、无限额度、用量趋势、请求日志。 | 观察余额变化、排查消耗异常、确认 Key 维度额度。 |
 | 签到 | 手动签到、自动签到、签到记录、余额增量识别。 | 处理日常签到，并避免把无余额变化的签到误判为有效收益。 |
-| 测活 | Codex / Claude Code CLI 测活、候选 CLI 扫描、时间线记录。 | 判断站点、模型、Key、代理或本机 CLI 是否可用。 |
-| 工具衔接 | 临时启动 Codex / Claude Code CLI、添加到 CC Switch。 | 以当前中转站的 API Key、Base URL 和模型临时覆盖 CLI，或把配置交给 CC Switch 管理。 |
+| 测活 | Codex CLI、Claude Code、Gemini CLI、Grok Build 测活、候选 CLI 扫描、时间线记录。 | 判断站点、模型、Key、代理或本机 CLI 是否可用。 |
+| 工具衔接 | 临时启动已支持的 Agent CLI、添加兼容配置到 CC Switch。 | 以当前中转站的 API Key、Base URL 和模型临时覆盖 CLI，或把配置交给 CC Switch 管理。 |
 | 通知与后台 | 系统通知、Webhook 通知、系统托盘、开机启动、自动调度。 | 长期后台运行，异常时通过桌面或团队工具提醒。 |
 | 数据与更新 | 本地配置存储、导入导出、异常写入恢复、Tauri updater 自动更新。 | 本地优先保存敏感信息，并支持跨设备迁移和版本更新。 |
 

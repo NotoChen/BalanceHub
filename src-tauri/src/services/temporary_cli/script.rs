@@ -2,11 +2,13 @@
 use super::environment::capture_shell_snapshot;
 #[cfg(any(target_os = "windows", test))]
 use super::environment::ShellEnvironmentSnapshot;
-#[cfg(not(target_os = "windows"))]
-use crate::services::liveness::LivenessRunner;
 use crate::{
-    models::{AppSettings, LivenessCliKind, Provider, TemporaryCliSessionMode},
+    models::{AgentCliKind, AppSettings, Provider},
     network::ProxyEnvironment,
+    services::agent_cli::{
+        self,
+        contracts::{EnvironmentPatch, TemporaryLaunchPlan},
+    },
     util::unix_millis as now_millis,
 };
 #[cfg(any(target_os = "windows", test))]
@@ -16,10 +18,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) fn cleanup_launch_files(script: &Path, cli_kind: LivenessCliKind) {
+pub(super) fn cleanup_launch_files(script: &Path, auxiliary_file_name: Option<&str>) {
     let _ = fs::remove_file(script);
     let _ = fs::remove_file(temporary_windows_launch_payload_path(script));
-    if let Some(settings_path) = temporary_claude_settings_path(script, cli_kind) {
+    if let Some(settings_path) = temporary_cli_auxiliary_path(script, auxiliary_file_name) {
         let _ = fs::remove_file(settings_path);
     }
     if let Some(parent) = script.parent() {
@@ -36,11 +38,8 @@ pub(super) fn effective_model(settings: &AppSettings, provider: &Provider) -> St
     }
 }
 
-pub(super) fn temporary_script_path(provider: &Provider, cli_kind: LivenessCliKind) -> PathBuf {
-    let kind = match cli_kind {
-        LivenessCliKind::Codex => "codex",
-        LivenessCliKind::ClaudeCode => "claude",
-    };
+pub(super) fn temporary_script_path(provider: &Provider, cli_kind: AgentCliKind) -> PathBuf {
+    let kind = agent_cli::definition(cli_kind).executable;
     env::temp_dir()
         .join(format!(
             "balancehub-temporary-cli-{}-{}-{}",
@@ -61,18 +60,21 @@ fn temporary_script_file_name(kind: &str) -> String {
     }
 }
 
-fn temporary_claude_settings_path(script: &Path, cli_kind: LivenessCliKind) -> Option<PathBuf> {
-    matches!(cli_kind, LivenessCliKind::ClaudeCode).then(|| {
+pub(super) fn temporary_cli_auxiliary_path(
+    script: &Path,
+    auxiliary_file_name: Option<&str>,
+) -> Option<PathBuf> {
+    let file_name = auxiliary_file_name?;
+    Some(
         script
             .parent()
-            .map(|parent| parent.join("claude-settings.json"))
-            .unwrap_or_else(|| env::temp_dir().join("claude-settings.json"))
-    })
+            .map(|parent| parent.join(file_name))
+            .unwrap_or_else(|| env::temp_dir().join(file_name)),
+    )
 }
 
-pub(super) fn preview_claude_settings_path(cli_kind: LivenessCliKind) -> Option<PathBuf> {
-    matches!(cli_kind, LivenessCliKind::ClaudeCode)
-        .then(|| PathBuf::from("<temporary-claude-settings.json>"))
+pub(super) fn preview_cli_auxiliary_path(auxiliary_file_name: Option<&str>) -> Option<PathBuf> {
+    auxiliary_file_name.map(|name| PathBuf::from(format!("<temporary-{name}>")))
 }
 
 fn temporary_windows_launch_payload_path(script: &Path) -> PathBuf {
@@ -97,38 +99,22 @@ fn sanitize_path_part(value: &str) -> String {
 
 pub(super) struct LaunchScriptInput<'a> {
     pub(super) script: &'a Path,
-    pub(super) cli_kind: LivenessCliKind,
     pub(super) cli_path: &'a str,
+    pub(super) cli_command_name: &'a str,
     pub(super) workdir: &'a Path,
-    pub(super) provider_name: &'a str,
-    pub(super) api_key: &'a str,
-    pub(super) base_url: &'a str,
-    pub(super) model: &'a str,
-    pub(super) session_name: &'a str,
-    pub(super) resume_id: &'a str,
-    pub(super) session_mode: TemporaryCliSessionMode,
+    pub(super) plan: &'a TemporaryLaunchPlan,
+    pub(super) auxiliary_file_path: Option<&'a Path>,
     pub(super) status_path: &'a Path,
     pub(super) proxy_environment: &'a ProxyEnvironment,
 }
 
 #[cfg(not(target_os = "windows"))]
 pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
-    let claude_settings_path = temporary_claude_settings_path(input.script, input.cli_kind);
-    if let Some(path) = &claude_settings_path {
-        write_claude_settings(path, input.api_key, input.base_url)?;
-    }
-    let args = cli_args(
-        input.cli_kind,
-        input.provider_name,
-        input.base_url,
-        input.model,
-        input.session_name,
-        input.session_mode,
-        claude_settings_path.as_deref(),
-    );
-    let mut args = args;
-    insert_resume_id(&mut args, input.cli_kind, input.resume_id);
-    let path_export = LivenessRunner::runtime_path_for_cli(Path::new(input.cli_path))
+    write_auxiliary_file(
+        input.auxiliary_file_path,
+        input.plan.auxiliary_file_content.as_deref(),
+    )?;
+    let path_export = agent_cli::runtime_path_for(Path::new(input.cli_path))
         .map(|path| format!("export PATH={}\n", shell_quote(&path.to_string_lossy())))
         .unwrap_or_default();
     let script_dir = input
@@ -137,22 +123,16 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
 
-    let auth_block = match input.cli_kind {
-        LivenessCliKind::Codex => format!(
-            "unset CODEX_API_KEY CODEX_ACCESS_TOKEN\nexport OPENAI_API_KEY={}\n",
-            shell_quote(input.api_key)
-        ),
-        LivenessCliKind::ClaudeCode => {
-            "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL\n".to_string()
-        }
-    };
-    let cleanup_settings = claude_settings_path
+    let agent_environment_block = unix_environment_block(&input.plan.environment);
+    let cleanup_settings = input
+        .auxiliary_file_path
         .as_ref()
         .map(|path| format!("rm -f {}\n", shell_quote(&path.to_string_lossy())))
         .unwrap_or_default();
     let script_path = shell_quote(&input.script.to_string_lossy());
     let login_shell_bootstrap = login_shell_bootstrap(input.script);
-    let cli_invocation = unix_cli_invocation(input.cli_kind, input.cli_path, &args);
+    let cli_invocation =
+        unix_cli_invocation(input.cli_command_name, input.cli_path, &input.plan.args);
     let proxy_block = unix_proxy_block(input.proxy_environment);
 
     let text = format!(
@@ -174,7 +154,7 @@ if [ "$bh_exit_code" -ne 0 ]; then
   bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
   exit "$bh_exit_code"
 fi
-{path_export}{color_block}{proxy_block}{auth_block}bh_write_status running "$$" null null
+    {path_export}{color_block}{proxy_block}{agent_environment_block}bh_write_status running "$$" null null
 {cli_invocation}
 bh_exit_code=$?
 bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
@@ -199,31 +179,19 @@ exit "$bh_exit_code"
 
 #[cfg(target_os = "windows")]
 pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), String> {
-    let claude_settings_path = temporary_claude_settings_path(input.script, input.cli_kind);
-    if let Some(path) = &claude_settings_path {
-        write_claude_settings(path, input.api_key, input.base_url)?;
-    }
-    let args = cli_args(
-        input.cli_kind,
-        input.provider_name,
-        input.base_url,
-        input.model,
-        input.session_name,
-        input.session_mode,
-        claude_settings_path.as_deref(),
-    );
-    let mut args = args;
-    insert_resume_id(&mut args, input.cli_kind, input.resume_id);
+    write_auxiliary_file(
+        input.auxiliary_file_path,
+        input.plan.auxiliary_file_content.as_deref(),
+    )?;
     let launch_payload_path = temporary_windows_launch_payload_path(input.script);
     let shell_snapshot = capture_shell_snapshot();
-    let launch_payload = windows_launch_payload(
-        input.cli_kind,
-        input.cli_path,
-        &args,
-        input.api_key,
-        input.proxy_environment,
-        &shell_snapshot,
-    );
+    let launch_payload = windows_launch_payload(WindowsLaunchPayloadInput {
+        cli_path: input.cli_path,
+        cli_command_name: input.cli_command_name,
+        plan: input.plan,
+        proxy_environment: input.proxy_environment,
+        shell_snapshot: &shell_snapshot,
+    });
     let launch_payload_text = serde_json::to_string_pretty(&launch_payload)
         .map_err(|err| format!("生成 Windows 临时 CLI 启动参数失败: {err}"))?;
     fs::write(&launch_payload_path, launch_payload_text)
@@ -242,8 +210,8 @@ pub(super) fn write_launch_script(input: &LaunchScriptInput<'_>) -> Result<(), S
         color_block = windows_color_block(),
         powershell_launch_command = WINDOWS_LAUNCH_PAYLOAD_COMMAND,
         script_dir = escape_cmd_value(&script_dir.display().to_string()),
-        cleanup_settings = claude_settings_path
-            .as_ref()
+        cleanup_settings = input
+            .auxiliary_file_path
             .map(|path| format!("del \"{}\" 2>nul\r\n", escape_cmd_value(&path.display().to_string())))
             .unwrap_or_default(),
     );
@@ -259,7 +227,7 @@ pub(super) const WINDOWS_LAUNCH_PAYLOAD_COMMAND: &str = concat!(
     "Remove-Item -LiteralPath ('Env:' + [string]$name) -ErrorAction SilentlyContinue }; ",
     "foreach ($entry in @($launch.setEnv.PSObject.Properties)) { ",
     "Set-Item -LiteralPath ('Env:' + $entry.Name) -Value ([string]$entry.Value) }; ",
-    // The payload is executed with -NoProfile; restore only the two CLI names
+    // The payload is executed with -NoProfile; restore registered Agent CLI names
     // so a user's profile wrapper does not silently disappear on Windows.
     "if ($null -ne $launch.functions) { foreach ($entry in @($launch.functions.PSObject.Properties)) { ",
     "Set-Item -LiteralPath ('Function:\\' + [string]$entry.Name) -Value ([scriptblock]::Create([string]$entry.Value)) -Force } }; ",
@@ -272,14 +240,23 @@ pub(super) const WINDOWS_LAUNCH_PAYLOAD_COMMAND: &str = concat!(
 );
 
 #[cfg(any(target_os = "windows", test))]
-pub(super) fn windows_launch_payload(
-    cli_kind: LivenessCliKind,
-    cli_path: &str,
-    args: &[String],
-    api_key: &str,
-    proxy_environment: &ProxyEnvironment,
-    shell_snapshot: &ShellEnvironmentSnapshot,
-) -> serde_json::Value {
+pub(super) struct WindowsLaunchPayloadInput<'a> {
+    pub(super) cli_path: &'a str,
+    pub(super) cli_command_name: &'a str,
+    pub(super) plan: &'a TemporaryLaunchPlan,
+    pub(super) proxy_environment: &'a ProxyEnvironment,
+    pub(super) shell_snapshot: &'a ShellEnvironmentSnapshot,
+}
+
+#[cfg(any(target_os = "windows", test))]
+pub(super) fn windows_launch_payload(input: WindowsLaunchPayloadInput<'_>) -> serde_json::Value {
+    let WindowsLaunchPayloadInput {
+        cli_path,
+        cli_command_name,
+        plan,
+        proxy_environment,
+        shell_snapshot,
+    } = input;
     let mut remove_env = proxy_environment
         .removed_names()
         .map(str::to_string)
@@ -296,27 +273,20 @@ pub(super) fn windows_launch_payload(
         set_env.insert(name, value);
     }
 
-    match cli_kind {
-        LivenessCliKind::Codex => {
-            remove_environment_name(&mut set_env, "OPENAI_API_KEY");
-            set_env.insert("OPENAI_API_KEY".to_string(), api_key.to_string());
-            remove_env.insert("CODEX_API_KEY".to_string());
-            remove_env.insert("CODEX_ACCESS_TOKEN".to_string());
-        }
-        LivenessCliKind::ClaudeCode => {
-            remove_env.insert("ANTHROPIC_API_KEY".to_string());
-            remove_env.insert("ANTHROPIC_AUTH_TOKEN".to_string());
-            remove_env.insert("ANTHROPIC_BASE_URL".to_string());
-        }
+    for name in plan.environment.removed_names() {
+        remove_environment_name(&mut set_env, name);
+        remove_env.insert(name.to_string());
+    }
+    for (name, value) in plan.environment.set_values() {
+        remove_environment_name(&mut set_env, name);
+        remove_env.remove(name);
+        set_env.insert(name.to_string(), value.to_string());
     }
 
     serde_json::json!({
         "cliPath": cli_path,
-        "cliCommandName": match cli_kind {
-            LivenessCliKind::Codex => "codex",
-            LivenessCliKind::ClaudeCode => "claude",
-        },
-        "args": args,
+        "cliCommandName": cli_command_name,
+        "args": plan.args,
         "removeEnv": remove_env,
         "setEnv": set_env,
         "aliases": shell_snapshot.aliases,
@@ -369,20 +339,34 @@ fn unix_proxy_block(environment: &ProxyEnvironment) -> String {
     block
 }
 
-pub(super) fn claude_settings_content(api_key: &str, base_url: &str) -> Result<String, String> {
-    let config = serde_json::json!({
-        "env": {
-            "ANTHROPIC_AUTH_TOKEN": api_key.trim(),
-            "ANTHROPIC_BASE_URL": base_url.trim(),
-        }
-    });
-    serde_json::to_string_pretty(&config).map_err(|err| format!("生成 Claude 配置失败: {err}"))
+#[cfg(not(target_os = "windows"))]
+fn unix_environment_block(environment: &EnvironmentPatch) -> String {
+    let removed = environment.removed_names().collect::<Vec<_>>();
+    let mut block = String::new();
+    if !removed.is_empty() {
+        block.push_str("unset ");
+        block.push_str(&removed.join(" "));
+        block.push('\n');
+    }
+    for (name, value) in environment.set_values() {
+        block.push_str("export ");
+        block.push_str(name);
+        block.push('=');
+        block.push_str(&shell_quote(value));
+        block.push('\n');
+    }
+    block
 }
 
-fn write_claude_settings(path: &Path, api_key: &str, base_url: &str) -> Result<(), String> {
-    let text = claude_settings_content(api_key, base_url)?;
-    fs::write(path, text).map_err(|err| format!("写入 Claude 临时配置失败: {err}"))?;
-    restrict_to_owner(path)
+fn write_auxiliary_file(path: Option<&Path>, content: Option<&str>) -> Result<(), String> {
+    match (path, content) {
+        (None, None) => Ok(()),
+        (Some(path), Some(content)) => {
+            fs::write(path, content).map_err(|err| format!("写入临时 CLI 配置失败: {err}"))?;
+            restrict_to_owner(path)
+        }
+        _ => Err("Agent CLI 临时配置计划不完整".to_string()),
+    }
 }
 
 /// 临时配置里有明文 API Key，权限收紧到仅属主可读写（脚本本身已是 0700）。
@@ -390,11 +374,11 @@ fn write_claude_settings(path: &Path, api_key: &str, base_url: &str) -> Result<(
 fn restrict_to_owner(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = fs::metadata(path)
-        .map_err(|err| format!("读取 Claude 临时配置权限失败: {err}"))?
+        .map_err(|err| format!("读取临时 CLI 配置权限失败: {err}"))?
         .permissions();
     permissions.set_mode(0o600);
     fs::set_permissions(path, permissions)
-        .map_err(|err| format!("设置 Claude 临时配置权限失败: {err}"))
+        .map_err(|err| format!("设置临时 CLI 配置权限失败: {err}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -408,12 +392,7 @@ fn restrict_to_owner(_path: &Path) -> Result<(), String> {
 /// 明文凭据，启动时兜底清扫一次；只清超过 24 小时的，避免碰到正在使用的会话。
 pub fn cleanup_stale() {
     const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
-    const PREFIXES: [&str; 4] = [
-        "balancehub-temporary-cli-",
-        "balancehub-codex-home-",
-        "balancehub-claude-home-",
-        "balancehub-codex-",
-    ];
+    const PREFIXES: [&str; 2] = ["balancehub-temporary-cli-", "balancehub-agent-liveness-"];
 
     let Ok(entries) = fs::read_dir(env::temp_dir()) else {
         return;
@@ -445,88 +424,6 @@ pub fn cleanup_stale() {
     }
 }
 
-pub(super) fn cli_args(
-    cli_kind: LivenessCliKind,
-    provider_name: &str,
-    base_url: &str,
-    model: &str,
-    session_name: &str,
-    session_mode: TemporaryCliSessionMode,
-    claude_settings_path: Option<&Path>,
-) -> Vec<String> {
-    match cli_kind {
-        LivenessCliKind::Codex => {
-            let mut args = Vec::new();
-            let display_name = provider_name.trim();
-            let display_name = if display_name.is_empty() {
-                "Custom"
-            } else {
-                display_name
-            };
-            if !model.trim().is_empty() {
-                args.extend(["-m".to_string(), model.trim().to_string()]);
-            }
-            args.extend([
-                "-c".to_string(),
-                "model_provider=\"custom\"".to_string(),
-                "-c".to_string(),
-                format!(
-                    "model_providers.custom.name=\"{}\"",
-                    escape_toml_string(display_name)
-                ),
-                "-c".to_string(),
-                format!(
-                    "model_providers.custom.base_url=\"{}\"",
-                    escape_toml_string(base_url)
-                ),
-                "-c".to_string(),
-                "model_providers.custom.wire_api=\"responses\"".to_string(),
-                "-c".to_string(),
-                "model_providers.custom.env_key=\"OPENAI_API_KEY\"".to_string(),
-                "-c".to_string(),
-                "model_providers.custom.requires_openai_auth=true".to_string(),
-            ]);
-            match session_mode {
-                TemporaryCliSessionMode::New => {}
-                TemporaryCliSessionMode::History => args.push("resume".to_string()),
-            }
-            args
-        }
-        LivenessCliKind::ClaudeCode => {
-            let mut args = Vec::new();
-            if let Some(path) = claude_settings_path {
-                args.extend(["--settings".to_string(), path.to_string_lossy().to_string()]);
-            }
-            if !model.trim().is_empty() {
-                args.extend(["--model".to_string(), model.trim().to_string()]);
-            }
-            if matches!(session_mode, TemporaryCliSessionMode::New)
-                && !session_name.trim().is_empty()
-            {
-                args.extend(["--name".to_string(), session_name.trim().to_string()]);
-            }
-            match session_mode {
-                TemporaryCliSessionMode::New => {}
-                TemporaryCliSessionMode::History => args.push("--resume".to_string()),
-            }
-            args
-        }
-    }
-}
-
-pub(super) fn insert_resume_id(args: &mut Vec<String>, cli_kind: LivenessCliKind, resume_id: &str) {
-    if resume_id.trim().is_empty() {
-        return;
-    }
-    let subcommand = match cli_kind {
-        LivenessCliKind::Codex => "resume",
-        LivenessCliKind::ClaudeCode => "--resume",
-    };
-    if let Some(index) = args.iter().position(|arg| arg == subcommand) {
-        args.insert(index + 1, resume_id.trim().to_string());
-    }
-}
-
 #[cfg(not(target_os = "windows"))]
 pub(super) fn set_executable(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
@@ -555,18 +452,19 @@ fn preview_quote(value: &str) -> String {
 /// 生成确认弹窗中的 CLI 调用。临时 shell/cmd 包装脚本仍由启动链路负责，
 /// 这里只展示用户真正关心的可执行文件、参数和显式环境变量。
 pub(super) fn format_cli_command(
-    cli_kind: LivenessCliKind,
     cli_path: &str,
     args: &[String],
-    api_key: &str,
+    agent_environment: &EnvironmentPatch,
     environment: &[(String, String)],
 ) -> String {
     #[cfg(not(target_os = "windows"))]
     {
         let mut parts = Vec::new();
-        if matches!(cli_kind, LivenessCliKind::Codex) {
-            parts.push(format!("OPENAI_API_KEY={}", preview_quote(api_key)));
-        }
+        parts.extend(
+            agent_environment
+                .set_values()
+                .map(|(name, value)| format!("{name}={}", preview_quote(value))),
+        );
         parts.extend(
             environment
                 .iter()
@@ -580,9 +478,11 @@ pub(super) fn format_cli_command(
     #[cfg(target_os = "windows")]
     {
         let mut assignments = Vec::new();
-        if matches!(cli_kind, LivenessCliKind::Codex) {
-            assignments.push(format!("$env:OPENAI_API_KEY={}", preview_quote(api_key)));
-        }
+        assignments.extend(
+            agent_environment
+                .set_values()
+                .map(|(name, value)| format!("$env:{name}={}", preview_quote(value))),
+        );
         assignments.extend(
             environment
                 .iter()
@@ -633,15 +533,7 @@ pub(super) fn shell_supports_posix_source(shell: &str) -> bool {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub(super) fn unix_cli_invocation(
-    cli_kind: LivenessCliKind,
-    cli_path: &str,
-    args: &[String],
-) -> String {
-    let command_name = match cli_kind {
-        LivenessCliKind::Codex => "codex",
-        LivenessCliKind::ClaudeCode => "claude",
-    };
+pub(super) fn unix_cli_invocation(command_name: &str, cli_path: &str, args: &[String]) -> String {
     let args = args
         .iter()
         .map(|arg| shell_quote(arg))
@@ -685,8 +577,4 @@ pub(super) fn escape_cmd_value(value: &str) -> String {
         .filter(|ch| !matches!(ch, '"' | '\r' | '\n'))
         .collect::<String>()
         .replace('%', "%%")
-}
-
-fn escape_toml_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
 }

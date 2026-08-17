@@ -1,7 +1,7 @@
 import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import { openCcSwitchDeeplink } from "../api/app";
-import type { LivenessCliKind, Provider } from "../stores/providers";
+import type { AgentCliKind, Provider } from "../stores/providers";
 import { supportsApiKeyManagement } from "../utils/provider-actions";
 import { useProviderCopyActions } from "./useProviderCopyActions";
 import {
@@ -14,7 +14,7 @@ import {
 interface UseProviderActionsOptions {
   providers: { value: Provider[] };
   refreshByIds: (ids: string[]) => Promise<unknown>;
-  openWorkspacePicker: (provider: Provider, cliKind?: LivenessCliKind) => void;
+  openWorkspacePicker: (provider: Provider, cliKind?: AgentCliKind) => void;
   probeCapabilities: (id: string) => Promise<{ provider: Provider; message: string }>;
   getInviteLink: (id: string) => Promise<string>;
   reload: () => Promise<unknown>;
@@ -72,7 +72,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     void options.refreshByIds([provider.identity.id]);
   }
 
-  function launchTemporaryCli(provider: Provider, cliKind?: LivenessCliKind) {
+  function launchTemporaryCli(provider: Provider, cliKind?: AgentCliKind) {
     if (!provider.identity.baseUrl.trim()) {
       Message.warning("临时启动 CLI 需要中转站地址");
       return;

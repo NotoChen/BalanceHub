@@ -13,7 +13,7 @@ use macos as platform;
 use windows as platform;
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-use crate::services::liveness::LivenessRunner;
+use crate::services::agent_cli;
 #[cfg(not(target_os = "macos"))]
 use crate::{limits, platform::process::run_command_with_output_timeout};
 use crate::{
@@ -100,7 +100,7 @@ pub(super) fn probe_terminal_command(
     let mut command = Command::new(binary);
     command.args(args);
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    if let Some(path) = LivenessRunner::runtime_path_for_cli(Path::new(binary)) {
+    if let Some(path) = agent_cli::runtime_path_for(Path::new(binary)) {
         command.env("PATH", path);
     }
     let Ok(output) = run_command_with_output_timeout(

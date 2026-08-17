@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { IconFile } from "@arco-design/web-vue/es/icon";
-import type { CliConfigFile, CliConfigPreview } from "../stores/providers";
-import BrandIcon from "./BrandIcon.vue";
+import { useProviderStore, type CliConfigFile, type CliConfigPreview } from "../stores/providers";
+import { agentCliLabel } from "../utils/cli-environment";
+import AgentCliIcon from "./AgentCliIcon.vue";
 
 type DiffLineKind = "context" | "removed" | "added";
 
@@ -31,13 +32,10 @@ const emit = defineEmits<{
   "update:visible": [visible: boolean];
   confirm: [files: CliConfigFile[]];
 }>();
+const store = useProviderStore();
 
 const cliLabel = computed(() =>
-  props.preview?.cliKind === "claudeCode" ? "Claude Code" : "Codex",
-);
-
-const cliBrand = computed(() =>
-  props.preview?.cliKind === "claudeCode" ? "claude" : "codex",
+  props.preview ? agentCliLabel(store.cliEnvironmentProbe, props.preview.cliKind) : "Agent CLI",
 );
 
 const editableFiles = ref<CliConfigFile[]>([]);
@@ -431,7 +429,10 @@ function confirm() {
   >
     <template #title>
       <div class="surface-modal-title cli-config-preview-title">
-        <span class="surface-modal-title-icon"><BrandIcon :brand="cliBrand" :size="18" /></span>
+        <span class="surface-modal-title-icon">
+          <AgentCliIcon v-if="preview" :kind="preview.cliKind" :size="18" />
+          <IconFile v-else />
+        </span>
         <span class="surface-modal-title-copy">
           <strong>编辑 {{ cliLabel }} 默认配置</strong>
         </span>

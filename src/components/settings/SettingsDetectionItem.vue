@@ -3,11 +3,17 @@ defineProps<{
   state: "checking" | "ok" | "error";
   name: string;
   detail: string;
+  tooltip?: string;
+  compact?: boolean;
 }>();
 </script>
 
 <template>
-  <article class="settings-detection-item" :class="`is-${state}`">
+  <article
+    class="settings-detection-item"
+    :class="[`is-${state}`, { 'is-compact': compact }]"
+    :title="tooltip || detail"
+  >
     <span class="settings-detection-mark">
       <slot name="icon" />
     </span>
@@ -52,6 +58,12 @@ defineProps<{
 
 .settings-detection-item.is-error {
   --detection-accent: rgb(var(--red-6));
+}
+
+.settings-detection-item.is-compact {
+  min-height: 96px;
+  gap: 8px;
+  padding: 10px;
 }
 
 .settings-detection-mark {

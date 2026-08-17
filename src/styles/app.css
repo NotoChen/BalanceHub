@@ -8,7 +8,7 @@
 @import "./modules/workspace-picker.css";
 @import "./modules/temporary-cli-preview.css";
 @import "./modules/cli-config-preview.css";
-@import "./modules/editor-codex.css";
+@import "./modules/agent-settings.css";
 @import "./modules/settings/base.css";
 @import "./modules/settings/provider-editor-base.css";
 @import "./modules/settings/workspace-base.css";

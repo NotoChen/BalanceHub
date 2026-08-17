@@ -21,8 +21,7 @@ export function providerMatchesSearch(provider: Provider, query: string) {
     provider.auth.apiUser,
     provider.cli.preferredModel,
     provider.liveness.model,
-    provider.liveness.openaiBaseUrl,
-    provider.liveness.anthropicBaseUrl,
+    ...Object.values(provider.liveness.agentBaseUrls || {}),
     ...provider.capabilities.availableModels,
     ...provider.liveness.records.map((record) => record.model),
   ]

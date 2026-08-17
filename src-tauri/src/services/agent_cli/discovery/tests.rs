@@ -1,4 +1,12 @@
+#[cfg(target_os = "windows")]
+use super::paths::binary_names;
+use super::paths::home_bin_candidates;
 use super::*;
+use crate::models::AgentCliKind;
+use crate::services::agent_cli::definition;
+
+#[cfg(unix)]
+use crate::services::agent_cli::contracts::EndpointAdapter;
 
 #[cfg(unix)]
 use std::fs;
@@ -44,14 +52,14 @@ fn home_bin_candidates_include_node_manager_shims() {
 #[test]
 fn codex_home_candidates_include_codex_home_bin() {
     let home = Path::new("/Users/example");
-    let candidates = codex_home_candidates(home);
+    let candidates = (definition(AgentCliKind::Codex).home_candidates)(home);
     assert!(candidates.contains(&PathBuf::from("/Users/example/.codex/bin/codex")));
 }
 
 #[test]
 fn codex_home_candidates_do_not_include_desktop_app_binary() {
     let home = Path::new("/Users/example");
-    let candidates = codex_home_candidates(home);
+    let candidates = (definition(AgentCliKind::Codex).home_candidates)(home);
     assert!(!candidates.contains(&PathBuf::from(
         "/Applications/Codex.app/Contents/Resources/codex"
     )));
@@ -59,19 +67,38 @@ fn codex_home_candidates_do_not_include_desktop_app_binary() {
 
 #[test]
 fn codex_desktop_app_binary_is_not_a_supported_cli_path() {
-    assert!(is_unsupported_cli_path(
-        Path::new("/Applications/Codex.app/Contents/Resources/codex"),
-        &CODEX_SPEC
-    ));
-    assert!(!is_unsupported_cli_path(
-        Path::new("/opt/homebrew/bin/codex"),
-        &CODEX_SPEC
-    ));
+    let codex = definition(AgentCliKind::Codex);
+    let invalid_path_reason = codex.invalid_path_reason.unwrap();
+    assert!(invalid_path_reason(Path::new(
+        "/Applications/Codex.app/Contents/Resources/codex"
+    ))
+    .is_some());
+    assert!(invalid_path_reason(Path::new("/opt/homebrew/bin/codex")).is_none());
+}
+
+#[test]
+fn project_cli_path_environment_key_is_derived_from_the_catalog_key() {
+    assert_eq!(
+        balancehub_cli_path_env_key(AgentCliKind::Codex),
+        "BALANCEHUB_CODEX_CLI_PATH"
+    );
+    assert_eq!(
+        balancehub_cli_path_env_key(AgentCliKind::ClaudeCode),
+        "BALANCEHUB_CLAUDE_CODE_CLI_PATH"
+    );
+    assert_eq!(
+        balancehub_cli_path_env_key(AgentCliKind::Grok),
+        "BALANCEHUB_GROK_CLI_PATH"
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn cli_probe_keeps_symlink_entrypoint_runtime_path() {
+    fn normalize_test_endpoint(base_url: &str) -> String {
+        base_url.to_string()
+    }
+
     fn no_home_candidates(_: &Path) -> Vec<PathBuf> {
         Vec::new()
     }
@@ -93,13 +120,20 @@ fn cli_probe_keeps_symlink_entrypoint_runtime_path() {
 
     let result = find_cli(
         entrypoint.to_str().unwrap(),
-        &CliSpec {
-            env_keys: &[],
-            binary: "balancehub-test-cli",
-            global_dirs: &[],
+        &AgentCliDefinition {
+            kind: AgentCliKind::Codex,
+            label: "Test CLI",
+            executable: "balancehub-test-cli",
+            session_name_hint: "",
+            additional_env_keys: &[],
             home_candidates: no_home_candidates,
+            invalid_path_reason: None,
             require_version_substring: None,
-            not_found_message: "not found",
+            endpoint: EndpointAdapter::new(normalize_test_endpoint),
+            temporary_launch: None,
+            sessions: None,
+            liveness: None,
+            default_config: None,
         },
         true,
     )
@@ -113,8 +147,24 @@ fn cli_probe_keeps_symlink_entrypoint_runtime_path() {
 #[test]
 fn claude_home_candidates_include_native_installer_path() {
     let home = Path::new("/Users/example");
-    let candidates = claude_home_candidates(home);
+    let candidates = (definition(AgentCliKind::ClaudeCode).home_candidates)(home);
     assert!(candidates.contains(&PathBuf::from("/Users/example/.claude/local/claude")));
+}
+
+#[test]
+fn gemini_home_candidates_include_node_package_installations() {
+    let home = Path::new("/Users/example");
+    let candidates = (definition(AgentCliKind::Gemini).home_candidates)(home);
+    assert!(candidates.contains(&PathBuf::from("/Users/example/.volta/bin/gemini")));
+    assert!(candidates.contains(&PathBuf::from("/Users/example/.npm-global/bin/gemini")));
+}
+
+#[test]
+fn grok_home_candidates_include_official_installer_path() {
+    let home = Path::new("/Users/example");
+    let candidates = (definition(AgentCliKind::Grok).home_candidates)(home);
+    assert!(candidates.contains(&PathBuf::from("/Users/example/.grok/bin/grok")));
+    assert!(candidates.contains(&PathBuf::from("/Users/example/.grok/bin/grok.exe")));
 }
 
 #[test]

@@ -8,7 +8,7 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import { CalendarCheck2, Power, PowerOff } from "@lucide/vue";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
-import type { LivenessCliKind, Provider } from "../../stores/providers";
+import type { AgentCliKind, Provider } from "../../stores/providers";
 import { providerAuthModeDescription } from "../../utils/provider-display";
 import {
   providerCheckedInToday,
@@ -21,17 +21,15 @@ const props = withDefaults(
   defineProps<{
     provider: Provider;
     interactive?: boolean;
-    codexDefault?: boolean;
-    claudeDefault?: boolean;
-    switchingCliKind?: LivenessCliKind | null;
+    defaultCliKinds?: readonly AgentCliKind[];
+    switchingCliKind?: AgentCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
     checkingIn?: boolean;
   }>(),
   {
     interactive: true,
-    codexDefault: false,
-    claudeDefault: false,
+    defaultCliKinds: () => [],
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
@@ -40,7 +38,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
   probeCapabilities: [provider: Provider];
   openApiKeyManager: [provider: Provider];
   openAvailableModels: [provider: Provider];
@@ -72,7 +70,7 @@ const refreshActionTitle = computed(() =>
 );
 
 const menuListeners = {
-  switchCliConfig: (provider: Provider, cliKind: LivenessCliKind) =>
+  switchCliConfig: (provider: Provider, cliKind: AgentCliKind) =>
     emit("switchCliConfig", provider, cliKind),
   probeCapabilities: (provider: Provider) => emit("probeCapabilities", provider),
   openApiKeyManager: (provider: Provider) => emit("openApiKeyManager", provider),
@@ -197,8 +195,7 @@ function removeProvider() {
 
       <ProviderCardActionMenus
         :provider="provider"
-        :codex-default="codexDefault"
-        :claude-default="claudeDefault"
+        :default-cli-kinds="defaultCliKinds"
         :switching-cli-kind="switchingCliKind"
         :cli-config-switching="cliConfigSwitching"
         :probing-capabilities="probingCapabilities"

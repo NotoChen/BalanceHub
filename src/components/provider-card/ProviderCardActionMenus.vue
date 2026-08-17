@@ -17,9 +17,13 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import { Bot, GitCompareArrows } from "@lucide/vue";
 import BrandIcon from "../BrandIcon.vue";
+import AgentCliIcon from "../AgentCliIcon.vue";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
-import { useProviderStore, type LivenessCliKind, type Provider } from "../../stores/providers";
-import { availableCliKinds, cliKindMeta } from "../../utils/cli-environment";
+import { useProviderStore, type AgentCliKind, type Provider } from "../../stores/providers";
+import {
+  agentCliLabel,
+  availableCliKinds,
+} from "../../utils/cli-environment";
 import {
   supportsAccountManagement,
   supportsApiKeyManagement,
@@ -37,15 +41,13 @@ import ccSwitchLogo from "../../assets/logos/cc-switch.png";
 const props = withDefaults(
   defineProps<{
     provider: Provider;
-    codexDefault?: boolean;
-    claudeDefault?: boolean;
-    switchingCliKind?: LivenessCliKind | null;
+    defaultCliKinds?: readonly AgentCliKind[];
+    switchingCliKind?: AgentCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
   }>(),
   {
-    codexDefault: false,
-    claudeDefault: false,
+    defaultCliKinds: () => [],
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
@@ -53,7 +55,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
   probeCapabilities: [provider: Provider];
   openApiKeyManager: [provider: Provider];
   openAvailableModels: [provider: Provider];
@@ -71,7 +73,12 @@ const emit = defineEmits<{
 }>();
 
 const store = useProviderStore();
-const detectedCliKinds = computed(() => availableCliKinds(store.cliEnvironmentProbe));
+const temporaryCliKinds = computed(() =>
+  availableCliKinds(store.cliEnvironmentProbe, "temporaryLaunch"),
+);
+const configurableCliKinds = computed(() =>
+  availableCliKinds(store.cliEnvironmentProbe, "defaultConfig"),
+);
 const cliSwitchVisible = ref(false);
 const copyMenuVisible = ref(false);
 const dataMenuVisible = ref(false);
@@ -82,15 +89,13 @@ const canSwitchCliConfig = computed(() =>
 );
 const canLaunchTemporaryCli = computed(() =>
   Boolean(
-    detectedCliKinds.value.length > 0 &&
+    temporaryCliKinds.value.length > 0 &&
       props.provider.identity.baseUrl.trim() &&
       (props.provider.auth.apiKey.trim() || supportsApiKeyManagement(props.provider)),
   ),
 );
 const switchableCliKinds = computed(() =>
-  detectedCliKinds.value.filter(
-    (kind) => !(kind === "codex" ? props.codexDefault : props.claudeDefault),
-  ),
+  configurableCliKinds.value.filter((kind) => !props.defaultCliKinds.includes(kind)),
 );
 const hasCopyActions = computed(() =>
   Boolean(
@@ -159,8 +164,8 @@ watch(
   { immediate: true },
 );
 
-function switchCliConfig(cliKind: LivenessCliKind) {
-  const isCurrent = cliKind === "codex" ? props.codexDefault : props.claudeDefault;
+function switchCliConfig(cliKind: AgentCliKind) {
+  const isCurrent = props.defaultCliKinds.includes(cliKind);
   cliSwitchVisible.value = false;
   if (!isCurrent && !props.cliConfigSwitching) {
     emit("switchCliConfig", props.provider, cliKind);
@@ -441,9 +446,9 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           :disabled="cliConfigSwitching || !canSwitchCliConfig"
           @click="switchCliConfig(cliKind)"
         >
-          <BrandIcon :brand="cliKindMeta[cliKind].brand" :size="16" />
+          <AgentCliIcon :kind="cliKind" :size="16" />
           <span>
-            <strong>{{ cliKindMeta[cliKind].label }}</strong>
+            <strong>{{ agentCliLabel(store.cliEnvironmentProbe, cliKind) }}</strong>
             <small>切换到此中转站</small>
           </span>
           <icon-loading

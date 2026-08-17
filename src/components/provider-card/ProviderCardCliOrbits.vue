@@ -7,8 +7,7 @@ import {
   watch,
   type CSSProperties,
 } from "vue";
-import { Bot } from "@lucide/vue";
-import BrandIcon from "../BrandIcon.vue";
+import AgentCliIcon from "../AgentCliIcon.vue";
 import type {
   ProviderCardCliOrbitMotion,
   ProviderCardCliOrbitSpec,
@@ -211,8 +210,7 @@ onBeforeUnmount(() => {
       :data-cli-kind="orbit.id"
       :style="orbitStyle(orbit)"
     >
-      <BrandIcon v-if="orbit.brand" :brand="orbit.brand" :size="16" />
-      <Bot v-else :size="16" :stroke-width="1.8" />
+      <AgentCliIcon :kind="orbit.cliKind" :size="16" />
     </span>
   </div>
 </template>

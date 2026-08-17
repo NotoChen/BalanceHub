@@ -2,7 +2,7 @@
 import { computed, ref, type CSSProperties } from "vue";
 import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
-import type { CliRuntimeSnapshot, LivenessCliKind, Provider } from "../stores/providers";
+import type { CliRuntimeSnapshot, AgentCliKind, Provider } from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 import { providerMatchesSearch } from "../utils/provider-filters";
@@ -20,7 +20,7 @@ const props = defineProps<{
   livenessProviders: Provider[];
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
-  switchingCliConfig: { providerId: string; cliKind: LivenessCliKind } | null;
+  switchingCliConfig: { providerId: string; cliKind: AgentCliKind } | null;
   refreshInProgress: boolean;
   globalCheckInInProgress: boolean;
   appVersion: string;
@@ -62,7 +62,7 @@ const emit = defineEmits<{
   toggle: [provider: Provider];
   refresh: [provider: Provider];
   probeCapabilities: [provider: Provider];
-  launchTemporaryCli: [provider: Provider, cliKind?: LivenessCliKind];
+  launchTemporaryCli: [provider: Provider, cliKind?: AgentCliKind];
   edit: [provider: Provider];
   checkIn: [provider: Provider];
   openApiKeyManager: [provider: Provider];
@@ -77,8 +77,8 @@ const emit = defineEmits<{
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
-  openCliInstances: [provider: Provider, cliKind: LivenessCliKind];
-  switchCliConfig: [provider: Provider, cliKind: LivenessCliKind];
+  openCliInstances: [provider: Provider, cliKind: AgentCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
 }>();
 </script>
 

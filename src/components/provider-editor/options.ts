@@ -3,8 +3,8 @@ import type { SelectOption } from "../../utils/liveness-options";
 
 export type { SelectOption } from "../../utils/liveness-options";
 export {
-  codexIntervalModeOptions,
-  codexPromptModeOptions,
+  livenessIntervalModeOptions,
+  livenessPromptModeOptions,
 } from "../../utils/liveness-options";
 
 export const providerProxyModeOptions: SelectOption<ProviderProxyMode>[] = [

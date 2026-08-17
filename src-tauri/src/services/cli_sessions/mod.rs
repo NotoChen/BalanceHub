@@ -1,22 +1,26 @@
-mod claude;
-mod codex;
-
-use crate::models::{CliSessionSummary, LivenessCliKind};
+use crate::{
+    models::{AgentCliKind, CliSessionSummary},
+    services::agent_cli,
+};
 use std::path::Path;
+
+#[cfg(test)]
+mod tests;
 
 const MAX_SESSIONS: usize = 100;
 
 /// 读取本机 CLI 自己维护的历史索引。这里不启动 CLI、不会写入状态目录，
 /// 也不依赖 Codex Desktop 的 app-server。
-pub fn list(cli_kind: LivenessCliKind, workdir: &Path) -> Result<Vec<CliSessionSummary>, String> {
+pub fn list(cli_kind: AgentCliKind, workdir: &Path) -> Result<Vec<CliSessionSummary>, String> {
+    let definition = agent_cli::definition(cli_kind);
+    let adapter = definition
+        .sessions()
+        .ok_or_else(|| format!("{} 当前不支持读取历史会话", definition.label))?;
     if !workdir.is_dir() {
         return Err("工作目录不存在，无法读取历史会话".to_string());
     }
 
-    let mut sessions = match cli_kind {
-        LivenessCliKind::Codex => codex::list(workdir, MAX_SESSIONS)?,
-        LivenessCliKind::ClaudeCode => claude::list(workdir)?,
-    };
+    let mut sessions = adapter.list(cli_kind, workdir)?;
     sessions.sort_by(|left, right| {
         session_sort_key(right.updated_at.as_deref())
             .cmp(&session_sort_key(left.updated_at.as_deref()))
@@ -34,14 +38,14 @@ fn is_empty_shell(session: &CliSessionSummary) -> bool {
     session.title == "未命名会话" && session.preview.is_none()
 }
 
-fn session_sort_key(value: Option<&str>) -> i64 {
+pub(crate) fn session_sort_key(value: Option<&str>) -> i64 {
     value
         .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
         .map(|value| value.timestamp_millis())
         .unwrap_or_default()
 }
 
-fn clean_text(value: impl AsRef<str>, limit: usize) -> Option<String> {
+pub(crate) fn clean_text(value: impl AsRef<str>, limit: usize) -> Option<String> {
     let value = value
         .as_ref()
         .split_whitespace()
@@ -57,7 +61,7 @@ fn clean_text(value: impl AsRef<str>, limit: usize) -> Option<String> {
     Some(text)
 }
 
-fn first_non_empty(values: impl IntoIterator<Item = Option<String>>) -> String {
+pub(crate) fn first_non_empty(values: impl IntoIterator<Item = Option<String>>) -> String {
     values
         .into_iter()
         .flatten()
@@ -65,7 +69,7 @@ fn first_non_empty(values: impl IntoIterator<Item = Option<String>>) -> String {
         .unwrap_or_else(|| "未命名会话".to_string())
 }
 
-fn timestamp_from_value(value: Option<i64>, milliseconds: bool) -> Option<String> {
+pub(crate) fn timestamp_from_value(value: Option<i64>, milliseconds: bool) -> Option<String> {
     let value = value?;
     let millis = if milliseconds {
         value
@@ -77,7 +81,7 @@ fn timestamp_from_value(value: Option<i64>, milliseconds: bool) -> Option<String
     chrono::DateTime::from_timestamp_millis(millis).map(|date| date.to_rfc3339())
 }
 
-fn normalize_timestamp(value: Option<&str>) -> Option<String> {
+pub(crate) fn normalize_timestamp(value: Option<&str>) -> Option<String> {
     let value = value?.trim();
     if value.is_empty() {
         return None;
@@ -88,67 +92,4 @@ fn normalize_timestamp(value: Option<&str>) -> Option<String> {
     chrono::DateTime::parse_from_rfc3339(value)
         .ok()
         .map(|date| date.to_rfc3339())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        clean_text, first_non_empty, is_empty_shell, normalize_timestamp, timestamp_from_value,
-    };
-    use crate::models::{CliSessionMetadataSource, CliSessionSummary, LivenessCliKind};
-
-    #[test]
-    fn text_is_compacted_and_bounded() {
-        assert_eq!(
-            clean_text("  hello\n world  ", 20).as_deref(),
-            Some("hello world")
-        );
-        assert_eq!(clean_text("abcdef", 3).as_deref(), Some("abc..."));
-        assert_eq!(clean_text("  ", 20), None);
-    }
-
-    #[test]
-    fn title_fallback_uses_first_non_empty_value() {
-        assert_eq!(
-            first_non_empty([None, Some(String::new()), Some("title".to_string())]),
-            "title"
-        );
-        assert_eq!(first_non_empty([None]), "未命名会话");
-    }
-
-    #[test]
-    fn timestamps_accept_seconds_milliseconds_and_rfc3339() {
-        assert!(timestamp_from_value(Some(1_725_000_000), false).is_some());
-        assert!(timestamp_from_value(Some(1_725_000_000_000), true).is_some());
-        assert_eq!(
-            normalize_timestamp(Some("2026-08-06T08:00:00Z")),
-            Some("2026-08-06T08:00:00+00:00".to_string())
-        );
-    }
-
-    #[test]
-    fn empty_shell_sessions_are_filtered_without_touching_source_data() {
-        let empty = CliSessionSummary {
-            id: "empty".to_string(),
-            title: "未命名会话".to_string(),
-            preview: None,
-            model: None,
-            models: Vec::new(),
-            cli_kind: LivenessCliKind::Codex,
-            created_at: None,
-            updated_at: None,
-            workdir: "/tmp/project".to_string(),
-            cli_version: None,
-            archived: false,
-            can_resume: true,
-            metadata_source: CliSessionMetadataSource::CodexStateDb,
-        };
-        let named = CliSessionSummary {
-            id: "named".to_string(),
-            title: "BalanceHub".to_string(),
-            ..empty.clone()
-        };
-        assert!(is_empty_shell(&empty));
-        assert!(!is_empty_shell(&named));
-    }
 }

@@ -5,15 +5,14 @@ import {
   useProviderStore,
   type AppSettings,
   type CliToolProbeResult,
-  type LivenessCliKind,
 } from "../../stores/providers";
 import {
+  agentCliVersionLabel,
   applyCliEnvironmentProbeResult,
   availableCliKinds,
   captureCliEnvironmentSettings,
-  cliKindMeta,
 } from "../../utils/cli-environment";
-import BrandIcon from "../BrandIcon.vue";
+import AgentCliIcon from "../AgentCliIcon.vue";
 import SettingsDetectionGrid from "./SettingsDetectionGrid.vue";
 import SettingsDetectionItem from "./SettingsDetectionItem.vue";
 
@@ -22,15 +21,10 @@ const props = defineProps<{
   settings: AppSettings;
 }>();
 
-const CLI_KINDS: LivenessCliKind[] = ["codex", "claudeCode"];
 const probe = computed(() => store.cliEnvironmentProbe);
+const registeredTools = computed(() => probe.value?.tools || []);
 const detectedKinds = computed(() => availableCliKinds(probe.value));
 const probeError = ref("");
-
-function toolResult(kind: LivenessCliKind): CliToolProbeResult | null {
-  if (!probe.value) return null;
-  return kind === "codex" ? probe.value.codex : probe.value.claudeCode;
-}
 
 function itemState(result: CliToolProbeResult | null) {
   if (store.cliEnvironmentLoading) return "checking";
@@ -43,7 +37,13 @@ function resultText(result: CliToolProbeResult | null) {
   }
   if (!result) return "尚未扫描";
   if (!result.available) return result.message || "未检测到可用 CLI";
-  return [result.version, result.path].filter(Boolean).join(" · ") || "已检测";
+  return agentCliVersionLabel(result.version) || "已检测";
+}
+
+function resultTooltip(result: CliToolProbeResult | null) {
+  if (!result) return "尚未扫描";
+  if (!result.available) return result.message || "未检测到可用 CLI";
+  return [result.version.trim(), result.path.trim()].filter(Boolean).join("\n") || "已检测";
 }
 
 async function runProbe() {
@@ -83,16 +83,18 @@ async function runProbe() {
       </span>
     </header>
 
-    <SettingsDetectionGrid>
+    <SettingsDetectionGrid wide>
       <SettingsDetectionItem
-        v-for="kind in CLI_KINDS"
-        :key="kind"
-        :state="itemState(toolResult(kind))"
-        :name="cliKindMeta[kind].label"
-        :detail="resultText(toolResult(kind))"
+        v-for="tool in registeredTools"
+        :key="tool.kind"
+        :state="itemState(tool)"
+        :name="tool.label"
+        :detail="resultText(tool)"
+        :tooltip="resultTooltip(tool)"
+        compact
       >
         <template #icon>
-          <BrandIcon :brand="cliKindMeta[kind].brand" :size="26" />
+          <AgentCliIcon :kind="tool.kind" :size="26" />
         </template>
       </SettingsDetectionItem>
     </SettingsDetectionGrid>

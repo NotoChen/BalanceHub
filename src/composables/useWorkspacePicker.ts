@@ -3,7 +3,7 @@ import { Message } from "@arco-design/web-vue";
 import type {
   CliEnvironmentProbeResult,
   CliSessionSummary,
-  LivenessCliKind,
+  AgentCliKind,
   Provider,
   ProviderApiKeyOption,
   TemporaryCliInstance,
@@ -21,6 +21,8 @@ import {
   availableCliOptions,
   availableTerminalOptions,
   canNameSessionAtLaunch,
+  agentCliLabel,
+  agentCliTool,
 } from "../utils/cli-environment";
 import { supportsApiKeyManagement } from "../utils/provider-actions";
 import {
@@ -42,13 +44,13 @@ interface UseWorkspacePickerOptions {
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
   preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
   getInstance: (instanceId: string) => Promise<TemporaryCliInstance | null>;
-  listSessions: (cliKind: LivenessCliKind, workdir: string) => Promise<CliSessionSummary[]>;
+  listSessions: (cliKind: AgentCliKind, workdir: string) => Promise<CliSessionSummary[]>;
 }
 
 export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspacePickerVisible = ref(false);
   const workspacePickerProvider = ref<Provider | null>(null);
-  const workspacePickerCliKind = ref<LivenessCliKind>("codex");
+  const workspacePickerCliKind = ref<AgentCliKind>("codex");
   const workspaceApiKeys = ref<ProviderApiKeyOption[]>([]);
   const workspaceApiKeyLoading = ref(false);
   const workspaceApiKeyError = ref("");
@@ -68,8 +70,13 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       workspaceSessionMode.value,
     ),
   );
+  const selectedCliTool = computed(() =>
+    agentCliTool(options.cliEnvironmentProbe.value, workspacePickerCliKind.value),
+  );
   const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(options.terminalKind.value);
-  const workspaceCliOptions = computed(() => availableCliOptions(options.cliEnvironmentProbe.value));
+  const workspaceCliOptions = computed(() =>
+    availableCliOptions(options.cliEnvironmentProbe.value, "temporaryLaunch"),
+  );
   const workspaceTerminalOptions = computed(() =>
     availableTerminalOptions(options.terminalEnvironmentProbe.value),
   );
@@ -237,7 +244,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSelectedModel.value = "";
   }
 
-  async function openWorkspacePicker(provider: Provider, cliKind?: LivenessCliKind) {
+  async function openWorkspacePicker(provider: Provider, cliKind?: AgentCliKind) {
     const requestId = ++pickerRequestId;
     workspacePickerProvider.value = provider;
     const preference = options.preferences.value.find(
@@ -334,9 +341,11 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       (option) => option.tokenId === workspaceApiKeyTokenId.value,
     );
     const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
-    const model = workspaceSessionMode.value === "new"
-      ? (workspaceSelectedModel.value.trim() || provider.cli.preferredModel.trim())
-      : workspaceSelectedModel.value.trim();
+    const model = selectedCliTool.value?.capabilities.modelSelection
+      ? workspaceSessionMode.value === "new"
+        ? (workspaceSelectedModel.value.trim() || provider.cli.preferredModel.trim())
+        : workspaceSelectedModel.value.trim()
+      : "";
     const sessionName = workspaceCanNameSession.value
       ? workspaceSessionName.value.trim()
       : "";
@@ -402,7 +411,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       return;
     }
 
-    const cliLabel = input.cliKind === "codex" ? "Codex" : "Claude Code";
+    const cliLabel = agentCliLabel(options.cliEnvironmentProbe.value, input.cliKind);
     const terminalLabel = workspaceTerminalOptions.value.find(
       (option) => option.value === input.terminalKind,
     )?.label ?? "终端";
@@ -485,6 +494,13 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
 
   watch(workspacePickerCliKind, () => {
     workspaceSelectedResumeId.value = "";
+    if (
+      workspaceSessionMode.value === "history"
+      && (!selectedCliTool.value?.capabilities.sessionHistory
+        || !selectedCliTool.value?.capabilities.sessionResume)
+    ) {
+      workspaceSessionMode.value = "new";
+    }
     if (workspacePickerVisible.value && workspaceSessionMode.value !== "new") {
       workspaceSelectedModel.value = "";
     }

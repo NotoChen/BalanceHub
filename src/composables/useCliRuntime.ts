@@ -1,35 +1,38 @@
 import { computed, onUnmounted, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
-import type {
-  CliConfigPreview,
-  CliConfigFile,
-  CliRuntimeSnapshot,
-  LivenessCliKind,
-  Provider,
-  TemporaryCliInstance,
+import {
+  useProviderStore,
+  type CliConfigPreview,
+  type CliConfigFile,
+  type CliRuntimeSnapshot,
+  type AgentCliKind,
+  type Provider,
+  type TemporaryCliInstance,
 } from "../stores/providers";
+import { agentCliLabel } from "../utils/cli-environment";
 
 interface UseCliRuntimeOptions {
   providers: Ref<Provider[]>;
   cliRuntime: Ref<CliRuntimeSnapshot>;
   refreshInstances: () => Promise<TemporaryCliInstance[]>;
   activate: (instanceId: string) => Promise<void>;
-  previewConfig: (providerId: string, cliKind: LivenessCliKind) => Promise<CliConfigPreview>;
+  previewConfig: (providerId: string, cliKind: AgentCliKind) => Promise<CliConfigPreview>;
   switchConfig: (
     providerId: string,
-    cliKind: LivenessCliKind,
+    cliKind: AgentCliKind,
     revision: string,
     files: CliConfigFile[],
   ) => Promise<CliRuntimeSnapshot>;
 }
 
 export function useCliRuntime(options: UseCliRuntimeOptions) {
+  const store = useProviderStore();
   const cliInstancesVisible = ref(false);
   const cliInstancesProviderId = ref<string | null>(null);
-  const cliInstancesKind = ref<LivenessCliKind | null>(null);
+  const cliInstancesKind = ref<AgentCliKind | null>(null);
   const activatingCliInstanceId = ref<string | null>(null);
   const cliInstancesRefreshing = ref(false);
-  const switchingCliConfig = ref<{ providerId: string; cliKind: LivenessCliKind } | null>(null);
+  const switchingCliConfig = ref<{ providerId: string; cliKind: AgentCliKind } | null>(null);
   const cliConfigPreviewVisible = ref(false);
   const cliConfigPreview = ref<CliConfigPreview | null>(null);
   let instanceRefreshPending = false;
@@ -50,7 +53,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     ),
   );
 
-  function openCliInstances(provider: Provider, cliKind: LivenessCliKind) {
+  function openCliInstances(provider: Provider, cliKind: AgentCliKind) {
     cliInstancesProviderId.value = provider.identity.id;
     cliInstancesKind.value = cliKind;
     cliInstancesVisible.value = true;
@@ -102,10 +105,13 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
 
   onUnmounted(stopInstancePolling);
 
-  async function switchProviderCliConfig(provider: Provider, cliKind: LivenessCliKind) {
+  async function switchProviderCliConfig(provider: Provider, cliKind: AgentCliKind) {
     if (
       switchingCliConfig.value ||
-      options.cliRuntime.value[cliKind].providerId === provider.identity.id
+      options.cliRuntime.value.configs.some(
+        (snapshot) =>
+          snapshot.cliKind === cliKind && snapshot.providerId === provider.identity.id,
+      )
     ) {
       return;
     }
@@ -140,7 +146,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       );
       cliConfigPreviewVisible.value = false;
       Message.success(
-        `已将 ${preview.providerName} 设为 ${preview.cliKind === "codex" ? "Codex" : "Claude Code"} 默认中转站`,
+        `已将 ${preview.providerName} 设为 ${agentCliLabel(store.cliEnvironmentProbe, preview.cliKind)} 默认中转站`,
       );
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));

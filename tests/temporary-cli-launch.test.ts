@@ -87,21 +87,46 @@ test("temporary CLI launch timeout is bounded", async () => {
 
 test("launch-time session naming follows the CLI capability boundary", () => {
   const probe = {
-    codex: {
-      available: true,
-      path: "/usr/local/bin/codex",
-      version: "0.146.0",
-      message: "",
-      supportsSessionName: false,
-    },
-    claudeCode: {
-      available: true,
-      path: "/usr/local/bin/claude",
-      version: "2.1.221",
-      message: "",
-      supportsSessionName: true,
-    },
-    terminals: [],
+    tools: [
+      {
+        kind: "codex",
+        label: "Codex CLI",
+        executable: "codex",
+        sessionNameHint: "Codex CLI 当前不支持启动前命名",
+        capabilities: {
+          temporaryLaunch: true,
+          modelSelection: true,
+          sessionHistory: true,
+          sessionResume: true,
+          sessionName: false,
+          liveness: true,
+          defaultConfig: true,
+        },
+        available: true,
+        path: "/usr/local/bin/codex",
+        version: "0.146.0",
+        message: "",
+      },
+      {
+        kind: "claudeCode",
+        label: "Claude Code",
+        executable: "claude",
+        sessionNameHint: "",
+        capabilities: {
+          temporaryLaunch: true,
+          modelSelection: true,
+          sessionHistory: true,
+          sessionResume: true,
+          sessionName: true,
+          liveness: true,
+          defaultConfig: true,
+        },
+        available: true,
+        path: "/usr/local/bin/claude",
+        version: "2.1.221",
+        message: "",
+      },
+    ],
   } satisfies CliEnvironmentProbeResult;
 
   assert.equal(canNameSessionAtLaunch(probe, "claudeCode", "new"), true);

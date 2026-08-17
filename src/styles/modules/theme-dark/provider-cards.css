@@ -223,8 +223,6 @@
 }
 
 :root.theme-dark .provider-card {
-  --provider-card-cli-codex-color: #f1f1f1;
-  --provider-card-cli-codex-glow: rgba(241, 241, 241, 0.26);
 }
 
 :root.theme-dark .provider-card-cli-signal {

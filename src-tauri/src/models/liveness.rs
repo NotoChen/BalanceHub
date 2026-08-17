@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{Provider, TemporaryCliTerminalKind};
+use super::TemporaryCliTerminalKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,24 +36,6 @@ pub struct LivenessRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CodexCliProbeResult {
-    pub path: String,
-    pub version: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CliToolProbeResult {
-    pub available: bool,
-    pub path: String,
-    pub version: String,
-    pub message: String,
-    /// 是否支持通过临时 CLI 启动参数直接设置新会话名称。
-    pub supports_session_name: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TemporaryTerminalProbeResult {
     pub available: bool,
     pub kind: TemporaryCliTerminalKind,
@@ -64,24 +46,8 @@ pub struct TemporaryTerminalProbeResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CliEnvironmentProbeResult {
-    pub codex: CliToolProbeResult,
-    pub claude_code: CliToolProbeResult,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TerminalEnvironmentProbeResult {
     pub terminals: Vec<TemporaryTerminalProbeResult>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexModelSyncResult {
-    pub providers: Vec<Provider>,
-    pub provider: Provider,
-    pub models: Vec<String>,
-    pub message: String,
 }
 
 fn default_liveness_record_source() -> String {

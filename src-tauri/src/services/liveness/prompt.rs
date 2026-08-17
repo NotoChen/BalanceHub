@@ -1,36 +1,13 @@
 use crate::{
     limits,
     models::{
-        default_liveness_placeholder_pools, AppSettings, LivenessCliKind, LivenessIntervalMode,
+        default_liveness_placeholder_pools, AgentCliKind, AppSettings, LivenessIntervalMode,
         LivenessPlaceholderPool, LivenessPromptMode, Provider,
     },
     util::unix_millis as now_millis,
 };
 
 const MIN_LIVENESS_INTERVAL_SECS: u64 = 1;
-
-pub fn openai_base_url(provider: &Provider) -> String {
-    let raw = if provider.liveness.openai_base_url.trim().is_empty() {
-        provider.identity.base_url.trim()
-    } else {
-        provider.liveness.openai_base_url.trim()
-    };
-    let normalized = raw.trim_end_matches('/').to_string();
-    if normalized.ends_with("/v1") {
-        normalized
-    } else {
-        format!("{normalized}/v1")
-    }
-}
-
-pub fn anthropic_base_url(provider: &Provider) -> String {
-    let raw = if provider.liveness.anthropic_base_url.trim().is_empty() {
-        provider.identity.base_url.trim()
-    } else {
-        provider.liveness.anthropic_base_url.trim()
-    };
-    raw.trim_end_matches('/').to_string()
-}
 
 pub fn effective_interval(settings: &AppSettings, provider: &Provider) -> u64 {
     let (mode, fixed, min, max) = if provider.liveness.use_global {
@@ -67,7 +44,7 @@ pub(super) fn effective_model(settings: &AppSettings, provider: &Provider) -> St
     }
 }
 
-pub(super) fn effective_cli_kind(settings: &AppSettings, provider: &Provider) -> LivenessCliKind {
+pub(super) fn effective_cli_kind(settings: &AppSettings, provider: &Provider) -> AgentCliKind {
     provider
         .liveness
         .cli_kind
@@ -267,7 +244,7 @@ mod tests {
 
     fn provider_with_liveness(
         use_global: bool,
-        cli_kind: Option<LivenessCliKind>,
+        cli_kind: Option<AgentCliKind>,
         model: &str,
     ) -> Provider {
         Provider::from_input(
@@ -317,11 +294,11 @@ mod tests {
     #[test]
     fn provider_cli_overrides_global_even_when_schedule_uses_global() {
         let settings = AppSettings::default();
-        let provider = provider_with_liveness(true, Some(LivenessCliKind::ClaudeCode), "");
+        let provider = provider_with_liveness(true, Some(AgentCliKind::ClaudeCode), "");
 
         assert_eq!(
             effective_cli_kind(&settings, &provider),
-            LivenessCliKind::ClaudeCode
+            AgentCliKind::ClaudeCode
         );
     }
 }

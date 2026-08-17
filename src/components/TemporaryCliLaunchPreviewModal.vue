@@ -12,9 +12,10 @@ import {
   IconLink,
   IconLock,
 } from "@arco-design/web-vue/es/icon";
-import type { TemporaryCliLaunchPreview } from "../stores/providers";
+import { useProviderStore, type TemporaryCliLaunchPreview } from "../stores/providers";
+import { agentCliLabel } from "../utils/cli-environment";
 import { copyText } from "../composables/useClipboard";
-import BrandIcon, { type BrandIconName } from "./BrandIcon.vue";
+import AgentCliIcon from "./AgentCliIcon.vue";
 import TerminalBrandIcon from "./TerminalBrandIcon.vue";
 
 const props = defineProps<{
@@ -27,12 +28,10 @@ const emit = defineEmits<{
   "update:visible": [visible: boolean];
   confirm: [];
 }>();
+const store = useProviderStore();
 
 const cliLabel = computed(() =>
-  props.preview?.cliKind === "claudeCode" ? "Claude Code" : "Codex",
-);
-const cliBrand = computed<BrandIconName>(() =>
-  props.preview?.cliKind === "claudeCode" ? "claude" : "codex",
+  props.preview ? agentCliLabel(store.cliEnvironmentProbe, props.preview.cliKind) : "Agent CLI",
 );
 const sessionLabel = computed(() => {
   if (!props.preview) return "";
@@ -93,7 +92,8 @@ onBeforeUnmount(() => {
     <template #title>
       <div class="surface-modal-title temporary-cli-preview-title">
         <span class="surface-modal-title-icon temporary-cli-preview-title-icon">
-          <BrandIcon :brand="cliBrand" :size="20" />
+          <AgentCliIcon v-if="preview" :kind="preview.cliKind" :size="20" />
+          <icon-command v-else aria-hidden="true" />
         </span>
         <span class="surface-modal-title-copy">
           <span>临时 CLI</span>
@@ -117,7 +117,7 @@ onBeforeUnmount(() => {
       <section class="temporary-cli-preview-runtime" aria-label="运行环境">
         <div class="temporary-cli-preview-runtime-item">
           <span class="temporary-cli-preview-runtime-icon temporary-cli-preview-runtime-icon-cli">
-            <BrandIcon :brand="cliBrand" :size="24" />
+            <AgentCliIcon :kind="preview.cliKind" :size="24" />
           </span>
           <span class="temporary-cli-preview-runtime-copy">
             <small>CLI</small>
@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
 
       <details v-if="preview.settingsContent" class="temporary-cli-preview-disclosure" open>
         <summary>
-          <span><icon-link aria-hidden="true" />Claude 临时 settings</span>
+          <span><icon-link aria-hidden="true" />{{ cliLabel }} 临时配置</span>
           <small v-if="preview.settingsPath" :title="preview.settingsPath">{{ preview.settingsPath }}</small>
         </summary>
         <pre>{{ preview.settingsContent }}</pre>

@@ -3,8 +3,8 @@ use serde::Serialize;
 use crate::{
     adapters::protocol::ProtocolAdapter,
     models::{
-        provider_domain, AppData, AppSettings, CodexModelSyncResult, Provider,
-        ProviderCapabilityProbeResult, ProviderSaveResult, RefreshResult, TemporaryCliPreference,
+        provider_domain, AppData, AppSettings, Provider, ProviderCapabilityProbeResult,
+        ProviderModelSyncResult, ProviderSaveResult, RefreshResult, TemporaryCliPreference,
         Workspace,
     },
 };
@@ -131,15 +131,15 @@ impl From<ProviderCapabilityProbeResult> for ProviderCapabilityProbeResultView {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CodexModelSyncResultView {
+pub struct ProviderModelSyncResultView {
     pub providers: Vec<ProviderView>,
     pub provider: ProviderView,
     pub models: Vec<String>,
     pub message: String,
 }
 
-impl From<CodexModelSyncResult> for CodexModelSyncResultView {
-    fn from(result: CodexModelSyncResult) -> Self {
+impl From<ProviderModelSyncResult> for ProviderModelSyncResultView {
+    fn from(result: ProviderModelSyncResult) -> Self {
         Self {
             providers: provider_views(result.providers),
             provider: ProviderView::from(result.provider),

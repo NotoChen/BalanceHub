@@ -11,17 +11,19 @@ import {
   IconRight,
   IconUp,
 } from "@arco-design/web-vue/es/icon";
-import type {
-  LivenessCliKind,
-  CliSessionSummary,
-  Provider,
-  ProviderApiKeyOption,
-  TemporaryCliSessionMode,
-  TemporaryCliTerminalKind,
-  Workspace,
-  WorkspaceDirectoryListing,
+import {
+  useProviderStore,
+  type AgentCliKind,
+  type CliSessionSummary,
+  type Provider,
+  type ProviderApiKeyOption,
+  type TemporaryCliSessionMode,
+  type TemporaryCliTerminalKind,
+  type Workspace,
+  type WorkspaceDirectoryListing,
 } from "../stores/providers";
 import type { SelectOption } from "../utils/liveness-options";
+import { agentCliLabel, agentCliTool } from "../utils/cli-environment";
 import { copyText } from "../composables/useClipboard";
 import CliIconSelector from "./CliIconSelector.vue";
 import ProviderAuthIcon from "./ProviderAuthIcon.vue";
@@ -30,8 +32,8 @@ import TerminalIconSelector from "./TerminalIconSelector.vue";
 const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
-  cliKind: LivenessCliKind;
-  cliOptions: SelectOption<LivenessCliKind>[];
+  cliKind: AgentCliKind;
+  cliOptions: SelectOption<AgentCliKind>[];
   apiKeys: ProviderApiKeyOption[];
   apiKeyLoading: boolean;
   apiKeyError: string;
@@ -62,7 +64,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
   "update:pathDraft": [path: string];
-  "update:cliKind": [kind: LivenessCliKind];
+  "update:cliKind": [kind: AgentCliKind];
   "update:apiKeyTokenId": [tokenId: string];
   "update:selectedModel": [model: string];
   "update:sessionName": [name: string];
@@ -77,6 +79,7 @@ const emit = defineEmits<{
 }>();
 
 const showHidden = ref(false);
+const store = useProviderStore();
 
 const pathModel = computed({
   get: () => props.pathDraft,
@@ -101,10 +104,20 @@ const launching = computed(() => Boolean(props.launchingPath));
 const launchLocked = computed(
   () => launching.value || props.launchPreviewVisible || props.launchPreviewLoading,
 );
-const cliLabel = computed(() => (props.cliKind === "codex" ? "Codex" : "Claude Code"));
-const codexNamingHint = computed(
-  () => props.cliKind === "codex" && props.sessionMode === "new" && !props.canNameSession,
+const cliLabel = computed(() => agentCliLabel(store.cliEnvironmentProbe, props.cliKind));
+const selectedCliTool = computed(() => agentCliTool(store.cliEnvironmentProbe, props.cliKind));
+const supportsModelSelection = computed(
+  () => selectedCliTool.value?.capabilities.modelSelection ?? false,
 );
+const supportsSessionHistory = computed(
+  () =>
+    Boolean(selectedCliTool.value?.capabilities.sessionHistory)
+    && Boolean(selectedCliTool.value?.capabilities.sessionResume),
+);
+const sessionNamingHint = computed(() => {
+  if (props.sessionMode !== "new" || props.canNameSession) return "";
+  return selectedCliTool.value?.sessionNameHint || `${cliLabel.value} 当前不支持启动前命名`;
+});
 const preferredModel = computed(() => props.provider?.cli.preferredModel?.trim() || "");
 const fixedModel = computed(() => (props.sessionMode === "new" ? preferredModel.value : ""));
 const modelPlaceholder = computed(() =>
@@ -168,7 +181,7 @@ const hasSingleApiKey = computed(() => effectiveApiKeys.value.length === 1);
 const singleApiKey = computed(() => effectiveApiKeys.value[0] ?? null);
 const cliKindModel = computed({
   get: () => props.cliKind,
-  set: (value: LivenessCliKind) => emit("update:cliKind", value),
+  set: (value: AgentCliKind) => emit("update:cliKind", value),
 });
 const apiKeyModel = computed({
   get: () => props.apiKeyTokenId,
@@ -352,7 +365,10 @@ async function copySessionId(id: string) {
               </a-option>
             </a-select>
           </div>
-          <div class="workspace-launch-config-field workspace-launch-model-field">
+          <div
+            v-if="supportsModelSelection"
+            class="workspace-launch-config-field workspace-launch-model-field"
+          >
             <span class="workspace-config-label">模型</span>
             <div v-if="fixedModel" class="workspace-fixed-credential workspace-fixed-model">
               <span :title="fixedModel">{{ fixedModel }}</span>
@@ -378,7 +394,7 @@ async function copySessionId(id: string) {
             <span class="workspace-config-label">会话</span>
             <a-radio-group v-model="sessionModeModel" type="button" size="small" :disabled="launchLocked">
               <a-radio value="new">新会话</a-radio>
-              <a-radio value="history">继续历史会话</a-radio>
+              <a-radio v-if="supportsSessionHistory" value="history">继续历史会话</a-radio>
             </a-radio-group>
           </div>
           <div v-if="canNameSession" class="workspace-session-name-field">
@@ -392,14 +408,17 @@ async function copySessionId(id: string) {
             />
           </div>
           <a-alert
-            v-else-if="codexNamingHint"
+            v-else-if="sessionNamingHint"
             class="workspace-session-capability-note"
             type="info"
             show-icon
           >
-            Codex 当前不支持启动前命名；启动后可在终端输入 /new 名称 或 /rename
+            {{ sessionNamingHint }}
           </a-alert>
-          <div v-if="sessionMode !== 'new'" class="workspace-session-history">
+          <div
+            v-if="supportsSessionHistory && sessionMode !== 'new'"
+            class="workspace-session-history"
+          >
             <div class="workspace-session-history-toolbar">
               <div>
                 <strong>历史会话</strong>

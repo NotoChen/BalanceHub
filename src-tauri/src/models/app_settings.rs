@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use super::enums::{
-    LivenessCliKind, LivenessIntervalMode, LivenessPromptMode, ProxyMode, TemporaryCliTerminalKind,
+    AgentCliKind, LivenessIntervalMode, LivenessPromptMode, ProxyMode, TemporaryCliTerminalKind,
     ThemeMode,
 };
 
@@ -32,11 +33,9 @@ pub struct AppSettings {
     #[serde(default = "default_notification_channels")]
     pub notification_channels: Vec<NotificationChannel>,
     #[serde(default)]
-    pub liveness_cli_kind: LivenessCliKind,
+    pub liveness_cli_kind: AgentCliKind,
     #[serde(default)]
-    pub codex_cli_path: String,
-    #[serde(default)]
-    pub claude_cli_path: String,
+    pub agent_cli_paths: BTreeMap<AgentCliKind, String>,
     #[serde(default)]
     pub temporary_cli_terminal_kind: TemporaryCliTerminalKind,
     #[serde(default)]
@@ -82,9 +81,8 @@ impl Default for AppSettings {
             check_in_time: default_check_in_time(),
             notification_enabled: true,
             notification_channels: default_notification_channels(),
-            liveness_cli_kind: LivenessCliKind::Codex,
-            codex_cli_path: String::new(),
-            claude_cli_path: String::new(),
+            liveness_cli_kind: AgentCliKind::Codex,
+            agent_cli_paths: BTreeMap::new(),
             temporary_cli_terminal_kind: TemporaryCliTerminalKind::default(),
             liveness_enabled: false,
             liveness_model: String::new(),
@@ -99,6 +97,24 @@ impl Default for AppSettings {
             liveness_placeholder_pools: default_liveness_placeholder_pools(),
             liveness_number_min: default_liveness_number_min(),
             liveness_number_max: default_liveness_number_max(),
+        }
+    }
+}
+
+impl AppSettings {
+    pub fn agent_cli_path(&self, kind: AgentCliKind) -> &str {
+        self.agent_cli_paths
+            .get(&kind)
+            .map(String::as_str)
+            .unwrap_or_default()
+    }
+
+    pub fn set_agent_cli_path(&mut self, kind: AgentCliKind, path: String) {
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            self.agent_cli_paths.remove(&kind);
+        } else {
+            self.agent_cli_paths.insert(kind, path);
         }
     }
 }

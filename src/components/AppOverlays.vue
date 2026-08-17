@@ -12,7 +12,7 @@ import RequestLogsModal from "./RequestLogsModal.vue";
 import TemporaryCliModal from "./TemporaryCliModal.vue";
 import UsageTrendModal from "./UsageTrendModal.vue";
 import type {
-  LivenessCliKind,
+  AgentCliKind,
   Provider,
   ProviderApiKeyOption,
   ProviderCheckInRecordsResult,
@@ -47,7 +47,7 @@ defineProps<{
   livenessDetailsProvider: Provider | null;
   cliRuntimeLoading: boolean;
   cliInstancesProvider: Provider | null;
-  cliInstancesKind: LivenessCliKind | null;
+  cliInstancesKind: AgentCliKind | null;
   cliInstances: TemporaryCliInstance[];
   activatingCliInstanceId: string | null;
   checkInRecordsProvider: Provider | null;

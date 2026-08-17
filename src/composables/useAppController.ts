@@ -117,7 +117,7 @@ export function useAppController() {
 
   const availableModels = useAvailableModels({
     providers,
-    syncModels: (providerId) => providerStore.syncCodexModels(providerId),
+    syncModels: (providerId) => providerStore.syncAvailableModels(providerId),
   });
 
   const cliRuntimeController = useCliRuntime({
