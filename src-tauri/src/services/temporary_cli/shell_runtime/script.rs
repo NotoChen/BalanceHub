@@ -3,19 +3,21 @@ mod unix;
 #[cfg(any(target_os = "windows", test))]
 mod windows;
 
-#[cfg(test)]
+#[cfg(not(target_os = "windows"))]
+pub(in crate::services::temporary_cli) use unix::write_launch_script;
+#[cfg(all(test, not(target_os = "windows")))]
 pub(in crate::services::temporary_cli) use unix::{
     login_shell_bootstrap, shell_quote, shell_supports_posix_source, unix_cli_invocation,
 };
 #[cfg(target_os = "macos")]
-pub(in crate::services::temporary_cli) use unix::{script_command, script_command_without_exec};
-#[cfg(not(target_os = "windows"))]
 pub(in crate::services::temporary_cli) use unix::{
-    set_executable, user_shell, write_launch_script,
+    script_command, script_command_without_exec, set_executable, user_shell,
 };
+#[cfg(all(test, not(target_os = "windows"), not(target_os = "macos")))]
+pub(in crate::services::temporary_cli) use unix::{set_executable, user_shell};
 #[cfg(target_os = "windows")]
 pub(in crate::services::temporary_cli) use windows::write_launch_script;
-#[cfg(any(target_os = "windows", test))]
+#[cfg(test)]
 pub(in crate::services::temporary_cli) use windows::{
     escape_cmd_value, windows_launch_payload, WindowsLaunchPayloadInput,
     WINDOWS_LAUNCH_PAYLOAD_COMMAND,
