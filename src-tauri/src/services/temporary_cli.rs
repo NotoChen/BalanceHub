@@ -6,8 +6,8 @@ mod tests;
 
 use crate::{
     models::{
-        AgentCliKind, AppSettings, Provider, TemporaryCliInstance, TemporaryCliLaunchPreview,
-        TemporaryCliSessionMode,
+        AgentCliKind, AppSettings, AuthMode, Provider, TemporaryCliInstance,
+        TemporaryCliLaunchPreview, TemporaryCliSessionMode,
     },
     network,
     services::{
@@ -36,6 +36,7 @@ pub(crate) struct LaunchOptions<'a> {
     pub(crate) api_key_override: &'a str,
     pub(crate) model_override: &'a str,
     pub(crate) session_name_override: &'a str,
+    pub(crate) session_title: &'a str,
     pub(crate) resume_id: &'a str,
     pub(crate) session_mode: TemporaryCliSessionMode,
 }
@@ -194,11 +195,15 @@ pub fn launch(
         session_mode: options.session_mode,
         auxiliary_file_path: auxiliary_file_path.as_deref(),
     })?;
+    let session_title = runtime_session_title(options, &session_name);
+    let account_label = provider_account_label(provider);
     let registered = cli_runtime::register_instance(
         provider,
         cli_kind,
         workdir,
         settings.temporary_cli_terminal_kind,
+        &session_title,
+        &account_label,
     )?;
     if let Some(parent) = script.parent() {
         if let Err(err) = fs::create_dir_all(parent) {
@@ -299,6 +304,40 @@ fn resolve_session_name(
         return Err("会话名称不能包含换行或控制字符".to_string());
     }
     Ok(name.to_string())
+}
+
+/// 运行面板展示的标题快照。历史会话标题由前端从 Agent 自己的索引中选出，
+/// 新会话优先使用启动前名称；这里不再重新扫描会话文件，避免实例启动后
+/// 工作目录或 CLI 状态目录变化导致标题漂移。
+fn runtime_session_title(options: LaunchOptions<'_>, resolved_session_name: &str) -> String {
+    let title = if !options.session_title.trim().is_empty() {
+        options.session_title.trim()
+    } else {
+        resolved_session_name.trim()
+    };
+    title.chars().take(240).collect()
+}
+
+/// 只返回可安全展示的账号快照，不读取或保存 Cookie、Token、密码和 API Key。
+fn provider_account_label(provider: &Provider) -> String {
+    let identity = &provider.identity;
+    let label = [
+        identity.username.trim(),
+        identity.user_id.trim(),
+        identity.display_name.trim(),
+    ]
+    .into_iter()
+    .find(|value| !value.is_empty())
+    .map(str::to_string);
+
+    if let Some(label) = label {
+        return label.chars().take(160).collect();
+    }
+
+    if matches!(provider.auth.mode, AuthMode::ApiKey) {
+        return "API Key".to_string();
+    }
+    "未识别账号".to_string()
 }
 
 fn ensure_temporary_launch_supported(cli_kind: AgentCliKind) -> Result<(), String> {

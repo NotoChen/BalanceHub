@@ -14,6 +14,8 @@ function instance(status: TemporaryCliInstanceStatus, exitCode: number | null = 
     id: "instance-1",
     providerId: "provider-1",
     providerName: "Relay",
+    sessionTitle: "测试会话",
+    accountLabel: "tester",
     cliKind: "codex",
     workdir: "/workspace",
     terminalKind: "terminal",

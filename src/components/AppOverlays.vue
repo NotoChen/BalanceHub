@@ -9,6 +9,7 @@ import CapabilityProbeModal from "./CapabilityProbeModal.vue";
 import LivenessDetailsModal from "./LivenessDetailsModal.vue";
 import PasswordChangeModal from "./PasswordChangeModal.vue";
 import RequestLogsModal from "./RequestLogsModal.vue";
+import SiteAnnouncementsModal from "./SiteAnnouncementsModal.vue";
 import TemporaryCliModal from "./TemporaryCliModal.vue";
 import UsageTrendModal from "./UsageTrendModal.vue";
 import type {
@@ -20,6 +21,8 @@ import type {
   ProviderRequestLogsResult,
   ProviderUsageSummary,
   TemporaryCliInstance,
+  SiteAnnouncement,
+  SiteAnnouncementSourceError,
 } from "../stores/providers";
 import type { ProviderBatchOperation, ProviderBatchProgressItem } from "../api/batch-operation";
 import type { UsagePeriod } from "../utils/usage-trend";
@@ -78,6 +81,14 @@ defineProps<{
   batchOperationStartedAt: number | null;
   batchOperationFinishedAt: number | null;
   batchOperationCompleted: boolean;
+  siteAnnouncementsLoading: boolean;
+  siteAnnouncementsFatalError: string;
+  siteAnnouncements: SiteAnnouncement[];
+  siteAnnouncementErrors: SiteAnnouncementSourceError[];
+  selectedSiteAnnouncement: SiteAnnouncement | null;
+  unreadSiteAnnouncementCount: number;
+  markingAnnouncementFingerprints: Set<string>;
+  siteAnnouncementIsRead: (item: SiteAnnouncement) => boolean;
 }>();
 
 const emit = defineEmits<{
@@ -106,6 +117,9 @@ const emit = defineEmits<{
   dismissUpdate: [];
   cancelUpdate: [];
   installUpdate: [];
+  refreshSiteAnnouncements: [];
+  selectSiteAnnouncement: [item: SiteAnnouncement];
+  markAllSiteAnnouncementsRead: [];
 }>();
 
 const apiKeyManagerVisible = defineModel<boolean>("apiKeyManagerVisible", { required: true });
@@ -122,6 +136,7 @@ const checkInRecordsVisible = defineModel<boolean>("checkInRecordsVisible", { re
 const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { required: true });
 const capabilityProbeVisible = defineModel<boolean>("capabilityProbeVisible", { required: true });
 const batchOperationVisible = defineModel<boolean>("batchOperationVisible", { required: true });
+const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible", { required: true });
 </script>
 
 <template>
@@ -229,6 +244,22 @@ const batchOperationVisible = defineModel<boolean>("batchOperationVisible", { re
     :activating-id="activatingCliInstanceId"
     @refresh="emit('refreshCliRuntime')"
     @activate="emit('activateCliInstance', $event)"
+  />
+
+  <SiteAnnouncementsModal
+    v-model:visible="siteAnnouncementsVisible"
+    :loading="siteAnnouncementsLoading"
+    :fatal-error="siteAnnouncementsFatalError"
+    :announcements="siteAnnouncements"
+    :errors="siteAnnouncementErrors"
+    :selected="selectedSiteAnnouncement"
+    :unread-count="unreadSiteAnnouncementCount"
+    :marking-fingerprints="markingAnnouncementFingerprints"
+    :provider-protocols="providerProtocols"
+    :is-read="siteAnnouncementIsRead"
+    @refresh="emit('refreshSiteAnnouncements')"
+    @select="emit('selectSiteAnnouncement', $event)"
+    @mark-all-read="emit('markAllSiteAnnouncementsRead')"
   />
 
   <CheckInCalendarModal

@@ -7,12 +7,63 @@ use tauri::{AppHandle, Emitter};
 
 use crate::{
     adapters::protocol::ProtocolAdapter,
-    app_events::PROVIDERS_CHANGED_EVENT,
+    app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
     models::{provider_domain, AppSettings, Provider, ProviderStatus},
     services::{notifications, provider_service::ProviderService},
     tray,
     util::{unix_millis, unix_secs},
 };
+
+struct SchedulerTaskDescriptor {
+    id: &'static str,
+    kind: &'static str,
+    title: &'static str,
+}
+
+const AUTO_REFRESH_TASK: SchedulerTaskDescriptor = SchedulerTaskDescriptor {
+    id: "scheduler-refresh",
+    kind: "autoRefresh",
+    title: "自动刷新中转站",
+};
+const AUTO_CHECK_IN_TASK: SchedulerTaskDescriptor = SchedulerTaskDescriptor {
+    id: "scheduler-check-in",
+    kind: "autoCheckIn",
+    title: "自动签到中转站",
+};
+const AUTO_LIVENESS_TASK: SchedulerTaskDescriptor = SchedulerTaskDescriptor {
+    id: "scheduler-liveness",
+    kind: "autoLiveness",
+    title: "自动测活中转站",
+};
+
+fn emit_background_task(
+    app: &AppHandle,
+    task: &SchedulerTaskDescriptor,
+    status: &str,
+    detail: impl Into<String>,
+    progress: Option<f32>,
+    started_at: u64,
+    error: Option<String>,
+) {
+    let _ = app.emit(
+        BACKGROUND_TASK_EVENT,
+        BackgroundTaskEvent {
+            task_id: task.id.to_string(),
+            kind: task.kind.to_string(),
+            status: status.to_string(),
+            title: task.title.to_string(),
+            detail: detail.into(),
+            progress,
+            started_at,
+            finished_at: if status == "running" {
+                None
+            } else {
+                Some(unix_millis() as u64)
+            },
+            error,
+        },
+    );
+}
 
 /// 调度节拍。签到按「本地时间 ≥ 设定点且当天未签到」判定，刷新/测活按到期时间判定，
 /// 30s 粒度足够精确，开销极低。每个 tick 跑完再 sleep（而非固定频率），天然避免自身重叠。
@@ -47,6 +98,18 @@ struct SchedulerState {
     /// 每个中转站「上次发起刷新」的时刻（秒），避免刷新失败时每 tick 重试。
     refresh_attempts: HashMap<String, u64>,
     check_in_attempts: HashMap<String, CheckInAttemptState>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AutomationItemResult {
+    changed: bool,
+    ok: bool,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct AutomationBatchResult {
+    changed: bool,
+    failed: usize,
 }
 
 /// 启动后台调度任务。
@@ -98,24 +161,74 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
             .map(|provider| provider.identity.id.clone())
             .collect();
         if !due.is_empty() {
+            let task_started_at = unix_millis() as u64;
+            emit_background_task(
+                app,
+                &AUTO_REFRESH_TASK,
+                "running",
+                format!("正在同步 {} 个到期中转站", due.len()),
+                None,
+                task_started_at,
+                None,
+            );
             // 闸门被手动刷新占用时跳过本轮且不记尝试，下个 tick 重新评估到期。
             match service.try_refresh_by_ids(due.clone()).await {
-                None => {}
-                Some(outcome) => {
+                None => {
+                    emit_background_task(
+                        app,
+                        &AUTO_REFRESH_TASK,
+                        "success",
+                        "手动刷新正在进行，本轮自动刷新已顺延",
+                        Some(1.0),
+                        task_started_at,
+                        None,
+                    );
+                }
+                Some(Ok(result)) => {
                     for id in &due {
                         state.refresh_attempts.insert(id.clone(), now_secs);
                     }
-                    if let Ok(result) = outcome {
-                        changed = true;
-                        notify_refresh_failures(
-                            app,
-                            settings,
-                            &data.providers,
-                            &due,
-                            &result.updated_providers,
-                        )
-                        .await;
+                    changed = true;
+                    let failed = result
+                        .updated_providers
+                        .iter()
+                        .filter(|provider| matches!(provider.runtime.status, ProviderStatus::Error))
+                        .count();
+                    emit_background_task(
+                        app,
+                        &AUTO_REFRESH_TASK,
+                        if failed > 0 { "failed" } else { "success" },
+                        if failed > 0 {
+                            format!("已完成 {} 个站点，{} 个站点失败", due.len(), failed)
+                        } else {
+                            format!("已完成 {} 个站点的余额和模型同步", due.len())
+                        },
+                        Some(1.0),
+                        task_started_at,
+                        (failed > 0).then(|| format!("{} 个站点刷新失败", failed)),
+                    );
+                    notify_refresh_failures(
+                        app,
+                        settings,
+                        &data.providers,
+                        &due,
+                        &result.updated_providers,
+                    )
+                    .await;
+                }
+                Some(Err(error)) => {
+                    for id in &due {
+                        state.refresh_attempts.insert(id.clone(), now_secs);
                     }
+                    emit_background_task(
+                        app,
+                        &AUTO_REFRESH_TASK,
+                        "failed",
+                        "自动刷新请求失败",
+                        Some(1.0),
+                        task_started_at,
+                        Some(error),
+                    );
                 }
             }
         }
@@ -152,16 +265,54 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
                 (provider, attempt)
             })
             .collect::<Vec<_>>();
-        let service = &service;
-        let results = stream::iter(attempts)
-            .map(|(provider, attempt)| async move {
-                run_auto_check_in(app, service, &provider, settings, attempt).await
-            })
-            .buffer_unordered(CHECK_IN_CONCURRENCY)
-            .collect::<Vec<_>>()
-            .await;
-        if results.into_iter().any(|result| result) {
-            changed = true;
+        if !attempts.is_empty() {
+            let task_started_at = unix_millis() as u64;
+            emit_background_task(
+                app,
+                &AUTO_CHECK_IN_TASK,
+                "running",
+                format!("正在处理 {} 个到期签到", attempts.len()),
+                None,
+                task_started_at,
+                None,
+            );
+            let service = &service;
+            let results = stream::iter(attempts)
+                .map(|(provider, attempt)| async move {
+                    run_auto_check_in(app, service, &provider, settings, attempt).await
+                })
+                .buffer_unordered(CHECK_IN_CONCURRENCY)
+                .collect::<Vec<_>>()
+                .await;
+            let check_in_summary = results.into_iter().fold(
+                AutomationBatchResult::default(),
+                |mut summary, result| {
+                    summary.changed |= result.changed;
+                    summary.failed += usize::from(!result.ok);
+                    summary
+                },
+            );
+            if check_in_summary.changed {
+                changed = true;
+            }
+            emit_background_task(
+                app,
+                &AUTO_CHECK_IN_TASK,
+                if check_in_summary.failed > 0 {
+                    "failed"
+                } else {
+                    "success"
+                },
+                if check_in_summary.failed > 0 {
+                    format!("自动签到已完成，{} 个中转站失败", check_in_summary.failed)
+                } else {
+                    "自动签到任务已完成".to_string()
+                },
+                Some(1.0),
+                task_started_at,
+                (check_in_summary.failed > 0)
+                    .then(|| format!("{} 个中转站签到失败", check_in_summary.failed)),
+            );
         }
     }
 
@@ -175,8 +326,39 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
         })
         .cloned()
         .collect();
-    if run_due_liveness(app, settings, due_liveness).await {
-        changed = true;
+    if !due_liveness.is_empty() {
+        let task_started_at = unix_millis() as u64;
+        emit_background_task(
+            app,
+            &AUTO_LIVENESS_TASK,
+            "running",
+            format!("正在检测 {} 个到期站点", due_liveness.len()),
+            None,
+            task_started_at,
+            None,
+        );
+        let liveness_summary = run_due_liveness(app, settings, due_liveness).await;
+        if liveness_summary.changed {
+            changed = true;
+        }
+        emit_background_task(
+            app,
+            &AUTO_LIVENESS_TASK,
+            if liveness_summary.failed > 0 {
+                "failed"
+            } else {
+                "success"
+            },
+            if liveness_summary.failed > 0 {
+                format!("自动测活已完成，{} 个站点失败", liveness_summary.failed)
+            } else {
+                "自动测活任务已完成".to_string()
+            },
+            Some(1.0),
+            task_started_at,
+            (liveness_summary.failed > 0)
+                .then(|| format!("{} 个站点测活失败", liveness_summary.failed)),
+        );
     }
 
     if changed {
@@ -239,7 +421,7 @@ fn record_check_in_attempt(
     entry.attempts
 }
 
-/// 自动签到，返回是否产生了需要刷新视图的状态变更。
+/// 自动签到，返回是否产生状态变更及本次结果是否成功。
 ///
 /// 失败仍写入 `error_message` 供界面展示，但重试与否只由调度器的尝试记录决定；
 /// 通知只在当日首次失败时发送一条，后续静默重试，避免轰炸。
@@ -249,7 +431,7 @@ async fn run_auto_check_in(
     provider: &Provider,
     settings: &AppSettings,
     attempt: u32,
-) -> bool {
+) -> AutomationItemResult {
     let retry_hint = if attempt < CHECK_IN_MAX_ATTEMPTS_PER_DAY {
         format!(
             "，约 {} 分钟后自动重试（今日最多 {} 次）",
@@ -269,7 +451,10 @@ async fn run_auto_check_in(
                 non_empty(&result.message, "签到成功"),
             )
             .await;
-            true
+            AutomationItemResult {
+                changed: true,
+                ok: true,
+            }
         }
         Ok(result) => {
             let display = format!("自动签到失败：{}", non_empty(&result.message, "签到失败"));
@@ -286,7 +471,10 @@ async fn run_auto_check_in(
                 )
                 .await;
             }
-            true
+            AutomationItemResult {
+                changed: true,
+                ok: false,
+            }
         }
         Err(message) => {
             let display = format!("自动签到异常：{}", non_empty(&message, "签到异常"));
@@ -303,7 +491,10 @@ async fn run_auto_check_in(
                 )
                 .await;
             }
-            true
+            AutomationItemResult {
+                changed: true,
+                ok: false,
+            }
         }
     }
 }
@@ -337,9 +528,14 @@ async fn notify_refresh_failures(
     }
 }
 
-/// 滚动并发跑到期测活（最多 3 个在飞，一个完成下一个立刻补位），返回是否有状态变更。
+/// 滚动并发跑到期测活（最多 3 个在飞，一个完成下一个立刻补位），
+/// 返回是否有状态变更及失败数量。
 /// 测活从「上次成功」翻转为「本次失败」时发一条边沿触发通知。
-async fn run_due_liveness(app: &AppHandle, settings: &AppSettings, due: Vec<Provider>) -> bool {
+async fn run_due_liveness(
+    app: &AppHandle,
+    settings: &AppSettings,
+    due: Vec<Provider>,
+) -> AutomationBatchResult {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(LIVENESS_CONCURRENCY));
     let mut handles = Vec::with_capacity(due.len());
     for provider in &due {
@@ -356,29 +552,35 @@ async fn run_due_liveness(app: &AppHandle, settings: &AppSettings, due: Vec<Prov
         }));
     }
 
-    let mut changed = false;
+    let mut summary = AutomationBatchResult::default();
     for (provider, handle) in due.iter().zip(handles) {
-        if let Ok(Ok(result)) = handle.await {
-            changed = true;
-            let previously_ok = provider
-                .liveness
-                .records
-                .last()
-                .map(|record| record.ok)
-                .unwrap_or(true);
-            if previously_ok && !result.ok {
-                notify_provider_event(
-                    app,
-                    settings,
-                    provider,
-                    "BalanceHub 测活失败",
-                    non_empty(&result.message, "测活失败"),
-                )
-                .await;
+        match handle.await {
+            Ok(Ok(result)) => {
+                summary.changed = true;
+                if !result.ok {
+                    summary.failed += 1;
+                }
+                let previously_ok = provider
+                    .liveness
+                    .records
+                    .last()
+                    .map(|record| record.ok)
+                    .unwrap_or(true);
+                if previously_ok && !result.ok {
+                    notify_provider_event(
+                        app,
+                        settings,
+                        provider,
+                        "BalanceHub 测活失败",
+                        non_empty(&result.message, "测活失败"),
+                    )
+                    .await;
+                }
             }
+            Ok(Err(_)) | Err(_) => summary.failed += 1,
         }
     }
-    changed
+    summary
 }
 
 async fn notify_provider_event(

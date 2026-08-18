@@ -1,15 +1,15 @@
 use super::NewApiAdapter;
 use crate::{
     adapters::protocol::contracts::{
-        AccessTokenCapability, AccountCapability, ApiKeyManagementCapability, CapabilityProbe,
-        CheckInCapability, ConnectionCapability, CredentialCapability, ProviderOperationOutcome,
-        UsageCapability,
+        AccessTokenCapability, AccountCapability, AnnouncementCapability,
+        ApiKeyManagementCapability, CapabilityProbe, CheckInCapability, ConnectionCapability,
+        CredentialCapability, ProviderOperationOutcome, UsageCapability,
     },
     models::{
         AppSettings, Provider, ProviderApiKeyOption, ProviderCapabilities,
         ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
         ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
-        ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary,
+        ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
     },
 };
 use async_trait::async_trait;
@@ -187,6 +187,30 @@ impl CheckInCapability for NewApiAdapter {
         month: &str,
     ) -> Result<ProviderOperationOutcome<ProviderCheckInRecordsResult>, String> {
         NewApiAdapter::check_in_records(self, settings, provider, month)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+}
+
+#[async_trait]
+impl AnnouncementCapability for NewApiAdapter {
+    async fn list_announcements(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String> {
+        NewApiAdapter::list_announcements(self, settings, provider)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+
+    async fn mark_announcement_read(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        announcement_id: &str,
+    ) -> Result<ProviderOperationOutcome<()>, String> {
+        NewApiAdapter::mark_announcement_read(self, settings, provider, announcement_id)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
     }

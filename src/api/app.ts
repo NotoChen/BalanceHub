@@ -30,6 +30,7 @@ import type {
   TemporaryCliLaunchPreview,
   TemporaryCliLaunchResult,
   TemporaryCliPreference,
+  SiteAnnouncementsSnapshot,
   Workspace,
   WorkspaceDirectoryListing,
 } from "../stores/providers";
@@ -286,6 +287,14 @@ export function probeProviderCapabilities(id: string) {
 
 export function getProviderInviteLink(id: string) {
   return invoke<string>("get_provider_invite_link", { id });
+}
+
+export function getSiteAnnouncements() {
+  return invoke<SiteAnnouncementsSnapshot>("get_site_announcements");
+}
+
+export function markSiteAnnouncementRead(providerId: string, announcementId: string) {
+  return invoke<void>("mark_site_announcement_read", { providerId, announcementId });
 }
 
 export function refreshProviders(ids: string[]) {

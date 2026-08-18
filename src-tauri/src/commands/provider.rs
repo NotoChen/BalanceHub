@@ -8,7 +8,7 @@ use crate::{
         ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
         ProviderInput, ProviderProtocolDetectionResult, ProviderRemovalResult,
         ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSaveOptions,
-        ProviderSiteProbeResult, ProviderUsageSummary,
+        ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncementsSnapshot,
     },
     services::provider_service::ProviderService,
     tray,
@@ -207,6 +207,24 @@ pub(crate) async fn sync_available_models(
 #[tauri::command]
 pub(crate) async fn get_provider_invite_link(app: AppHandle, id: String) -> Result<String, String> {
     ProviderService::new(&app).invite_link(id).await
+}
+
+#[tauri::command]
+pub(crate) async fn get_site_announcements(
+    app: AppHandle,
+) -> Result<SiteAnnouncementsSnapshot, String> {
+    ProviderService::new(&app).site_announcements().await
+}
+
+#[tauri::command]
+pub(crate) async fn mark_site_announcement_read(
+    app: AppHandle,
+    provider_id: String,
+    announcement_id: String,
+) -> Result<(), String> {
+    ProviderService::new(&app)
+        .mark_site_announcement_read(provider_id, announcement_id)
+        .await
 }
 
 #[tauri::command]

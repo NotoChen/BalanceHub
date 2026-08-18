@@ -121,6 +121,7 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
 
 function emptyCliRuntimeSnapshot(): CliRuntimeSnapshot {
   return {
+    agents: [],
     configs: [],
     instances: [],
   };

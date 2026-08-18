@@ -108,6 +108,7 @@ pub struct ProviderProtocolCapabilitiesView {
     pub usage: bool,
     pub account: bool,
     pub check_in: bool,
+    pub announcements: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -117,6 +118,7 @@ pub struct ProviderProtocolOperationMethodsView {
     pub api_keys: Option<&'static str>,
     pub invitation: Option<&'static str>,
     pub models: &'static str,
+    pub announcements: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -158,12 +160,14 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                     usage: capabilities.usage,
                     account: capabilities.account,
                     check_in: capabilities.check_in,
+                    announcements: capabilities.announcements,
                 },
                 operation_methods: ProviderProtocolOperationMethodsView {
                     check_in: definition.operation_methods.check_in,
                     api_keys: definition.operation_methods.api_keys,
                     invitation: definition.operation_methods.invitation,
                     models: definition.operation_methods.models,
+                    announcements: definition.operation_methods.announcements,
                 },
                 credential_assistant: ProviderCredentialAssistantDescriptorView {
                     enabled: definition.credential_assistant.enabled,

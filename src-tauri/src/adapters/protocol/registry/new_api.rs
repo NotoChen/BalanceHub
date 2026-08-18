@@ -141,6 +141,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         api_keys: Some("GET /api/token/"),
         invitation: Some("GET /api/user/aff"),
         models: "GET OpenAI 兼容 /models",
+        announcements: Some("GET /api/notice"),
     },
     credential_assistant: ProviderCredentialAssistantDefinition {
         enabled: true,
@@ -156,5 +157,6 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
     account: Some(&ADAPTER),
     capability_probe: &ADAPTER,
     check_in: Some(&ADAPTER),
+    announcements: Some(&ADAPTER),
     is_anyrouter: provider_is_anyrouter,
 };

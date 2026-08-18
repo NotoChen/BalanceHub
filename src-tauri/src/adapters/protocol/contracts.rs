@@ -3,6 +3,7 @@ use crate::models::{
     ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
     ProviderCredentialCompletionResult, ProviderInput, ProviderQuota, ProviderRequestLogsQuery,
     ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderStatus, ProviderUsageSummary,
+    SiteAnnouncement,
 };
 use async_trait::async_trait;
 
@@ -307,6 +308,22 @@ pub(crate) trait CheckInCapability: Send + Sync {
         provider: &Provider,
         month: &str,
     ) -> Result<ProviderOperationOutcome<ProviderCheckInRecordsResult>, String>;
+}
+
+#[async_trait]
+pub(crate) trait AnnouncementCapability: Send + Sync {
+    async fn list_announcements(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String>;
+
+    async fn mark_announcement_read(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        announcement_id: &str,
+    ) -> Result<ProviderOperationOutcome<()>, String>;
 }
 
 #[cfg(test)]

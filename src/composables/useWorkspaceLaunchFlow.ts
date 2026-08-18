@@ -35,6 +35,7 @@ interface UseWorkspaceLaunchFlowOptions {
   sessionName: Ref<string>;
   canNameSession: Ref<boolean>;
   selectedResumeId: Ref<string>;
+  selectedSessionTitle: Ref<string>;
   error: Ref<string>;
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
   preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
@@ -119,6 +120,9 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       sessionMode: options.sessionMode.value,
       sessionName,
       resumeId,
+      sessionTitle: options.sessionMode.value === "history"
+        ? options.selectedSessionTitle.value.trim()
+        : sessionName,
       terminalKind: options.terminalKind.value,
     };
   }

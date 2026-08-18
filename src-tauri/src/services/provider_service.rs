@@ -1,4 +1,5 @@
 mod account;
+mod announcements;
 mod api_keys;
 mod available_models;
 mod capabilities;

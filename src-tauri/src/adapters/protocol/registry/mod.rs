@@ -66,9 +66,11 @@ mod tests {
         assert!(!generic.usage);
         assert!(!generic.account);
         assert!(!generic.check_in);
+        assert!(!generic.announcements);
 
         let sub2 = definition(ProviderProtocol::Sub2Api).capabilities();
         assert!(!sub2.check_in);
+        assert!(sub2.announcements);
 
         let new_api = definition(ProviderProtocol::NewApi).capabilities();
         assert!(new_api.access_token);
@@ -76,6 +78,7 @@ mod tests {
         assert!(new_api.usage);
         assert!(new_api.account);
         assert!(new_api.check_in);
+        assert!(new_api.announcements);
     }
 
     #[test]
@@ -172,6 +175,12 @@ mod tests {
                 definition.operation_methods.invitation.is_some(),
                 capabilities.account,
                 "{} 的账号说明与能力注册不一致",
+                definition.label
+            );
+            assert_eq!(
+                definition.operation_methods.announcements.is_some(),
+                capabilities.announcements,
+                "{} 的公告说明与能力注册不一致",
                 definition.label
             );
             assert!(

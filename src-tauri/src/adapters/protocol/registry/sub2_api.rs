@@ -94,6 +94,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         api_keys: Some("Sub2API 密钥列表接口"),
         invitation: Some("Sub2API 邀请信息接口"),
         models: "GET OpenAI 兼容 /models",
+        announcements: Some("GET /api/v1/announcements"),
     },
     credential_assistant: ProviderCredentialAssistantDefinition {
         enabled: true,
@@ -109,5 +110,6 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
     account: Some(&ADAPTER),
     capability_probe: &ADAPTER,
     check_in: None,
+    announcements: Some(&ADAPTER),
     is_anyrouter: |_| false,
 };

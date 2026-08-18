@@ -53,6 +53,10 @@ struct StoredInstanceMetadata {
     id: String,
     provider_id: String,
     provider_name: String,
+    #[serde(default)]
+    session_title: String,
+    #[serde(default)]
+    account_label: String,
     cli_kind: AgentCliKind,
     workdir: String,
     terminal_kind: TemporaryCliTerminalKind,
@@ -71,6 +75,7 @@ struct StoredInstanceStatus {
 
 pub fn snapshot(providers: &[Provider]) -> CliRuntimeSnapshot {
     CliRuntimeSnapshot {
+        agents: agent_cli::descriptors(),
         configs: agent_cli::definitions()
             .iter()
             .filter(|definition| definition.default_config().is_some())
@@ -104,6 +109,8 @@ pub fn register_instance(
     cli_kind: AgentCliKind,
     workdir: &Path,
     terminal_kind: TemporaryCliTerminalKind,
+    session_title: &str,
+    account_label: &str,
 ) -> Result<RegisteredCliInstance, String> {
     let started_at = unix_millis().to_string();
     let id = format!(
@@ -119,11 +126,14 @@ pub fn register_instance(
             instance_dir.display()
         )
     })?;
+    restrict_directory_to_owner(&instance_dir)?;
 
     let metadata = StoredInstanceMetadata {
         id: id.clone(),
         provider_id: provider.identity.id.clone(),
         provider_name: provider.identity.name.clone(),
+        session_title: session_title.trim().to_string(),
+        account_label: account_label.trim().to_string(),
         cli_kind,
         workdir: workdir.to_string_lossy().to_string(),
         terminal_kind,
@@ -295,6 +305,8 @@ fn merge_instance(
         id: metadata.id,
         provider_id: metadata.provider_id,
         provider_name: metadata.provider_name,
+        session_title: metadata.session_title,
+        account_label: metadata.account_label,
         cli_kind: metadata.cli_kind,
         workdir: metadata.workdir,
         terminal_kind: metadata.terminal_kind,
@@ -314,6 +326,23 @@ fn instances_dir() -> PathBuf {
     env::temp_dir()
         .join(RUNTIME_DIR_NAME)
         .join(INSTANCES_DIR_NAME)
+}
+
+#[cfg(unix)]
+fn restrict_directory_to_owner(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path)
+        .map_err(|err| format!("读取临时 CLI 记录目录权限失败({}): {err}", path.display()))?
+        .permissions();
+    permissions.set_mode(0o700);
+    fs::set_permissions(path, permissions)
+        .map_err(|err| format!("设置临时 CLI 记录目录权限失败({}): {err}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn restrict_directory_to_owner(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
@@ -452,6 +481,8 @@ mod tests {
             id: id.clone(),
             provider_id: "provider-test".to_string(),
             provider_name: "Relay".to_string(),
+            session_title: "继续测试会话".to_string(),
+            account_label: "tester".to_string(),
             cli_kind: AgentCliKind::Codex,
             workdir: "/workspace".to_string(),
             terminal_kind: TemporaryCliTerminalKind::Terminal,
@@ -478,5 +509,33 @@ mod tests {
     #[test]
     fn single_instance_query_rejects_path_traversal() {
         assert!(instance("../status").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn instance_metadata_directory_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let provider = Provider::from_input(
+            crate::models::ProviderInput::default(),
+            format!(
+                "permission-test-{:x}",
+                INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ),
+        );
+        let registered = register_instance(
+            &provider,
+            AgentCliKind::Codex,
+            Path::new("/workspace"),
+            TemporaryCliTerminalKind::Terminal,
+            "测试会话",
+            "tester",
+        )
+        .unwrap();
+        let instance_dir = registered.status_path.parent().unwrap();
+        let mode = fs::metadata(instance_dir).unwrap().permissions().mode() & 0o777;
+
+        assert_eq!(mode, 0o700);
+        let _ = fs::remove_dir_all(instance_dir);
     }
 }
