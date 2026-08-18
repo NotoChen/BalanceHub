@@ -1,5 +1,6 @@
 mod account;
 mod adapter;
+mod announcements;
 mod anyrouter;
 mod check_in;
 mod credentials;

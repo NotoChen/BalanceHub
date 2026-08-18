@@ -11,7 +11,7 @@ use crate::models::{
     AppSettings, Provider, ProviderApiKeyOption, ProviderCapabilities,
     ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
     ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
-    ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary,
+    ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
 };
 use contracts::ProviderOperationOutcome;
 
@@ -216,6 +216,33 @@ impl ProtocolAdapter {
             .check_in
             .ok_or_else(|| definition.unsupported("读取签到记录"))?
             .check_in_records(settings, provider, month)
+            .await
+    }
+
+    pub(crate) async fn list_announcements(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String> {
+        let definition = definition(provider.identity.protocol);
+        definition
+            .announcements
+            .ok_or_else(|| definition.unsupported("读取站点公告"))?
+            .list_announcements(settings, provider)
+            .await
+    }
+
+    pub(crate) async fn mark_announcement_read(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        announcement_id: &str,
+    ) -> Result<ProviderOperationOutcome<()>, String> {
+        let definition = definition(provider.identity.protocol);
+        definition
+            .announcements
+            .ok_or_else(|| definition.unsupported("标记公告已读"))?
+            .mark_announcement_read(settings, provider, announcement_id)
             .await
     }
 }

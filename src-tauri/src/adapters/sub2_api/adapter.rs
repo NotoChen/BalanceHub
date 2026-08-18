@@ -6,6 +6,7 @@
 //! Sub2API uses JWTs for account APIs and API Keys only for gateway APIs.
 
 mod account;
+mod announcements;
 mod credentials;
 mod refresh;
 mod usage;

@@ -5,6 +5,7 @@
 @import "./modules/provider-card/actions.css";
 @import "./modules/provider-liveness.css";
 @import "./modules/temporary-cli.css";
+@import "./modules/site-announcements.css";
 @import "./modules/workspace-picker.css";
 @import "./modules/temporary-cli-preview.css";
 @import "./modules/cli-config-preview.css";

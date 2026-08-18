@@ -75,6 +75,8 @@ pub(crate) fn run() {
             probe_provider_capabilities,
             sync_available_models,
             get_provider_invite_link,
+            get_site_announcements,
+            mark_site_announcement_read,
             refresh_all_providers_with_progress,
             refresh_providers,
             check_in_provider,

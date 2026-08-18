@@ -1,3 +1,4 @@
+pub(crate) mod announcements;
 pub(crate) mod api;
 pub(crate) mod detector;
 pub(crate) mod new_api;

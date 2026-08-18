@@ -29,6 +29,9 @@ pub const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 16;
 pub const MAX_SITE_METADATA_CACHE_ENTRIES: usize = 128;
 pub const MAX_SHIELD_CACHE_ENTRIES: usize = 64;
 pub const MAX_AGENT_CLI_PATH_CHARS: usize = 4_096;
+pub const MAX_ANNOUNCEMENTS_PER_SOURCE: usize = 50;
+pub const MAX_ANNOUNCEMENT_TITLE_CHARS: usize = 160;
+pub const MAX_ANNOUNCEMENT_CONTENT_CHARS: usize = 20_000;
 
 pub fn normalize_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;

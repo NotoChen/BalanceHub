@@ -44,11 +44,11 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     ) ?? null,
   );
 
-  const providerCliInstances = computed(() =>
+  const cliInstances = computed(() =>
     options.cliRuntime.value.instances.filter(
       (instance) =>
-        instance.providerId === cliInstancesProviderId.value &&
-        instance.cliKind === cliInstancesKind.value &&
+        (!cliInstancesProviderId.value || instance.providerId === cliInstancesProviderId.value) &&
+        (!cliInstancesKind.value || instance.cliKind === cliInstancesKind.value) &&
         instance.status !== "exited",
     ),
   );
@@ -56,6 +56,13 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   function openCliInstances(provider: Provider, cliKind: AgentCliKind) {
     cliInstancesProviderId.value = provider.identity.id;
     cliInstancesKind.value = cliKind;
+    cliInstancesVisible.value = true;
+    void refreshCliRuntime();
+  }
+
+  function openAgentCliInstances(kind: AgentCliKind) {
+    cliInstancesProviderId.value = null;
+    cliInstancesKind.value = kind;
     cliInstancesVisible.value = true;
     void refreshCliRuntime();
   }
@@ -170,13 +177,14 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     cliInstancesVisible,
     cliInstancesProvider,
     cliInstancesKind,
-    providerCliInstances,
+    cliInstances,
     activatingCliInstanceId,
     cliInstancesRefreshing,
     switchingCliConfig,
     cliConfigPreviewVisible,
     cliConfigPreview,
     openCliInstances,
+    openAgentCliInstances,
     refreshCliRuntime,
     activateCliInstance,
     switchProviderCliConfig,

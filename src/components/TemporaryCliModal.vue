@@ -7,7 +7,7 @@ import {
   IconLaunch,
   IconRefresh,
 } from "@arco-design/web-vue/es/icon";
-import { Cpu, FolderOpen, Terminal } from "@lucide/vue";
+import { Building2, Cpu, FolderOpen, Terminal } from "@lucide/vue";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import {
   type AgentCliKind,
@@ -35,8 +35,18 @@ const emit = defineEmits<{
 }>();
 const store = useCliRuntimeStore();
 
-const title = computed(() => props.provider?.identity.name || "活动 CLI");
+const title = computed(() => {
+  if (props.provider) return props.provider.identity.name;
+  return props.cliKind ? `${selectedCliLabel.value} 活动实例` : "活动临时 CLI";
+});
 const selectedCliLabel = computed(() => (props.cliKind ? cliLabel(props.cliKind) : "CLI"));
+
+const summaryText = computed(() => {
+  if (props.provider) {
+    return `个临时 ${selectedCliLabel.value} 正在使用此中转站`;
+  }
+  return props.cliKind ? `个活动 ${selectedCliLabel.value}` : "个活动临时 CLI";
+});
 
 function cliLabel(kind: TemporaryCliInstance["cliKind"]) {
   return agentCliLabel(store.cliEnvironmentProbe, kind);
@@ -45,6 +55,14 @@ function cliLabel(kind: TemporaryCliInstance["cliKind"]) {
 function statusLabel(status: TemporaryCliInstance["status"]) {
   if (status === "starting") return "正在启动";
   return "运行中";
+}
+
+function sessionTitle(instance: TemporaryCliInstance) {
+  return instance.sessionTitle?.trim() || "未命名会话";
+}
+
+function accountLabel(instance: TemporaryCliInstance) {
+  return instance.accountLabel?.trim() || "未识别账号";
 }
 
 function directoryName(value: string) {
@@ -103,7 +121,7 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
       <div class="temporary-cli-toolbar">
         <div class="temporary-cli-summary">
           <strong>{{ instances.length }}</strong>
-          <span>个临时 {{ selectedCliLabel }} 正在使用此中转站</span>
+          <span>{{ summaryText }}</span>
         </div>
         <a-tooltip content="刷新实例状态">
           <a-button
@@ -159,6 +177,27 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
                 {{ statusLabel(instance.status) }}
               </span>
             </header>
+
+            <div class="temporary-cli-session">
+              <span class="temporary-cli-session-icon" aria-hidden="true">
+                <Terminal :size="14" :stroke-width="1.8" />
+              </span>
+              <div>
+                <small>会话</small>
+                <strong :title="sessionTitle(instance)">{{ sessionTitle(instance) }}</strong>
+              </div>
+            </div>
+
+            <div class="temporary-cli-source">
+              <Building2 :size="14" :stroke-width="1.8" aria-hidden="true" />
+              <span class="temporary-cli-source-provider" :title="instance.providerName">
+                {{ instance.providerName || "未记录中转站" }}
+              </span>
+              <span class="temporary-cli-source-separator" aria-hidden="true">·</span>
+              <span class="temporary-cli-source-account" :title="accountLabel(instance)">
+                {{ accountLabel(instance) }}
+              </span>
+            </div>
 
             <div class="temporary-cli-workdir">
               <FolderOpen :size="17" :stroke-width="1.8" aria-hidden="true" />

@@ -6,6 +6,7 @@ import type { CliRuntimeSnapshot, AgentCliKind, Provider } from "../stores/provi
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 import { providerMatchesSearch } from "../utils/provider-filters";
+import type { BackgroundTask } from "../composables/useBackgroundTaskCenter";
 
 interface ProviderDragState {
   providerId: string | null;
@@ -20,6 +21,14 @@ const props = defineProps<{
   livenessProviders: Provider[];
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
+  announcementsLoaded: boolean;
+  announcementsLoading: boolean;
+  announcementTotalCount: number;
+  announcementUnreadCount: number;
+  announcementErrorCount: number;
+  backgroundTasks: BackgroundTask[];
+  recentBackgroundTasks: BackgroundTask[];
+  backgroundTaskCount: number;
   switchingCliConfig: { providerId: string; cliKind: AgentCliKind } | null;
   refreshInProgress: boolean;
   globalCheckInInProgress: boolean;
@@ -78,6 +87,9 @@ const emit = defineEmits<{
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
   openCliInstances: [provider: Provider, cliKind: AgentCliKind];
+  openAgentCliInstances: [kind: AgentCliKind];
+  openSiteAnnouncements: [];
+  clearBackgroundTasks: [];
   switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
 }>();
 </script>
@@ -89,6 +101,15 @@ const emit = defineEmits<{
     :search-query="searchQuery"
     :app-version="appVersion"
     :checking-for-update="checkingForUpdate"
+    :cli-runtime="cliRuntime"
+    :announcements-loaded="announcementsLoaded"
+    :announcements-loading="announcementsLoading"
+    :announcement-total-count="announcementTotalCount"
+    :announcement-unread-count="announcementUnreadCount"
+    :announcement-error-count="announcementErrorCount"
+    :background-tasks="backgroundTasks"
+    :recent-background-tasks="recentBackgroundTasks"
+    :background-task-count="backgroundTaskCount"
     @start-drag="emit('startDrag', $event)"
     @set-search-query="searchQuery = $event"
     @add="emit('add')"
@@ -97,6 +118,9 @@ const emit = defineEmits<{
     @open-github="emit('openGithub')"
     @refresh="emit('refreshAll')"
     @check-in="emit('checkInAll')"
+    @open-cli="emit('openAgentCliInstances', $event)"
+    @open-announcements="emit('openSiteAnnouncements')"
+    @clear-background-tasks="emit('clearBackgroundTasks')"
     @settings="emit('settings')"
   />
 

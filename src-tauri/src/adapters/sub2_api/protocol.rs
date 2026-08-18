@@ -1,14 +1,15 @@
 use super::Sub2ApiAdapter;
 use crate::{
     adapters::protocol::contracts::{
-        AccessTokenCapability, AccountCapability, ApiKeyManagementCapability, CapabilityProbe,
-        ConnectionCapability, CredentialCapability, ProviderOperationOutcome, UsageCapability,
+        AccessTokenCapability, AccountCapability, AnnouncementCapability,
+        ApiKeyManagementCapability, CapabilityProbe, ConnectionCapability, CredentialCapability,
+        ProviderOperationOutcome, UsageCapability,
     },
     models::{
         AppSettings, Provider, ProviderApiKeyOption, ProviderCapabilities,
         ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
         ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
-        ProviderUsageSummary,
+        ProviderUsageSummary, SiteAnnouncement,
     },
 };
 use async_trait::async_trait;
@@ -162,6 +163,30 @@ impl CapabilityProbe for Sub2ApiAdapter {
     ) -> Result<ProviderOperationOutcome<(ProviderCapabilities, String, Option<String>)>, String>
     {
         Sub2ApiAdapter::probe_capabilities(self, settings, provider)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+}
+
+#[async_trait]
+impl AnnouncementCapability for Sub2ApiAdapter {
+    async fn list_announcements(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String> {
+        Sub2ApiAdapter::list_announcements(self, settings, provider)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+
+    async fn mark_announcement_read(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        announcement_id: &str,
+    ) -> Result<ProviderOperationOutcome<()>, String> {
+        Sub2ApiAdapter::mark_announcement_read(self, settings, provider, announcement_id)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
     }

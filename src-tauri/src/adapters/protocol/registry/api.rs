@@ -40,6 +40,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         api_keys: None,
         invitation: None,
         models: "OpenAI 兼容模型接口",
+        announcements: None,
     },
     credential_assistant: ProviderCredentialAssistantDefinition {
         enabled: false,
@@ -55,5 +56,6 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
     account: None,
     capability_probe: &ADAPTER,
     check_in: None,
+    announcements: None,
     is_anyrouter: |_| false,
 };

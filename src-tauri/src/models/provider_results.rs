@@ -612,6 +612,12 @@ pub struct TemporaryCliInstance {
     pub id: String,
     pub provider_id: String,
     pub provider_name: String,
+    /// 启动时记录的会话标题快照，不依赖之后重新读取 CLI 历史索引。
+    #[serde(default)]
+    pub session_title: String,
+    /// 启动时记录的非敏感账号展示快照（用户名、用户 ID 或 API Key 标签）。
+    #[serde(default)]
+    pub account_label: String,
     pub cli_kind: AgentCliKind,
     pub workdir: String,
     pub terminal_kind: TemporaryCliTerminalKind,
@@ -627,8 +633,46 @@ pub struct TemporaryCliInstance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliRuntimeSnapshot {
+    /// Rust Agent 目录是汇总入口的唯一顺序和命名来源。
+    #[serde(default)]
+    pub agents: Vec<crate::models::AgentCliDescriptor>,
     pub configs: Vec<CliConfigSnapshot>,
     pub instances: Vec<TemporaryCliInstance>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteAnnouncement {
+    /// 站点接口返回的公告 ID；无稳定 ID 的协议使用标题和正文摘要生成本地 ID。
+    pub id: String,
+    /// 协议、站点及公告内容共同生成的稳定指纹，用于站点级去重和本地已读状态。
+    pub fingerprint: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub provider_protocol: ProviderProtocol,
+    pub title: String,
+    pub content: String,
+    pub published_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub read_at: Option<String>,
+    pub can_mark_read: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteAnnouncementSourceError {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub provider_protocol: ProviderProtocol,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteAnnouncementsSnapshot {
+    pub fetched_at: String,
+    pub announcements: Vec<SiteAnnouncement>,
+    pub errors: Vec<SiteAnnouncementSourceError>,
 }
 
 #[derive(Debug, Clone, Serialize)]

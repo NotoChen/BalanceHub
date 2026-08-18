@@ -52,6 +52,10 @@ pub struct TemporaryCliLaunchInput {
     /// 历史模式下选中的会话 ID。
     #[serde(default)]
     pub resume_id: String,
+    /// 运行记录中展示的会话标题。新会话来自启动前名称，历史会话来自
+    /// 用户选中的官方会话索引；不会作为 CLI 参数再次解释。
+    #[serde(default)]
+    pub session_title: String,
     pub terminal_kind: TemporaryCliTerminalKind,
 }
 

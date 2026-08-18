@@ -19,6 +19,7 @@ type UpdateInstallPhase = "idle" | "downloading" | "verifying" | "installing" | 
 
 export function useAppUpdater() {
   const checkingForUpdate = ref(false);
+  const updateCheckError = ref("");
   const updateDialogVisible = ref(false);
   const availableUpdateCurrentVersion = ref("");
   const availableUpdateVersion = ref("");
@@ -27,6 +28,7 @@ export function useAppUpdater() {
   const cancellingUpdate = ref(false);
   const updateDownloadProgress = ref<number | null>(null);
   const updateInstallStatus = ref("");
+  const updateInstallError = ref("");
   const updateInstallPhase = ref<UpdateInstallPhase>("idle");
   const updateCanCancel = computed(
     () => installingUpdate.value && updateInstallPhase.value === "downloading",
@@ -43,6 +45,7 @@ export function useAppUpdater() {
     updateDownloadProgress.value = null;
     updateInstallStatus.value = "";
     updateInstallPhase.value = "idle";
+    updateInstallError.value = "";
     cancellingUpdate.value = false;
     cancelRequested = false;
   }
@@ -81,6 +84,7 @@ export function useAppUpdater() {
     }
 
     checkingForUpdate.value = true;
+    updateCheckError.value = "";
     try {
       const update = await checkAppUpdate();
       if (disposed) {
@@ -107,8 +111,9 @@ export function useAppUpdater() {
       resetInstallProgress();
       updateDialogVisible.value = true;
     } catch (error) {
+      updateCheckError.value = error instanceof Error ? error.message : String(error);
       if (!silent && !disposed) {
-        Message.error(error instanceof Error ? error.message : String(error));
+        Message.error(updateCheckError.value);
       }
     } finally {
       checkingForUpdate.value = false;
@@ -153,6 +158,7 @@ export function useAppUpdater() {
     cancelRequested = false;
     updateInstallPhase.value = "downloading";
     updateInstallStatus.value = "正在准备下载";
+    updateInstallError.value = "";
     updateDownloadProgress.value = null;
     let downloadedBytes = 0;
     let contentLength: number | undefined;
@@ -213,10 +219,12 @@ export function useAppUpdater() {
       } else if (installed) {
         await cancelVisibleRelaunch().catch(() => {});
         updateDialogVisible.value = false;
-        Message.error("更新已安装，但应用未能自动重启，请手动重启应用");
+        updateInstallError.value = "更新已安装，但应用未能自动重启，请手动重启应用";
+        Message.error(updateInstallError.value);
       } else {
         resetInstallProgress();
-        Message.error(`更新安装失败：${message}`);
+        updateInstallError.value = `更新安装失败：${message}`;
+        Message.error(updateInstallError.value);
       }
     } finally {
       installingUpdate.value = false;
@@ -250,6 +258,7 @@ export function useAppUpdater() {
 
   return {
     checkingForUpdate,
+    updateCheckError,
     updateDialogVisible,
     availableUpdateCurrentVersion,
     availableUpdateVersion,
@@ -259,6 +268,7 @@ export function useAppUpdater() {
     updateCanCancel,
     updateDownloadProgress,
     updateInstallStatus,
+    updateInstallError,
     checkForUpdate,
     dismissUpdate,
     cancelUpdate,

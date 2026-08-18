@@ -179,6 +179,7 @@ fn launch_options(prepared: &PreparedTemporaryCliLaunch) -> LaunchOptions<'_> {
         api_key_override: &prepared.api_key,
         model_override: &prepared.model,
         session_name_override: &prepared.input.session_name,
+        session_title: &prepared.input.session_title,
         resume_id: &prepared.input.resume_id,
         session_mode: prepared.input.session_mode,
     }

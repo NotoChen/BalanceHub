@@ -32,6 +32,7 @@ export interface ProviderProtocolCapabilitiesDescriptor {
   usage: boolean;
   account: boolean;
   checkIn: boolean;
+  announcements: boolean;
 }
 
 export interface ProviderProtocolOperationMethodsDescriptor {
@@ -39,6 +40,7 @@ export interface ProviderProtocolOperationMethodsDescriptor {
   apiKeys: string | null;
   invitation: string | null;
   models: string;
+  announcements: string | null;
 }
 
 export interface ProviderCredentialAssistantDescriptor {
@@ -314,12 +316,15 @@ export interface LivenessRecord {
   commandPreview: string;
 }
 
-export interface CliToolProbeResult {
+export interface AgentCliDescriptor {
   kind: AgentCliKind;
   label: string;
   executable: string;
   sessionNameHint: string;
   capabilities: AgentCliCapabilities;
+}
+
+export interface CliToolProbeResult extends AgentCliDescriptor {
   available: boolean;
   path: string;
   version: string;
@@ -552,6 +557,8 @@ export interface TemporaryCliInstance {
   id: string;
   providerId: string;
   providerName: string;
+  sessionTitle: string;
+  accountLabel: string;
   cliKind: AgentCliKind;
   workdir: string;
   terminalKind: TemporaryCliTerminalKind;
@@ -587,6 +594,7 @@ export interface TemporaryCliLaunchInput {
   sessionMode: TemporaryCliSessionMode;
   sessionName: string;
   resumeId: string;
+  sessionTitle: string;
   terminalKind: TemporaryCliTerminalKind;
 }
 
@@ -647,8 +655,36 @@ export interface TemporaryCliLaunchResult {
 }
 
 export interface CliRuntimeSnapshot {
+  agents: AgentCliDescriptor[];
   configs: CliConfigSnapshot[];
   instances: TemporaryCliInstance[];
+}
+
+export interface SiteAnnouncement {
+  id: string;
+  fingerprint: string;
+  providerId: string;
+  providerName: string;
+  providerProtocol: ProviderProtocol;
+  title: string;
+  content: string;
+  publishedAt: string | null;
+  updatedAt: string | null;
+  readAt: string | null;
+  canMarkRead: boolean;
+}
+
+export interface SiteAnnouncementSourceError {
+  providerId: string;
+  providerName: string;
+  providerProtocol: ProviderProtocol;
+  message: string;
+}
+
+export interface SiteAnnouncementsSnapshot {
+  fetchedAt: string;
+  announcements: SiteAnnouncement[];
+  errors: SiteAnnouncementSourceError[];
 }
 
 export interface AppSettings {

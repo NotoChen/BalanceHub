@@ -1,6 +1,7 @@
 use super::contracts::{
-    AccessTokenCapability, AccountCapability, ApiKeyManagementCapability, CapabilityProbe,
-    CheckInCapability, ConnectionCapability, CredentialCapability, UsageCapability,
+    AccessTokenCapability, AccountCapability, AnnouncementCapability, ApiKeyManagementCapability,
+    CapabilityProbe, CheckInCapability, ConnectionCapability, CredentialCapability,
+    UsageCapability,
 };
 use crate::models::{AuthMode, Provider, ProviderProtocol};
 
@@ -17,6 +18,7 @@ pub(crate) struct ProviderProtocolCapabilities {
     pub(crate) usage: bool,
     pub(crate) account: bool,
     pub(crate) check_in: bool,
+    pub(crate) announcements: bool,
 }
 
 pub(crate) type DialectChecker = fn(&Provider) -> bool;
@@ -104,6 +106,7 @@ pub(crate) struct ProviderProtocolDefinition {
     pub(crate) account: Option<&'static dyn AccountCapability>,
     pub(crate) capability_probe: &'static dyn CapabilityProbe,
     pub(crate) check_in: Option<&'static dyn CheckInCapability>,
+    pub(crate) announcements: Option<&'static dyn AnnouncementCapability>,
     pub(crate) is_anyrouter: DialectChecker,
 }
 
@@ -113,6 +116,7 @@ pub(crate) struct ProviderProtocolOperationMethods {
     pub(crate) api_keys: Option<&'static str>,
     pub(crate) invitation: Option<&'static str>,
     pub(crate) models: &'static str,
+    pub(crate) announcements: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -148,6 +152,7 @@ impl ProviderProtocolDefinition {
             usage: self.usage.is_some(),
             account: self.account.is_some(),
             check_in: self.check_in.is_some(),
+            announcements: self.announcements.is_some(),
         }
     }
 

@@ -20,6 +20,7 @@ export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOp
   const workspaceSessionsLoading = ref(false);
   const workspaceSessionsError = ref("");
   const workspaceSelectedResumeId = ref("");
+  const workspaceSelectedSessionTitle = ref("");
   let sessionsRequestId = 0;
 
   async function loadWorkspaceSessions(workdir?: string) {
@@ -48,6 +49,8 @@ export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOp
       )
         ? previousResumeId
         : "";
+      workspaceSelectedSessionTitle.value =
+        sessions.find((session) => session.id === workspaceSelectedResumeId.value)?.title ?? "";
     } catch (error) {
       if (requestId === sessionsRequestId) {
         workspaceSessionsError.value = errorMessage(error);
@@ -62,6 +65,7 @@ export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOp
   function selectWorkspaceSession(session: CliSessionSummary) {
     if (!session.canResume) return;
     workspaceSelectedResumeId.value = session.id;
+    workspaceSelectedSessionTitle.value = session.title;
     options.sessionMode.value = "history";
     // 空值表示不向官方 CLI 注入模型，让它按会话自己的元数据恢复。
     options.selectedModel.value = "";
@@ -72,10 +76,12 @@ export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOp
     workspaceSessions.value = [];
     workspaceSessionsError.value = "";
     workspaceSelectedResumeId.value = "";
+    workspaceSelectedSessionTitle.value = "";
   }
 
   function clearWorkspaceSessionSelection() {
     workspaceSelectedResumeId.value = "";
+    workspaceSelectedSessionTitle.value = "";
   }
 
   function invalidateWorkspaceSessionRequests() {
@@ -88,6 +94,7 @@ export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOp
     workspaceSessionsLoading,
     workspaceSessionsError,
     workspaceSelectedResumeId,
+    workspaceSelectedSessionTitle,
     loadWorkspaceSessions,
     selectWorkspaceSession,
     resetWorkspaceSessions,

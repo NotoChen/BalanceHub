@@ -12,6 +12,7 @@ import { useAppUpdater } from "./useAppUpdater";
 import { useAppVersion } from "./useAppVersion";
 import { useAvailableModels } from "./useAvailableModels";
 import { useBatchOperation } from "./useBatchOperation";
+import { useBackgroundTaskCenter } from "./useBackgroundTaskCenter";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
@@ -22,6 +23,7 @@ import { useProviderActions } from "./useProviderActions";
 import { useProviderWorkspaceController } from "./useProviderWorkspaceController";
 import { useRequestLogs } from "./useRequestLogs";
 import { useSettingsController } from "./useSettingsController";
+import { useSiteAnnouncements } from "./useSiteAnnouncements";
 import { useSystemNotification } from "./useSystemNotification";
 import { useUsageSummary } from "./useUsageSummary";
 import { useWindowDrag } from "./useWindowDrag";
@@ -40,6 +42,7 @@ export function useAppController() {
     providers,
     providerProtocols,
     refreshInProgress,
+    refreshingIds,
   } = storeToRefs(providerStore);
   const { settings } = storeToRefs(settingsStore);
   const { workspaces, temporaryCliPreferences } = storeToRefs(workspaceStore);
@@ -127,6 +130,12 @@ export function useAppController() {
   const availableModels = useAvailableModels({
     providers,
     syncModels: (providerId) => providerStore.syncAvailableModels(providerId),
+  });
+
+  const siteAnnouncements = useSiteAnnouncements({
+    providers,
+    initialized,
+    reloadProviders: () => providerStore.reload(),
   });
 
   const cliRuntimeController = useCliRuntime({
@@ -265,6 +274,30 @@ export function useAppController() {
     () => batchOperation.running.value && batchOperation.operation.value === "checkIn",
   );
 
+  const backgroundTaskCenter = useBackgroundTaskCenter({
+    providers,
+    batchOperation: batchOperation.operation,
+    batchOperationRunning: batchOperation.running,
+    batchOperationItems: batchOperation.items,
+    batchOperationError: batchOperation.error,
+    batchOperationCompleted: batchOperation.completed,
+    refreshInProgress,
+    refreshingProviderIds: refreshingIds,
+    globalCheckInInProgress,
+    checkingInProviderIds: checkIn.checkingInProviderIds,
+    checkingForUpdate: appUpdater.checkingForUpdate,
+    updateCheckError: appUpdater.updateCheckError,
+    installingUpdate: appUpdater.installingUpdate,
+    updateDownloadProgress: appUpdater.updateDownloadProgress,
+    updateInstallStatus: appUpdater.updateInstallStatus,
+    updateInstallError: appUpdater.updateInstallError,
+    announcementsLoading: siteAnnouncements.siteAnnouncementsLoading,
+    announcementFatalError: siteAnnouncements.siteAnnouncementsFatalError,
+    announcementErrors: siteAnnouncements.siteAnnouncementErrors,
+    cliRuntimeLoading,
+    probingCapabilitiesProviderId: providerActions.probingCapabilitiesProviderId,
+  });
+
   return reactive({
     initialized,
     loadError,
@@ -293,12 +326,17 @@ export function useAppController() {
     batchOperationFinishedAt: batchOperation.finishedAt,
     batchOperationCompleted: batchOperation.completed,
     globalCheckInInProgress,
+    activeBackgroundTasks: backgroundTaskCenter.activeTasks,
+    recentBackgroundTasks: backgroundTaskCenter.recentTasks,
+    backgroundTaskCount: backgroundTaskCenter.activeTaskCount,
+    clearRecentBackgroundTasks: backgroundTaskCenter.clearRecentTasks,
     ...checkInRecords,
     ...usage,
     ...requestLogs,
     ...passwordChange,
     ...apiKeyManager,
     ...availableModels,
+    ...siteAnnouncements,
     ...cliRuntimeController,
     ...workspacePicker,
     ...providerEditor,

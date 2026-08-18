@@ -123,6 +123,12 @@ fn descriptor(definition: &AgentCliDefinition) -> AgentCliDescriptor {
     }
 }
 
+/// 公共运行面板使用的 Agent 目录。顺序与注册表保持一致，新增 Agent
+/// 只需要加入目录定义，不需要再维护一份汇总顺序。
+pub(crate) fn descriptors() -> Vec<AgentCliDescriptor> {
+    DEFINITIONS.iter().map(descriptor).collect()
+}
+
 pub(crate) fn find(
     settings: &AppSettings,
     kind: AgentCliKind,
