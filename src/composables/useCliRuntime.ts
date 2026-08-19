@@ -10,6 +10,12 @@ import {
   type TemporaryCliInstance,
 } from "../stores/providers";
 import { agentCliLabel } from "../utils/cli-environment";
+import { withTimeout } from "../utils/promise-timeout";
+
+const CLI_RUNTIME_REFRESH_TIMEOUT_MS = 15_000;
+const CLI_CONFIG_PREVIEW_TIMEOUT_MS = 30_000;
+const CLI_CONFIG_SWITCH_TIMEOUT_MS = 30_000;
+const CLI_ACTIVATION_TIMEOUT_MS = 15_000;
 
 interface UseCliRuntimeOptions {
   providers: Ref<Provider[]>;
@@ -76,7 +82,11 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       cliInstancesRefreshing.value = true;
     }
     try {
-      await options.refreshInstances();
+      await withTimeout(
+        options.refreshInstances(),
+        CLI_RUNTIME_REFRESH_TIMEOUT_MS,
+        "读取临时 CLI 状态超时",
+      );
     } catch (error) {
       if (!silent) {
         Message.error(error instanceof Error ? error.message : String(error));
@@ -125,7 +135,11 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
 
     switchingCliConfig.value = { providerId: provider.identity.id, cliKind };
     try {
-      cliConfigPreview.value = await options.previewConfig(provider.identity.id, cliKind);
+      cliConfigPreview.value = await withTimeout(
+        options.previewConfig(provider.identity.id, cliKind),
+        CLI_CONFIG_PREVIEW_TIMEOUT_MS,
+        "读取 CLI 配置预览超时",
+      );
       cliConfigPreviewVisible.value = true;
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
@@ -134,7 +148,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     }
   }
 
-  async function confirmCliConfigSwitch(files?: CliConfigFile[]) {
+  function confirmCliConfigSwitch(files?: CliConfigFile[]) {
     const preview = cliConfigPreview.value;
     if (!preview || switchingCliConfig.value || preview.files.length === 0) {
       return;
@@ -144,14 +158,25 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       providerId: preview.providerId,
       cliKind: preview.cliKind,
     };
+    cliConfigPreviewVisible.value = false;
+    void switchCliConfigInBackground(preview, files ?? preview.files);
+  }
+
+  async function switchCliConfigInBackground(
+    preview: CliConfigPreview,
+    files: CliConfigFile[],
+  ) {
     try {
-      await options.switchConfig(
-        preview.providerId,
-        preview.cliKind,
-        preview.revision,
-        files ?? preview.files,
+      await withTimeout(
+        options.switchConfig(
+          preview.providerId,
+          preview.cliKind,
+          preview.revision,
+          files,
+        ),
+        CLI_CONFIG_SWITCH_TIMEOUT_MS,
+        "保存 CLI 默认配置超时",
       );
-      cliConfigPreviewVisible.value = false;
       Message.success(
         `已将 ${preview.providerName} 设为 ${agentCliLabel(store.cliEnvironmentProbe, preview.cliKind)} 默认中转站`,
       );
@@ -165,7 +190,11 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   async function activateCliInstance(instance: TemporaryCliInstance) {
     activatingCliInstanceId.value = instance.id;
     try {
-      await options.activate(instance.id);
+      await withTimeout(
+        options.activate(instance.id),
+        CLI_ACTIVATION_TIMEOUT_MS,
+        "激活临时 CLI 终端超时",
+      );
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
     } finally {

@@ -102,7 +102,6 @@ useWindowGridSnap();
       :workspaces="app.workspaces"
       :directory="app.workspaceDirectory"
       :browsing="app.workspaceBrowsing"
-      :launching-path="app.workspaceLaunchingPath"
       :launch-preview-visible="app.workspaceLaunchPreviewVisible"
       :launch-preview-loading="app.workspaceLaunchPreviewLoading"
       :forgetting-path="app.workspaceForgettingPath"
@@ -120,14 +119,12 @@ useWindowGridSnap();
     <TemporaryCliLaunchPreviewModal
       v-model:visible="app.workspaceLaunchPreviewVisible"
       :preview="app.workspaceLaunchPreview"
-      :confirming="Boolean(app.workspaceLaunchingPath)"
       @confirm="app.confirmWorkspaceLaunch"
     />
 
     <CliConfigPreviewModal
       v-model:visible="app.cliConfigPreviewVisible"
       :preview="app.cliConfigPreview"
-      :confirming="Boolean(app.switchingCliConfig)"
       @confirm="app.confirmCliConfigSwitch"
     />
 

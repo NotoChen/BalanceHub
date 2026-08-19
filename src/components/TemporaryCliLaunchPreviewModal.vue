@@ -22,7 +22,6 @@ import TerminalBrandIcon from "./TerminalBrandIcon.vue";
 const props = defineProps<{
   visible: boolean;
   preview: TemporaryCliLaunchPreview | null;
-  confirming: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -55,7 +54,6 @@ function scheduleCopyReset() {
 }
 
 function handleVisibleChange(visible: boolean) {
-  if (!visible && props.confirming) return;
   emit("update:visible", visible);
 }
 
@@ -84,9 +82,9 @@ onBeforeUnmount(() => {
     modal-class="surface-modal temporary-cli-preview-modal"
     title-align="start"
     :footer="false"
-    :closable="!confirming"
-    :mask-closable="!confirming"
-    :esc-to-close="!confirming"
+    closable
+    mask-closable
+    esc-to-close
     unmount-on-close
     @update:visible="handleVisibleChange"
   >
@@ -182,7 +180,6 @@ onBeforeUnmount(() => {
               type="text"
               size="small"
               aria-label="复制完整命令"
-              :disabled="confirming"
               @click="copyCommand"
             >
               <template #icon>
@@ -215,11 +212,11 @@ onBeforeUnmount(() => {
       </details>
 
       <footer class="temporary-cli-preview-actions">
-        <a-button :disabled="confirming" @click="emit('update:visible', false)">
+        <a-button @click="emit('update:visible', false)">
           <template #icon><icon-close /></template>
           取消
         </a-button>
-        <a-button type="primary" :loading="confirming" @click="emit('confirm')">
+        <a-button type="primary" @click="emit('confirm')">
           <template #icon><icon-check /></template>
           确认并启动
         </a-button>

@@ -137,6 +137,17 @@ pub(crate) fn find(
     find_with_preferred(kind, settings.agent_cli_path(kind), include_shell)
 }
 
+/// 校验调用方已经选定的 CLI 入口。临时 CLI 预览/启动不应在每次调用时
+/// 重新遍历版本管理器、PATH 和登录 Shell 的全部候选，否则 GUI 会被探测
+/// 链路拖住；候选发现仍统一由 `find` 负责。
+pub(crate) fn find_at_path(kind: AgentCliKind, path: &str) -> Result<AgentCliExecutable, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(format!("{} CLI 路径为空", definition(kind).label));
+    }
+    discovery::find_cli_at_path(std::path::Path::new(path), definition(kind))
+}
+
 fn find_with_preferred(
     kind: AgentCliKind,
     preferred_path: &str,

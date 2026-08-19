@@ -10,6 +10,7 @@ import type {
   CliSessionSummary,
   Provider,
   ProviderApiKeyOption,
+  TemporaryCliLaunchResult,
   TemporaryCliLaunchPreview,
   WorkspaceDirectoryListing,
 } from "../src/stores/provider-types.ts";
@@ -147,12 +148,103 @@ test("closing a launch flow discards a late preview", async () => {
   assert.equal(launchFlow.workspaceLaunchPreviewLoading.value, false);
 });
 
+test("confirming a launch closes the picker without waiting for terminal dispatch", async () => {
+  const visible = ref(true);
+  const pendingLaunch = deferred<TemporaryCliLaunchResult>();
+  let launchCalled = false;
+  const launchFlow = useWorkspaceLaunchFlow({
+    visible,
+    provider: ref<Provider | null>(provider("provider")),
+    cliKind: ref("codex"),
+    cliOptions: ref([{ value: "codex", label: "Codex" }]),
+    cliTool: computed(() => ({
+      kind: "codex",
+      label: "Codex",
+      executable: "codex",
+      sessionNameHint: "",
+      available: true,
+      path: "/usr/local/bin/codex",
+      version: "1.0.0",
+      message: "",
+      capabilities: {
+        liveness: true,
+        temporaryLaunch: true,
+        sessionHistory: true,
+        sessionResume: true,
+        sessionName: false,
+        modelSelection: true,
+        defaultConfig: true,
+      },
+    })),
+    cliProbe: ref(null),
+    terminalKind: ref("terminal"),
+    terminalOptions: ref([{ value: "terminal", label: "Terminal" }]),
+    directory: ref(directory("/workspace")),
+    apiKeys: ref([]),
+    apiKeyTokenId: ref(""),
+    selectedModel: ref(""),
+    sessionMode: ref("new"),
+    sessionName: ref(""),
+    canNameSession: ref(false),
+    selectedResumeId: ref(""),
+    selectedSessionTitle: ref(""),
+    error: ref(""),
+    preview: async () => ({
+      providerName: "Provider",
+      cliKind: "codex",
+      cliPath: "/usr/local/bin/codex",
+      args: [],
+      terminalKind: "terminal",
+      terminalName: "Terminal",
+      workdir: "/workspace",
+      command: "codex",
+      baseUrl: "https://example.com",
+      apiKey: "***",
+      model: "",
+      sessionMode: "new",
+      sessionName: "",
+      resumeId: "",
+      environment: {},
+      settingsPath: null,
+      settingsContent: null,
+    } satisfies TemporaryCliLaunchPreview),
+    launch: async () => {
+      launchCalled = true;
+      return pendingLaunch.promise;
+    },
+    getInstance: async () => null,
+    notify: {
+      success: () => {},
+      warning: () => {},
+      error: () => {},
+    },
+  });
+
+  await launchFlow.launchWorkspace();
+  assert.equal(launchFlow.workspaceLaunchPreviewVisible.value, true);
+
+  const confirmationResult = launchFlow.confirmWorkspaceLaunch();
+  assert.equal(confirmationResult, undefined);
+  assert.equal(launchCalled, true);
+  assert.equal(visible.value, false);
+  assert.equal(launchFlow.workspaceLaunchPreviewVisible.value, false);
+  assert.equal(launchFlow.temporaryCliLaunchTasks.value[0]?.status, "running");
+
+  // Resolve the detached promise only after the confirmation handler returned;
+  // this proves the UI does not wait for terminal dispatch.
+  pendingLaunch.reject(new Error("test dispatch failure"));
+  await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+  assert.equal(launchFlow.temporaryCliLaunchTasks.value[0]?.status, "failed");
+});
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function directory(currentPath: string): WorkspaceDirectoryListing {

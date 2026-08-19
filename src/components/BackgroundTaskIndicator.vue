@@ -35,6 +35,7 @@ function iconFor(kind: BackgroundTaskKind) {
     case "update":
       return CloudDownload;
     case "cliProbe":
+    case "cliLaunch":
       return Terminal;
     case "autoLiveness":
       return Activity;

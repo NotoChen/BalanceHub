@@ -34,6 +34,7 @@ function handleVisibleChange(visible: boolean) {
 </script>
 
 <template>
+  <!-- balancehub-critical-modal-lock: 下载阶段提供取消入口，签名校验和安装阶段不可安全中断。 -->
   <a-modal
     :visible="visible"
     width="min(600px, calc(100vw - 32px))"

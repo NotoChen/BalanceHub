@@ -587,6 +587,7 @@ export interface TemporaryCliPreference {
 export interface TemporaryCliLaunchInput {
   providerId: string;
   cliKind: AgentCliKind;
+  cliPath: string;
   workdir: string;
   apiKey: string;
   apiKeyTokenId: string;

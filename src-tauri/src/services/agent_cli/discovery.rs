@@ -174,6 +174,13 @@ pub(super) fn find_cli(
     }
 }
 
+pub(super) fn find_cli_at_path(
+    candidate: &Path,
+    spec: &AgentCliDefinition,
+) -> Result<AgentCliExecutable, String> {
+    probe_cli_candidate(candidate, spec, false)
+}
+
 fn probe_cli_candidate(
     candidate: &Path,
     spec: &AgentCliDefinition,

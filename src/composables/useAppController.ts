@@ -295,6 +295,7 @@ export function useAppController() {
     announcementFatalError: siteAnnouncements.siteAnnouncementsFatalError,
     announcementErrors: siteAnnouncements.siteAnnouncementErrors,
     cliRuntimeLoading,
+    temporaryCliLaunchTasks: workspacePicker.temporaryCliLaunchTasks,
     probingCapabilitiesProviderId: providerActions.probingCapabilitiesProviderId,
   });
 
