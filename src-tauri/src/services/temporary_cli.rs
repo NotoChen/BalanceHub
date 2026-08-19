@@ -44,6 +44,7 @@ pub(crate) struct LaunchOptions<'a> {
 pub fn preview(
     settings: &AppSettings,
     provider: &Provider,
+    cli: &agent_cli::AgentCliExecutable,
     cli_kind: AgentCliKind,
     workdir: &Path,
     options: LaunchOptions<'_>,
@@ -65,7 +66,6 @@ pub fn preview(
         return Err("缺少中转站地址，无法启动临时 CLI".to_string());
     }
     let resume_id = resolve_resume_id(options.session_mode, options.resume_id)?;
-    let cli = agent_cli::find(settings, cli_kind, true)?;
     let terminal = probe_terminal(settings.temporary_cli_terminal_kind);
     if !terminal.available {
         let detail = terminal.message.trim();
@@ -140,6 +140,7 @@ pub fn preview(
 pub fn launch(
     settings: &AppSettings,
     provider: &Provider,
+    cli: &agent_cli::AgentCliExecutable,
     cli_kind: AgentCliKind,
     workdir: &Path,
     options: LaunchOptions<'_>,
@@ -162,7 +163,6 @@ pub fn launch(
     }
     let resume_id = resolve_resume_id(options.session_mode, options.resume_id)?;
 
-    let cli = agent_cli::find(settings, cli_kind, true)?;
     let model = resolve_launch_model(
         settings,
         provider,

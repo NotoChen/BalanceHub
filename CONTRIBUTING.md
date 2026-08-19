@@ -106,6 +106,14 @@ npm run doctor           # 再执行前端与 Rust 的完整质量检查
 
 `npm run tauri dev` 和 `npm run tauri build` 会默认把 Cargo target 放到系统开发缓存目录，避免反复开发构建把 `src-tauri/target` 留在仓库并持续膨胀。可以通过 `CARGO_TARGET_DIR` 显式覆盖。自检只读报告缓存，不会自动删除；确认没有运行中的开发构建后，再按提示执行 `cargo clean --target-dir ...`。
 
+### 异步 UI 与并发状态约束
+
+- 会调用 Tauri IPC、外部进程、终端自动化或网络的操作必须有明确的超时、取消机制或后端任务状态；成功、失败和超时都必须释放前端忙碌状态。
+- 启动终端、Agent CLI 等不可预测时长的外部动作，确认后应立即关闭发起弹窗并转入后台任务中心；不得让启动 Promise、进程轮询或外部窗口状态持续禁用整个弹窗、页面或主面板。
+- 普通异步操作不得用 `closable`、`mask-closable`、`esc-to-close` 把模态窗口锁死。只有签名校验、更新安装等无法安全中断的关键事务可以例外，并在模板中添加 `balancehub-critical-modal-lock:` 注释说明取消边界。
+- 异步结果防过期使用递增 request ID、revision、稳定标量主键或显式取消标记；不要把对象放入 Vue 深层 `ref` 后再用 `===` / `!==` 与原始对象比较，响应式代理会改变对象身份。
+- 修改异步弹窗、IPC 启动链路或后台任务状态时，补充回归测试覆盖界面及时关闭、后台 Promise 未完成时主界面不锁定、失败/超时释放和过期结果不回写。
+
 本地打包桌面应用：
 
 ```bash

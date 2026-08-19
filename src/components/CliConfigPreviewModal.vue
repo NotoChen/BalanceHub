@@ -26,7 +26,6 @@ const MAX_DIFF_MATRIX_CELLS = 250_000;
 const props = defineProps<{
   visible: boolean;
   preview: CliConfigPreview | null;
-  confirming: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -422,9 +421,9 @@ function confirm() {
     width="min(1000px, calc(100vw - 32px))"
     modal-class="surface-modal cli-config-preview-modal"
     title-align="start"
-    :closable="!confirming"
-    :mask-closable="!confirming"
-    :esc-to-close="!confirming"
+    closable
+    mask-closable
+    esc-to-close
     unmount-on-close
     @update:visible="emit('update:visible', $event)"
   >
@@ -505,7 +504,6 @@ function confirm() {
     <template #footer>
       <a-button
         type="primary"
-        :loading="confirming"
         :disabled="!preview || editableFiles.length === 0"
         @click="confirm"
       >

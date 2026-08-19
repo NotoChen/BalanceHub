@@ -4,6 +4,7 @@ import type {
   Provider,
   SiteAnnouncementSourceError,
 } from "../stores/providers";
+import type { TemporaryCliLaunchTask } from "./useWorkspaceLaunchFlow";
 import type {
   ProviderBatchOperation,
   ProviderBatchProgressItem,
@@ -18,6 +19,7 @@ export type BackgroundTaskKind =
   | "update"
   | "sync"
   | "cliProbe"
+  | "cliLaunch"
   | "autoRefresh"
   | "autoCheckIn"
   | "autoLiveness";
@@ -68,6 +70,7 @@ interface UseBackgroundTaskCenterOptions {
   announcementFatalError: Ref<string>;
   announcementErrors: Ref<SiteAnnouncementSourceError[]>;
   cliRuntimeLoading: Ref<boolean>;
+  temporaryCliLaunchTasks: Ref<TemporaryCliLaunchTask[]>;
   probingCapabilitiesProviderId: Ref<string | null>;
 }
 
@@ -87,6 +90,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   let recentPruneTimer: number | null = null;
   let previousActive = new Map<string, BackgroundTask>();
   let observedActiveState = false;
+  const rememberedTemporaryCliTaskIds = new Set<string>();
 
   const activeTasks = computed<BackgroundTask[]>(() => {
     const tasks: BackgroundTask[] = [];
@@ -229,6 +233,12 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       });
     }
 
+    for (const task of options.temporaryCliLaunchTasks.value) {
+      if (task.status === "running") {
+        tasks.push(temporaryCliBackgroundTask(task));
+      }
+    }
+
     for (const task of Object.values(remoteTasks.value)) {
       if (task.status === "running") tasks.push(task);
     }
@@ -325,7 +335,11 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     const next = new Map(current.map((task) => [task.id, task]));
     if (observedActiveState) {
       for (const [id, previous] of previousActive) {
-        if (!next.has(id) && !id.startsWith("scheduler-")) {
+        if (
+          !next.has(id)
+          && !id.startsWith("scheduler-")
+          && !id.startsWith("temporary-cli-launch-")
+        ) {
           rememberRecent(completedLocalTask(previous));
         }
       }
@@ -358,6 +372,26 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     rememberRecent(task);
   }
 
+  function handleTemporaryCliTaskChanges(tasks: TemporaryCliLaunchTask[]) {
+    for (const task of tasks) {
+      if (task.status === "running" || rememberedTemporaryCliTaskIds.has(task.id)) {
+        continue;
+      }
+      rememberedTemporaryCliTaskIds.add(task.id);
+      rememberRecent(temporaryCliBackgroundTask(task));
+    }
+
+    const retainedIds = new Set([
+      ...tasks.map((task) => task.id),
+      ...recentTasks.value.map((task) => task.id),
+    ]);
+    for (const id of rememberedTemporaryCliTaskIds) {
+      if (!retainedIds.has(id)) {
+        rememberedTemporaryCliTaskIds.delete(id);
+      }
+    }
+  }
+
   onMounted(async () => {
     pruneRecent();
     recentPruneTimer = window.setInterval(pruneRecent, 60_000);
@@ -380,11 +414,30 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   });
 
   watch(activeTasks, handleActiveTaskChanges, { deep: true, immediate: true });
+  watch(options.temporaryCliLaunchTasks, handleTemporaryCliTaskChanges, {
+    deep: true,
+    immediate: true,
+  });
 
   return {
     activeTasks,
     activeTaskCount,
     recentTasks,
     clearRecentTasks,
+  };
+}
+
+function temporaryCliBackgroundTask(task: TemporaryCliLaunchTask): BackgroundTask {
+  return {
+    id: task.id,
+    kind: "cliLaunch",
+    title: task.title,
+    detail: task.detail,
+    status: task.status,
+    progress: null,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+    error: task.error,
+    source: "manual",
   };
 }

@@ -1,4 +1,4 @@
-use super::{launch, preview, probe_terminal, LaunchOptions};
+use super::{launch, preview, LaunchOptions};
 use crate::{
     models::{
         AgentCliKind, AppData, AppSettings, Provider, TemporaryCliLaunchInput,
@@ -20,7 +20,7 @@ struct PreparedTemporaryCliLaunch {
     provider: Provider,
     settings: AppSettings,
     input: TemporaryCliLaunchInput,
-    cli_path: String,
+    cli: agent_cli::AgentCliExecutable,
     cli_kind: AgentCliKind,
     workdir: PathBuf,
     api_key: String,
@@ -41,6 +41,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
         let instance = launch(
             &prepared.settings,
             &prepared.provider,
+            &prepared.cli,
             prepared.cli_kind,
             &prepared.workdir,
             launch_options(&prepared),
@@ -56,7 +57,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
             .record_temporary_cli_launch(
                 &prepared.provider.identity.id,
                 prepared.cli_kind,
-                &prepared.cli_path,
+                &prepared.cli.path,
                 &prepared.workdir,
                 &prepared.input.api_key_token_id,
                 &prepared.preference_model,
@@ -84,6 +85,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
         preview(
             &prepared.settings,
             &prepared.provider,
+            &prepared.cli,
             prepared.cli_kind,
             &prepared.workdir,
             launch_options(&prepared),
@@ -145,16 +147,11 @@ impl<'a> TemporaryCliLaunchService<'a> {
             _ => saved_model,
         };
 
-        let cli = agent_cli::find(&data.settings, cli_kind, true)?;
-        let terminal = probe_terminal(input.terminal_kind);
-        if !terminal.available {
-            let detail = terminal.message.trim();
-            return Err(if detail.is_empty() {
-                "所选终端当前不可用，请重新扫描终端".to_string()
-            } else {
-                format!("所选终端当前不可用，请重新扫描终端：{detail}")
-            });
+        let cli_path = input.cli_path.trim();
+        if cli_path.is_empty() {
+            return Err("缺少 Agent CLI 路径，请先重新扫描 CLI 环境".to_string());
         }
+        let cli = agent_cli::find_at_path(cli_kind, cli_path)?;
         let mut settings = data.settings.clone();
         settings.temporary_cli_terminal_kind = input.terminal_kind;
         settings.set_agent_cli_path(cli_kind, cli.path.clone());
@@ -164,7 +161,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
             provider,
             settings,
             input,
-            cli_path: cli.path,
+            cli,
             cli_kind,
             workdir,
             api_key,

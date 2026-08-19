@@ -16,6 +16,7 @@ import type {
   WorkspaceDirectoryListing,
 } from "../stores/providers";
 import { agentCliLabel } from "../utils/cli-environment.ts";
+import { withTimeout } from "../utils/promise-timeout.ts";
 import { waitForTemporaryCliStart } from "../utils/temporary-cli-launch.ts";
 
 interface UseWorkspaceLaunchFlowOptions {
@@ -40,22 +41,44 @@ interface UseWorkspaceLaunchFlowOptions {
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
   preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
   getInstance: (instanceId: string) => Promise<TemporaryCliInstance | null>;
+  notify?: Partial<LaunchNotifications>;
+}
+
+interface LaunchNotifications {
+  success: (message: string) => void;
+  warning: (message: string) => void;
+  error: (message: string) => void;
 }
 
 type WorkspaceLaunchState =
   | { phase: "idle" }
   | { phase: "previewing"; input: TemporaryCliLaunchInput }
-  | { phase: "confirming"; input: TemporaryCliLaunchInput; preview: TemporaryCliLaunchPreview }
-  | { phase: "launching"; input: TemporaryCliLaunchInput }
-  | { phase: "failed" };
+  | { phase: "confirming"; input: TemporaryCliLaunchInput; preview: TemporaryCliLaunchPreview };
+
+export interface TemporaryCliLaunchTask {
+  id: string;
+  title: string;
+  detail: string;
+  status: "running" | "success" | "failed";
+  startedAt: number;
+  finishedAt?: number;
+  error?: string;
+}
+
+const PREVIEW_TIMEOUT_MS = 45_000;
+const LAUNCH_DISPATCH_TIMEOUT_MS = 60_000;
+const MAX_FINISHED_LAUNCH_TASKS = 12;
 
 export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
   const workspaceLaunchState = ref<WorkspaceLaunchState>({ phase: "idle" });
-  const workspaceLaunchingPath = computed(() =>
-    workspaceLaunchState.value.phase === "launching"
-      ? workspaceLaunchState.value.input.workdir
-      : null,
-  );
+  const temporaryCliLaunchTasks = ref<TemporaryCliLaunchTask[]>([]);
+  let previewRequestId = 0;
+  let launchTaskCounter = 0;
+  const notify: LaunchNotifications = {
+    success: options.notify?.success ?? ((message) => Message.success(message)),
+    warning: options.notify?.warning ?? ((message) => Message.warning(message)),
+    error: options.notify?.error ?? ((message) => Message.error(message)),
+  };
   const workspaceLaunchPreviewVisible = computed({
     get: () => workspaceLaunchState.value.phase === "confirming",
     set: (visible: boolean) => {
@@ -79,7 +102,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     if (
       !provider
       || !workdir
-      || ["previewing", "confirming", "launching"].includes(workspaceLaunchState.value.phase)
+      || workspaceLaunchState.value.phase !== "idle"
     ) {
       return null;
     }
@@ -100,9 +123,13 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
         : options.selectedModel.value.trim()
       : "";
     const sessionName = options.canNameSession.value ? options.sessionName.value.trim() : "";
+    const cliPath = options.cliTool.value?.path.trim() || "";
     const resumeId = options.sessionMode.value === "history"
       ? options.selectedResumeId.value.trim()
       : "";
+    if (!cliPath) {
+      return failLaunchInput("所选 Agent CLI 缺少可用路径，请重新扫描后再试");
+    }
     if (!apiKey) {
       return failLaunchInput("请选择一个可用的 API Key");
     }
@@ -113,6 +140,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     return {
       providerId: provider.identity.id,
       cliKind: options.cliKind.value,
+      cliPath,
       workdir,
       apiKey,
       apiKeyTokenId: options.apiKeyTokenId.value,
@@ -131,75 +159,153 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     const input = buildLaunchInput(path);
     if (!input) return;
 
+    const requestId = ++previewRequestId;
     workspaceLaunchState.value = { phase: "previewing", input };
     options.error.value = "";
     try {
-      const preview = await options.preview(input);
+      const preview = await withTimeout(
+        options.preview(input),
+        PREVIEW_TIMEOUT_MS,
+        "生成临时 CLI 启动预览超时，请检查 Agent CLI 与终端状态",
+      );
       if (
-        workspaceLaunchState.value.phase !== "previewing"
-        || workspaceLaunchState.value.input !== input
+        requestId !== previewRequestId
+        || workspaceLaunchState.value.phase !== "previewing"
       ) {
         return;
       }
-      workspaceLaunchState.value = { phase: "confirming", input, preview };
+      workspaceLaunchState.value = {
+        phase: "confirming",
+        input: { ...input, cliPath: preview.cliPath },
+        preview,
+      };
     } catch (error) {
       if (
-        workspaceLaunchState.value.phase !== "previewing"
-        || workspaceLaunchState.value.input !== input
+        requestId !== previewRequestId
+        || workspaceLaunchState.value.phase !== "previewing"
       ) {
         return;
       }
-      failLaunch(errorMessage(error));
+      workspaceLaunchState.value = { phase: "idle" };
+      reportPreviewFailure(errorMessage(error));
     }
   }
 
-  async function confirmWorkspaceLaunch() {
+  function confirmWorkspaceLaunch() {
     if (workspaceLaunchState.value.phase !== "confirming") return;
 
     const input = workspaceLaunchState.value.input;
-    if (!options.provider.value) {
+    const provider = options.provider.value;
+    if (!provider) {
       workspaceLaunchState.value = { phase: "idle" };
       return;
     }
     const cliLabel = agentCliLabel(options.cliProbe.value, input.cliKind);
     options.error.value = "";
-    workspaceLaunchState.value = { phase: "launching", input };
+    workspaceLaunchState.value = { phase: "idle" };
+    options.visible.value = false;
+    const task = beginLaunchTask(cliLabel, provider.identity.name);
+    void launchInBackground(task.id, input, cliLabel);
+  }
+
+  async function launchInBackground(
+    taskId: string,
+    input: TemporaryCliLaunchInput,
+    cliLabel: string,
+  ) {
     try {
-      const result = await options.launch(input);
+      const result = await withTimeout(
+        options.launch(input),
+        LAUNCH_DISPATCH_TIMEOUT_MS,
+        `派发 ${cliLabel} 启动命令超时，请检查终端自动化权限`,
+      );
+      updateLaunchTask(taskId, {
+        detail: `${result.instance.terminalName} 已打开，正在确认 ${cliLabel} 进程`,
+      });
       await waitForTemporaryCliStart(result.instance.id, options.getInstance);
       if (result.workspaceError) {
-        Message.warning(`${cliLabel} 已启动，但工作空间记录失败：${result.workspaceError}`);
+        finishLaunchTask(
+          taskId,
+          "success",
+          `${cliLabel} 已启动，但工作空间记录失败：${result.workspaceError}`,
+        );
+        notify.warning(`${cliLabel} 已启动，但工作空间记录失败：${result.workspaceError}`);
       } else {
-        Message.success(`已在所选工作空间启动 ${cliLabel}`);
+        finishLaunchTask(taskId, "success", `${cliLabel} 已启动`);
+        notify.success(`已在所选工作空间启动 ${cliLabel}`);
       }
-      options.visible.value = false;
-      workspaceLaunchState.value = { phase: "idle" };
     } catch (error) {
-      failLaunch(errorMessage(error));
+      const message = errorMessage(error);
+      finishLaunchTask(taskId, "failed", `${cliLabel} 启动失败`, message);
+      notify.error(`${cliLabel} 启动失败：${message}`);
     }
   }
 
   function resetWorkspaceLaunch() {
+    previewRequestId += 1;
     workspaceLaunchState.value = { phase: "idle" };
   }
 
   function failLaunchInput(message: string) {
     options.error.value = message;
-    Message.warning(message);
+    notify.warning(message);
     return null;
   }
 
-  function failLaunch(message: string) {
+  function reportPreviewFailure(message: string) {
     options.error.value = message;
-    workspaceLaunchState.value = { phase: "failed" };
-    Message.error(message);
+    notify.error(message);
+  }
+
+  function beginLaunchTask(cliLabel: string, providerName: string) {
+    launchTaskCounter += 1;
+    const task: TemporaryCliLaunchTask = {
+      id: `temporary-cli-launch-${Date.now().toString(36)}-${launchTaskCounter.toString(36)}`,
+      title: `启动 ${cliLabel}`,
+      detail: `正在为“${providerName}”准备终端环境`,
+      status: "running",
+      startedAt: Date.now(),
+    };
+    temporaryCliLaunchTasks.value = [task, ...temporaryCliLaunchTasks.value];
+    trimLaunchTasks();
+    return task;
+  }
+
+  function updateLaunchTask(id: string, patch: Partial<TemporaryCliLaunchTask>) {
+    temporaryCliLaunchTasks.value = temporaryCliLaunchTasks.value.map((task) =>
+      task.id === id ? { ...task, ...patch } : task,
+    );
+  }
+
+  function finishLaunchTask(
+    id: string,
+    status: "success" | "failed",
+    detail: string,
+    error?: string,
+  ) {
+    updateLaunchTask(id, {
+      status,
+      detail,
+      error,
+      finishedAt: Date.now(),
+    });
+    trimLaunchTasks();
+  }
+
+  function trimLaunchTasks() {
+    const running = temporaryCliLaunchTasks.value.filter((task) => task.status === "running");
+    const finished = temporaryCliLaunchTasks.value
+      .filter((task) => task.status !== "running")
+      .sort((left, right) => (right.finishedAt ?? 0) - (left.finishedAt ?? 0))
+      .slice(0, MAX_FINISHED_LAUNCH_TASKS);
+    temporaryCliLaunchTasks.value = [...running, ...finished];
   }
 
   return {
-    workspaceLaunchingPath,
     workspaceLaunchPreviewVisible,
     workspaceLaunchPreviewLoading,
     workspaceLaunchPreview,
+    temporaryCliLaunchTasks,
     launchWorkspace,
     confirmWorkspaceLaunch,
     resetWorkspaceLaunch,

@@ -4,6 +4,7 @@ interface TemporaryCliLaunchMonitorOptions {
   timeoutMs?: number;
   pollIntervalMs?: number;
   stableForMs?: number;
+  readTimeoutMs?: number;
   now?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
 }
@@ -11,6 +12,7 @@ interface TemporaryCliLaunchMonitorOptions {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 200;
 const DEFAULT_STABLE_FOR_MS = 500;
+const DEFAULT_READ_TIMEOUT_MS = 3_000;
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) => globalThis.setTimeout(resolve, milliseconds));
@@ -29,6 +31,7 @@ export async function waitForTemporaryCliStart(
   const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const pollIntervalMs = Math.max(1, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   const stableForMs = Math.max(0, options.stableForMs ?? DEFAULT_STABLE_FOR_MS);
+  const readTimeoutMs = Math.max(1, options.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS);
   const now = options.now ?? Date.now;
   const wait = options.wait ?? delay;
   const startedAt = now();
@@ -47,7 +50,11 @@ export async function waitForTemporaryCliStart(
 
     let instance: TemporaryCliInstance | null = null;
     try {
-      instance = await readInstance(instanceId);
+      const remaining = Math.max(1, timeoutMs - elapsed);
+      instance = await readWithTimeout(
+        () => readInstance(instanceId),
+        Math.min(readTimeoutMs, remaining),
+      );
       lastReadError = "";
     } catch (error) {
       lastReadError = error instanceof Error ? error.message : String(error);
@@ -68,5 +75,22 @@ export async function waitForTemporaryCliStart(
 
     const remaining = Math.max(1, timeoutMs - Math.max(0, now() - startedAt));
     await wait(Math.min(pollIntervalMs, remaining));
+  }
+}
+
+async function readWithTimeout<T>(read: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = globalThis.setTimeout(
+      () => reject(new Error(`状态读取超过 ${Math.ceil(timeoutMs / 1_000)} 秒`)),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([read(), timeout]);
+  } finally {
+    if (timeoutId !== null) {
+      globalThis.clearTimeout(timeoutId);
+    }
   }
 }

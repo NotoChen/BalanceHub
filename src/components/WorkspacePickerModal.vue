@@ -50,7 +50,6 @@ const props = defineProps<{
   directory: WorkspaceDirectoryListing | null;
   pathDraft: string;
   browsing: boolean;
-  launchingPath: string | null;
   launchPreviewVisible: boolean;
   launchPreviewLoading: boolean;
   forgettingPath: string | null;
@@ -99,9 +98,8 @@ const visibleDirectories = computed(() =>
   (props.directory?.entries ?? []).filter((entry) => showHidden.value || !entry.hidden),
 );
 
-const launching = computed(() => Boolean(props.launchingPath));
 const launchLocked = computed(
-  () => launching.value || props.launchPreviewVisible || props.launchPreviewLoading,
+  () => props.launchPreviewVisible || props.launchPreviewLoading,
 );
 const cliLabel = computed(() => agentCliLabel(store.cliEnvironmentProbe, props.cliKind));
 const selectedCliTool = computed(() => agentCliTool(store.cliEnvironmentProbe, props.cliKind));
@@ -179,7 +177,6 @@ function browseDraftPath() {
 }
 
 function handleVisibleChange(visible: boolean) {
-  if (!visible && launchLocked.value) return;
   emit("update:visible", visible);
 }
 
@@ -215,9 +212,9 @@ async function copySessionId(id: string) {
     modal-class="surface-modal workspace-picker-modal"
     title-align="start"
     :footer="false"
-    :closable="!launchLocked"
-    :mask-closable="!launchLocked"
-    :esc-to-close="!launchLocked"
+    closable
+    mask-closable
+    esc-to-close
     unmount-on-close
     @update:visible="handleVisibleChange"
   >
@@ -558,8 +555,8 @@ async function copySessionId(id: string) {
           <div class="workspace-picker-actions">
             <a-button
               type="primary"
-              :loading="launchingPath === directory?.currentPath"
-              :disabled="browsing || launchLocked || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || historySelectionMissing"
+              :loading="launchPreviewLoading"
+              :disabled="browsing || launchLocked || launchPreviewLoading || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || historySelectionMissing"
               @click="emit('launch', directory?.currentPath)"
             >
               <template #icon><icon-launch /></template>

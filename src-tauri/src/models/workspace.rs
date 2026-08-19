@@ -38,6 +38,9 @@ pub struct TemporaryCliPreference {
 pub struct TemporaryCliLaunchInput {
     pub provider_id: String,
     pub cli_kind: AgentCliKind,
+    /// 前端当前选中的 Rust 探测结果路径。后端只对这个精确路径执行一次
+    /// 可用性校验，不在启动链路重新扫描所有版本管理器和登录 Shell 候选。
+    pub cli_path: String,
     pub workdir: String,
     #[serde(default)]
     pub api_key: String,
