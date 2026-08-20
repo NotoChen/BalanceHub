@@ -1616,6 +1616,10 @@ mod tests {
             .unwrap();
             assert_eq!(result.matched_term_indexes, vec![0]);
         }
+        connection
+            .close()
+            .map_err(|(_, error)| error)
+            .expect("the SQLite test connection should close before cleanup");
         fs::remove_dir_all(root).unwrap();
     }
 
