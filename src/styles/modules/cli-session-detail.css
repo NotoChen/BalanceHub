@@ -1,0 +1,616 @@
+.cli-session-detail-modal .arco-modal-body {
+  padding: 0;
+}
+
+.cli-session-detail-shell {
+  display: flex;
+  min-height: min(620px, calc(100dvh - 150px));
+  max-height: min(780px, calc(100dvh - 104px));
+  flex-direction: column;
+  overflow: hidden;
+  background: #fbfbfc;
+}
+
+.cli-session-detail-loading {
+  padding: 28px;
+}
+
+.cli-session-detail-error {
+  margin: 24px;
+}
+
+.cli-session-detail-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid #eceef1;
+  background: #fff;
+  padding: 11px 22px;
+}
+
+.cli-session-detail-meta-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  color: #667085;
+  font-size: 11px;
+}
+
+.cli-session-detail-meta-main > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.cli-session-detail-meta-main .cli-session-detail-agent {
+  color: #344054;
+  font-weight: 650;
+}
+
+.cli-session-detail-path {
+  max-width: 360px;
+  overflow: hidden;
+  color: #98a2b3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cli-session-detail-id {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 280px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #98a2b3;
+  cursor: pointer;
+  padding: 5px 7px;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.cli-session-detail-id:hover,
+.cli-session-detail-id:focus-visible {
+  background: #f2f4f7;
+  color: #165dff;
+  outline: none;
+}
+
+.cli-session-detail-id span {
+  min-width: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cli-session-detail-searchbar {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(220px, 380px) auto auto;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid #eceef1;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 8px 22px;
+}
+
+.cli-session-detail-search-count {
+  min-width: 48px;
+  color: #98a2b3;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cli-session-detail-truncated {
+  margin: 12px 22px 0;
+}
+
+.cli-session-message-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 30px 40px;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+.cli-session-conversation {
+  display: grid;
+  width: min(100%, 820px);
+  gap: 24px;
+  margin: 0 auto;
+}
+
+.cli-session-message {
+  min-width: 0;
+  border-radius: 10px;
+  scroll-margin: 110px 0;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cli-session-message-user {
+  width: min(82%, 680px);
+  justify-self: end;
+  border: 1px solid rgba(22, 93, 255, 0.12);
+  background: rgba(22, 93, 255, 0.055);
+  padding: 13px 15px 15px;
+}
+
+.cli-session-message-assistant {
+  width: 100%;
+  padding: 2px 2px 4px;
+}
+
+.cli-session-message.is-match,
+.cli-session-activity-group.is-match {
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.22);
+}
+
+.cli-session-message-header {
+  display: flex;
+  min-width: 0;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cli-session-message-avatar {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 7px;
+  background: #f2f4f7;
+  color: #475467;
+}
+
+.cli-session-message-user .cli-session-message-avatar {
+  background: rgba(22, 93, 255, 0.11);
+  color: #165dff;
+}
+
+.cli-session-message-header > strong {
+  color: #1d2939;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.cli-session-message-header > span:not(.cli-session-message-avatar) {
+  color: #98a2b3;
+  font-size: 10px;
+}
+
+.cli-session-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.cli-session-message:hover .cli-session-message-actions,
+.cli-session-message:focus-within .cli-session-message-actions {
+  opacity: 1;
+}
+
+.cli-session-message-actions time,
+.cli-session-activity-item time {
+  color: #98a2b3;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cli-session-message-actions button,
+.cli-session-activity-item header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #98a2b3;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.cli-session-message-actions button:hover,
+.cli-session-message-actions button:focus-visible,
+.cli-session-activity-item header button:hover,
+.cli-session-activity-item header button:focus-visible {
+  background: #eaecf0;
+  color: #165dff;
+  outline: none;
+}
+
+.cli-session-rich-content {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.cli-session-rich-content p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #27303f;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.72;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cli-session-rich-content mark,
+.cli-session-activity-item mark {
+  border-radius: 2px;
+  background: #ffe58f;
+  color: inherit;
+  padding: 0 1px;
+}
+
+.cli-session-code-block {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 9px;
+  background: #f7f8fa;
+}
+
+.cli-session-code-block > header {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #e4e7ec;
+  color: #667085;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  padding: 5px 8px 5px 12px;
+}
+
+.cli-session-code-block > header button {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #667085;
+  cursor: pointer;
+  font: inherit;
+  padding: 3px 6px;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.cli-session-code-block > header button:hover,
+.cli-session-code-block > header button:focus-visible {
+  background: #e9edf3;
+  color: #165dff;
+  outline: none;
+}
+
+.cli-session-code-block pre {
+  max-height: 440px;
+  margin: 0;
+  overflow: auto;
+  color: #344054;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.65;
+  padding: 14px 16px 16px;
+  tab-size: 2;
+}
+
+.cli-session-activity-group {
+  width: min(94%, 730px);
+  justify-self: start;
+  overflow: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 9px;
+  background: #f8f9fb;
+  scroll-margin: 110px 0;
+}
+
+.cli-session-activity-group > summary {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: 27px minmax(0, 1fr) auto 14px;
+  align-items: center;
+  gap: 9px;
+  color: #475467;
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 11px;
+}
+
+.cli-session-activity-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cli-session-activity-icon {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 7px;
+  background: #eaecf0;
+  color: #667085;
+}
+
+.cli-session-activity-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.cli-session-activity-copy strong {
+  color: #344054;
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.cli-session-activity-copy span {
+  overflow: hidden;
+  color: #98a2b3;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cli-session-activity-group > summary small {
+  color: #98a2b3;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cli-session-activity-chevron {
+  color: #98a2b3;
+  transition: transform 0.2s ease;
+}
+
+.cli-session-activity-group[open] .cli-session-activity-chevron {
+  transform: rotate(180deg);
+}
+
+.cli-session-activity-list {
+  display: grid;
+  gap: 1px;
+  border-top: 1px solid #e4e7ec;
+  background: #e4e7ec;
+}
+
+.cli-session-activity-item {
+  min-width: 0;
+  background: #fff;
+  padding: 10px 12px 12px;
+}
+
+.cli-session-activity-item.is-match {
+  background: rgba(22, 93, 255, 0.06);
+}
+
+.cli-session-activity-item > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.cli-session-activity-item > header strong {
+  color: #475467;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.cli-session-activity-item > header time {
+  margin-left: auto;
+}
+
+.cli-session-activity-item pre {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  background: #f8f9fb;
+  color: #27303f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10.5px;
+  line-height: 1.55;
+  padding: 10px;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cli-session-load-more {
+  justify-self: center;
+  border: 1px solid #d0d5dd;
+  border-radius: 7px;
+  background: #fff;
+  color: #667085;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 7px 12px;
+  transition: border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.cli-session-load-more:hover,
+.cli-session-load-more:focus-visible {
+  border-color: #84adff;
+  color: #165dff;
+  outline: none;
+}
+
+.cli-session-load-more:active {
+  transform: translateY(1px);
+}
+
+.cli-session-detail-empty {
+  display: grid;
+  min-height: 360px;
+  place-content: center;
+  gap: 4px;
+  color: #98a2b3;
+  text-align: center;
+}
+
+.cli-session-detail-empty strong {
+  color: #475467;
+  font-size: 13px;
+}
+
+.cli-session-detail-footer {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #eceef1;
+  background: #fff;
+  padding: 10px 22px;
+}
+
+.cli-session-detail-footer > span {
+  color: #98a2b3;
+  font-size: 10px;
+}
+
+:root.theme-dark .cli-session-detail-modal .arco-modal-content,
+:root.theme-dark .cli-session-detail-modal .arco-modal-body,
+:root.theme-dark .cli-session-detail-shell {
+  background: #191b20;
+  color: #f2f3f5;
+}
+
+:root.theme-dark .cli-session-detail-meta,
+:root.theme-dark .cli-session-detail-searchbar,
+:root.theme-dark .cli-session-detail-footer {
+  border-color: var(--glass-border);
+  background: #202329;
+}
+
+:root.theme-dark .cli-session-detail-meta-main,
+:root.theme-dark .cli-session-detail-footer > span,
+:root.theme-dark .cli-session-message-header > span:not(.cli-session-message-avatar),
+:root.theme-dark .cli-session-message-actions time {
+  color: #8d95a3;
+}
+
+:root.theme-dark .cli-session-detail-meta-main .cli-session-detail-agent,
+:root.theme-dark .cli-session-message-header > strong,
+:root.theme-dark .cli-session-rich-content p,
+:root.theme-dark .cli-session-detail-empty strong {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .cli-session-message-avatar,
+:root.theme-dark .cli-session-activity-icon {
+  background: #2b3038;
+  color: #c9cdd4;
+}
+
+:root.theme-dark .cli-session-message-user {
+  border-color: rgba(64, 128, 255, 0.24);
+  background: rgba(64, 128, 255, 0.12);
+}
+
+:root.theme-dark .cli-session-activity-group {
+  border-color: #343943;
+  background: #24272e;
+}
+
+:root.theme-dark .cli-session-activity-copy strong,
+:root.theme-dark .cli-session-activity-group > summary {
+  color: #d4d7dd;
+}
+
+:root.theme-dark .cli-session-activity-list {
+  border-color: #343943;
+  background: #343943;
+}
+
+:root.theme-dark .cli-session-activity-item {
+  background: #202329;
+}
+
+:root.theme-dark .cli-session-activity-item pre {
+  background: #181a1f;
+  color: #d4d7dd;
+}
+
+:root.theme-dark .cli-session-code-block {
+  border-color: #343943;
+  background: #181a1f;
+}
+
+:root.theme-dark .cli-session-code-block > header {
+  border-color: #343943;
+  color: #9da4af;
+}
+
+:root.theme-dark .cli-session-code-block > header button {
+  color: #9da4af;
+}
+
+:root.theme-dark .cli-session-code-block > header button:hover,
+:root.theme-dark .cli-session-code-block > header button:focus-visible {
+  background: #2b3038;
+  color: #8ab4ff;
+}
+
+:root.theme-dark .cli-session-code-block pre {
+  color: #d4d7dd;
+}
+
+:root.theme-dark .cli-session-load-more {
+  border-color: #3d434e;
+  background: #24272e;
+  color: #a9aeb8;
+}
+
+@media (max-width: 720px) {
+  .cli-session-detail-meta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cli-session-detail-id {
+    max-width: 100%;
+  }
+
+  .cli-session-detail-searchbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    padding-inline: 14px;
+  }
+
+  .cli-session-message-list {
+    padding-inline: 14px;
+  }
+
+  .cli-session-message-user,
+  .cli-session-activity-group {
+    width: 100%;
+  }
+
+  .cli-session-message-actions {
+    opacity: 1;
+  }
+}

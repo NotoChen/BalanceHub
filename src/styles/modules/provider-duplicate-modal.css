@@ -1,0 +1,35 @@
+.provider-duplicate-modal .arco-modal-body {
+  padding: 20px 22px 22px;
+}
+
+.provider-duplicate-dialog {
+  display: grid;
+  gap: 20px;
+}
+
+.provider-duplicate-message {
+  margin: 0;
+  color: var(--surface-ink-soft);
+  font-size: 13px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+.provider-duplicate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 620px) {
+  .provider-duplicate-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .provider-duplicate-actions .arco-btn {
+    width: 100%;
+  }
+}

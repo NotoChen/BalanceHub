@@ -1,9 +1,9 @@
 use super::{launch, preview, LaunchOptions};
 use crate::{
     models::{
-        AgentCliKind, AppData, AppSettings, Provider, TemporaryCliLaunchInput,
-        TemporaryCliLaunchPreview, TemporaryCliLaunchResult, TemporaryCliPreference,
-        TemporaryCliSessionMode,
+        is_full_api_key_value, AgentCliKind, AppData, AppSettings, Provider,
+        TemporaryCliLaunchInput, TemporaryCliLaunchPreview, TemporaryCliLaunchResult,
+        TemporaryCliPreference, TemporaryCliSessionMode,
     },
     services::{agent_cli, provider_service::ProviderService, workspaces},
     state::AppState,
@@ -49,7 +49,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
         let fallback_preference = TemporaryCliPreference {
             provider_id: prepared.provider.identity.id.clone(),
             cli_kind: prepared.cli_kind,
-            api_key_token_id: prepared.input.api_key_token_id.trim().to_string(),
+            api_key_local_id: prepared.input.api_key_local_id.trim().to_string(),
             model: prepared.preference_model.clone(),
             workspace_path: prepared.workdir.to_string_lossy().to_string(),
         };
@@ -59,7 +59,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
                 prepared.cli_kind,
                 &prepared.cli.path,
                 &prepared.workdir,
-                &prepared.input.api_key_token_id,
+                &prepared.input.api_key_local_id,
                 &prepared.preference_model,
             ) {
             Ok((workspaces, preference)) => (workspaces, None, preference),
@@ -111,7 +111,27 @@ impl<'a> TemporaryCliLaunchService<'a> {
             .ok_or_else(|| "中转站不存在".to_string())?;
         let cli_kind = input.cli_kind;
         let session_mode = input.session_mode;
-        let api_key = if input.api_key.trim().is_empty() {
+        let requested_key_id = input.api_key_local_id.trim();
+        let selected_local_key = if requested_key_id.is_empty() {
+            None
+        } else if let Some(option) = provider.auth.api_key_options.iter().find(|option| {
+            option.local_id == requested_key_id || option.token_id == requested_key_id
+        }) {
+            Some(option.clone())
+        } else if requested_key_id == input.api_key.trim() {
+            // Older frontend builds could accidentally use the configured key
+            // itself as the selector. Treat that as the synthetic current-key
+            // option instead of rejecting an otherwise valid launch.
+            None
+        } else {
+            return Err("所选 API Key 已不存在，请重新选择".to_string());
+        };
+        let api_key = if let Some(option) = selected_local_key {
+            if !option.key_available || !is_full_api_key_value(&option.key) {
+                return Err("所选 API Key 未读取到完整值，无法启动临时 CLI".to_string());
+            }
+            option.key.trim().to_string()
+        } else if input.api_key.trim().is_empty() {
             provider.auth.api_key.trim().to_string()
         } else {
             input.api_key.trim().to_string()

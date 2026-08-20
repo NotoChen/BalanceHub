@@ -23,6 +23,13 @@ macro_rules! define_provider_protocols {
                 Self::$default_variant,
                 $(Self::$variant,)*
             ];
+
+            pub const fn key(self) -> &'static str {
+                match self {
+                    Self::$default_variant => $default_key,
+                    $(Self::$variant => $key,)*
+                }
+            }
         }
     };
 }

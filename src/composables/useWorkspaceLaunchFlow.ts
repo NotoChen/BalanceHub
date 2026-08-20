@@ -18,6 +18,10 @@ import type {
 import { agentCliLabel } from "../utils/cli-environment.ts";
 import { withTimeout } from "../utils/promise-timeout.ts";
 import { waitForTemporaryCliStart } from "../utils/temporary-cli-launch.ts";
+import {
+  isProviderApiKeyUsable,
+  providerApiKeyOptionMatches,
+} from "../utils/provider-api-key-options.ts";
 
 interface UseWorkspaceLaunchFlowOptions {
   visible: Ref<boolean>;
@@ -30,7 +34,7 @@ interface UseWorkspaceLaunchFlowOptions {
   terminalOptions: Ref<SelectOption<TemporaryCliTerminalKind>[]>;
   directory: Ref<WorkspaceDirectoryListing | null>;
   apiKeys: Ref<ProviderApiKeyOption[]>;
-  apiKeyTokenId: Ref<string>;
+  apiKeyLocalId: Ref<string>;
   selectedModel: Ref<string>;
   sessionMode: Ref<TemporaryCliSessionMode>;
   sessionName: Ref<string>;
@@ -113,9 +117,12 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       return failLaunchInput("未检测到可用的 Agent 或终端");
     }
 
-    const selectedKey = options.apiKeys.value.find(
-      (option) => option.tokenId === options.apiKeyTokenId.value,
+    const selectedKey = options.apiKeys.value.find((option) =>
+      providerApiKeyOptionMatches(option, options.apiKeyLocalId.value),
     );
+    if (selectedKey && !isProviderApiKeyUsable(selectedKey)) {
+      return failLaunchInput("所选 API Key 未读取到完整值，请刷新密钥列表或改选其他 Key");
+    }
     const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
     const model = options.cliTool.value?.capabilities.modelSelection
       ? options.sessionMode.value === "new"
@@ -130,7 +137,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     if (!cliPath) {
       return failLaunchInput("所选 Agent CLI 缺少可用路径，请重新扫描后再试");
     }
-    if (!apiKey) {
+    if (!apiKey || apiKey.includes("*")) {
       return failLaunchInput("请选择一个可用的 API Key");
     }
     if (options.sessionMode.value === "history" && !resumeId) {
@@ -143,7 +150,9 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       cliPath,
       workdir,
       apiKey,
-      apiKeyTokenId: options.apiKeyTokenId.value,
+      // A synthetic current-config option has no local identity. Its full key
+      // remains in `apiKey`; never send that secret as a local-id selector.
+      apiKeyLocalId: selectedKey?.localId || "",
       model,
       sessionMode: options.sessionMode.value,
       sessionName,

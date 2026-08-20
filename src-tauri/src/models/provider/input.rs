@@ -14,9 +14,9 @@ use super::{
 use crate::limits;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
-    AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode,
-    ProviderNotificationMode, ProviderProtocol, ProviderProxyMode, ProviderQuotaScope,
-    ProviderStatus,
+    is_full_api_key_value, AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode,
+    LivenessPromptMode, ProviderNotificationMode, ProviderProtocol, ProviderProxyMode,
+    ProviderQuotaScope, ProviderStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -194,9 +194,23 @@ impl Provider {
     /// Append a manually supplied API Key to an existing provider card without
     /// replacing its account credentials or display state.
     pub fn add_api_key(&mut self, raw_key: &str) -> Result<(), String> {
+        self.add_named_api_key(raw_key, "手动添加 API Key")
+    }
+
+    pub fn add_named_api_key(&mut self, raw_key: &str, name: &str) -> Result<(), String> {
         let key = normalize_api_key_for_protocol(raw_key, self.identity.protocol);
-        if key.is_empty() {
-            return Err("API Key 为空，无法添加".to_string());
+        if !is_full_api_key_value(&key) {
+            return Err(if key.contains('*') {
+                "不能添加脱敏 API Key，请填写完整值".to_string()
+            } else {
+                "API Key 为空，无法添加".to_string()
+            });
+        }
+        if self.auth.api_key_options.len() >= limits::MAX_API_KEYS_PER_PROVIDER {
+            return Err(format!(
+                "API Key 数量已达到上限（{} 个）",
+                limits::MAX_API_KEYS_PER_PROVIDER
+            ));
         }
         if self.auth.api_key_options.iter().any(|option| {
             normalize_api_key_for_protocol(&option.key, self.identity.protocol) == key
@@ -207,11 +221,92 @@ impl Provider {
 
         let mut option =
             crate::models::ProviderApiKeyOption::current_for_protocol(&key, self.identity.protocol);
+        let name = name.trim();
         option.name = "手动添加 API Key".to_string();
+        option.local_name = if name.is_empty() {
+            option.name.clone()
+        } else {
+            name.to_string()
+        };
         self.auth.api_key_options.insert(0, option);
         if self.auth.api_key.trim().is_empty() {
             self.auth.api_key = key;
             self.auth.api_key_token_id.clear();
+        }
+        self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
+        Ok(())
+    }
+
+    pub fn rename_api_key(&mut self, local_id: &str, name: &str) -> Result<(), String> {
+        let local_id = local_id.trim();
+        let name = name.trim();
+        if local_id.is_empty() {
+            return Err("缺少 API Key 标识".to_string());
+        }
+        if name.is_empty() {
+            return Err("API Key 名称不能为空".to_string());
+        }
+        let option = self
+            .auth
+            .api_key_options
+            .iter_mut()
+            .find(|option| option.local_id == local_id)
+            .ok_or_else(|| "API Key 已不存在，请刷新后重试".to_string())?;
+        option.local_name = name.to_string();
+        self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
+        Ok(())
+    }
+
+    pub fn set_primary_api_key(&mut self, local_id: &str) -> Result<(), String> {
+        let local_id = local_id.trim();
+        let option = self
+            .auth
+            .api_key_options
+            .iter()
+            .find(|option| option.local_id == local_id)
+            .cloned()
+            .ok_or_else(|| "API Key 已不存在，请刷新后重试".to_string())?;
+        if !option.key_available || !is_full_api_key_value(&option.key) {
+            return Err("该 API Key 未读取到完整值，无法设为默认 Key".to_string());
+        }
+        self.auth.api_key = option.key;
+        self.auth.api_key_token_id = option.token_id;
+        self.capabilities.available_models.clear();
+        self.automation.last_synced_at = None;
+        self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
+        Ok(())
+    }
+
+    pub fn remove_local_api_key(&mut self, local_id: &str) -> Result<(), String> {
+        let local_id = local_id.trim();
+        let index = self
+            .auth
+            .api_key_options
+            .iter()
+            .position(|option| option.local_id == local_id)
+            .ok_or_else(|| "API Key 已不存在，请刷新后重试".to_string())?;
+        if !self.auth.api_key_options[index].token_id.trim().is_empty() {
+            return Err("站点密钥请使用“删除站点密钥”，避免本地状态与站点不一致".to_string());
+        }
+        let removed = self.auth.api_key_options.remove(index);
+        let removed_primary =
+            normalize_api_key_for_protocol(&self.auth.api_key, self.identity.protocol)
+                == removed.key;
+        if removed_primary {
+            if let Some(next) = self
+                .auth
+                .api_key_options
+                .iter()
+                .find(|option| option.key_available && is_full_api_key_value(&option.key))
+            {
+                self.auth.api_key = next.key.clone();
+                self.auth.api_key_token_id = next.token_id.clone();
+            } else {
+                self.auth.api_key.clear();
+                self.auth.api_key_token_id.clear();
+            }
+            self.capabilities.available_models.clear();
+            self.automation.last_synced_at = None;
         }
         self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
         Ok(())
@@ -414,7 +509,8 @@ pub(crate) fn normalize_provider_auth(
         let duplicate = options
             .iter()
             .any(|known: &crate::models::ProviderApiKeyOption| {
-                (!option.token_id.is_empty() && option.token_id == known.token_id)
+                (!option.local_id.is_empty() && option.local_id == known.local_id)
+                    || (!option.token_id.is_empty() && option.token_id == known.token_id)
                     || (!option.key.is_empty() && option.key == known.key)
             });
         if !duplicate {
@@ -509,7 +605,78 @@ mod tests {
         assert_eq!(provider.auth.login_username, "alice");
         assert_eq!(provider.auth.api_key_options.len(), 1);
         assert_eq!(provider.auth.api_key_options[0].key, "sk-extra");
+        assert!(!provider.auth.api_key_options[0].local_id.is_empty());
         assert!(provider.add_api_key("sk-extra").is_err());
+    }
+
+    #[test]
+    fn local_key_management_keeps_primary_selection_and_removes_only_local_keys() {
+        let mut provider =
+            Provider::from_input(ProviderInput::default(), "provider-test".to_string());
+        provider
+            .add_named_api_key("sk-first", "第一把")
+            .expect("first key");
+        provider
+            .add_named_api_key("sk-second", "第二把")
+            .expect("second key");
+        let first_id = provider
+            .auth
+            .api_key_options
+            .iter()
+            .find(|option| option.key == "sk-first")
+            .expect("first option")
+            .local_id
+            .clone();
+        let second_id = provider
+            .auth
+            .api_key_options
+            .iter()
+            .find(|option| option.key == "sk-second")
+            .expect("second option")
+            .local_id
+            .clone();
+
+        provider
+            .set_primary_api_key(&first_id)
+            .expect("primary should change");
+        assert_eq!(provider.auth.api_key, "sk-first");
+        provider
+            .rename_api_key(&second_id, "备用")
+            .expect("name should change");
+        assert_eq!(
+            provider
+                .auth
+                .api_key_options
+                .iter()
+                .find(|option| option.local_id == second_id)
+                .expect("renamed option")
+                .local_name,
+            "备用"
+        );
+        provider
+            .remove_local_api_key(&first_id)
+            .expect("local key should remove");
+        assert_eq!(provider.auth.api_key, "sk-second");
+        assert!(provider
+            .auth
+            .api_key_options
+            .iter()
+            .all(|option| option.local_id != first_id));
+    }
+
+    #[test]
+    fn local_key_removal_rejects_remote_site_keys() {
+        let mut provider =
+            Provider::from_input(ProviderInput::default(), "provider-test".to_string());
+        let mut option = crate::models::ProviderApiKeyOption::current("sk-remote");
+        option.token_id = "remote-1".to_string();
+        provider.auth.api_key_options = vec![option.normalize()];
+        let local_id = provider.auth.api_key_options[0].local_id.clone();
+
+        let error = provider
+            .remove_local_api_key(&local_id)
+            .expect_err("remote key must not be removed locally");
+        assert!(error.contains("站点密钥"));
     }
 
     #[test]

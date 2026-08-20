@@ -1,6 +1,6 @@
 use crate::{
     limits,
-    models::{normalize_api_key, ProviderApiKeyOption},
+    models::{is_full_api_key_value, normalize_api_key, ProviderApiKeyOption},
 };
 use reqwest::Method;
 use serde_json::{json, Value};
@@ -19,7 +19,7 @@ pub(crate) async fn fetch_api_key_options(
     api_user: &str,
     credential: UserCredential,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    let data = fetch_api_key_page(client, base_url, api_user, credential.clone(), 1).await?;
+    let data = fetch_api_key_page(client, base_url, api_user, credential.clone()).await?;
     // NewAPI caps this endpoint at 100 items. Enforce the same bound locally
     // even when a compatible deployment ignores the requested page size.
     let tokens = extract_token_items(&data)
@@ -67,7 +67,7 @@ pub(crate) async fn probe_api_key_management(
     api_user: &str,
     credential: UserCredential,
 ) -> Result<(), String> {
-    fetch_api_key_page(client, base_url, api_user, credential, 1)
+    fetch_api_key_page(client, base_url, api_user, credential)
         .await
         .map(|_| ())
 }
@@ -77,17 +77,26 @@ async fn fetch_api_key_page(
     base_url: &str,
     api_user: &str,
     credential: UserCredential,
-    page: usize,
 ) -> Result<Value, String> {
-    let mut url = build_url(base_url, "/api/token/")?;
-    {
-        let mut pairs = url.query_pairs_mut();
-        pairs.append_pair("p", &page.to_string());
-        pairs.append_pair("page_size", &limits::MAX_API_KEYS_PER_PROVIDER.to_string());
-    }
+    let url = build_api_key_list_url(base_url)?;
     let request = build_user_request(client, Method::GET, url, base_url, api_user, credential);
     let (status, body) = send_text(client, request, "读取 API 密钥列表").await?;
     parse_success_data(&status, body, "API 密钥列表")
+}
+
+fn build_api_key_list_url(base_url: &str) -> Result<reqwest::Url, String> {
+    let mut url = build_url(base_url, "/api/token/")?;
+    {
+        // The current New-API backend normalizes p=0 to its one-based first
+        // page and accepts `size` as the token-list page-size alias. Older
+        // New-API/One-API forks (including AnyRouter's current deployment)
+        // use p=0 and `size` natively. This one query therefore covers both
+        // generations without a site-name heuristic.
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("p", "0");
+        pairs.append_pair("size", &limits::MAX_API_KEYS_PER_PROVIDER.to_string());
+    }
+    Ok(url)
 }
 
 pub(crate) async fn create_api_key(
@@ -144,13 +153,23 @@ pub(crate) async fn create_api_key(
         ));
     }
 
-    let options = fetch_api_key_options(client, base_url, api_user, credential).await?;
+    let options = fetch_api_key_options(client, base_url, api_user, credential)
+        .await
+        .map_err(|error| {
+            format!(
+                "API Key 已提交创建，但刷新列表失败，请先刷新确认后再重试，避免重复创建：{error}"
+            )
+        })?;
     options
         .iter()
         .find(|option| option.name == name && option.key_available)
         .cloned()
         .or_else(|| options.into_iter().find(|option| option.key_available))
-        .ok_or_else(|| "创建后没有找到可用 API 密钥".to_string())
+        .ok_or_else(|| {
+            format!(
+                "API Key 已提交创建，但刷新列表中没有找到“{name}”，请先刷新确认后再重试，避免重复创建"
+            )
+        })
 }
 
 pub(crate) async fn delete_api_key(
@@ -187,7 +206,7 @@ async fn reveal_api_key(
     let (status, body) = send_text(client, reveal_request, "读取完整 API 密钥").await?;
     let reveal_data = parse_success_data(&status, body, "完整 API 密钥")?;
     extract_string_field(&reveal_data, &["key", "Key"])
-        .filter(|key| is_full_api_key(key))
+        .filter(|key| is_full_api_key_value(key))
         .map(|key| normalize_api_key(&key))
         .ok_or_else(|| "接口没有返回完整 API 密钥".to_string())
 }
@@ -223,7 +242,7 @@ async fn reveal_api_keys_batch(
             value
                 .as_str()
                 .map(normalize_api_key)
-                .filter(|key| is_full_api_key(key))
+                .filter(|key| is_full_api_key_value(key))
                 .map(|key| (id.clone(), key))
         })
         .collect())
@@ -231,7 +250,7 @@ async fn reveal_api_keys_batch(
 
 fn extract_full_key_from_token(token: &Value) -> Option<String> {
     extract_string_field(token, &["key", "Key"])
-        .filter(|key| is_full_api_key(key))
+        .filter(|key| is_full_api_key_value(key))
         .map(|key| normalize_api_key(&key))
 }
 
@@ -245,7 +264,7 @@ fn api_key_option_from_token(
 ) -> ProviderApiKeyOption {
     let key = key
         .map(|value| normalize_api_key(&value))
-        .filter(|value| is_full_api_key(value))
+        .filter(|value| is_full_api_key_value(value))
         .unwrap_or_default();
     let masked_key = extract_string_field(token, &["key", "Key"])
         .filter(|value| value.contains('*'))
@@ -254,8 +273,10 @@ fn api_key_option_from_token(
     let remain_quota_raw = raw_quota_field(token, &["remain_quota", "remainQuota"]);
 
     ProviderApiKeyOption {
+        local_id: String::new(),
+        local_name: String::new(),
         name,
-        key_available: !key.is_empty(),
+        key_available: is_full_api_key_value(&key),
         key,
         masked_key,
         token_id,
@@ -372,14 +393,27 @@ fn extract_token_id(token: &Value) -> Option<String> {
     None
 }
 
-fn is_full_api_key(key: &str) -> bool {
-    let trimmed = key.trim();
-    !trimmed.is_empty() && !trimmed.contains('*')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_list_uses_the_cross_version_first_page_contract() {
+        let expected_size = limits::MAX_API_KEYS_PER_PROVIDER.to_string();
+        for base_url in ["https://anyrouter.top", "https://new-api.example.com"] {
+            let url = build_api_key_list_url(base_url).expect("token list URL should build");
+            let pairs = url
+                .query_pairs()
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect::<std::collections::HashMap<_, _>>();
+            assert_eq!(pairs.get("p").map(String::as_str), Some("0"));
+            assert_eq!(
+                pairs.get("size").map(String::as_str),
+                Some(expected_size.as_str())
+            );
+            assert!(!pairs.contains_key("page_size"));
+        }
+    }
 
     #[test]
     fn token_metadata_maps_all_supported_newapi_fields() {

@@ -34,7 +34,12 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
             None,
             launch::build_plan,
         )),
-        sessions: Some(SessionAdapter::new(list_sessions)),
+        sessions: Some(SessionAdapter::new(
+            list_sessions,
+            Some(sessions::search),
+            Some(sessions::detail),
+            Some(sessions::index),
+        )),
         liveness: Some(LivenessAdapter::new(
             liveness::build_plan,
             liveness::parse_output,

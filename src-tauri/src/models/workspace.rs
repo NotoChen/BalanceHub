@@ -26,7 +26,7 @@ pub struct TemporaryCliPreference {
     #[serde(default)]
     pub cli_kind: AgentCliKind,
     #[serde(default)]
-    pub api_key_token_id: String,
+    pub api_key_local_id: String,
     #[serde(default)]
     pub model: String,
     #[serde(default)]
@@ -45,7 +45,7 @@ pub struct TemporaryCliLaunchInput {
     #[serde(default)]
     pub api_key: String,
     #[serde(default)]
-    pub api_key_token_id: String,
+    pub api_key_local_id: String,
     #[serde(default)]
     pub model: String,
     #[serde(default)]

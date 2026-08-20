@@ -1,24 +1,18 @@
 <script setup lang="ts">
 import { IconCopy } from "@arco-design/web-vue/es/icon";
 import type {
-  AuthMode,
   ProviderAuthFieldDescriptor,
   ProviderInput,
 } from "../../stores/providers";
-import ProviderApiKeyPicker from "./ProviderApiKeyPicker.vue";
 
 const props = defineProps<{
-  mode: AuthMode;
   fields: ProviderAuthFieldDescriptor[];
   requiredFields: string[];
   draft: ProviderInput;
-  apiKeyOptions: ProviderInput["auth"]["apiKeyOptions"];
-  remoteManaged: boolean;
 }>();
 
 const emit = defineEmits<{
   "copy-api-key": [];
-  "select-api-key": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
   "update-field": [field: ProviderAuthFieldDescriptor, value: string];
 }>();
 
@@ -76,14 +70,4 @@ function isApiKeyField(field: ProviderAuthFieldDescriptor) {
       />
     </a-form-item>
   </template>
-  <ProviderApiKeyPicker
-    v-if="mode === 'apiKey' && apiKeyOptions.length > 0"
-    class="provider-field-wide"
-    :options="apiKeyOptions"
-    :current-key="draft.auth.apiKey"
-    :current-token-id="draft.auth.apiKeyTokenId"
-    :remote-managed="remoteManaged"
-    :selectable="apiKeyOptions.length > 1"
-    @select="emit('select-api-key', $event)"
-  />
 </template>

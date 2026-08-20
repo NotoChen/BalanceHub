@@ -29,6 +29,9 @@ pub const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 16;
 pub const MAX_SITE_METADATA_CACHE_ENTRIES: usize = 128;
 pub const MAX_SHIELD_CACHE_ENTRIES: usize = 64;
 pub const MAX_AGENT_CLI_PATH_CHARS: usize = 4_096;
+pub const MAX_SESSION_INDEX_DIRECTORY_CHARS: usize = 4_096;
+pub const MIN_SESSION_INDEX_SIZE_MIB: u64 = 8;
+pub const MAX_SESSION_INDEX_SIZE_MIB: u64 = 4_096;
 pub const MAX_ANNOUNCEMENTS_PER_SOURCE: usize = 50;
 pub const MAX_ANNOUNCEMENT_TITLE_CHARS: usize = 160;
 pub const MAX_ANNOUNCEMENT_CONTENT_CHARS: usize = 20_000;
@@ -47,6 +50,20 @@ pub fn normalize_settings(settings: &mut AppSettings) -> bool {
     let path_count = settings.agent_cli_paths.len();
     settings.agent_cli_paths.retain(|_, path| !path.is_empty());
     changed |= path_count != settings.agent_cli_paths.len();
+    let index_directory = settings
+        .session_index_directory
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(MAX_SESSION_INDEX_DIRECTORY_CHARS)
+        .collect::<String>();
+    changed |= settings.session_index_directory != index_directory;
+    settings.session_index_directory = index_directory;
+    let index_size = settings
+        .session_index_max_size_mib
+        .clamp(MIN_SESSION_INDEX_SIZE_MIB, MAX_SESSION_INDEX_SIZE_MIB);
+    changed |= settings.session_index_max_size_mib != index_size;
+    settings.session_index_max_size_mib = index_size;
     let timeout = settings
         .liveness_timeout
         .clamp(10, MAX_LIVENESS_TIMEOUT_SECS);
@@ -206,6 +223,29 @@ mod tests {
         assert!(!settings
             .agent_cli_paths
             .contains_key(&AgentCliKind::ClaudeCode));
+    }
+
+    #[test]
+    fn normalization_bounds_session_index_settings() {
+        let mut settings = AppSettings {
+            session_index_directory: format!(
+                "  {}\n",
+                "x".repeat(MAX_SESSION_INDEX_DIRECTORY_CHARS + 10)
+            ),
+            session_index_max_size_mib: MAX_SESSION_INDEX_SIZE_MIB + 100,
+            ..AppSettings::default()
+        };
+
+        assert!(normalize_settings(&mut settings));
+        assert_eq!(
+            settings.session_index_directory.chars().count(),
+            MAX_SESSION_INDEX_DIRECTORY_CHARS
+        );
+        assert!(!settings.session_index_directory.contains('\n'));
+        assert_eq!(
+            settings.session_index_max_size_mib,
+            MAX_SESSION_INDEX_SIZE_MIB
+        );
     }
 
     #[test]

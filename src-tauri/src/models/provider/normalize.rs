@@ -129,12 +129,17 @@ pub(crate) fn provider_duplicate_kind(
     provider: &Provider,
     input: &ProviderInput,
 ) -> Option<ProviderDuplicateKind> {
-    if provider.identity.protocol != input.identity.protocol {
+    let input_mode = effective_auth_mode(input.auth.mode, input.identity.protocol);
+    let provider_mode = effective_auth_mode(provider.auth.mode, provider.identity.protocol);
+    // Protocol detection can disagree for a bare OpenAI-compatible API-key
+    // endpoint. Keep account identities protocol-scoped, but let two key-scoped
+    // records reach the URL + Key comparison below.
+    if provider.identity.protocol != input.identity.protocol
+        && !(matches!(input_mode, AuthMode::ApiKey) && matches!(provider_mode, AuthMode::ApiKey))
+    {
         return None;
     }
 
-    let input_mode = effective_auth_mode(input.auth.mode, input.identity.protocol);
-    let provider_mode = effective_auth_mode(provider.auth.mode, provider.identity.protocol);
     if matches!(input_mode, AuthMode::ApiKey) {
         if normalize_provider_endpoint(&provider.identity.base_url)
             != normalize_provider_endpoint(&input.identity.base_url)
@@ -278,7 +283,7 @@ fn auth_mode_key(mode: AuthMode) -> &'static str {
     }
 }
 
-fn normalize_provider_endpoint(value: &str) -> String {
+pub(crate) fn normalize_provider_endpoint(value: &str) -> String {
     let value = value.trim();
     let Ok(mut url) = reqwest::Url::parse(value) else {
         return value.trim_end_matches('/').to_ascii_lowercase();
@@ -561,6 +566,49 @@ mod tests {
             provider_duplicate_kind(&saved, &new_key),
             Some(ProviderDuplicateKind::UrlDifferentApiKey)
         );
+    }
+
+    #[test]
+    fn api_key_duplicate_kind_ignores_protocol_detection_drift_on_same_url() {
+        let mut saved_input = ProviderInput::default();
+        saved_input.identity.protocol = ProviderProtocol::Api;
+        saved_input.identity.base_url = "http://sub2api.raycloud.cn".to_string();
+        saved_input.auth.mode = AuthMode::ApiKey;
+        saved_input.auth.api_key = "key-a".to_string();
+        let saved = Provider::from_input(saved_input, "provider-saved".to_string());
+
+        let mut detected_sub2api = ProviderInput::default();
+        detected_sub2api.identity.protocol = ProviderProtocol::Sub2Api;
+        detected_sub2api.identity.base_url = "http://sub2api.raycloud.cn/".to_string();
+        detected_sub2api.auth.mode = AuthMode::ApiKey;
+        detected_sub2api.auth.api_key = "key-b".to_string();
+
+        assert_eq!(
+            provider_duplicate_kind(&saved, &detected_sub2api),
+            Some(ProviderDuplicateKind::UrlDifferentApiKey)
+        );
+    }
+
+    #[test]
+    fn account_duplicate_kind_does_not_cross_protocol_boundaries() {
+        let mut saved_input = ProviderInput::default();
+        saved_input.identity.protocol = ProviderProtocol::NewApi;
+        saved_input.identity.base_url = "https://relay.example.com".to_string();
+        saved_input.identity.user_id = "42".to_string();
+        saved_input.auth.mode = AuthMode::Password;
+        saved_input.auth.login_username = "alice".to_string();
+        saved_input.auth.login_password = "password".to_string();
+        let saved = Provider::from_input(saved_input, "provider-saved".to_string());
+
+        let mut other_protocol = ProviderInput::default();
+        other_protocol.identity.protocol = ProviderProtocol::Sub2Api;
+        other_protocol.identity.base_url = "https://relay.example.com".to_string();
+        other_protocol.identity.user_id = "42".to_string();
+        other_protocol.auth.mode = AuthMode::Password;
+        other_protocol.auth.login_username = "alice".to_string();
+        other_protocol.auth.login_password = "password".to_string();
+
+        assert_eq!(provider_duplicate_kind(&saved, &other_protocol), None);
     }
 
     #[test]

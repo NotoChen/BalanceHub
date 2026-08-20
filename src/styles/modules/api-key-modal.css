@@ -5,285 +5,228 @@
 
 .api-key-manager-toolbar {
   display: flex;
+  min-width: 0;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.api-key-create-form {
-  display: grid;
   gap: 8px;
 }
 
-.api-key-create-label {
-  color: #1d2129;
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.api-key-create-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+.api-key-manager-hint {
+  min-width: 0;
+  flex: 1;
+  color: #86909c;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .api-key-empty {
-  display: flex;
-  min-height: 120px;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  min-height: 148px;
+  place-items: center;
+  border: 1px dashed #d9e0e9;
+  border-radius: 12px;
   color: #86909c;
+  font-size: 13px;
 }
 
-.api-key-table-wrap {
+.api-key-vault-list {
+  display: grid;
+  max-height: min(560px, calc(100vh - 220px));
+  gap: 8px;
+  overflow: auto;
+  padding: 2px;
+  scrollbar-gutter: stable;
+}
+
+.api-key-vault-item {
+  display: grid;
   min-width: 0;
+  grid-template-columns: minmax(260px, 1.35fr) minmax(180px, 0.8fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #e1e6ed;
+  border-radius: 11px;
+  background: #fbfcfe;
+  padding: 12px 14px;
+  transition: border-color 180ms var(--surface-ease), background 180ms var(--surface-ease);
 }
 
-.api-key-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  background: var(--glass-card);
-  overflow: hidden;
+.api-key-vault-item:hover {
+  border-color: #becbda;
+  background: #f7f9fc;
 }
 
-.api-key-table th,
-.api-key-table td {
-  padding: 10px;
-  border-bottom: 1px solid var(--glass-border);
-  color: #4e5969;
-  font-size: 12px;
-  line-height: 1.35;
-  text-align: left;
-  vertical-align: middle;
-}
-
-.api-key-table th {
-  color: #86909c;
-  font-weight: 650;
-}
-
-.api-key-table tr:last-child td {
-  border-bottom: 0;
-}
-
-.api-key-col-name {
-  width: 22%;
-}
-
-.api-key-col-status {
-  width: 8%;
-}
-
-.api-key-col-quota {
-  width: 20%;
-}
-
-.api-key-col-group {
-  width: 9%;
-}
-
-.api-key-col-limits {
-  width: 17%;
-}
-
-.api-key-col-time {
-  width: 16%;
-}
-
-.api-key-col-actions {
-  width: 8%;
-}
-
-/* Keep table cells as native table-cell; apply layout only to inner elements or mobile cards. */
-.api-key-card .api-key-quota-cell,
-.api-key-card-head > div,
-.api-key-card-meta {
+.api-key-vault-main,
+.api-key-vault-summary {
   display: grid;
   min-width: 0;
   gap: 4px;
 }
 
-.api-key-name-cell strong,
-.api-key-name-cell span,
-.api-key-name-cell small,
-.api-key-quota-cell strong,
-.api-key-quota-cell span,
-.api-key-limit-cell span,
-.api-key-time-cell span {
-  display: block;
+.api-key-vault-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
 }
 
-.api-key-name-cell strong,
-.api-key-name-cell span,
-.api-key-quota-cell strong,
-.api-key-quota-cell span,
-.api-key-limit-cell span,
-.api-key-time-cell span,
-.api-key-compact-cell,
-.api-key-card-head strong,
-.api-key-card-head span,
-.api-key-card-meta span {
+.api-key-vault-title-row strong,
+.api-key-vault-main code,
+.api-key-vault-main small,
+.api-key-vault-summary span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.api-key-name-cell strong,
-.api-key-quota-cell strong,
-.api-key-card-head strong {
-  color: #1d2129;
-  font-weight: 650;
+.api-key-vault-title-row strong {
+  color: #1d2939;
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.api-key-name-cell small {
-  display: block;
-  margin-top: 2px;
-  color: #a0a8b3;
+.api-key-vault-main code {
+  color: #66758a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-variant-ligatures: none;
+}
+
+.api-key-vault-main small,
+.api-key-vault-summary span {
+  color: #8a96a5;
   font-size: 10px;
 }
 
-.api-key-name-cell span,
-.api-key-quota-cell span,
-.api-key-limit-cell span,
-.api-key-time-cell span,
-.api-key-card-head span,
-.api-key-card-meta span {
-  color: #86909c;
-  font-size: 11px;
+.api-key-vault-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.api-key-quota-cell i {
-  display: block;
-  width: 100%;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #e5e6eb;
-}
-
-.api-key-quota-cell em {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: #165dff;
-}
-
+.api-key-primary-badge,
+.api-key-source-badge,
 .api-key-status {
   display: inline-flex;
-  width: fit-content;
-  max-width: 100%;
-  height: 20px;
+  flex: 0 0 auto;
+  min-height: 20px;
   align-items: center;
-  overflow: hidden;
-  border-radius: 999px;
-  padding: 0 8px;
-  font-size: 11px;
-  font-weight: 650;
+  border-radius: 5px;
+  padding: 0 6px;
+  font-size: 9px;
+  font-weight: 700;
   line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.api-key-primary-badge {
+  background: #e8f0fb;
+  color: #315f9d;
+}
+
+.api-key-source-badge {
+  background: #edf0f4;
+  color: #687589;
 }
 
 .api-key-status-enabled {
-  background: rgba(0, 180, 42, 0.1);
-  color: #00a870;
+  background: #e8f5ef;
+  color: #2f725a;
 }
 
 .api-key-status-disabled,
 .api-key-status-unknown {
-  background: rgba(134, 144, 156, 0.12);
-  color: #4e5969;
+  background: #edf0f4;
+  color: #697586;
 }
 
 .api-key-status-expired,
 .api-key-status-exhausted {
-  background: rgba(245, 63, 63, 0.1);
-  color: #f53f3f;
-}
-
-.api-key-card-list {
-  display: none;
+  background: #faecec;
+  color: #a44e4e;
 }
 
 .api-key-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
+}
+
+.api-key-create-form {
+  display: grid;
+  gap: 9px;
+}
+
+.api-key-create-label {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.api-key-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
+:root.theme-dark .api-key-empty {
+  border-color: #3a4656;
+  color: #8d9aac;
+}
+
+:root.theme-dark .api-key-manager-hint,
+:root.theme-dark .api-key-vault-main small,
+:root.theme-dark .api-key-vault-summary span {
+  color: #8d9aac;
+}
+
+:root.theme-dark .api-key-vault-item {
+  border-color: #344152;
+  background: #1d2733;
+}
+
+:root.theme-dark .api-key-vault-item:hover {
+  border-color: #4b5d73;
+  background: #222e3c;
+}
+
+:root.theme-dark .api-key-vault-title-row strong,
+:root.theme-dark .api-key-create-label {
+  color: #e4ebf3;
+}
+
+:root.theme-dark .api-key-vault-main code {
+  color: #a6b3c4;
+}
+
+:root.theme-dark .api-key-primary-badge {
+  background: #263e5d;
+  color: #a8c9f4;
+}
+
+:root.theme-dark .api-key-source-badge {
+  background: #303a48;
+  color: #aeb9c8;
 }
 
 @media (max-width: 760px) {
   .api-key-manager-toolbar {
-    justify-content: stretch;
+    flex-wrap: wrap;
   }
 
-  .api-key-manager-toolbar .arco-btn {
-    flex: 1;
+  .api-key-manager-hint {
+    flex-basis: 100%;
   }
 
-  .api-key-table {
-    display: none;
-  }
-
-  .api-key-card-list {
-    display: grid;
-    gap: 10px;
-  }
-
-  .api-key-card {
-    display: grid;
-    gap: 10px;
-    padding: 12px;
-    border: 1px solid var(--glass-border);
-    border-radius: 8px;
-    background: var(--glass-card);
-  }
-
-  .api-key-card-head {
-    display: grid;
+  .api-key-vault-item {
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 10px;
   }
-}
 
-:root.theme-dark .api-key-table {
-  border-color: var(--glass-border);
-  background: var(--glass-card);
-}
+  .api-key-vault-summary {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 
-:root.theme-dark .api-key-table th,
-:root.theme-dark .api-key-name-cell span,
-:root.theme-dark .api-key-quota-cell span,
-:root.theme-dark .api-key-limit-cell span,
-:root.theme-dark .api-key-time-cell span,
-:root.theme-dark .api-key-card-head span,
-:root.theme-dark .api-key-card-meta span {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .api-key-table td {
-  border-color: var(--glass-border);
-  color: #c9cdd4;
-}
-
-:root.theme-dark .api-key-name-cell strong,
-:root.theme-dark .api-key-quota-cell strong,
-:root.theme-dark .api-key-card-head strong {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .api-key-name-cell small { color: #8798aa; }
-:root.theme-dark .api-key-quota-cell i {
-  background: #343743;
-}
-
-:root.theme-dark .api-key-card {
-  border-color: var(--glass-border);
-  background: var(--glass-card);
+  .api-key-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }

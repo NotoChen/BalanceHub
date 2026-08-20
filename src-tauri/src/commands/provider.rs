@@ -1,7 +1,7 @@
 use crate::{
     contracts::{
         ProviderCapabilityProbeResultView, ProviderModelSyncResultView, ProviderSaveResultView,
-        RefreshResultView,
+        ProviderView, RefreshResultView,
     },
     models::{
         ProviderApiKeyOption, ProviderBatchProgressEvent, ProviderCheckInRecordsResult,
@@ -100,6 +100,80 @@ pub(crate) async fn list_provider_api_keys(
     id: String,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
     ProviderService::new(&app).list_api_keys(id).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_local_provider_api_keys(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<ProviderApiKeyOption>, String> {
+    let task_app = app.clone();
+    run_blocking("读取本地 API Key", move || {
+        ProviderService::new(&task_app).local_api_keys(id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn add_local_provider_api_key(
+    app: AppHandle,
+    id: String,
+    key: String,
+    name: String,
+) -> Result<ProviderView, String> {
+    let task_app = app.clone();
+    let provider = run_blocking("添加本地 API Key", move || {
+        ProviderService::new(&task_app).add_local_api_key(id, key, name)
+    })
+    .await?;
+    tray::refresh_from_state(&app);
+    Ok(provider.into())
+}
+
+#[tauri::command]
+pub(crate) async fn rename_local_provider_api_key(
+    app: AppHandle,
+    id: String,
+    local_id: String,
+    name: String,
+) -> Result<ProviderView, String> {
+    let task_app = app.clone();
+    let provider = run_blocking("重命名本地 API Key", move || {
+        ProviderService::new(&task_app).rename_local_api_key(id, local_id, name)
+    })
+    .await?;
+    tray::refresh_from_state(&app);
+    Ok(provider.into())
+}
+
+#[tauri::command]
+pub(crate) async fn set_primary_local_provider_api_key(
+    app: AppHandle,
+    id: String,
+    local_id: String,
+) -> Result<ProviderView, String> {
+    let task_app = app.clone();
+    let provider = run_blocking("设置主 API Key", move || {
+        ProviderService::new(&task_app).set_primary_local_api_key(id, local_id)
+    })
+    .await?;
+    tray::refresh_from_state(&app);
+    Ok(provider.into())
+}
+
+#[tauri::command]
+pub(crate) async fn remove_local_provider_api_key(
+    app: AppHandle,
+    id: String,
+    local_id: String,
+) -> Result<ProviderView, String> {
+    let task_app = app.clone();
+    let provider = run_blocking("移除本地 API Key", move || {
+        ProviderService::new(&task_app).remove_local_api_key(id, local_id)
+    })
+    .await?;
+    tray::refresh_from_state(&app);
+    Ok(provider.into())
 }
 
 #[tauri::command]

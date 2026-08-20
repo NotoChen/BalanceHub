@@ -246,6 +246,65 @@ fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String
             }
             Ok(())
         }
+        8 => {
+            if let Some(settings) = data
+                .get_mut("settings")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                settings
+                    .entry("sessionIndexEnabled")
+                    .or_insert_with(|| serde_json::Value::Bool(true));
+                settings
+                    .entry("sessionIndexDirectory")
+                    .or_insert_with(|| serde_json::Value::String(String::new()));
+                settings.entry("sessionIndexMaxSizeMiB").or_insert_with(|| {
+                    serde_json::Value::from(crate::models::default_session_index_max_size_mib())
+                });
+            }
+            Ok(())
+        }
+        9 => {
+            if let Some(providers) = data
+                .get_mut("providers")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for provider in providers {
+                    let Some(options) = provider
+                        .get_mut("auth")
+                        .and_then(|auth| auth.get_mut("apiKeyOptions"))
+                        .and_then(serde_json::Value::as_array_mut)
+                    else {
+                        continue;
+                    };
+                    for option in options {
+                        let Some(option) = option.as_object_mut() else {
+                            continue;
+                        };
+                        option
+                            .entry("localId")
+                            .or_insert_with(|| serde_json::Value::String(String::new()));
+                        option
+                            .entry("localName")
+                            .or_insert_with(|| serde_json::Value::String(String::new()));
+                    }
+                }
+            }
+            if let Some(preferences) = data
+                .get_mut("temporaryCliPreferences")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for preference in preferences {
+                    let Some(preference) = preference.as_object_mut() else {
+                        continue;
+                    };
+                    let legacy = preference
+                        .remove("apiKeyTokenId")
+                        .unwrap_or_else(|| serde_json::Value::String(String::new()));
+                    preference.entry("apiKeyLocalId").or_insert(legacy);
+                }
+            }
+            Ok(())
+        }
         other => Err(format!(
             "没有从 schemaVersion {other} 出发的迁移路径，请重新初始化配置或导入新版配置"
         )),

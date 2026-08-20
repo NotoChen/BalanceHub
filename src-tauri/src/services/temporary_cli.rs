@@ -6,7 +6,7 @@ mod tests;
 
 use crate::{
     models::{
-        AgentCliKind, AppSettings, AuthMode, Provider, TemporaryCliInstance,
+        is_full_api_key_value, AgentCliKind, AppSettings, AuthMode, Provider, TemporaryCliInstance,
         TemporaryCliLaunchPreview, TemporaryCliSessionMode,
     },
     network,
@@ -59,9 +59,7 @@ pub fn preview(
     } else {
         options.api_key_override.trim().to_string()
     };
-    if api_key.is_empty() {
-        return Err("缺少 API Key，无法启动临时 CLI".to_string());
-    }
+    validate_full_api_key(&api_key)?;
     if provider.identity.base_url.trim().is_empty() {
         return Err("缺少中转站地址，无法启动临时 CLI".to_string());
     }
@@ -155,9 +153,7 @@ pub fn launch(
     } else {
         options.api_key_override.trim().to_string()
     };
-    if api_key.is_empty() {
-        return Err("缺少 API Key，无法启动临时 CLI".to_string());
-    }
+    validate_full_api_key(&api_key)?;
     if provider.identity.base_url.trim().is_empty() {
         return Err("缺少中转站地址，无法启动临时 CLI".to_string());
     }
@@ -246,6 +242,18 @@ pub fn launch(
         terminal_launch.locator,
     )
     .unwrap_or(registered.instance))
+}
+
+fn validate_full_api_key(api_key: &str) -> Result<(), String> {
+    if is_full_api_key_value(api_key) {
+        return Ok(());
+    }
+
+    if api_key.trim().contains('*') {
+        Err("API Key 只有脱敏值，无法启动临时 CLI；请重新读取完整 Key".to_string())
+    } else {
+        Err("缺少 API Key，无法启动临时 CLI".to_string())
+    }
 }
 
 fn resolve_resume_id(

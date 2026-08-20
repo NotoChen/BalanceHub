@@ -18,6 +18,7 @@ use super::terminal::{
     build_macos_ghostty_activation_applescript, build_macos_ghostty_applescript,
     build_macos_iterm2_applescript, build_macos_terminal_applescript, warp_launcher_script_path,
 };
+use super::validate_full_api_key;
 use crate::models::{
     AgentCliKind, AppSettings, AuthMode, Provider, ProviderInput, ProxyMode,
     TemporaryCliSessionMode, TemporaryCliTerminalKind,
@@ -153,6 +154,17 @@ fn provider_with_liveness_model(model: &str) -> Provider {
         },
         "provider/test".to_string(),
     )
+}
+
+#[test]
+fn temporary_launch_rejects_empty_and_redacted_api_keys() {
+    assert!(validate_full_api_key(" ")
+        .expect_err("empty key must be rejected")
+        .contains("缺少 API Key"));
+    assert!(validate_full_api_key("sk-abcd********wxyz")
+        .expect_err("redacted key must be rejected")
+        .contains("脱敏值"));
+    assert!(validate_full_api_key("sk-complete-key").is_ok());
 }
 
 #[test]

@@ -34,7 +34,12 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
             Some("claude-settings.json"),
             launch::build_plan,
         )),
-        sessions: Some(SessionAdapter::new(sessions::list)),
+        sessions: Some(SessionAdapter::new(
+            sessions::list,
+            Some(sessions::search),
+            Some(sessions::detail),
+            Some(sessions::index),
+        )),
         liveness: Some(LivenessAdapter::new(
             liveness::build_plan,
             liveness::parse_output,

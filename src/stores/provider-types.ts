@@ -276,6 +276,7 @@ export type ProviderSaveConflictKind =
 export interface ProviderSaveOptions {
   overwriteProviderId?: string;
   mergeApiKeyIntoProviderId?: string;
+  createSeparateFromProviderId?: string;
 }
 
 export interface ProviderSaveConflict {
@@ -335,6 +336,8 @@ export interface AgentCliCapabilities {
   temporaryLaunch: boolean;
   modelSelection: boolean;
   sessionHistory: boolean;
+  sessionSearch: boolean;
+  sessionDetail: boolean;
   sessionResume: boolean;
   sessionName: boolean;
   liveness: boolean;
@@ -377,6 +380,8 @@ export interface ProviderCredentialCompletionResult {
 }
 
 export interface ProviderApiKeyOption {
+  localId: string;
+  localName: string;
   name: string;
   key: string;
   maskedKey: string;
@@ -579,7 +584,7 @@ export interface Workspace {
 export interface TemporaryCliPreference {
   providerId: string;
   cliKind: AgentCliKind;
-  apiKeyTokenId: string;
+  apiKeyLocalId: string;
   model: string;
   workspacePath: string;
 }
@@ -590,7 +595,7 @@ export interface TemporaryCliLaunchInput {
   cliPath: string;
   workdir: string;
   apiKey: string;
-  apiKeyTokenId: string;
+  apiKeyLocalId: string;
   model: string;
   sessionMode: TemporaryCliSessionMode;
   sessionName: string;
@@ -633,6 +638,53 @@ export interface CliSessionSummary {
   archived: boolean;
   canResume: boolean;
   metadataSource: string;
+}
+
+export type CliSessionMessageRole = "user" | "assistant" | "tool";
+
+export interface CliSessionMessage {
+  id: string;
+  role: CliSessionMessageRole;
+  content: string;
+  timestamp: string | null;
+  model: string | null;
+  toolName: string | null;
+}
+
+export interface CliSessionDetail {
+  session: CliSessionSummary;
+  messages: CliSessionMessage[];
+  truncated: boolean;
+  omittedMessageCount: number;
+  contentSource: string;
+}
+
+export interface CliSessionSearchResult {
+  session: CliSessionSummary;
+}
+
+export type CliSessionIndexState = "ready" | "building" | "disabled" | "fallback";
+
+export interface CliSessionSearchResponse {
+  results: CliSessionSearchResult[];
+  indexState: CliSessionIndexState;
+  indexMessage: string | null;
+}
+
+export interface CliSessionIndexAgentStats {
+  cliKind: AgentCliKind;
+  sizeBytes: number;
+  sessionCount: number;
+  updatedAt: string | null;
+}
+
+export interface CliSessionIndexStatus {
+  enabled: boolean;
+  directory: string;
+  maxSizeMiB: number;
+  sizeBytes: number;
+  building: boolean;
+  agents: CliSessionIndexAgentStats[];
 }
 
 export interface WorkspaceDirectoryEntry {
@@ -704,6 +756,9 @@ export interface AppSettings {
   livenessCliKind: AgentCliKind;
   agentCliPaths: Partial<Record<AgentCliKind, string>>;
   temporaryCliTerminalKind: TemporaryCliTerminalKind;
+  sessionIndexEnabled: boolean;
+  sessionIndexDirectory: string;
+  sessionIndexMaxSizeMiB: number;
   livenessEnabled: boolean;
   livenessModel: string;
   livenessIntervalMode: LivenessIntervalMode;

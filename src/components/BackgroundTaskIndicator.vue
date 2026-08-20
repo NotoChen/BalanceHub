@@ -37,6 +37,8 @@ function iconFor(kind: BackgroundTaskKind) {
     case "cliProbe":
     case "cliLaunch":
       return Terminal;
+    case "sessionIndex":
+      return Search;
     case "autoLiveness":
       return Activity;
     default:

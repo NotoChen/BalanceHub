@@ -680,6 +680,151 @@
   padding: 16px;
 }
 
+.settings-session-index-config {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid #eceef1;
+  background: #fcfcfd;
+  padding: 16px;
+}
+
+.settings-session-index-config > .arco-form-item {
+  margin-bottom: 0;
+}
+
+.settings-session-index-path {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #e2e5e9;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+}
+
+.settings-session-index-path > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #4e5969;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-session-index-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  align-items: end;
+  gap: 16px;
+}
+
+.settings-session-index-controls > .arco-form-item {
+  margin-bottom: 0;
+}
+
+.settings-session-index-actions {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.settings-session-index-actions > span {
+  color: #86909c;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-session-index-agent-stats {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 0;
+  border-top: 1px solid #eceef1;
+  color: #86909c;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding-top: 12px;
+}
+
+.settings-session-index-agent-stats > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.settings-session-index-agent-stats > span + span::before {
+  width: 1px;
+  height: 11px;
+  margin: 0 11px;
+  background: #dfe2e7;
+  content: "";
+}
+
+.settings-session-index-agent-stats strong {
+  color: #4e5969;
+  font-weight: 650;
+}
+
+:root.theme-dark .settings-session-index-config {
+  border-color: var(--glass-border);
+  background: rgba(29, 32, 39, 0.72);
+}
+
+:root.theme-dark .settings-session-index-path {
+  border-color: var(--glass-border);
+  background: rgba(36, 38, 47, 0.88);
+}
+
+:root.theme-dark .settings-session-index-path > span {
+  color: #c9cdd4;
+}
+
+:root.theme-dark .settings-session-index-agent-stats {
+  border-color: var(--glass-border);
+  color: #8d95a3;
+}
+
+:root.theme-dark .settings-session-index-agent-stats > span + span::before {
+  background: var(--glass-border);
+}
+
+:root.theme-dark .settings-session-index-agent-stats strong {
+  color: #c9cdd4;
+}
+
+@media (max-width: 720px) {
+  .settings-session-index-path,
+  .settings-session-index-controls {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .settings-session-index-path {
+    flex-direction: column;
+  }
+
+  .settings-session-index-actions {
+    justify-content: space-between;
+  }
+
+  .settings-session-index-agent-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px 14px;
+  }
+
+  .settings-session-index-agent-stats > span + span::before {
+    display: none;
+  }
+}
+
 .settings-liveness-prompt {
   display: grid;
   gap: 10px;

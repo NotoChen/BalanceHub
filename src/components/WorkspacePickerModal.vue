@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Message } from "@arco-design/web-vue";
 import {
-  IconCopy,
   IconDelete,
   IconFolder,
   IconHome,
@@ -13,7 +11,8 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import {
   type AgentCliKind,
-  type CliSessionSummary,
+  type CliSessionIndexState,
+  type CliSessionSearchResult,
   type Provider,
   type ProviderApiKeyOption,
   type TemporaryCliSessionMode,
@@ -24,11 +23,14 @@ import {
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import type { SelectOption } from "../utils/liveness-options";
 import { agentCliLabel, agentCliTool } from "../utils/cli-environment";
-import { effectiveProviderApiKeyOptions } from "../utils/provider-api-key-options.ts";
-import { copyText } from "../composables/useClipboard";
+import {
+  effectiveProviderApiKeyOptions,
+  isProviderApiKeyUsable,
+} from "../utils/provider-api-key-options.ts";
 import CliIconSelector from "./CliIconSelector.vue";
 import ProviderAuthIcon from "./ProviderAuthIcon.vue";
 import TerminalIconSelector from "./TerminalIconSelector.vue";
+import WorkspaceSessionHistoryPanel from "./WorkspaceSessionHistoryPanel.vue";
 
 const props = defineProps<{
   visible: boolean;
@@ -38,7 +40,7 @@ const props = defineProps<{
   apiKeys: ProviderApiKeyOption[];
   apiKeyLoading: boolean;
   apiKeyError: string;
-  apiKeyTokenId: string;
+  apiKeyLocalId: string;
   selectedModel: string;
   sessionName: string;
   canNameSession: boolean;
@@ -54,25 +56,30 @@ const props = defineProps<{
   launchPreviewLoading: boolean;
   forgettingPath: string | null;
   error: string;
-  historySessions: CliSessionSummary[];
+  historyQuery: string;
+  historyResults: CliSessionSearchResult[];
   historyLoading: boolean;
   historyError: string;
+  historyIndexState: CliSessionIndexState;
+  historyIndexMessage: string;
+  selectedSessionTitle: string;
 }>();
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
   "update:pathDraft": [path: string];
   "update:cliKind": [kind: AgentCliKind];
-  "update:apiKeyTokenId": [tokenId: string];
+  "update:apiKeyLocalId": [localId: string];
   "update:selectedModel": [model: string];
   "update:sessionName": [name: string];
   "update:sessionMode": [mode: TemporaryCliSessionMode];
   "update:selectedResumeId": [id: string];
   "update:terminalKind": [kind: TemporaryCliTerminalKind];
+  "update:historyQuery": [query: string];
   browse: [path?: string];
   launch: [path?: string];
   forget: [path: string];
-  "select-session": [session: CliSessionSummary];
+  "view-session": [session: CliSessionSearchResult["session"]];
   "refresh-sessions": [path?: string];
 }>();
 
@@ -109,6 +116,8 @@ const supportsModelSelection = computed(
 const supportsSessionHistory = computed(
   () =>
     Boolean(selectedCliTool.value?.capabilities.sessionHistory)
+    && Boolean(selectedCliTool.value?.capabilities.sessionSearch)
+    && Boolean(selectedCliTool.value?.capabilities.sessionDetail)
     && Boolean(selectedCliTool.value?.capabilities.sessionResume),
 );
 const sessionNamingHint = computed(() => {
@@ -120,10 +129,10 @@ const fixedModel = computed(() => (props.sessionMode === "new" ? preferredModel.
 const modelPlaceholder = computed(() =>
   props.sessionMode === "new" ? "选择或输入模型（可选）" : "不指定则沿用原会话模型",
 );
-const selectedResumeIdModel = computed(() => props.selectedResumeId);
-const selectedSession = computed(() =>
-  props.historySessions.find((session) => session.id === props.selectedResumeId) ?? null,
-);
+const historyQueryModel = computed({
+  get: () => props.historyQuery,
+  set: (value: string) => emit("update:historyQuery", value),
+});
 const historySelectionMissing = computed(
   () => props.sessionMode === "history" && !props.selectedResumeId,
 );
@@ -138,15 +147,16 @@ const effectiveApiKeys = computed(() => {
   const providerKey = props.provider?.auth.apiKey.trim() || "";
   return effectiveProviderApiKeyOptions(providerKey, props.apiKeys);
 });
-const hasSingleApiKey = computed(() => effectiveApiKeys.value.length === 1);
-const singleApiKey = computed(() => effectiveApiKeys.value[0] ?? null);
+const usableApiKeys = computed(() => effectiveApiKeys.value.filter(isProviderApiKeyUsable));
+const hasSingleApiKey = computed(() => usableApiKeys.value.length === 1);
+const singleApiKey = computed(() => usableApiKeys.value[0] ?? null);
 const cliKindModel = computed({
   get: () => props.cliKind,
   set: (value: AgentCliKind) => emit("update:cliKind", value),
 });
 const apiKeyModel = computed({
-  get: () => props.apiKeyTokenId,
-  set: (value: string) => emit("update:apiKeyTokenId", value),
+  get: () => props.apiKeyLocalId,
+  set: (value: string) => emit("update:apiKeyLocalId", value),
 });
 const selectedModelModel = computed({
   get: () => props.selectedModel,
@@ -180,29 +190,6 @@ function handleVisibleChange(visible: boolean) {
   emit("update:visible", visible);
 }
 
-function sessionModelLabel(session: CliSessionSummary) {
-  if (session.models.length > 1) {
-    return `多模型（最近：${session.model || session.models[session.models.length - 1]}）`;
-  }
-  return session.model || "未记录模型";
-}
-
-function sessionTime(value: string | null) {
-  if (!value) return "时间未知";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-async function copySessionId(id: string) {
-  const value = id.trim();
-  if (!value) return;
-  try {
-    await copyText(value);
-    Message.success("已复制 Resume ID");
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : String(error));
-  }
-}
 </script>
 
 <template>
@@ -308,8 +295,8 @@ async function copySessionId(id: string) {
             <span class="workspace-config-label">API Key</span>
             <div v-if="hasSingleApiKey && singleApiKey" class="workspace-fixed-credential">
               <ProviderAuthIcon mode="apiKey" />
-              <span :title="singleApiKey.name || '当前配置 API Key'">
-                {{ singleApiKey.name || "当前配置 API Key" }}
+              <span :title="singleApiKey.localName || singleApiKey.name || '当前配置 API Key'">
+                {{ singleApiKey.localName || singleApiKey.name || "当前配置 API Key" }}
               </span>
             </div>
             <a-select
@@ -320,8 +307,14 @@ async function copySessionId(id: string) {
               :disabled="launchLocked"
               placeholder="选择 API Key"
             >
-              <a-option v-for="option in effectiveApiKeys" :key="option.tokenId" :value="option.tokenId">
-                {{ option.name || "未命名 API Key" }}
+              <a-option
+                v-for="option in effectiveApiKeys"
+                :key="option.localId || option.tokenId || option.key"
+                :value="option.localId || option.tokenId || option.key"
+                :disabled="!isProviderApiKeyUsable(option)"
+              >
+                {{ option.localName || option.name || "未命名 API Key" }}
+                <span v-if="!isProviderApiKeyUsable(option)" class="workspace-api-key-unavailable">（不可用）</span>
               </a-option>
             </a-select>
           </div>
@@ -375,89 +368,21 @@ async function copySessionId(id: string) {
           >
             {{ sessionNamingHint }}
           </a-alert>
-          <div
+          <WorkspaceSessionHistoryPanel
             v-if="supportsSessionHistory && sessionMode !== 'new'"
-            class="workspace-session-history"
-          >
-            <div class="workspace-session-history-toolbar">
-              <div>
-                <strong>历史会话</strong>
-                <span>选择会话后点击底部继续按钮启动 CLI</span>
-              </div>
-              <a-tooltip content="刷新历史会话">
-                <a-button
-                  shape="circle"
-                  size="mini"
-                  :loading="historyLoading"
-                  :disabled="launchLocked || !directory"
-                  aria-label="刷新历史会话"
-                  @click="emit('refresh-sessions', directory?.currentPath)"
-                >
-                  <template #icon><icon-refresh /></template>
-                </a-button>
-              </a-tooltip>
-            </div>
-            <a-alert v-if="historyError" type="warning" show-icon>
-              <template #title>历史索引暂不可用</template>
-              <template #default>{{ historyError }}。请检查 CLI 状态目录后重试。</template>
-            </a-alert>
-            <a-spin :loading="historyLoading" class="workspace-session-history-spin">
-              <div v-if="!historyLoading && historySessions.length === 0" class="workspace-session-empty">
-                <strong>当前工作空间没有可展示的历史会话</strong>
-                <span>请先在该工作空间创建一条有效会话。</span>
-              </div>
-              <div v-else class="workspace-session-list">
-                <div
-                  v-for="session in historySessions"
-                  :key="session.id"
-                  class="workspace-session-item"
-                  :class="{ selected: session.id === selectedResumeIdModel, disabled: !session.canResume }"
-                >
-                  <button
-                    type="button"
-                    class="workspace-session-select"
-                    :disabled="launchLocked || !session.canResume"
-                    :aria-pressed="session.id === selectedResumeIdModel"
-                    :title="session.canResume ? `选择会话：${session.title}` : '该会话已归档，无法继续'"
-                    @click="emit('select-session', session)"
-                  >
-                    <span class="workspace-session-item-main">
-                      <strong>{{ session.title }}</strong>
-                      <span v-if="session.preview" class="workspace-session-preview">{{ session.preview }}</span>
-                      <span class="workspace-session-meta">
-                        <span>模型：{{ sessionModelLabel(session) }}</span>
-                        <span>更新时间：{{ sessionTime(session.updatedAt) }}</span>
-                      </span>
-                    </span>
-                    <span class="workspace-session-item-side">
-                      <span class="workspace-session-id" :title="`Resume ID：${session.id}`">{{ session.id }}</span>
-                      <span v-if="session.archived" class="workspace-session-archived">已归档</span>
-                    </span>
-                  </button>
-                  <a-tooltip content="复制 Resume ID">
-                    <a-button
-                      class="workspace-session-copy"
-                      shape="circle"
-                      size="mini"
-                      :disabled="launchLocked || !session.id"
-                      aria-label="复制 Resume ID"
-                      @click.stop="copySessionId(session.id)"
-                    >
-                      <template #icon><icon-copy /></template>
-                    </a-button>
-                  </a-tooltip>
-                </div>
-              </div>
-            </a-spin>
-            <a-alert
-              v-if="sessionMode === 'history' && selectedSession"
-              class="workspace-session-selected-note"
-              type="success"
-              show-icon
-            >
-              已选择：{{ selectedSession.title }}。不选择模型时将沿用历史会话模型。
-            </a-alert>
-          </div>
+            v-model:query="historyQueryModel"
+            :results="historyResults"
+            :loading="historyLoading"
+            :error="historyError"
+            :index-state="historyIndexState"
+            :index-message="historyIndexMessage"
+            :selected-resume-id="selectedResumeId"
+            :selected-session-title="selectedSessionTitle"
+            :workdir="directory?.currentPath || ''"
+            :disabled="launchLocked"
+            @view-session="emit('view-session', $event)"
+            @refresh="emit('refresh-sessions', $event)"
+          />
         </section>
         <a-alert v-if="apiKeyError" type="warning">
           API Key 列表读取失败：{{ apiKeyError }}
@@ -556,7 +481,7 @@ async function copySessionId(id: string) {
             <a-button
               type="primary"
               :loading="launchPreviewLoading"
-              :disabled="browsing || launchLocked || launchPreviewLoading || !directory || apiKeyLoading || effectiveApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || historySelectionMissing"
+              :disabled="browsing || launchLocked || launchPreviewLoading || !directory || apiKeyLoading || usableApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || historySelectionMissing"
               @click="emit('launch', directory?.currentPath)"
             >
               <template #icon><icon-launch /></template>

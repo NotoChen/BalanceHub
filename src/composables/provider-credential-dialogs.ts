@@ -1,5 +1,61 @@
 import { h } from "vue";
-import { Message, Modal } from "@arco-design/web-vue";
+import { Button, Message, Modal } from "@arco-design/web-vue";
+import { IconLink, IconPlus } from "@arco-design/web-vue/es/icon";
+import type { ProviderDuplicateDecision } from "./provider-editor-shared";
+
+export function chooseSameSiteApiKeyAction(existingName: string) {
+  return new Promise<ProviderDuplicateDecision>((resolve) => {
+    let settled = false;
+    let modal: ReturnType<typeof Modal.open> | undefined;
+
+    const settle = (decision: ProviderDuplicateDecision, close = true) => {
+      if (settled) return;
+      settled = true;
+      resolve(decision);
+      if (close) modal?.close();
+    };
+
+    modal = Modal.open({
+      title: "保存当前 API Key",
+      width: 540,
+      modalClass: ["surface-modal", "provider-duplicate-modal"],
+      footer: false,
+      content: () =>
+        h("div", { class: "provider-duplicate-dialog" }, [
+          h(
+            "p",
+            { class: "provider-duplicate-message" },
+            `同一地址下已存在“${existingName}”。请选择把当前 API Key 保存为独立卡片，或加入已有卡片的认证凭据。`,
+          ),
+          h("div", { class: "provider-duplicate-actions" }, [
+            h(
+              Button,
+              { onClick: () => settle("cancel") },
+              { default: () => "取消" },
+            ),
+            h(
+              Button,
+              { type: "secondary", onClick: () => settle("merge") },
+              {
+                icon: () => h(IconLink),
+                default: () => "加入已有卡片",
+              },
+            ),
+            h(
+              Button,
+              { type: "primary", onClick: () => settle("createSeparate") },
+              {
+                icon: () => h(IconPlus),
+                default: () => "创建独立卡片",
+              },
+            ),
+          ]),
+        ]),
+      onCancel: () => settle("cancel", false),
+      onClose: () => settle("cancel", false),
+    });
+  });
+}
 
 export function confirmAction(
   title: string,

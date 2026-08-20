@@ -13,13 +13,18 @@ import {
   getProviderRequestLogs as getProviderRequestLogsCommand,
   getProviderUsage as getProviderUsageCommand,
   importAppData as importAppDataCommand,
+  addLocalProviderApiKey as addLocalProviderApiKeyCommand,
+  listLocalProviderApiKeys as listLocalProviderApiKeysCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
   probeProviderSite as probeProviderSiteCommand,
   refreshProviders,
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
+  removeLocalProviderApiKey as removeLocalProviderApiKeyCommand,
+  renameLocalProviderApiKey as renameLocalProviderApiKeyCommand,
   saveProvider as saveProviderCommand,
+  setPrimaryLocalProviderApiKey as setPrimaryLocalProviderApiKeyCommand,
   syncAvailableModels as syncAvailableModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
   testProviderConnection as testProviderConnectionCommand,
@@ -253,6 +258,29 @@ export const useProviderStore = defineStore("providers", {
       const options = await listProviderApiKeysCommand(id);
       await this.reloadProvider(id).catch(() => {});
       return options;
+    },
+    async listLocalApiKeys(id: string) {
+      return listLocalProviderApiKeysCommand(id);
+    },
+    async addLocalApiKey(id: string, key: string, name: string) {
+      const provider = await addLocalProviderApiKeyCommand(id, key, name);
+      this.upsertProvider(provider);
+      return provider;
+    },
+    async renameLocalApiKey(id: string, localId: string, name: string) {
+      const provider = await renameLocalProviderApiKeyCommand(id, localId, name);
+      this.upsertProvider(provider);
+      return provider;
+    },
+    async setPrimaryLocalApiKey(id: string, localId: string) {
+      const provider = await setPrimaryLocalProviderApiKeyCommand(id, localId);
+      this.upsertProvider(provider);
+      return provider;
+    },
+    async removeLocalApiKey(id: string, localId: string) {
+      const provider = await removeLocalProviderApiKeyCommand(id, localId);
+      this.upsertProvider(provider);
+      return provider;
     },
     async createApiKey(id: string, name: string) {
       const options = await createProviderApiKeyCommand(id, name);

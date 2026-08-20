@@ -36,6 +36,94 @@ fn migrates_app_data_from_older_schema_version() {
     assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
     assert!(migrated.workspaces.is_empty());
     assert!(migrated.temporary_cli_preferences.is_empty());
+    assert!(migrated.settings.session_index_enabled);
+    assert_eq!(migrated.settings.session_index_max_size_mib, 64);
+}
+
+#[test]
+fn schema_eight_migration_adds_session_index_settings() {
+    let old = AppData {
+        schema_version: 8,
+        ..AppData::default()
+    };
+    let mut value = serde_json::to_value(old).expect("app data should serialize");
+    let settings = value["settings"]
+        .as_object_mut()
+        .expect("settings should be an object");
+    settings.remove("sessionIndexEnabled");
+    settings.remove("sessionIndexDirectory");
+    settings.remove("sessionIndexMaxSizeMiB");
+
+    let migrated = migrate_app_data(
+        &serde_json::to_string(&value).expect("legacy app data should serialize"),
+        8,
+    )
+    .expect("schema eight should migrate");
+
+    assert!(migrated.settings.session_index_enabled);
+    assert!(migrated.settings.session_index_directory.is_empty());
+    assert_eq!(migrated.settings.session_index_max_size_mib, 64);
+}
+
+#[test]
+fn schema_nine_migration_adds_local_key_identity_and_moves_cli_preference() {
+    let old = AppData {
+        schema_version: 9,
+        ..AppData::default()
+    };
+    let mut value = serde_json::to_value(old).expect("app data should serialize");
+    let mut provider = crate::models::Provider::from_input(
+        crate::models::ProviderInput::default(),
+        "provider-test".to_string(),
+    );
+    provider.identity.name = "Test".to_string();
+    provider.identity.base_url = "https://example.com".to_string();
+    provider.auth.api_key = "sk-local".to_string();
+    provider.auth.api_key_options = vec![crate::models::ProviderApiKeyOption {
+        name: "备用".to_string(),
+        key: "sk-local".to_string(),
+        token_id: "legacy-token".to_string(),
+        masked_key: "sk-l********ocal".to_string(),
+        key_available: true,
+        ..crate::models::ProviderApiKeyOption::default()
+    }];
+    let mut provider_value = serde_json::to_value(provider).expect("provider should serialize");
+    provider_value["auth"]["apiKeyOptions"][0]
+        .as_object_mut()
+        .expect("api key option should be an object")
+        .remove("localId");
+    provider_value["auth"]["apiKeyOptions"][0]
+        .as_object_mut()
+        .expect("api key option should be an object")
+        .remove("localName");
+    value["providers"] = serde_json::json!([provider_value]);
+    value["temporaryCliPreferences"] = serde_json::json!([{
+        "providerId": "provider-test",
+        "cliKind": "codex",
+        "apiKeyTokenId": "legacy-token",
+        "model": "",
+        "workspacePath": "/tmp"
+    }]);
+
+    let mut migrated = migrate_app_data(
+        &serde_json::to_string(&value).expect("legacy app data should serialize"),
+        9,
+    )
+    .expect("schema nine should migrate");
+
+    // Migration adds the fields; the normal load/import validation pass owns
+    // deterministic local-id generation and legacy token-id preference repair.
+    assert!(normalize_provider_cached_values(&mut migrated));
+
+    assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+    assert_eq!(migrated.providers[0].auth.api_key_options.len(), 1);
+    assert!(!migrated.providers[0].auth.api_key_options[0]
+        .local_id
+        .is_empty());
+    assert_eq!(
+        migrated.temporary_cli_preferences[0].api_key_local_id,
+        migrated.providers[0].auth.api_key_options[0].local_id
+    );
 }
 
 #[test]

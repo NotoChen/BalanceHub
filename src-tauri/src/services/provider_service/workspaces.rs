@@ -14,7 +14,7 @@ impl ProviderService<'_> {
         cli_kind: AgentCliKind,
         cli_path: &str,
         path: &Path,
-        api_key_token_id: &str,
+        api_key_local_id: &str,
         model: &str,
     ) -> Result<(Vec<Workspace>, TemporaryCliPreference), String> {
         let normalized = normalize_directory(path)?.to_string_lossy().to_string();
@@ -38,7 +38,7 @@ impl ProviderService<'_> {
             let preference = TemporaryCliPreference {
                 provider_id: provider_id.to_string(),
                 cli_kind,
-                api_key_token_id: api_key_token_id.trim().to_string(),
+                api_key_local_id: api_key_local_id.trim().to_string(),
                 model: model.trim().to_string(),
                 workspace_path: normalized.clone(),
             };

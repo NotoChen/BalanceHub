@@ -25,6 +25,12 @@ const emit = defineEmits<{
 const singleOption = computed(() => (props.options.length === 1 ? props.options[0] : null));
 
 function selected(option: ProviderApiKeyOption) {
+  if (option.localId.trim() && props.currentKey.trim()) {
+    const current = props.options.find((candidate) => candidate.key.trim() === props.currentKey.trim());
+    if (current?.localId.trim()) {
+      return current.localId.trim() === option.localId.trim();
+    }
+  }
   if (props.currentTokenId.trim() && option.tokenId.trim()) {
     return props.currentTokenId.trim() === option.tokenId.trim();
   }
@@ -170,7 +176,7 @@ function formatUnixTime(value?: number | null) {
     </span>
     <span class="provider-api-key-identity">
       <span class="provider-api-key-name-row">
-        <strong>{{ singleOption.name || "未命名 API Key" }}</strong>
+        <strong>{{ singleOption.localName || singleOption.name || "未命名 API Key" }}</strong>
         <small>当前主 Key</small>
       </span>
       <code>{{ keyDisplay(singleOption) }}</code>
@@ -197,7 +203,7 @@ function formatUnixTime(value?: number | null) {
   <div v-else class="provider-api-key-picker" role="radiogroup" aria-label="选择主 API Key">
     <button
       v-for="(option, index) in options"
-      :key="option.tokenId || option.key || option.maskedKey || `api-key-${index}`"
+      :key="option.localId || option.tokenId || option.key || option.maskedKey || `api-key-${index}`"
       type="button"
       class="provider-api-key-card provider-api-key-option"
       :class="{ selected: selected(option), unavailable: !option.keyAvailable }"
@@ -211,7 +217,7 @@ function formatUnixTime(value?: number | null) {
       </span>
       <span class="provider-api-key-identity">
         <span class="provider-api-key-name-row">
-          <strong>{{ option.name || "未命名 API Key" }}</strong>
+            <strong>{{ option.localName || option.name || "未命名 API Key" }}</strong>
           <small v-if="selected(option)">当前主 Key</small>
         </span>
         <code>{{ keyDisplay(option) }}</code>
