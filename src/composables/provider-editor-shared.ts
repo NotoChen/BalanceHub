@@ -7,6 +7,7 @@ import type {
   ProviderSaveResult,
   ProviderProtocolDetectionResult,
   ProviderProtocolDescriptor,
+  ProviderSaveConflict,
   ProviderSiteProbeResult,
 } from "../stores/providers";
 
@@ -29,6 +30,38 @@ export interface ProviderEditorStore {
 }
 
 export type ProtocolSelectionSource = "auto" | "unresolved" | "manual" | "saved";
+export type ProviderEditorStep = "basics" | "credentials" | "advanced";
+export type ProviderDuplicateDecision = "createSeparate" | "merge" | "overwrite" | "cancel";
+export type ProviderSaveCompletion = "standard" | "mergedApiKey";
+
+export function providerDuplicateSaveResolution(
+  conflict: ProviderSaveConflict,
+  decision: ProviderDuplicateDecision,
+): { options: ProviderSaveOptions; completion: ProviderSaveCompletion } | null {
+  if (decision === "cancel") return null;
+
+  if (conflict.kind === "sameUrlDifferentApiKey") {
+    if (decision === "merge") {
+      return {
+        options: { mergeApiKeyIntoProviderId: conflict.existingProviderId },
+        completion: "mergedApiKey",
+      };
+    }
+    if (decision === "createSeparate") {
+      return {
+        options: { createSeparateFromProviderId: conflict.existingProviderId },
+        completion: "standard",
+      };
+    }
+    return null;
+  }
+
+  if (decision !== "overwrite") return null;
+  return {
+    options: { overwriteProviderId: conflict.existingProviderId },
+    completion: "standard",
+  };
+}
 
 export function normalizeProviderBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "").toLowerCase();

@@ -22,19 +22,25 @@ mod workspace;
 pub use agent_cli::*;
 pub(crate) use app_settings::{
     default_liveness_interval, default_liveness_placeholder_pools,
-    default_liveness_random_min_interval, default_liveness_timeout, default_true,
+    default_liveness_random_min_interval, default_liveness_timeout,
+    default_session_index_max_size_mib, default_true,
 };
 pub use app_settings::{
     AppSettings, LivenessPlaceholderPool, NotificationChannel, NotificationChannelKind,
 };
-pub use cli_sessions::CliSessionSummary;
+pub use cli_sessions::{
+    CliSessionDetail, CliSessionIndexAgentStats, CliSessionIndexState, CliSessionIndexStatus,
+    CliSessionMessage, CliSessionMessageRole, CliSessionSearchResponse, CliSessionSearchResult,
+    CliSessionSummary,
+};
 pub use enums::*;
 pub use liveness::*;
 pub use provider::*;
+pub(crate) use provider_results::is_full_api_key_value;
 pub use provider_results::*;
 pub use workspace::*;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 8;
+pub const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

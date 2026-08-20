@@ -31,6 +31,7 @@ import {
   supportsCheckIn,
   supportsInvitation,
 } from "../../utils/provider-actions";
+import { hasUsableProviderApiKey } from "../../utils/provider-api-key-options";
 import {
   canBuildCcSwitchDeeplink,
   ccSwitchTargetLabels,
@@ -92,7 +93,7 @@ const canLaunchTemporaryCli = computed(() =>
   Boolean(
     temporaryCliKinds.value.length > 0 &&
       props.provider.identity.baseUrl.trim() &&
-      (props.provider.auth.apiKey.trim() || supportsApiKeyManagement(props.provider)),
+      hasUsableProviderApiKey(props.provider.auth.apiKey, props.provider.auth.apiKeyOptions),
   ),
 );
 const switchableCliKinds = computed(() =>
@@ -143,6 +144,7 @@ const canChangePassword = computed(() => accountManagementAvailable.value);
 const hasSiteActions = computed(
   () =>
     canProbeSite.value ||
+    hasUsableProviderApiKey(props.provider.auth.apiKey, props.provider.auth.apiKeyOptions) ||
     supportsApiKeyManagement(props.provider) ||
     canViewAvailableModels.value ||
     canChangePassword.value,
@@ -383,7 +385,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <span>{{ probingCapabilities ? "探测中" : "探测站点能力" }}</span>
         </button>
         <button
-          v-if="supportsApiKeyManagement(provider)"
+          v-if="hasUsableProviderApiKey(provider.auth.apiKey, provider.auth.apiKeyOptions) || supportsApiKeyManagement(provider)"
           type="button"
           @click="openSiteAction('keys')"
         >

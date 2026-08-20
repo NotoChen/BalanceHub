@@ -1,15 +1,18 @@
 import { defineStore } from "pinia";
 import {
   activateTemporaryCli as activateTemporaryCliCommand,
+  clearCliSessionIndex as clearCliSessionIndexCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
+  getCliSessionIndexStatus as getCliSessionIndexStatusCommand,
+  getCliSessionDetail as getCliSessionDetailCommand,
   getTemporaryCliInstance as getTemporaryCliInstanceCommand,
   getTemporaryCliInstances as getTemporaryCliInstancesCommand,
   launchTemporaryCli as launchTemporaryCliCommand,
-  listCliSessions as listCliSessionsCommand,
   previewCliConfig as previewCliConfigCommand,
   previewTemporaryCliLaunch as previewTemporaryCliLaunchCommand,
   probeCliTools as probeCliToolsCommand,
   probeTerminals as probeTerminalsCommand,
+  searchCliSessions as searchCliSessionsCommand,
   switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
 import { useWorkspaceStore } from "./workspaces";
@@ -19,7 +22,9 @@ import type {
   CliConfigPreview,
   CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
-  CliSessionSummary,
+  CliSessionDetail,
+  CliSessionIndexStatus,
+  CliSessionSearchResponse,
   TemporaryCliLaunchInput,
   TemporaryCliLaunchPreview,
   TemporaryCliLaunchResult,
@@ -75,8 +80,26 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
     async previewLaunch(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchPreview> {
       return previewTemporaryCliLaunchCommand(input);
     },
-    async listSessions(cliKind: AgentCliKind, workdir: string): Promise<CliSessionSummary[]> {
-      return listCliSessionsCommand(cliKind, workdir);
+    async searchSessions(
+      cliKind: AgentCliKind,
+      workdir: string,
+      query: string,
+      forceRefresh = false,
+    ): Promise<CliSessionSearchResponse> {
+      return searchCliSessionsCommand(cliKind, workdir, query, 50, forceRefresh);
+    },
+    async getSessionIndexStatus(): Promise<CliSessionIndexStatus> {
+      return getCliSessionIndexStatusCommand();
+    },
+    async clearSessionIndex(): Promise<void> {
+      return clearCliSessionIndexCommand();
+    },
+    async getSessionDetail(
+      cliKind: AgentCliKind,
+      workdir: string,
+      sessionId: string,
+    ): Promise<CliSessionDetail> {
+      return getCliSessionDetailCommand(cliKind, workdir, sessionId);
     },
     async activate(instanceId: string) {
       await activateTemporaryCliCommand(instanceId);

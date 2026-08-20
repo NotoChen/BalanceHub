@@ -1,12 +1,27 @@
-use crate::services::cli_sessions::{clean_text, first_non_empty, normalize_timestamp};
-use crate::models::{AgentCliKind, CliSessionSummary};
+use crate::{
+    models::{
+        AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary,
+    },
+    services::cli_sessions::{
+        clean_text, compact_json, first_non_empty, normalize_timestamp,
+        read_json_lines_limited, scan_json_lines_matching, scan_json_records_background,
+        session_index_source_fingerprint, SessionContentSearchCollector, SessionMessageCollector,
+    },
+};
 use serde_json::Value;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     fs::{self, File},
     io::{BufRead, BufReader},
     path::Path,
 };
+
+use super::super::contracts::{
+    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
+    SessionIndexMessage, SessionReadLimits,
+};
+
+const INDEX_PARSER_VERSION: u32 = 1;
 
 pub(super) fn list(
     cli_kind: AgentCliKind,
@@ -53,6 +68,398 @@ pub(super) fn list(
         return Err(last_error.unwrap_or_else(|| "读取 Claude Code 历史会话失败".to_string()));
     }
     Ok(sessions)
+}
+
+pub(super) fn detail(
+    cli_kind: AgentCliKind,
+    workdir: &Path,
+    session_id: &str,
+    limits: SessionReadLimits,
+) -> Result<CliSessionDetail, String> {
+    let projects = super::config::config_dir()
+        .map(|config_dir| config_dir.join("projects"))
+        .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
+    let project_dir = projects.join(encode_project_path(workdir));
+    let path = find_transcript_path(cli_kind, &project_dir, workdir, session_id)?
+        .ok_or_else(|| "未找到指定的 Claude Code 会话".to_string())?;
+    let summary = parse_transcript(cli_kind, &path, workdir)?
+        .filter(|summary| summary.id == session_id)
+        .ok_or_else(|| "Claude Code 会话索引与正文文件不一致".to_string())?;
+    let (messages, truncated, omitted_message_count) =
+        parse_transcript_messages(&path, limits)?;
+    Ok(CliSessionDetail {
+        session: summary,
+        messages,
+        truncated,
+        omitted_message_count,
+        content_source: "claudeTranscript".to_string(),
+    })
+}
+
+pub(super) fn search(
+    cli_kind: AgentCliKind,
+    workdir: &Path,
+    session_id: &str,
+    request: &SessionContentSearchRequest,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionContentSearchResult, String> {
+    let projects = super::config::config_dir()
+        .map(|config_dir| config_dir.join("projects"))
+        .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
+    let project_dir = projects.join(encode_project_path(workdir));
+    let path = find_transcript_path(cli_kind, &project_dir, workdir, session_id)?
+        .ok_or_else(|| "未找到指定的 Claude Code 会话".to_string())?;
+    search_transcript(&path, request, is_current)
+}
+
+pub(super) fn index(
+    cli_kind: AgentCliKind,
+    workdir: &Path,
+    session_id: &str,
+    known_fingerprint: Option<&str>,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionIndexLoadResult, String> {
+    let projects = super::config::config_dir()
+        .map(|config_dir| config_dir.join("projects"))
+        .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
+    let project_dir = projects.join(encode_project_path(workdir));
+    let path = find_transcript_path(cli_kind, &project_dir, workdir, session_id)?
+        .ok_or_else(|| "未找到指定的 Claude Code 会话".to_string())?;
+    index_transcript(&path, known_fingerprint, is_current)
+}
+
+fn index_transcript(
+    path: &Path,
+    known_fingerprint: Option<&str>,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionIndexLoadResult, String> {
+    let (fingerprint, source_bytes) =
+        session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
+    if known_fingerprint == Some(fingerprint.as_str()) {
+        return Ok(SessionIndexLoadResult::Unchanged {
+            fingerprint,
+            source_bytes,
+        });
+    }
+
+    let mut messages = Vec::new();
+    scan_json_records_background(path, "索引 Claude Code 会话正文", is_current, |line_index, line| {
+        if !(line.windows(4).any(|window| window.eq_ignore_ascii_case(b"user"))
+            || line
+                .windows(9)
+                .any(|window| window.eq_ignore_ascii_case(b"assistant")))
+        {
+            return false;
+        }
+        if line.windows(11).any(|window| window == b"tool_result")
+            && !line.windows(6).any(|window| window == b"\"text\"")
+        {
+            return false;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            return false;
+        };
+        if value
+            .get("isSidechain")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || value
+                .get("isMeta")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        {
+            return false;
+        }
+        let role = match value.get("type").and_then(Value::as_str) {
+            Some("user") => CliSessionMessageRole::User,
+            Some("assistant") => CliSessionMessageRole::Assistant,
+            _ => return false,
+        };
+        let Some(content) = value
+            .get("message")
+            .and_then(|message| message.get("content"))
+        else {
+            return false;
+        };
+        if let Some(text) = content.as_str() {
+            let text = text.trim();
+            if !text.is_empty()
+                && (role != CliSessionMessageRole::User || visible_user_text(text))
+            {
+                messages.push(SessionIndexMessage {
+                    id: format!("claude-{line_index}"),
+                    role,
+                    content: text.to_string(),
+                });
+            }
+            return false;
+        }
+        if let Some(parts) = content.as_array() {
+            for (part_index, part) in parts.iter().enumerate() {
+                if !matches!(part.get("type").and_then(Value::as_str), Some("text") | None) {
+                    continue;
+                }
+                let Some(text) = part
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                else {
+                    continue;
+                };
+                if role == CliSessionMessageRole::User && !visible_user_text(text) {
+                    continue;
+                }
+                messages.push(SessionIndexMessage {
+                    id: format!("claude-{line_index}-{part_index}"),
+                    role,
+                    content: text.to_string(),
+                });
+            }
+        }
+        false
+    })?;
+    Ok(SessionIndexLoadResult::Updated {
+        fingerprint,
+        source_bytes,
+        messages,
+    })
+}
+
+fn search_transcript(
+    path: &Path,
+    request: &SessionContentSearchRequest,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionContentSearchResult, String> {
+    let mut collector = SessionContentSearchCollector::new(request);
+    scan_json_lines_matching(
+        path,
+        "检索 Claude Code 会话正文",
+        request,
+        is_current,
+        |_line_index, value| {
+            if value
+                .get("isSidechain")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || value
+                    .get("isMeta")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            {
+                return false;
+            }
+            let role = match value.get("type").and_then(Value::as_str) {
+                Some("user") => CliSessionMessageRole::User,
+                Some("assistant") => CliSessionMessageRole::Assistant,
+                _ => return false,
+            };
+            let Some(content) = value
+                .get("message")
+                .and_then(|message| message.get("content"))
+            else {
+                return false;
+            };
+            if let Some(text) = content.as_str() {
+                if role != CliSessionMessageRole::User || visible_user_text(text) {
+                    collector.observe(text);
+                }
+                return collector.complete();
+            }
+            if let Some(parts) = content.as_array() {
+                for part in parts {
+                    let text = match part.get("type").and_then(Value::as_str) {
+                        Some("text") | None => {
+                            let Some(text) = part.get("text").and_then(Value::as_str) else {
+                                continue;
+                            };
+                            if role == CliSessionMessageRole::User && !visible_user_text(text) {
+                                continue;
+                            }
+                            text.to_string()
+                        }
+                        _ => continue,
+                    };
+                    collector.observe(&text);
+                    if collector.complete() {
+                        break;
+                    }
+                }
+            }
+            collector.complete()
+        },
+    )?;
+    Ok(collector.finish())
+}
+
+fn find_transcript_path(
+    cli_kind: AgentCliKind,
+    project_dir: &Path,
+    workdir: &Path,
+    session_id: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    if !session_id
+        .chars()
+        .any(|character| matches!(character, '/' | '\\'))
+    {
+        let direct = project_dir.join(format!("{session_id}.jsonl"));
+        if direct.is_file() {
+            return Ok(Some(direct));
+        }
+    }
+    let entries = match fs::read_dir(project_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "读取 Claude Code 项目会话目录失败：{}：{error}",
+                project_dir.display()
+            ));
+        }
+    };
+    for path in entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "jsonl"))
+    {
+        if parse_transcript(cli_kind, &path, workdir)?
+            .is_some_and(|summary| summary.id == session_id)
+        {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+fn parse_transcript_messages(
+    path: &Path,
+    limits: SessionReadLimits,
+) -> Result<(Vec<crate::models::CliSessionMessage>, bool, usize), String> {
+    let mut collector = SessionMessageCollector::new(limits);
+    let mut tool_names = HashMap::<String, String>::new();
+    let source_truncated = read_json_lines_limited(
+        path,
+        limits.max_file_bytes,
+        "读取 Claude Code 会话正文",
+        |line_index, value| {
+            if value
+                .get("isSidechain")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || value
+                    .get("isMeta")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            {
+                return;
+            }
+            let record_type = value.get("type").and_then(Value::as_str);
+            let role = match record_type {
+                Some("user") => CliSessionMessageRole::User,
+                Some("assistant") => CliSessionMessageRole::Assistant,
+                _ => return,
+            };
+            let timestamp = normalize_timestamp(value.get("timestamp").and_then(Value::as_str));
+            let model = value
+                .get("message")
+                .and_then(|message| message.get("model"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .filter(|model| model != "<synthetic>");
+            let Some(content) = value
+                .get("message")
+                .and_then(|message| message.get("content"))
+            else {
+                return;
+            };
+            if let Some(text) = content.as_str() {
+                if role != CliSessionMessageRole::User || visible_user_text(text) {
+                    collector.push(
+                        format!("claude-{line_index}"),
+                        role,
+                        text,
+                        timestamp,
+                        model,
+                        None,
+                    );
+                }
+                return;
+            }
+            let Some(parts) = content.as_array() else {
+                return;
+            };
+            for (part_index, part) in parts.iter().enumerate() {
+                match part.get("type").and_then(Value::as_str) {
+                    Some("text") | None => {
+                        let Some(text) = part.get("text").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        if role == CliSessionMessageRole::User && !visible_user_text(text) {
+                            continue;
+                        }
+                        collector.push(
+                            format!("claude-{line_index}-{part_index}"),
+                            role,
+                            text,
+                            timestamp.clone(),
+                            model.clone(),
+                            None,
+                        );
+                    }
+                    Some("tool_use") => {
+                        let name = part
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("工具")
+                            .to_string();
+                        if let Some(id) = part.get("id").and_then(Value::as_str) {
+                            tool_names.insert(id.to_string(), name.clone());
+                        }
+                        let input = part
+                            .get("input")
+                            .map(|value| compact_json(value, limits.max_message_chars))
+                            .unwrap_or_default();
+                        collector.push(
+                            format!("claude-{line_index}-{part_index}"),
+                            CliSessionMessageRole::Tool,
+                            if input.is_empty() {
+                                format!("调用工具 {name}")
+                            } else {
+                                format!("调用工具 {name}\n{input}")
+                            },
+                            timestamp.clone(),
+                            model.clone(),
+                            Some(name),
+                        );
+                    }
+                    Some("tool_result") => {
+                        let tool_id = part
+                            .get("tool_use_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        let tool_name = tool_names
+                            .get(tool_id)
+                            .cloned()
+                            .unwrap_or_else(|| "工具结果".to_string());
+                        let result = part
+                            .get("content")
+                            .and_then(content_value_text)
+                            .unwrap_or_else(|| compact_json(part, limits.max_message_chars));
+                        collector.push(
+                            format!("claude-{line_index}-{part_index}"),
+                            CliSessionMessageRole::Tool,
+                            result,
+                            timestamp.clone(),
+                            model.clone(),
+                            Some(tool_name),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        },
+    )?;
+    Ok(collector.finish(source_truncated))
 }
 
 fn parse_transcript(
@@ -227,6 +634,40 @@ fn message_text(value: &Value) -> Option<String> {
     user_text_candidate(&text)
 }
 
+fn content_value_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => (!text.trim().is_empty()).then(|| text.to_string()),
+        Value::Array(parts) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| {
+                    part.as_str().or_else(|| {
+                        part.get("text")
+                            .or_else(|| part.get("content"))
+                            .and_then(Value::as_str)
+                    })
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            (!text.trim().is_empty()).then_some(text)
+        }
+        Value::Object(_) => value
+            .get("text")
+            .or_else(|| value.get("content"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+fn visible_user_text(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && !value.starts_with("<command-name")
+        && !value.starts_with("<local-command")
+        && !value.starts_with("<command-message")
+}
+
 fn user_text_candidate(value: &str) -> Option<String> {
     let value = value.trim();
     if value.is_empty()
@@ -259,169 +700,4 @@ fn encode_project_path(path: &Path) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{encode_project_path, message_text, parse_transcript};
-    use crate::models::AgentCliKind;
-    use serde_json::json;
-    use std::{fs, path::Path};
-
-    #[test]
-    fn project_path_encoding_matches_claude_layout() {
-        assert_eq!(
-            encode_project_path(Path::new("/Users/example/project")),
-            "-Users-example-project"
-        );
-    }
-
-    #[test]
-    fn message_text_handles_string_and_content_blocks() {
-        assert_eq!(
-            message_text(&json!({"message": {"content": "hello"}})).as_deref(),
-            Some("hello")
-        );
-        assert_eq!(
-            message_text(&json!({
-                "message": {"content": [{"type": "text", "text": "hello"}, {"text": "world"}]}
-            }))
-            .as_deref(),
-            Some("hello world")
-        );
-    }
-
-    #[test]
-    fn message_text_ignores_tool_results() {
-        assert_eq!(
-            message_text(&json!({
-                "message": {
-                    "content": [{"type": "tool_result", "content": "command output"}]
-                }
-            })),
-            None
-        );
-        assert_eq!(
-            message_text(&json!({
-                "message": {
-                    "content": [
-                        {"type": "tool_result", "content": "command output"},
-                        {"type": "text", "text": "actual request"}
-                    ]
-                }
-            }))
-            .as_deref(),
-            Some("actual request")
-        );
-    }
-
-    #[test]
-    fn transcript_uses_the_first_real_user_message() {
-        let root = std::env::temp_dir().join(format!(
-            "balancehub-cli-session-claude-user-message-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        let transcript = root.join("session.jsonl");
-        let lines = [
-            json!({
-                "type": "user",
-                "sessionId": "session-1",
-                "cwd": root.to_string_lossy(),
-                "message": {"content": [{"type": "tool_result", "content": "command output"}]}
-            }),
-            json!({
-                "type": "user",
-                "isMeta": true,
-                "message": {"content": "internal context"}
-            }),
-            json!({
-                "type": "user",
-                "message": {"content": "actual request"}
-            }),
-        ]
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-        fs::write(&transcript, lines).unwrap();
-        let summary = parse_transcript(AgentCliKind::ClaudeCode, &transcript, &root)
-            .unwrap()
-            .unwrap();
-        assert_eq!(summary.preview.as_deref(), Some("actual request"));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn transcript_without_cwd_uses_the_selected_project_path() {
-        let root = std::env::temp_dir().join(format!(
-            "balancehub-cli-session-claude-workdir-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        let transcript = root.join("session.jsonl");
-        fs::write(
-            &transcript,
-            json!({
-                "type": "user",
-                "sessionId": "session-1",
-                "message": {"content": "actual request"}
-            })
-            .to_string(),
-        )
-        .unwrap();
-        let summary = parse_transcript(AgentCliKind::ClaudeCode, &transcript, &root)
-            .unwrap()
-            .unwrap();
-        assert_eq!(summary.workdir, root.to_string_lossy());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn transcript_prefers_latest_ai_title_and_collects_models() {
-        let root = std::env::temp_dir().join(format!(
-            "balancehub-cli-session-claude-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        let transcript = root.join("session.jsonl");
-        let lines = [
-            json!({
-                "type": "user",
-                "sessionId": "session-1",
-                "cwd": root.to_string_lossy(),
-                "timestamp": "2026-08-06T08:00:00Z",
-                "message": {"content": "first request"}
-            }),
-            json!({
-                "type": "assistant",
-                "timestamp": "2026-08-06T08:01:00Z",
-                "message": {"model": "claude-sonnet-4-5"}
-            }),
-            json!({
-                "type": "ai-title",
-                "aiTitle": "修复历史会话",
-                "timestamp": "2026-08-06T08:02:00Z"
-            }),
-            json!({
-                "type": "assistant",
-                "timestamp": "2026-08-06T08:03:00Z",
-                "message": {"model": "claude-opus-4-1"}
-            }),
-        ]
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-        fs::write(&transcript, lines).unwrap();
-        let summary = parse_transcript(AgentCliKind::ClaudeCode, &transcript, &root)
-            .unwrap()
-            .unwrap();
-        assert_eq!(summary.id, "session-1");
-        assert_eq!(summary.title, "修复历史会话");
-        assert_eq!(summary.preview.as_deref(), Some("first request"));
-        assert_eq!(summary.model.as_deref(), Some("claude-opus-4-1"));
-        assert_eq!(summary.models.len(), 2);
-        fs::remove_dir_all(root).unwrap();
-    }
-}
+mod tests;

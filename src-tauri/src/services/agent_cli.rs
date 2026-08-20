@@ -42,6 +42,12 @@ impl AgentCliDefinition {
                 .temporary_launch
                 .is_some_and(|adapter| adapter.supports_model_selection()),
             session_history: self.sessions.is_some(),
+            session_search: self
+                .sessions
+                .is_some_and(|adapter| adapter.supports_search()),
+            session_detail: self
+                .sessions
+                .is_some_and(|adapter| adapter.supports_detail()),
             session_resume: self
                 .temporary_launch
                 .is_some_and(|adapter| adapter.supports_session_resume()),
@@ -276,6 +282,12 @@ mod tests {
             collect_rust_sources(&directory, &mut sources);
             assert!(!sources.is_empty(), "missing Agent CLI module: {module}");
             for path in sources {
+                if path
+                    .components()
+                    .any(|component| component.as_os_str() == "tests.rs")
+                {
+                    continue;
+                }
                 let source = std::fs::read_to_string(&path)
                     .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
                 let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
@@ -315,6 +327,18 @@ mod tests {
             assert_eq!(
                 capabilities.session_history,
                 registered_definition.sessions.is_some()
+            );
+            assert_eq!(
+                capabilities.session_search,
+                registered_definition
+                    .sessions
+                    .is_some_and(|adapter| adapter.supports_detail())
+            );
+            assert_eq!(
+                capabilities.session_detail,
+                registered_definition
+                    .sessions
+                    .is_some_and(|adapter| adapter.supports_detail())
             );
             assert_eq!(
                 capabilities.session_resume,

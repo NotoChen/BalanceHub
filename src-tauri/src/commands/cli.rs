@@ -1,13 +1,19 @@
 use crate::{
     models::{
         AgentCliKind, CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult,
-        CliRuntimeSnapshot, CliSessionSummary, TemporaryCliInstance, TemporaryCliLaunchInput,
-        TemporaryCliLaunchPreview, TemporaryCliLaunchResult, TerminalEnvironmentProbeResult,
-        Workspace, WorkspaceDirectoryListing,
+        CliRuntimeSnapshot, CliSessionDetail, CliSessionIndexStatus, CliSessionSearchResponse,
+        TemporaryCliInstance, TemporaryCliLaunchInput, TemporaryCliLaunchPreview,
+        TemporaryCliLaunchResult, TerminalEnvironmentProbeResult, Workspace,
+        WorkspaceDirectoryListing,
     },
     services::{self, provider_service::ProviderService},
+    state::AppState,
 };
-use tauri::AppHandle;
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
+use tauri::{AppHandle, Manager};
 
 use super::run_blocking;
 
@@ -35,15 +41,114 @@ pub(crate) async fn preview_temporary_cli_launch(
     .await
 }
 
+const SESSION_SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
+const SESSION_DETAIL_TIMEOUT: Duration = Duration::from_secs(20);
+static SESSION_SEARCH_GENERATION: AtomicU64 = AtomicU64::new(0);
+
 #[tauri::command]
-pub(crate) async fn list_cli_sessions(
+pub(crate) async fn search_cli_sessions(
+    app: AppHandle,
     cli_kind: AgentCliKind,
     workdir: String,
-) -> Result<Vec<CliSessionSummary>, String> {
-    run_blocking("读取 CLI 历史会话", move || {
-        services::cli_sessions::list(cli_kind, std::path::Path::new(&workdir))
+    query: String,
+    limit: Option<usize>,
+    force_refresh: Option<bool>,
+) -> Result<CliSessionSearchResponse, String> {
+    let generation = SESSION_SEARCH_GENERATION
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1);
+    let settings = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .clone();
+    let task_app = app.clone();
+    let task = move || {
+        services::cli_sessions::search(
+            &task_app,
+            &settings,
+            cli_kind,
+            std::path::Path::new(&workdir),
+            services::cli_sessions::SearchOptions {
+                query: &query,
+                limit: limit.unwrap_or(50),
+                force_refresh: force_refresh.unwrap_or(false),
+            },
+            || SESSION_SEARCH_GENERATION.load(Ordering::Relaxed) == generation,
+        )
+    };
+    match tokio::time::timeout(
+        SESSION_SEARCH_TIMEOUT,
+        run_blocking("检索 CLI 历史会话", task),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            let _ = SESSION_SEARCH_GENERATION.compare_exchange(
+                generation,
+                generation.wrapping_add(1),
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
+            Err("检索 CLI 历史会话超时，请缩小搜索范围后重试".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn get_cli_session_index_status(
+    app: AppHandle,
+) -> Result<CliSessionIndexStatus, String> {
+    let settings = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .clone();
+    run_blocking("读取会话索引状态", move || {
+        let config = services::cli_sessions::index_config(&app, &settings)?;
+        services::cli_sessions::index_status(&config, settings.session_index_max_size_mib)
     })
     .await
+}
+
+#[tauri::command]
+pub(crate) async fn clear_cli_session_index(app: AppHandle) -> Result<(), String> {
+    let settings = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .clone();
+    run_blocking("清理会话索引", move || {
+        let config = services::cli_sessions::index_config(&app, &settings)?;
+        services::cli_sessions::clear_index(&config)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_cli_session_detail(
+    cli_kind: AgentCliKind,
+    workdir: String,
+    session_id: String,
+) -> Result<CliSessionDetail, String> {
+    match tokio::time::timeout(
+        SESSION_DETAIL_TIMEOUT,
+        run_blocking("读取 CLI 会话详情", move || {
+            services::cli_sessions::detail(cli_kind, std::path::Path::new(&workdir), &session_id)
+        }),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err("读取 CLI 会话详情超时，请稍后重试".to_string()),
+    }
 }
 
 #[tauri::command]

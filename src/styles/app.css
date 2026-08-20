@@ -7,6 +7,7 @@
 @import "./modules/temporary-cli.css";
 @import "./modules/site-announcements.css";
 @import "./modules/workspace-picker.css";
+@import "./modules/cli-session-detail.css";
 @import "./modules/temporary-cli-preview.css";
 @import "./modules/cli-config-preview.css";
 @import "./modules/agent-settings.css";
@@ -26,6 +27,7 @@
 @import "./modules/theme-dark/dense.css";
 @import "./modules/available-models.css";
 @import "./modules/api-key-modal.css";
+@import "./modules/provider-duplicate-modal.css";
 @import "./modules/capability-probe.css";
 @import "./modules/liveness-details.css";
 @import "./modules/checkin-calendar.css";

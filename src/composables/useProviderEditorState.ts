@@ -8,12 +8,14 @@ import type {
   ProviderSiteProbeResult,
 } from "../stores/providers";
 import { emptyDraft, providerToInput } from "../utils/provider-input";
+import { effectiveProviderApiKeyOptions } from "../utils/provider-api-key-options";
 import { normalizeProviderBaseUrl } from "./provider-editor-shared";
-import type { ProtocolSelectionSource } from "./provider-editor-shared";
+import type { ProtocolSelectionSource, ProviderEditorStep } from "./provider-editor-shared";
 
 export function useProviderEditorState() {
   const drawerVisible = ref(false);
   const editorSession = ref(0);
+  const editorInitialStep = ref<ProviderEditorStep>("basics");
   const editingProviderId = ref<string | null>(null);
   const completingCredentials = ref(false);
   const testingConnection = ref(false);
@@ -58,13 +60,15 @@ export function useProviderEditorState() {
 
   function openAddProvider() {
     editorSession.value += 1;
+    editorInitialStep.value = "basics";
     editingProviderId.value = null;
     resetDraft();
     drawerVisible.value = true;
   }
 
-  function openEditProvider(provider: Provider) {
+  function openEditProvider(provider: Provider, initialStep: ProviderEditorStep = "basics") {
     editorSession.value += 1;
+    editorInitialStep.value = initialStep;
     completingCredentials.value = false;
     testingConnection.value = false;
     probingSite.value = false;
@@ -84,24 +88,7 @@ export function useProviderEditorState() {
   }
 
   function setApiKeyOptions(options: ProviderApiKeyOption[]) {
-    const items = [...options];
-    if (
-      draftProvider.auth.apiKey.trim() &&
-      !items.some((option) => option.key.trim() === draftProvider.auth.apiKey.trim())
-    ) {
-      items.unshift(currentApiKeyOption(draftProvider.auth.apiKey.trim()));
-    }
-
-    const seen = new Set<string>();
-    apiKeyOptions.value = items.filter((option) => {
-      const key = option.key.trim();
-      const identity = option.tokenId.trim() || key || option.maskedKey.trim();
-      if (!identity || seen.has(identity)) {
-        return false;
-      }
-      seen.add(identity);
-      return true;
-    });
+    apiKeyOptions.value = effectiveProviderApiKeyOptions(draftProvider.auth.apiKey, options);
     draftProvider.auth.apiKeyOptions = [...apiKeyOptions.value];
     if (!draftProvider.auth.apiKeyTokenId.trim() && draftProvider.auth.apiKey.trim()) {
       draftProvider.auth.apiKeyTokenId =
@@ -109,36 +96,10 @@ export function useProviderEditorState() {
     }
   }
 
-  function currentApiKeyOption(key: string): ProviderApiKeyOption {
-    return {
-      name: "当前 API 密钥",
-      key,
-      maskedKey: "",
-      keyAvailable: Boolean(key.trim()),
-      tokenId: "",
-      userId: "",
-      status: "",
-      usedQuota: 0,
-      remainQuota: 0,
-      usedQuotaRaw: 0,
-      remainQuotaRaw: 0,
-      unlimitedQuota: false,
-      group: "",
-      crossGroupRetry: false,
-      modelLimitsEnabled: false,
-      modelLimits: [],
-      allowIps: [],
-      quotaDisplayType: "currency",
-      currencySymbol: "$",
-      createdTime: null,
-      accessedTime: null,
-      expiredTime: null,
-    };
-  }
-
   return {
     drawerVisible,
     editorSession,
+    editorInitialStep,
     editingProviderId,
     completingCredentials,
     testingConnection,

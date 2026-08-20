@@ -35,6 +35,7 @@ defineProps<{
   apiKeyManagerProvider: Provider | null;
   apiKeyManagerLoading: boolean;
   apiKeyManagerKeys: ProviderApiKeyOption[];
+  apiKeyRemoteManaged: boolean;
   availableModelsProvider: Provider | null;
   availableModelsLoading: boolean;
   usageProvider: Provider | null;
@@ -98,7 +99,12 @@ const emit = defineEmits<{
   completeOnboarding: [];
   refreshApiKeyManager: [];
   openApiKeyCreateModal: [];
+  openApiKeyAddModal: [];
+  openApiKeyRenameModal: [option: ProviderApiKeyOption];
   createManagedApiKey: [];
+  addLocalApiKey: [];
+  renameManagedApiKey: [];
+  setPrimaryManagedApiKey: [option: ProviderApiKeyOption];
   copyManagedApiKey: [option: ProviderApiKeyOption];
   deleteManagedApiKey: [option: ProviderApiKeyOption];
   refreshAvailableModels: [];
@@ -125,6 +131,11 @@ const emit = defineEmits<{
 const apiKeyManagerVisible = defineModel<boolean>("apiKeyManagerVisible", { required: true });
 const apiKeyCreateVisible = defineModel<boolean>("apiKeyCreateVisible", { required: true });
 const apiKeyCreateName = defineModel<string>("apiKeyCreateName", { required: true });
+const apiKeyAddVisible = defineModel<boolean>("apiKeyAddVisible", { required: true });
+const apiKeyAddName = defineModel<string>("apiKeyAddName", { required: true });
+const apiKeyAddValue = defineModel<string>("apiKeyAddValue", { required: true });
+const apiKeyRenameVisible = defineModel<boolean>("apiKeyRenameVisible", { required: true });
+const apiKeyRenameName = defineModel<string>("apiKeyRenameName", { required: true });
 const availableModelsVisible = defineModel<boolean>("availableModelsVisible", { required: true });
 const usageVisible = defineModel<boolean>("usageVisible", { required: true });
 const usagePeriod = defineModel<UsagePeriod>("usagePeriod", { required: true });
@@ -181,12 +192,23 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     v-model:visible="apiKeyManagerVisible"
     v-model:create-visible="apiKeyCreateVisible"
     v-model:create-name="apiKeyCreateName"
+    v-model:add-visible="apiKeyAddVisible"
+    v-model:add-name="apiKeyAddName"
+    v-model:add-value="apiKeyAddValue"
+    v-model:rename-visible="apiKeyRenameVisible"
+    v-model:rename-name="apiKeyRenameName"
     :provider="apiKeyManagerProvider"
     :loading="apiKeyManagerLoading"
     :keys="apiKeyManagerKeys"
+    :remote-managed="apiKeyRemoteManaged"
     @refresh="emit('refreshApiKeyManager')"
     @show-create="emit('openApiKeyCreateModal')"
+    @show-add="emit('openApiKeyAddModal')"
+    @show-rename="emit('openApiKeyRenameModal', $event)"
     @create="emit('createManagedApiKey')"
+    @add-local="emit('addLocalApiKey')"
+    @rename="emit('renameManagedApiKey')"
+    @set-primary="emit('setPrimaryManagedApiKey', $event)"
     @copy="emit('copyManagedApiKey', $event)"
     @delete="emit('deleteManagedApiKey', $event)"
   />

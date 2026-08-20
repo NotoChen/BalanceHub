@@ -10,8 +10,8 @@ use crate::{
     adapters::transport::{build_client, ProviderTransport, USER_AGENT_VALUE},
     limits,
     models::{
-        AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCapabilities,
-        ProviderConnectionTestResult, ProviderConnectionTestStep,
+        is_full_api_key_value, AppSettings, AuthMode, Provider, ProviderApiKeyOption,
+        ProviderCapabilities, ProviderConnectionTestResult, ProviderConnectionTestStep,
         ProviderCredentialCompletionResult, ProviderCredentialCompletionStep, ProviderInput,
         ProviderQuotaDisplay, ProviderQuotaScope, ProviderSiteProbeResult, ProviderStatus,
     },
@@ -33,7 +33,8 @@ impl ApiAdapter {
         }
 
         let key = input.auth.api_key.trim().to_string();
-        let options = if key.is_empty() {
+        let key_available = is_full_api_key_value(&key);
+        let options = if !key_available {
             Vec::new()
         } else {
             vec![ProviderApiKeyOption::current_for_protocol(
@@ -46,9 +47,11 @@ impl ApiAdapter {
             changed_fields: Vec::new(),
             steps: vec![ProviderCredentialCompletionStep {
                 name: "API Key".to_string(),
-                ok: !key.is_empty(),
+                ok: key_available,
                 message: if key.is_empty() {
                     "请填写 API Key；通用协议不提供账号管理或自动创建密钥".to_string()
+                } else if !key_available {
+                    "请填写完整 API Key，脱敏值不能用于模型调用".to_string()
                 } else {
                     "已保留 API Key，可直接调用通用 OpenAI 兼容接口".to_string()
                 },
@@ -71,7 +74,7 @@ impl ApiAdapter {
                 "通用 API 协议只支持 API Key 认证".to_string(),
             ));
         }
-        if provider.auth.api_key.trim().is_empty() {
+        if !is_full_api_key_value(&provider.auth.api_key) {
             return Ok(connection_failure("缺少 API Key，无法测试连接".to_string()));
         }
 

@@ -2,8 +2,8 @@ use crate::{
     adapters::protocol::ProtocolAdapter,
     limits,
     models::{
-        normalize_api_key_for_protocol, Provider, ProviderApiKeyOption, ProviderAuth,
-        ProviderInput, ProviderProtocol,
+        is_full_api_key_value, normalize_api_key_for_protocol, Provider, ProviderApiKeyOption,
+        ProviderAuth, ProviderInput, ProviderProtocol,
     },
     util::unix_millis as current_timestamp_millis,
 };
@@ -12,6 +12,82 @@ use tauri::Manager;
 use super::{find_provider, MutationDecision, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
+    pub fn local_api_keys(&self, id: String) -> Result<Vec<ProviderApiKeyOption>, String> {
+        let data = self.snapshot();
+        let provider = find_provider(&data, &id)?;
+        Ok(provider.auth.api_key_options)
+    }
+
+    pub fn add_local_api_key(
+        &self,
+        id: String,
+        key: String,
+        name: String,
+    ) -> Result<Provider, String> {
+        let provider_id = id.clone();
+        self.mutate_decided(|data| {
+            let provider = data
+                .providers
+                .iter_mut()
+                .find(|provider| provider.identity.id == provider_id)
+                .ok_or_else(|| "中转站不存在".to_string())?;
+            provider.add_named_api_key(&key, &name)?;
+            Ok(MutationDecision::changed(()))
+        })?;
+        find_provider(&self.snapshot(), &id)
+    }
+
+    pub fn rename_local_api_key(
+        &self,
+        id: String,
+        local_id: String,
+        name: String,
+    ) -> Result<Provider, String> {
+        let provider_id = id.clone();
+        self.mutate_decided(|data| {
+            let provider = data
+                .providers
+                .iter_mut()
+                .find(|provider| provider.identity.id == provider_id)
+                .ok_or_else(|| "中转站不存在".to_string())?;
+            provider.rename_api_key(&local_id, &name)?;
+            Ok(MutationDecision::changed(()))
+        })?;
+        find_provider(&self.snapshot(), &id)
+    }
+
+    pub fn set_primary_local_api_key(
+        &self,
+        id: String,
+        local_id: String,
+    ) -> Result<Provider, String> {
+        let provider_id = id.clone();
+        self.mutate_decided(|data| {
+            let provider = data
+                .providers
+                .iter_mut()
+                .find(|provider| provider.identity.id == provider_id)
+                .ok_or_else(|| "中转站不存在".to_string())?;
+            provider.set_primary_api_key(&local_id)?;
+            Ok(MutationDecision::changed(()))
+        })?;
+        find_provider(&self.snapshot(), &id)
+    }
+
+    pub fn remove_local_api_key(&self, id: String, local_id: String) -> Result<Provider, String> {
+        let provider_id = id.clone();
+        self.mutate_decided(|data| {
+            let provider = data
+                .providers
+                .iter_mut()
+                .find(|provider| provider.identity.id == provider_id)
+                .ok_or_else(|| "中转站不存在".to_string())?;
+            provider.remove_local_api_key(&local_id)?;
+            Ok(MutationDecision::changed(()))
+        })?;
+        find_provider(&self.snapshot(), &id)
+    }
+
     pub async fn list_api_keys(&self, id: String) -> Result<Vec<ProviderApiKeyOption>, String> {
         let state = self.app.state::<crate::state::AppState>();
         let _network_gate = state.refresh_gate.lock().await;
@@ -31,7 +107,8 @@ impl<'a> ProviderService<'a> {
             .unwrap_or(request_context);
         self.persist_api_key_options(&options_context, &options, None)
             .await?;
-        Ok(options)
+        let data = self.snapshot_async().await?;
+        Ok(find_provider(&data, &id)?.auth.api_key_options)
     }
 
     pub async fn create_api_key(
@@ -67,7 +144,8 @@ impl<'a> ProviderService<'a> {
         let options = listed.value;
         self.persist_api_key_options(&options_context, &options, None)
             .await?;
-        Ok(options)
+        let data = self.snapshot_async().await?;
+        Ok(find_provider(&data, &id)?.auth.api_key_options)
     }
 
     pub async fn create_api_key_for_input(
@@ -122,7 +200,8 @@ impl<'a> ProviderService<'a> {
         let options = listed.value;
         self.persist_api_key_options(&options_context, &options, Some(&token_id))
             .await?;
-        Ok(options)
+        let data = self.snapshot_async().await?;
+        Ok(find_provider(&data, &id)?.auth.api_key_options)
     }
 
     async fn persist_api_key_options(
@@ -187,6 +266,42 @@ fn sync_api_key_options(
         .map(|option| option.normalize_for_protocol(protocol))
         .collect::<Vec<_>>();
     ProviderApiKeyOption::merge_cached_key_material(&mut cached, &previous_options, protocol);
+
+    // Remote list endpoints do not know about manually stored keys. Preserve
+    // those entries across every metadata refresh instead of making them
+    // disappear from the local vault.
+    for previous in previous_options.iter().filter(|option| {
+        option.token_id.trim().is_empty()
+            && option.key_available
+            && is_full_api_key_value(&option.key)
+    }) {
+        let exists = cached.iter().any(|option| {
+            (!previous.local_id.is_empty() && option.local_id == previous.local_id)
+                || option.key == previous.key
+        });
+        if !exists {
+            cached.push(previous.clone().normalize_for_protocol(protocol));
+        }
+    }
+
+    for option in &mut cached {
+        if let Some(previous) = previous_options.iter().find(|candidate| {
+            (!option.local_id.is_empty()
+                && !candidate.local_id.is_empty()
+                && option.local_id == candidate.local_id)
+                || (!option.token_id.is_empty()
+                    && !candidate.token_id.is_empty()
+                    && option.token_id == candidate.token_id)
+                || (!option.key.is_empty() && option.key == candidate.key)
+        }) {
+            if !previous.local_id.is_empty() {
+                option.local_id = previous.local_id.clone();
+            }
+            if option.local_name.is_empty() {
+                option.local_name = previous.local_name.clone();
+            }
+        }
+    }
 
     let selected = cached
         .iter()
@@ -343,6 +458,51 @@ mod tests {
         assert_eq!(auth.api_key_options[0].remain_quota, 42.0);
         assert_eq!(auth.api_key_options[0].key, "sk-secret");
         assert!(auth.api_key_options[0].key_available);
+    }
+
+    #[test]
+    fn sync_preserves_local_identity_and_name_when_remote_token_id_changes() {
+        let mut auth = ProviderInput::default().auth;
+        let mut cached = option(
+            ProviderProtocol::NewApi,
+            "old-token-id",
+            "sk-stable-secret",
+            "Remote name",
+        )
+        .normalize_for_protocol(ProviderProtocol::NewApi);
+        cached.local_name = "我的备用 Key".to_string();
+        let stable_local_id = cached.local_id.clone();
+        let masked_key = cached.masked_key.clone();
+        auth.api_key = cached.key.clone();
+        auth.api_key_token_id = cached.token_id.clone();
+        auth.api_key_options = vec![cached];
+
+        let remote = ProviderApiKeyOption {
+            name: "Remote name".to_string(),
+            masked_key,
+            token_id: "new-token-id".to_string(),
+            remain_quota: 84.0,
+            ..ProviderApiKeyOption::default()
+        }
+        .normalize_for_protocol(ProviderProtocol::NewApi);
+
+        sync_api_key_options(
+            &mut auth,
+            ProviderProtocol::NewApi,
+            std::slice::from_ref(&remote),
+            None,
+        );
+
+        let refreshed = auth
+            .api_key_options
+            .iter()
+            .find(|option| option.token_id == "new-token-id")
+            .expect("refreshed key should be present");
+        assert_eq!(refreshed.local_id, stable_local_id);
+        assert_eq!(refreshed.local_name, "我的备用 Key");
+        assert_eq!(refreshed.key, "sk-stable-secret");
+        assert!(refreshed.key_available);
+        assert_eq!(refreshed.remain_quota, 84.0);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use super::{
     AgentCliKind, Provider, ProviderInput, ProviderProtocol, ProviderQuotaDisplay,
@@ -38,6 +39,8 @@ pub struct ProviderSaveOptions {
     pub overwrite_provider_id: Option<String>,
     /// 将 API Key 追加到重复校验返回的已有中转站卡片。
     pub merge_api_key_into_provider_id: Option<String>,
+    /// 在前一次同 URL、不同 API Key 冲突的卡片旁创建独立卡片。
+    pub create_separate_from_provider_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,6 +68,12 @@ pub struct ProviderRemovalResult {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderApiKeyOption {
+    /// 本机密钥库中的稳定标识。只用于选择和本地操作，不作为远程 token ID。
+    #[serde(default)]
+    pub local_id: String,
+    /// 用户在 BalanceHub 中设置的名称，优先于站点返回的远程名称展示。
+    #[serde(default)]
+    pub local_name: String,
     pub name: String,
     pub key: String,
     pub masked_key: String,
@@ -99,13 +108,14 @@ impl ProviderApiKeyOption {
         Self {
             name: "当前 API Key".to_string(),
             masked_key: mask_api_key(&key),
-            key_available: !key.is_empty() && !key.contains('*'),
+            key_available: is_full_api_key_value(&key),
             key,
             status: "1".to_string(),
             quota_display_type: "currency".to_string(),
             currency_symbol: "$".to_string(),
             ..Self::default()
         }
+        .normalize_for_protocol(protocol)
     }
 
     pub fn normalize(self) -> Self {
@@ -114,12 +124,14 @@ impl ProviderApiKeyOption {
 
     pub fn normalize_for_protocol(mut self, protocol: ProviderProtocol) -> Self {
         self.key = super::normalize_api_key_for_protocol(&self.key, protocol);
+        self.local_id = self.local_id.trim().to_string();
+        self.local_name = self.local_name.trim().to_string();
         self.masked_key = self.masked_key.trim().to_string();
         self.status = self.status.trim().to_string();
         if self.masked_key.is_empty() && !self.key.is_empty() {
             self.masked_key = mask_api_key(&self.key);
         }
-        self.key_available = !self.key.is_empty() && !self.key.contains('*');
+        self.key_available = is_full_api_key_value(&self.key);
         self.name = self.name.trim().to_string();
         self.token_id = self.token_id.trim().to_string();
         self.user_id = self.user_id.trim().to_string();
@@ -131,6 +143,10 @@ impl ProviderApiKeyOption {
         }
         if self.currency_symbol.trim().is_empty() {
             self.currency_symbol = "$".to_string();
+        }
+        if self.local_id.is_empty() {
+            self.local_id =
+                provider_api_key_local_id(protocol, &self.token_id, &self.key, &self.masked_key);
         }
         self
     }
@@ -146,22 +162,35 @@ impl ProviderApiKeyOption {
         protocol: ProviderProtocol,
     ) {
         for option in options.iter_mut() {
+            option.key_available = is_full_api_key_value(&option.key);
             if option.key_available {
                 continue;
             }
             let Some(previous) = cached.iter().find(|candidate| {
-                (!option.token_id.is_empty()
-                    && !candidate.token_id.is_empty()
-                    && option.token_id == candidate.token_id)
-                    || (option.token_id.is_empty()
-                        && candidate.token_id.is_empty()
-                        && !option.masked_key.is_empty()
-                        && option.masked_key == candidate.masked_key)
+                (!option.local_id.is_empty()
+                    && !candidate.local_id.is_empty()
+                    && option.local_id == candidate.local_id)
+                    || (!option.token_id.is_empty()
+                        && !candidate.token_id.is_empty()
+                        && option.token_id == candidate.token_id)
+                    || (!option.key.is_empty()
+                        && !candidate.key.is_empty()
+                        && option.key == candidate.key)
+                    || same_masked_key_identity(option, candidate)
             }) else {
                 continue;
             };
+            // A remote refresh may discover a token id for a key that was
+            // originally added locally. Keep the persisted local identity so
+            // UI selections and temporary CLI preferences do not drift.
+            if !previous.local_id.is_empty() {
+                option.local_id = previous.local_id.clone();
+            }
+            if option.local_name.is_empty() {
+                option.local_name = previous.local_name.clone();
+            }
             let key = super::normalize_api_key_for_protocol(&previous.key, protocol);
-            if key.is_empty() || key.contains('*') {
+            if !is_full_api_key_value(&key) {
                 continue;
             }
             option.key = key;
@@ -175,6 +204,61 @@ impl ProviderApiKeyOption {
             }
         }
     }
+}
+
+fn same_masked_key_identity(
+    option: &ProviderApiKeyOption,
+    candidate: &ProviderApiKeyOption,
+) -> bool {
+    if option.masked_key.is_empty() || option.masked_key != candidate.masked_key {
+        return false;
+    }
+
+    // A masked key is useful as a refresh bridge when a deployment rotates its
+    // token identifier, but it must not collapse unrelated entries that happen
+    // to share the same short mask. Prefer another stable piece of remote
+    // metadata when both sides provide one.
+    let same_user = !option.user_id.is_empty()
+        && !candidate.user_id.is_empty()
+        && option.user_id == candidate.user_id;
+    let same_name =
+        !option.name.is_empty() && !candidate.name.is_empty() && option.name == candidate.name;
+    same_user || same_name || option.token_id.is_empty() || candidate.token_id.is_empty()
+}
+
+/// Return whether a value contains a complete API key rather than an empty or
+/// server-redacted placeholder. This is deliberately kept in the model layer
+/// so credential selection, network probes, and temporary CLI launches share
+/// one safety rule instead of trusting a stale `key_available` flag.
+pub(crate) fn is_full_api_key_value(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && !value.contains('*')
+}
+
+pub(crate) fn provider_api_key_local_id(
+    protocol: ProviderProtocol,
+    token_id: &str,
+    key: &str,
+    masked_key: &str,
+) -> String {
+    let token_id = token_id.trim();
+    let key = key.trim();
+    let masked_key = masked_key.trim();
+    let identity = if !key.is_empty() {
+        format!("key:{key}")
+    } else if !token_id.is_empty() {
+        format!("token:{token_id}")
+    } else if !masked_key.is_empty() {
+        format!("masked:{masked_key}")
+    } else {
+        return String::new();
+    };
+    let digest = Sha256::digest(format!("{}|{identity}", protocol.key()).as_bytes());
+    let suffix = digest[..12]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("key-{suffix}")
 }
 
 fn normalize_string_list(values: Vec<String>) -> Vec<String> {
@@ -685,8 +769,53 @@ pub struct TemporaryCliLaunchResult {
 }
 
 #[cfg(test)]
-mod batch_operation_tests {
+mod tests {
     use super::*;
+
+    #[test]
+    fn full_key_local_id_does_not_depend_on_remote_token_id() {
+        let first = ProviderApiKeyOption {
+            key: "sk-stable-secret".to_string(),
+            token_id: "old-token-id".to_string(),
+            ..ProviderApiKeyOption::default()
+        }
+        .normalize_for_protocol(ProviderProtocol::NewApi);
+        let refreshed = ProviderApiKeyOption {
+            key: "sk-stable-secret".to_string(),
+            token_id: "new-token-id".to_string(),
+            ..ProviderApiKeyOption::default()
+        }
+        .normalize_for_protocol(ProviderProtocol::NewApi);
+
+        assert_eq!(first.local_id, refreshed.local_id);
+    }
+
+    #[test]
+    fn cached_key_merge_keeps_local_identity_and_name_after_remote_refresh() {
+        let mut cached = ProviderApiKeyOption::current("sk-stable-secret");
+        cached.token_id = "old-token-id".to_string();
+        cached.name = "Remote name".to_string();
+        cached.local_name = "我的备用 Key".to_string();
+        let stable_local_id = cached.local_id.clone();
+        let mut refreshed = vec![ProviderApiKeyOption {
+            name: cached.name.clone(),
+            masked_key: cached.masked_key.clone(),
+            token_id: "new-token-id".to_string(),
+            ..ProviderApiKeyOption::default()
+        }
+        .normalize_for_protocol(ProviderProtocol::NewApi)];
+
+        ProviderApiKeyOption::merge_cached_key_material(
+            &mut refreshed,
+            &[cached],
+            ProviderProtocol::NewApi,
+        );
+
+        assert_eq!(refreshed[0].local_id, stable_local_id);
+        assert_eq!(refreshed[0].local_name, "我的备用 Key");
+        assert_eq!(refreshed[0].key, "sk-stable-secret");
+        assert!(refreshed[0].key_available);
+    }
 
     #[test]
     fn batch_progress_event_uses_frontend_event_names() {

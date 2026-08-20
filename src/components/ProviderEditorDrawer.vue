@@ -22,16 +22,19 @@ import type {
   ProviderSiteProbeResult,
 } from "../stores/providers";
 import { providerAuthModeDescriptor } from "../utils/provider-protocol";
-import type { ProtocolSelectionSource } from "../composables/provider-editor-shared";
+import type {
+  ProtocolSelectionSource,
+  ProviderEditorStep,
+} from "../composables/provider-editor-shared";
 import type {
   CredentialCompletionState,
   CredentialCompletionStep,
 } from "../composables/useProviderCredentialCompletion";
 
-type EditorStep = "basics" | "credentials" | "advanced";
-
 const props = defineProps<{
   visible: boolean;
+  editorSession: number;
+  initialStep: ProviderEditorStep;
   title: string;
   draft: ProviderInput;
   providerProtocols: ProviderProtocolDescriptor[];
@@ -63,9 +66,9 @@ const emit = defineEmits<{
   save: [];
 }>();
 
-const activeStep = ref<EditorStep>("basics");
+const activeStep = ref<ProviderEditorStep>("basics");
 
-const steps: Record<EditorStep, { label: string; icon: typeof IconCloud }> = {
+const steps: Record<ProviderEditorStep, { label: string; icon: typeof IconCloud }> = {
   basics: { label: "基础信息", icon: IconCloud },
   credentials: { label: "认证凭据", icon: IconLock },
   advanced: { label: "运行策略", icon: IconTool },
@@ -73,7 +76,7 @@ const steps: Record<EditorStep, { label: string; icon: typeof IconCloud }> = {
 
 const activeStepMeta = computed(() => steps[activeStep.value]);
 const activeStepIndex = computed(() => Object.keys(steps).indexOf(activeStep.value) + 1);
-const stepKeys = Object.keys(steps) as EditorStep[];
+const stepKeys = Object.keys(steps) as ProviderEditorStep[];
 
 const authLabel = computed(() =>
   providerAuthModeDescriptor(
@@ -110,11 +113,11 @@ const connectionReady = computed(() =>
   Boolean(props.draft.identity.baseUrl.trim()) && credentialReady.value,
 );
 
-function selectStep(step: EditorStep) {
+function selectStep(step: ProviderEditorStep) {
   activeStep.value = step;
 }
 
-function stepComplete(step: EditorStep) {
+function stepComplete(step: ProviderEditorStep) {
   if (step === "basics") return Boolean(props.draft.identity.baseUrl.trim());
   if (step === "credentials") return credentialReady.value;
   return true;
@@ -131,10 +134,10 @@ function goNext() {
 }
 
 watch(
-  () => props.visible,
-  (visible) => {
+  () => [props.visible, props.editorSession, props.initialStep] as const,
+  ([visible]) => {
     if (visible) {
-      activeStep.value = "basics";
+      activeStep.value = props.initialStep;
     }
   },
 );
@@ -167,13 +170,13 @@ watch(
             :key="key"
             type="button"
             class="provider-editor-step-tab"
-            :class="{ active: activeStep === key, complete: stepComplete(key as EditorStep) }"
+            :class="{ active: activeStep === key, complete: stepComplete(key as ProviderEditorStep) }"
             :aria-current="activeStep === key ? 'step' : undefined"
-            @click="selectStep(key as EditorStep)"
+            @click="selectStep(key as ProviderEditorStep)"
           >
             <span class="provider-editor-step-tab-icon"><component :is="step.icon" /></span>
             <span class="provider-editor-step-tab-copy"><strong>{{ step.label }}</strong></span>
-            <IconCheckCircle v-if="stepComplete(key as EditorStep)" class="provider-editor-step-tab-complete" />
+            <IconCheckCircle v-if="stepComplete(key as ProviderEditorStep)" class="provider-editor-step-tab-complete" />
           </button>
         </nav>
       </aside>

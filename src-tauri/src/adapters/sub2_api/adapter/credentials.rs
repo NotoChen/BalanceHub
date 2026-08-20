@@ -5,8 +5,9 @@ use crate::{
         transport::build_client,
     },
     models::{
-        AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCredentialCompletionResult,
-        ProviderCredentialCompletionStep, ProviderInput, ProviderProtocol,
+        is_full_api_key_value, AppSettings, AuthMode, Provider, ProviderApiKeyOption,
+        ProviderCredentialCompletionResult, ProviderCredentialCompletionStep, ProviderInput,
+        ProviderProtocol,
     },
 };
 
@@ -24,7 +25,8 @@ impl Sub2ApiAdapter {
             );
         }
         if matches!(updated.auth.mode, AuthMode::ApiKey) {
-            let key_available = !updated.auth.api_key.trim().is_empty();
+            let key_available = is_full_api_key_value(&updated.auth.api_key);
+            let key_redacted = updated.auth.api_key.trim().contains('*');
             return Ok(ProviderCredentialCompletionResult {
                 api_key_options: if !key_available {
                     Vec::new()
@@ -41,6 +43,8 @@ impl Sub2ApiAdapter {
                     key_available,
                     if key_available {
                         "API Key 仅用于调用模型，不具备账号管理权限"
+                    } else if key_redacted {
+                        "请填写完整 API Key，脱敏值不能用于模型调用"
                     } else {
                         "请填写 API Key"
                     },

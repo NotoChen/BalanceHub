@@ -1,13 +1,19 @@
 import { Message } from "@arco-design/web-vue";
 import type { Provider, ProviderInput } from "../stores/providers";
 import { copyText } from "./useClipboard";
-import { normalizeProviderBaseUrl, type ProviderEditorStore } from "./provider-editor-shared";
+import {
+  normalizeProviderBaseUrl,
+  providerDuplicateSaveResolution,
+  type ProviderEditorStep,
+  type ProviderSaveCompletion,
+  type ProviderEditorStore,
+} from "./provider-editor-shared";
 import { useProviderConnectionTest } from "./useProviderConnectionTest";
 import { useProviderCredentialCompletion } from "./useProviderCredentialCompletion";
 import { useProviderEditorState } from "./useProviderEditorState";
 import { normalizeLivenessTiming } from "../utils/liveness-defaults";
 import { providerToInput } from "../utils/provider-input";
-import { confirmAction } from "./provider-credential-dialogs";
+import { chooseSameSiteApiKeyAction, confirmAction } from "./provider-credential-dialogs";
 import type { ProviderSaveOptions } from "../stores/provider-types";
 
 interface UseProviderEditorOptions {
@@ -76,8 +82,8 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     credentialAssistant.resetCredentialAssistant();
   }
 
-  function openEditProvider(provider: Provider) {
-    state.openEditProvider(provider);
+  function openEditProvider(provider: Provider, initialStep: ProviderEditorStep = "basics") {
+    state.openEditProvider(provider, initialStep);
     credentialAssistant.resetCredentialAssistant();
   }
 
@@ -129,6 +135,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
   async function saveDraftAndFindProvider(
     isCurrent: () => boolean = () => true,
     saveOptions: ProviderSaveOptions = {},
+    completion: ProviderSaveCompletion = "standard",
   ) {
     const input = currentProviderInput();
     const result = await options.store.saveProvider(input, saveOptions);
@@ -137,18 +144,23 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
       if (!conflict || !isCurrent()) {
         return undefined;
       }
-      const confirmed = await confirmDuplicateConflict(conflict.kind, conflict.existingProviderName);
-      if (!confirmed || !isCurrent()) {
+      const decision = await resolveDuplicateConflict(conflict.kind, conflict.existingProviderName);
+      if (decision === "cancel" || !isCurrent()) {
         return undefined;
       }
-      const retryOptions: ProviderSaveOptions = conflict.kind === "sameUrlDifferentApiKey"
-        ? { mergeApiKeyIntoProviderId: conflict.existingProviderId }
-        : { overwriteProviderId: conflict.existingProviderId };
-      return saveDraftAndFindProvider(isCurrent, retryOptions);
+      const resolution = providerDuplicateSaveResolution(conflict, decision);
+      if (!resolution) return undefined;
+      return saveDraftAndFindProvider(isCurrent, resolution.options, resolution.completion);
     }
 
     const savedProvider = result.provider ?? undefined;
     if (savedProvider && isCurrent()) {
+      if (completion === "mergedApiKey") {
+        openEditProvider(savedProvider, "credentials");
+        refreshAfterSave(savedProvider);
+        Message.success(`API Key 已加入“${savedProvider.identity.name}”的认证凭据`);
+        return undefined;
+      }
       editingProviderId.value = savedProvider.identity.id;
       siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(savedProvider.identity.baseUrl);
       return savedProvider;
@@ -156,32 +168,29 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     return undefined;
   }
 
-  function confirmDuplicateConflict(
+  async function resolveDuplicateConflict(
     kind: "sameAccount" | "sameApiKey" | "sameUrlDifferentApiKey",
     existingName: string,
   ) {
     if (kind === "sameUrlDifferentApiKey") {
-      return confirmAction(
-        "站点已有中转站配置",
-        `检测到同一站点已有“${existingName}”。是否将当前 API Key 添加到该中转站，而不是创建新的卡片？`,
-        "添加 API Key",
-        "normal",
-      );
+      return chooseSameSiteApiKeyAction(existingName);
     }
     if (kind === "sameApiKey") {
-      return confirmAction(
+      const confirmed = await confirmAction(
         "API Key 已存在",
         `“${existingName}”已经保存了相同的 API Key。是否覆盖已有中转站配置？`,
         "覆盖配置",
         "warning",
       );
+      return confirmed ? "overwrite" : "cancel";
     }
-    return confirmAction(
+    const confirmed = await confirmAction(
       "账号已存在",
       `检测到“${existingName}”是同一站点的同一账号。是否覆盖已有中转站配置？`,
       "覆盖配置",
       "warning",
     );
+    return confirmed ? "overwrite" : "cancel";
   }
 
   function currentProviderInput(): ProviderInput {

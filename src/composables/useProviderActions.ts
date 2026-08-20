@@ -2,7 +2,7 @@ import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import { openCcSwitchDeeplink } from "../api/app";
 import type { AgentCliKind, Provider } from "../stores/providers";
-import { supportsApiKeyManagement } from "../utils/provider-actions";
+import { hasUsableProviderApiKey } from "../utils/provider-api-key-options";
 import { useProviderCopyActions } from "./useProviderCopyActions";
 import {
   buildCcSwitchProviderDeeplink,
@@ -77,7 +77,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
       Message.warning("临时启动 CLI 需要中转站地址");
       return;
     }
-    if (!provider.auth.apiKey.trim() && !supportsApiKeyManagement(provider)) {
+    if (!hasUsableProviderApiKey(provider.auth.apiKey, provider.auth.apiKeyOptions)) {
       Message.warning("临时启动 CLI 需要可用的 API Key");
       return;
     }

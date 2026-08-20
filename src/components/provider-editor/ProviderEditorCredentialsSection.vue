@@ -10,6 +10,7 @@ import type {
 import { providerProtocolDescriptor } from "../../utils/provider-protocol";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import ProviderCredentialFields from "./ProviderCredentialFields.vue";
+import ProviderApiKeyPicker from "./ProviderApiKeyPicker.vue";
 
 const props = defineProps<{
   draft: ProviderInput;
@@ -173,6 +174,30 @@ function activeLabel() {
       </div>
     </section>
 
+    <section v-if="apiKeyOptions.length > 0" class="provider-form-block provider-api-key-vault-block">
+      <header class="provider-form-block-header provider-api-key-vault-heading">
+        <span class="provider-form-block-icon provider-form-block-icon-auth">
+          <ProviderAuthIcon mode="apiKey" :protocol="draft.identity.protocol" :size="18" :decorative="true" />
+        </span>
+        <div><strong>API Key 密钥库</strong></div>
+        <span class="provider-form-block-meta">{{ apiKeyOptions.length }} 个已保存</span>
+      </header>
+      <div class="provider-form-block-body provider-api-key-vault-body">
+        <p class="provider-credential-inline-note provider-field-wide">
+          这些 Key 都属于当前中转站卡片。选择其中一个后，会将它设为主 Key。
+        </p>
+        <ProviderApiKeyPicker
+          class="provider-field-wide"
+          :options="apiKeyOptions"
+          :current-key="draft.auth.apiKey"
+          :current-token-id="draft.auth.apiKeyTokenId"
+          :remote-managed="currentProtocol?.capabilities.apiKeyManagement ?? false"
+          :selectable="true"
+          @select="emit('select-api-key', $event)"
+        />
+      </div>
+    </section>
+
     <section class="provider-form-block provider-credential-active-panel">
       <header class="provider-form-block-header provider-credential-active-heading">
         <span class="provider-form-block-icon provider-form-block-icon-auth">
@@ -183,14 +208,10 @@ function activeLabel() {
       </header>
       <div class="provider-form-block-body provider-field-grid">
         <ProviderCredentialFields
-          :mode="draft.auth.mode"
           :fields="activeFields"
           :required-fields="currentAuthMode?.requiredFields ?? []"
           :draft="draft"
-          :api-key-options="apiKeyOptions"
-          :remote-managed="currentProtocol?.capabilities.apiKeyManagement ?? false"
           @copy-api-key="emit('copy-api-key')"
-          @select-api-key="emit('select-api-key', $event)"
           @update-field="updateField"
         />
         <p v-if="currentAuthMode?.note" class="provider-credential-inline-note provider-field-wide">
@@ -228,14 +249,10 @@ function activeLabel() {
 
           <div class="provider-credential-stage-fields provider-field-grid">
             <ProviderCredentialFields
-              :mode="mode.mode"
               :fields="mode.fields"
               :required-fields="mode.requiredFields"
               :draft="draft"
-              :api-key-options="apiKeyOptions"
-              :remote-managed="currentProtocol?.capabilities.apiKeyManagement ?? false"
               @copy-api-key="emit('copy-api-key')"
-              @select-api-key="emit('select-api-key', $event)"
               @update-field="updateField"
             />
             <p v-if="mode.note" class="provider-credential-inline-note provider-field-wide">

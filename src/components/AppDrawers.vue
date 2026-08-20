@@ -14,7 +14,10 @@ import type {
   CredentialCompletionState,
   CredentialCompletionStep,
 } from "../composables/useProviderCredentialCompletion";
-import type { ProtocolSelectionSource } from "../composables/provider-editor-shared";
+import type {
+  ProtocolSelectionSource,
+  ProviderEditorStep,
+} from "../composables/provider-editor-shared";
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { DurationUnit } from "../utils/duration";
 
@@ -28,6 +31,8 @@ defineProps<{
   appVersion: string;
   checkingForUpdate: boolean;
   providerEditorTitle: string;
+  providerEditorSession: number;
+  providerEditorInitialStep: ProviderEditorStep;
   draftProvider: ProviderInput;
   providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderApiKeyOption[];
@@ -88,6 +93,8 @@ const providerEditorVisible = defineModel<boolean>("providerEditorVisible", { re
   <ProviderEditorDrawer
     v-model:visible="providerEditorVisible"
     :title="providerEditorTitle"
+    :editor-session="providerEditorSession"
+    :initial-step="providerEditorInitialStep"
     :draft="draftProvider"
     :provider-protocols="providerProtocols"
     :api-key-options="apiKeyOptions"

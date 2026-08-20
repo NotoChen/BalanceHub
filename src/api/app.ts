@@ -4,7 +4,9 @@ import type {
   CliConfigPreview,
   CliConfigFile,
   CliRuntimeSnapshot,
-  CliSessionSummary,
+  CliSessionDetail,
+  CliSessionIndexStatus,
+  CliSessionSearchResponse,
   CliEnvironmentProbeResult,
   TerminalEnvironmentProbeResult,
   ProviderModelSyncResult,
@@ -200,8 +202,40 @@ export function previewTemporaryCliLaunch(input: TemporaryCliLaunchInput) {
   return invoke<TemporaryCliLaunchPreview>("preview_temporary_cli_launch", { input });
 }
 
-export function listCliSessions(cliKind: AgentCliKind, workdir: string) {
-  return invoke<CliSessionSummary[]>("list_cli_sessions", { cliKind, workdir });
+export function searchCliSessions(
+  cliKind: AgentCliKind,
+  workdir: string,
+  query: string,
+  limit = 50,
+  forceRefresh = false,
+) {
+  return invoke<CliSessionSearchResponse>("search_cli_sessions", {
+    cliKind,
+    workdir,
+    query,
+    limit,
+    forceRefresh,
+  });
+}
+
+export function getCliSessionIndexStatus() {
+  return invoke<CliSessionIndexStatus>("get_cli_session_index_status");
+}
+
+export function clearCliSessionIndex() {
+  return invoke<void>("clear_cli_session_index");
+}
+
+export function getCliSessionDetail(
+  cliKind: AgentCliKind,
+  workdir: string,
+  sessionId: string,
+) {
+  return invoke<CliSessionDetail>("get_cli_session_detail", {
+    cliKind,
+    workdir,
+    sessionId,
+  });
 }
 
 export function getCliRuntimeSnapshot() {
@@ -247,6 +281,26 @@ export function syncAvailableModels(id: string) {
 
 export function listProviderApiKeys(id: string) {
   return invoke<ProviderApiKeyOption[]>("list_provider_api_keys", { id });
+}
+
+export function listLocalProviderApiKeys(id: string) {
+  return invoke<ProviderApiKeyOption[]>("list_local_provider_api_keys", { id });
+}
+
+export function addLocalProviderApiKey(id: string, key: string, name: string) {
+  return invoke<Provider>("add_local_provider_api_key", { id, key, name });
+}
+
+export function renameLocalProviderApiKey(id: string, localId: string, name: string) {
+  return invoke<Provider>("rename_local_provider_api_key", { id, localId, name });
+}
+
+export function setPrimaryLocalProviderApiKey(id: string, localId: string) {
+  return invoke<Provider>("set_primary_local_provider_api_key", { id, localId });
+}
+
+export function removeLocalProviderApiKey(id: string, localId: string) {
+  return invoke<Provider>("remove_local_provider_api_key", { id, localId });
 }
 
 export function createProviderApiKey(id: string, name: string) {

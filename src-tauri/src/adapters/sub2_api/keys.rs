@@ -1,7 +1,7 @@
 use crate::{
     adapters::transport::ProviderTransport,
     limits,
-    models::{Provider, ProviderApiKeyOption, ProviderProtocol},
+    models::{is_full_api_key_value, Provider, ProviderApiKeyOption, ProviderProtocol},
 };
 use reqwest::Method;
 use serde_json::Value;
@@ -71,7 +71,7 @@ pub(super) fn api_key_from_value(value: &Value) -> Option<ProviderApiKeyOption> 
     let mut option = ProviderApiKeyOption::current_for_protocol(&key, ProviderProtocol::Sub2Api);
     option.name = name;
     option.key = key;
-    option.key_available = !option.key.trim().is_empty() && !option.key.contains('*');
+    option.key_available = is_full_api_key_value(&option.key);
     option.masked_key = if masked_key.is_empty() {
         mask_key(&option.key)
     } else {

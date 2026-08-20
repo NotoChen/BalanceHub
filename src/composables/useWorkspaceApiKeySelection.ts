@@ -1,7 +1,11 @@
 import { ref, type Ref } from "vue";
 import type { Provider, ProviderApiKeyOption } from "../stores/providers";
-import { effectiveProviderApiKeyOptions } from "../utils/provider-api-key-options.ts";
-import { supportsApiKeyManagement } from "../utils/provider-actions.ts";
+import {
+  effectiveProviderApiKeyOptions,
+  isProviderApiKeyUsable,
+  providerApiKeyOptionMatches,
+  providerApiKeyOptionSelectionValue,
+} from "../utils/provider-api-key-options.ts";
 
 interface UseWorkspaceApiKeySelectionOptions {
   currentProvider: Ref<Provider | null>;
@@ -12,7 +16,7 @@ export function useWorkspaceApiKeySelection(options: UseWorkspaceApiKeySelection
   const workspaceApiKeys = ref<ProviderApiKeyOption[]>([]);
   const workspaceApiKeyLoading = ref(false);
   const workspaceApiKeyError = ref("");
-  const workspaceApiKeyTokenId = ref("");
+  const workspaceApiKeyLocalId = ref("");
   let apiKeyRequestId = 0;
 
   async function loadWorkspaceApiKeys(provider: Provider) {
@@ -20,37 +24,55 @@ export function useWorkspaceApiKeySelection(options: UseWorkspaceApiKeySelection
     workspaceApiKeys.value = [];
     workspaceApiKeyError.value = "";
     workspaceApiKeyLoading.value = false;
-    if (!supportsApiKeyManagement(provider)) {
-      workspaceApiKeyTokenId.value = provider.auth.apiKey.trim() ? "" : workspaceApiKeyTokenId.value;
-      return;
-    }
-
     workspaceApiKeyLoading.value = true;
     try {
-      const apiKeys = await options.listApiKeys(provider.identity.id);
+      const localOptions = provider.auth.apiKeyOptions || [];
+      let apiKeys: ProviderApiKeyOption[] = [];
+      // Generic API-key providers and locally managed keys have no remote
+      // vault endpoint. Do not probe a non-existent endpoint merely because
+      // the picker was opened; local keys should be immediately usable.
+      if (provider.actions.apiKeyManagement) {
+        try {
+          apiKeys = await options.listApiKeys(provider.identity.id);
+        } catch (error) {
+          workspaceApiKeyError.value = errorMessage(error);
+        }
+      }
       if (
         requestId !== apiKeyRequestId
         || options.currentProvider.value?.identity.id !== provider.identity.id
       ) {
         return;
       }
-      workspaceApiKeys.value = apiKeys;
+      workspaceApiKeys.value = effectiveProviderApiKeyOptions(provider.auth.apiKey, [
+        ...localOptions,
+        ...apiKeys,
+      ]);
       const providerKey = provider.auth.apiKey.trim();
-      const effectiveOptions = effectiveProviderApiKeyOptions(providerKey, apiKeys);
+      const effectiveOptions = workspaceApiKeys.value;
       if (effectiveOptions.length === 1) {
-        workspaceApiKeyTokenId.value = effectiveOptions[0].tokenId;
+        workspaceApiKeyLocalId.value = providerApiKeyOptionSelectionValue(effectiveOptions[0]);
         return;
       }
-      const preferredKeyExists = apiKeys.some(
-        (option) => option.tokenId === workspaceApiKeyTokenId.value,
+      const preferred = effectiveOptions.find((option) =>
+        providerApiKeyOptionMatches(option, workspaceApiKeyLocalId.value),
       );
-      if (workspaceApiKeyTokenId.value && preferredKeyExists) {
+      if (preferred && isProviderApiKeyUsable(preferred)) {
+        workspaceApiKeyLocalId.value = providerApiKeyOptionSelectionValue(preferred);
         return;
       }
-      workspaceApiKeyTokenId.value = providerKey ? "" : (apiKeys[0]?.tokenId ?? "");
+      const configured = providerKey
+        ? effectiveOptions.find((option) =>
+          option.key.trim() === providerKey && isProviderApiKeyUsable(option),
+        )
+        : undefined;
+      const fallback = effectiveOptions.find(isProviderApiKeyUsable);
+      workspaceApiKeyLocalId.value = configured
+        ? providerApiKeyOptionSelectionValue(configured)
+        : (fallback ? providerApiKeyOptionSelectionValue(fallback) : "");
     } catch (error) {
       if (requestId === apiKeyRequestId) {
-        workspaceApiKeyTokenId.value = provider.auth.apiKey.trim() ? "" : workspaceApiKeyTokenId.value;
+        workspaceApiKeyLocalId.value = provider.auth.apiKey.trim() ? "" : workspaceApiKeyLocalId.value;
         workspaceApiKeyError.value = errorMessage(error);
       }
     } finally {
@@ -60,11 +82,11 @@ export function useWorkspaceApiKeySelection(options: UseWorkspaceApiKeySelection
     }
   }
 
-  function resetWorkspaceApiKeys(preferredTokenId = "") {
+  function resetWorkspaceApiKeys(preferredLocalId = "") {
     invalidateWorkspaceApiKeyRequests();
     workspaceApiKeys.value = [];
     workspaceApiKeyError.value = "";
-    workspaceApiKeyTokenId.value = preferredTokenId;
+    workspaceApiKeyLocalId.value = preferredLocalId;
   }
 
   function invalidateWorkspaceApiKeyRequests() {
@@ -76,7 +98,7 @@ export function useWorkspaceApiKeySelection(options: UseWorkspaceApiKeySelection
     workspaceApiKeys,
     workspaceApiKeyLoading,
     workspaceApiKeyError,
-    workspaceApiKeyTokenId,
+    workspaceApiKeyLocalId,
     loadWorkspaceApiKeys,
     resetWorkspaceApiKeys,
     invalidateWorkspaceApiKeyRequests,

@@ -121,9 +121,14 @@ export function useAppController() {
   });
 
   const apiKeyManager = useApiKeyManager({
-    listKeys: (providerId) => providerStore.listApiKeys(providerId),
-    createKey: (providerId, name) => providerStore.createApiKey(providerId, name),
-    deleteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),
+    listLocalKeys: (providerId) => providerStore.listLocalApiKeys(providerId),
+    syncRemoteKeys: (providerId) => providerStore.listApiKeys(providerId),
+    addLocalKey: (providerId, key, name) => providerStore.addLocalApiKey(providerId, key, name),
+    createRemoteKey: (providerId, name) => providerStore.createApiKey(providerId, name),
+    renameKey: (providerId, localId, name) => providerStore.renameLocalApiKey(providerId, localId, name),
+    setPrimaryKey: (providerId, localId) => providerStore.setPrimaryLocalApiKey(providerId, localId),
+    removeLocalKey: (providerId, localId) => providerStore.removeLocalApiKey(providerId, localId),
+    deleteRemoteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),
     getProvider: (providerId) => providers.value.find((provider) => provider.identity.id === providerId),
   });
 
@@ -181,13 +186,16 @@ export function useAppController() {
     terminalEnvironmentProbe,
     probeCliTools: (deep) => cliRuntimeStore.probeCliTools(deep),
     probeTerminals: () => cliRuntimeStore.probeTerminals(),
-    listApiKeys: (providerId) => providerStore.listApiKeys(providerId),
+    listApiKeys: (providerId) => providerStore.listLocalApiKeys(providerId),
     browse: (path) => workspaceStore.browse(path),
     forget: (path) => workspaceStore.forget(path),
     launch: (input) => cliRuntimeStore.launch(input),
     preview: (input) => cliRuntimeStore.previewLaunch(input),
     getInstance: (instanceId) => cliRuntimeStore.getInstance(instanceId),
-    listSessions: (cliKind, workdir) => cliRuntimeStore.listSessions(cliKind, workdir),
+    searchSessions: (cliKind, workdir, query, forceRefresh) =>
+      cliRuntimeStore.searchSessions(cliKind, workdir, query, forceRefresh),
+    getSessionDetail: (cliKind, workdir, sessionId) =>
+      cliRuntimeStore.getSessionDetail(cliKind, workdir, sessionId),
   });
 
   const providerActions = useProviderActions({

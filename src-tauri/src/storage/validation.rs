@@ -39,5 +39,30 @@ pub(super) fn normalize_provider_cached_values(data: &mut AppData) -> bool {
             changed = true;
         }
     }
+
+    for preference in &mut data.temporary_cli_preferences {
+        let Some(provider) = data
+            .providers
+            .iter()
+            .find(|provider| provider.identity.id == preference.provider_id)
+        else {
+            continue;
+        };
+        let current = preference.api_key_local_id.trim();
+        let selected = provider.auth.api_key_options.iter().find(|option| {
+            (!current.is_empty() && option.local_id == current)
+                || (!current.is_empty() && option.token_id == current)
+                || (current.is_empty()
+                    && option.key_available
+                    && option.key == provider.auth.api_key)
+        });
+        let normalized = selected
+            .map(|option| option.local_id.clone())
+            .unwrap_or_default();
+        if preference.api_key_local_id != normalized {
+            preference.api_key_local_id = normalized;
+            changed = true;
+        }
+    }
     changed
 }

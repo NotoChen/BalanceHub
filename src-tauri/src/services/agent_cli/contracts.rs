@@ -1,6 +1,6 @@
 use crate::models::{
-    AgentCliKind, CliConfigFile, CliConfigPreview, CliConfigSnapshot, CliSessionSummary, Provider,
-    TemporaryCliSessionMode,
+    AgentCliKind, CliConfigFile, CliConfigPreview, CliConfigSnapshot, CliSessionDetail,
+    CliSessionMessageRole, CliSessionSummary, Provider, TemporaryCliSessionMode,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -186,15 +186,89 @@ impl LivenessAdapter {
 }
 
 type SessionLister = fn(AgentCliKind, &Path) -> Result<Vec<CliSessionSummary>, String>;
+type SessionSearcher = fn(
+    AgentCliKind,
+    &Path,
+    &str,
+    &SessionContentSearchRequest,
+    &dyn Fn() -> bool,
+) -> Result<SessionContentSearchResult, String>;
+type SessionDetailReader =
+    fn(AgentCliKind, &Path, &str, SessionReadLimits) -> Result<CliSessionDetail, String>;
+type SessionIndexReader = fn(
+    AgentCliKind,
+    &Path,
+    &str,
+    Option<&str>,
+    &dyn Fn() -> bool,
+) -> Result<SessionIndexLoadResult, String>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionSearchTerm {
+    pub index: usize,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionContentSearchRequest {
+    pub terms: Vec<SessionSearchTerm>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct SessionContentSearchResult {
+    pub matched_term_indexes: Vec<usize>,
+    pub has_content: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SessionReadLimits {
+    pub max_file_bytes: usize,
+    pub max_messages: usize,
+    pub max_total_chars: usize,
+    pub max_message_chars: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionIndexMessage {
+    pub id: String,
+    pub role: CliSessionMessageRole,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SessionIndexLoadResult {
+    Unchanged {
+        fingerprint: String,
+        source_bytes: u64,
+    },
+    Updated {
+        fingerprint: String,
+        source_bytes: u64,
+        messages: Vec<SessionIndexMessage>,
+    },
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct SessionAdapter {
     list: SessionLister,
+    search: Option<SessionSearcher>,
+    detail: Option<SessionDetailReader>,
+    index: Option<SessionIndexReader>,
 }
 
 impl SessionAdapter {
-    pub(crate) const fn new(list: SessionLister) -> Self {
-        Self { list }
+    pub(crate) const fn new(
+        list: SessionLister,
+        search: Option<SessionSearcher>,
+        detail: Option<SessionDetailReader>,
+        index: Option<SessionIndexReader>,
+    ) -> Self {
+        Self {
+            list,
+            search,
+            detail,
+            index,
+        }
     }
 
     pub(crate) fn list(
@@ -203,6 +277,59 @@ impl SessionAdapter {
         workdir: &Path,
     ) -> Result<Vec<CliSessionSummary>, String> {
         (self.list)(cli_kind, workdir)
+    }
+
+    pub(crate) const fn supports_detail(&self) -> bool {
+        self.detail.is_some()
+    }
+
+    pub(crate) const fn supports_search(&self) -> bool {
+        self.search.is_some()
+    }
+
+    pub(crate) const fn supports_index(&self) -> bool {
+        self.index.is_some()
+    }
+
+    pub(crate) fn search(
+        &self,
+        cli_kind: AgentCliKind,
+        workdir: &Path,
+        session_id: &str,
+        request: &SessionContentSearchRequest,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<SessionContentSearchResult, String> {
+        let searcher = self
+            .search
+            .ok_or_else(|| "当前 Agent CLI 不支持检索会话正文".to_string())?;
+        searcher(cli_kind, workdir, session_id, request, is_current)
+    }
+
+    pub(crate) fn detail(
+        &self,
+        cli_kind: AgentCliKind,
+        workdir: &Path,
+        session_id: &str,
+        limits: SessionReadLimits,
+    ) -> Result<CliSessionDetail, String> {
+        let reader = self
+            .detail
+            .ok_or_else(|| "当前 Agent CLI 不支持读取会话详情".to_string())?;
+        reader(cli_kind, workdir, session_id, limits)
+    }
+
+    pub(crate) fn index(
+        &self,
+        cli_kind: AgentCliKind,
+        workdir: &Path,
+        session_id: &str,
+        known_fingerprint: Option<&str>,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<SessionIndexLoadResult, String> {
+        let reader = self
+            .index
+            .ok_or_else(|| "当前 Agent CLI 不支持建立会话索引".to_string())?;
+        reader(cli_kind, workdir, session_id, known_fingerprint, is_current)
     }
 }
 

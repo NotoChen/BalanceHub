@@ -8,6 +8,8 @@ pub struct AgentCliCapabilities {
     pub temporary_launch: bool,
     pub model_selection: bool,
     pub session_history: bool,
+    pub session_search: bool,
+    pub session_detail: bool,
     pub session_resume: bool,
     pub session_name: bool,
     pub liveness: bool,

@@ -4,6 +4,7 @@ import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
 import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
+import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
 import TemporaryCliLaunchPreviewModal from "./components/TemporaryCliLaunchPreviewModal.vue";
 import WorkspacePickerModal from "./components/WorkspacePickerModal.vue";
 import { useAppController } from "./composables/useAppController";
@@ -86,11 +87,12 @@ useWindowGridSnap();
       v-model:visible="app.workspacePickerVisible"
       v-model:path-draft="app.workspacePathDraft"
       v-model:cli-kind="app.workspacePickerCliKind"
-      v-model:api-key-token-id="app.workspaceApiKeyTokenId"
+      v-model:api-key-local-id="app.workspaceApiKeyLocalId"
       v-model:selected-model="app.workspaceSelectedModel"
       v-model:session-name="app.workspaceSessionName"
       v-model:session-mode="app.workspaceSessionMode"
       v-model:selected-resume-id="app.workspaceSelectedResumeId"
+      v-model:history-query="app.workspaceSessionQuery"
       :can-name-session="app.workspaceCanNameSession"
       v-model:terminal-kind="app.workspaceTerminalKind"
       :provider="app.workspacePickerProvider"
@@ -106,14 +108,26 @@ useWindowGridSnap();
       :launch-preview-loading="app.workspaceLaunchPreviewLoading"
       :forgetting-path="app.workspaceForgettingPath"
       :error="app.workspaceBrowserError"
-      :history-sessions="app.workspaceSessions"
+      :history-results="app.workspaceSessionResults"
       :history-loading="app.workspaceSessionsLoading"
       :history-error="app.workspaceSessionsError"
+      :history-index-state="app.workspaceSessionIndexState"
+      :history-index-message="app.workspaceSessionIndexMessage"
+      :selected-session-title="app.workspaceSelectedSessionTitle"
       @browse="app.browseWorkspaceDirectory"
       @launch="app.launchWorkspace"
       @forget="app.forgetWorkspace"
-      @select-session="app.selectWorkspaceSession"
-      @refresh-sessions="app.loadWorkspaceSessions"
+      @view-session="app.openWorkspaceSessionDetail"
+      @refresh-sessions="app.refreshWorkspaceSessions"
+    />
+
+    <CliSessionDetailModal
+      v-model:visible="app.workspaceSessionDetailVisible"
+      :loading="app.workspaceSessionDetailLoading"
+      :error="app.workspaceSessionDetailError"
+      :detail="app.workspaceSessionDetail"
+      :selected-resume-id="app.workspaceSelectedResumeId"
+      @select="app.selectWorkspaceSessionFromDetail"
     />
 
     <TemporaryCliLaunchPreviewModal
@@ -132,6 +146,11 @@ useWindowGridSnap();
       v-model:api-key-manager-visible="app.apiKeyManagerVisible"
       v-model:api-key-create-visible="app.apiKeyCreateVisible"
       v-model:api-key-create-name="app.apiKeyCreateName"
+      v-model:api-key-add-visible="app.apiKeyAddVisible"
+      v-model:api-key-add-name="app.apiKeyAddName"
+      v-model:api-key-add-value="app.apiKeyAddValue"
+      v-model:api-key-rename-visible="app.apiKeyRenameVisible"
+      v-model:api-key-rename-name="app.apiKeyRenameName"
       v-model:available-models-visible="app.availableModelsVisible"
       v-model:usage-visible="app.usageVisible"
       v-model:usage-period="app.usagePeriod"
@@ -151,6 +170,7 @@ useWindowGridSnap();
       :api-key-manager-provider="app.apiKeyManagerProvider"
       :api-key-manager-loading="app.apiKeyManagerLoading"
       :api-key-manager-keys="app.apiKeyManagerKeys"
+      :api-key-remote-managed="app.apiKeyRemoteManaged"
       :available-models-provider="app.availableModelsProvider"
       :available-models-loading="app.availableModelsLoading"
       :usage-provider="app.usageProvider"
@@ -211,7 +231,12 @@ useWindowGridSnap();
       @complete-onboarding="app.completeOnboarding"
       @refresh-api-key-manager="app.refreshApiKeyManager"
       @open-api-key-create-modal="app.openApiKeyCreateModal"
+      @open-api-key-add-modal="app.openApiKeyAddModal"
+      @open-api-key-rename-modal="app.openApiKeyRenameModal"
       @create-managed-api-key="app.createManagedApiKey"
+      @add-local-api-key="app.addLocalApiKey"
+      @rename-managed-api-key="app.renameManagedApiKey"
+      @set-primary-managed-api-key="app.setPrimaryManagedApiKey"
       @copy-managed-api-key="app.copyManagedApiKey"
       @delete-managed-api-key="app.deleteManagedApiKey"
       @refresh-available-models="app.refreshAvailableModels"
@@ -249,6 +274,8 @@ useWindowGridSnap();
       :app-version="app.appVersion"
       :checking-for-update="app.checkingForUpdate"
       :provider-editor-title="app.drawerTitle"
+      :provider-editor-session="app.editorSession"
+      :provider-editor-initial-step="app.editorInitialStep"
       :draft-provider="app.draftProvider"
       :provider-protocols="app.providerProtocols"
       :api-key-options="app.apiKeyOptions"

@@ -1,7 +1,15 @@
-use crate::services::cli_sessions::{
-    clean_text, first_non_empty, normalize_timestamp, session_sort_key,
+use crate::{
+    models::{
+        AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary,
+    },
+    services::cli_sessions::{
+        clean_text, combine_content_search_results, compact_json, first_non_empty,
+        normalize_timestamp, read_json_lines_limited, scan_json_records,
+        scan_json_records_background,
+        session_index_source_fingerprint, session_sort_key, SessionContentSearchCollector,
+        SessionMessageCollector,
+    },
 };
-use crate::models::{AgentCliKind, CliSessionSummary};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -10,6 +18,13 @@ use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
 };
+
+use super::super::contracts::{
+    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
+    SessionIndexMessage, SessionReadLimits,
+};
+
+const INDEX_PARSER_VERSION: u32 = 1;
 
 pub(super) fn list(
     cli_kind: AgentCliKind,
@@ -20,18 +35,183 @@ pub(super) fn list(
     list_from_config_dir(cli_kind, &config_dir, workdir)
 }
 
-fn list_from_config_dir(
+pub(super) fn detail(
     cli_kind: AgentCliKind,
-    config_dir: &Path,
     workdir: &Path,
-) -> Result<Vec<CliSessionSummary>, String> {
-    let project_ids = project_ids(config_dir, workdir);
-    if project_ids.is_empty() {
-        return Ok(Vec::new());
+    session_id: &str,
+    limits: SessionReadLimits,
+) -> Result<CliSessionDetail, String> {
+    let config_dir = super::config::config_dir()
+        .ok_or_else(|| "无法定位用户目录，无法读取 Gemini CLI 历史会话".to_string())?;
+    for path in chat_files(&config_dir, workdir) {
+        let Some(summary) = parse_session(cli_kind, &path, workdir)? else {
+            continue;
+        };
+        if summary.id != session_id {
+            continue;
+        }
+        let (conversation, source_truncated) = load_conversation_limited(&path, limits)?;
+        let mut collector = SessionMessageCollector::new(limits);
+        for (index, message) in conversation.messages.into_iter().enumerate() {
+            let timestamp = normalize_timestamp(message.timestamp.as_deref());
+            let model = message.model.clone();
+            match message.kind.as_str() {
+                "user" => {
+                    if let Some(text) = message.text {
+                        if !is_ignored_user_content(text.trim()) {
+                            collector.push(
+                                format!("gemini-{index}"),
+                                CliSessionMessageRole::User,
+                                text,
+                                timestamp.clone(),
+                                None,
+                                None,
+                            );
+                        }
+                    }
+                }
+                "gemini" => {
+                    if let Some(text) = message.text {
+                        collector.push(
+                            format!("gemini-{index}"),
+                            CliSessionMessageRole::Assistant,
+                            text,
+                            timestamp.clone(),
+                            model.clone(),
+                            None,
+                        );
+                    }
+                }
+                kind if kind.contains("tool") => {
+                    if let Some(text) = message.text {
+                        collector.push(
+                            format!("gemini-{index}"),
+                            CliSessionMessageRole::Tool,
+                            text,
+                            timestamp.clone(),
+                            model.clone(),
+                            None,
+                        );
+                    }
+                }
+                _ => {}
+            }
+            for (tool_index, tool) in message.tool_calls.into_iter().enumerate() {
+                collector.push(
+                    format!("gemini-{index}-tool-{tool_index}"),
+                    CliSessionMessageRole::Tool,
+                    tool.content,
+                    timestamp.clone(),
+                    model.clone(),
+                    Some(tool.name),
+                );
+            }
+        }
+        let (messages, truncated, omitted_message_count) =
+            collector.finish(source_truncated);
+        return Ok(CliSessionDetail {
+            session: summary,
+            messages,
+            truncated,
+            omitted_message_count,
+            content_source: "geminiTranscript".to_string(),
+        });
     }
+    Err("未找到指定的 Gemini CLI 会话".to_string())
+}
 
+pub(super) fn search(
+    cli_kind: AgentCliKind,
+    workdir: &Path,
+    session_id: &str,
+    request: &SessionContentSearchRequest,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionContentSearchResult, String> {
+    let config_dir = super::config::config_dir()
+        .ok_or_else(|| "无法定位用户目录，无法读取 Gemini CLI 历史会话".to_string())?;
+    for path in chat_files(&config_dir, workdir) {
+        let Some(summary) = parse_session(cli_kind, &path, workdir)? else {
+            continue;
+        };
+        if summary.id == session_id {
+            return search_conversation(&path, request, is_current);
+        }
+    }
+    Err("未找到指定的 Gemini CLI 会话".to_string())
+}
+
+pub(super) fn index(
+    cli_kind: AgentCliKind,
+    workdir: &Path,
+    session_id: &str,
+    known_fingerprint: Option<&str>,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionIndexLoadResult, String> {
+    let config_dir = super::config::config_dir()
+        .ok_or_else(|| "无法定位用户目录，无法读取 Gemini CLI 历史会话".to_string())?;
+    for path in chat_files(&config_dir, workdir) {
+        let Some(summary) = parse_session(cli_kind, &path, workdir)? else {
+            continue;
+        };
+        if summary.id == session_id {
+            return index_conversation(&path, known_fingerprint, is_current);
+        }
+    }
+    Err("未找到指定的 Gemini CLI 会话".to_string())
+}
+
+fn index_conversation(
+    path: &Path,
+    known_fingerprint: Option<&str>,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionIndexLoadResult, String> {
+    let (fingerprint, source_bytes) =
+        session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
+    if known_fingerprint == Some(fingerprint.as_str()) {
+        return Ok(SessionIndexLoadResult::Unchanged {
+            fingerprint,
+            source_bytes,
+        });
+    }
+    let mut conversation = IndexConversation::default();
+    scan_json_records_background(path, "索引 Gemini CLI 会话正文", is_current, |_line_index, line| {
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            return false;
+        };
+        conversation.observe(&value);
+        false
+    })?;
+    Ok(SessionIndexLoadResult::Updated {
+        fingerprint,
+        source_bytes,
+        messages: conversation.finish(),
+    })
+}
+
+fn search_conversation(
+    path: &Path,
+    request: &SessionContentSearchRequest,
+    is_current: &dyn Fn() -> bool,
+) -> Result<SessionContentSearchResult, String> {
+    let mut conversation = SearchConversation::default();
+    scan_json_records(
+        path,
+        "检索 Gemini CLI 会话正文",
+        is_current,
+        |_line_index, line| {
+            let Ok(value) = serde_json::from_slice::<Value>(line) else {
+                return false;
+            };
+            conversation.observe(&value, request);
+            false
+        },
+    )?;
+    Ok(conversation.finish())
+}
+
+fn chat_files(config_dir: &Path, workdir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for project_id in project_ids {
+    for project_id in project_ids(config_dir, workdir) {
         let chats_dir = config_dir.join("tmp").join(project_id).join("chats");
         let Ok(entries) = fs::read_dir(&chats_dir) else {
             continue;
@@ -44,6 +224,15 @@ fn list_from_config_dir(
                     .is_some_and(|extension| matches!(extension, "json" | "jsonl"))
         }));
     }
+    files
+}
+
+fn list_from_config_dir(
+    cli_kind: AgentCliKind,
+    config_dir: &Path,
+    workdir: &Path,
+) -> Result<Vec<CliSessionSummary>, String> {
+    let files = chat_files(config_dir, workdir);
 
     let mut sessions = Vec::<CliSessionSummary>::new();
     let mut indexes = HashMap::<String, usize>::new();
@@ -220,6 +409,27 @@ fn parse_session(
     }))
 }
 
+fn load_conversation_limited(
+    path: &Path,
+    limits: SessionReadLimits,
+) -> Result<(ConversationSummary, bool), String> {
+    let mut conversation = ConversationSummary::default();
+    let source_truncated = read_json_lines_limited(
+        path,
+        limits.max_file_bytes,
+        "读取 Gemini CLI 会话正文",
+        |_line_index, value| conversation.observe(&value),
+    )?;
+    if conversation.session_id.is_none() {
+        if let Ok(file) = File::open(path) {
+            if let Ok(value) = serde_json::from_reader::<_, Value>(file) {
+                conversation.observe(&value);
+            }
+        }
+    }
+    Ok((conversation, source_truncated))
+}
+
 #[derive(Default)]
 struct ConversationSummary {
     session_id: Option<String>,
@@ -271,7 +481,7 @@ impl ConversationSummary {
     }
 
     fn upsert_message(&mut self, value: &Value) {
-        let Some(message) = MessageSummary::from_value(value) else {
+        let Some(message) = MessageSummary::from_value(value, ToolContentMode::Display) else {
             return;
         };
         if let Some(index) = self.message_positions.get(&message.id).copied() {
@@ -301,10 +511,198 @@ struct MessageSummary {
     text: Option<String>,
     model: Option<String>,
     resumable: bool,
+    timestamp: Option<String>,
+    tool_calls: Vec<ToolSummary>,
+}
+
+#[derive(Default)]
+struct SearchConversation {
+    messages: Vec<SearchMessage>,
+    message_positions: HashMap<String, usize>,
+}
+
+struct SearchMessage {
+    id: String,
+    result: SessionContentSearchResult,
+}
+
+#[derive(Default)]
+struct IndexConversation {
+    messages: Vec<SessionIndexMessage>,
+    message_positions: HashMap<String, usize>,
+}
+
+impl IndexConversation {
+    fn observe(&mut self, value: &Value) {
+        if let Some(rewind_id) = value.get("$rewindTo").and_then(Value::as_str) {
+            self.rewind_to(rewind_id);
+            return;
+        }
+        if let Some(updates) = value.get("$set").and_then(Value::as_object) {
+            if let Some(messages) = updates.get("messages").and_then(Value::as_array) {
+                self.replace_messages(messages);
+            }
+            return;
+        }
+        if value.get("id").and_then(Value::as_str).is_some() {
+            self.upsert_message(value);
+            return;
+        }
+        if let Some(messages) = value.get("messages").and_then(Value::as_array) {
+            self.replace_messages(messages);
+        }
+    }
+
+    fn replace_messages(&mut self, messages: &[Value]) {
+        self.messages.clear();
+        self.message_positions.clear();
+        for message in messages {
+            self.upsert_message(message);
+        }
+    }
+
+    fn upsert_message(&mut self, value: &Value) {
+        let Some(message) = MessageSummary::from_value(value, ToolContentMode::Ignore) else {
+            return;
+        };
+        let role = match message.kind.as_str() {
+            "user" => CliSessionMessageRole::User,
+            "gemini" => CliSessionMessageRole::Assistant,
+            _ => return,
+        };
+        let Some(content) = message
+            .text
+            .map(|value| value.trim().to_string())
+            .filter(|value| {
+                !value.is_empty()
+                    && (role != CliSessionMessageRole::User
+                        || !is_ignored_user_content(value))
+            })
+        else {
+            return;
+        };
+        let item = SessionIndexMessage {
+            id: format!("gemini-{}", message.id),
+            role,
+            content,
+        };
+        if let Some(index) = self.message_positions.get(&message.id).copied() {
+            self.messages[index] = item;
+        } else {
+            self.message_positions
+                .insert(message.id, self.messages.len());
+            self.messages.push(item);
+        }
+    }
+
+    fn rewind_to(&mut self, message_id: &str) {
+        let Some(index) = self.message_positions.get(message_id).copied() else {
+            self.messages.clear();
+            self.message_positions.clear();
+            return;
+        };
+        let removed = self
+            .message_positions
+            .iter()
+            .filter_map(|(id, position)| (*position >= index).then_some(id.clone()))
+            .collect::<Vec<_>>();
+        self.messages.truncate(index);
+        for id in removed {
+            self.message_positions.remove(&id);
+        }
+    }
+
+    fn finish(self) -> Vec<SessionIndexMessage> {
+        self.messages
+    }
+}
+
+impl SearchConversation {
+    fn observe(&mut self, value: &Value, request: &SessionContentSearchRequest) {
+        if let Some(rewind_id) = value.get("$rewindTo").and_then(Value::as_str) {
+            self.rewind_to(rewind_id);
+            return;
+        }
+        if let Some(updates) = value.get("$set").and_then(Value::as_object) {
+            if let Some(messages) = updates.get("messages").and_then(Value::as_array) {
+                self.replace_messages(messages, request);
+            }
+            return;
+        }
+        if value.get("id").and_then(Value::as_str).is_some() {
+            self.upsert_message(value, request);
+            return;
+        }
+        if let Some(messages) = value.get("messages").and_then(Value::as_array) {
+            self.replace_messages(messages, request);
+        }
+    }
+
+    fn replace_messages(&mut self, messages: &[Value], request: &SessionContentSearchRequest) {
+        self.messages.clear();
+        self.message_positions.clear();
+        for message in messages {
+            self.upsert_message(message, request);
+        }
+    }
+
+    fn upsert_message(&mut self, value: &Value, request: &SessionContentSearchRequest) {
+        let Some(message) = SearchMessage::from_value(value, request) else {
+            return;
+        };
+        if let Some(index) = self.message_positions.get(&message.id).copied() {
+            self.messages[index] = message;
+        } else {
+            self.message_positions
+                .insert(message.id.clone(), self.messages.len());
+            self.messages.push(message);
+        }
+    }
+
+    fn rewind_to(&mut self, message_id: &str) {
+        let Some(index) = self.message_positions.get(message_id).copied() else {
+            self.messages.clear();
+            self.message_positions.clear();
+            return;
+        };
+        for message in self.messages.drain(index..) {
+            self.message_positions.remove(&message.id);
+        }
+    }
+
+    fn finish(self) -> SessionContentSearchResult {
+        combine_content_search_results(self.messages.into_iter().map(|message| message.result))
+    }
+}
+
+impl SearchMessage {
+    fn from_value(value: &Value, request: &SessionContentSearchRequest) -> Option<Self> {
+        let message = MessageSummary::from_value(value, ToolContentMode::Ignore)?;
+        let mut collector = SessionContentSearchCollector::new(request);
+        let role = match message.kind.as_str() {
+            "user" => Some(CliSessionMessageRole::User),
+            "gemini" => Some(CliSessionMessageRole::Assistant),
+            _ => None,
+        };
+        if let (Some(role), Some(text)) = (role, message.text) {
+            if role != CliSessionMessageRole::User || !is_ignored_user_content(text.trim()) {
+                collector.observe(&text);
+            }
+        }
+        Some(Self {
+            id: message.id,
+            result: collector.finish(),
+        })
+    }
+}
+
+struct ToolSummary {
+    name: String,
+    content: String,
 }
 
 impl MessageSummary {
-    fn from_value(value: &Value) -> Option<Self> {
+    fn from_value(value: &Value, tool_content_mode: ToolContentMode) -> Option<Self> {
         let id = value.get("id")?.as_str()?.trim();
         if id.is_empty() {
             return None;
@@ -315,6 +713,24 @@ impl MessageSummary {
             .unwrap_or_default()
             .to_string();
         let text = value.get("content").and_then(content_text);
+        let tool_calls = value
+            .get("toolCalls")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|tool| ToolSummary {
+                name: tool
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("工具")
+                    .to_string(),
+                content: match tool_content_mode {
+                    ToolContentMode::Display => compact_json(tool, 16 * 1024),
+                    ToolContentMode::Ignore => String::new(),
+                },
+            })
+            .filter(|tool| tool_content_mode != ToolContentMode::Ignore || !tool.content.is_empty())
+            .collect::<Vec<_>>();
         let resumable = match kind.as_str() {
             "user" => text
                 .as_deref()
@@ -336,8 +752,19 @@ impl MessageSummary {
                 .and_then(Value::as_str)
                 .map(str::to_string),
             resumable,
+            timestamp: value
+                .get("timestamp")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            tool_calls,
         })
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ToolContentMode {
+    Display,
+    Ignore,
 }
 
 fn replace_string(target: &mut Option<String>, value: &Value, field: &str) {
@@ -362,12 +789,26 @@ fn collect_text(value: &Value, parts: &mut Vec<String>) {
             }
         }
         Value::Object(value) => {
+            if value
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(is_hidden_content_kind)
+            {
+                return;
+            }
             if let Some(text) = value.get("text").and_then(Value::as_str) {
                 parts.push(text.to_string());
             }
         }
         _ => {}
     }
+}
+
+fn is_hidden_content_kind(value: &str) -> bool {
+    let value = value.to_ascii_lowercase();
+    ["tool", "thought", "thinking", "reasoning", "analysis"]
+        .iter()
+        .any(|kind| value.contains(kind))
 }
 
 fn is_ignored_user_content(value: &str) -> bool {
@@ -408,138 +849,4 @@ fn path_key(path: &Path) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::list_from_config_dir;
-    use crate::models::AgentCliKind;
-    use serde_json::json;
-    use std::fs;
-
-    fn test_root(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "balancehub-gemini-session-{name}-{}",
-            std::process::id()
-        ))
-    }
-
-    #[test]
-    fn official_jsonl_metadata_drives_title_model_and_resume_id() {
-        let root = test_root("metadata");
-        let _ = fs::remove_dir_all(&root);
-        let workdir = root.join("workspace");
-        let chats = root.join("config/tmp/workspace/chats");
-        fs::create_dir_all(&workdir).unwrap();
-        fs::create_dir_all(&chats).unwrap();
-        fs::write(
-            root.join("config/projects.json"),
-            json!({"projects": {workdir.to_string_lossy(): "workspace"}}).to_string(),
-        )
-        .unwrap();
-        let lines = [
-            json!({
-                "sessionId": "019c-gemini-session",
-                "projectHash": "hash",
-                "startTime": "2026-08-14T08:00:00Z",
-                "lastUpdated": "2026-08-14T08:01:00Z"
-            }),
-            json!({"id": "user-1", "type": "user", "content": [{"text": "接入 Gemini CLI"}]}),
-            json!({"id": "gemini-1", "type": "gemini", "content": "处理中", "model": "gemini-2.5-pro"}),
-            json!({"id": "gemini-1", "type": "gemini", "content": "完成", "model": "gemini-3-pro"}),
-            json!({"$set": {"summary": "BalanceHub Gemini 接入", "lastUpdated": "2026-08-14T08:02:00Z"}}),
-        ]
-        .into_iter()
-        .map(|value| value.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-        fs::write(chats.join("session.jsonl"), lines).unwrap();
-
-        let sessions = list_from_config_dir(
-            AgentCliKind::Gemini,
-            &root.join("config"),
-            &workdir,
-        )
-        .unwrap();
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].id, "019c-gemini-session");
-        assert_eq!(sessions[0].title, "BalanceHub Gemini 接入");
-        assert_eq!(sessions[0].preview.as_deref(), Some("接入 Gemini CLI"));
-        assert_eq!(sessions[0].model.as_deref(), Some("gemini-3-pro"));
-        assert_eq!(sessions[0].models.len(), 1);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn rewinds_and_ignored_commands_do_not_create_wrong_titles() {
-        let root = test_root("rewind");
-        let _ = fs::remove_dir_all(&root);
-        let workdir = root.join("workspace");
-        let project = root.join("config/tmp/workspace");
-        let chats = project.join("chats");
-        fs::create_dir_all(&workdir).unwrap();
-        fs::create_dir_all(&chats).unwrap();
-        fs::write(
-            project.join(".project_root"),
-            workdir.to_string_lossy().as_bytes(),
-        )
-        .unwrap();
-        let lines = [
-            json!({"sessionId": "rewind-session", "projectHash": "hash"}),
-            json!({"id": "command", "type": "user", "content": "/help"}),
-            json!({"id": "discarded", "type": "user", "content": "应该被回退"}),
-            json!({"$rewindTo": "discarded"}),
-            json!({"id": "kept", "type": "user", "content": "最终问题"}),
-            json!({"id": "answer", "type": "gemini", "content": "完成", "model": "gemini-2.5-flash"}),
-        ]
-        .into_iter()
-        .map(|value| value.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-        fs::write(chats.join("session.jsonl"), lines).unwrap();
-
-        let sessions = list_from_config_dir(
-            AgentCliKind::Gemini,
-            &root.join("config"),
-            &workdir,
-        )
-        .unwrap();
-        assert_eq!(sessions[0].title, "最终问题");
-        assert_eq!(sessions[0].preview.as_deref(), Some("最终问题"));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn subagent_and_empty_sessions_are_filtered() {
-        let root = test_root("filtered");
-        let _ = fs::remove_dir_all(&root);
-        let workdir = root.join("workspace");
-        let chats = root.join("config/tmp/workspace/chats");
-        fs::create_dir_all(&workdir).unwrap();
-        fs::create_dir_all(&chats).unwrap();
-        fs::write(
-            root.join("config/projects.json"),
-            json!({"projects": {workdir.to_string_lossy(): "workspace"}}).to_string(),
-        )
-        .unwrap();
-        fs::write(
-            chats.join("subagent.jsonl"),
-            concat!(
-                "{\"sessionId\":\"subagent\",\"projectHash\":\"hash\",\"kind\":\"subagent\"}\n",
-                "{\"id\":\"user\",\"type\":\"user\",\"content\":\"hidden\"}\n"
-            ),
-        )
-        .unwrap();
-        fs::write(
-            chats.join("empty.jsonl"),
-            "{\"sessionId\":\"empty\",\"projectHash\":\"hash\"}\n",
-        )
-        .unwrap();
-
-        assert!(list_from_config_dir(
-            AgentCliKind::Gemini,
-            &root.join("config"),
-            &workdir
-        )
-            .unwrap()
-            .is_empty());
-        fs::remove_dir_all(root).unwrap();
-    }
-}
+mod tests;
