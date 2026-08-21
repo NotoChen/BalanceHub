@@ -10,6 +10,7 @@ import {
 } from "../utils/cli-environment";
 import { useThemeMode } from "./useThemeMode";
 import { defaultSettings } from "../stores/providers";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseSettingsControllerOptions {
   providers: Ref<Provider[]>;
@@ -63,7 +64,7 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
           (model) => model.trim() === selectedModel,
         ),
       )
-      .map((provider) => ({ id: provider.identity.id, name: provider.identity.name }))
+      .map((provider) => ({ id: provider.identity.id, name: providerDisplayLabel(provider) }))
       .sort((left, right) => left.name.localeCompare(right.name));
   });
 

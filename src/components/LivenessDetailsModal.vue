@@ -5,6 +5,7 @@ import { useCliRuntimeStore } from "../stores/cli-runtime";
 import type { AgentCliKind, LivenessRecord, Provider } from "../stores/providers";
 import { agentCliLabel, isAgentCliKind } from "../utils/cli-environment";
 import AgentCliIcon from "./AgentCliIcon.vue";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -31,7 +32,7 @@ const records = computed(() =>
 );
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 测活明细` : "测活明细",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 测活明细` : "测活明细",
 );
 
 function formatDateTime(value: string) {

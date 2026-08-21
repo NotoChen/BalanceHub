@@ -65,7 +65,7 @@ pub async fn fetch_request_logs(
 
     Ok(ProviderRequestLogsResult {
         provider_id: provider.identity.id.clone(),
-        provider_name: provider.identity.name.clone(),
+        provider_name: provider.display_label(),
         page: query.page,
         page_size: query.page_size,
         total,

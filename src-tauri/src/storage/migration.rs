@@ -305,6 +305,30 @@ fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String
             }
             Ok(())
         }
+        10 => {
+            if let Some(providers) = data
+                .get_mut("providers")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for provider in providers {
+                    let Some(object) = provider.as_object_mut() else {
+                        continue;
+                    };
+                    object
+                        .entry("identity")
+                        .or_insert_with(|| serde_json::json!({}));
+                    if let Some(identity) = object
+                        .get_mut("identity")
+                        .and_then(serde_json::Value::as_object_mut)
+                    {
+                        identity
+                            .entry("remark")
+                            .or_insert_with(|| serde_json::Value::String(String::new()));
+                    }
+                }
+            }
+            Ok(())
+        }
         other => Err(format!(
             "没有从 schemaVersion {other} 出发的迁移路径，请重新初始化配置或导入新版配置"
         )),

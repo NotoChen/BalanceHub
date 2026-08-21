@@ -31,6 +31,11 @@ import CliIconSelector from "./CliIconSelector.vue";
 import ProviderAuthIcon from "./ProviderAuthIcon.vue";
 import TerminalIconSelector from "./TerminalIconSelector.vue";
 import WorkspaceSessionHistoryPanel from "./WorkspaceSessionHistoryPanel.vue";
+import {
+  providerApiKeyDisplayName,
+  providerApiKeySecondaryName,
+  providerDisplayLabel,
+} from "../utils/provider-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -92,7 +97,7 @@ const pathModel = computed({
 });
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 启动临时 CLI` : "启动临时 CLI",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 启动临时 CLI` : "启动临时 CLI",
 );
 
 const orderedWorkspaces = computed(() => {
@@ -295,8 +300,11 @@ function handleVisibleChange(visible: boolean) {
             <span class="workspace-config-label">API Key</span>
             <div v-if="hasSingleApiKey && singleApiKey" class="workspace-fixed-credential">
               <ProviderAuthIcon mode="apiKey" />
-              <span :title="singleApiKey.localName || singleApiKey.name || '当前配置 API Key'">
-                {{ singleApiKey.localName || singleApiKey.name || "当前配置 API Key" }}
+              <span class="workspace-fixed-credential-copy" :title="providerApiKeyDisplayName(singleApiKey)">
+                <strong>{{ providerApiKeyDisplayName(singleApiKey) }}</strong>
+                <small v-if="providerApiKeySecondaryName(singleApiKey)">
+                  站点名称：{{ providerApiKeySecondaryName(singleApiKey) }}
+                </small>
               </span>
             </div>
             <a-select
@@ -313,7 +321,10 @@ function handleVisibleChange(visible: boolean) {
                 :value="option.localId || option.tokenId || option.key"
                 :disabled="!isProviderApiKeyUsable(option)"
               >
-                {{ option.localName || option.name || "未命名 API Key" }}
+                <span>{{ providerApiKeyDisplayName(option) }}</span>
+                <span v-if="providerApiKeySecondaryName(option)" class="workspace-api-key-remote-name">
+                  · 站点名称：{{ providerApiKeySecondaryName(option) }}
+                </span>
                 <span v-if="!isProviderApiKeyUsable(option)" class="workspace-api-key-unavailable">（不可用）</span>
               </a-option>
             </a-select>

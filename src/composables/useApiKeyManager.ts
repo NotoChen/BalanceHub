@@ -1,14 +1,15 @@
 import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import type { Provider, ProviderApiKeyOption } from "../stores/providers";
+import { providerApiKeyDisplayName } from "../utils/provider-display";
 import { copyText } from "./useClipboard";
 
 interface UseApiKeyManagerOptions {
   listLocalKeys: (providerId: string) => Promise<ProviderApiKeyOption[]>;
   syncRemoteKeys: (providerId: string) => Promise<ProviderApiKeyOption[]>;
-  addLocalKey: (providerId: string, key: string, name: string) => Promise<Provider>;
+  addLocalKey: (providerId: string, key: string, remark: string) => Promise<Provider>;
   createRemoteKey: (providerId: string, name: string) => Promise<ProviderApiKeyOption[]>;
-  renameKey: (providerId: string, localId: string, name: string) => Promise<Provider>;
+  setRemark: (providerId: string, localId: string, remark: string) => Promise<Provider>;
   setPrimaryKey: (providerId: string, localId: string) => Promise<Provider>;
   removeLocalKey: (providerId: string, localId: string) => Promise<Provider>;
   deleteRemoteKey: (providerId: string, tokenId: string) => Promise<ProviderApiKeyOption[]>;
@@ -23,11 +24,11 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   const apiKeyCreateVisible = ref(false);
   const apiKeyCreateName = ref("");
   const apiKeyAddVisible = ref(false);
-  const apiKeyAddName = ref("");
+  const apiKeyAddRemark = ref("");
   const apiKeyAddValue = ref("");
-  const apiKeyRenameVisible = ref(false);
-  const apiKeyRenameName = ref("");
-  const apiKeyRenameTarget = ref<ProviderApiKeyOption | null>(null);
+  const apiKeyRemarkVisible = ref(false);
+  const apiKeyRemarkValue = ref("");
+  const apiKeyRemarkTarget = ref<ProviderApiKeyOption | null>(null);
   let requestRevision = 0;
 
   const apiKeyRemoteManaged = computed(() =>
@@ -55,12 +56,12 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     applyProvider(provider);
     apiKeyCreateVisible.value = false;
     apiKeyAddVisible.value = false;
-    apiKeyRenameVisible.value = false;
+    apiKeyRemarkVisible.value = false;
     apiKeyCreateName.value = "";
-    apiKeyAddName.value = "";
+    apiKeyAddRemark.value = "";
     apiKeyAddValue.value = "";
-    apiKeyRenameName.value = "";
-    apiKeyRenameTarget.value = null;
+    apiKeyRemarkValue.value = "";
+    apiKeyRemarkTarget.value = null;
     apiKeyManagerVisible.value = true;
     void refreshApiKeyManager();
   }
@@ -71,15 +72,15 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   }
 
   function openApiKeyAddModal() {
-    apiKeyAddName.value = "";
+    apiKeyAddRemark.value = "";
     apiKeyAddValue.value = "";
     apiKeyAddVisible.value = true;
   }
 
-  function openApiKeyRenameModal(option: ProviderApiKeyOption) {
-    apiKeyRenameTarget.value = option;
-    apiKeyRenameName.value = option.localName || option.name || "";
-    apiKeyRenameVisible.value = true;
+  function openApiKeyRemarkModal(option: ProviderApiKeyOption) {
+    apiKeyRemarkTarget.value = option;
+    apiKeyRemarkValue.value = option.localName?.trim() || "";
+    apiKeyRemarkVisible.value = true;
   }
 
   async function refreshApiKeyManager() {
@@ -89,12 +90,14 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     const revision = ++requestRevision;
     apiKeyManagerLoading.value = true;
     try {
-      apiKeyManagerKeys.value = await options.listLocalKeys(providerId);
+      const localKeys = await options.listLocalKeys(providerId);
       if (!currentRequest(providerId, revision)) return;
+      apiKeyManagerKeys.value = localKeys;
       if (!apiKeyRemoteManaged.value) return;
       try {
-        apiKeyManagerKeys.value = await options.syncRemoteKeys(providerId);
+        const remoteKeys = await options.syncRemoteKeys(providerId);
         if (!currentRequest(providerId, revision)) return;
+        apiKeyManagerKeys.value = remoteKeys;
         applyProvider(currentProvider(providerId));
       } catch (error) {
         if (currentRequest(providerId, revision)) {
@@ -139,8 +142,9 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     const revision = ++requestRevision;
     apiKeyManagerLoading.value = true;
     try {
-      apiKeyManagerKeys.value = await options.createRemoteKey(providerId, name);
+      const keys = await options.createRemoteKey(providerId, name);
       if (!currentRequest(providerId, revision)) return;
+      apiKeyManagerKeys.value = keys;
       applyProvider(currentProvider(providerId));
       apiKeyCreateVisible.value = false;
       apiKeyCreateName.value = "";
@@ -154,33 +158,33 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
 
   async function addLocalApiKey() {
     const key = apiKeyAddValue.value.trim();
-    const name = apiKeyAddName.value.trim() || "本地 API Key";
+    const remark = apiKeyAddRemark.value.trim();
     if (!key) return Message.warning("请填写 API Key");
     try {
       await runProviderMutation(
-        (providerId) => options.addLocalKey(providerId, key, name),
+        (providerId) => options.addLocalKey(providerId, key, remark),
         "已加入本地密钥库",
       );
       apiKeyAddVisible.value = false;
-      apiKeyAddName.value = "";
+      apiKeyAddRemark.value = "";
       apiKeyAddValue.value = "";
     } catch {
       // Error is surfaced by runProviderMutation.
     }
   }
 
-  async function renameManagedApiKey() {
-    const target = apiKeyRenameTarget.value;
-    const name = apiKeyRenameName.value.trim();
+  async function saveManagedApiKeyRemark() {
+    const target = apiKeyRemarkTarget.value;
+    const remark = apiKeyRemarkValue.value.trim();
     if (!target) return;
-    if (!name) return Message.warning("API Key 名称不能为空");
     try {
       await runProviderMutation(
-        (providerId) => options.renameKey(providerId, target.localId, name),
-        "已重命名 API Key",
+        (providerId) => options.setRemark(providerId, target.localId, remark),
+        remark ? "已保存 API Key 本地备注" : "已清空 API Key 本地备注",
       );
-      apiKeyRenameVisible.value = false;
-      apiKeyRenameTarget.value = null;
+      apiKeyRemarkVisible.value = false;
+      apiKeyRemarkTarget.value = null;
+      apiKeyRemarkValue.value = "";
     } catch {
       // Error is surfaced by runProviderMutation.
     }
@@ -193,7 +197,7 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     try {
       await runProviderMutation(
         (providerId) => options.setPrimaryKey(providerId, option.localId),
-        `已将“${displayName(option)}”设为主 Key`,
+        `已将“${providerApiKeyDisplayName(option)}”设为主 Key`,
       );
     } catch {
       // Error is surfaced by runProviderMutation.
@@ -219,8 +223,8 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     Modal.confirm({
       title: remote ? "删除站点 API Key" : "移除本地 API Key",
       content: remote
-        ? `确定从站点删除“${displayName(option)}”吗？此操作会撤销站点上的令牌。`
-        : `确定从本机密钥库移除“${displayName(option)}”吗？不会影响站点上的其他令牌。`,
+        ? `确定从站点删除“${providerApiKeyDisplayName(option)}”吗？此操作会撤销站点上的令牌。`
+        : `确定从本机密钥库移除“${providerApiKeyDisplayName(option)}”吗？不会影响站点上的其他令牌。`,
       okText: remote ? "删除" : "移除",
       cancelText: "取消",
       okButtonProps: { status: "danger" },
@@ -230,8 +234,9 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
           const revision = ++requestRevision;
           apiKeyManagerLoading.value = true;
           try {
-            apiKeyManagerKeys.value = await options.deleteRemoteKey(providerId, option.tokenId);
+            const keys = await options.deleteRemoteKey(providerId, option.tokenId);
             if (!currentRequest(providerId, revision)) return;
+            apiKeyManagerKeys.value = keys;
             applyProvider(currentProvider(providerId));
             Message.success("已删除站点 API Key");
           } catch (error) {
@@ -262,27 +267,23 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     apiKeyCreateVisible,
     apiKeyCreateName,
     apiKeyAddVisible,
-    apiKeyAddName,
+    apiKeyAddRemark,
     apiKeyAddValue,
-    apiKeyRenameVisible,
-    apiKeyRenameName,
-    apiKeyRenameTarget,
+    apiKeyRemarkVisible,
+    apiKeyRemarkValue,
+    apiKeyRemarkTarget,
     openApiKeyManager,
     openApiKeyCreateModal,
     openApiKeyAddModal,
-    openApiKeyRenameModal,
+    openApiKeyRemarkModal,
     refreshApiKeyManager,
     createManagedApiKey,
     addLocalApiKey,
-    renameManagedApiKey,
+    saveManagedApiKeyRemark,
     setPrimaryManagedApiKey,
     copyManagedApiKey,
     deleteManagedApiKey,
   };
-}
-
-function displayName(option: ProviderApiKeyOption) {
-  return option.localName || option.name || "API Key";
 }
 
 function errorMessage(error: unknown) {

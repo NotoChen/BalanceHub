@@ -22,7 +22,7 @@ import {
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
   removeLocalProviderApiKey as removeLocalProviderApiKeyCommand,
-  renameLocalProviderApiKey as renameLocalProviderApiKeyCommand,
+  setLocalProviderApiKeyRemark as setLocalProviderApiKeyRemarkCommand,
   saveProvider as saveProviderCommand,
   setPrimaryLocalProviderApiKey as setPrimaryLocalProviderApiKeyCommand,
   syncAvailableModels as syncAvailableModelsCommand,
@@ -262,13 +262,13 @@ export const useProviderStore = defineStore("providers", {
     async listLocalApiKeys(id: string) {
       return listLocalProviderApiKeysCommand(id);
     },
-    async addLocalApiKey(id: string, key: string, name: string) {
-      const provider = await addLocalProviderApiKeyCommand(id, key, name);
+    async addLocalApiKey(id: string, key: string, remark: string) {
+      const provider = await addLocalProviderApiKeyCommand(id, key, remark);
       this.upsertProvider(provider);
       return provider;
     },
-    async renameLocalApiKey(id: string, localId: string, name: string) {
-      const provider = await renameLocalProviderApiKeyCommand(id, localId, name);
+    async setLocalApiKeyRemark(id: string, localId: string, remark: string) {
+      const provider = await setLocalProviderApiKeyRemarkCommand(id, localId, remark);
       this.upsertProvider(provider);
       return provider;
     },

@@ -69,7 +69,7 @@ pub(crate) fn run() {
             list_provider_api_keys,
             list_local_provider_api_keys,
             add_local_provider_api_key,
-            rename_local_provider_api_key,
+            set_local_provider_api_key_remark,
             set_primary_local_provider_api_key,
             remove_local_provider_api_key,
             create_provider_api_key,

@@ -1,5 +1,11 @@
 // 本文件只保留前端展示格式化。业务能力读取集中在 provider-actions.ts。
-import type { AuthMode, Provider, ProviderProtocol, ProviderQuotaDisplay } from "../stores/providers";
+import type {
+  AuthMode,
+  Provider,
+  ProviderApiKeyOption,
+  ProviderProtocol,
+  ProviderQuotaDisplay,
+} from "../stores/providers";
 
 export type ProviderCardTone =
   | "disabled"
@@ -180,6 +186,56 @@ export function maskApiKey(value: string) {
 
 export function providerIdentityName(provider: Provider) {
   return providerIdentityDisplayName(provider) || providerIdentityUsername(provider);
+}
+
+export function providerCardTitle(provider: Provider) {
+  return providerDisplayLabel(provider);
+}
+
+export function providerDisplayLabel(provider: Provider) {
+  return provider.displayLabel?.trim() || provider.identity.name.trim();
+}
+
+export function providerApiKeyRemark(provider: Provider) {
+  if (provider.auth.mode !== "apiKey") return "";
+  return provider.identity.remark?.trim() || "";
+}
+
+export function providerApiKeyLocalRemark(option: ProviderApiKeyOption) {
+  return option.localName?.trim() || "";
+}
+
+export function providerApiKeyRemoteName(option: ProviderApiKeyOption) {
+  return option.name?.trim() || "";
+}
+
+export function providerApiKeyDisplayName(option: ProviderApiKeyOption) {
+  return providerApiKeyLocalRemark(option) || providerApiKeyRemoteName(option) || "未命名 API Key";
+}
+
+export function providerApiKeySecondaryName(option: ProviderApiKeyOption) {
+  const localRemark = providerApiKeyLocalRemark(option);
+  const remoteName = providerApiKeyRemoteName(option);
+  if (
+    !localRemark
+    || !remoteName
+    || localRemark.toLocaleLowerCase() === remoteName.toLocaleLowerCase()
+  ) {
+    return "";
+  }
+  return remoteName;
+}
+
+export function providerPrimaryApiKeyOption(provider: Provider) {
+  const key = provider.auth.apiKey?.trim() || "";
+  if (key) {
+    const option = provider.auth.apiKeyOptions.find((candidate) => candidate.key?.trim() === key);
+    if (option) return option;
+  }
+  const tokenId = provider.auth.apiKeyTokenId?.trim() || "";
+  return tokenId
+    ? provider.auth.apiKeyOptions.find((candidate) => candidate.tokenId?.trim() === tokenId)
+    : undefined;
 }
 
 export function providerIdentityDisplayName(provider: Provider) {

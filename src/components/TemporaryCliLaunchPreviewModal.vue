@@ -159,7 +159,8 @@ onBeforeUnmount(() => {
         </div>
         <div class="temporary-cli-preview-detail-item temporary-cli-preview-detail-item-wide">
           <span><icon-lock aria-hidden="true" />API Key</span>
-          <strong class="temporary-cli-preview-secret" :title="preview.apiKey">{{ preview.apiKey }}</strong>
+          <strong :title="preview.apiKeyLabel">{{ preview.apiKeyLabel }}</strong>
+          <code class="temporary-cli-preview-secret" :title="preview.apiKey">{{ preview.apiKey }}</code>
         </div>
         <div class="temporary-cli-preview-detail-item temporary-cli-preview-detail-item-wide">
           <span><icon-link aria-hidden="true" />Base URL</span>

@@ -12,6 +12,7 @@ import {
   providerAuthModeDescriptor,
   providerProtocolDescriptor,
 } from "../utils/provider-protocol";
+import { providerApiKeyDisplayName } from "../utils/provider-display";
 import type {
   CompletionRunOptions,
   CredentialCompletionState,
@@ -368,7 +369,12 @@ export function useProviderCredentialAssistant(
       const option = knownKeys[0];
       options.draftProvider.auth.apiKey = option.key;
       options.draftProvider.auth.apiKeyTokenId = option.tokenId;
-      setAssistantStep("apiKey", "选择主 API Key", "done", `已自动选择：${option.name || "未命名 Key"}`);
+      setAssistantStep(
+        "apiKey",
+        "选择主 API Key",
+        "done",
+        `已自动选择：${providerApiKeyDisplayName(option)}`,
+      );
       return true;
     }
     if (knownKeys.length > 1) {
@@ -433,7 +439,12 @@ export function useProviderCredentialAssistant(
       options.draftProvider.auth.apiKey = option.key;
       options.draftProvider.auth.apiKeyTokenId = option.tokenId;
       options.setApiKeyOptions([...options.draftProvider.auth.apiKeyOptions, option]);
-      setAssistantStep("apiKey", "创建 API 密钥", "done", `API 密钥已创建：${option.name || name}`);
+      setAssistantStep(
+        "apiKey",
+        "创建 API 密钥",
+        "done",
+        `API 密钥已创建：${providerApiKeyDisplayName(option) || name}`,
+      );
       Message.success("API 密钥已创建");
       return true;
     } catch (error) {
@@ -462,7 +473,12 @@ export function useProviderCredentialAssistant(
     options.draftProvider.auth.apiKey = option.key;
     options.draftProvider.auth.apiKeyTokenId = option.tokenId;
     options.setApiKeyOptions(options.draftProvider.auth.apiKeyOptions);
-    setAssistantStep("apiKey", "选择主 API Key", "done", `已选择：${option.name || "未命名 Key"}`);
+    setAssistantStep(
+      "apiKey",
+      "选择主 API Key",
+      "done",
+      `已选择：${providerApiKeyDisplayName(option)}`,
+    );
     if (resume) {
       await finishAssistantSave();
     }

@@ -13,12 +13,14 @@ export function providerMatchesSearch(provider: Provider, query: string) {
 
   const searchableFields = [
     provider.identity.name,
+    provider.identity.remark,
     provider.identity.displayName,
     provider.identity.baseUrl,
     ...provider.identity.backupUrls,
     provider.identity.username,
     provider.identity.userId,
     provider.auth.apiUser,
+    ...provider.auth.apiKeyOptions.flatMap((option) => [option.localName, option.name]),
     provider.cli.preferredModel,
     provider.liveness.model,
     ...Object.values(provider.liveness.agentBaseUrls || {}),

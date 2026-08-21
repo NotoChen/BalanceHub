@@ -9,6 +9,7 @@ import type {
   ProviderBatchOperation,
   ProviderBatchProgressItem,
 } from "../api/batch-operation";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 export type BackgroundTaskStatus = "running" | "success" | "failed";
 
@@ -226,7 +227,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
         id: "capability-probe",
         kind: "sync",
         title: "探测站点能力",
-        detail: provider ? `正在探测“${provider.identity.name}”` : "正在探测站点能力",
+        detail: provider ? `正在探测“${providerDisplayLabel(provider)}”` : "正在探测站点能力",
         status: "running",
         progress: null,
         startedAt: previousActive.get("capability-probe")?.startedAt ?? now,

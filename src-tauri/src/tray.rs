@@ -120,9 +120,9 @@ pub fn hide_main_window(app: &AppHandle) {
 fn full_provider_identity(provider: &Provider) -> String {
     let user_name = provider_user_name(provider);
     if user_name.trim().is_empty() {
-        provider.identity.name.clone()
+        provider.display_label()
     } else {
-        format!("{} · {}", provider.identity.name, user_name)
+        format!("{} · {}", provider.display_label(), user_name)
     }
 }
 

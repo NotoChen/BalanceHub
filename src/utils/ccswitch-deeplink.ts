@@ -1,5 +1,6 @@
 import type { Provider } from "../stores/providers";
 import { providerAgentBaseUrl } from "./cli-environment.ts";
+import { providerDisplayLabel } from "./provider-display.ts";
 
 export type CcSwitchAppTarget =
   | "codex"
@@ -42,7 +43,7 @@ export function buildCcSwitchProviderDeeplink(
   const params = new URLSearchParams();
   params.set("resource", "provider");
   params.set("app", target);
-  params.set("name", provider.identity.name.trim() || provider.identity.displayName.trim() || "BalanceHub");
+  params.set("name", providerDisplayLabel(provider) || provider.identity.displayName.trim() || "BalanceHub");
   params.set("endpoint", endpointForTarget(provider, target));
   params.set("apiKey", provider.auth.apiKey.trim());
 

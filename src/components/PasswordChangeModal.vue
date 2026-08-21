@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { IconLock } from "@arco-design/web-vue/es/icon";
 import type { Provider } from "../stores/providers";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -20,7 +21,7 @@ const password = ref("");
 const confirmPassword = ref("");
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 修改密码` : "修改密码",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 修改密码` : "修改密码",
 );
 
 watch(

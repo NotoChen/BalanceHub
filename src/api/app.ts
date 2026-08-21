@@ -287,12 +287,12 @@ export function listLocalProviderApiKeys(id: string) {
   return invoke<ProviderApiKeyOption[]>("list_local_provider_api_keys", { id });
 }
 
-export function addLocalProviderApiKey(id: string, key: string, name: string) {
-  return invoke<Provider>("add_local_provider_api_key", { id, key, name });
+export function addLocalProviderApiKey(id: string, key: string, remark: string) {
+  return invoke<Provider>("add_local_provider_api_key", { id, key, remark });
 }
 
-export function renameLocalProviderApiKey(id: string, localId: string, name: string) {
-  return invoke<Provider>("rename_local_provider_api_key", { id, localId, name });
+export function setLocalProviderApiKeyRemark(id: string, localId: string, remark: string) {
+  return invoke<Provider>("set_local_provider_api_key_remark", { id, localId, remark });
 }
 
 export function setPrimaryLocalProviderApiKey(id: string, localId: string) {

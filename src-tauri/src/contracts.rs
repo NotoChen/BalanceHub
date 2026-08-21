@@ -18,6 +18,7 @@ pub struct ProviderView {
     #[serde(flatten)]
     pub provider: Provider,
     pub revision: u64,
+    pub display_label: String,
     pub protocol_label: &'static str,
     pub protocol_description: &'static str,
     pub auth_mode_label: &'static str,
@@ -39,6 +40,7 @@ pub struct ProviderActions {
 impl From<Provider> for ProviderView {
     fn from(provider: Provider) -> Self {
         let revision = provider.revision;
+        let display_label = provider.display_label();
         let protocol_definition = protocol::definition(provider.identity.protocol);
         let auth_schema = protocol_definition
             .auth_schemas
@@ -63,6 +65,7 @@ impl From<Provider> for ProviderView {
         Self {
             provider,
             revision,
+            display_label,
             protocol_label: protocol_definition.label,
             protocol_description: protocol_definition.description,
             auth_mode_label: auth_schema.map_or("认证凭据", |schema| schema.label),
@@ -318,6 +321,7 @@ mod tests {
     fn provider_view_adds_rust_owned_actions_without_changing_persisted_model() {
         let mut input = ProviderInput::default();
         input.identity.protocol = ProviderProtocol::Api;
+        input.identity.name = "Relay Site".to_string();
         input.auth.mode = AuthMode::ApiKey;
         input.auth.api_key = "sk-test".to_string();
         let view = ProviderView::from(Provider::from_input(input, "provider-1".to_string()));
@@ -329,14 +333,39 @@ mod tests {
         assert!(view.actions.refresh_models_only);
         assert_eq!(view.protocol_label, "通用 API Key");
         assert_eq!(view.auth_mode_label, "API Key");
+        assert_eq!(view.display_label, "Relay Site");
 
         let value = serde_json::to_value(view).expect("provider view should serialize");
         assert_eq!(value["identity"]["id"], "provider-1");
+        assert_eq!(value["displayLabel"], "Relay Site");
         assert_eq!(value["actions"]["checkIn"], false);
 
         let provider = serde_json::from_value::<Provider>(value)
             .expect("Provider should ignore IPC-only actions on commands sent back to Rust");
         assert_eq!(provider.identity.id, "provider-1");
+    }
+
+    #[test]
+    fn provider_view_uses_one_display_label_rule_for_account_and_api_key_cards() {
+        let mut account_input = ProviderInput::default();
+        account_input.identity.name = "Relay Site".to_string();
+        account_input.identity.remark = "Claude 主用".to_string();
+        let account = ProviderView::from(Provider::from_input(
+            account_input,
+            "provider-account".to_string(),
+        ));
+        assert_eq!(account.display_label, "Relay Site · Claude 主用");
+
+        let mut api_key_input = ProviderInput::default();
+        api_key_input.identity.name = "Relay Site".to_string();
+        api_key_input.identity.remark = "Codex 备用".to_string();
+        api_key_input.identity.protocol = ProviderProtocol::Api;
+        api_key_input.auth.mode = AuthMode::ApiKey;
+        let api_key = ProviderView::from(Provider::from_input(
+            api_key_input,
+            "provider-api-key".to_string(),
+        ));
+        assert_eq!(api_key.display_label, "Codex 备用");
     }
 
     #[test]

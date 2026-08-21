@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { IconCloud, IconCopy, IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider } from "../stores/providers";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 const MAX_RENDERED_MODELS = 500;
 
@@ -30,7 +31,7 @@ watch(
 );
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 可用模型` : "可用模型",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 可用模型` : "可用模型",
 );
 
 const models = computed(() =>

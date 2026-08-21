@@ -592,7 +592,7 @@ async fn notify_provider_event(
 ) {
     let markdown = format!(
         "**中转站**：{}\n\n**结果**：{message}",
-        provider.identity.name
+        provider.display_label()
     );
     let result =
         notifications::send_provider_notification(app, settings, provider, title, markdown, false)

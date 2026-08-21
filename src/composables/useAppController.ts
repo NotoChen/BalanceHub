@@ -123,9 +123,11 @@ export function useAppController() {
   const apiKeyManager = useApiKeyManager({
     listLocalKeys: (providerId) => providerStore.listLocalApiKeys(providerId),
     syncRemoteKeys: (providerId) => providerStore.listApiKeys(providerId),
-    addLocalKey: (providerId, key, name) => providerStore.addLocalApiKey(providerId, key, name),
+    addLocalKey: (providerId, key, remark) =>
+      providerStore.addLocalApiKey(providerId, key, remark),
     createRemoteKey: (providerId, name) => providerStore.createApiKey(providerId, name),
-    renameKey: (providerId, localId, name) => providerStore.renameLocalApiKey(providerId, localId, name),
+    setRemark: (providerId, localId, remark) =>
+      providerStore.setLocalApiKeyRemark(providerId, localId, remark),
     setPrimaryKey: (providerId, localId) => providerStore.setPrimaryLocalApiKey(providerId, localId),
     removeLocalKey: (providerId, localId) => providerStore.removeLocalApiKey(providerId, localId),
     deleteRemoteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),

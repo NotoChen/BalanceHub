@@ -360,6 +360,16 @@
   letter-spacing: 0.01em;
 }
 
+.provider-api-key-remote-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #7b8796;
+  font-size: 10px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .provider-api-key-status {
   display: inline-flex;
   min-height: 22px;
@@ -486,6 +496,7 @@
 }
 
 :root.theme-dark .provider-api-key-identity code,
+:root.theme-dark .provider-api-key-remote-name,
 :root.theme-dark .provider-api-key-detail > span:last-child {
   color: #94a4b6;
 }

@@ -2,7 +2,12 @@
 import { computed } from "vue";
 import { IconCheck, IconLock } from "@arco-design/web-vue/es/icon";
 import type { ProviderApiKeyOption } from "../../stores/providers";
-import { formatQuotaValue, maskApiKey } from "../../utils/provider-display";
+import {
+  formatQuotaValue,
+  maskApiKey,
+  providerApiKeyDisplayName,
+  providerApiKeySecondaryName,
+} from "../../utils/provider-display";
 
 const props = withDefaults(
   defineProps<{
@@ -176,8 +181,17 @@ function formatUnixTime(value?: number | null) {
     </span>
     <span class="provider-api-key-identity">
       <span class="provider-api-key-name-row">
-        <strong>{{ singleOption.localName || singleOption.name || "未命名 API Key" }}</strong>
+        <strong :title="providerApiKeyDisplayName(singleOption)">
+          {{ providerApiKeyDisplayName(singleOption) }}
+        </strong>
         <small>当前主 Key</small>
+      </span>
+      <span
+        v-if="providerApiKeySecondaryName(singleOption)"
+        class="provider-api-key-remote-name"
+        :title="providerApiKeySecondaryName(singleOption)"
+      >
+        站点名称：{{ providerApiKeySecondaryName(singleOption) }}
       </span>
       <code>{{ keyDisplay(singleOption) }}</code>
     </span>
@@ -217,8 +231,17 @@ function formatUnixTime(value?: number | null) {
       </span>
       <span class="provider-api-key-identity">
         <span class="provider-api-key-name-row">
-            <strong>{{ option.localName || option.name || "未命名 API Key" }}</strong>
+          <strong :title="providerApiKeyDisplayName(option)">
+            {{ providerApiKeyDisplayName(option) }}
+          </strong>
           <small v-if="selected(option)">当前主 Key</small>
+        </span>
+        <span
+          v-if="providerApiKeySecondaryName(option)"
+          class="provider-api-key-remote-name"
+          :title="providerApiKeySecondaryName(option)"
+        >
+          站点名称：{{ providerApiKeySecondaryName(option) }}
         </span>
         <code>{{ keyDisplay(option) }}</code>
       </span>

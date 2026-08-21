@@ -22,6 +22,8 @@ pub const MAX_PLACEHOLDER_POOLS: usize = 64;
 pub const MAX_PLACEHOLDER_VALUES: usize = 256;
 pub const MAX_WORKSPACES: usize = 30;
 pub const MAX_SITE_LOGO_BYTES: usize = 256 * 1024;
+pub const MAX_PROVIDER_REMARK_CHARS: usize = 160;
+pub const MAX_API_KEY_REMARK_CHARS: usize = MAX_PROVIDER_REMARK_CHARS;
 pub const MAX_LIVENESS_TIMEOUT_SECS: u64 = 600;
 pub const MAX_LIVENESS_RECORDS: usize = 40;
 pub const MAX_CHECK_IN_RECORDS: usize = 730;
@@ -89,6 +91,10 @@ pub fn normalize_settings(settings: &mut AppSettings) -> bool {
 
 pub fn normalize_provider(provider: &mut Provider) -> bool {
     let mut changed = false;
+
+    let remark = normalize_provider_remark(&provider.identity.remark);
+    changed |= provider.identity.remark != remark;
+    provider.identity.remark = remark;
 
     let timeout = provider
         .liveness
@@ -199,6 +205,23 @@ pub fn site_logo_allowed(value: &str) -> bool {
     value.len() <= MAX_SITE_LOGO_BYTES
 }
 
+pub fn normalize_provider_remark(value: &str) -> String {
+    normalize_local_remark(value, MAX_PROVIDER_REMARK_CHARS)
+}
+
+pub fn normalize_api_key_remark(value: &str) -> String {
+    normalize_local_remark(value, MAX_API_KEY_REMARK_CHARS)
+}
+
+fn normalize_local_remark(value: &str, max_chars: usize) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(max_chars)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,6 +287,34 @@ mod tests {
             MAX_MODELS_PER_PROVIDER
         );
         assert!(provider.identity.site_logo.is_empty());
+    }
+
+    #[test]
+    fn provider_remark_normalization_trims_controls_and_limits_characters() {
+        let value = format!(
+            "  \n主\u{0000}用{}\t  ",
+            "备".repeat(MAX_PROVIDER_REMARK_CHARS)
+        );
+
+        let normalized = normalize_provider_remark(&value);
+
+        assert_eq!(normalized.chars().count(), MAX_PROVIDER_REMARK_CHARS);
+        assert!(normalized.starts_with("主用"));
+        assert!(!normalized.chars().any(char::is_control));
+    }
+
+    #[test]
+    fn api_key_remark_normalization_allows_empty_values_and_bounds_content() {
+        assert!(normalize_api_key_remark(" \n\t ").is_empty());
+
+        let normalized = normalize_api_key_remark(&format!(
+            "  主\u{0000}用{}  ",
+            "备".repeat(MAX_API_KEY_REMARK_CHARS)
+        ));
+
+        assert_eq!(normalized.chars().count(), MAX_API_KEY_REMARK_CHARS);
+        assert!(normalized.starts_with("主用"));
+        assert!(!normalized.chars().any(char::is_control));
     }
 
     #[test]

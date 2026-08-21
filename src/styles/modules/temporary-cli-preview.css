@@ -187,6 +187,13 @@
   white-space: pre-wrap !important;
 }
 
+.temporary-cli-preview-detail-item code.temporary-cli-preview-secret {
+  color: var(--surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .temporary-cli-preview-command,
 .temporary-cli-preview-disclosure {
   display: grid;

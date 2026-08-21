@@ -76,6 +76,7 @@ pub struct TemporaryCliLaunchPreview {
     pub terminal_name: String,
     pub workdir: String,
     pub base_url: String,
+    pub api_key_label: String,
     pub api_key: String,
     pub model: String,
     pub session_mode: TemporaryCliSessionMode,

@@ -14,6 +14,7 @@ import {
   providerAuthModeDescriptor,
   providerProtocolDescriptor,
 } from "../utils/provider-protocol";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 type ProbeStepKey = "checkIn" | "apiKeys" | "invitation" | "models";
 type ProbeStepStatus = "running" | "supported" | "unsupported" | "skipped" | "error" | "pending";
@@ -35,7 +36,7 @@ const emit = defineEmits<{
 }>();
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 站点能力探测` : "站点能力探测",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 站点能力探测` : "站点能力探测",
 );
 
 const probeFinished = computed(() => !props.running && props.finishedAt !== null);

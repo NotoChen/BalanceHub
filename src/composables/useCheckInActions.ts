@@ -2,6 +2,7 @@ import { computed, ref, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { checkInProvider } from "../api/checkin";
 import type { Provider } from "../stores/providers";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseCheckInActionsOptions {
   providers: Ref<Provider[]>;
@@ -71,5 +72,5 @@ export function useCheckInActions(options: UseCheckInActionsOptions) {
 }
 
 function checkInMarkdown(provider: Provider, message: string) {
-  return `**中转站**：${provider.identity.name}\n\n**结果**：${message}`;
+  return `**中转站**：${providerDisplayLabel(provider)}\n\n**结果**：${message}`;
 }

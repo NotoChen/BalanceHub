@@ -6,6 +6,11 @@ import type { AgentCliKind, Provider } from "../../stores/providers";
 import { agentCliLabel } from "../../utils/cli-environment";
 import {
   maskApiKey,
+  providerApiKeyDisplayName,
+  providerApiKeyRemark,
+  providerApiKeySecondaryName,
+  providerCardTitle,
+  providerPrimaryApiKeyOption,
   providerProtocolLabel,
   type ProviderCardTone,
 } from "../../utils/provider-display";
@@ -40,7 +45,19 @@ const providerUrlDisplay = computed(() =>
     .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, ""),
 );
-const providerHeaderTitle = computed(() => props.provider.identity.name);
+const providerHeaderTitle = computed(() => providerCardTitle(props.provider));
+const apiKeyRemark = computed(() => providerApiKeyRemark(props.provider));
+const primaryApiKey = computed(() => providerPrimaryApiKeyOption(props.provider));
+const primaryApiKeyName = computed(() =>
+  primaryApiKey.value
+    ? providerApiKeyDisplayName(primaryApiKey.value)
+    : apiKeyConfigured.value
+      ? "当前配置 API Key"
+      : "",
+);
+const primaryApiKeySecondaryName = computed(() =>
+  primaryApiKey.value ? providerApiKeySecondaryName(primaryApiKey.value) : "",
+);
 const providerHeaderSubtitle = computed(() =>
   providerProtocolLabel(props.provider),
 );
@@ -80,6 +97,9 @@ function openCliInstances(cliKind: AgentCliKind) {
 <template>
 <header class="provider-card-header">
   <dl v-if="isApiKeyAuth" class="provider-card-api-summary" aria-label="API Key 信息">
+    <div v-if="apiKeyRemark" class="provider-card-api-remark" :title="apiKeyRemark">
+      {{ apiKeyRemark }}
+    </div>
     <div class="provider-card-api-field">
       <dt>接口地址</dt>
       <dd
@@ -90,6 +110,14 @@ function openCliInstances(cliKind: AgentCliKind) {
         {{ providerUrlDisplay }}
       </dd>
       <dd v-else class="provider-card-api-value-muted">未配置</dd>
+    </div>
+    <div class="provider-card-api-field">
+      <dt>主 Key</dt>
+      <dd v-if="primaryApiKeyName" class="provider-card-api-primary-name" :title="primaryApiKeyName">
+        {{ primaryApiKeyName }}
+        <span v-if="primaryApiKeySecondaryName"> · {{ primaryApiKeySecondaryName }}</span>
+      </dd>
+      <dd v-else class="provider-card-api-value-muted">未选择</dd>
     </div>
     <div class="provider-card-api-field">
       <dt>API Key</dt>
@@ -105,7 +133,7 @@ function openCliInstances(cliKind: AgentCliKind) {
     <div class="provider-logo provider-card-logo">
       <img
         :src="providerLogoSrc(provider)"
-        :alt="provider.identity.name"
+        :alt="providerHeaderTitle"
         draggable="false"
         @error="handleProviderLogoError"
       />

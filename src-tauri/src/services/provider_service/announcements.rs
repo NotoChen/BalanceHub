@@ -47,9 +47,10 @@ impl<'a> ProviderService<'a> {
         for (_, result) in results {
             announcements.extend(result.announcements);
             if let Some(message) = result.error {
+                let provider_name = result.source.display_label();
                 errors.push(SiteAnnouncementSourceError {
                     provider_id: result.source.identity.id,
-                    provider_name: result.source.identity.name,
+                    provider_name,
                     provider_protocol: result.source.identity.protocol,
                     message,
                 });

@@ -18,6 +18,7 @@ import { agentCliLabel } from "../utils/cli-environment";
 import { copyText } from "../composables/useClipboard";
 import AgentCliIcon from "./AgentCliIcon.vue";
 import TerminalBrandIcon from "./TerminalBrandIcon.vue";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -36,7 +37,7 @@ const emit = defineEmits<{
 const store = useCliRuntimeStore();
 
 const title = computed(() => {
-  if (props.provider) return props.provider.identity.name;
+  if (props.provider) return providerDisplayLabel(props.provider);
   return props.cliKind ? `${selectedCliLabel.value} 活动实例` : "活动临时 CLI";
 });
 const selectedCliLabel = computed(() => (props.cliKind ? cliLabel(props.cliKind) : "CLI"));

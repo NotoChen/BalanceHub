@@ -9,6 +9,7 @@ import {
   type ProviderBatchProgressItem,
 } from "../api/batch-operation";
 import type { Provider } from "../stores/providers";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseBatchOperationOptions {
   providers: Ref<Provider[]>;
@@ -71,7 +72,7 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     const title = item.status === "success" ? "BalanceHub 签到成功" : "BalanceHub 签到失败";
     void options.notifySystem(
       title,
-      `**中转站**：${provider.identity.name}\n\n**结果**：${item.message}`,
+      `**中转站**：${providerDisplayLabel(provider)}\n\n**结果**：${item.message}`,
       { provider },
     );
   }

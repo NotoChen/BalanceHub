@@ -81,7 +81,7 @@ pub(super) fn preview(
 
     Ok(CliConfigPreview {
         provider_id: provider.identity.id.clone(),
-        provider_name: provider.identity.name.clone(),
+        provider_name: provider.display_label(),
         cli_kind,
         revision: config_revision(&[&config_text, &auth_text, &base_url, &api_key]),
         original_files: vec![

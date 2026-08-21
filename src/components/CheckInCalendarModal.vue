@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { IconCalendarClock, IconLeft, IconRefresh, IconRight } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderCheckInRecord, ProviderCheckInRecordsResult } from "../stores/providers";
-import { formatQuotaValue } from "../utils/provider-display";
+import { formatQuotaValue, providerDisplayLabel } from "../utils/provider-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -22,7 +22,7 @@ const emit = defineEmits<{
 const weekDays = ["日", "一", "二", "三", "四", "五", "六"];
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 签到记录` : "签到记录",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 签到记录` : "签到记录",
 );
 
 const recordByDate = computed(() => {

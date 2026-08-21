@@ -1,3 +1,4 @@
+use super::provider_account_label;
 use super::resolve_launch_model;
 use super::resolve_resume_id;
 use super::resolve_session_name;
@@ -23,6 +24,7 @@ use crate::models::{
     AgentCliKind, AppSettings, AuthMode, Provider, ProviderInput, ProxyMode,
     TemporaryCliSessionMode, TemporaryCliTerminalKind,
 };
+
 use crate::network;
 use crate::services::agent_cli::{
     self,
@@ -35,6 +37,19 @@ use std::path::Path;
 use std::path::PathBuf;
 #[cfg(not(target_os = "windows"))]
 use std::{env, fs, process::Command};
+
+#[test]
+fn api_key_runtime_account_label_uses_the_selected_local_remark() {
+    let mut input = ProviderInput::default();
+    input.auth.mode = AuthMode::ApiKey;
+    let provider = Provider::from_input(input, "provider-test".to_string());
+
+    assert_eq!(
+        provider_account_label(&provider, "Codex 主用"),
+        "Codex 主用"
+    );
+    assert_eq!(provider_account_label(&provider, ""), "API Key");
+}
 
 fn launch_plan(cli_kind: AgentCliKind, request: TemporaryLaunchRequest<'_>) -> TemporaryLaunchPlan {
     let adapter = agent_cli::definition(cli_kind)
