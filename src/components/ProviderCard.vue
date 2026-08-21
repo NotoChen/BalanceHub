@@ -8,6 +8,7 @@ import ProviderCardBody from "./provider-card/ProviderCardBody.vue";
 import ProviderCardActions from "./provider-card/ProviderCardActions.vue";
 import ProviderCardCliOrbits from "./provider-card/ProviderCardCliOrbits.vue";
 import type { ProviderCardCliOrbitSpec } from "../utils/provider-card-cli-orbit";
+import { providerCardTitle } from "../utils/provider-display";
 
 const props = withDefaults(
   defineProps<{
@@ -154,7 +155,7 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
     :role="interactive ? 'group' : undefined"
     :aria-disabled="interactive ? !provider.runtime.enabled : undefined"
     :aria-hidden="ariaHidden || undefined"
-    :aria-label="interactive ? `${provider.identity.name} 中转站卡片` : undefined"
+    :aria-label="interactive ? `${providerCardTitle(provider)} 中转站卡片` : undefined"
     :tabindex="interactive ? 0 : undefined"
     :title="title"
     :style="dragStyle"

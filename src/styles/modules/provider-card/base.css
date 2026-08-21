@@ -259,6 +259,7 @@
 
 .provider-card-disabled .provider-logo,
 .provider-card-disabled .provider-card-title,
+.provider-card-disabled .provider-card-api-remark,
 .provider-card-disabled .provider-card-type,
 .provider-card-disabled .provider-card-api-field dt,
 .provider-card-disabled .provider-card-api-field dd,
@@ -363,6 +364,17 @@
   margin: 0;
 }
 
+.provider-card-api-remark {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2129;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .provider-card-api-field {
   display: grid;
   min-width: 0;
@@ -400,6 +412,18 @@
   font-size: 11px;
   font-weight: 500;
   line-height: 1.35;
+}
+
+.provider-card-api-primary-name {
+  color: #4e5969;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.provider-card-api-primary-name span {
+  color: #86909c;
+  font-weight: 500;
 }
 
 .provider-card-api-key-value code {

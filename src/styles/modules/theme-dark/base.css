@@ -46,6 +46,7 @@
 
 :root.theme-dark .panel-title,
 :root.theme-dark .provider-card-title,
+:root.theme-dark .provider-card-api-remark,
 :root.theme-dark .provider-card-api-endpoint-value,
 :root.theme-dark .provider-card-user-name,
 :root.theme-dark .provider-card-balance strong {
@@ -54,6 +55,7 @@
 
 :root.theme-dark .provider-card-type,
 :root.theme-dark .provider-card-api-key-value,
+:root.theme-dark .provider-card-api-primary-name,
 :root.theme-dark .provider-card-user-meta,
 :root.theme-dark .provider-card-balance span,
 :root.theme-dark .provider-card-progress-row > span,
@@ -72,6 +74,7 @@
 :root.theme-dark .provider-card-model-sync-time,
 :root.theme-dark .provider-card-api-field dt,
 :root.theme-dark .provider-card-api-value-muted,
+:root.theme-dark .provider-card-api-primary-name span,
 :root.theme-dark .provider-card-auth-summary span,
 :root.theme-dark .provider-card-auth-summary > svg,
 :root.theme-dark .provider-liveness-summary,
@@ -378,6 +381,7 @@
 
 :root.theme-dark .provider-card-disabled .provider-logo,
 :root.theme-dark .provider-card-disabled .provider-card-title,
+:root.theme-dark .provider-card-disabled .provider-card-api-remark,
 :root.theme-dark .provider-card-disabled .provider-card-type,
 :root.theme-dark .provider-card-disabled .provider-card-api-field dt,
 :root.theme-dark .provider-card-disabled .provider-card-api-field dd,

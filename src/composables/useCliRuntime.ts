@@ -11,6 +11,7 @@ import {
 } from "../stores/providers";
 import { agentCliLabel } from "../utils/cli-environment";
 import { withTimeout } from "../utils/promise-timeout";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 const CLI_RUNTIME_REFRESH_TIMEOUT_MS = 15_000;
 const CLI_CONFIG_PREVIEW_TIMEOUT_MS = 30_000;
@@ -50,14 +51,22 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     ) ?? null,
   );
 
-  const cliInstances = computed(() =>
-    options.cliRuntime.value.instances.filter(
-      (instance) =>
-        (!cliInstancesProviderId.value || instance.providerId === cliInstancesProviderId.value) &&
-        (!cliInstancesKind.value || instance.cliKind === cliInstancesKind.value) &&
-        instance.status !== "exited",
-    ),
-  );
+  const cliInstances = computed(() => {
+    const providerLabels = new Map(
+      options.providers.value.map((provider) => [provider.identity.id, providerDisplayLabel(provider)]),
+    );
+    return options.cliRuntime.value.instances
+      .filter(
+        (instance) =>
+          (!cliInstancesProviderId.value || instance.providerId === cliInstancesProviderId.value) &&
+          (!cliInstancesKind.value || instance.cliKind === cliInstancesKind.value) &&
+          instance.status !== "exited",
+      )
+      .map((instance) => ({
+        ...instance,
+        providerName: providerLabels.get(instance.providerId) || instance.providerName,
+      }));
+  });
 
   function openCliInstances(provider: Provider, cliKind: AgentCliKind) {
     cliInstancesProviderId.value = provider.identity.id;

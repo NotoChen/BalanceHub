@@ -92,6 +92,7 @@ export type NotificationChannelKind =
 
 export interface Provider {
   revision: number;
+  displayLabel: string;
   protocolLabel: string;
   protocolDescription: string;
   authModeLabel: string;
@@ -123,6 +124,7 @@ export interface ProviderIdentity {
   name: string;
   baseUrl: string;
   protocol: ProviderProtocol;
+  remark: string;
   displayName: string;
   username: string;
   userId: string;
@@ -134,6 +136,7 @@ export interface ProviderIdentityInput {
   name: string;
   baseUrl: string;
   protocol: ProviderProtocol;
+  remark: string;
   userId: string;
   backupUrls: string[];
 }
@@ -381,7 +384,9 @@ export interface ProviderCredentialCompletionResult {
 
 export interface ProviderApiKeyOption {
   localId: string;
+  /** BalanceHub 本地备注；远端同步不得覆盖。 */
   localName: string;
+  /** 站点返回的远程 Key 名称。 */
   name: string;
   key: string;
   maskedKey: string;
@@ -614,6 +619,7 @@ export interface TemporaryCliLaunchPreview {
   terminalName: string;
   workdir: string;
   baseUrl: string;
+  apiKeyLabel: string;
   apiKey: string;
   model: string;
   sessionMode: TemporaryCliSessionMode;

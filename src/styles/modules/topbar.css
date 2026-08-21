@@ -169,6 +169,26 @@
   transform: translateY(0) scale(0.95);
 }
 
+.topbar-task-icon {
+  display: block;
+}
+
+.background-task-gradient-stop {
+  animation: background-task-gradient-flow 5.6s linear infinite;
+}
+
+.background-task-gradient-stop.is-second {
+  animation-delay: -1.4s;
+}
+
+.background-task-gradient-stop.is-third {
+  animation-delay: -2.8s;
+}
+
+.background-task-gradient-stop.is-fourth {
+  animation-delay: -4.2s;
+}
+
 .topbar-task-badge {
   background: #165dff;
 }
@@ -577,9 +597,34 @@
   }
 }
 
+@keyframes background-task-gradient-flow {
+  0%,
+  100% {
+    stop-color: #165dff;
+  }
+
+  25% {
+    stop-color: #32c6d4;
+  }
+
+  50% {
+    stop-color: #7a5af8;
+  }
+
+  75% {
+    stop-color: #2d8cff;
+  }
+}
+
 @keyframes topbar-action-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .background-task-gradient-stop {
+    animation: none;
   }
 }
 

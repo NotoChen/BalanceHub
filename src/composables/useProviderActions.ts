@@ -10,6 +10,7 @@ import {
   ccSwitchTargetLabels,
   type CcSwitchAppTarget,
 } from "../utils/ccswitch-deeplink";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseProviderActionsOptions {
   providers: { value: Provider[] };
@@ -111,7 +112,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
       const activeProvider = capabilityProbeProvider.value;
       Message.info(
         activeProvider
-          ? `正在探测“${activeProvider.identity.name}”，请等待当前任务完成`
+          ? `正在探测“${providerDisplayLabel(activeProvider)}”，请等待当前任务完成`
           : "站点能力探测正在运行，请等待当前任务完成",
       );
       return;
@@ -218,7 +219,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
   function removeProviderAction(provider: Provider) {
     Modal.confirm({
       title: "删除中转站",
-      content: `确定删除“${provider.identity.name}”吗？`,
+      content: `确定删除“${providerDisplayLabel(provider)}”吗？`,
       okText: "删除",
       cancelText: "取消",
       okButtonProps: { status: "danger" },

@@ -31,6 +31,24 @@ pub struct Provider {
     pub runtime: ProviderRuntime,
 }
 
+impl Provider {
+    /// 用户界面中用于区分卡片的统一名称。账号卡片保留站点名并追加备注；
+    /// API Key 卡片优先使用备注，没有备注时回退到站点名。
+    pub fn display_label(&self) -> String {
+        let name = self.identity.name.trim();
+        let remark = self.identity.remark.trim();
+        if matches!(self.auth.mode, AuthMode::ApiKey) {
+            return if remark.is_empty() { name } else { remark }.to_string();
+        }
+        match (name.is_empty(), remark.is_empty()) {
+            (true, true) => String::new(),
+            (true, false) => remark.to_string(),
+            (false, true) => name.to_string(),
+            (false, false) => format!("{name} · {remark}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderIdentity {
@@ -39,6 +57,9 @@ pub struct ProviderIdentity {
     pub base_url: String,
     #[serde(default)]
     pub protocol: ProviderProtocol,
+    /// 用户为卡片设置的本地备注，不受站点同步结果覆盖。
+    #[serde(default)]
+    pub remark: String,
     #[serde(default)]
     pub display_name: String,
     #[serde(default)]
@@ -58,6 +79,9 @@ pub struct ProviderIdentityInput {
     pub base_url: String,
     #[serde(default)]
     pub protocol: ProviderProtocol,
+    /// 用户为卡片设置的本地备注。
+    #[serde(default)]
+    pub remark: String,
     /// 已认证账号的稳定用户 ID。新增草稿通常为空，保存已存在账号时由前端回传。
     #[serde(default)]
     pub user_id: String,

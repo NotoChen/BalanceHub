@@ -246,11 +246,36 @@
   padding: 0 9px;
 }
 
+.workspace-fixed-credential-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
 .workspace-fixed-credential > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workspace-fixed-credential-copy strong,
+.workspace-fixed-credential-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-fixed-credential-copy strong {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.workspace-fixed-credential-copy small,
+.workspace-api-key-remote-name {
+  color: #86909c;
+  font-size: 9px;
 }
 
 .workspace-fixed-credential .provider-auth-icon {

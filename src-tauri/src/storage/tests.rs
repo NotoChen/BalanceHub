@@ -127,6 +127,32 @@ fn schema_nine_migration_adds_local_key_identity_and_moves_cli_preference() {
 }
 
 #[test]
+fn schema_ten_migration_adds_an_empty_provider_remark() {
+    let mut old = AppData {
+        schema_version: 10,
+        ..AppData::default()
+    };
+    old.providers.push(crate::models::Provider::from_input(
+        crate::models::ProviderInput::default(),
+        "provider-test".to_string(),
+    ));
+    let mut value = serde_json::to_value(old).expect("app data should serialize");
+    value["providers"][0]["identity"]
+        .as_object_mut()
+        .expect("provider identity should be an object")
+        .remove("remark");
+
+    let migrated = migrate_app_data(
+        &serde_json::to_string(&value).expect("legacy app data should serialize"),
+        10,
+    )
+    .expect("schema ten should migrate");
+
+    assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+    assert!(migrated.providers[0].identity.remark.is_empty());
+}
+
+#[test]
 fn schema_four_migration_adds_password_login_fields() {
     let mut old = AppData {
         schema_version: 4,

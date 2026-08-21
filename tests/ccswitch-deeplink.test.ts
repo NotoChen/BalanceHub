@@ -9,6 +9,7 @@ import {
 
 function provider(overrides: Partial<Provider> = {}): Provider {
   return {
+    displayLabel: "Relay Site",
     identity: {
       id: "provider-1",
       name: "Relay Site",
@@ -92,4 +93,10 @@ test("CC Switch import requires both a base URL and API Key", () => {
     ),
     false,
   );
+});
+
+test("CC Switch uses the same card display label", () => {
+  const link = new URL(buildCcSwitchProviderDeeplink(provider({ displayLabel: "Codex 备用" }), "codex"));
+
+  assert.equal(link.searchParams.get("name"), "Codex 备用");
 });

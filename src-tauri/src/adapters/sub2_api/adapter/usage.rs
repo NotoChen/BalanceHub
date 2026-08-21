@@ -69,7 +69,7 @@ impl Sub2ApiAdapter {
             authenticated,
             ProviderUsageSummary {
                 provider_id: provider.identity.id.clone(),
-                provider_name: provider.identity.name.clone(),
+                provider_name: provider.display_label(),
                 quota_display: quota_display(provider),
                 points,
                 model_stats,
@@ -105,7 +105,7 @@ impl Sub2ApiAdapter {
             authenticated,
             ProviderRequestLogsResult {
                 provider_id: provider.identity.id.clone(),
-                provider_name: provider.identity.name.clone(),
+                provider_name: provider.display_label(),
                 page: query.page,
                 page_size: query.page_size,
                 total,

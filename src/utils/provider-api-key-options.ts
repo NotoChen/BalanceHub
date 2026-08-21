@@ -75,7 +75,7 @@ function text(value: unknown) {
 function configuredProviderApiKeyOption(apiKey: string): ProviderApiKeyOption {
   return {
     localId: "",
-    localName: "当前配置 API Key",
+    localName: "",
     name: "当前配置 API Key",
     key: apiKey,
     maskedKey: "",

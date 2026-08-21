@@ -15,6 +15,7 @@ import { normalizeLivenessTiming } from "../utils/liveness-defaults";
 import { providerToInput } from "../utils/provider-input";
 import { chooseSameSiteApiKeyAction, confirmAction } from "./provider-credential-dialogs";
 import type { ProviderSaveOptions } from "../stores/provider-types";
+import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseProviderEditorOptions {
   store: ProviderEditorStore;
@@ -158,7 +159,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
       if (completion === "mergedApiKey") {
         openEditProvider(savedProvider, "credentials");
         refreshAfterSave(savedProvider);
-        Message.success(`API Key 已加入“${savedProvider.identity.name}”的认证凭据`);
+        Message.success(`API Key 已加入“${providerDisplayLabel(savedProvider)}”的认证凭据`);
         return undefined;
       }
       editingProviderId.value = savedProvider.identity.id;

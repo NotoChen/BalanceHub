@@ -119,11 +119,11 @@ pub(crate) async fn add_local_provider_api_key(
     app: AppHandle,
     id: String,
     key: String,
-    name: String,
+    remark: String,
 ) -> Result<ProviderView, String> {
     let task_app = app.clone();
     let provider = run_blocking("添加本地 API Key", move || {
-        ProviderService::new(&task_app).add_local_api_key(id, key, name)
+        ProviderService::new(&task_app).add_local_api_key(id, key, remark)
     })
     .await?;
     tray::refresh_from_state(&app);
@@ -131,15 +131,15 @@ pub(crate) async fn add_local_provider_api_key(
 }
 
 #[tauri::command]
-pub(crate) async fn rename_local_provider_api_key(
+pub(crate) async fn set_local_provider_api_key_remark(
     app: AppHandle,
     id: String,
     local_id: String,
-    name: String,
+    remark: String,
 ) -> Result<ProviderView, String> {
     let task_app = app.clone();
-    let provider = run_blocking("重命名本地 API Key", move || {
-        ProviderService::new(&task_app).rename_local_api_key(id, local_id, name)
+    let provider = run_blocking("设置 API Key 本地备注", move || {
+        ProviderService::new(&task_app).set_local_api_key_remark(id, local_id, remark)
     })
     .await?;
     tray::refresh_from_state(&app);

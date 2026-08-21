@@ -22,6 +22,7 @@ import {
   isProviderApiKeyUsable,
   providerApiKeyOptionMatches,
 } from "../utils/provider-api-key-options.ts";
+import { providerDisplayLabel } from "../utils/provider-display.ts";
 
 interface UseWorkspaceLaunchFlowOptions {
   visible: Ref<boolean>;
@@ -213,7 +214,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     options.error.value = "";
     workspaceLaunchState.value = { phase: "idle" };
     options.visible.value = false;
-    const task = beginLaunchTask(cliLabel, provider.identity.name);
+    const task = beginLaunchTask(cliLabel, providerDisplayLabel(provider));
     void launchInBackground(task.id, input, cliLabel);
   }
 

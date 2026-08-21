@@ -276,7 +276,7 @@ fn provider_save_conflict(
         let conflict = ProviderSaveConflict {
             kind,
             existing_provider_id: provider.identity.id.clone(),
-            existing_provider_name: provider.identity.name.clone(),
+            existing_provider_name: provider.display_label(),
         };
         // An edit of an existing card may legitimately keep the same endpoint
         // while another card uses a different key. In a separate-card retry,

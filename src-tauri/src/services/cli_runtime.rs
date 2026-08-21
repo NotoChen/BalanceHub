@@ -131,7 +131,7 @@ pub fn register_instance(
     let metadata = StoredInstanceMetadata {
         id: id.clone(),
         provider_id: provider.identity.id.clone(),
-        provider_name: provider.identity.name.clone(),
+        provider_name: provider.display_label(),
         session_title: session_title.trim().to_string(),
         account_label: account_label.trim().to_string(),
         cli_kind,

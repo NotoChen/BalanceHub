@@ -9,7 +9,7 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderUsageModelStat, ProviderUsageSummary } from "../stores/providers";
 import { useUsageTrendChart } from "../composables/useUsageTrendChart";
-import { formatNumberCompact, formatQuotaValue } from "../utils/provider-display";
+import { formatNumberCompact, formatQuotaValue, providerDisplayLabel } from "../utils/provider-display";
 import {
   usagePeriodOptions,
   type UsagePeriod,
@@ -52,7 +52,7 @@ const {
 } = useUsageTrendChart(props);
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · ${usagePeriodTitle.value}` : "用量趋势",
+  props.provider ? `${providerDisplayLabel(props.provider)} · ${usagePeriodTitle.value}` : "用量趋势",
 );
 
 const periodModel = computed({

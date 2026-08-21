@@ -22,7 +22,7 @@ impl<'a> ProviderService<'a> {
         &self,
         id: String,
         key: String,
-        name: String,
+        remark: String,
     ) -> Result<Provider, String> {
         let provider_id = id.clone();
         self.mutate_decided(|data| {
@@ -31,17 +31,17 @@ impl<'a> ProviderService<'a> {
                 .iter_mut()
                 .find(|provider| provider.identity.id == provider_id)
                 .ok_or_else(|| "中转站不存在".to_string())?;
-            provider.add_named_api_key(&key, &name)?;
+            provider.add_named_api_key(&key, &remark)?;
             Ok(MutationDecision::changed(()))
         })?;
         find_provider(&self.snapshot(), &id)
     }
 
-    pub fn rename_local_api_key(
+    pub fn set_local_api_key_remark(
         &self,
         id: String,
         local_id: String,
-        name: String,
+        remark: String,
     ) -> Result<Provider, String> {
         let provider_id = id.clone();
         self.mutate_decided(|data| {
@@ -50,8 +50,11 @@ impl<'a> ProviderService<'a> {
                 .iter_mut()
                 .find(|provider| provider.identity.id == provider_id)
                 .ok_or_else(|| "中转站不存在".to_string())?;
-            provider.rename_api_key(&local_id, &name)?;
-            Ok(MutationDecision::changed(()))
+            if provider.set_api_key_remark(&local_id, &remark)? {
+                Ok(MutationDecision::changed(()))
+            } else {
+                Ok(MutationDecision::unchanged(()))
+            }
         })?;
         find_provider(&self.snapshot(), &id)
     }
@@ -284,25 +287,6 @@ fn sync_api_key_options(
         }
     }
 
-    for option in &mut cached {
-        if let Some(previous) = previous_options.iter().find(|candidate| {
-            (!option.local_id.is_empty()
-                && !candidate.local_id.is_empty()
-                && option.local_id == candidate.local_id)
-                || (!option.token_id.is_empty()
-                    && !candidate.token_id.is_empty()
-                    && option.token_id == candidate.token_id)
-                || (!option.key.is_empty() && option.key == candidate.key)
-        }) {
-            if !previous.local_id.is_empty() {
-                option.local_id = previous.local_id.clone();
-            }
-            if option.local_name.is_empty() {
-                option.local_name = previous.local_name.clone();
-            }
-        }
-    }
-
     let selected = cached
         .iter()
         .find(|option| {
@@ -438,6 +422,8 @@ mod tests {
         )];
         let remote = ProviderApiKeyOption {
             name: "New name".to_string(),
+            local_name: "远端不应覆盖".to_string(),
+            key: "sk-secret".to_string(),
             masked_key: "sk-s**********cret".to_string(),
             token_id: "11".to_string(),
             remain_quota: 42.0,
@@ -457,11 +443,12 @@ mod tests {
         assert_eq!(auth.api_key_options[0].name, "New name");
         assert_eq!(auth.api_key_options[0].remain_quota, 42.0);
         assert_eq!(auth.api_key_options[0].key, "sk-secret");
+        assert_eq!(auth.api_key_options[0].local_name, "");
         assert!(auth.api_key_options[0].key_available);
     }
 
     #[test]
-    fn sync_preserves_local_identity_and_name_when_remote_token_id_changes() {
+    fn sync_preserves_local_identity_and_remark_when_remote_token_id_changes() {
         let mut auth = ProviderInput::default().auth;
         let mut cached = option(
             ProviderProtocol::NewApi,
@@ -479,6 +466,7 @@ mod tests {
 
         let remote = ProviderApiKeyOption {
             name: "Remote name".to_string(),
+            local_name: "远端不应覆盖".to_string(),
             masked_key,
             token_id: "new-token-id".to_string(),
             remain_quota: 84.0,

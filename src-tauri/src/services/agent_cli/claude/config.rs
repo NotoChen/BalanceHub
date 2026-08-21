@@ -70,7 +70,7 @@ pub(super) fn preview(
     let next_settings = rewrite_claude_config(&settings_text, &base_url, &api_key)?;
     Ok(CliConfigPreview {
         provider_id: provider.identity.id.clone(),
-        provider_name: provider.identity.name.clone(),
+        provider_name: provider.display_label(),
         cli_kind,
         revision: config_revision(&[&settings_text, &base_url, &api_key]),
         original_files: vec![config_file(&settings_path, settings_text)],

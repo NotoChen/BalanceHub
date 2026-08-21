@@ -138,6 +138,14 @@ function protocolLabel(protocol: ProviderProtocol) {
           </a-input>
         </a-form-item>
 
+        <a-form-item class="provider-field" field="identity.remark" label="备注">
+          <a-input
+            v-model="draft.identity.remark"
+            placeholder="可选，例如：Claude 主用、备用站"
+            allow-clear
+          />
+        </a-form-item>
+
         <div
           class="provider-site-detection"
           :class="{

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { Activity, CalendarCheck2, CheckCircle2, CircleAlert, CloudDownload, LoaderCircle, Megaphone, RefreshCw, Search, Terminal } from "@lucide/vue";
+import { ref, useId, watch } from "vue";
+import { Activity, CalendarCheck2, CheckCircle2, CircleAlert, CloudDownload, Megaphone, RefreshCw, Search, Terminal } from "@lucide/vue";
 import type { BackgroundTask, BackgroundTaskKind } from "../composables/useBackgroundTaskCenter";
 
 const props = defineProps<{
@@ -8,6 +8,8 @@ const props = defineProps<{
   recentTasks: BackgroundTask[];
   activeCount: number;
 }>();
+
+const gradientId = useId();
 
 const emit = defineEmits<{
   clearRecent: [];
@@ -76,10 +78,32 @@ function formatTime(value?: number) {
       class="topbar-task-button"
       :class="{ 'has-active': activeCount > 0 }"
       :title="activeCount > 0 ? `${activeCount} 项后台任务正在执行` : recentTasks.length > 0 ? `${recentTasks.length} 项任务结果待查看` : '后台任务'"
+      :aria-busy="activeCount > 0"
       aria-label="查看后台任务"
     >
-      <LoaderCircle v-if="activeCount > 0" class="topbar-action-spin" :size="18" :stroke-width="1.9" />
-      <Activity v-else :size="18" :stroke-width="1.9" />
+      <Activity
+        class="topbar-task-icon"
+        :color="activeCount > 0 ? `url(#${gradientId})` : undefined"
+        :size="18"
+        :stroke-width="1.9"
+        aria-hidden="true"
+      >
+        <defs v-if="activeCount > 0">
+          <linearGradient
+            :id="gradientId"
+            gradientUnits="userSpaceOnUse"
+            x1="1"
+            y1="3"
+            x2="23"
+            y2="21"
+          >
+            <stop class="background-task-gradient-stop is-first" offset="0%" stop-color="#165dff" />
+            <stop class="background-task-gradient-stop is-second" offset="34%" stop-color="#32c6d4" />
+            <stop class="background-task-gradient-stop is-third" offset="68%" stop-color="#7a5af8" />
+            <stop class="background-task-gradient-stop is-fourth" offset="100%" stop-color="#165dff" />
+          </linearGradient>
+        </defs>
+      </Activity>
       <span v-if="activeCount > 0" class="topbar-action-badge topbar-task-badge">
         {{ activeCount > 99 ? "99+" : activeCount }}
       </span>

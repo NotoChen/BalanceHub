@@ -9,17 +9,23 @@ import {
   IconRefresh,
 } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderApiKeyOption } from "../stores/providers";
-import { formatQuotaValue, maskApiKey } from "../utils/provider-display";
+import {
+  formatQuotaValue,
+  maskApiKey,
+  providerApiKeyDisplayName,
+  providerApiKeySecondaryName,
+  providerDisplayLabel,
+} from "../utils/provider-display";
 
 const props = defineProps<{
   visible: boolean;
   createVisible: boolean;
   createName: string;
   addVisible: boolean;
-  addName: string;
+  addRemark: string;
   addValue: string;
-  renameVisible: boolean;
-  renameName: string;
+  remarkVisible: boolean;
+  remarkValue: string;
   provider: Provider | null;
   loading: boolean;
   keys: ProviderApiKeyOption[];
@@ -31,45 +37,41 @@ const emit = defineEmits<{
   "update:createVisible": [visible: boolean];
   "update:createName": [name: string];
   "update:addVisible": [visible: boolean];
-  "update:addName": [name: string];
+  "update:addRemark": [remark: string];
   "update:addValue": [value: string];
-  "update:renameVisible": [visible: boolean];
-  "update:renameName": [name: string];
+  "update:remarkVisible": [visible: boolean];
+  "update:remarkValue": [remark: string];
   refresh: [];
   "show-create": [];
   "show-add": [];
-  "show-rename": [option: ProviderApiKeyOption];
+  "show-remark": [option: ProviderApiKeyOption];
   create: [];
   "add-local": [];
-  rename: [];
+  "save-remark": [];
   "set-primary": [option: ProviderApiKeyOption];
   copy: [option: ProviderApiKeyOption];
   delete: [option: ProviderApiKeyOption];
 }>();
 
 const managerTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 密钥库` : "密钥库",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 密钥库` : "密钥库",
 );
 const createNameModel = computed({
   get: () => props.createName,
   set: (value: string) => emit("update:createName", value),
 });
-const addNameModel = computed({
-  get: () => props.addName,
-  set: (value: string) => emit("update:addName", value),
+const addRemarkModel = computed({
+  get: () => props.addRemark,
+  set: (value: string) => emit("update:addRemark", value),
 });
 const addValueModel = computed({
   get: () => props.addValue,
   set: (value: string) => emit("update:addValue", value),
 });
-const renameNameModel = computed({
-  get: () => props.renameName,
-  set: (value: string) => emit("update:renameName", value),
+const remarkValueModel = computed({
+  get: () => props.remarkValue,
+  set: (value: string) => emit("update:remarkValue", value),
 });
-
-function displayName(option: ProviderApiKeyOption) {
-  return option.localName || option.name || "API Key";
-}
 
 function displayMaskedKey(option: ProviderApiKeyOption) {
   return option.maskedKey?.trim() || maskApiKey(option.key) || "完整 Key 不可读取";
@@ -165,11 +167,14 @@ function keyIdentity(option: ProviderApiKeyOption) {
           <article v-for="option in keys" :key="option.localId || option.tokenId || option.key" class="api-key-vault-item">
             <div class="api-key-vault-main">
               <div class="api-key-vault-title-row">
-                <strong>{{ displayName(option) }}</strong>
+                <strong>{{ providerApiKeyDisplayName(option) }}</strong>
                 <span v-if="isPrimary(option)" class="api-key-primary-badge">主 Key</span>
                 <span class="api-key-source-badge">{{ option.tokenId ? "站点" : "本地" }}</span>
                 <span class="api-key-status" :class="`api-key-status-${statusTone(option.status)}`">{{ statusLabel(option.status) }}</span>
               </div>
+              <small v-if="providerApiKeySecondaryName(option)" class="api-key-vault-remote-name">
+                站点名称：{{ providerApiKeySecondaryName(option) }}
+              </small>
               <code>{{ displayMaskedKey(option) }}</code>
               <small v-if="keyIdentity(option)">{{ keyIdentity(option) }}</small>
             </div>
@@ -190,8 +195,8 @@ function keyIdentity(option: ProviderApiKeyOption) {
                   <template #icon><icon-copy /></template>
                 </a-button>
               </a-tooltip>
-              <a-tooltip content="重命名">
-                <a-button size="small" type="text" :disabled="!option.localId" aria-label="重命名" @click="emit('show-rename', option)">
+              <a-tooltip content="设置本地备注">
+                <a-button size="small" type="text" :disabled="!option.localId" aria-label="设置 API Key 本地备注" @click="emit('show-remark', option)">
                   <template #icon><icon-edit /></template>
                 </a-button>
               </a-tooltip>
@@ -219,17 +224,18 @@ function keyIdentity(option: ProviderApiKeyOption) {
     <div class="api-key-create-form">
       <label class="api-key-create-label">完整 API Key</label>
       <a-input-password v-model="addValueModel" allow-clear placeholder="粘贴完整 API Key" />
-      <label class="api-key-create-label">名称</label>
-      <a-input v-model="addNameModel" allow-clear placeholder="例如：备用 Key" @press-enter="emit('add-local')" />
+      <label class="api-key-create-label">本地备注（可选）</label>
+      <a-input v-model="addRemarkModel" allow-clear placeholder="例如：Codex 主用、备用 Key" @press-enter="emit('add-local')" />
       <div class="api-key-create-actions"><a-button type="primary" :loading="loading" :disabled="!addValueModel.trim()" @click="emit('add-local')">加入密钥库</a-button></div>
     </div>
   </a-modal>
 
-  <a-modal :visible="renameVisible" modal-class="surface-modal api-key-create-modal" title="重命名 API Key" :footer="false" :width="420" unmount-on-close @update:visible="emit('update:renameVisible', $event)">
+  <a-modal :visible="remarkVisible" modal-class="surface-modal api-key-create-modal" title="设置 API Key 本地备注" :footer="false" :width="420" unmount-on-close @update:visible="emit('update:remarkVisible', $event)">
     <div class="api-key-create-form">
-      <label class="api-key-create-label">名称</label>
-      <a-input v-model="renameNameModel" allow-clear @press-enter="emit('rename')" />
-      <div class="api-key-create-actions"><a-button type="primary" :loading="loading" :disabled="!renameNameModel.trim()" @click="emit('rename')">保存名称</a-button></div>
+      <label class="api-key-create-label">本地备注（可选）</label>
+      <a-input v-model="remarkValueModel" allow-clear placeholder="留空并保存即可清除备注" @press-enter="emit('save-remark')" />
+      <span class="api-key-create-hint">本地备注只保存在 BalanceHub，不会修改站点上的 Key 名称。</span>
+      <div class="api-key-create-actions"><a-button type="primary" :loading="loading" @click="emit('save-remark')">保存备注</a-button></div>
     </div>
   </a-modal>
 </template>

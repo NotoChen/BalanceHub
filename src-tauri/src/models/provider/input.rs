@@ -44,6 +44,7 @@ impl Default for ProviderInput {
                 name: String::new(),
                 base_url: String::new(),
                 protocol: ProviderProtocol::default(),
+                remark: String::new(),
                 user_id: String::new(),
                 backup_urls: Vec::new(),
             },
@@ -114,6 +115,7 @@ impl Provider {
                 name,
                 base_url: input.identity.base_url,
                 protocol,
+                remark: limits::normalize_provider_remark(&input.identity.remark),
                 display_name: String::new(),
                 username: String::new(),
                 user_id: if matches!(auth.mode, AuthMode::ApiKey) {
@@ -194,10 +196,10 @@ impl Provider {
     /// Append a manually supplied API Key to an existing provider card without
     /// replacing its account credentials or display state.
     pub fn add_api_key(&mut self, raw_key: &str) -> Result<(), String> {
-        self.add_named_api_key(raw_key, "手动添加 API Key")
+        self.add_named_api_key(raw_key, "")
     }
 
-    pub fn add_named_api_key(&mut self, raw_key: &str, name: &str) -> Result<(), String> {
+    pub fn add_named_api_key(&mut self, raw_key: &str, remark: &str) -> Result<(), String> {
         let key = normalize_api_key_for_protocol(raw_key, self.identity.protocol);
         if !is_full_api_key_value(&key) {
             return Err(if key.contains('*') {
@@ -221,13 +223,8 @@ impl Provider {
 
         let mut option =
             crate::models::ProviderApiKeyOption::current_for_protocol(&key, self.identity.protocol);
-        let name = name.trim();
-        option.name = "手动添加 API Key".to_string();
-        option.local_name = if name.is_empty() {
-            option.name.clone()
-        } else {
-            name.to_string()
-        };
+        option.name.clear();
+        option.local_name = limits::normalize_api_key_remark(remark);
         self.auth.api_key_options.insert(0, option);
         if self.auth.api_key.trim().is_empty() {
             self.auth.api_key = key;
@@ -237,24 +234,24 @@ impl Provider {
         Ok(())
     }
 
-    pub fn rename_api_key(&mut self, local_id: &str, name: &str) -> Result<(), String> {
+    pub fn set_api_key_remark(&mut self, local_id: &str, remark: &str) -> Result<bool, String> {
         let local_id = local_id.trim();
-        let name = name.trim();
         if local_id.is_empty() {
             return Err("缺少 API Key 标识".to_string());
         }
-        if name.is_empty() {
-            return Err("API Key 名称不能为空".to_string());
-        }
+        let normalized_remark = limits::normalize_api_key_remark(remark);
         let option = self
             .auth
             .api_key_options
             .iter_mut()
             .find(|option| option.local_id == local_id)
             .ok_or_else(|| "API Key 已不存在，请刷新后重试".to_string())?;
-        option.local_name = name.to_string();
+        if option.local_name == normalized_remark {
+            return Ok(false);
+        }
+        option.local_name = normalized_remark;
         self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
-        Ok(())
+        Ok(true)
     }
 
     pub fn set_primary_api_key(&mut self, local_id: &str) -> Result<(), String> {
@@ -403,6 +400,7 @@ impl Provider {
             provider_name_from_input(&input.identity.name, &input.identity.base_url);
         self.identity.base_url = input.identity.base_url;
         self.identity.protocol = input.identity.protocol;
+        self.identity.remark = limits::normalize_provider_remark(&input.identity.remark);
         self.identity.user_id = identity_user_id;
         self.identity.backup_urls = backup_url_list(input.identity.backup_urls);
         if auth_material_changed {
@@ -503,17 +501,23 @@ pub(crate) fn normalize_provider_auth(
     auth.api_key = normalize_api_key_for_protocol(&auth.api_key, protocol);
     auth.api_key_token_id = auth.api_key_token_id.trim().to_string();
 
-    let mut options = Vec::new();
+    let mut options: Vec<crate::models::ProviderApiKeyOption> = Vec::new();
     for option in auth.api_key_options {
         let option = option.normalize_for_protocol(protocol);
-        let duplicate = options
-            .iter()
-            .any(|known: &crate::models::ProviderApiKeyOption| {
-                (!option.local_id.is_empty() && option.local_id == known.local_id)
-                    || (!option.token_id.is_empty() && option.token_id == known.token_id)
-                    || (!option.key.is_empty() && option.key == known.key)
-            });
-        if !duplicate {
+        if let Some(known) = options.iter_mut().find(|known| {
+            (!option.local_id.is_empty() && option.local_id == known.local_id)
+                || (!option.token_id.is_empty() && option.token_id == known.token_id)
+                || (!option.key.is_empty() && option.key == known.key)
+        }) {
+            // A duplicate remote snapshot must not erase a local remark that
+            // was attached to the same stable key identity.
+            if known.local_name.is_empty() && !option.local_name.is_empty() {
+                known.local_name = option.local_name;
+            }
+            if known.name.is_empty() && !option.name.is_empty() {
+                known.name = option.name;
+            }
+        } else {
             options.push(option);
         }
     }
@@ -591,6 +595,25 @@ mod tests {
     }
 
     #[test]
+    fn provider_remark_is_saved_and_editable_without_invalidating_synced_state() {
+        let mut input = ProviderInput::default();
+        input.identity.remark = "  主用\n中转站  ".to_string();
+        let mut provider = Provider::from_input(input.clone(), "provider-test".to_string());
+        provider.capabilities.available_models = vec!["model-a".to_string()];
+        provider.automation.last_synced_at = Some("123".to_string());
+
+        assert_eq!(provider.identity.remark, "主用中转站");
+
+        input.id = Some(provider.identity.id.clone());
+        input.identity.remark = "  备用站  ".to_string();
+        provider.apply_input(input);
+
+        assert_eq!(provider.identity.remark, "备用站");
+        assert_eq!(provider.capabilities.available_models, ["model-a"]);
+        assert_eq!(provider.automation.last_synced_at.as_deref(), Some("123"));
+    }
+
+    #[test]
     fn adding_api_key_keeps_the_existing_account_card_and_deduplicates_keys() {
         let mut input = ProviderInput::default();
         input.identity.base_url = "https://relay.example.com".to_string();
@@ -605,6 +628,8 @@ mod tests {
         assert_eq!(provider.auth.login_username, "alice");
         assert_eq!(provider.auth.api_key_options.len(), 1);
         assert_eq!(provider.auth.api_key_options[0].key, "sk-extra");
+        assert!(provider.auth.api_key_options[0].name.is_empty());
+        assert!(provider.auth.api_key_options[0].local_name.is_empty());
         assert!(!provider.auth.api_key_options[0].local_id.is_empty());
         assert!(provider.add_api_key("sk-extra").is_err());
     }
@@ -640,19 +665,46 @@ mod tests {
             .set_primary_api_key(&first_id)
             .expect("primary should change");
         assert_eq!(provider.auth.api_key, "sk-first");
-        provider
-            .rename_api_key(&second_id, "备用")
-            .expect("name should change");
+        assert!(provider
+            .set_api_key_remark(&second_id, "  备用\nKey  ")
+            .expect("remark should change"));
         assert_eq!(
             provider
                 .auth
                 .api_key_options
                 .iter()
                 .find(|option| option.local_id == second_id)
-                .expect("renamed option")
+                .expect("remarked option")
                 .local_name,
-            "备用"
+            "备用Key"
         );
+        assert_eq!(
+            provider
+                .auth
+                .api_key_options
+                .iter()
+                .find(|option| option.local_id == first_id)
+                .expect("first option")
+                .local_name,
+            "第一把"
+        );
+        assert!(!provider
+            .set_api_key_remark(&second_id, "备用Key")
+            .expect("equal normalized remark should be unchanged"));
+        assert!(provider
+            .set_api_key_remark(&second_id, "")
+            .expect("remark should clear"));
+        assert!(!provider
+            .set_api_key_remark(&second_id, "  ")
+            .expect("equal empty remark should be unchanged"));
+        assert!(provider
+            .auth
+            .api_key_options
+            .iter()
+            .find(|option| option.local_id == second_id)
+            .expect("cleared option")
+            .local_name
+            .is_empty());
         provider
             .remove_local_api_key(&first_id)
             .expect("local key should remove");

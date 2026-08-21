@@ -24,6 +24,7 @@ struct PreparedTemporaryCliLaunch {
     cli_kind: AgentCliKind,
     workdir: PathBuf,
     api_key: String,
+    api_key_label: String,
     model: String,
     preference_model: String,
 }
@@ -126,6 +127,10 @@ impl<'a> TemporaryCliLaunchService<'a> {
         } else {
             return Err("所选 API Key 已不存在，请重新选择".to_string());
         };
+        let api_key_label = selected_local_key
+            .as_ref()
+            .map(provider_api_key_label)
+            .unwrap_or_default();
         let api_key = if let Some(option) = selected_local_key {
             if !option.key_available || !is_full_api_key_value(&option.key) {
                 return Err("所选 API Key 未读取到完整值，无法启动临时 CLI".to_string());
@@ -185,6 +190,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
             cli_kind,
             workdir,
             api_key,
+            api_key_label,
             model,
             preference_model,
         })
@@ -199,5 +205,17 @@ fn launch_options(prepared: &PreparedTemporaryCliLaunch) -> LaunchOptions<'_> {
         session_title: &prepared.input.session_title,
         resume_id: &prepared.input.resume_id,
         session_mode: prepared.input.session_mode,
+        api_key_label: &prepared.api_key_label,
     }
+}
+
+fn provider_api_key_label(option: &crate::models::ProviderApiKeyOption) -> String {
+    let label = if !option.local_name.trim().is_empty() {
+        option.local_name.trim()
+    } else if !option.name.trim().is_empty() {
+        option.name.trim()
+    } else {
+        "API Key"
+    };
+    label.chars().take(160).collect()
 }

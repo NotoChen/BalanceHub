@@ -40,7 +40,7 @@ pub(crate) use provider_results::is_full_api_key_value;
 pub use provider_results::*;
 pub use workspace::*;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 10;
+pub const CURRENT_SCHEMA_VERSION: u32 = 11;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

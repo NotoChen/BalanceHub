@@ -71,9 +71,10 @@ pub struct ProviderApiKeyOption {
     /// 本机密钥库中的稳定标识。只用于选择和本地操作，不作为远程 token ID。
     #[serde(default)]
     pub local_id: String,
-    /// 用户在 BalanceHub 中设置的名称，优先于站点返回的远程名称展示。
+    /// 用户在 BalanceHub 中为这条 Key 设置的本地备注。远端同步不得覆盖。
     #[serde(default)]
     pub local_name: String,
+    /// 站点返回的远程 Key 名称，与本地备注分开维护。
     pub name: String,
     pub key: String,
     pub masked_key: String,
@@ -125,7 +126,7 @@ impl ProviderApiKeyOption {
     pub fn normalize_for_protocol(mut self, protocol: ProviderProtocol) -> Self {
         self.key = super::normalize_api_key_for_protocol(&self.key, protocol);
         self.local_id = self.local_id.trim().to_string();
-        self.local_name = self.local_name.trim().to_string();
+        self.local_name = crate::limits::normalize_api_key_remark(&self.local_name);
         self.masked_key = self.masked_key.trim().to_string();
         self.status = self.status.trim().to_string();
         if self.masked_key.is_empty() && !self.key.is_empty() {
@@ -163,9 +164,6 @@ impl ProviderApiKeyOption {
     ) {
         for option in options.iter_mut() {
             option.key_available = is_full_api_key_value(&option.key);
-            if option.key_available {
-                continue;
-            }
             let Some(previous) = cached.iter().find(|candidate| {
                 (!option.local_id.is_empty()
                     && !candidate.local_id.is_empty()
@@ -186,8 +184,12 @@ impl ProviderApiKeyOption {
             if !previous.local_id.is_empty() {
                 option.local_id = previous.local_id.clone();
             }
-            if option.local_name.is_empty() {
-                option.local_name = previous.local_name.clone();
+            option.local_name = crate::limits::normalize_api_key_remark(&previous.local_name);
+            if option.key_available {
+                // The remote response may include the full key. We still
+                // need to carry the local identity and remark across the
+                // refresh before leaving this branch.
+                continue;
             }
             let key = super::normalize_api_key_for_protocol(&previous.key, protocol);
             if !is_full_api_key_value(&key) {
@@ -433,7 +435,7 @@ impl ProviderBatchProgressItem {
     ) -> Self {
         Self {
             provider_id: provider.identity.id.clone(),
-            name: provider.identity.name.clone(),
+            name: provider.display_label(),
             base_url: provider.identity.base_url.clone(),
             status,
             message: message.into(),
@@ -791,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn cached_key_merge_keeps_local_identity_and_name_after_remote_refresh() {
+    fn cached_key_merge_keeps_local_identity_and_remark_after_remote_refresh() {
         let mut cached = ProviderApiKeyOption::current("sk-stable-secret");
         cached.token_id = "old-token-id".to_string();
         cached.name = "Remote name".to_string();
@@ -799,6 +801,8 @@ mod tests {
         let stable_local_id = cached.local_id.clone();
         let mut refreshed = vec![ProviderApiKeyOption {
             name: cached.name.clone(),
+            local_name: "远端不应写入这里".to_string(),
+            key: "sk-stable-secret".to_string(),
             masked_key: cached.masked_key.clone(),
             token_id: "new-token-id".to_string(),
             ..ProviderApiKeyOption::default()

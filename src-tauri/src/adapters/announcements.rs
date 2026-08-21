@@ -48,7 +48,7 @@ pub(crate) fn build_site_announcement(
         id,
         fingerprint,
         provider_id: provider.identity.id.clone(),
-        provider_name: provider.identity.name.clone(),
+        provider_name: provider.display_label(),
         provider_protocol: provider.identity.protocol,
         title,
         content,

@@ -100,10 +100,10 @@ const emit = defineEmits<{
   refreshApiKeyManager: [];
   openApiKeyCreateModal: [];
   openApiKeyAddModal: [];
-  openApiKeyRenameModal: [option: ProviderApiKeyOption];
+  openApiKeyRemarkModal: [option: ProviderApiKeyOption];
   createManagedApiKey: [];
   addLocalApiKey: [];
-  renameManagedApiKey: [];
+  saveManagedApiKeyRemark: [];
   setPrimaryManagedApiKey: [option: ProviderApiKeyOption];
   copyManagedApiKey: [option: ProviderApiKeyOption];
   deleteManagedApiKey: [option: ProviderApiKeyOption];
@@ -132,10 +132,10 @@ const apiKeyManagerVisible = defineModel<boolean>("apiKeyManagerVisible", { requ
 const apiKeyCreateVisible = defineModel<boolean>("apiKeyCreateVisible", { required: true });
 const apiKeyCreateName = defineModel<string>("apiKeyCreateName", { required: true });
 const apiKeyAddVisible = defineModel<boolean>("apiKeyAddVisible", { required: true });
-const apiKeyAddName = defineModel<string>("apiKeyAddName", { required: true });
+const apiKeyAddRemark = defineModel<string>("apiKeyAddRemark", { required: true });
 const apiKeyAddValue = defineModel<string>("apiKeyAddValue", { required: true });
-const apiKeyRenameVisible = defineModel<boolean>("apiKeyRenameVisible", { required: true });
-const apiKeyRenameName = defineModel<string>("apiKeyRenameName", { required: true });
+const apiKeyRemarkVisible = defineModel<boolean>("apiKeyRemarkVisible", { required: true });
+const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: true });
 const availableModelsVisible = defineModel<boolean>("availableModelsVisible", { required: true });
 const usageVisible = defineModel<boolean>("usageVisible", { required: true });
 const usagePeriod = defineModel<UsagePeriod>("usagePeriod", { required: true });
@@ -193,10 +193,10 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     v-model:create-visible="apiKeyCreateVisible"
     v-model:create-name="apiKeyCreateName"
     v-model:add-visible="apiKeyAddVisible"
-    v-model:add-name="apiKeyAddName"
+    v-model:add-remark="apiKeyAddRemark"
     v-model:add-value="apiKeyAddValue"
-    v-model:rename-visible="apiKeyRenameVisible"
-    v-model:rename-name="apiKeyRenameName"
+    v-model:remark-visible="apiKeyRemarkVisible"
+    v-model:remark-value="apiKeyRemarkValue"
     :provider="apiKeyManagerProvider"
     :loading="apiKeyManagerLoading"
     :keys="apiKeyManagerKeys"
@@ -204,10 +204,10 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     @refresh="emit('refreshApiKeyManager')"
     @show-create="emit('openApiKeyCreateModal')"
     @show-add="emit('openApiKeyAddModal')"
-    @show-rename="emit('openApiKeyRenameModal', $event)"
+    @show-remark="emit('openApiKeyRemarkModal', $event)"
     @create="emit('createManagedApiKey')"
     @add-local="emit('addLocalApiKey')"
-    @rename="emit('renameManagedApiKey')"
+    @save-remark="emit('saveManagedApiKeyRemark')"
     @set-primary="emit('setPrimaryManagedApiKey', $event)"
     @copy="emit('copyManagedApiKey', $event)"
     @delete="emit('deleteManagedApiKey', $event)"

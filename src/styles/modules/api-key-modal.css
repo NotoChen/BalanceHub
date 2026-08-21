@@ -98,6 +98,10 @@
   font-size: 10px;
 }
 
+.api-key-vault-remote-name {
+  color: #65758a;
+}
+
 .api-key-vault-summary {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -161,6 +165,12 @@
   font-weight: 650;
 }
 
+.api-key-create-hint {
+  color: #86909c;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .api-key-create-actions {
   display: flex;
   justify-content: flex-end;
@@ -174,7 +184,8 @@
 
 :root.theme-dark .api-key-manager-hint,
 :root.theme-dark .api-key-vault-main small,
-:root.theme-dark .api-key-vault-summary span {
+:root.theme-dark .api-key-vault-summary span,
+:root.theme-dark .api-key-create-hint {
   color: #8d9aac;
 }
 

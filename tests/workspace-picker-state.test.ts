@@ -327,6 +327,7 @@ test("confirming a launch closes the picker without waiting for terminal dispatc
       workdir: "/workspace",
       command: "codex",
       baseUrl: "https://example.com",
+      apiKeyLabel: "Codex 主用",
       apiKey: "***",
       model: "",
       sessionMode: "new",
@@ -420,7 +421,8 @@ function sessionDetail(id: string): CliSessionDetail {
 
 function provider(id: string, apiKey = "sk-configured") {
   return {
-    identity: { id },
+    displayLabel: id,
+    identity: { id, name: id, remark: "" },
     auth: { apiKey, apiKeyOptions: [] },
     cli: { preferredModel: "" },
     actions: { apiKeyManagement: true },
@@ -471,6 +473,7 @@ function launchPreview(): TemporaryCliLaunchPreview {
     workdir: "/workspace",
     command: "codex",
     baseUrl: "https://example.com",
+    apiKeyLabel: "Codex 主用",
     apiKey: "***",
     model: "",
     sessionMode: "new",

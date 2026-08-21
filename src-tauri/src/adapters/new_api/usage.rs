@@ -93,7 +93,7 @@ pub async fn fetch_usage_summary(
 
     Ok(ProviderUsageSummary {
         provider_id: provider.identity.id.clone(),
-        provider_name: provider.identity.name.clone(),
+        provider_name: provider.display_label(),
         quota_display,
         points: grouped
             .into_iter()

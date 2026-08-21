@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { IconFile, IconLeft, IconRefresh, IconRight, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderRequestLog, ProviderRequestLogsResult } from "../stores/providers";
-import { formatNumberCompact } from "../utils/provider-display";
+import { formatNumberCompact, providerDisplayLabel } from "../utils/provider-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -33,7 +33,7 @@ watch(
 );
 
 const modalTitle = computed(() =>
-  props.provider ? `${props.provider.identity.name} · 请求日志` : "请求日志",
+  props.provider ? `${providerDisplayLabel(props.provider)} · 请求日志` : "请求日志",
 );
 
 const rows = computed(() => props.result?.logs ?? []);
