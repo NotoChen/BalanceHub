@@ -3,6 +3,7 @@ import zhCN from "@arco-design/web-vue/es/locale/lang/zh-cn";
 import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
+import CliConfigKeyPickerModal from "./components/CliConfigKeyPickerModal.vue";
 import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
 import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
 import TemporaryCliLaunchPreviewModal from "./components/TemporaryCliLaunchPreviewModal.vue";
@@ -142,15 +143,16 @@ useWindowGridSnap();
       @confirm="app.confirmCliConfigSwitch"
     />
 
+    <CliConfigKeyPickerModal
+      v-model:visible="app.cliConfigKeyPickerVisible"
+      :provider="app.cliConfigKeyPickerProvider"
+      :cli-kind="app.cliConfigKeyPickerKind"
+      :keys="app.cliConfigKeyPickerKeys"
+      :current-config="app.cliConfigKeyPickerCurrentConfig"
+      @select="app.selectCliConfigApiKey"
+    />
+
     <AppOverlays
-      v-model:api-key-manager-visible="app.apiKeyManagerVisible"
-      v-model:api-key-create-visible="app.apiKeyCreateVisible"
-      v-model:api-key-create-name="app.apiKeyCreateName"
-      v-model:api-key-add-visible="app.apiKeyAddVisible"
-      v-model:api-key-add-remark="app.apiKeyAddRemark"
-      v-model:api-key-add-value="app.apiKeyAddValue"
-      v-model:api-key-remark-visible="app.apiKeyRemarkVisible"
-      v-model:api-key-remark-value="app.apiKeyRemarkValue"
       v-model:available-models-visible="app.availableModelsVisible"
       v-model:usage-visible="app.usageVisible"
       v-model:usage-period="app.usagePeriod"
@@ -167,10 +169,6 @@ useWindowGridSnap();
       :onboarding-provider-count="app.onboardingProviderCount"
       :onboarding-cli-configured="app.onboardingCliConfigured"
       :importing-app-data="app.importingAppData"
-      :api-key-manager-provider="app.apiKeyManagerProvider"
-      :api-key-manager-loading="app.apiKeyManagerLoading"
-      :api-key-manager-keys="app.apiKeyManagerKeys"
-      :api-key-remote-managed="app.apiKeyRemoteManaged"
       :available-models-provider="app.availableModelsProvider"
       :available-models-loading="app.availableModelsLoading"
       :usage-provider="app.usageProvider"
@@ -229,16 +227,6 @@ useWindowGridSnap();
       @import-onboarding-data="app.importOnboardingData"
       @open-onboarding-settings="app.openOnboardingSettings"
       @complete-onboarding="app.completeOnboarding"
-      @refresh-api-key-manager="app.refreshApiKeyManager"
-      @open-api-key-create-modal="app.openApiKeyCreateModal"
-      @open-api-key-add-modal="app.openApiKeyAddModal"
-      @open-api-key-remark-modal="app.openApiKeyRemarkModal"
-      @create-managed-api-key="app.createManagedApiKey"
-      @add-local-api-key="app.addLocalApiKey"
-      @save-managed-api-key-remark="app.saveManagedApiKeyRemark"
-      @set-primary-managed-api-key="app.setPrimaryManagedApiKey"
-      @copy-managed-api-key="app.copyManagedApiKey"
-      @delete-managed-api-key="app.deleteManagedApiKey"
       @refresh-available-models="app.refreshAvailableModels"
       @copy-available-model="app.copyAvailableModel"
       @copy-all-available-models="app.copyAllAvailableModels"
@@ -265,6 +253,13 @@ useWindowGridSnap();
       v-model:global-refresh-amount="app.globalRefreshAmount"
       v-model:global-refresh-unit="app.globalRefreshUnit"
       v-model:provider-editor-visible="app.drawerVisible"
+      v-model:api-key-create-visible="app.apiKeyCreateVisible"
+      v-model:api-key-create-name="app.apiKeyCreateName"
+      v-model:api-key-add-visible="app.apiKeyAddVisible"
+      v-model:api-key-add-remark="app.apiKeyAddRemark"
+      v-model:api-key-add-value="app.apiKeyAddValue"
+      v-model:api-key-remark-visible="app.apiKeyRemarkVisible"
+      v-model:api-key-remark-value="app.apiKeyRemarkValue"
       :settings="app.settingsForm"
       :settings-save-state="app.settingsSaveState"
       :liveness-model-options="app.livenessModelOptions"
@@ -279,6 +274,10 @@ useWindowGridSnap();
       :draft-provider="app.draftProvider"
       :provider-protocols="app.providerProtocols"
       :api-key-options="app.apiKeyOptions"
+      :api-key-remote-managed="app.editorApiKeyRemoteManaged"
+      :api-key-manager-provider="app.apiKeyManagerProvider"
+      :api-key-manager-operation="app.apiKeyManagerOperation"
+      :api-key-remark-target="app.apiKeyRemarkTarget"
       :available-models="app.availableModels"
       :site-probe-result="app.siteProbeResult"
       :protocol-detection-result="app.protocolDetectionResult"
@@ -297,7 +296,16 @@ useWindowGridSnap();
       @import-app-data="app.importAppData"
       @check-for-update="app.checkForUpdate"
       @copy-api-key="app.copyDraftApiKey"
-      @select-api-key="app.selectCredentialApiKey"
+      @sync-remote-api-keys="app.syncRemoteApiKeys"
+      @open-api-key-create-panel="app.openApiKeyCreatePanel"
+      @open-api-key-add-panel="app.openApiKeyAddPanel"
+      @open-api-key-remark-editor="app.openApiKeyRemarkEditor"
+      @create-managed-api-key="app.createManagedApiKey"
+      @add-local-api-key="app.addLocalApiKey"
+      @save-managed-api-key-remark="app.saveManagedApiKeyRemark"
+      @set-default-managed-api-key="app.selectManagedApiKey"
+      @copy-managed-api-key="app.copyManagedApiKey"
+      @delete-managed-api-key="app.deleteManagedApiKey"
       @run-credential-assistant="app.runCredentialAssistant"
       @test-connection="app.testConnection"
       @probe-site="app.probeSite"

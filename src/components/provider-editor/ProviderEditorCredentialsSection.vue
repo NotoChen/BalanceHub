@@ -3,24 +3,53 @@ import { computed } from "vue";
 import { IconCheckCircle, IconLock, IconRight } from "@arco-design/web-vue/es/icon";
 import type {
   AuthMode,
+  Provider,
   ProviderAuthFieldDescriptor,
   ProviderInput,
   ProviderProtocolDescriptor,
 } from "../../stores/providers";
+import type { ApiKeyManagerOperation } from "../../composables/useApiKeyManager";
 import { providerProtocolDescriptor } from "../../utils/provider-protocol";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import ProviderCredentialFields from "./ProviderCredentialFields.vue";
-import ProviderApiKeyPicker from "./ProviderApiKeyPicker.vue";
+import ProviderApiKeyVault from "./ProviderApiKeyVault.vue";
 
 const props = defineProps<{
   draft: ProviderInput;
   providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderInput["auth"]["apiKeyOptions"];
+  apiKeyRemoteManaged: boolean;
+  apiKeyManagerProvider: Provider | null;
+  apiKeyManagerOperation: ApiKeyManagerOperation | null;
+  apiKeyCreateVisible: boolean;
+  apiKeyCreateName: string;
+  apiKeyAddVisible: boolean;
+  apiKeyAddRemark: string;
+  apiKeyAddValue: string;
+  apiKeyRemarkVisible: boolean;
+  apiKeyRemarkValue: string;
+  apiKeyRemarkTarget: ProviderInput["auth"]["apiKeyOptions"][number] | null;
 }>();
 
 const emit = defineEmits<{
   "copy-api-key": [];
-  "select-api-key": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
+  "update:api-key-create-visible": [visible: boolean];
+  "update:api-key-create-name": [name: string];
+  "update:api-key-add-visible": [visible: boolean];
+  "update:api-key-add-remark": [remark: string];
+  "update:api-key-add-value": [value: string];
+  "update:api-key-remark-visible": [visible: boolean];
+  "update:api-key-remark-value": [remark: string];
+  "sync-remote-api-keys": [];
+  "open-api-key-create-panel": [];
+  "open-api-key-add-panel": [];
+  "open-api-key-remark-editor": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
+  "create-managed-api-key": [];
+  "add-local-api-key": [];
+  "save-managed-api-key-remark": [];
+  "set-default-managed-api-key": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
+  "copy-managed-api-key": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
+  "delete-managed-api-key": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
 }>();
 
 const currentProtocol = computed(() =>
@@ -33,12 +62,20 @@ const currentAuthMode = computed(() =>
   visibleAuthModes.value.find((mode) => mode.mode === props.draft.auth.mode),
 );
 
+const showAuthModePicker = computed(() => visibleAuthModes.value.length > 1);
+const managingSavedApiKeys = computed(() => Boolean(props.draft.id && props.apiKeyManagerProvider));
+const showActiveCredentialFields = computed(() =>
+  !(managingSavedApiKeys.value && props.draft.auth.mode === "apiKey"),
+);
 const activeFields = computed(() => currentAuthMode.value?.fields ?? []);
 
 const secondaryModes = computed(() => {
   const modes = visibleAuthModes.value;
   const index = modes.findIndex((mode) => mode.mode === props.draft.auth.mode);
-  return index < 0 ? [] : modes.slice(index + 1);
+  const secondary = index < 0 ? [] : modes.slice(index + 1);
+  return managingSavedApiKeys.value
+    ? secondary.filter((mode) => mode.mode !== "apiKey")
+    : secondary;
 });
 
 const secondaryOrderText = computed(() => secondaryModes.value.map((mode) => mode.label).join(" → "));
@@ -145,11 +182,10 @@ function activeLabel() {
 
 <template>
   <div class="provider-form-page provider-credentials-page">
-    <section class="provider-form-block provider-auth-picker-block">
+    <section v-if="showAuthModePicker" class="provider-form-block provider-auth-picker-block">
       <header class="provider-form-block-header">
         <span class="provider-form-block-icon"><IconLock /></span>
         <div><strong>认证方式</strong></div>
-        <span class="provider-form-block-meta">选择主凭据</span>
       </header>
       <div class="provider-form-block-body">
         <div class="provider-auth-mode-grid" role="radiogroup" aria-label="认证方式">
@@ -174,31 +210,7 @@ function activeLabel() {
       </div>
     </section>
 
-    <section v-if="apiKeyOptions.length > 0" class="provider-form-block provider-api-key-vault-block">
-      <header class="provider-form-block-header provider-api-key-vault-heading">
-        <span class="provider-form-block-icon provider-form-block-icon-auth">
-          <ProviderAuthIcon mode="apiKey" :protocol="draft.identity.protocol" :size="18" :decorative="true" />
-        </span>
-        <div><strong>API Key 密钥库</strong></div>
-        <span class="provider-form-block-meta">{{ apiKeyOptions.length }} 个已保存</span>
-      </header>
-      <div class="provider-form-block-body provider-api-key-vault-body">
-        <p class="provider-credential-inline-note provider-field-wide">
-          这些 Key 都属于当前中转站卡片。选择其中一个后，会将它设为主 Key。
-        </p>
-        <ProviderApiKeyPicker
-          class="provider-field-wide"
-          :options="apiKeyOptions"
-          :current-key="draft.auth.apiKey"
-          :current-token-id="draft.auth.apiKeyTokenId"
-          :remote-managed="currentProtocol?.capabilities.apiKeyManagement ?? false"
-          :selectable="true"
-          @select="emit('select-api-key', $event)"
-        />
-      </div>
-    </section>
-
-    <section class="provider-form-block provider-credential-active-panel">
+    <section v-if="showActiveCredentialFields" class="provider-form-block provider-credential-active-panel">
       <header class="provider-form-block-header provider-credential-active-heading">
         <span class="provider-form-block-icon provider-form-block-icon-auth">
           <ProviderAuthIcon :mode="draft.auth.mode" :protocol="draft.identity.protocol" :size="18" :decorative="true" />
@@ -262,5 +274,38 @@ function activeLabel() {
         </details>
       </div>
     </section>
+
+    <ProviderApiKeyVault
+      v-if="managingSavedApiKeys && apiKeyManagerProvider"
+      :create-visible="apiKeyCreateVisible"
+      :create-name="apiKeyCreateName"
+      :add-visible="apiKeyAddVisible"
+      :add-remark="apiKeyAddRemark"
+      :add-value="apiKeyAddValue"
+      :remark-visible="apiKeyRemarkVisible"
+      :remark-value="apiKeyRemarkValue"
+      :remark-target="apiKeyRemarkTarget"
+      :provider="apiKeyManagerProvider"
+      :operation="apiKeyManagerOperation"
+      :keys="apiKeyOptions"
+      :remote-managed="apiKeyRemoteManaged"
+      @update:create-visible="emit('update:api-key-create-visible', $event)"
+      @update:create-name="emit('update:api-key-create-name', $event)"
+      @update:add-visible="emit('update:api-key-add-visible', $event)"
+      @update:add-remark="emit('update:api-key-add-remark', $event)"
+      @update:add-value="emit('update:api-key-add-value', $event)"
+      @update:remark-visible="emit('update:api-key-remark-visible', $event)"
+      @update:remark-value="emit('update:api-key-remark-value', $event)"
+      @sync="emit('sync-remote-api-keys')"
+      @show-create="emit('open-api-key-create-panel')"
+      @show-add="emit('open-api-key-add-panel')"
+      @show-remark="emit('open-api-key-remark-editor', $event)"
+      @create="emit('create-managed-api-key')"
+      @add-local="emit('add-local-api-key')"
+      @save-remark="emit('save-managed-api-key-remark')"
+      @set-default="emit('set-default-managed-api-key', $event)"
+      @copy="emit('copy-managed-api-key', $event)"
+      @delete="emit('delete-managed-api-key', $event)"
+    />
   </div>
 </template>

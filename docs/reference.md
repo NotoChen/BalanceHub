@@ -17,7 +17,7 @@
 | 签到记录 | 展示每日签到结果和余额增量。 | `src/components/CheckInCalendarModal.vue`、`src-tauri/src/adapters/new_api/check_in/records.rs` | 兼容站点返回的显示额度和 NewAPI 原始额度单位转换。 |
 | 用量趋势 | 查看周期内请求量和额度消耗趋势。 | `src/components/UsageTrendModal.vue`、`src/composables/useUsageTrendChart.ts`、`src-tauri/src/adapters/new_api/usage.rs`、`src-tauri/src/adapters/sub2_api/usage.rs` | 用于判断站点消耗变化、请求峰值和账户使用节奏。 |
 | 请求日志 | 查看模型请求记录、状态、Token 和消耗。 | `src/components/RequestLogsModal.vue`、`src-tauri/src/adapters/new_api/logs.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 消耗金额沿用站点元数据中的额度单位、货币符号和换算规则。 |
-| API Key 管理 | 查看、创建、删除中转站 API Key，并读取 Key 额度。 | `src/components/ApiKeyManagerModal.vue`、`src-tauri/src/adapters/new_api/keys.rs`、`src-tauri/src/adapters/sub2_api/keys.rs` | 适合从桌面端快速生成 Agent CLI 使用的 Key。 |
+| API Key 管理 | 从卡片快捷入口进入“编辑中转站 → 认证凭据”，在同一页维护全部 Key、选择当前调用 Key 并查看 Agent 独立绑定；具备账号管理凭据时才同步、创建或删除站点 Key。 | `src/components/provider-editor/ProviderApiKeyVault.vue`、`src-tauri/src/adapters/new_api/keys.rs`、`src-tauri/src/adapters/sub2_api/keys.rs` | Key 操作即时保存，不再叠加第二个管理弹窗；纯 API Key 卡片不会提供无来源的站点刷新，被 Agent 使用的 Key 不能直接删除。 |
 | 修改密码 | 在支持的账号协议上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/adapters/new_api/account.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 仅在协议、站点能力和认证信息满足要求时展示操作入口。 |
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
 | CLI 测活 | 使用已注册的 Agent CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness.rs`、`src-tauri/src/services/agent_cli/<agent>/liveness.rs` | 当前内置 Codex CLI、Claude Code、Gemini CLI、Grok Build；测活会消耗真实额度，首次开启自动测活前会要求确认。 |

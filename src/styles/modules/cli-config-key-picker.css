@@ -1,0 +1,145 @@
+.cli-config-key-picker-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.cli-config-key-picker {
+  display: grid;
+  gap: 14px;
+}
+
+.cli-config-key-picker > header {
+  display: grid;
+  gap: 4px;
+  border-bottom: 1px solid var(--surface-line);
+  padding: 2px 2px 12px;
+}
+
+.cli-config-key-picker > header span {
+  color: var(--surface-muted);
+  font-size: 11px;
+}
+
+.cli-config-key-picker > header strong {
+  color: var(--surface-ink);
+  font-size: 14px;
+}
+
+.cli-config-key-options {
+  display: grid;
+  max-height: min(540px, calc(100dvh - 260px));
+  gap: 8px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.cli-config-key-option {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--surface-line);
+  border-radius: 10px;
+  background: var(--surface-panel);
+  color: var(--surface-ink);
+  cursor: pointer;
+  padding: 11px 12px;
+  text-align: left;
+  transition: border-color 180ms var(--surface-ease), background 180ms var(--surface-ease), transform 180ms var(--surface-ease);
+}
+
+.cli-config-key-option:hover:not(:disabled),
+.cli-config-key-option:focus-visible:not(:disabled) {
+  border-color: var(--surface-accent);
+  background: var(--surface-accent-soft);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.cli-config-key-option.current {
+  border-color: color-mix(in srgb, var(--surface-accent) 60%, var(--surface-line));
+}
+
+.cli-config-key-option-marker {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
+.cli-config-key-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.cli-config-key-option-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.cli-config-key-option-title strong,
+.cli-config-key-option-copy > small,
+.cli-config-key-option-copy code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cli-config-key-option-title strong {
+  font-size: 13px;
+}
+
+.cli-config-key-option-copy > small {
+  color: var(--surface-muted);
+  font-size: 10px;
+}
+
+.cli-config-key-option-copy code {
+  color: var(--surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.cli-config-key-default-badge,
+.cli-config-key-current-badge {
+  flex: 0 0 auto;
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.cli-config-key-default-badge {
+  background: var(--surface-line);
+  color: var(--surface-muted);
+}
+
+.cli-config-key-current-badge {
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
+.cli-config-key-option-action {
+  color: var(--surface-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .cli-config-key-option {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .cli-config-key-option-action {
+    display: none;
+  }
+}

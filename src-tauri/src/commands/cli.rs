@@ -211,9 +211,14 @@ pub(crate) async fn preview_cli_config(
     app: AppHandle,
     id: String,
     cli_kind: AgentCliKind,
+    api_key_local_id: String,
 ) -> Result<CliConfigPreview, String> {
     run_blocking("读取 CLI 配置预览", move || {
-        services::cli_runtime::CliRuntimeService::new(&app).preview_config(&id, cli_kind)
+        services::cli_runtime::CliRuntimeService::new(&app).preview_config(
+            &id,
+            cli_kind,
+            &api_key_local_id,
+        )
     })
     .await
 }
@@ -223,12 +228,18 @@ pub(crate) async fn switch_cli_config(
     app: AppHandle,
     id: String,
     cli_kind: AgentCliKind,
+    api_key_local_id: String,
     revision: String,
     files: Vec<CliConfigFile>,
 ) -> Result<CliRuntimeSnapshot, String> {
     run_blocking("切换 CLI 配置", move || {
-        services::cli_runtime::CliRuntimeService::new(&app)
-            .switch_config(&id, cli_kind, &revision, &files)
+        services::cli_runtime::CliRuntimeService::new(&app).switch_config(
+            &id,
+            cli_kind,
+            &api_key_local_id,
+            &revision,
+            &files,
+        )
     })
     .await
 }

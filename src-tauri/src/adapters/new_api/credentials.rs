@@ -153,13 +153,15 @@ pub async fn complete_credentials(
                 let selected = options
                     .iter()
                     .find(|option| {
-                        option.key_available
-                            && !current_token_id.is_empty()
-                            && option.token_id == current_token_id
+                        option.key_available && !current_key.is_empty() && option.key == current_key
                     })
                     .or_else(|| {
-                        (!current_key.is_empty())
-                            .then(|| options.iter().find(|option| option.key == current_key))
+                        (!current_token_id.is_empty())
+                            .then(|| {
+                                options.iter().find(|option| {
+                                    option.key_available && option.token_id == current_token_id
+                                })
+                            })
                             .flatten()
                     })
                     .cloned();
@@ -201,12 +203,12 @@ pub async fn complete_credentials(
                     .count();
                 let message = if !updated.auth.api_key.trim().is_empty() {
                     format!(
-                        "已同步 {} 个 API Key，当前使用已选主 Key",
+                        "已同步 {} 个 API Key，已保留当前调用 Key",
                         api_key_options.len()
                     )
                 } else if usable > 1 {
                     format!(
-                        "已同步 {} 个 API Key，请选择一个作为主 Key",
+                        "已同步 {} 个 API Key，请选择本卡片用于默认请求的 Key",
                         api_key_options.len()
                     )
                 } else {

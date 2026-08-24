@@ -545,6 +545,7 @@ export interface CliConfigSnapshot {
   cliKind: AgentCliKind;
   configured: boolean;
   providerId: string | null;
+  apiKeyLocalId: string | null;
   modifiedAt: string | null;
   errorMessage: string | null;
 }
@@ -557,6 +558,8 @@ export interface CliConfigFile {
 export interface CliConfigPreview {
   providerId: string;
   providerName: string;
+  apiKeyLocalId: string;
+  apiKeyLabel: string;
   cliKind: AgentCliKind;
   revision: string;
   originalFiles: CliConfigFile[];

@@ -1,6 +1,7 @@
 use super::super::config_support::{
-    cli_target, config_error, config_revision, ensure_revision, file_content, latest_modified_at,
-    match_provider, normalize_endpoint, read_optional_cli_config, read_stable_optional,
+    cli_target_for_key, config_error, config_revision, ensure_revision, file_content,
+    latest_modified_at, match_provider_key, normalize_endpoint, read_optional_cli_config,
+    read_stable_optional,
     restore_config_file, rewrite_json_string_fields, validate_file_set, write_config_text,
 };
 use crate::{
@@ -40,22 +41,28 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
             cli_kind,
             configured: false,
             provider_id: None,
+            api_key_local_id: None,
             modified_at,
             error_message: None,
         };
     };
     match parse_grok_config(&config.text, &auth.text) {
-        Ok(Some((base_url, api_key))) => CliConfigSnapshot {
-            cli_kind,
-            configured: true,
-            provider_id: match_provider(providers, cli_kind, &base_url, &api_key),
-            modified_at,
-            error_message: None,
-        },
+        Ok(Some((base_url, api_key))) => {
+            let matched = match_provider_key(providers, cli_kind, &base_url, &api_key);
+            CliConfigSnapshot {
+                cli_kind,
+                configured: true,
+                provider_id: matched.as_ref().map(|value| value.provider_id.clone()),
+                api_key_local_id: matched.map(|value| value.api_key_local_id),
+                modified_at,
+                error_message: None,
+            }
+        }
         Ok(None) => CliConfigSnapshot {
             cli_kind,
             configured: false,
             provider_id: None,
+            api_key_local_id: None,
             modified_at,
             error_message: None,
         },
@@ -69,21 +76,29 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
 pub(super) fn preview(
     cli_kind: AgentCliKind,
     provider: &Provider,
+    api_key_local_id: &str,
 ) -> Result<CliConfigPreview, String> {
-    let (base_url, api_key) = cli_target(provider, cli_kind)?;
+    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
     let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
     let config_path = config_dir.join("config.toml");
     let auth_path = config_dir.join("auth.json");
     let config_text = read_optional_cli_config(&config_path)?;
     let auth_text = read_optional_cli_config(&auth_path)?;
     let (next_config, next_auth) =
-        rewrite_grok_config(&config_text, &auth_text, &base_url, &api_key)?;
+        rewrite_grok_config(&config_text, &auth_text, &target.base_url, &target.api_key)?;
 
     Ok(CliConfigPreview {
         provider_id: provider.identity.id.clone(),
         provider_name: provider.display_label(),
+        api_key_local_id: target.api_key_local_id,
+        api_key_label: target.api_key_label,
         cli_kind,
-        revision: config_revision(&[&config_text, &auth_text, &base_url, &api_key]),
+        revision: config_revision(&[
+            &config_text,
+            &auth_text,
+            &target.base_url,
+            &target.api_key,
+        ]),
         original_files: vec![
             config_file(&config_path, config_text),
             config_file(&auth_path, auth_text),
@@ -98,10 +113,11 @@ pub(super) fn preview(
 pub(super) fn switch(
     cli_kind: AgentCliKind,
     provider: &Provider,
+    api_key_local_id: &str,
     expected_revision: Option<&str>,
     files: &[CliConfigFile],
 ) -> Result<(), String> {
-    let (base_url, api_key) = cli_target(provider, cli_kind)?;
+    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
     let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
     let config_path = config_dir.join("config.toml");
     let auth_path = config_dir.join("auth.json");
@@ -118,7 +134,12 @@ pub(super) fn switch(
     validate_file_set(files, &[&config_path, &auth_path])?;
     ensure_revision(
         expected_revision,
-        config_revision(&[config_text, auth_text, &base_url, &api_key]),
+        config_revision(&[
+            config_text,
+            auth_text,
+            &target.base_url,
+            &target.api_key,
+        ]),
     )?;
     let edited_config = file_content(files, &config_path)?;
     let edited_auth = file_content(files, &auth_path)?;

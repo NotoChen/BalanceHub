@@ -27,15 +27,21 @@ impl<'a> CliRuntimeService<'a> {
         &self,
         provider_id: &str,
         cli_kind: AgentCliKind,
+        api_key_local_id: &str,
     ) -> Result<CliConfigPreview, String> {
         let data = self.data();
-        preview_config(find_provider(&data, provider_id)?, cli_kind)
+        preview_config(
+            find_provider(&data, provider_id)?,
+            cli_kind,
+            api_key_local_id,
+        )
     }
 
     pub(crate) fn switch_config(
         &self,
         provider_id: &str,
         cli_kind: AgentCliKind,
+        api_key_local_id: &str,
         revision: &str,
         files: &[CliConfigFile],
     ) -> Result<CliRuntimeSnapshot, String> {
@@ -43,6 +49,7 @@ impl<'a> CliRuntimeService<'a> {
         switch_config(
             find_provider(&data, provider_id)?,
             cli_kind,
+            api_key_local_id,
             Some(revision),
             files,
         )?;

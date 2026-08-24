@@ -21,7 +21,6 @@ const props = withDefaults(
     dragging?: boolean;
     dragStyle?: CSSProperties;
     showLivenessTimeline?: boolean;
-    defaultCliKinds?: readonly AgentCliKind[];
     cliOrbits?: readonly ProviderCardCliOrbitSpec[];
     activeCliCounts?: Partial<Record<AgentCliKind, number>>;
     switchingCliKind?: AgentCliKind | null;
@@ -38,7 +37,6 @@ const props = withDefaults(
     dragging: false,
     dragStyle: undefined,
     showLivenessTimeline: false,
-    defaultCliKinds: () => [],
     cliOrbits: () => [],
     activeCliCounts: () => ({}),
     switchingCliKind: null,
@@ -172,6 +170,8 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
       :interactive="interactive"
       :active-cli-counts="activeCliCounts"
       @open-cli-instances="forwardOpenCliInstances"
+      @copy-api-key="emit('copySecret', $event, 'apiKey')"
+      @manage-api-keys="emit('openApiKeyManager', $event)"
     />
 
     <div class="provider-card-content">
@@ -182,7 +182,6 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
       <ProviderCardActions
         :provider="provider"
         :interactive="interactive"
-        :default-cli-kinds="defaultCliKinds"
         :switching-cli-kind="switchingCliKind"
         :cli-config-switching="cliConfigSwitching"
         :probing-capabilities="probingCapabilities"

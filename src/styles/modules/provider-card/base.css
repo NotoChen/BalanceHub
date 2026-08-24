@@ -36,7 +36,9 @@
 }
 
 .provider-card-standard {
+  height: 312px;
   min-height: 312px;
+  max-height: 312px;
 }
 
 .provider-card::after {
@@ -125,7 +127,8 @@
   -webkit-offset-rotate: 0deg;
   color: var(--provider-card-cli-orbit-color);
   filter: drop-shadow(0 0 4px var(--provider-card-cli-orbit-glow));
-  pointer-events: none;
+  cursor: help;
+  pointer-events: auto;
   will-change: offset-distance;
 }
 
@@ -263,6 +266,7 @@
 .provider-card-disabled .provider-card-type,
 .provider-card-disabled .provider-card-api-field dt,
 .provider-card-disabled .provider-card-api-field dd,
+.provider-card-disabled .provider-card-api-key-name,
 .provider-card-disabled .provider-card-api-summary code,
 .provider-card-disabled .provider-card-status,
 .provider-card-disabled .provider-card-user-name,
@@ -408,27 +412,96 @@
 }
 
 .provider-card-api-key-value {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
   color: #7b8797;
   font-size: 11px;
   font-weight: 500;
   line-height: 1.35;
 }
 
-.provider-card-api-primary-name {
+.provider-card-api-key-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-card-api-key-row .provider-card-api-key-value {
+  flex: 1 1 auto;
+}
+
+.provider-card-api-key-inline-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.provider-card-api-key-inline-actions button {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  appearance: none;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #738196;
+  cursor: pointer;
+  font: inherit;
+  padding: 0 5px;
+  transition: background 160ms var(--surface-ease), color 160ms var(--surface-ease), transform 160ms var(--surface-ease);
+}
+
+.provider-card-api-key-inline-actions button:hover,
+.provider-card-api-key-inline-actions button:focus-visible {
+  background: #edf3fa;
+  color: #315f9d;
+  outline: none;
+}
+
+.provider-card-api-key-inline-actions button:active {
+  transform: translateY(1px);
+}
+
+.provider-card-api-key-inline-actions svg {
+  font-size: 13px;
+}
+
+.provider-card-api-key-inline-actions b {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+}
+
+.provider-card-api-key-name {
+  min-width: 0;
+  max-width: 45%;
+  flex: 0 1 auto;
+  overflow: hidden;
   color: #4e5969;
   font-size: 11px;
   font-weight: 600;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.provider-card-api-primary-name span {
-  color: #86909c;
-  font-weight: 500;
+.provider-card-api-key-selection-hint {
+  color: #9a671d;
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .provider-card-api-key-value code {
   display: block;
   min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   color: inherit;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

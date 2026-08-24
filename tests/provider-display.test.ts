@@ -4,10 +4,12 @@ import test from "node:test";
 import type { Provider, ProviderApiKeyOption } from "../src/stores/provider-types.ts";
 import {
   providerApiKeyDisplayName,
+  providerApiKeyCardName,
   providerApiKeySecondaryName,
   providerApiKeyRemark,
   providerCardTitle,
-  providerPrimaryApiKeyOption,
+  providerDefaultApiKeyOption,
+  providerUsesApiKeyOption,
 } from "../src/utils/provider-display.ts";
 
 function provider(authMode: Provider["auth"]["mode"], remark = "") {
@@ -58,13 +60,18 @@ test("API Key display keeps local remarks separate from remote names", () => {
   const unnamed = apiKeyOption({ localName: "", name: "" });
 
   assert.equal(providerApiKeyDisplayName(remarked), "Claude 主用");
+  assert.equal(providerApiKeyCardName(remarked), "Claude 主用");
   assert.equal(providerApiKeySecondaryName(remarked), "token-prod");
   assert.equal(providerApiKeyDisplayName(remoteOnly), "token-backup");
+  assert.equal(providerApiKeyCardName(remoteOnly), "token-backup");
   assert.equal(providerApiKeySecondaryName(remoteOnly), "");
   assert.equal(providerApiKeyDisplayName(unnamed), "未命名 API Key");
+  assert.equal(providerApiKeyCardName(unnamed), "");
+  assert.equal(providerApiKeyCardName(apiKeyOption({ name: "当前 API Key" })), "");
+  assert.equal(providerApiKeyCardName(apiKeyOption({ name: "当前配置 API Key" })), "");
 });
 
-test("primary API Key resolution prefers the selected key value then token id fallback", () => {
+test("default API Key resolution prefers the selected key value then token id fallback", () => {
   const value = provider("apiKey") as Provider;
   const first = apiKeyOption({ localId: "key-one", key: "sk-one", tokenId: "token-1" });
   const second = apiKeyOption({ localId: "key-two", key: "sk-two", tokenId: "token-2" });
@@ -72,8 +79,23 @@ test("primary API Key resolution prefers the selected key value then token id fa
   value.auth.apiKey = "sk-one";
   value.auth.apiKeyTokenId = "token-2";
 
-  assert.equal(providerPrimaryApiKeyOption(value)?.localId, "key-one");
+  assert.equal(providerDefaultApiKeyOption(value)?.localId, "key-one");
 
   value.auth.apiKey = "";
-  assert.equal(providerPrimaryApiKeyOption(value)?.localId, "key-two");
+  assert.equal(providerDefaultApiKeyOption(value)?.localId, "key-two");
+});
+
+test("configured API Key remains identifiable when the local option cache is empty", () => {
+  const value = provider("apiKey") as Provider;
+  value.auth.apiKey = "sk-configured";
+  const synthetic = apiKeyOption({
+    localId: "",
+    tokenId: "",
+    key: "sk-configured",
+    name: "当前配置 API Key",
+  });
+
+  assert.equal(providerDefaultApiKeyOption(value), undefined);
+  assert.equal(providerUsesApiKeyOption(value, synthetic), true);
+  assert.equal(providerUsesApiKeyOption(value, apiKeyOption({ key: "sk-other" })), false);
 });

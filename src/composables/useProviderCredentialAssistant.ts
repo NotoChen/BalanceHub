@@ -361,7 +361,7 @@ export function useProviderCredentialAssistant(
     );
     if (options.draftProvider.auth.apiKey.trim()) {
       if (options.draftProvider.auth.mode !== "apiKey") {
-        setAssistantStep("apiKey", "同步 API 密钥", "done", "已同步并保留当前主 Key");
+        setAssistantStep("apiKey", "同步 API 密钥", "done", "已同步并保留当前调用 Key");
       }
       return true;
     }
@@ -371,7 +371,7 @@ export function useProviderCredentialAssistant(
       options.draftProvider.auth.apiKeyTokenId = option.tokenId;
       setAssistantStep(
         "apiKey",
-        "选择主 API Key",
+        "选择当前调用 API Key",
         "done",
         `已自动选择：${providerApiKeyDisplayName(option)}`,
       );
@@ -379,10 +379,10 @@ export function useProviderCredentialAssistant(
     }
     if (knownKeys.length > 1) {
       credentialAssistantState.value = "needApiKeySelection";
-      credentialAssistantMessage.value = "已发现多个 API Key，请先选择一个作为主 Key";
+      credentialAssistantMessage.value = "已发现多个 API Key，请先选择本卡片用于默认请求的 Key";
       setAssistantStep(
         "apiKey",
-        "选择主 API Key",
+        "选择当前调用 API Key",
         "pending",
         `已发现 ${knownKeys.length} 个可用 Key，请在上方列表中选择后继续保存`,
       );
@@ -462,7 +462,7 @@ export function useProviderCredentialAssistant(
 
   async function selectCredentialApiKey(option: ProviderApiKeyOption) {
     if (!option.keyAvailable || !option.key.trim()) {
-      Message.warning("该 API Key 未读取到完整值，无法设为主 Key");
+      Message.warning("该 API Key 未读取到完整值，无法设为当前调用 Key");
       return;
     }
     const resume = credentialAssistantState.value === "needApiKeySelection";
@@ -475,7 +475,7 @@ export function useProviderCredentialAssistant(
     options.setApiKeyOptions(options.draftProvider.auth.apiKeyOptions);
     setAssistantStep(
       "apiKey",
-      "选择主 API Key",
+      "选择当前调用 API Key",
       "done",
       `已选择：${providerApiKeyDisplayName(option)}`,
     );

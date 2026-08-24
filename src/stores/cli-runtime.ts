@@ -118,17 +118,27 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
       };
       return instance;
     },
-    async previewConfig(id: string, cliKind: AgentCliKind): Promise<CliConfigPreview> {
-      return previewCliConfigCommand(id, cliKind);
+    async previewConfig(
+      id: string,
+      cliKind: AgentCliKind,
+      apiKeyLocalId: string,
+    ): Promise<CliConfigPreview> {
+      return previewCliConfigCommand(id, cliKind, apiKeyLocalId);
     },
     async switchConfig(
       id: string,
       cliKind: AgentCliKind,
+      apiKeyLocalId: string,
       revision: string,
       files: CliConfigFile[],
     ) {
-      this.cliRuntime = await switchCliConfigCommand(id, cliKind, revision, files);
-      return this.cliRuntime;
+      return switchCliConfigCommand(
+        id,
+        cliKind,
+        apiKeyLocalId,
+        revision,
+        files,
+      );
     },
     async refresh(): Promise<CliRuntimeSnapshot> {
       this.cliRuntimeLoading = true;

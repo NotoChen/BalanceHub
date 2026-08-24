@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  computed,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -29,6 +30,12 @@ const props = withDefaults(
 );
 
 const renderedOrbits = ref(layoutProviderCardCliOrbits(props.orbits));
+const orbitSummary = computed(() =>
+  renderedOrbits.value
+    .map((orbit) => orbit.title?.trim())
+    .filter((title): title is string => Boolean(title))
+    .join("；") || "Agent 默认配置",
+);
 const host = ref<HTMLElement | null>(null);
 const orbitPath = ref("path(\"M 8 0 H 92 Q 100 0 100 8 V 92 Q 100 100 92 100 H 8 Q 0 100 0 92 V 8 Q 0 0 8 0 Z\")");
 const orbitMotions = new Map<string, ProviderCardCliOrbitMotion>();
@@ -200,7 +207,8 @@ onBeforeUnmount(() => {
     v-if="renderedOrbits.length"
     ref="host"
     class="provider-card-cli-orbits"
-    aria-hidden="true"
+    role="img"
+    :aria-label="orbitSummary"
   >
     <span
       v-for="orbit in renderedOrbits"
@@ -209,6 +217,8 @@ onBeforeUnmount(() => {
       class="provider-card-cli-orbit-icon"
       :data-cli-kind="orbit.id"
       :style="orbitStyle(orbit)"
+      :title="orbit.title"
+      aria-hidden="true"
     >
       <AgentCliIcon :kind="orbit.cliKind" :size="16" />
     </span>

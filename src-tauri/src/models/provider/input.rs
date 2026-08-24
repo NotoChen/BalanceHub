@@ -254,7 +254,7 @@ impl Provider {
         Ok(true)
     }
 
-    pub fn set_primary_api_key(&mut self, local_id: &str) -> Result<(), String> {
+    pub fn set_default_api_key(&mut self, local_id: &str) -> Result<(), String> {
         let local_id = local_id.trim();
         let option = self
             .auth
@@ -264,7 +264,7 @@ impl Provider {
             .cloned()
             .ok_or_else(|| "API Key 已不存在，请刷新后重试".to_string())?;
         if !option.key_available || !is_full_api_key_value(&option.key) {
-            return Err("该 API Key 未读取到完整值，无法设为默认 Key".to_string());
+            return Err("该 API Key 未读取到完整值，无法设为当前调用 Key".to_string());
         }
         self.auth.api_key = option.key;
         self.auth.api_key_token_id = option.token_id;
@@ -282,14 +282,11 @@ impl Provider {
             .iter()
             .position(|option| option.local_id == local_id)
             .ok_or_else(|| "API Key 已不存在，请刷新后重试".to_string())?;
-        if !self.auth.api_key_options[index].token_id.trim().is_empty() {
-            return Err("站点密钥请使用“删除站点密钥”，避免本地状态与站点不一致".to_string());
-        }
         let removed = self.auth.api_key_options.remove(index);
-        let removed_primary =
+        let removed_default =
             normalize_api_key_for_protocol(&self.auth.api_key, self.identity.protocol)
                 == removed.key;
-        if removed_primary {
+        if removed_default {
             if let Some(next) = self
                 .auth
                 .api_key_options
@@ -523,37 +520,59 @@ pub(crate) fn normalize_provider_auth(
     }
 
     if !auth.api_key.is_empty() {
-        // A list refresh can retain token metadata while the remote endpoint
-        // refuses to reveal the full value. Re-associate the locally selected
-        // key by token id before deciding whether a synthetic entry is needed.
-        if !auth.api_key_token_id.is_empty() {
-            if let Some(option) = options
+        if let Some(option) = options.iter().find(|option| option.key == auth.api_key) {
+            // The full configured key is the credential that requests really
+            // use. Repair stale remote metadata from that value, not the other
+            // way around.
+            auth.api_key_token_id = option.token_id.clone();
+        } else {
+            // A list refresh can retain token metadata while the remote endpoint
+            // refuses to reveal the full value. Token ID is only a fallback for
+            // such a redacted entry; it must never replace a different full key.
+            let restored_redacted_option = if auth.api_key_token_id.is_empty() {
+                false
+            } else if let Some(option) = options
                 .iter_mut()
-                .find(|option| option.token_id == auth.api_key_token_id)
+                .find(|option| option.token_id == auth.api_key_token_id && !option.key_available)
             {
-                if !option.key_available {
-                    option.key = auth.api_key.clone();
-                    option.key_available = true;
-                    if option.masked_key.is_empty() {
-                        option.masked_key =
-                            crate::models::ProviderApiKeyOption::current_for_protocol(
-                                &auth.api_key,
-                                protocol,
-                            )
-                            .masked_key;
-                    }
+                option.key = auth.api_key.clone();
+                option.key_available = true;
+                if option.masked_key.is_empty() {
+                    option.masked_key = crate::models::ProviderApiKeyOption::current_for_protocol(
+                        &auth.api_key,
+                        protocol,
+                    )
+                    .masked_key;
+                }
+                true
+            } else {
+                false
+            };
+
+            if !restored_redacted_option {
+                let token_points_to_another_key = !auth.api_key_token_id.is_empty()
+                    && options.iter().any(|option| {
+                        option.token_id == auth.api_key_token_id
+                            && option.key_available
+                            && option.key != auth.api_key
+                    });
+                if token_points_to_another_key {
+                    auth.api_key_token_id.clear();
                 }
             }
-        }
-        if !options.iter().any(|option| option.key == auth.api_key) {
-            let mut current =
-                crate::models::ProviderApiKeyOption::current_for_protocol(&auth.api_key, protocol);
-            current.token_id = auth.api_key_token_id.clone();
-            options.insert(0, current);
+
+            if !options.iter().any(|option| option.key == auth.api_key) {
+                let mut current = crate::models::ProviderApiKeyOption::current_for_protocol(
+                    &auth.api_key,
+                    protocol,
+                );
+                current.token_id = auth.api_key_token_id.clone();
+                options.insert(0, current);
+            }
         }
     }
 
-    if auth.api_key_token_id.is_empty() {
+    if auth.api_key_token_id.is_empty() && !auth.api_key.is_empty() {
         if let Some(option) = options.iter().find(|option| option.key == auth.api_key) {
             auth.api_key_token_id = option.token_id.clone();
         }
@@ -635,7 +654,25 @@ mod tests {
     }
 
     #[test]
-    fn local_key_management_keeps_primary_selection_and_removes_only_local_keys() {
+    fn auth_normalization_prefers_the_configured_key_over_a_stale_token_id() {
+        let mut auth = ProviderInput::default().auth;
+        auth.api_key = "sk-first".to_string();
+        auth.api_key_token_id = "token-second".to_string();
+        let mut first = crate::models::ProviderApiKeyOption::current("sk-first");
+        first.token_id = "token-first".to_string();
+        let mut second = crate::models::ProviderApiKeyOption::current("sk-second");
+        second.token_id = "token-second".to_string();
+        auth.api_key_options = vec![first, second];
+
+        let normalized = normalize_provider_auth(auth, ProviderProtocol::NewApi);
+
+        assert_eq!(normalized.api_key, "sk-first");
+        assert_eq!(normalized.api_key_token_id, "token-first");
+        assert_eq!(normalized.api_key_options.len(), 2);
+    }
+
+    #[test]
+    fn local_key_management_keeps_default_selection_and_removes_keys() {
         let mut provider =
             Provider::from_input(ProviderInput::default(), "provider-test".to_string());
         provider
@@ -662,8 +699,8 @@ mod tests {
             .clone();
 
         provider
-            .set_primary_api_key(&first_id)
-            .expect("primary should change");
+            .set_default_api_key(&first_id)
+            .expect("default should change");
         assert_eq!(provider.auth.api_key, "sk-first");
         assert!(provider
             .set_api_key_remark(&second_id, "  备用\nKey  ")
@@ -717,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn local_key_removal_rejects_remote_site_keys() {
+    fn local_key_removal_can_forget_a_remote_key_without_revoking_it() {
         let mut provider =
             Provider::from_input(ProviderInput::default(), "provider-test".to_string());
         let mut option = crate::models::ProviderApiKeyOption::current("sk-remote");
@@ -725,10 +762,11 @@ mod tests {
         provider.auth.api_key_options = vec![option.normalize()];
         let local_id = provider.auth.api_key_options[0].local_id.clone();
 
-        let error = provider
+        provider
             .remove_local_api_key(&local_id)
-            .expect_err("remote key must not be removed locally");
-        assert!(error.contains("站点密钥"));
+            .expect("remote key can be removed from the local vault");
+
+        assert!(provider.auth.api_key_options.is_empty());
     }
 
     #[test]

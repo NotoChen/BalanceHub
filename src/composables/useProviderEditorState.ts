@@ -96,6 +96,13 @@ export function useProviderEditorState() {
     }
   }
 
+  function syncManagedApiKeys(provider: Provider) {
+    if (editingProviderId.value !== provider.identity.id) return;
+    draftProvider.auth.apiKey = provider.auth.apiKey;
+    draftProvider.auth.apiKeyTokenId = provider.auth.apiKeyTokenId;
+    setApiKeyOptions(provider.auth.apiKeyOptions || []);
+  }
+
   return {
     drawerVisible,
     editorSession,
@@ -119,5 +126,6 @@ export function useProviderEditorState() {
     openAddProvider,
     openEditProvider,
     setApiKeyOptions,
+    syncManagedApiKeys,
   };
 }

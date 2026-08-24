@@ -9,7 +9,6 @@ import {
   IconLink,
   IconLoading,
   IconLock,
-  IconSafe,
   IconSettings,
   IconSync,
   IconSwap,
@@ -27,11 +26,14 @@ import {
 } from "../../utils/cli-environment";
 import {
   supportsAccountManagement,
-  supportsApiKeyManagement,
   supportsCheckIn,
   supportsInvitation,
 } from "../../utils/provider-actions";
 import { hasUsableProviderApiKey } from "../../utils/provider-api-key-options";
+import {
+  providerApiKeyDisplayName,
+  providerDefaultApiKeyOption,
+} from "../../utils/provider-display";
 import {
   canBuildCcSwitchDeeplink,
   ccSwitchTargetLabels,
@@ -43,13 +45,11 @@ import ccSwitchLogo from "../../assets/logos/cc-switch.png";
 const props = withDefaults(
   defineProps<{
     provider: Provider;
-    defaultCliKinds?: readonly AgentCliKind[];
     switchingCliKind?: AgentCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
   }>(),
   {
-    defaultCliKinds: () => [],
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
@@ -87,7 +87,10 @@ const dataMenuVisible = ref(false);
 const siteMenuVisible = ref(false);
 const ccSwitchMenuVisible = ref(false);
 const canSwitchCliConfig = computed(() =>
-  Boolean(props.provider.identity.baseUrl.trim() && props.provider.auth.apiKey.trim()),
+  Boolean(
+    props.provider.identity.baseUrl.trim() &&
+      hasUsableProviderApiKey(props.provider.auth.apiKey, props.provider.auth.apiKeyOptions),
+  ),
 );
 const canLaunchTemporaryCli = computed(() =>
   Boolean(
@@ -96,9 +99,7 @@ const canLaunchTemporaryCli = computed(() =>
       hasUsableProviderApiKey(props.provider.auth.apiKey, props.provider.auth.apiKeyOptions),
   ),
 );
-const switchableCliKinds = computed(() =>
-  configurableCliKinds.value.filter((kind) => !props.defaultCliKinds.includes(kind)),
-);
+const switchableCliKinds = computed(() => configurableCliKinds.value);
 const hasCopyActions = computed(() =>
   Boolean(
     props.provider.identity.baseUrl.trim() ||
@@ -141,11 +142,20 @@ const canProbeSite = computed(
   () => props.provider.runtime.enabled && accountManagementAvailable.value,
 );
 const canChangePassword = computed(() => accountManagementAvailable.value);
+const hasManagedApiKeys = computed(() =>
+  Boolean(
+    props.provider.auth.apiKey.trim()
+      || props.provider.auth.apiKeyOptions.length > 0,
+  ),
+);
+const showSiteApiKeyManagement = computed(() =>
+  props.provider.auth.mode !== "apiKey"
+    && (props.provider.actions.apiKeyManagement || hasManagedApiKeys.value),
+);
 const hasSiteActions = computed(
   () =>
     canProbeSite.value ||
-    hasUsableProviderApiKey(props.provider.auth.apiKey, props.provider.auth.apiKeyOptions) ||
-    supportsApiKeyManagement(props.provider) ||
+    showSiteApiKeyManagement.value ||
     canViewAvailableModels.value ||
     canChangePassword.value,
 );
@@ -168,11 +178,22 @@ watch(
 );
 
 function switchCliConfig(cliKind: AgentCliKind) {
-  const isCurrent = props.defaultCliKinds.includes(cliKind);
   cliSwitchVisible.value = false;
-  if (!isCurrent && !props.cliConfigSwitching) {
+  if (!props.cliConfigSwitching) {
     emit("switchCliConfig", props.provider, cliKind);
   }
+}
+
+function defaultCliKeyLabel(cliKind: AgentCliKind) {
+  const snapshot = store.cliRuntime.configs.find(
+    (item) => item.cliKind === cliKind && item.providerId === props.provider.identity.id,
+  );
+  if (!snapshot) return "切换到此中转站";
+  const localId = snapshot.apiKeyLocalId?.trim() || "";
+  const option = localId
+    ? props.provider.auth.apiKeyOptions.find((item) => item.localId.trim() === localId)
+    : providerDefaultApiKeyOption(props.provider);
+  return option ? `当前绑定：${providerApiKeyDisplayName(option)}` : "当前使用本卡片调用 Key";
 }
 
 function openDataAction(action: "usage" | "requestLogs" | "liveness" | "checkInRecords") {
@@ -385,12 +406,12 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <span>{{ probingCapabilities ? "探测中" : "探测站点能力" }}</span>
         </button>
         <button
-          v-if="hasUsableProviderApiKey(provider.auth.apiKey, provider.auth.apiKeyOptions) || supportsApiKeyManagement(provider)"
+          v-if="showSiteApiKeyManagement"
           type="button"
           @click="openSiteAction('keys')"
         >
-          <icon-safe class="provider-card-action-icon provider-card-action-icon-keys" />
-          <span>密钥管理</span>
+          <ProviderAuthIcon mode="apiKey" class="provider-card-action-icon provider-card-action-icon-keys" />
+          <span>API Key 管理</span>
         </button>
         <button
           v-if="canViewAvailableModels"
@@ -452,7 +473,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <AgentCliIcon :kind="cliKind" :size="16" />
           <span>
             <strong>{{ agentCliLabel(store.cliEnvironmentProbe, cliKind) }}</strong>
-            <small>切换到此中转站</small>
+            <small>{{ defaultCliKeyLabel(cliKind) }}</small>
           </span>
           <icon-loading
             v-if="switchingCliKind === cliKind"

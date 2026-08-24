@@ -59,7 +59,7 @@ impl<'a> ProviderService<'a> {
         find_provider(&self.snapshot(), &id)
     }
 
-    pub fn set_primary_local_api_key(
+    pub fn set_default_local_api_key(
         &self,
         id: String,
         local_id: String,
@@ -71,7 +71,7 @@ impl<'a> ProviderService<'a> {
                 .iter_mut()
                 .find(|provider| provider.identity.id == provider_id)
                 .ok_or_else(|| "中转站不存在".to_string())?;
-            provider.set_primary_api_key(&local_id)?;
+            provider.set_default_api_key(&local_id)?;
             Ok(MutationDecision::changed(()))
         })?;
         find_provider(&self.snapshot(), &id)
@@ -290,15 +290,15 @@ fn sync_api_key_options(
     let selected = cached
         .iter()
         .find(|option| {
-            !current_token_id.is_empty()
-                && option.token_id == current_token_id
+            !current_key.is_empty()
+                && option.key == current_key
                 && option.token_id != removed_token_id
                 && option.key_available
         })
         .or_else(|| {
             cached.iter().find(|option| {
-                !current_key.is_empty()
-                    && option.key == current_key
+                !current_token_id.is_empty()
+                    && option.token_id == current_token_id
                     && option.token_id != removed_token_id
                     && option.key_available
             })
@@ -317,11 +317,20 @@ fn sync_api_key_options(
         auth.api_key = selected.key;
         auth.api_key_token_id = selected.token_id;
     } else if selected_was_removed {
-        auth.api_key.clear();
-        auth.api_key_token_id.clear();
+        if let Some(replacement) = cached.iter().find(|option| {
+            option.token_id != removed_token_id
+                && option.key_available
+                && is_full_api_key_value(&option.key)
+        }) {
+            auth.api_key = replacement.key.clone();
+            auth.api_key_token_id = replacement.token_id.clone();
+        } else {
+            auth.api_key.clear();
+            auth.api_key_token_id.clear();
+        }
     } else if !current_key.is_empty() && !cached.iter().any(|option| option.key == current_key) {
         // The list endpoint is intentionally capped at 100 items. Keep a
-        // previously revealed primary key when it falls outside that window.
+        // previously revealed default key when it falls outside that window.
         let mut current = ProviderApiKeyOption::current_for_protocol(&current_key, protocol);
         current.token_id = current_token_id.clone();
         cached.insert(0, current);
@@ -494,7 +503,28 @@ mod tests {
     }
 
     #[test]
-    fn sync_preserves_primary_key_outside_the_first_hundred_items() {
+    fn sync_prefers_the_configured_key_over_a_stale_token_id() {
+        let mut auth = ProviderInput::default().auth;
+        auth.api_key = "sk-first".to_string();
+        auth.api_key_token_id = "token-second".to_string();
+        let options = vec![
+            option(ProviderProtocol::NewApi, "token-first", "sk-first", "First"),
+            option(
+                ProviderProtocol::NewApi,
+                "token-second",
+                "sk-second",
+                "Second",
+            ),
+        ];
+
+        sync_api_key_options(&mut auth, ProviderProtocol::NewApi, &options, None);
+
+        assert_eq!(auth.api_key, "sk-first");
+        assert_eq!(auth.api_key_token_id, "token-first");
+    }
+
+    #[test]
+    fn sync_preserves_default_key_outside_the_first_hundred_items() {
         let mut auth = ProviderInput::default().auth;
         auth.api_key = "sk-older".to_string();
         auth.api_key_token_id = "101".to_string();
@@ -517,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_clears_a_primary_key_only_when_it_was_explicitly_removed() {
+    fn sync_selects_the_next_usable_key_when_the_default_was_removed() {
         let mut auth = ProviderInput::default().auth;
         auth.api_key = "sk-removed".to_string();
         auth.api_key_token_id = "11".to_string();
@@ -544,8 +574,8 @@ mod tests {
             Some("11"),
         );
 
-        assert!(auth.api_key.is_empty());
-        assert!(auth.api_key_token_id.is_empty());
+        assert_eq!(auth.api_key, "sk-replacement");
+        assert_eq!(auth.api_key_token_id, "12");
         assert_eq!(auth.api_key_options, replacements);
     }
 

@@ -119,6 +119,16 @@
   color: #5f6470;
 }
 
+:root.theme-dark .provider-card-api-key-inline-actions button {
+  color: #93a1b4;
+}
+
+:root.theme-dark .provider-card-api-key-inline-actions button:hover,
+:root.theme-dark .provider-card-api-key-inline-actions button:focus-visible {
+  background: rgba(122, 167, 255, 0.14);
+  color: #94bfff;
+}
+
 :root.theme-dark .provider-card-copy-action {
   color: #9bb0c8;
 }

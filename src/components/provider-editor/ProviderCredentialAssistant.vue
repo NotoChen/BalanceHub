@@ -43,7 +43,7 @@ const visible = computed(() =>
 
 const titleText = computed(() => {
   if (props.saved) return "配置已完成";
-  if (props.state === "needApiKeySelection") return "选择主 API Key";
+  if (props.state === "needApiKeySelection") return "选择当前调用 API Key";
   if (props.state === "failed") return "配置未完成";
   if (props.busy) return "正在自动完成配置";
   return "配置助手";
@@ -54,7 +54,7 @@ const descriptionText = computed(() => {
     return "已保存本次补全结果，可继续调整运行策略。";
   }
   if (props.state === "needApiKeySelection") {
-    return "已同步多个 API Key，请在凭据列表中选择一个作为主 Key。";
+    return "已同步多个 API Key，请在凭据列表中选择本卡片用于默认请求的 Key。";
   }
   if (props.state === "failed") {
     return props.message || "处理失败，请按失败步骤调整后重试。";

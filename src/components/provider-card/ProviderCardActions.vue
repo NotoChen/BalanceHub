@@ -21,7 +21,6 @@ const props = withDefaults(
   defineProps<{
     provider: Provider;
     interactive?: boolean;
-    defaultCliKinds?: readonly AgentCliKind[];
     switchingCliKind?: AgentCliKind | null;
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
@@ -29,7 +28,6 @@ const props = withDefaults(
   }>(),
   {
     interactive: true,
-    defaultCliKinds: () => [],
     switchingCliKind: null,
     cliConfigSwitching: false,
     probingCapabilities: false,
@@ -195,7 +193,6 @@ function removeProvider() {
 
       <ProviderCardActionMenus
         :provider="provider"
-        :default-cli-kinds="defaultCliKinds"
         :switching-cli-kind="switchingCliKind"
         :cli-config-switching="cliConfigSwitching"
         :probing-capabilities="probingCapabilities"

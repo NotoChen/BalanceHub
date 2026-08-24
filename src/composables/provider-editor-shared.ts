@@ -73,7 +73,7 @@ export function fieldLabel(field: string) {
     refreshToken: "刷新令牌",
     accessTokenExpiresAt: "访问令牌有效期",
     apiKey: "API 密钥",
-    apiKeyTokenId: "主 API Key",
+    apiKeyTokenId: "当前调用 API Key",
     apiKeyOptions: "API Key 列表",
     apiUser: "API User ID",
     loginUsername: "登录账号",

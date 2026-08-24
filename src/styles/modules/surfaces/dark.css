@@ -63,7 +63,6 @@
 :root.theme-dark .app-update-modal .arco-modal-body,
 :root.theme-dark .cli-config-preview-modal .arco-modal-body,
 :root.theme-dark .available-models-modal .arco-modal-body,
-:root.theme-dark .api-key-manager-modal .arco-modal-body,
 :root.theme-dark .workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
 :root.theme-dark .settings-overview-hero { border-color: #31527a; background: linear-gradient(120deg, #1c3150 0%, #1c293a 68%, #1c3c3b 100%); }
 :root.theme-dark .settings-overview-hero p,

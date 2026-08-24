@@ -1,16 +1,14 @@
 /* Frequently opened dialogs use one safe inset at the modal body boundary. */
 .app-update-modal .arco-modal-body,
 .cli-config-preview-modal .arco-modal-body,
-.available-models-modal .arco-modal-body,
-.api-key-manager-modal .arco-modal-body {
+.available-models-modal .arco-modal-body {
   box-sizing: border-box;
   background: var(--surface-canvas);
 }
 
 .app-update-modal .app-update-panel,
 .cli-config-preview-modal .cli-config-preview,
-.available-models-modal .available-models-panel,
-.api-key-manager-modal .api-key-manager {
+.available-models-modal .available-models-panel {
   padding: 0;
 }
 

@@ -446,6 +446,10 @@ function confirm() {
           <span>目标中转站</span>
           <strong>{{ preview.providerName }}</strong>
         </div>
+        <div class="cli-config-preview-summary-target">
+          <span>API Key</span>
+          <strong>{{ preview.apiKeyLabel }}</strong>
+        </div>
       </header>
 
       <div class="cli-config-editor">

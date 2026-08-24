@@ -262,17 +262,24 @@ export function forgetWorkspace(path: string) {
   return invoke<Workspace[]>("forget_workspace", { path });
 }
 
-export function previewCliConfig(id: string, cliKind: AgentCliKind) {
-  return invoke<CliConfigPreview>("preview_cli_config", { id, cliKind });
+export function previewCliConfig(id: string, cliKind: AgentCliKind, apiKeyLocalId: string) {
+  return invoke<CliConfigPreview>("preview_cli_config", { id, cliKind, apiKeyLocalId });
 }
 
 export function switchCliConfig(
   id: string,
   cliKind: AgentCliKind,
+  apiKeyLocalId: string,
   revision: string,
   files: CliConfigFile[],
 ) {
-  return invoke<CliRuntimeSnapshot>("switch_cli_config", { id, cliKind, revision, files });
+  return invoke<CliRuntimeSnapshot>("switch_cli_config", {
+    id,
+    cliKind,
+    apiKeyLocalId,
+    revision,
+    files,
+  });
 }
 
 export function syncAvailableModels(id: string) {
@@ -295,8 +302,8 @@ export function setLocalProviderApiKeyRemark(id: string, localId: string, remark
   return invoke<Provider>("set_local_provider_api_key_remark", { id, localId, remark });
 }
 
-export function setPrimaryLocalProviderApiKey(id: string, localId: string) {
-  return invoke<Provider>("set_primary_local_provider_api_key", { id, localId });
+export function setDefaultLocalProviderApiKey(id: string, localId: string) {
+  return invoke<Provider>("set_default_local_provider_api_key", { id, localId });
 }
 
 export function removeLocalProviderApiKey(id: string, localId: string) {

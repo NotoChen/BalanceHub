@@ -662,6 +662,7 @@ pub struct CliConfigSnapshot {
     pub cli_kind: AgentCliKind,
     pub configured: bool,
     pub provider_id: Option<String>,
+    pub api_key_local_id: Option<String>,
     pub modified_at: Option<String>,
     pub error_message: Option<String>,
 }
@@ -678,6 +679,8 @@ pub struct CliConfigFile {
 pub struct CliConfigPreview {
     pub provider_id: String,
     pub provider_name: String,
+    pub api_key_local_id: String,
+    pub api_key_label: String,
     pub cli_kind: AgentCliKind,
     pub revision: String,
     pub original_files: Vec<CliConfigFile>,

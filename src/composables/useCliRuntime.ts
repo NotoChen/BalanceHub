@@ -7,11 +7,16 @@ import {
   type CliRuntimeSnapshot,
   type AgentCliKind,
   type Provider,
+  type ProviderApiKeyOption,
   type TemporaryCliInstance,
 } from "../stores/providers";
 import { agentCliLabel } from "../utils/cli-environment";
 import { withTimeout } from "../utils/promise-timeout";
 import { providerDisplayLabel } from "../utils/provider-display";
+import {
+  effectiveProviderApiKeyOptions,
+  isProviderApiKeyUsable,
+} from "../utils/provider-api-key-options";
 
 const CLI_RUNTIME_REFRESH_TIMEOUT_MS = 15_000;
 const CLI_CONFIG_PREVIEW_TIMEOUT_MS = 30_000;
@@ -23,10 +28,15 @@ interface UseCliRuntimeOptions {
   cliRuntime: Ref<CliRuntimeSnapshot>;
   refreshInstances: () => Promise<TemporaryCliInstance[]>;
   activate: (instanceId: string) => Promise<void>;
-  previewConfig: (providerId: string, cliKind: AgentCliKind) => Promise<CliConfigPreview>;
+  previewConfig: (
+    providerId: string,
+    cliKind: AgentCliKind,
+    apiKeyLocalId: string,
+  ) => Promise<CliConfigPreview>;
   switchConfig: (
     providerId: string,
     cliKind: AgentCliKind,
+    apiKeyLocalId: string,
     revision: string,
     files: CliConfigFile[],
   ) => Promise<CliRuntimeSnapshot>;
@@ -40,10 +50,33 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   const activatingCliInstanceId = ref<string | null>(null);
   const cliInstancesRefreshing = ref(false);
   const switchingCliConfig = ref<{ providerId: string; cliKind: AgentCliKind } | null>(null);
+  const cliConfigKeyPickerVisible = ref(false);
+  const cliConfigKeyPickerProvider = ref<Provider | null>(null);
+  const cliConfigKeyPickerKind = ref<AgentCliKind | null>(null);
+  const cliConfigKeyPickerKeys = ref<ProviderApiKeyOption[]>([]);
   const cliConfigPreviewVisible = ref(false);
   const cliConfigPreview = ref<CliConfigPreview | null>(null);
   let instanceRefreshPending = false;
   let instancePollTimer: number | null = null;
+  let cliConfigRequestRevision = 0;
+
+  watch(cliConfigKeyPickerVisible, (visible) => {
+    if (visible || cliConfigPreviewVisible.value) return;
+    // Closing the key picker while a preview request is pending must make the
+    // eventual response stale; otherwise a late IPC result can reopen the
+    // configuration editor after the user explicitly cancelled.
+    cliConfigRequestRevision += 1;
+    switchingCliConfig.value = null;
+    cliConfigKeyPickerProvider.value = null;
+    cliConfigKeyPickerKind.value = null;
+    cliConfigKeyPickerKeys.value = [];
+  });
+
+  watch(cliConfigPreviewVisible, (visible) => {
+    if (visible || switchingCliConfig.value) return;
+    cliConfigRequestRevision += 1;
+    cliConfigPreview.value = null;
+  });
 
   const cliInstancesProvider = computed(() =>
     options.providers.value.find(
@@ -66,6 +99,16 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
         ...instance,
         providerName: providerLabels.get(instance.providerId) || instance.providerName,
       }));
+  });
+
+  const cliConfigKeyPickerCurrentConfig = computed(() => {
+    const provider = cliConfigKeyPickerProvider.value;
+    const cliKind = cliConfigKeyPickerKind.value;
+    if (!provider || !cliKind) return null;
+    return options.cliRuntime.value.configs.find(
+      (snapshot) =>
+        snapshot.cliKind === cliKind && snapshot.providerId === provider.identity.id,
+    ) ?? null;
   });
 
   function openCliInstances(provider: Provider, cliKind: AgentCliKind) {
@@ -132,28 +175,63 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   onUnmounted(stopInstancePolling);
 
   async function switchProviderCliConfig(provider: Provider, cliKind: AgentCliKind) {
-    if (
-      switchingCliConfig.value ||
-      options.cliRuntime.value.configs.some(
-        (snapshot) =>
-          snapshot.cliKind === cliKind && snapshot.providerId === provider.identity.id,
-      )
-    ) {
+    if (switchingCliConfig.value) {
       return;
     }
 
+    const keys = effectiveProviderApiKeyOptions(
+      provider.auth.apiKey,
+      provider.auth.apiKeyOptions || [],
+    ).filter(isProviderApiKeyUsable);
+    if (keys.length === 0) {
+      Message.warning("当前中转站没有可用于 Agent 默认配置的完整 API Key");
+      return;
+    }
+    if (keys.length === 1) {
+      await previewProviderCliConfig(provider, cliKind, keys[0]);
+      return;
+    }
+
+    cliConfigKeyPickerProvider.value = provider;
+    cliConfigKeyPickerKind.value = cliKind;
+    cliConfigKeyPickerKeys.value = keys;
+    cliConfigKeyPickerVisible.value = true;
+  }
+
+  async function selectCliConfigApiKey(option: ProviderApiKeyOption) {
+    const provider = cliConfigKeyPickerProvider.value;
+    const cliKind = cliConfigKeyPickerKind.value;
+    if (!provider || !cliKind || switchingCliConfig.value) return;
+    await previewProviderCliConfig(provider, cliKind, option);
+    if (cliConfigPreviewVisible.value) {
+      cliConfigKeyPickerVisible.value = false;
+    }
+  }
+
+  async function previewProviderCliConfig(
+    provider: Provider,
+    cliKind: AgentCliKind,
+    apiKey: ProviderApiKeyOption,
+  ) {
+    const requestRevision = ++cliConfigRequestRevision;
     switchingCliConfig.value = { providerId: provider.identity.id, cliKind };
     try {
-      cliConfigPreview.value = await withTimeout(
-        options.previewConfig(provider.identity.id, cliKind),
+      const preview = await withTimeout(
+        options.previewConfig(provider.identity.id, cliKind, apiKey.localId.trim()),
         CLI_CONFIG_PREVIEW_TIMEOUT_MS,
         "读取 CLI 配置预览超时",
       );
+      if (requestRevision !== cliConfigRequestRevision) return;
+      cliConfigPreview.value = preview;
       cliConfigPreviewVisible.value = true;
     } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
+      if (requestRevision === cliConfigRequestRevision) {
+        Message.error(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      switchingCliConfig.value = null;
+      if (requestRevision === cliConfigRequestRevision) {
+        switchingCliConfig.value = null;
+      }
     }
   }
 
@@ -163,36 +241,46 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       return;
     }
 
+    const requestRevision = ++cliConfigRequestRevision;
     switchingCliConfig.value = {
       providerId: preview.providerId,
       cliKind: preview.cliKind,
     };
     cliConfigPreviewVisible.value = false;
-    void switchCliConfigInBackground(preview, files ?? preview.files);
+    void switchCliConfigInBackground(preview, files ?? preview.files, requestRevision);
   }
 
   async function switchCliConfigInBackground(
     preview: CliConfigPreview,
     files: CliConfigFile[],
+    requestRevision: number,
   ) {
     try {
-      await withTimeout(
+      const runtime = await withTimeout(
         options.switchConfig(
           preview.providerId,
           preview.cliKind,
+          preview.apiKeyLocalId,
           preview.revision,
           files,
         ),
         CLI_CONFIG_SWITCH_TIMEOUT_MS,
         "保存 CLI 默认配置超时",
       );
-      Message.success(
-        `已将 ${preview.providerName} 设为 ${agentCliLabel(store.cliEnvironmentProbe, preview.cliKind)} 默认中转站`,
-      );
+      if (requestRevision === cliConfigRequestRevision) {
+        store.cliRuntime = runtime;
+        Message.success(
+          `已将 ${preview.providerName} · ${preview.apiKeyLabel} 设为 ${agentCliLabel(store.cliEnvironmentProbe, preview.cliKind)} 默认配置`,
+        );
+      }
     } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
+      if (requestRevision === cliConfigRequestRevision) {
+        Message.error(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      switchingCliConfig.value = null;
+      if (requestRevision === cliConfigRequestRevision) {
+        switchingCliConfig.value = null;
+      }
     }
   }
 
@@ -219,6 +307,11 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     activatingCliInstanceId,
     cliInstancesRefreshing,
     switchingCliConfig,
+    cliConfigKeyPickerVisible,
+    cliConfigKeyPickerProvider,
+    cliConfigKeyPickerKind,
+    cliConfigKeyPickerKeys,
+    cliConfigKeyPickerCurrentConfig,
     cliConfigPreviewVisible,
     cliConfigPreview,
     openCliInstances,
@@ -226,6 +319,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     refreshCliRuntime,
     activateCliInstance,
     switchProviderCliConfig,
+    selectCliConfigApiKey,
     confirmCliConfigSwitch,
   };
 }

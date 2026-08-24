@@ -10,6 +10,7 @@
 @import "./modules/cli-session-detail.css";
 @import "./modules/temporary-cli-preview.css";
 @import "./modules/cli-config-preview.css";
+@import "./modules/cli-config-key-picker.css";
 @import "./modules/agent-settings.css";
 @import "./modules/settings/base.css";
 @import "./modules/settings/provider-editor-base.css";
@@ -20,13 +21,13 @@
 @import "./modules/settings/dense-workspace.css";
 @import "./modules/settings/flat-fields.css";
 @import "./modules/settings/provider-editor-refinements.css";
+@import "./modules/api-key-manager.css";
 @import "./modules/theme-dark/base.css";
 @import "./modules/theme-dark/provider-cards.css";
 @import "./modules/theme-dark/editors.css";
 @import "./modules/theme-dark/workspaces.css";
 @import "./modules/theme-dark/dense.css";
 @import "./modules/available-models.css";
-@import "./modules/api-key-modal.css";
 @import "./modules/provider-duplicate-modal.css";
 @import "./modules/capability-probe.css";
 @import "./modules/liveness-details.css";

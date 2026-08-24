@@ -209,6 +209,16 @@ export function providerApiKeyRemoteName(option: ProviderApiKeyOption) {
   return option.name?.trim() || "";
 }
 
+export function providerApiKeyCardName(option: ProviderApiKeyOption) {
+  const localRemark = providerApiKeyLocalRemark(option);
+  if (localRemark) return localRemark;
+
+  const remoteName = providerApiKeyRemoteName(option);
+  return remoteName === "当前 API Key" || remoteName === "当前配置 API Key"
+    ? ""
+    : remoteName;
+}
+
 export function providerApiKeyDisplayName(option: ProviderApiKeyOption) {
   return providerApiKeyLocalRemark(option) || providerApiKeyRemoteName(option) || "未命名 API Key";
 }
@@ -226,7 +236,7 @@ export function providerApiKeySecondaryName(option: ProviderApiKeyOption) {
   return remoteName;
 }
 
-export function providerPrimaryApiKeyOption(provider: Provider) {
+export function providerDefaultApiKeyOption(provider: Provider) {
   const key = provider.auth.apiKey?.trim() || "";
   if (key) {
     const option = provider.auth.apiKeyOptions.find((candidate) => candidate.key?.trim() === key);
@@ -236,6 +246,28 @@ export function providerPrimaryApiKeyOption(provider: Provider) {
   return tokenId
     ? provider.auth.apiKeyOptions.find((candidate) => candidate.tokenId?.trim() === tokenId)
     : undefined;
+}
+
+export function providerUsesApiKeyOption(
+  provider: Provider,
+  option: ProviderApiKeyOption,
+) {
+  const current = providerDefaultApiKeyOption(provider);
+  if (!current) {
+    const configured = provider.auth.apiKey?.trim() || "";
+    return Boolean(configured && option.key?.trim() && configured === option.key.trim());
+  }
+  const currentLocalId = current.localId?.trim() || "";
+  const optionLocalId = option.localId?.trim() || "";
+  if (currentLocalId && optionLocalId) return currentLocalId === optionLocalId;
+
+  const currentTokenId = current.tokenId?.trim() || "";
+  const optionTokenId = option.tokenId?.trim() || "";
+  if (currentTokenId && optionTokenId) return currentTokenId === optionTokenId;
+
+  const currentKey = current.key?.trim() || "";
+  const optionKey = option.key?.trim() || "";
+  return Boolean(currentKey && optionKey && currentKey === optionKey);
 }
 
 export function providerIdentityDisplayName(provider: Provider) {

@@ -24,7 +24,7 @@ import {
   removeLocalProviderApiKey as removeLocalProviderApiKeyCommand,
   setLocalProviderApiKeyRemark as setLocalProviderApiKeyRemarkCommand,
   saveProvider as saveProviderCommand,
-  setPrimaryLocalProviderApiKey as setPrimaryLocalProviderApiKeyCommand,
+  setDefaultLocalProviderApiKey as setDefaultLocalProviderApiKeyCommand,
   syncAvailableModels as syncAvailableModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
   testProviderConnection as testProviderConnectionCommand,
@@ -272,8 +272,8 @@ export const useProviderStore = defineStore("providers", {
       this.upsertProvider(provider);
       return provider;
     },
-    async setPrimaryLocalApiKey(id: string, localId: string) {
-      const provider = await setPrimaryLocalProviderApiKeyCommand(id, localId);
+    async setDefaultLocalApiKey(id: string, localId: string) {
+      const provider = await setDefaultLocalProviderApiKeyCommand(id, localId);
       this.upsertProvider(provider);
       return provider;
     },

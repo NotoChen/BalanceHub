@@ -122,7 +122,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       providerApiKeyOptionMatches(option, options.apiKeyLocalId.value),
     );
     if (selectedKey && !isProviderApiKeyUsable(selectedKey)) {
-      return failLaunchInput("所选 API Key 未读取到完整值，请刷新密钥列表或改选其他 Key");
+      return failLaunchInput("所选 API Key 未读取到完整值，请在 API Key 管理中补全或改选其他 Key");
     }
     const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
     const model = options.cliTool.value?.capabilities.modelSelection

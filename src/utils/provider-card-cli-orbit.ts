@@ -17,6 +17,7 @@ export interface ProviderCardCliOrbitSpec {
   cliKind: AgentCliKind;
   color: string;
   glow?: string;
+  title?: string;
 }
 
 export interface ProviderCardCliOrbitLayout extends ProviderCardCliOrbitSpec {
@@ -31,13 +32,17 @@ export interface ProviderCardCliOrbitMotion {
   speedProgressPerSecond: number;
 }
 
-export function providerCardCliOrbitSpec(cliKind: AgentCliKind): ProviderCardCliOrbitSpec {
+export function providerCardCliOrbitSpec(
+  cliKind: AgentCliKind,
+  options: { id?: string; title?: string } = {},
+): ProviderCardCliOrbitSpec {
   const visual = agentCliVisuals[cliKind];
   return {
-    id: cliKind,
+    id: options.id || cliKind,
     cliKind,
     color: visual.orbitColor,
     glow: visual.orbitGlow,
+    title: options.title,
   };
 }
 

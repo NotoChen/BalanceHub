@@ -1,4 +1,4 @@
-import { computed, reactive } from "vue";
+import { computed, reactive, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { Message } from "@arco-design/web-vue";
 import { useProviderStore, type Provider } from "../stores/providers";
@@ -29,6 +29,7 @@ import { useUsageSummary } from "./useUsageSummary";
 import { useWindowDrag } from "./useWindowDrag";
 import { useWorkspacePicker } from "./useWorkspacePicker";
 import { openProjectRepository as openProjectRepositoryCommand } from "../api/app";
+import { agentCliLabel } from "../utils/cli-environment";
 
 export function useAppController() {
   const providerStore = useProviderStore();
@@ -120,18 +121,46 @@ export function useAppController() {
       providerStore.changePassword(providerId, originalPassword, password),
   });
 
+  const providerEditor = useProviderEditor({ store: providerStore });
+  const editorApiKeyRemoteManaged = computed(() => {
+    const providerId = providerEditor.editingProviderId.value;
+    return Boolean(
+      providerId
+        && providerEditor.draftProvider.auth.mode !== "apiKey"
+        && providers.value.find((provider) => provider.identity.id === providerId)?.actions.apiKeyManagement,
+    );
+  });
+
   const apiKeyManager = useApiKeyManager({
-    listLocalKeys: (providerId) => providerStore.listLocalApiKeys(providerId),
+    providers,
     syncRemoteKeys: (providerId) => providerStore.listApiKeys(providerId),
     addLocalKey: (providerId, key, remark) =>
       providerStore.addLocalApiKey(providerId, key, remark),
     createRemoteKey: (providerId, name) => providerStore.createApiKey(providerId, name),
     setRemark: (providerId, localId, remark) =>
       providerStore.setLocalApiKeyRemark(providerId, localId, remark),
-    setPrimaryKey: (providerId, localId) => providerStore.setPrimaryLocalApiKey(providerId, localId),
+    setDefaultKey: (providerId, localId) => providerStore.setDefaultLocalApiKey(providerId, localId),
     removeLocalKey: (providerId, localId) => providerStore.removeLocalApiKey(providerId, localId),
     deleteRemoteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),
     getProvider: (providerId) => providers.value.find((provider) => provider.identity.id === providerId),
+    getBoundAgentLabels: (providerId, localId, current) => [
+      ...new Set(
+        cliRuntime.value.configs
+          .filter((snapshot) =>
+            snapshot.providerId === providerId
+            && (snapshot.apiKeyLocalId?.trim()
+              ? snapshot.apiKeyLocalId.trim() === localId.trim()
+              : current),
+          )
+          .map((snapshot) => agentCliLabel(cliEnvironmentProbe.value, snapshot.cliKind)),
+      ),
+    ],
+    onProviderUpdated: (provider) => {
+      providerEditor.syncManagedApiKeys(provider);
+      // Key 增删或切换会改变 CLI 配置归属。立即重读本机配置，避免卡片继续展示
+      // 已删除 Key 的 Agent 绑定，或把旧绑定误认成新的当前调用 Key。
+      void cliRuntimeStore.refresh().catch(() => undefined);
+    },
   });
 
   const availableModels = useAvailableModels({
@@ -150,9 +179,10 @@ export function useAppController() {
     cliRuntime,
     refreshInstances: () => cliRuntimeStore.refreshInstances(),
     activate: (instanceId) => cliRuntimeStore.activate(instanceId),
-    previewConfig: (providerId, cliKind) => cliRuntimeStore.previewConfig(providerId, cliKind),
-    switchConfig: (providerId, cliKind, revision, files) =>
-      cliRuntimeStore.switchConfig(providerId, cliKind, revision, files),
+    previewConfig: (providerId, cliKind, apiKeyLocalId) =>
+      cliRuntimeStore.previewConfig(providerId, cliKind, apiKeyLocalId),
+    switchConfig: (providerId, cliKind, apiKeyLocalId, revision, files) =>
+      cliRuntimeStore.switchConfig(providerId, cliKind, apiKeyLocalId, revision, files),
   });
 
   async function removeProvider(provider: Provider) {
@@ -163,7 +193,29 @@ export function useAppController() {
     await providerStore.toggleProvider(provider.identity.id, enabled);
   }
 
-  const providerEditor = useProviderEditor({ store: providerStore });
+  function openProviderApiKeys(provider: Provider) {
+    providerEditor.openEditProvider(provider, "credentials");
+  }
+
+  async function selectManagedApiKey(option: Provider["auth"]["apiKeyOptions"][number]) {
+    const selected = await apiKeyManager.setDefaultManagedApiKey(option);
+    if (selected && providerEditor.credentialAssistantState.value === "needApiKeySelection") {
+      await providerEditor.selectCredentialApiKey(option);
+    }
+  }
+
+  watch(
+    [providerEditor.drawerVisible, providerEditor.editingProviderId],
+    ([visible, providerId]) => {
+      if (!visible || !providerId) {
+        apiKeyManager.closeApiKeyManager();
+        return;
+      }
+      const provider = providers.value.find((item) => item.identity.id === providerId);
+      if (provider) apiKeyManager.bindApiKeyManager(provider);
+    },
+    { flush: "sync" },
+  );
 
   const onboarding = useOnboardingController({
     initialized,
@@ -214,7 +266,7 @@ export function useAppController() {
     reload: () => providerStore.reload(),
     openEditProvider: providerEditor.openEditProvider,
     checkInProviderAction: checkIn.checkInProviderAction,
-    openApiKeyManager: apiKeyManager.openApiKeyManager,
+    openApiKeyManager: openProviderApiKeys,
     openAvailableModels: availableModels.openAvailableModels,
     openUsage: usage.openUsage,
     openRequestLogs: requestLogs.openRequestLogs,
@@ -351,6 +403,8 @@ export function useAppController() {
     ...cliRuntimeController,
     ...workspacePicker,
     ...providerEditor,
+    editorApiKeyRemoteManaged,
+    selectManagedApiKey,
     ...providerActions,
     ...workspace,
     refreshAllProviders,

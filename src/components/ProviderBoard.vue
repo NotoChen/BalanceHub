@@ -8,6 +8,9 @@ import {
   providerCardCliOrbitSpec,
   type ProviderCardCliOrbitSpec,
 } from "../utils/provider-card-cli-orbit";
+import { providerApiKeyDisplayName, providerDefaultApiKeyOption } from "../utils/provider-display";
+import { agentCliLabel } from "../utils/cli-environment";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
 
 interface ProviderDragState {
   providerId: string | null;
@@ -33,6 +36,7 @@ const props = defineProps<{
   cardStatusTooltip: (provider: Provider) => string;
   showLivenessTimeline: (provider: Provider) => boolean;
 }>();
+const cliStore = useCliRuntimeStore();
 
 const emit = defineEmits<{
   add: [];
@@ -73,14 +77,19 @@ const apiKeyProviders = computed(() =>
 const visibleProviderCount = computed(
   () => filteredLivenessProviders.value.length + filteredRegularProviders.value.length,
 );
-function providerDefaultCliKinds(provider: Provider) {
+function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
   return props.cliRuntime.configs
     .filter((snapshot) => snapshot.providerId === provider.identity.id)
-    .map((snapshot) => snapshot.cliKind);
-}
-
-function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
-  return providerDefaultCliKinds(provider).map((kind) => providerCardCliOrbitSpec(kind));
+    .map((snapshot) => {
+      const localId = snapshot.apiKeyLocalId?.trim() || "";
+      const option = localId
+        ? provider.auth.apiKeyOptions.find((item) => item.localId.trim() === localId)
+        : providerDefaultApiKeyOption(provider);
+      const keyLabel = option ? providerApiKeyDisplayName(option) : "当前调用 Key";
+      return providerCardCliOrbitSpec(snapshot.cliKind, {
+        title: `${agentCliLabel(cliStore.cliEnvironmentProbe, snapshot.cliKind)} 默认：${keyLabel}`,
+      });
+    });
 }
 
 function providerActiveCliCounts(provider: Provider) {
@@ -129,7 +138,6 @@ function providerSwitchingCliKind(provider: Provider) {
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="true"
-          :default-cli-kinds="providerDefaultCliKinds(provider)"
           :cli-orbits="providerCliOrbits(provider)"
           :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
@@ -178,7 +186,6 @@ function providerSwitchingCliKind(provider: Provider) {
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="false"
-          :default-cli-kinds="providerDefaultCliKinds(provider)"
           :cli-orbits="providerCliOrbits(provider)"
           :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
@@ -227,7 +234,6 @@ function providerSwitchingCliKind(provider: Provider) {
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
           :show-liveness-timeline="false"
-          :default-cli-kinds="providerDefaultCliKinds(provider)"
           :cli-orbits="providerCliOrbits(provider)"
           :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
@@ -284,7 +290,6 @@ function providerSwitchingCliKind(provider: Provider) {
       :interactive="false"
       :drag-style="dragStyle"
       :show-liveness-timeline="showLivenessTimeline(draggedProvider)"
-      :default-cli-kinds="providerDefaultCliKinds(draggedProvider)"
       :cli-orbits="providerCliOrbits(draggedProvider)"
       :active-cli-counts="providerActiveCliCounts(draggedProvider)"
       aria-hidden

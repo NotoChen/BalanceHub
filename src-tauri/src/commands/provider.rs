@@ -147,14 +147,14 @@ pub(crate) async fn set_local_provider_api_key_remark(
 }
 
 #[tauri::command]
-pub(crate) async fn set_primary_local_provider_api_key(
+pub(crate) async fn set_default_local_provider_api_key(
     app: AppHandle,
     id: String,
     local_id: String,
 ) -> Result<ProviderView, String> {
     let task_app = app.clone();
-    let provider = run_blocking("设置主 API Key", move || {
-        ProviderService::new(&task_app).set_primary_local_api_key(id, local_id)
+    let provider = run_blocking("设置当前调用 API Key", move || {
+        ProviderService::new(&task_app).set_default_local_api_key(id, local_id)
     })
     .await?;
     tray::refresh_from_state(&app);

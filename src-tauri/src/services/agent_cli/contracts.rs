@@ -334,9 +334,9 @@ impl SessionAdapter {
 }
 
 type ConfigSnapshotReader = fn(AgentCliKind, &[Provider]) -> CliConfigSnapshot;
-type ConfigPreviewBuilder = fn(AgentCliKind, &Provider) -> Result<CliConfigPreview, String>;
+type ConfigPreviewBuilder = fn(AgentCliKind, &Provider, &str) -> Result<CliConfigPreview, String>;
 type ConfigSwitcher =
-    fn(AgentCliKind, &Provider, Option<&str>, &[CliConfigFile]) -> Result<(), String>;
+    fn(AgentCliKind, &Provider, &str, Option<&str>, &[CliConfigFile]) -> Result<(), String>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct DefaultConfigAdapter {
@@ -370,18 +370,26 @@ impl DefaultConfigAdapter {
         &self,
         cli_kind: AgentCliKind,
         provider: &Provider,
+        api_key_local_id: &str,
     ) -> Result<CliConfigPreview, String> {
-        (self.preview)(cli_kind, provider)
+        (self.preview)(cli_kind, provider, api_key_local_id)
     }
 
     pub(crate) fn switch(
         &self,
         cli_kind: AgentCliKind,
         provider: &Provider,
+        api_key_local_id: &str,
         expected_revision: Option<&str>,
         files: &[CliConfigFile],
     ) -> Result<(), String> {
-        (self.switch)(cli_kind, provider, expected_revision, files)
+        (self.switch)(
+            cli_kind,
+            provider,
+            api_key_local_id,
+            expected_revision,
+            files,
+        )
     }
 }
 

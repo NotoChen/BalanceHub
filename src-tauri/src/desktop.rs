@@ -70,7 +70,7 @@ pub(crate) fn run() {
             list_local_provider_api_keys,
             add_local_provider_api_key,
             set_local_provider_api_key_remark,
-            set_primary_local_provider_api_key,
+            set_default_local_provider_api_key,
             remove_local_provider_api_key,
             create_provider_api_key,
             create_provider_api_key_for_input,

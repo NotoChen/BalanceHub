@@ -1,5 +1,4 @@
 @media (max-width: 720px) {
-  .api-key-manager-toolbar,
   .usage-toolbar {
     align-items: stretch;
     flex-direction: column;
