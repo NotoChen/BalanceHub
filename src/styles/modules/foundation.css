@@ -40,6 +40,10 @@
   filter: invert(1);
 }
 
+:root.theme-dark .agent-cli-icon-codex {
+  filter: invert(1) drop-shadow(0 0 2px rgba(255, 255, 255, 0.42));
+}
+
 body {
   min-width: 0;
   min-height: 0;

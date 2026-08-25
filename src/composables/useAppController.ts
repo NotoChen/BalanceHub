@@ -204,6 +204,13 @@ export function useAppController() {
     }
   }
 
+  async function selectManagedApiKeyForCard(
+    provider: Provider,
+    option: Provider["auth"]["apiKeyOptions"][number],
+  ) {
+    await apiKeyManager.setDefaultKeyForProvider(provider, option);
+  }
+
   watch(
     [providerEditor.drawerVisible, providerEditor.editingProviderId],
     ([visible, providerId]) => {
@@ -405,6 +412,7 @@ export function useAppController() {
     ...providerEditor,
     editorApiKeyRemoteManaged,
     selectManagedApiKey,
+    selectManagedApiKeyForCard,
     ...providerActions,
     ...workspace,
     refreshAllProviders,

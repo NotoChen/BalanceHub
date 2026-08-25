@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, type CSSProperties } from "vue";
 import ProviderCard from "./ProviderCard.vue";
-import type { CliRuntimeSnapshot, AgentCliKind, Provider } from "../stores/providers";
+import type {
+  CliRuntimeSnapshot,
+  AgentCliKind,
+  Provider,
+  ProviderApiKeyOption,
+} from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 import {
@@ -50,6 +55,7 @@ const emit = defineEmits<{
   edit: [provider: Provider];
   checkIn: [provider: Provider];
   openApiKeyManager: [provider: Provider];
+  selectApiKey: [provider: Provider, option: ProviderApiKeyOption];
   openAvailableModels: [provider: Provider];
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
@@ -151,6 +157,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
           @probe-capabilities="emit('probeCapabilities', $event)"
           @open-api-key-manager="emit('openApiKeyManager', $event)"
+          @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
           @open-available-models="emit('openAvailableModels', $event)"
           @open-usage="emit('openUsage', $event)"
           @open-request-logs="emit('openRequestLogs', $event)"
@@ -199,6 +206,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
           @probe-capabilities="emit('probeCapabilities', $event)"
           @open-api-key-manager="emit('openApiKeyManager', $event)"
+          @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
           @open-available-models="emit('openAvailableModels', $event)"
           @open-usage="emit('openUsage', $event)"
           @open-request-logs="emit('openRequestLogs', $event)"
@@ -247,6 +255,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
           @probe-capabilities="emit('probeCapabilities', $event)"
           @open-api-key-manager="emit('openApiKeyManager', $event)"
+          @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
           @open-available-models="emit('openAvailableModels', $event)"
           @open-usage="emit('openUsage', $event)"
           @open-request-logs="emit('openRequestLogs', $event)"

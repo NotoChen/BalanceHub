@@ -233,20 +233,30 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   }
 
   async function setDefaultManagedApiKey(option: ProviderApiKeyOption) {
-    if (!option.keyAvailable || !option.key.trim()) {
+    const provider = apiKeyManagerProvider.value;
+    return provider ? setDefaultKeyForProvider(provider, option) : false;
+  }
+
+  async function setDefaultKeyForProvider(provider: Provider, option: ProviderApiKeyOption) {
+    if (!option.localId.trim() || !option.keyAvailable || !option.key.trim()) {
       Message.warning("该 API Key 未读取到完整值，无法设为当前调用 Key");
       return false;
     }
+    const providerId = provider.identity.id;
+    const revision = ++requestRevision;
+    apiKeyManagerProvider.value = provider;
+    apiKeyManagerOperation.value = "default";
     try {
-      await runProviderMutation(
-        "default",
-        (providerId) => options.setDefaultKey(providerId, option.localId),
-        `本卡片将使用“${providerApiKeyDisplayName(option)}”发起默认请求`,
-      );
+      const updated = await options.setDefaultKey(providerId, option.localId);
+      if (!currentRequest(providerId, revision)) return false;
+      applyProvider(updated);
+      Message.success(`本卡片将使用“${providerApiKeyDisplayName(option)}”发起默认请求`);
       return true;
-    } catch {
-      // Error is surfaced by runProviderMutation.
+    } catch (error) {
+      if (currentRequest(providerId, revision)) Message.error(errorMessage(error));
       return false;
+    } finally {
+      if (currentRequest(providerId, revision)) apiKeyManagerOperation.value = null;
     }
   }
 
@@ -376,6 +386,7 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     addLocalApiKey,
     saveManagedApiKeyRemark,
     setDefaultManagedApiKey,
+    setDefaultKeyForProvider,
     copyManagedApiKey,
     deleteManagedApiKey,
   };

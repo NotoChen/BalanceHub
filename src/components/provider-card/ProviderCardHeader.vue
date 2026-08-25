@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { IconCopy, IconSettings } from "@arco-design/web-vue/es/icon";
+import { IconCopy } from "@arco-design/web-vue/es/icon";
 import AgentCliIcon from "../AgentCliIcon.vue";
+import ProviderApiKeySwitcher from "./ProviderApiKeySwitcher.vue";
 import { useCliRuntimeStore } from "../../stores/cli-runtime";
-import type { AgentCliKind, Provider } from "../../stores/providers";
+import type { AgentCliKind, Provider, ProviderApiKeyOption } from "../../stores/providers";
 import { agentCliLabel } from "../../utils/cli-environment";
 import {
   maskApiKey,
-  providerApiKeyCardName,
+  providerApiKeyLocalRemark,
   providerApiKeyRemark,
   providerCardTitle,
   providerDefaultApiKeyOption,
   providerProtocolLabel,
+  providerTransportProtocol,
   type ProviderCardTone,
 } from "../../utils/provider-display";
+import { effectiveProviderApiKeyOptions } from "../../utils/provider-api-key-options";
 import { applyProviderLogoFallback, providerLogoSrc } from "./provider-card-logo";
 
 const props = withDefaults(
@@ -35,6 +38,7 @@ const emit = defineEmits<{
   openCliInstances: [provider: Provider, cliKind: AgentCliKind];
   copyApiKey: [provider: Provider];
   manageApiKeys: [provider: Provider];
+  selectApiKey: [provider: Provider, option: ProviderApiKeyOption];
 }>();
 const store = useCliRuntimeStore();
 
@@ -47,24 +51,29 @@ const apiKeyConfigured = computed(() => Boolean(defaultApiKey.value?.key.trim() 
 const providerUrlDisplay = computed(() =>
   props.provider.identity.baseUrl
     .trim()
-    .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, ""),
 );
 const providerHeaderTitle = computed(() => providerCardTitle(props.provider));
 const apiKeyRemark = computed(() => providerApiKeyRemark(props.provider));
-const defaultApiKeyLabel = computed(() => {
+const defaultApiKeyRemark = computed(() => {
   const option = defaultApiKey.value;
-  return option ? providerApiKeyCardName(option) : "";
+  return option ? providerApiKeyLocalRemark(option) : "";
 });
 const apiKeyCount = computed(() => props.provider.auth.apiKeyOptions.length || (props.provider.auth.apiKey.trim() ? 1 : 0));
-const apiKeySummaryLabel = computed(() =>
-  apiKeyCount.value > 1 ? `当前调用 · 共 ${apiKeyCount.value} 把` : "当前调用",
+const apiKeyOptions = computed(() =>
+  effectiveProviderApiKeyOptions(
+    props.provider.auth.apiKey,
+    props.provider.auth.apiKeyOptions || [],
+  ),
 );
 const apiKeySelectionHint = computed(() =>
   !defaultApiKey.value && apiKeyCount.value > 1 ? "请先选择" : "",
 );
 const providerHeaderSubtitle = computed(() =>
   providerProtocolLabel(props.provider),
+);
+const providerTransportLabel = computed(() =>
+  providerTransportProtocol(props.provider.identity.baseUrl),
 );
 const showProviderStatus = computed(() => !isApiKeyAuth.value || props.tone !== "ok");
 const activeCliSignals = computed(() =>
@@ -102,48 +111,53 @@ function openCliInstances(cliKind: AgentCliKind) {
 <template>
 <header class="provider-card-header">
   <dl v-if="isApiKeyAuth" class="provider-card-api-summary" aria-label="API Key 信息">
-    <div v-if="apiKeyRemark" class="provider-card-api-remark" :title="apiKeyRemark">
-      {{ apiKeyRemark }}
+    <div class="provider-card-api-heading">
+      <div v-if="apiKeyRemark" class="provider-card-api-remark" :title="apiKeyRemark">
+        {{ apiKeyRemark }}
+      </div>
+      <span class="provider-card-api-protocol-group" aria-label="协议和站点类型">
+        <span v-if="providerTransportLabel" class="provider-card-api-transport">
+          {{ providerTransportLabel }}
+        </span>
+        <span v-if="providerTransportLabel" class="provider-card-api-protocol-separator" aria-hidden="true">·</span>
+        <span class="provider-card-api-protocol">{{ providerHeaderSubtitle }}</span>
+      </span>
     </div>
-    <div class="provider-card-api-field">
-      <dt>接口地址</dt>
-      <dd
+    <div class="provider-card-api-endpoint-row" aria-label="地址">
+      <div
         v-if="provider.identity.baseUrl.trim()"
         class="provider-card-api-endpoint-value"
         :title="provider.identity.baseUrl"
       >
-        {{ providerUrlDisplay }}
-      </dd>
-      <dd v-else class="provider-card-api-value-muted">未配置</dd>
+        <span class="provider-card-api-endpoint-text">{{ providerUrlDisplay }}</span>
+      </div>
+      <div v-else class="provider-card-api-value-muted">未配置</div>
     </div>
-    <div class="provider-card-api-field">
-      <dt>{{ apiKeySummaryLabel }}</dt>
-      <dd class="provider-card-api-key-row">
+    <div class="provider-card-api-key-row" aria-label="当前 API Key">
         <span
           class="provider-card-api-key-value"
-          :title="defaultApiKeyLabel ? `${defaultApiKeyLabel} · ${apiKeyMasked}` : apiKeyMasked"
+          :title="defaultApiKeyRemark || (apiKeyMasked ? `API Key：${apiKeyMasked}` : 'API Key 未配置')"
         >
-          <span v-if="defaultApiKeyLabel" class="provider-card-api-key-name">
-            {{ defaultApiKeyLabel }}
-          </span>
           <span v-if="apiKeySelectionHint" class="provider-card-api-key-selection-hint">
             {{ apiKeySelectionHint }}
           </span>
-          <code v-if="apiKeyConfigured && !apiKeySelectionHint" :title="`API Key：${apiKeyMasked}`">
-            {{ apiKeyMasked }}
-          </code>
-          <span v-else-if="!apiKeySelectionHint" class="provider-card-api-value-muted">未配置</span>
+          <template v-else>
+            <span v-if="defaultApiKeyRemark" class="provider-card-api-key-name">
+              {{ defaultApiKeyRemark }}
+            </span>
+            <code v-if="apiKeyConfigured" :title="`API Key：${apiKeyMasked}`">
+              {{ apiKeyMasked }}
+            </code>
+            <span v-if="!apiKeyConfigured" class="provider-card-api-value-muted">未配置</span>
+          </template>
         </span>
         <span v-if="interactive" class="provider-card-api-key-inline-actions">
-          <button
-            type="button"
-            title="管理 API Key 与调用配置"
-            aria-label="管理 API Key 与调用配置"
-            @click.stop="emit('manageApiKeys', provider)"
-            @pointerdown.stop
-          >
-            <IconSettings />
-          </button>
+          <ProviderApiKeySwitcher
+            :provider="provider"
+            :options="apiKeyOptions"
+            @select="emit('selectApiKey', provider, $event)"
+            @manage="emit('manageApiKeys', provider)"
+          />
           <button
             v-if="apiKeyConfigured"
             type="button"
@@ -155,7 +169,6 @@ function openCliInstances(cliKind: AgentCliKind) {
             <IconCopy />
           </button>
         </span>
-      </dd>
     </div>
   </dl>
   <div v-else class="provider-card-brand">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, type CSSProperties } from "vue";
-import type { AgentCliKind, Provider } from "../stores/providers";
+import type { AgentCliKind, Provider, ProviderApiKeyOption } from "../stores/providers";
 import type { ProviderCardTone } from "../utils/provider-display";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import ProviderCardHeader from "./provider-card/ProviderCardHeader.vue";
@@ -55,6 +55,7 @@ const emit = defineEmits<{
   switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
   probeCapabilities: [provider: Provider];
   openApiKeyManager: [provider: Provider];
+  selectApiKey: [provider: Provider, option: ProviderApiKeyOption];
   openAvailableModels: [provider: Provider];
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
@@ -172,6 +173,7 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
       @open-cli-instances="forwardOpenCliInstances"
       @copy-api-key="emit('copySecret', $event, 'apiKey')"
       @manage-api-keys="emit('openApiKeyManager', $event)"
+      @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
     />
 
     <div class="provider-card-content">

@@ -268,7 +268,9 @@ impl Provider {
         }
         self.auth.api_key = option.key;
         self.auth.api_key_token_id = option.token_id;
-        self.capabilities.available_models.clear();
+        // Model discovery is refreshed explicitly by the model refresh action. Keep the
+        // last known list visible while switching keys so the card does not flash empty;
+        // the next refresh will replace it with the models available to the new key.
         self.automation.last_synced_at = None;
         self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
         Ok(())
@@ -681,6 +683,7 @@ mod tests {
         provider
             .add_named_api_key("sk-second", "第二把")
             .expect("second key");
+        provider.capabilities.available_models = vec!["cached-model".to_string()];
         let first_id = provider
             .auth
             .api_key_options
@@ -702,6 +705,7 @@ mod tests {
             .set_default_api_key(&first_id)
             .expect("default should change");
         assert_eq!(provider.auth.api_key, "sk-first");
+        assert_eq!(provider.capabilities.available_models, ["cached-model"]);
         assert!(provider
             .set_api_key_remark(&second_id, "  备用\nKey  ")
             .expect("remark should change"));

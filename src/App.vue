@@ -66,6 +66,7 @@ useWindowGridSnap();
         @edit="app.editProvider"
         @check-in="app.checkInProvider"
         @open-api-key-manager="app.openApiKeyManager"
+        @select-api-key="app.selectManagedApiKeyForCard"
         @open-available-models="app.openAvailableModels"
         @open-usage="app.openUsage"
         @open-request-logs="app.openRequestLogs"

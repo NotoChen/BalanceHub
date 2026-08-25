@@ -32,8 +32,14 @@ export function providerProtocolLabel(protocol: ProviderProtocol | Provider): st
     return protocol.protocolLabel?.trim() || providerProtocolLabel(protocol.identity.protocol);
   }
   if (protocol === "sub2Api") return "Sub2API";
-  if (protocol === "api") return "API";
+  if (protocol === "api") return "通用 API Key";
   return "NewAPI";
+}
+
+/** Returns the transport scheme separately from the provider protocol. */
+export function providerTransportProtocol(baseUrl: string): string {
+  const match = baseUrl.trim().match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  return match?.[1]?.toUpperCase() || "";
 }
 
 export function providerQuotaKnown(provider: Provider) {

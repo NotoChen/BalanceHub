@@ -84,6 +84,7 @@ test("pure API Key cards keep management local and never expose a fake refresh a
   const drawer = source("../src/components/provider-editor/ProviderApiKeyVault.vue");
   const managerState = source("../src/composables/useApiKeyManager.ts");
   const cardHeader = source("../src/components/provider-card/ProviderCardHeader.vue");
+  const switcher = source("../src/components/provider-card/ProviderApiKeySwitcher.vue");
   const cardMenus = source("../src/components/provider-card/ProviderCardActionMenus.vue");
 
   assert.match(drawer, /v-if="remoteManaged"[\s\S]*同步站点/);
@@ -91,8 +92,11 @@ test("pure API Key cards keep management local and never expose a fake refresh a
   assert.doesNotMatch(managerState, /listLocalKeys/);
   assert.doesNotMatch(managerState, /void refreshApiKeyManager\(\)/);
   assert.match(managerState, /if \(!provider \|\| !apiKeyRemoteManaged\.value\) return;/);
+  assert.match(managerState, /setDefaultKeyForProvider/);
   assert.match(cardHeader, /manageApiKeys/);
-  assert.match(cardHeader, /管理 API Key 与调用配置/);
+  assert.match(switcher, /defineEmits<\{/);
+  assert.match(switcher, /IconSwap/);
+  assert.match(switcher, /管理 API Key/);
   assert.match(cardHeader, /emit\('copyApiKey', provider\)/);
   assert.match(cardMenus, /props\.provider\.auth\.mode !== "apiKey"/);
   assert.match(cardMenus, /props\.provider\.actions\.apiKeyManagement \|\| hasManagedApiKeys\.value/);

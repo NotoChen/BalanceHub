@@ -2,7 +2,12 @@
 import { computed, ref, type CSSProperties } from "vue";
 import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
-import type { CliRuntimeSnapshot, AgentCliKind, Provider } from "../stores/providers";
+import type {
+  CliRuntimeSnapshot,
+  AgentCliKind,
+  Provider,
+  ProviderApiKeyOption,
+} from "../stores/providers";
 import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import type { ProviderCardTone } from "../utils/provider-display";
 import { providerMatchesSearch } from "../utils/provider-filters";
@@ -75,6 +80,7 @@ const emit = defineEmits<{
   edit: [provider: Provider];
   checkIn: [provider: Provider];
   openApiKeyManager: [provider: Provider];
+  selectApiKey: [provider: Provider, option: ProviderApiKeyOption];
   openAvailableModels: [provider: Provider];
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
@@ -153,6 +159,7 @@ const emit = defineEmits<{
     @edit="emit('edit', $event)"
     @check-in="emit('checkIn', $event)"
     @open-api-key-manager="emit('openApiKeyManager', $event)"
+    @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
     @open-available-models="emit('openAvailableModels', $event)"
     @open-usage="emit('openUsage', $event)"
     @open-request-logs="emit('openRequestLogs', $event)"
