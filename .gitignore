@@ -30,7 +30,10 @@ src-tauri/gen
 latest.json
 
 # Editor directories and files
-.claude/
+# Trellis uses .claude/ for project-scoped workflow hooks and skills. Keep
+# machine-local Claude permissions out of the repository, but share the
+# generated project integration with the other supported coding agents.
+.claude/settings.local.json
 .vscode/
 .idea
 .DS_Store
@@ -40,7 +43,6 @@ latest.json
 *.sln
 *.sw?
 
-# 本地 AI 工具工作区（Trellis），不通过仓库共享。
-# .gitattributes 目前只为 .trellis/ 的日志合并策略服务，随之一起本地保留。
-.trellis/
-.gitattributes
+# Trellis keeps its local-only identity and runtime files in .trellis/.gitignore.
+# Specs, task artifacts, workflow files, and journals are project records and
+# remain visible to Git so future coding sessions can recover the context.
