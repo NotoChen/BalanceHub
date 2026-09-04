@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"审查 HTML/CSS 可维护性、无死代码和文档验证要求。"}
+{"file":".trellis/tasks/09-03-github-pages-redesign/research/pages-redesign-audit.md","reason":"检查视觉层级、响应式、无障碍、SEO 与 Pages 路由是否符合研究结论。"}
+{"file":".trellis/tasks/09-03-github-pages-redesign/research/content-accuracy-audit.md","reason":"逐项复核版本、Agent、会话检索、WAF、更新和平台文案。"}
+{"file":".trellis/tasks/09-03-github-pages-redesign/research/latest-feedback-design.md","reason":"复核 Provider Board 空间、Agent 单行响应式布局与 CHANGELOG 单一真源 Pages 投影方案。"}

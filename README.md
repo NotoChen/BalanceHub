@@ -2,7 +2,6 @@
   BalanceHub README
   截图请放到 docs/assets/screenshots/ 下,文件名如下(单主题、导出时烤圆角+阴影、2x 后压缩):
     overview.png          账号总览主面板(Hero)
-    settings.png          设置 · Agent 与终端
     usage-trends.png      用量趋势
     request-logs.png      请求日志
     checkin-records.png   签到记录
@@ -32,18 +31,18 @@
 
 ## 简介
 
-你手里有好几个 AI 中转站账号,每天在各家后台之间切来切去:看余额、点签到、翻日志,还得惦记某个账号的额度到底还能不能喂给 Claude Code 或 Codex。**BalanceHub 把这些收进一个本地桌面 App。**
+你手里有好几个 AI 中转站账号,每天在各家后台之间切来切去:看余额、点签到、翻日志,还得惦记某个账号的额度到底还能不能喂给 Claude Code 或 Codex CLI。**BalanceHub 把这些收进一个本地桌面 App。**
 
 和只看余额的工具不同,它**一路做到底**:粘贴地址自动识别协议 → 用你机器上的真实 CLI 验证这个账号能不能跑通 → 直接在卡片里拉起终端接着干活。账号密码、Cookie、Token、API Key 全部留在本机,带认证的请求由 Rust 本地执行。BalanceHub 是本地桌面工具,不是中转站服务端,也不提供 Web 自部署版本。
 
-**● 活跃维护中** · 最新 v0.5.9 · macOS / Windows / Linux(x64 & ARM64)· 基于 Tauri 2 原生构建
+**● 活跃维护中** · [最新版本](https://github.com/NotoChen/BalanceHub/releases/latest) · macOS / Windows / Linux（x64 / ARM64）· 基于 Tauri 2 原生构建
 
 **快速跳转:** [30 秒看懂](#30-秒看懂) · [适合谁](#适合谁) · [核心能力](#核心能力) · [选型对比](#选型对比) · [下载与安装](#下载与安装) · [快速开始](#快速开始) · [文档](#文档) · [常见问题](#常见问题)
 
 ## 30 秒看懂
 
 1. **添加中转站** — 粘贴站点地址,自动识别 NewAPI / Sub2API / 通用 API 协议并接入,余额随即显示。
-2. **一键测活** — 用本机 Codex / Claude Code / Gemini / Grok 发真实请求,确认这个账号真的能跑通。
+2. **一键测活** — 用本机 Codex CLI / Claude Code / Gemini CLI / Grok Build 发真实请求,确认这个账号真的能跑通。
 3. **切进 CLI** — 卡片内用它的 Key 与模型直接拉起终端,还能接续该 Agent 之前的历史会话。
 
 > [!TIP]
@@ -60,7 +59,7 @@
 
 | 适合 | 可能不适合 |
 | --- | --- |
-| • 同时在用多个 NewAPI / Sub2API / 通用中转站账号<br>• 日常用 Codex、Claude Code、Gemini CLI、Grok Build 打这些站点<br>• 靠每日签到攒额度,想自动化、不想漏签<br>• 希望账号密码 / Token / Key 只留在本机<br>• 需要长期挂后台,自动刷新与异常通知 | • 只用一个账号,手动看看就够了<br>• 只想在浏览器里比模型价格(All API Hub 更轻)<br>• 只需给 CLI 切换配置、不管账号(CC Switch 就够)<br>• 想要服务端或 Web 自部署版本 |
+| • 同时在用多个 NewAPI / Sub2API / 通用中转站账号<br>• 日常用 Codex CLI、Claude Code、Gemini CLI、Grok Build 打这些站点<br>• 靠每日签到攒额度,想自动化、不想漏签<br>• 希望账号密码 / Token / Key 只留在本机<br>• 需要长期挂后台,自动刷新与异常通知 | • 只用一个账号,手动看看就够了<br>• 只想在浏览器里比模型价格(All API Hub 更轻)<br>• 只需给 CLI 切换配置、不管账号(CC Switch 就够)<br>• 想要服务端或 Web 自部署版本 |
 
 ## 界面预览
 
@@ -68,12 +67,11 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/settings.png" alt="设置 · Agent 与终端" /><br/><sub><b>设置 · Agent 与终端</b> — 自动检测 Codex / Claude Code / Gemini / Grok 与本地终端,一处配置</sub></td>
     <td width="50%"><img src="docs/assets/screenshots/usage-trends.png" alt="用量趋势" /><br/><sub><b>用量趋势</b> — 近 30 天请求量、消耗与 Token 趋势,自动标出峰值</sub></td>
+    <td width="50%"><img src="docs/assets/screenshots/request-logs.png" alt="请求日志" /><br/><sub><b>请求日志</b> — 逐条记录时间、模型、耗时、Token 与消耗</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/request-logs.png" alt="请求日志" /><br/><sub><b>请求日志</b> — 逐条记录时间、模型、耗时、Token 与消耗</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/checkin-records.png" alt="签到记录" /><br/><sub><b>签到记录</b> — 日历视图看每日签到与余额增量,月度累计一目了然</sub></td>
+    <td colspan="2"><img src="docs/assets/screenshots/checkin-records.png" alt="签到记录" /><br/><sub><b>签到记录</b> — 日历视图看每日签到与余额增量,月度累计一目了然</sub></td>
   </tr>
 </table>
 
@@ -81,7 +79,7 @@
 
 前往[最新版本](https://github.com/NotoChen/BalanceHub/releases/latest)下载对应平台的安装包(三端均提供 x64 与 ARM64):
 
-- **macOS** — 下载 `.dmg`(Apple Silicon / Intel),拖入「应用程序」。首次打开若提示"未知开发者",在「系统设置 → 隐私与安全性」点击"仍要打开"(安装包经 GitHub Releases 分发,未做付费代码签名)。
+- **macOS** — 下载 `.dmg`(Apple Silicon / Intel),拖入「应用程序」。首次打开若提示"未知开发者",在「系统设置 → 隐私与安全性」点击"仍要打开"。
 - **Windows** — 下载 `setup.exe`(NSIS 安装包)按提示安装;若遇 SmartScreen 拦截,选择仍要运行。
 - **Linux** — 按发行版选择 `.AppImage`、`.deb` 或 `.rpm`。
 
@@ -116,8 +114,8 @@
 | 余额 · 账单 · 日志 | • 账号与 Key 维度额度<br>• 无限额度<br>• 用量趋势<br>• 请求日志 | 观察余额、排查消耗、确认 Key 额度 |
 | 签到 | • 手动 / 自动签到<br>• 签到记录<br>• 余额增量识别 | 稳定收额度,并过滤掉没加额度的无效签到 |
 | API Key 库 | • 多 Key 管理<br>• 本地备注<br>• 当前调用 Key 切换<br>• 每 Agent 独立绑定 | 一处维护所有 Key,按 Agent 分配 |
-| CLI 测活与临时启动 | • 本机真实测活<br>• 失败类型区分<br>• 卡片内拉起终端<br>• 命令预览<br>• 跨 Agent 会话检索与恢复 | 验证能不能用,并直接切进去干活 |
-| 网络 · 过盾 | • 统一代理语义(HTTP / SOCKS / 系统代理)<br>• 阿里云 WAF 与 Cloudflare 过盾<br>• 凭证按站点隔离 | 复杂网络与有盾站点下保持稳定 |
+| CLI 测活与临时启动 | • 本机真实测活<br>• 失败类型区分<br>• 卡片内拉起终端<br>• 命令预览<br>• 按 Agent 与工作目录检索、恢复可见会话 | 验证能不能用,并直接切进去干活 |
+| 网络兼容 | • 统一代理语义(HTTP / SOCKS / 系统代理)<br>• 自动识别并重试 AnyRouter 等站点常见的确定性阿里云 WAF JS 挑战<br>• 挑战凭证按站点隔离 | 让业务请求、更新与 CLI 使用一致的网络路径 |
 | 通知与后台 | • 系统 / Webhook 通知<br>• 系统托盘<br>• 开机启动<br>• 自动调度<br>• 后台任务中心<br>• 站点公告 | 长期挂后台,异常与公告及时触达 |
 | 数据与更新 | • 本地存储<br>• 异常写入恢复<br>• 导入导出<br>• 签名校验自动更新<br>• 单实例保护 | 敏感信息留本机,更新安全可控 |
 
@@ -125,28 +123,28 @@
 
 BalanceHub、[All API Hub](https://github.com/qixing-jk/all-api-hub) 和 [CC Switch](https://github.com/farion1231/cc-switch) 常被放在一起,但它们解决的是不同层面的问题:
 
-- **CC Switch** 管"CLI 用哪个 Provider" — 给 Claude Code、Codex、Gemini CLI 等切换 API 配置、本地代理。它与 BalanceHub **互补**:BalanceHub 可以把配置直接写入 CC Switch。
+- **CC Switch** 管"CLI 用哪个 Provider" — 给 Claude Code、Codex CLI、Gemini CLI 等切换 API 配置、本地代理。它与 BalanceHub **互补**:BalanceHub 可以把配置直接写入 CC Switch。
 - **All API Hub** 是同类账号管理工具,以浏览器扩展形态运行,长于余额看板与模型价格比对。
 
 BalanceHub 的定位更进一步:**面向真正在用 Agent CLI 打中转站的人,把"这个账号到底能不能用"和"立刻切进去用"连成一条线。** 它的差异化集中在:
 
-- **验证"能不能用",而非"通不通"** — 用本机 Codex / Claude Code / Gemini / Grok 发真实请求,测活时间线区分余额正常但 CLI 不可用、模型不可用与网络异常。
+- **验证"能不能用",而非"通不通"** — 用本机 Codex CLI / Claude Code / Gemini CLI / Grok Build 发真实请求,测活时间线区分余额正常但 CLI 不可用、模型不可用与网络异常。
 - **直接切进 CLI 干活** — 卡片内用当前 Key / Base URL / 模型 / 代理拉起终端;启动前预览完整命令,可读取并恢复该 Agent 的历史会话。
 - **Key 库 × Agent 独立绑定** — 多把 Key 集中管理、本地备注、当前调用 Key 切换;每个 Agent 默认配置可独立绑定不同的 Key。
-- **Agent 会话全文检索** — 跨 Codex / Claude Code / Gemini / Grok 的历史对话建 SQLite 索引,可搜索、可查看对话详情。
-- **硬核网络与过盾** — 业务请求、Webhook、更新与 CLI 共用一套代理语义(HTTP / SOCKS / 系统代理);内置阿里云 WAF、Cloudflare 过盾与凭证隔离。
+- **Agent 会话检索** — 为各 Agent 分别维护轻量 SQLite 索引,在选定 Agent 和工作目录内搜索标题、Resume ID、模型与可见对话正文,并查看会话详情。
+- **统一网络路径** — 业务请求、Webhook、更新与 CLI 共用一套代理语义(HTTP / SOCKS / 系统代理);自动识别并重试 AnyRouter 等站点常见的确定性阿里云 WAF JS 挑战。
 - **签到不虚报 · 挂后台不打扰** — 靠余额增量识别有效签到;自动签到失败每天最多提醒一次;后台任务中心统一展示刷新 / 签到 / 测活 / 公告进度。
 
 | 维度 | BalanceHub | All API Hub | CC Switch |
 | --- | --- | --- | --- |
 | 形态 | • 原生桌面 App(Tauri 2)<br>• macOS / Windows / Linux 全平台<br>• x64 & ARM64 | • 浏览器扩展(Chrome 等)<br>• 依附浏览器运行 | • 原生桌面 App<br>• 跨平台 |
-| 核心场景 | • 账号集中管理<br>• 用本机 CLI 验证可用性<br>• 直接切进 CLI 干活 | • 中转站账号资产管理<br>• 模型价格比对省钱 | • 给 Claude Code / Codex / Gemini 等 CLI 切换 API Provider |
-| 可用性验证 | • 调用本机 Codex / Claude Code / Gemini / Grok 发真实请求<br>• 测活时间线区分「令牌失效 / 模型不可用 / 网络异常」 | • 网页内批量测试模型可用性<br>• Token 兼容性与 CLI 代理可用性 | • 健康检查:发测试请求验证 Key 与连通 |
+| 核心场景 | • 账号集中管理<br>• 用本机 CLI 验证可用性<br>• 直接切进 CLI 干活 | • 中转站账号资产管理<br>• 模型价格比对省钱 | • 给 Claude Code / Codex CLI / Gemini CLI 等切换 API Provider |
+| 可用性验证 | • 调用本机 Codex CLI / Claude Code / Gemini CLI / Grok Build 发真实请求<br>• 测活时间线区分「令牌失效 / 模型不可用 / 网络异常」 | • 网页内批量测试模型可用性<br>• Token 兼容性与 CLI 代理可用性 | • 健康检查:发测试请求验证 Key 与连通 |
 | 直接使用 CLI | • 卡片内拉起终端(覆盖 Key / Base URL / 模型 / 代理)<br>• 启动前命令预览<br>• 恢复历史会话<br>• 管理运行实例 | • ✗<br>• 导出 Key 到 CherryStudio / CC Switch / Claude Code Router 等,由外部工具运行 | • 写入配置后,在终端手动运行 |
 | Key 管理 | • Key 库集中管理<br>• 本地备注<br>• 当前调用 Key 切换<br>• 每个 Agent 独立绑定不同 Key | • 独立凭证档案(URL + Key)<br>• 标签分类 | • 每个 Provider 一套 API 配置 |
-| 会话检索 | • 跨 Codex / Claude Code / Gemini / Grok 历史会话全文检索<br>• 查看对话详情 | • ✗ | • 会话浏览与目录导航(五款应用) |
+| 会话检索 | • 按 Agent 与工作目录搜索可见历史会话<br>• 查看对话详情 | • ✗ | • 会话浏览与目录导航(五款应用) |
 | 账号运维 | • 余额与 Key 额度<br>• 用量趋势<br>• 请求日志<br>• 签到增量识别<br>• 站点公告<br>• 后台任务中心 | • 余额 / 用量看板<br>• 模型价格比对<br>• 自动签到<br>• 用量报表(热力图、慢请求) | • Token 消耗与费用统计 |
-| 网络与过盾 | • 统一代理(HTTP / SOCKS / 系统代理)<br>• 阿里云 WAF 与 Cloudflare 过盾<br>• 凭证按站点隔离 | • CF 过盾助手,自动通过 Cloudflare 挑战 | • 本地 HTTP 代理<br>• 自动故障转移与请求监控 |
+| 网络兼容 | • 统一代理(HTTP / SOCKS / 系统代理)<br>• 确定性阿里云 WAF JS 挑战自动重试<br>• 挑战凭证按站点隔离 | • 浏览器扩展内的站点兼容辅助 | • 本地 HTTP 代理<br>• 自动故障转移与请求监控 |
 | 数据存储 | • 本地优先<br>• 异常写入恢复 + 事务化写盘<br>• 导入导出迁移 | • 本地管理<br>• 可选 WebDAV 加密同步 | • 本地存储 + 自动备份<br>• WebDAV 同步 |
 
 **怎么选?** 只想在浏览器里看看余额、比比模型价格 —— [All API Hub](https://github.com/qixing-jk/all-api-hub) 更轻便;只需要给 CLI 切换 API 配置、不管账号本身 —— [CC Switch](https://github.com/farion1231/cc-switch) 就够了;既要管账号(余额 / 签到 / 日志),又要确认它在本机 CLI 里真的能用、还想直接切进去干活 —— 这才是 BalanceHub 的位置。
@@ -172,7 +170,7 @@ BalanceHub 处理的是账号密码、Cookie、Token 和 API Key,所以在设计
 - **凭据只存本机** —— 全部保存在本地应用数据目录,不上传任何远端服务器,项目方看不到、也收不到。
 - **请求本地直发** —— 带认证的站点请求由本机 Rust 执行,不经浏览器页面、不经第三方中转。
 - **临时凭据收紧权限** —— 临时 CLI 运行时写出的凭据文件,权限收紧为仅当前用户可读,退出后清理。
-- **过盾凭证隔离** —— WAF / Cloudflare 挑战凭证按站点、来源与代理路由隔离,互不串用。
+- **挑战凭证隔离** —— 确定性阿里云 WAF JS 挑战产生的凭证按站点、来源与代理路由隔离,互不串用。
 - **导出请谨慎** —— 导出的配置*包含*敏感凭据,请只在你自己可信的设备之间迁移,不要提交到仓库或公开分享。
 
 ## 文档
@@ -203,7 +201,7 @@ NewAPI / Sub2API 新配置默认账号密码,登录后可补全 Cookie、访问�
 <details>
 <summary>为什么 macOS / Windows 提示"未知开发者"?</summary>
 
-安装包通过 GitHub Releases 分发,未做系统级付费代码签名,因此 macOS 可能提示未知开发者、Windows 可能触发 SmartScreen。这是系统信任提示,不代表安装包损坏。macOS 可在「系统设置 → 隐私与安全性」点击"仍要打开"。
+安装包通过 GitHub Releases 分发。若系统尚未建立对当前发布者的信任,macOS 可能提示未知开发者,Windows 可能触发 SmartScreen。这是系统信任提示,不代表安装包损坏。请只从本仓库 Releases 下载;macOS 可在「系统设置 → 隐私与安全性」点击"仍要打开"。
 </details>
 
 <details>

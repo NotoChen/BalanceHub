@@ -1,3 +1,10 @@
+---
+layout: default
+title: 常见问题
+description: 解答 BalanceHub 安装、自动更新、签到记录和 API Key 额度等常见问题。
+page_class: document-page
+---
+
 # 常见问题
 
 ## `.sig` 文件是什么？
@@ -12,9 +19,9 @@
 
 ## 为什么 macOS 或 Windows 提示未知开发者？
 
-当前安装包通过 GitHub Releases 分发，但没有做系统级付费代码签名。macOS 和 Windows 可能会提示未知开发者或 SmartScreen 拦截。
+安装包通过 GitHub Releases 分发。若系统尚未建立对当前发布者的信任，macOS 和 Windows 可能会提示未知开发者或 SmartScreen 拦截。
 
-这是系统信任提示，不代表安装包一定损坏。后续如果项目用户规模稳定，再考虑付费代码签名。
+这是系统信任提示，不代表安装包一定损坏。请只从本仓库 Releases 下载；macOS 可在「系统设置 → 隐私与安全性」中选择「仍要打开」。
 
 ## 为什么签到记录为空？
 

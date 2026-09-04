@@ -11,7 +11,11 @@ on:
       - "CHANGELOG.md"
       - "LICENSE"
       - "docs/**"
+      - ".gitignore"
+      - ".trellis/**"
       - ".github/ISSUE_TEMPLATE/**"
+      - ".github/scripts/prepare-pages-changelog.mjs"
+      - ".github/workflows/pages.yml"
       - ".github/pull_request_template.md"
   workflow_dispatch:
 

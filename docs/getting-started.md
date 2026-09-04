@@ -1,3 +1,10 @@
+---
+layout: default
+title: 快速开始
+description: 安装 BalanceHub、添加第一个中转站，并完成日常使用和配置迁移。
+page_class: document-page
+---
+
 # 快速开始
 
 BalanceHub 是本地桌面应用。配置和中转站凭据保存在当前电脑的应用数据目录中，换电脑使用时可以通过导入导出迁移。

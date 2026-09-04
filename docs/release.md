@@ -1,3 +1,10 @@
+---
+layout: default
+title: 发布与更新
+description: 了解 BalanceHub 的跨平台安装包、自动更新流程和签名文件用途。
+page_class: document-page
+---
+
 # 发布与更新
 
 BalanceHub 通过 GitHub Releases 分发桌面安装包。

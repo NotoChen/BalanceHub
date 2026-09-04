@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "docs/**"
+      - "CHANGELOG.md"
+      - ".github/scripts/prepare-pages-changelog.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,6 +30,9 @@ jobs:
 
       - name: 配置 Pages
         uses: actions/configure-pages@v5
+
+      - name: 生成更新记录页面
+        run: node .github/scripts/prepare-pages-changelog.mjs
 
       - name: 构建 Jekyll 文档
         uses: actions/jekyll-build-pages@v1

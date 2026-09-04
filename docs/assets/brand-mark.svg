@@ -1,0 +1,28 @@
+<svg viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gA" x1="128" y1="512" x2="896" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EF4444"/>
+      <stop offset="35%" stop-color="#F59E0B"/>
+      <stop offset="70%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="gB" x1="320" y1="180" x2="704" y2="844" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A855F7"/>
+      <stop offset="40%" stop-color="#6366F1"/>
+      <stop offset="75%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="gC" x1="704" y1="180" x2="320" y2="844" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="40%" stop-color="#818CF8"/>
+      <stop offset="70%" stop-color="#C084FC"/>
+      <stop offset="100%" stop-color="#F472B6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#0A0A0F"/>
+  <ellipse cx="512" cy="512" rx="384" ry="128" stroke="url(#gA)" stroke-width="48" fill="none"/>
+  <ellipse cx="512" cy="512" rx="384" ry="128" transform="rotate(60 512 512)" stroke="url(#gB)" stroke-width="48" fill="none"/>
+  <ellipse cx="512" cy="512" rx="384" ry="128" transform="rotate(120 512 512)" stroke="url(#gC)" stroke-width="48" fill="none"/>
+  <circle cx="512" cy="512" r="56" fill="white"/>
+  <circle cx="512" cy="512" r="24" fill="#0A0A0F"/>
+</svg>

@@ -52,6 +52,23 @@ IPC types, stores, and UI. Check all platform branches and generated shell
 templates when platform code changes. Run the relevant quality commands before
 finishing the task.
 
+### GitHub Pages and public documentation
+
+Treat `docs/` as the Jekyll source deployed under the `/BalanceHub` base path.
+Markdown pages that must be reachable as HTML need front matter and the shared
+`default` layout; site assets and internal links must use Jekyll's
+`relative_url` / `absolute_url` filters instead of assuming the domain root.
+
+Keep README and Pages product claims aligned with the current source. Do not
+hard-code the current release number or keep a prominently displayed screenshot
+whose embedded version is already stale. Prefer local site assets so the page
+does not become incomplete when an unrelated image host is unavailable.
+
+For Pages changes, run a GitHub-Pages-compatible Jekyll build, verify generated
+HTML routes plus local links, anchors, headings, and image alternatives, then
+inspect the landing page and one document page at desktop, 390 px, and 320 px
+widths for horizontal overflow and navigation usability.
+
 ---
 
 ## Code Review Checklist

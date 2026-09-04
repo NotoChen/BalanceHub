@@ -1,3 +1,10 @@
+---
+layout: default
+title: 中转站配置
+description: 了解 NewAPI、Sub2API 与通用 API Key 的认证方式、能力边界和连接测试。
+page_class: document-page
+---
+
 # 中转站配置
 
 BalanceHub 当前支持 NewAPI、Sub2API 和通用 API Key。AnyRouter 这类站点按 NewAPI 接口方言处理，不在界面上作为独立中转站类型展示。

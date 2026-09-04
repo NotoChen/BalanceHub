@@ -1,0 +1,12 @@
+title: BalanceHub
+description: 集中管理 NewAPI、Sub2API 与通用 API，并用本机 Agent CLI 验证和启动的本地桌面应用。
+url: https://notochen.github.io
+baseurl: /BalanceHub
+repository: NotoChen/BalanceHub
+lang: zh-CN
+timezone: Asia/Shanghai
+markdown: kramdown
+kramdown:
+  input: GFM
+exclude:
+  - .DS_Store

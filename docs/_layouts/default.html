@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="{{ site.lang | default: 'zh-CN' }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#101828" />
+    <title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
+    <meta
+      name="description"
+      content="{{ page.description | default: site.description | escape }}"
+    />
+    <link rel="canonical" href="{{ page.url | replace: 'index.html', '' | absolute_url }}" />
+    <link rel="icon" type="image/svg+xml" href="{{ '/assets/brand-mark.svg' | relative_url }}" />
+    <link rel="apple-touch-icon" href="{{ '/assets/brand-mark.svg' | relative_url }}" />
+    <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}" />
+
+    <meta property="og:site_name" content="{{ site.title }}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}" />
+    <meta
+      property="og:description"
+      content="{{ page.description | default: site.description | escape }}"
+    />
+    <meta property="og:url" content="{{ page.url | replace: 'index.html', '' | absolute_url }}" />
+    <meta
+      property="og:image"
+      content="{{ '/assets/screenshots/overview.png' | absolute_url }}"
+    />
+    <meta property="og:locale" content="zh_CN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}" />
+    <meta
+      name="twitter:description"
+      content="{{ page.description | default: site.description | escape }}"
+    />
+    <meta
+      name="twitter:image"
+      content="{{ '/assets/screenshots/overview.png' | absolute_url }}"
+    />
+  </head>
+  <body class="{{ page.page_class | default: 'document-page' }}">
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+    <header class="site-header">
+      <div class="site-shell header-inner">
+        <a class="site-brand" href="{{ '/' | relative_url }}" aria-label="BalanceHub 首页">
+          <img src="{{ '/assets/brand-mark.svg' | relative_url }}" alt="" width="36" height="36" />
+          <span>BalanceHub</span>
+        </a>
+
+        <nav class="desktop-nav" aria-label="主导航">
+          <a href="{{ '/' | relative_url }}#workflow">工作方式</a>
+          <a href="{{ '/' | relative_url }}#capabilities">核心能力</a>
+          <a href="{{ '/' | relative_url }}#product">界面</a>
+          <a href="{{ '/' | relative_url }}#privacy">本地优先</a>
+          <a href="{{ '/getting-started.html' | relative_url }}">文档</a>
+          <a href="{{ '/changelog.html' | relative_url }}">更新记录</a>
+        </nav>
+
+        <div class="header-actions">
+          <a
+            class="icon-link"
+            href="https://github.com/NotoChen/BalanceHub"
+            aria-label="在 GitHub 查看 BalanceHub"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.56 9.56 0 0 1 12 6.84a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/>
+            </svg>
+          </a>
+          <a class="header-download" href="https://github.com/NotoChen/BalanceHub/releases/latest">
+            下载最新版
+          </a>
+          <details class="mobile-nav">
+            <summary aria-label="打开导航菜单">
+              <span></span><span></span><span></span>
+            </summary>
+            <nav aria-label="移动端导航">
+              <a href="{{ '/' | relative_url }}#workflow">工作方式</a>
+              <a href="{{ '/' | relative_url }}#capabilities">核心能力</a>
+              <a href="{{ '/' | relative_url }}#product">界面</a>
+              <a href="{{ '/' | relative_url }}#privacy">本地优先</a>
+              <a href="{{ '/getting-started.html' | relative_url }}">快速开始</a>
+              <a href="{{ '/changelog.html' | relative_url }}">更新记录</a>
+              <a href="https://github.com/NotoChen/BalanceHub">GitHub</a>
+            </nav>
+          </details>
+        </div>
+      </div>
+    </header>
+
+    {% if page.page_class == 'landing-page' %}
+      <main id="main-content">{{ content }}</main>
+    {% else %}
+      <main id="main-content" class="document-main">
+        <div class="site-shell document-layout">
+          <aside class="document-sidebar" aria-label="文档目录">
+            <p class="sidebar-label">使用文档</p>
+            <nav>
+              <a {% if page.url == '/getting-started.html' %}class="is-current" aria-current="page"{% endif %} href="{{ '/getting-started.html' | relative_url }}">快速开始</a>
+              <a {% if page.url == '/provider-config.html' %}class="is-current" aria-current="page"{% endif %} href="{{ '/provider-config.html' | relative_url }}">中转站配置</a>
+              <a {% if page.url == '/liveness.html' %}class="is-current" aria-current="page"{% endif %} href="{{ '/liveness.html' | relative_url }}">测活配置</a>
+              <a {% if page.url == '/reference.html' %}class="is-current" aria-current="page"{% endif %} href="{{ '/reference.html' | relative_url }}">功能与架构</a>
+              <a {% if page.url == '/release.html' %}class="is-current" aria-current="page"{% endif %} href="{{ '/release.html' | relative_url }}">发布与更新</a>
+              <a {% if page.url == '/faq.html' %}class="is-current" aria-current="page"{% endif %} href="{{ '/faq.html' | relative_url }}">常见问题</a>
+              <a {% if page.url == '/changelog.html' %}class="is-current" aria-current="page"{% endif %} href="{{ '/changelog.html' | relative_url }}">更新记录</a>
+            </nav>
+          </aside>
+          <article class="document-content">{{ content }}</article>
+        </div>
+      </main>
+    {% endif %}
+
+    <footer class="site-footer">
+      <div class="site-shell footer-inner">
+        <div>
+          <a class="footer-brand" href="{{ '/' | relative_url }}">BalanceHub</a>
+          <p>面向 Agent CLI 用户的本地中转站桌面管理工具。</p>
+        </div>
+        <nav aria-label="页脚导航">
+          <a href="https://github.com/NotoChen/BalanceHub">源码</a>
+          <a href="https://github.com/NotoChen/BalanceHub/issues">Issues</a>
+          <a href="https://github.com/NotoChen/BalanceHub/blob/main/LICENSE">许可证</a>
+          <a href="{{ '/reference.html' | relative_url }}">文档</a>
+          <a href="{{ '/changelog.html' | relative_url }}">更新记录</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

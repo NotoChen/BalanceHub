@@ -1,0 +1,30 @@
+{
+  "id": "github-pages-redesign",
+  "name": "github-pages-redesign",
+  "title": "重构 GitHub Pages 产品入口",
+  "description": "让 GitHub Pages 与新版 README 的产品定位、视觉层级和动态版本入口保持一致。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "notochen",
+  "assignee": "notochen",
+  "createdAt": "2026-09-03",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "review_status": "ready_for_user_acceptance",
+    "preview_url": "http://127.0.0.1:8765/BalanceHub/",
+    "last_check": "2026-09-04-pages-final-review-ci-scope"
+  }
+}

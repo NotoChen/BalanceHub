@@ -29,6 +29,10 @@ src-tauri/gen
 *.rpm
 latest.json
 
+# Generated while preparing or previewing GitHub Pages.
+docs/changelog.md
+docs/.jekyll-cache/
+
 # Editor directories and files
 # Trellis uses .claude/ for project-scoped workflow hooks and skills. Keep
 # machine-local Claude permissions out of the repository, but share the

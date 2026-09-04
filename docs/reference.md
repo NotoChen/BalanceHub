@@ -1,3 +1,10 @@
+---
+layout: default
+title: 功能与架构参考
+description: 查阅 BalanceHub 的完整能力边界、技术框架、架构分层和目录结构。
+page_class: document-page
+---
+
 # 功能与架构参考
 
 本文承接 README 中不适合展开的细节，集中说明 BalanceHub 的功能边界、技术框架、架构分层和目录结构。
