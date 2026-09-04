@@ -145,6 +145,24 @@ export function captureCliEnvironmentSettings(
   };
 }
 
+/**
+ * Compare only the persisted Agent CLI path map. Other settings may change
+ * while a deep scan is running without invalidating its path candidates.
+ */
+export function agentCliPathsMatchSnapshot(
+  settings: AppSettings,
+  expected: CliEnvironmentSettingsSnapshot,
+) {
+  const kinds = new Set([
+    ...Object.keys(settings.agentCliPaths),
+    ...Object.keys(expected.agentCliPaths),
+  ]);
+  return Array.from(kinds).every((kind) =>
+    (settings.agentCliPaths[kind as AgentCliKind] || "")
+      === (expected.agentCliPaths[kind as AgentCliKind] || ""),
+  );
+}
+
 /** 把设置页手动扫描结果写回发起扫描时的草稿快照，避免覆盖扫描期间的用户修改。 */
 export function applyCliEnvironmentProbeResult(
   settings: AppSettings,

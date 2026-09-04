@@ -359,6 +359,281 @@ export interface CliEnvironmentProbeResult {
   tools: CliToolProbeResult[];
 }
 
+/** Rust-owned read-only Agent environment inventory contract. */
+export type AgentEnvironmentKind = "native";
+export type AgentHostPlatform = "macos" | "linux" | "windows";
+export type AgentEnvironmentCapability = "readOnlyInventory" | "boundedPreview";
+export type AgentAssetCategory =
+  | "config"
+  | "skill"
+  | "plugin"
+  | "extension"
+  | "mcp"
+  | "hook"
+  | "statusUi";
+export type AgentAssetScope = "user" | "workspace" | "local" | "system" | "managed";
+export type AgentAssetState = "enabled" | "disabled" | "shadowed" | "blocked" | "invalid" | "unknown";
+export type AgentAssetMutation = "readOnly" | "nativeToggle" | "managedMutation" | "externalCommand";
+export type AgentAssetOpenTarget = "asset" | "parentDirectory";
+export type AgentTrustState = "trusted" | "untrusted" | "required" | "unknown";
+export type AgentInstallationChannel = "stable" | "preview" | "nightly" | "unknown";
+export type AgentVersionState =
+  | "upToDate"
+  | "updateAvailable"
+  | "aheadOfStable"
+  | "unknown"
+  | "unavailable";
+export type AgentVersionSource = "npmRegistry" | "localExecutable" | "unknown";
+export type AgentDiscoverySource = "configured" | "automatic";
+export type AgentInstallationAvailability = "available" | "unavailable";
+
+export interface AgentEnvironmentDescriptor {
+  id: string;
+  kind: AgentEnvironmentKind;
+  hostPlatform: AgentHostPlatform;
+  guestPlatform: string | null;
+  displayName: string;
+  capabilities: AgentEnvironmentCapability[];
+}
+
+export interface AgentAssetCapability {
+  category: AgentAssetCategory;
+  discovery: AgentAssetScope[];
+  mutation: AgentAssetMutation;
+  requiresRestart: boolean;
+  requiresTrust: boolean;
+}
+
+export interface AgentAssetSource {
+  id: string;
+  scope: AgentAssetScope;
+  environmentId: string;
+  workspaceId: string | null;
+  path: string;
+  precedence: number;
+  writable: boolean;
+}
+
+export interface AgentCapabilities {
+  agentKind: AgentCliKind;
+  assets: AgentAssetCapability[];
+}
+
+export interface AgentInstallation {
+  id: string;
+  environmentId: string;
+  agentKind: AgentCliKind;
+  label: string;
+  availability: AgentInstallationAvailability;
+  executablePath: string | null;
+  installedVersion: string | null;
+  discoverySource: AgentDiscoverySource;
+  channel: AgentInstallationChannel;
+  installedVersionSource: AgentVersionSource;
+  latestStableVersion: string | null;
+  latestVersionSource: AgentVersionSource;
+  versionState: AgentVersionState;
+  versionCheckedAt: string | null;
+  diagnostic: string | null;
+}
+
+export interface AgentAssetRecord {
+  stableId: string;
+  agentKind: AgentCliKind;
+  category: AgentAssetCategory;
+  nativeId: string;
+  label: string;
+  sourceId: string;
+  scope: AgentAssetScope;
+  environmentId: string;
+  workspaceId: string | null;
+  path: string | null;
+  precedence: number;
+  writable: boolean;
+  declaredState: AgentAssetState;
+  effectiveState: AgentAssetState;
+  trustState: AgentTrustState | null;
+  diagnostics: string[];
+  revision: string | null;
+  sensitive: boolean;
+  isDirectory: boolean;
+}
+
+export interface AgentEnvironmentInventory {
+  environment: AgentEnvironmentDescriptor;
+  installations: AgentInstallation[];
+  sources: AgentAssetSource[];
+  capabilities: AgentCapabilities[];
+  assets: AgentAssetRecord[];
+  scannedAt: string;
+  workspace: string | null;
+}
+
+export interface AgentAssetReadResult {
+  stableId: string;
+  path: string;
+  content: string | null;
+  sizeBytes: number;
+  modifiedAt: string | null;
+  truncated: boolean;
+  metadataOnly: boolean;
+  diagnostic: string | null;
+}
+
+export interface AgentVersionCheckResult {
+  installations: AgentInstallation[];
+  checkedAt: string;
+}
+
+export type AgentRuntimeScope =
+  | { kind: "native" }
+  | { kind: "wsl"; distro_id: string };
+export type AgentHookMutation = "install" | "remove" | "enable" | "disable";
+export type AgentHookActionKind = AgentHookMutation | "health" | "verify" | "repair";
+export type AgentHookTrust = "unknown" | "trusted" | "required" | "not_applicable";
+export type AgentHookHealthState =
+  | "not_installed"
+  | "installed_untrusted"
+  | "installed_unverified"
+  | "healthy"
+  | "disabled"
+  | "conflict"
+  | "helper_missing"
+  | "spool_blocked"
+  | "unsupported";
+export type AgentHookChangeKind = "add" | "remove" | "keep";
+
+export interface AgentHookChange {
+  eventName: string;
+  structuralIdentity: string;
+  fingerprint: string;
+  kind: AgentHookChangeKind;
+}
+
+export interface AgentHookOwnedResource {
+  eventName: string;
+  structuralIdentity: string;
+  contentFingerprint: string;
+}
+
+export interface AgentHookOwnership {
+  agentKind: AgentCliKind;
+  runtimeScope: AgentRuntimeScope;
+  configPath: string;
+  helperVersion: string;
+  installedAt: number;
+  enabled: boolean;
+  resources: AgentHookOwnedResource[];
+}
+
+export interface AgentHookInspection {
+  agentKind: AgentCliKind;
+  runtimeScope: AgentRuntimeScope;
+  configPath: string;
+  configExists: boolean;
+  revision: string;
+  state: AgentHookHealthState;
+  installed: boolean;
+  enabled: boolean;
+  trusted: AgentHookTrust;
+  helperAvailable: boolean;
+  spoolAvailable: boolean;
+  lastEventAt: number | null;
+  ownership: AgentHookOwnership | null;
+  diagnostics: string[];
+  actions: AgentHookAction[];
+}
+
+export interface AgentHookAction {
+  action: AgentHookActionKind;
+  available: boolean;
+  reason: string | null;
+}
+
+export interface AgentHookPlan {
+  agentKind: AgentCliKind;
+  mutation: AgentHookMutation;
+  runtimeScope: AgentRuntimeScope;
+  configPath: string;
+  expectedRevision: string;
+  supported: boolean;
+  conflict: boolean;
+  changes: AgentHookChange[];
+  summary: string;
+}
+
+export type AgentRuntimeOrigin = "balancehub_launch" | "external_hook";
+export type AgentRuntimeState = "starting" | "busy" | "idle" | "ended" | "unknown";
+export type AgentRuntimeEvidenceSource =
+  | "launch_registration"
+  | "launch_status"
+  | "hook"
+  | "process"
+  | "terminal"
+  | "session_adapter";
+export type AgentRuntimeConfidence = "weak" | "observed" | "exact";
+
+export interface AgentRuntimeEvidence {
+  source: AgentRuntimeEvidenceSource;
+  confidence: AgentRuntimeConfidence;
+  observedAt: number;
+  eventId: string;
+}
+
+export interface AgentRuntimeProviderRef {
+  providerId: string;
+  providerName: string;
+  accountLabel: string;
+  apiKeyLocalId: string | null;
+}
+
+export interface AgentRuntimeProcessEvidence {
+  pid: number;
+  observedAt: number;
+}
+
+export interface AgentRuntimeTerminalEvidence {
+  kind: TemporaryCliTerminalKind;
+  locator: string | null;
+  observedAt: number;
+}
+
+export interface AgentRuntimeActions {
+  canActivateTerminal: boolean;
+  canViewDetail: boolean;
+  canResume: boolean;
+  canDismiss: boolean;
+}
+
+export interface AgentRuntimeSession {
+  runtimeId: string;
+  runtimeScope: AgentRuntimeScope;
+  origin: AgentRuntimeOrigin;
+  agentKind: AgentCliKind;
+  agentSessionId: string | null;
+  balancehubInstanceId: string | null;
+  provider: AgentRuntimeProviderRef | null;
+  workdir: string | null;
+  title: string | null;
+  model: string | null;
+  process: AgentRuntimeProcessEvidence | null;
+  terminal: AgentRuntimeTerminalEvidence | null;
+  state: AgentRuntimeState;
+  evidence: AgentRuntimeEvidence[];
+  startedAt: number | null;
+  lastActivityAt: number | null;
+  endedAt: number | null;
+  exitCode: number | null;
+  actions: AgentRuntimeActions;
+}
+
+export interface AgentRuntimeSnapshot {
+  schemaVersion: number;
+  revision: number;
+  updatedAt: number;
+  sessions: AgentRuntimeSession[];
+}
+
 export interface TerminalEnvironmentProbeResult {
   terminals: TemporaryTerminalProbeResult[];
 }
@@ -570,12 +845,14 @@ export interface TemporaryCliInstance {
   id: string;
   providerId: string;
   providerName: string;
+  apiKeyLocalId?: string | null;
   sessionTitle: string;
   accountLabel: string;
   cliKind: AgentCliKind;
   workdir: string;
   terminalKind: TemporaryCliTerminalKind;
   terminalName: string;
+  terminalLocator?: string | null;
   startedAt: string;
   endedAt: string | null;
   pid: number | null;
@@ -719,7 +996,6 @@ export interface TemporaryCliLaunchResult {
 export interface CliRuntimeSnapshot {
   agents: AgentCliDescriptor[];
   configs: CliConfigSnapshot[];
-  instances: TemporaryCliInstance[];
 }
 
 export interface SiteAnnouncement {

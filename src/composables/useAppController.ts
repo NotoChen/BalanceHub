@@ -50,6 +50,7 @@ export function useAppController() {
   const {
     cliRuntime,
     cliRuntimeLoading,
+    agentRuntimeSnapshot,
     cliEnvironmentProbe,
     terminalEnvironmentProbe,
   } = storeToRefs(cliRuntimeStore);
@@ -177,8 +178,9 @@ export function useAppController() {
   const cliRuntimeController = useCliRuntime({
     providers,
     cliRuntime,
-    refreshInstances: () => cliRuntimeStore.refreshInstances(),
-    activate: (instanceId) => cliRuntimeStore.activate(instanceId),
+    agentRuntime: agentRuntimeSnapshot,
+    refreshAgentRuntime: () => cliRuntimeStore.refreshAgentRuntimeSnapshot(),
+    activateAgentRuntime: (runtimeId) => cliRuntimeStore.activateAgentRuntime(runtimeId),
     previewConfig: (providerId, cliKind, apiKeyLocalId) =>
       cliRuntimeStore.previewConfig(providerId, cliKind, apiKeyLocalId),
     switchConfig: (providerId, cliKind, apiKeyLocalId, revision, files) =>
@@ -377,6 +379,7 @@ export function useAppController() {
     workspaces,
     temporaryCliPreferences,
     cliRuntime,
+    agentRuntimeSnapshot,
     cliRuntimeLoading,
     refreshInProgress,
     startWindowDrag,

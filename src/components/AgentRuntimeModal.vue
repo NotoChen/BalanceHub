@@ -8,74 +8,57 @@ import {
   IconRefresh,
 } from "@arco-design/web-vue/es/icon";
 import { Building2, Cpu, FolderOpen, Terminal } from "@lucide/vue";
-import { useCliRuntimeStore } from "../stores/cli-runtime";
 import {
   type AgentCliKind,
+  type CliRuntimeSnapshot,
   type Provider,
-  type TemporaryCliInstance,
+  type AgentRuntimeSession,
 } from "../stores/providers";
-import { agentCliLabel } from "../utils/cli-environment";
 import { copyText } from "../composables/useClipboard";
 import AgentCliIcon from "./AgentCliIcon.vue";
 import TerminalBrandIcon from "./TerminalBrandIcon.vue";
 import { providerDisplayLabel } from "../utils/provider-display";
+import {
+  runtimeOriginLabel,
+  runtimeSessionTitle,
+  runtimeStateLabel,
+  runtimeTerminalLabel,
+  runtimeWorkdirName,
+} from "../utils/agent-runtime";
 
 const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
   cliKind: AgentCliKind | null;
+  cliRuntime: CliRuntimeSnapshot;
   loading: boolean;
-  instances: TemporaryCliInstance[];
+  instances: AgentRuntimeSession[];
   activatingId: string | null;
 }>();
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
   refresh: [];
-  activate: [instance: TemporaryCliInstance];
+  activate: [instance: AgentRuntimeSession];
 }>();
-const store = useCliRuntimeStore();
 
 const title = computed(() => {
   if (props.provider) return providerDisplayLabel(props.provider);
-  return props.cliKind ? `${selectedCliLabel.value} 活动实例` : "活动临时 CLI";
+  return props.cliKind ? `${selectedCliLabel.value} 活动会话` : "活动 Agent 会话";
 });
-const selectedCliLabel = computed(() => (props.cliKind ? cliLabel(props.cliKind) : "CLI"));
+function agentLabel(kind: AgentCliKind) {
+  return props.cliRuntime.agents.find((agent) => agent.kind === kind)?.label || kind;
+}
+const selectedCliLabel = computed(() => (props.cliKind ? agentLabel(props.cliKind) : "Agent"));
 
 const summaryText = computed(() => {
   if (props.provider) {
-    return `个临时 ${selectedCliLabel.value} 正在使用此中转站`;
+    return `个 ${selectedCliLabel.value} 会话正在使用此中转站`;
   }
-  return props.cliKind ? `个活动 ${selectedCliLabel.value}` : "个活动临时 CLI";
+  return props.cliKind ? `个活动 ${selectedCliLabel.value} 会话` : "个活动 Agent 会话";
 });
 
-function cliLabel(kind: TemporaryCliInstance["cliKind"]) {
-  return agentCliLabel(store.cliEnvironmentProbe, kind);
-}
-
-function statusLabel(status: TemporaryCliInstance["status"]) {
-  if (status === "starting") return "正在启动";
-  return "运行中";
-}
-
-function sessionTitle(instance: TemporaryCliInstance) {
-  return instance.sessionTitle?.trim() || "未命名会话";
-}
-
-function accountLabel(instance: TemporaryCliInstance) {
-  return instance.accountLabel?.trim() || "未识别账号";
-}
-
-function directoryName(value: string) {
-  const path = value.trim();
-  if (!path) return "--";
-  const normalized = path.replace(/[\\/]+$/, "");
-  if (!normalized) return path;
-  const segments = normalized.split(/[\\/]/).filter(Boolean);
-  return segments[segments.length - 1] || normalized;
-}
-
-function formatDateTime(value: string | null) {
+function formatDateTime(value: number | null) {
   const timestamp = Number(value);
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
     return "--";
@@ -85,7 +68,8 @@ function formatDateTime(value: string | null) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-async function copyWorkdir(instance: TemporaryCliInstance) {
+async function copyWorkdir(instance: AgentRuntimeSession) {
+  if (!instance.workdir) return;
   try {
     await copyText(instance.workdir);
     Message.success("已复制完整目录");
@@ -108,12 +92,12 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
       <div class="surface-modal-title temporary-cli-modal-title">
         <span class="surface-modal-title-icon"><Terminal :size="18" :stroke-width="1.8" /></span>
         <span class="surface-modal-title-copy">
-          <span>活动 {{ selectedCliLabel }}</span>
+          <span>活动 Agent 会话</span>
           <strong>{{ title }}</strong>
         </span>
         <span class="surface-modal-title-meta" :class="{ ready: instances.length > 0 }">
           <i aria-hidden="true"></i>
-          {{ instances.length }} 个活动实例
+          {{ instances.length }} 个活动会话
         </span>
       </div>
     </template>
@@ -124,12 +108,12 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
           <strong>{{ instances.length }}</strong>
           <span>{{ summaryText }}</span>
         </div>
-        <a-tooltip content="刷新实例状态">
+        <a-tooltip content="刷新会话状态">
           <a-button
             class="temporary-cli-refresh"
             shape="circle"
             :loading="loading"
-            aria-label="刷新实例状态"
+            aria-label="刷新会话状态"
             @click="emit('refresh')"
           >
             <template #icon><icon-refresh /></template>
@@ -140,42 +124,44 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
       <a-spin :loading="loading" class="temporary-cli-loading">
         <a-empty
           v-if="instances.length === 0"
-          :description="`暂无正在使用的临时 ${selectedCliLabel}`"
+          :description="`暂无正在使用的 ${selectedCliLabel} 会话`"
         />
         <div v-else class="temporary-cli-list">
           <article
             v-for="instance in instances"
-            :key="instance.id"
+            :key="instance.runtimeId"
             class="temporary-cli-instance"
-            :class="`temporary-cli-instance-${instance.status}`"
+            :class="`temporary-cli-instance-${instance.state}`"
           >
             <header class="temporary-cli-instance-header">
               <div class="temporary-cli-runtime-pair">
                 <div class="temporary-cli-runtime-item">
                   <span class="temporary-cli-agent-icon">
-                    <AgentCliIcon :kind="instance.cliKind" :size="22" />
+                    <AgentCliIcon :kind="instance.agentKind" :size="22" />
                   </span>
                   <span class="temporary-cli-runtime-copy">
                     <small>智能体</small>
-                    <strong>{{ cliLabel(instance.cliKind) }}</strong>
+                    <strong>{{ agentLabel(instance.agentKind) }}</strong>
                   </span>
                 </div>
                 <div class="temporary-cli-runtime-item">
                   <span class="temporary-cli-terminal-icon">
                     <TerminalBrandIcon
-                      :kind="instance.terminalKind"
-                      :name="instance.terminalName"
+                      v-if="instance.terminal"
+                      :kind="instance.terminal.kind"
+                      :name="runtimeTerminalLabel(instance.terminal.kind)"
                       :size="22"
                     />
+                    <Terminal v-else :size="22" :stroke-width="1.8" />
                   </span>
                   <span class="temporary-cli-runtime-copy">
                     <small>终端</small>
-                    <strong>{{ instance.terminalName }}</strong>
+                    <strong>{{ instance.terminal ? runtimeTerminalLabel(instance.terminal.kind) : "终端未知" }}</strong>
                   </span>
                 </div>
               </div>
-              <span class="temporary-cli-status" :class="`temporary-cli-status-${instance.status}`">
-                {{ statusLabel(instance.status) }}
+              <span class="temporary-cli-status" :class="`temporary-cli-status-${instance.state}`">
+                {{ runtimeStateLabel(instance.state) }}
               </span>
             </header>
 
@@ -185,32 +171,42 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
               </span>
               <div>
                 <small>会话</small>
-                <strong :title="sessionTitle(instance)">{{ sessionTitle(instance) }}</strong>
+                <strong :title="runtimeSessionTitle(instance)">{{ runtimeSessionTitle(instance) }}</strong>
               </div>
             </div>
 
             <div class="temporary-cli-source">
               <Building2 :size="14" :stroke-width="1.8" aria-hidden="true" />
-              <span class="temporary-cli-source-provider" :title="instance.providerName">
-                {{ instance.providerName || "未记录中转站" }}
+              <span class="temporary-cli-source-provider" :title="runtimeOriginLabel(instance.origin)">
+                {{ runtimeOriginLabel(instance.origin) }}
               </span>
               <span class="temporary-cli-source-separator" aria-hidden="true">·</span>
-              <span class="temporary-cli-source-account" :title="accountLabel(instance)">
-                {{ accountLabel(instance) }}
+              <span class="temporary-cli-source-account" :title="instance.provider?.providerName || undefined">
+                {{ instance.provider?.providerName || "中转站未知" }}
               </span>
+              <span class="temporary-cli-source-separator" aria-hidden="true">·</span>
+              <span class="temporary-cli-source-account" :title="instance.provider?.accountLabel || undefined">
+                {{ instance.provider?.accountLabel || "账号未知" }}
+              </span>
+            </div>
+
+            <div v-if="instance.model" class="temporary-cli-source">
+              <Cpu :size="14" :stroke-width="1.8" aria-hidden="true" />
+              <span class="temporary-cli-source-provider" :title="instance.model">{{ instance.model }}</span>
             </div>
 
             <div class="temporary-cli-workdir">
               <FolderOpen :size="17" :stroke-width="1.8" aria-hidden="true" />
               <div>
                 <span>工作目录</span>
-                <strong :title="instance.workdir">{{ directoryName(instance.workdir) }}</strong>
+                <strong :title="instance.workdir || undefined">{{ runtimeWorkdirName(instance.workdir) }}</strong>
               </div>
               <a-tooltip content="复制完整目录">
                 <button
                   type="button"
                   class="temporary-cli-copy"
                   aria-label="复制完整目录"
+                  :disabled="!instance.workdir"
                   @click="copyWorkdir(instance)"
                 >
                   <icon-copy />
@@ -225,13 +221,13 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
               </div>
               <div>
                 <dt><Cpu :size="13" :stroke-width="1.8" /> 进程 PID</dt>
-                <dd>{{ instance.pid ?? "等待终端启动" }}</dd>
+                <dd>{{ instance.process?.pid ?? "--" }}</dd>
               </div>
             </dl>
 
             <footer class="temporary-cli-instance-actions">
               <a-tooltip
-                :content="instance.canActivate
+                :content="instance.actions.canActivateTerminal
                   ? '定位对应的终端窗口'
                   : '当前终端未提供可定位的窗口信息'"
               >
@@ -239,8 +235,8 @@ async function copyWorkdir(instance: TemporaryCliInstance) {
                   <a-button
                     type="primary"
                     size="small"
-                    :disabled="!instance.canActivate"
-                    :loading="activatingId === instance.id"
+                    :disabled="!instance.actions.canActivateTerminal"
+                    :loading="activatingId === instance.runtimeId"
                     @click="emit('activate', instance)"
                   >
                     <template #icon><icon-launch /></template>

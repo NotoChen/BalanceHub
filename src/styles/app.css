@@ -4,7 +4,7 @@
 @import "./modules/provider-card/base.css";
 @import "./modules/provider-card/actions.css";
 @import "./modules/provider-liveness.css";
-@import "./modules/temporary-cli.css";
+@import "./modules/agent-runtime.css";
 @import "./modules/site-announcements.css";
 @import "./modules/workspace-picker.css";
 @import "./modules/cli-session-detail.css";
@@ -12,6 +12,7 @@
 @import "./modules/cli-config-preview.css";
 @import "./modules/cli-config-key-picker.css";
 @import "./modules/agent-settings.css";
+@import "./modules/agent-environment.css";
 @import "./modules/settings/base.css";
 @import "./modules/settings/provider-editor-base.css";
 @import "./modules/settings/workspace-base.css";

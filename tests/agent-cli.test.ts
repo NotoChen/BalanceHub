@@ -7,6 +7,7 @@ import type {
 } from "../src/stores/provider-types.ts";
 import {
   agentCliVersionLabel,
+  agentCliPathsMatchSnapshot,
   applyCliEnvironmentProbeResult,
   availableCliOptions,
   captureCliEnvironmentSettings,
@@ -161,4 +162,17 @@ test("Agent CLI scan writes paths by kind without overwriting concurrent edits",
   assert.equal(settings.agentCliPaths.grok, "/opt/tools/grok");
   assert.equal(settings.agentCliPaths.claudeCode, "/custom/claude");
   assert.equal(settings.livenessCliKind, "codex");
+});
+
+test("deep scan path adoption detects draft conflicts", () => {
+  const settings = {
+    agentCliPaths: {},
+    livenessCliKind: "codex",
+  } as AppSettings;
+  const expected = captureCliEnvironmentSettings(settings);
+
+  assert.equal(agentCliPathsMatchSnapshot(settings, expected), true);
+
+  settings.agentCliPaths.codex = "/manual/codex";
+  assert.equal(agentCliPathsMatchSnapshot(settings, expected), false);
 });

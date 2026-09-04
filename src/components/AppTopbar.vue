@@ -12,11 +12,12 @@ import {
   X,
 } from "@lucide/vue";
 import { IconGithub } from "@arco-design/web-vue/es/icon";
-import type { AgentCliKind, CliRuntimeSnapshot } from "../stores/providers";
+import type { AgentCliKind, AgentRuntimeSnapshot, CliRuntimeSnapshot } from "../stores/providers";
 import type { BackgroundTask } from "../composables/useBackgroundTaskCenter";
 import { formatAppVersionLabel } from "../utils/app-version";
 import AgentCliIcon from "./AgentCliIcon.vue";
 import BackgroundTaskIndicator from "./BackgroundTaskIndicator.vue";
+import { activeAgentRuntimeSessions } from "../utils/agent-runtime";
 
 const props = defineProps<{
   refreshInProgress: boolean;
@@ -25,6 +26,7 @@ const props = defineProps<{
   appVersion: string;
   checkingForUpdate: boolean;
   cliRuntime: CliRuntimeSnapshot;
+  agentRuntimeSnapshot: AgentRuntimeSnapshot;
   announcementsLoaded: boolean;
   announcementsLoading: boolean;
   announcementTotalCount: number;
@@ -54,14 +56,12 @@ function updateSearchQuery(event: Event) {
 }
 
 const activeAgentCliSummaries = computed(() => {
-  const activeInstances = props.cliRuntime.instances.filter(
-    (instance) => instance.status !== "exited",
-  );
+  const activeInstances = activeAgentRuntimeSessions(props.agentRuntimeSnapshot);
   return props.cliRuntime.agents
-    .filter((agent) => agent.capabilities.temporaryLaunch)
+    .filter((agent) => activeInstances.some((session) => session.agentKind === agent.kind))
     .map((agent) => ({
       ...agent,
-      count: activeInstances.filter((instance) => instance.cliKind === agent.kind).length,
+      count: activeInstances.filter((session) => session.agentKind === agent.kind).length,
     }))
     .filter((agent) => agent.count > 0);
 });
@@ -150,16 +150,16 @@ const announcementTooltip = computed(() => {
       />
       <template v-if="activeAgentCliSummaries.length > 0">
         <span class="topbar-action-divider" aria-hidden="true" />
-        <div class="topbar-runtime-cluster" aria-label="活动临时 CLI">
+        <div class="topbar-runtime-cluster" aria-label="活动 Agent 会话">
           <a-tooltip
             v-for="agent in activeAgentCliSummaries"
             :key="agent.kind"
-            :content="`${agent.label}：${agent.count} 个活动临时 CLI`"
+            :content="`${agent.label}：${agent.count} 个活动会话`"
           >
             <button
               type="button"
               class="topbar-runtime-button"
-              :aria-label="`查看 ${agent.label} 的 ${agent.count} 个活动临时 CLI`"
+              :aria-label="`查看 ${agent.label} 的 ${agent.count} 个活动会话`"
               @click="emit('openCli', agent.kind)"
             >
               <AgentCliIcon

@@ -1,12 +1,12 @@
 import { defineStore } from "pinia";
 import {
-  activateTemporaryCli as activateTemporaryCliCommand,
   clearCliSessionIndex as clearCliSessionIndexCommand,
+  activateAgentRuntime as activateAgentRuntimeCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
+  getAgentRuntimeSnapshot as getAgentRuntimeSnapshotCommand,
   getCliSessionIndexStatus as getCliSessionIndexStatusCommand,
   getCliSessionDetail as getCliSessionDetailCommand,
   getTemporaryCliInstance as getTemporaryCliInstanceCommand,
-  getTemporaryCliInstances as getTemporaryCliInstancesCommand,
   launchTemporaryCli as launchTemporaryCliCommand,
   previewCliConfig as previewCliConfigCommand,
   previewTemporaryCliLaunch as previewTemporaryCliLaunchCommand,
@@ -16,8 +16,10 @@ import {
   switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
 import { useWorkspaceStore } from "./workspaces";
+import { acceptsAgentRuntimeSnapshot } from "../utils/agent-runtime";
 import type {
   AgentCliKind,
+  AgentRuntimeSnapshot,
   CliConfigFile,
   CliConfigPreview,
   CliEnvironmentProbeResult,
@@ -35,24 +37,45 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
   state: () => ({
     cliRuntimeLoading: false,
     cliRuntime: emptyCliRuntimeSnapshot(),
+    agentRuntimeSnapshot: emptyAgentRuntimeSnapshot(),
+    agentRuntimeLoading: false,
+    agentRuntimeRequestId: 0,
     cliEnvironmentProbe: null as CliEnvironmentProbeResult | null,
     cliEnvironmentLoading: false,
+    cliEnvironmentRequestId: 0,
     terminalEnvironmentProbe: null as TerminalEnvironmentProbeResult | null,
     terminalEnvironmentLoading: false,
   }),
   actions: {
     resetRuntime() {
       this.cliRuntime = emptyCliRuntimeSnapshot();
+      this.agentRuntimeSnapshot = emptyAgentRuntimeSnapshot();
     },
     async probeCliTools(deep = false) {
+      const requestId = ++this.cliEnvironmentRequestId;
       this.cliEnvironmentLoading = true;
       try {
         const result = await probeCliToolsCommand(deep);
-        this.cliEnvironmentProbe = result;
+        // A late result may belong to a cancelled or superseded probe. It may
+        // still be returned to its caller, but must not replace the shared
+        // probe snapshot used by other settings controls.
+        if (this.cliEnvironmentRequestId === requestId) {
+          this.cliEnvironmentProbe = result;
+        }
         return result;
       } finally {
-        this.cliEnvironmentLoading = false;
+        if (this.cliEnvironmentRequestId === requestId) {
+          this.cliEnvironmentLoading = false;
+        }
       }
+    },
+    cancelCliToolsProbe(requestId?: number) {
+      if (requestId !== undefined && this.cliEnvironmentRequestId !== requestId) {
+        return false;
+      }
+      this.cliEnvironmentRequestId += 1;
+      this.cliEnvironmentLoading = false;
+      return true;
     },
     async probeTerminals() {
       this.terminalEnvironmentLoading = true;
@@ -67,14 +90,6 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
     async launch(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchResult> {
       const result = await launchTemporaryCliCommand(input);
       useWorkspaceStore().recordLaunch(result);
-      const instances = this.cliRuntime.instances.filter(
-        (instance) => instance.id !== result.instance.id,
-      );
-      this.cliRuntime = {
-        ...this.cliRuntime,
-        instances:
-          result.instance.status === "exited" ? instances : [result.instance, ...instances],
-      };
       return result;
     },
     async previewLaunch(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchPreview> {
@@ -101,22 +116,37 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
     ): Promise<CliSessionDetail> {
       return getCliSessionDetailCommand(cliKind, workdir, sessionId);
     },
-    async activate(instanceId: string) {
-      await activateTemporaryCliCommand(instanceId);
+    acceptAgentRuntimeSnapshot(snapshot: AgentRuntimeSnapshot) {
+      if (!acceptsAgentRuntimeSnapshot(this.agentRuntimeSnapshot, snapshot)) {
+        return false;
+      }
+      this.agentRuntimeSnapshot = snapshot;
+      return true;
     },
-    async refreshInstances() {
-      const instances = await getTemporaryCliInstancesCommand();
-      this.cliRuntime = { ...this.cliRuntime, instances };
-      return instances;
+    async refreshAgentRuntimeSnapshot(): Promise<AgentRuntimeSnapshot> {
+      const requestId = ++this.agentRuntimeRequestId;
+      this.agentRuntimeLoading = true;
+      try {
+        const snapshot = await getAgentRuntimeSnapshotCommand();
+        if (this.agentRuntimeRequestId === requestId) {
+          this.acceptAgentRuntimeSnapshot(snapshot);
+        }
+        return snapshot;
+      } finally {
+        if (this.agentRuntimeRequestId === requestId) {
+          this.agentRuntimeLoading = false;
+        }
+      }
+    },
+    cancelAgentRuntimeRefresh() {
+      this.agentRuntimeRequestId += 1;
+      this.agentRuntimeLoading = false;
+    },
+    async activateAgentRuntime(runtimeId: string) {
+      await activateAgentRuntimeCommand(runtimeId);
     },
     async getInstance(instanceId: string) {
-      const instance = await getTemporaryCliInstanceCommand(instanceId);
-      const remaining = this.cliRuntime.instances.filter((item) => item.id !== instanceId);
-      this.cliRuntime = {
-        ...this.cliRuntime,
-        instances: instance && instance.status !== "exited" ? [instance, ...remaining] : remaining,
-      };
-      return instance;
+      return getTemporaryCliInstanceCommand(instanceId);
     },
     async previewConfig(
       id: string,
@@ -156,6 +186,14 @@ function emptyCliRuntimeSnapshot(): CliRuntimeSnapshot {
   return {
     agents: [],
     configs: [],
-    instances: [],
+  };
+}
+
+function emptyAgentRuntimeSnapshot(): AgentRuntimeSnapshot {
+  return {
+    schemaVersion: 1,
+    revision: 0,
+    updatedAt: 0,
+    sessions: [],
   };
 }

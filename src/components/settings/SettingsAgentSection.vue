@@ -3,10 +3,10 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { IconCommand, IconDesktop, IconExperiment, IconSearch } from "@arco-design/web-vue/es/icon";
+import { IconDesktop, IconExperiment, IconSearch } from "@arco-design/web-vue/es/icon";
 import CliIconSelector from "../CliIconSelector.vue";
 import SettingsAgentPromptSection from "./SettingsAgentPromptSection.vue";
-import SettingsCliManager from "./SettingsCliManager.vue";
+import SettingsAgentEnvironmentCenter from "./SettingsAgentEnvironmentCenter.vue";
 import SettingsTerminalManager from "./SettingsTerminalManager.vue";
 import { agentCliLabel, availableCliOptions } from "../../utils/cli-environment";
 import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
@@ -146,13 +146,7 @@ const minimumRandomMaxInterval = computed(() =>
 
 <template>
   <div class="settings-page settings-cli-page">
-    <section class="settings-card settings-cli-card">
-      <header class="settings-card-header">
-        <span class="settings-card-icon"><IconCommand /></span>
-        <div><strong>Agent</strong></div>
-      </header>
-      <SettingsCliManager :settings="settings" />
-    </section>
+    <SettingsAgentEnvironmentCenter :settings="settings" />
 
     <section class="settings-card settings-terminal-card">
       <header class="settings-card-header">

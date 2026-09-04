@@ -4,6 +4,7 @@ import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
 import type {
   CliRuntimeSnapshot,
+  AgentRuntimeSnapshot,
   AgentCliKind,
   Provider,
   ProviderApiKeyOption,
@@ -26,6 +27,7 @@ const props = defineProps<{
   livenessProviders: Provider[];
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
+  agentRuntimeSnapshot: AgentRuntimeSnapshot;
   announcementsLoaded: boolean;
   announcementsLoading: boolean;
   announcementTotalCount: number;
@@ -108,6 +110,7 @@ const emit = defineEmits<{
     :app-version="appVersion"
     :checking-for-update="checkingForUpdate"
     :cli-runtime="cliRuntime"
+    :agent-runtime-snapshot="agentRuntimeSnapshot"
     :announcements-loaded="announcementsLoaded"
     :announcements-loading="announcementsLoading"
     :announcement-total-count="announcementTotalCount"
@@ -138,6 +141,7 @@ const emit = defineEmits<{
     :liveness-providers="filteredLivenessProviders"
     :regular-providers="filteredRegularProviders"
     :cli-runtime="cliRuntime"
+    :agent-runtime-snapshot="agentRuntimeSnapshot"
     :switching-cli-config="switchingCliConfig"
     :checking-in-provider-ids="checkingInProviderIds"
     :probing-capabilities-provider-id="probingCapabilitiesProviderId"

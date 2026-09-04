@@ -35,6 +35,14 @@ import type {
   SiteAnnouncementsSnapshot,
   Workspace,
   WorkspaceDirectoryListing,
+  AgentEnvironmentInventory,
+  AgentVersionCheckResult,
+  AgentAssetReadResult,
+  AgentAssetOpenTarget,
+  AgentHookInspection,
+  AgentHookMutation,
+  AgentHookPlan,
+  AgentRuntimeSnapshot,
 } from "../stores/providers";
 
 export interface AppData {
@@ -190,6 +198,61 @@ export function probeTerminals() {
   return invoke<TerminalEnvironmentProbeResult>("probe_terminals");
 }
 
+export function getAgentEnvironmentInventory(workspace?: string) {
+  return invoke<AgentEnvironmentInventory>("get_agent_environment_inventory", {
+    workspace: workspace || null,
+  });
+}
+
+export function checkAgentLatestVersions(workspace?: string) {
+  return invoke<AgentVersionCheckResult>("check_agent_latest_versions", {
+    workspace: workspace || null,
+  });
+}
+
+export function readAgentEnvironmentAsset(assetId: string, workspace?: string) {
+  return invoke<AgentAssetReadResult>("read_agent_environment_asset", {
+    assetId,
+    workspace: workspace || null,
+  });
+}
+
+export function openAgentEnvironmentAsset(
+  assetId: string,
+  workspace?: string,
+  target: AgentAssetOpenTarget = "asset",
+) {
+  return invoke<void>("open_agent_environment_asset", {
+    assetId,
+    workspace: workspace || null,
+    target,
+  });
+}
+
+export function inspectAgentHook(agentKind: AgentCliKind) {
+  return invoke<AgentHookInspection>("inspect_agent_hook", { agentKind });
+}
+
+export function planAgentHook(agentKind: AgentCliKind, mutation: AgentHookMutation) {
+  return invoke<AgentHookPlan>("plan_agent_hook", { agentKind, mutation });
+}
+
+export function applyAgentHook(agentKind: AgentCliKind, plan: AgentHookPlan) {
+  return invoke<AgentHookInspection>("apply_agent_hook", { agentKind, plan });
+}
+
+export function healthAgentHook(agentKind: AgentCliKind) {
+  return invoke<AgentHookInspection>("health_agent_hook", { agentKind });
+}
+
+export function repairAgentHook(agentKind: AgentCliKind) {
+  return invoke<AgentHookPlan>("repair_agent_hook", { agentKind });
+}
+
+export function verifyAgentHook(agentKind: AgentCliKind) {
+  return invoke<AgentHookInspection>("verify_agent_hook", { agentKind });
+}
+
 export function previewLivenessPrompts(settings: AppSettings, count = 10) {
   return invoke<string[]>("preview_liveness_prompts", { settings, count });
 }
@@ -242,16 +305,16 @@ export function getCliRuntimeSnapshot() {
   return invoke<CliRuntimeSnapshot>("get_cli_runtime_snapshot");
 }
 
-export function getTemporaryCliInstances() {
-  return invoke<TemporaryCliInstance[]>("get_temporary_cli_instances");
+export function getAgentRuntimeSnapshot() {
+  return invoke<AgentRuntimeSnapshot>("get_agent_runtime_snapshot");
+}
+
+export function activateAgentRuntime(runtimeId: string) {
+  return invoke<void>("activate_agent_runtime", { runtimeId });
 }
 
 export function getTemporaryCliInstance(instanceId: string) {
   return invoke<TemporaryCliInstance | null>("get_temporary_cli_instance", { instanceId });
-}
-
-export function activateTemporaryCli(instanceId: string) {
-  return invoke<void>("activate_temporary_cli", { instanceId });
 }
 
 export function browseWorkspaceDirectories(path?: string) {

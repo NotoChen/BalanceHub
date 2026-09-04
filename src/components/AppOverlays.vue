@@ -9,16 +9,17 @@ import LivenessDetailsModal from "./LivenessDetailsModal.vue";
 import PasswordChangeModal from "./PasswordChangeModal.vue";
 import RequestLogsModal from "./RequestLogsModal.vue";
 import SiteAnnouncementsModal from "./SiteAnnouncementsModal.vue";
-import TemporaryCliModal from "./TemporaryCliModal.vue";
+import AgentRuntimeModal from "./AgentRuntimeModal.vue";
 import UsageTrendModal from "./UsageTrendModal.vue";
 import type {
   AgentCliKind,
+  CliRuntimeSnapshot,
   Provider,
   ProviderCheckInRecordsResult,
   ProviderProtocolDescriptor,
   ProviderRequestLogsResult,
   ProviderUsageSummary,
-  TemporaryCliInstance,
+  AgentRuntimeSession,
   SiteAnnouncement,
   SiteAnnouncementSourceError,
 } from "../stores/providers";
@@ -45,9 +46,10 @@ defineProps<{
   passwordChangeLoading: boolean;
   livenessDetailsProvider: Provider | null;
   cliRuntimeLoading: boolean;
+  cliRuntime: CliRuntimeSnapshot;
   cliInstancesProvider: Provider | null;
   cliInstancesKind: AgentCliKind | null;
-  cliInstances: TemporaryCliInstance[];
+  cliInstances: AgentRuntimeSession[];
   activatingCliInstanceId: string | null;
   checkInRecordsProvider: Provider | null;
   checkInRecordsLoading: boolean;
@@ -101,7 +103,7 @@ const emit = defineEmits<{
   setRequestLogsPageSize: [pageSize: number];
   submitPasswordChange: [originalPassword: string, password: string];
   refreshCliRuntime: [];
-  activateCliInstance: [instance: TemporaryCliInstance];
+  activateCliInstance: [instance: AgentRuntimeSession];
   loadCheckInRecords: [options?: { force?: boolean }];
   retryCapabilityProbe: [];
   dismissUpdate: [];
@@ -208,10 +210,11 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :provider="livenessDetailsProvider"
   />
 
-  <TemporaryCliModal
+  <AgentRuntimeModal
     v-model:visible="cliInstancesVisible"
     :provider="cliInstancesProvider"
     :cli-kind="cliInstancesKind"
+    :cli-runtime="cliRuntime"
     :loading="cliRuntimeLoading"
     :instances="cliInstances"
     :activating-id="activatingCliInstanceId"

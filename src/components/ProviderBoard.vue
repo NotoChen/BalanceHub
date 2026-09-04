@@ -3,6 +3,7 @@ import { computed, type CSSProperties } from "vue";
 import ProviderCard from "./ProviderCard.vue";
 import type {
   CliRuntimeSnapshot,
+  AgentRuntimeSnapshot,
   AgentCliKind,
   Provider,
   ProviderApiKeyOption,
@@ -16,6 +17,7 @@ import {
 import { providerApiKeyDisplayName, providerDefaultApiKeyOption } from "../utils/provider-display";
 import { agentCliLabel } from "../utils/cli-environment";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
+import { activeAgentRuntimeSessions } from "../utils/agent-runtime";
 
 interface ProviderDragState {
   providerId: string | null;
@@ -30,6 +32,7 @@ const props = defineProps<{
   livenessProviders: Provider[];
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
+  agentRuntimeSnapshot: AgentRuntimeSnapshot;
   switchingCliConfig: { providerId: string; cliKind: AgentCliKind } | null;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
@@ -99,10 +102,10 @@ function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
 }
 
 function providerActiveCliCounts(provider: Provider) {
-  return props.cliRuntime.instances.reduce<Partial<Record<AgentCliKind, number>>>(
-    (counts, instance) => {
-      if (instance.providerId === provider.identity.id && instance.status !== "exited") {
-        counts[instance.cliKind] = (counts[instance.cliKind] || 0) + 1;
+  return activeAgentRuntimeSessions(props.agentRuntimeSnapshot).reduce<Partial<Record<AgentCliKind, number>>>(
+    (counts, session) => {
+      if (session.provider?.providerId === provider.identity.id) {
+        counts[session.agentKind] = (counts[session.agentKind] || 0) + 1;
       }
       return counts;
     },

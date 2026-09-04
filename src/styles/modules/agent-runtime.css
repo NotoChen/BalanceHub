@@ -176,6 +176,22 @@
   border-left: 3px solid var(--surface-success);
 }
 
+.temporary-cli-instance-busy {
+  border-left: 3px solid var(--surface-accent);
+}
+
+.temporary-cli-instance-idle {
+  border-left: 3px solid var(--surface-success);
+}
+
+.temporary-cli-instance-unknown {
+  border-left: 3px solid var(--surface-warning);
+}
+
+.temporary-cli-instance-ended {
+  border-left: 3px solid var(--surface-line-strong);
+}
+
 .temporary-cli-instance-header,
 .temporary-cli-runtime-pair,
 .temporary-cli-runtime-item,
@@ -265,6 +281,24 @@
   border-color: rgba(22, 131, 106, 0.22);
   background: #edf9f5;
   color: var(--surface-success);
+}
+
+.temporary-cli-status-busy {
+  border-color: rgba(57, 103, 186, 0.24);
+  background: #eef4ff;
+  color: var(--surface-accent);
+}
+
+.temporary-cli-status-idle {
+  border-color: rgba(22, 131, 106, 0.22);
+  background: #edf9f5;
+  color: var(--surface-success);
+}
+
+.temporary-cli-status-unknown {
+  border-color: rgba(183, 121, 31, 0.24);
+  background: #fff8e8;
+  color: var(--surface-warning);
 }
 
 .temporary-cli-workdir {

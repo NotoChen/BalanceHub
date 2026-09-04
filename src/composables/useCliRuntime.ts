@@ -1,15 +1,18 @@
-import { computed, onUnmounted, ref, watch, type Ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
+import { listen } from "@tauri-apps/api/event";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import {
   type CliConfigPreview,
   type CliConfigFile,
   type CliRuntimeSnapshot,
   type AgentCliKind,
+  type AgentRuntimeSession,
+  type AgentRuntimeSnapshot,
   type Provider,
   type ProviderApiKeyOption,
-  type TemporaryCliInstance,
 } from "../stores/providers";
+import { activeAgentRuntimeSessions } from "../utils/agent-runtime";
 import { agentCliLabel } from "../utils/cli-environment";
 import { withTimeout } from "../utils/promise-timeout";
 import { providerDisplayLabel } from "../utils/provider-display";
@@ -26,8 +29,9 @@ const CLI_ACTIVATION_TIMEOUT_MS = 15_000;
 interface UseCliRuntimeOptions {
   providers: Ref<Provider[]>;
   cliRuntime: Ref<CliRuntimeSnapshot>;
-  refreshInstances: () => Promise<TemporaryCliInstance[]>;
-  activate: (instanceId: string) => Promise<void>;
+  agentRuntime: Ref<AgentRuntimeSnapshot>;
+  refreshAgentRuntime: () => Promise<AgentRuntimeSnapshot>;
+  activateAgentRuntime: (runtimeId: string) => Promise<void>;
   previewConfig: (
     providerId: string,
     cliKind: AgentCliKind,
@@ -56,9 +60,10 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   const cliConfigKeyPickerKeys = ref<ProviderApiKeyOption[]>([]);
   const cliConfigPreviewVisible = ref(false);
   const cliConfigPreview = ref<CliConfigPreview | null>(null);
-  let instanceRefreshPending = false;
-  let instancePollTimer: number | null = null;
+  let runtimeRefreshPending = false;
   let cliConfigRequestRevision = 0;
+  let runtimeBridgeDisposed = false;
+  let runtimeEventUnlisten: (() => void) | null = null;
 
   watch(cliConfigKeyPickerVisible, (visible) => {
     if (visible || cliConfigPreviewVisible.value) return;
@@ -88,17 +93,19 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     const providerLabels = new Map(
       options.providers.value.map((provider) => [provider.identity.id, providerDisplayLabel(provider)]),
     );
-    return options.cliRuntime.value.instances
+    return activeAgentRuntimeSessions(options.agentRuntime.value)
       .filter(
-        (instance) =>
-          (!cliInstancesProviderId.value || instance.providerId === cliInstancesProviderId.value) &&
-          (!cliInstancesKind.value || instance.cliKind === cliInstancesKind.value) &&
-          instance.status !== "exited",
+        (session) =>
+          (!cliInstancesProviderId.value || session.provider?.providerId === cliInstancesProviderId.value) &&
+          (!cliInstancesKind.value || session.agentKind === cliInstancesKind.value),
       )
-      .map((instance) => ({
-        ...instance,
-        providerName: providerLabels.get(instance.providerId) || instance.providerName,
-      }));
+      .map((session) => {
+        if (!session.provider) return session;
+        const providerName = providerLabels.get(session.provider.providerId);
+        return providerName
+          ? { ...session, provider: { ...session.provider, providerName } }
+          : session;
+      });
   });
 
   const cliConfigKeyPickerCurrentConfig = computed(() => {
@@ -126,53 +133,70 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   }
 
   async function refreshCliRuntime(silent = false) {
-    if (instanceRefreshPending) {
+    if (runtimeRefreshPending) {
       return;
     }
-    instanceRefreshPending = true;
+    runtimeRefreshPending = true;
     if (!silent) {
       cliInstancesRefreshing.value = true;
     }
     try {
       await withTimeout(
-        options.refreshInstances(),
+        options.refreshAgentRuntime(),
         CLI_RUNTIME_REFRESH_TIMEOUT_MS,
-        "读取临时 CLI 状态超时",
+        "读取 Agent runtime 状态超时",
       );
     } catch (error) {
       if (!silent) {
         Message.error(error instanceof Error ? error.message : String(error));
       }
     } finally {
-      instanceRefreshPending = false;
+      runtimeRefreshPending = false;
       if (!silent) {
         cliInstancesRefreshing.value = false;
       }
     }
   }
 
-  function stopInstancePolling() {
-    if (instancePollTimer !== null) {
-      window.clearInterval(instancePollTimer);
-      instancePollTimer = null;
-    }
+  function refreshOnWindowResume() {
+    if (document.visibilityState === "hidden") return;
+    void refreshCliRuntime(true);
   }
 
-  watch(
-    () => options.cliRuntime.value.instances.length,
-    (count) => {
-      if (count === 0) {
-        stopInstancePolling();
-      } else if (instancePollTimer === null) {
-        instancePollTimer = window.setInterval(() => {
-          void refreshCliRuntime(true);
-        }, 4_000);
+  onMounted(() => {
+    runtimeBridgeDisposed = false;
+    window.addEventListener("focus", refreshOnWindowResume);
+    document.addEventListener("visibilitychange", refreshOnWindowResume);
+    void (async () => {
+      try {
+        const unlisten = await listen<AgentRuntimeSnapshot>(
+          "agent-runtime-updated",
+          (event) => {
+            if (!runtimeBridgeDisposed) {
+              store.acceptAgentRuntimeSnapshot(event.payload);
+            }
+          },
+        );
+        if (runtimeBridgeDisposed) {
+          unlisten();
+        } else {
+          runtimeEventUnlisten = unlisten;
+        }
+      } catch {
+        // Event delivery is optional; the snapshot path remains usable.
       }
-    },
-    { immediate: true },
-  );
+    })();
+    void refreshCliRuntime(true);
+  });
 
-  onUnmounted(stopInstancePolling);
+  onUnmounted(() => {
+    runtimeBridgeDisposed = true;
+    window.removeEventListener("focus", refreshOnWindowResume);
+    document.removeEventListener("visibilitychange", refreshOnWindowResume);
+    runtimeEventUnlisten?.();
+    runtimeEventUnlisten = null;
+    store.cancelAgentRuntimeRefresh();
+  });
 
   async function switchProviderCliConfig(provider: Provider, cliKind: AgentCliKind) {
     if (switchingCliConfig.value) {
@@ -284,13 +308,14 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     }
   }
 
-  async function activateCliInstance(instance: TemporaryCliInstance) {
-    activatingCliInstanceId.value = instance.id;
+  async function activateCliInstance(instance: AgentRuntimeSession) {
+    if (!instance.actions.canActivateTerminal) return;
+    activatingCliInstanceId.value = instance.runtimeId;
     try {
       await withTimeout(
-        options.activate(instance.id),
+        options.activateAgentRuntime(instance.runtimeId),
         CLI_ACTIVATION_TIMEOUT_MS,
-        "激活临时 CLI 终端超时",
+        "激活 Agent runtime 终端超时",
       );
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
