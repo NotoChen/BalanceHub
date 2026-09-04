@@ -26,6 +26,150 @@
         .unwrap();
     }
 
+    fn metadata_request<'a>(
+        session_id: &'a str,
+        workdir: &'a Path,
+    ) -> SessionMetadataLookupRequest<'a> {
+        SessionMetadataLookupRequest {
+            cli_kind: AgentCliKind::Grok,
+            session_id,
+            workdir: Some(workdir),
+            transcript_path_hint: None,
+            previous: None,
+            budget: super::super::super::contracts::SessionMetadataLookupBudget {
+                max_bytes: 2 * 1024 * 1024,
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(1),
+                cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            },
+        }
+    }
+
+    fn write_exact_summary(home: &Path, workdir: &Path, session_id: &str) -> PathBuf {
+        let directory = home
+            .join("sessions")
+            .join(percent_encode_workspace(workdir))
+            .join(session_id);
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("summary.json");
+        fs::write(
+            &path,
+            json!({
+                "info": {"id": session_id, "cwd": workdir},
+                "generated_title": "Exact title",
+                "last_active_at": "2026-09-04T08:00:00Z",
+                "num_messages": 1,
+                "current_model_id": "grok-code-fast-1"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn metadata_lookup_uses_exact_percent_encoded_workspace_and_session() {
+        let root = test_root("metadata-exact");
+        let _ = fs::remove_dir_all(&root);
+        let home = root.join("grok");
+        let workdir = root.join("workspace with space");
+        fs::create_dir_all(&workdir).unwrap();
+        write_exact_summary(&home, &workdir, "session-1");
+        write_exact_summary(&home, &root.join("other"), "session-1");
+
+        let result = metadata_lookup_from_home(
+            &home,
+            metadata_request("session-1", &workdir),
+        )
+        .unwrap();
+        let SessionMetadataLookupResult::Ready { snapshot, .. } = result else {
+            panic!("expected exact metadata result");
+        };
+        assert_eq!(snapshot.title.as_deref(), Some("Exact title"));
+        assert_eq!(snapshot.model.as_deref(), Some("grok-code-fast-1"));
+        assert_eq!(
+            percent_encode_workspace(Path::new("/tmp/Balance Hub")),
+            "%2Ftmp%2FBalance%20Hub"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn metadata_lookup_rejects_traversal_session_id() {
+        let root = test_root("metadata-traversal");
+        let _ = fs::remove_dir_all(&root);
+        let home = root.join("grok");
+        let workdir = root.join("workspace");
+        fs::create_dir_all(home.join("sessions")).unwrap();
+        fs::create_dir_all(&workdir).unwrap();
+
+        let result = metadata_lookup_from_home(&home, metadata_request("../escape", &workdir));
+        assert!(matches!(
+            result,
+            Err(SessionMetadataLookupError::InvalidSource)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn metadata_lookup_accepts_bounded_cwd_marker_layout() {
+        let root = test_root("metadata-cwd-marker");
+        let _ = fs::remove_dir_all(&root);
+        let home = root.join("grok");
+        let workdir = root.join("workspace");
+        let workspace_root = home.join("sessions/workspace-slug-hash");
+        fs::create_dir_all(workspace_root.join("session-1")).unwrap();
+        fs::create_dir_all(&workdir).unwrap();
+        fs::write(workspace_root.join(".cwd"), workdir.to_string_lossy().as_bytes()).unwrap();
+        fs::write(
+            workspace_root.join("session-1/summary.json"),
+            json!({
+                "info": {"id": "session-1", "cwd": workdir},
+                "session_summary": "Marker title",
+                "num_messages": 1
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let result = metadata_lookup_from_home(
+            &home,
+            metadata_request("session-1", &workdir),
+        )
+        .unwrap();
+        assert!(matches!(result, SessionMetadataLookupResult::Ready { .. }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_lookup_rejects_session_parent_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_root("metadata-symlink");
+        let _ = fs::remove_dir_all(&root);
+        let home = root.join("grok");
+        let workdir = root.join("workspace");
+        let workspace_root = home
+            .join("sessions")
+            .join(percent_encode_workspace(&workdir));
+        let outside = root.join("outside/session-1");
+        fs::create_dir_all(&workspace_root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(&workdir).unwrap();
+        fs::write(outside.join("summary.json"), "{}").unwrap();
+        symlink(&outside, workspace_root.join("session-1")).unwrap();
+
+        let result = metadata_lookup_from_home(
+            &home,
+            metadata_request("session-1", &workdir),
+        );
+        assert!(matches!(
+            result,
+            Err(SessionMetadataLookupError::InvalidSource)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn official_summary_fields_drive_title_model_time_and_resume_id() {
         let root = test_root("metadata");

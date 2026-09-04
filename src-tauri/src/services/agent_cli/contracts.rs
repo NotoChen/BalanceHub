@@ -1,10 +1,58 @@
 use crate::models::{
-    AgentCliKind, CliConfigFile, CliConfigPreview, CliConfigSnapshot, CliSessionDetail,
-    CliSessionMessageRole, CliSessionSummary, Provider, TemporaryCliSessionMode,
+    AgentAssetCategory, AgentAssetScope, AgentCliKind, CliConfigFile, CliConfigPreview,
+    CliConfigSnapshot, CliSessionDetail, CliSessionMessageRole, CliSessionSummary, Provider,
+    TemporaryCliSessionMode,
 };
+
+#[derive(Debug, Clone)]
+pub(crate) struct AgentAssetDeclaration {
+    pub category: AgentAssetCategory,
+    pub native_id: &'static str,
+    pub label: &'static str,
+    pub path: PathBuf,
+    pub scope: AgentAssetScope,
+    pub precedence: u32,
+    pub writable: bool,
+    pub sensitive: bool,
+    pub is_directory: bool,
+}
+
+pub(crate) type AgentAssetDiscovery = fn(&Path, Option<&Path>) -> Vec<AgentAssetDeclaration>;
+
+#[derive(Clone, Copy)]
+pub(crate) struct EnvironmentAdapter {
+    discover: AgentAssetDiscovery,
+    package_name: &'static str,
+}
+
+impl EnvironmentAdapter {
+    pub(crate) const fn new(discover: AgentAssetDiscovery, package_name: &'static str) -> Self {
+        Self {
+            discover,
+            package_name,
+        }
+    }
+
+    pub(crate) fn discover(
+        &self,
+        home: &Path,
+        workspace: Option<&Path>,
+    ) -> Vec<AgentAssetDeclaration> {
+        (self.discover)(home, workspace)
+    }
+
+    pub(crate) const fn package_name(&self) -> &'static str {
+        self.package_name
+    }
+}
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Instant,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -186,6 +234,10 @@ impl LivenessAdapter {
 }
 
 type SessionLister = fn(AgentCliKind, &Path) -> Result<Vec<CliSessionSummary>, String>;
+pub(crate) type SessionMetadataLookup =
+    for<'a> fn(
+        SessionMetadataLookupRequest<'a>,
+    ) -> Result<SessionMetadataLookupResult, SessionMetadataLookupError>;
 type SessionSearcher = fn(
     AgentCliKind,
     &Path,
@@ -202,6 +254,76 @@ type SessionIndexReader = fn(
     Option<&str>,
     &dyn Fn() -> bool,
 ) -> Result<SessionIndexLoadResult, String>;
+
+#[derive(Debug, Clone)]
+pub(crate) struct SessionMetadataLookupRequest<'a> {
+    pub cli_kind: AgentCliKind,
+    pub session_id: &'a str,
+    pub workdir: Option<&'a Path>,
+    pub transcript_path_hint: Option<&'a Path>,
+    pub previous: Option<&'a SessionMetadataCursor>,
+    pub budget: SessionMetadataLookupBudget,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SessionMetadataLookupBudget {
+    pub max_bytes: usize,
+    pub deadline: Instant,
+    pub cancelled: Arc<AtomicBool>,
+}
+
+impl SessionMetadataLookupBudget {
+    pub(crate) fn check(&self, bytes: usize) -> Result<(), SessionMetadataLookupError> {
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(SessionMetadataLookupError::Cancelled);
+        }
+        if Instant::now() >= self.deadline || bytes > self.max_bytes {
+            return Err(SessionMetadataLookupError::TimedOut);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionMetadataSnapshot {
+    pub title: Option<String>,
+    pub model: Option<String>,
+    pub workdir: Option<String>,
+    pub last_activity_at: Option<i64>,
+    pub source_revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionMetadataCursor {
+    pub source_identity: String,
+    pub source_len: u64,
+    pub next_offset: u64,
+    pub parser_version: u32,
+    pub opaque_state: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SessionMetadataLookupResult {
+    Ready {
+        snapshot: SessionMetadataSnapshot,
+        cursor: Option<SessionMetadataCursor>,
+    },
+    Pending {
+        partial: Option<SessionMetadataSnapshot>,
+        cursor: SessionMetadataCursor,
+    },
+    NotReady,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SessionMetadataLookupError {
+    Unsupported(String),
+    Cancelled,
+    TimedOut,
+    InvalidSource,
+    Io(String),
+    Parse(String),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionSearchTerm {
@@ -254,6 +376,7 @@ pub(crate) struct SessionAdapter {
     search: Option<SessionSearcher>,
     detail: Option<SessionDetailReader>,
     index: Option<SessionIndexReader>,
+    metadata: Option<SessionMetadataLookup>,
 }
 
 impl SessionAdapter {
@@ -262,12 +385,14 @@ impl SessionAdapter {
         search: Option<SessionSearcher>,
         detail: Option<SessionDetailReader>,
         index: Option<SessionIndexReader>,
+        metadata: Option<SessionMetadataLookup>,
     ) -> Self {
         Self {
             list,
             search,
             detail,
             index,
+            metadata,
         }
     }
 
@@ -289,6 +414,22 @@ impl SessionAdapter {
 
     pub(crate) const fn supports_index(&self) -> bool {
         self.index.is_some()
+    }
+
+    pub(crate) const fn supports_metadata(&self) -> bool {
+        self.metadata.is_some()
+    }
+
+    pub(crate) fn lookup_metadata(
+        &self,
+        request: SessionMetadataLookupRequest<'_>,
+    ) -> Result<SessionMetadataLookupResult, SessionMetadataLookupError> {
+        let lookup = self.metadata.ok_or_else(|| {
+            SessionMetadataLookupError::Unsupported(
+                "当前 Agent CLI 不支持定向会话元数据读取".into(),
+            )
+        })?;
+        lookup(request)
     }
 
     pub(crate) fn search(

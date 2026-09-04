@@ -44,9 +44,10 @@ pub(crate) fn run() {
             get_cli_session_index_status,
             clear_cli_session_index,
             get_cli_runtime_snapshot,
-            get_temporary_cli_instances,
+            get_agent_runtime_snapshot,
+            get_agent_runtime_status,
+            activate_agent_runtime,
             get_temporary_cli_instance,
-            activate_temporary_cli,
             forget_workspace,
             browse_workspace_directories,
             preview_cli_config,
@@ -62,6 +63,16 @@ pub(crate) fn run() {
             complete_provider_credentials,
             test_provider_connection,
             probe_cli_tools,
+            inspect_agent_hook,
+            plan_agent_hook,
+            apply_agent_hook,
+            health_agent_hook,
+            repair_agent_hook,
+            verify_agent_hook,
+            get_agent_environment_inventory,
+            check_agent_latest_versions,
+            read_agent_environment_asset,
+            open_agent_environment_asset,
             probe_terminals,
             preview_liveness_prompts,
             detect_provider_protocol,
@@ -167,6 +178,13 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             .launch_at_login_minimized,
     );
     app.manage(app_state);
+
+    // Agent runtime persistence is optional. Initialization failures remain
+    // available through IPC and must not prevent the main App from starting.
+    let agent_runtime =
+        services::agent_runtime::service::AgentRuntimeService::from_app(app.app_handle());
+    app.manage(agent_runtime.clone());
+    agent_runtime.start(app.app_handle());
 
     // 单实例插件已在 setup 前完成仲裁，只有主实例会启动后台调度。
     services::scheduler::start(app.app_handle());

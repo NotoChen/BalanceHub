@@ -18,10 +18,13 @@ use std::{
 
 use super::super::contracts::{
     SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
-    SessionIndexMessage, SessionReadLimits,
+    SessionIndexMessage, SessionMetadataCursor, SessionMetadataLookupError,
+    SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionMetadataSnapshot,
+    SessionReadLimits,
 };
 
 const INDEX_PARSER_VERSION: u32 = 1;
+const METADATA_PARSER_VERSION: u32 = 1;
 
 pub(super) fn list(
     cli_kind: AgentCliKind,
@@ -126,6 +129,116 @@ pub(super) fn index(
     let path = find_transcript_path(cli_kind, &project_dir, workdir, session_id)?
         .ok_or_else(|| "未找到指定的 Claude Code 会话".to_string())?;
     index_transcript(&path, known_fingerprint, is_current)
+}
+
+/// Resolve and parse exactly one transcript. The runtime path deliberately
+/// has no directory-scan fallback: a missing or not-yet-flushed transcript is
+/// reported as NotReady and retried by the producer later.
+pub(super) fn metadata_lookup(
+    request: SessionMetadataLookupRequest<'_>,
+) -> Result<SessionMetadataLookupResult, SessionMetadataLookupError> {
+    let Some(workdir) = request.workdir else {
+        return Ok(SessionMetadataLookupResult::NotReady);
+    };
+    let config_dir = super::config::config_dir()
+        .ok_or_else(|| SessionMetadataLookupError::Io("无法定位用户目录".to_string()))?;
+    let project_dir = config_dir.join("projects").join(encode_project_path(workdir));
+    let path = if let Some(hint) = request.transcript_path_hint {
+        if fs::symlink_metadata(hint)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(SessionMetadataLookupError::InvalidSource);
+        }
+        let Ok(canonical_project) = project_dir.canonicalize() else {
+            return Ok(SessionMetadataLookupResult::NotReady);
+        };
+        let Ok(canonical_hint) = hint.canonicalize() else {
+            return Ok(SessionMetadataLookupResult::NotReady);
+        };
+        if canonical_hint.parent() != Some(canonical_project.as_path())
+            || canonical_hint.extension().is_none_or(|ext| ext != "jsonl")
+        {
+            return Err(SessionMetadataLookupError::InvalidSource);
+        }
+        canonical_hint
+    } else {
+        if request
+            .session_id
+            .chars()
+            .any(|character| matches!(character, '/' | '\\'))
+        {
+            return Err(SessionMetadataLookupError::InvalidSource);
+        }
+        project_dir.join(format!("{}.jsonl", request.session_id))
+    };
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return Ok(SessionMetadataLookupResult::NotReady);
+    };
+    if !metadata.file_type().is_file() {
+        return Err(SessionMetadataLookupError::InvalidSource);
+    }
+    let length = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+    if length > request.budget.max_bytes {
+        return Ok(SessionMetadataLookupResult::Pending {
+            partial: None,
+            cursor: SessionMetadataCursor {
+                source_identity: path.to_string_lossy().to_string(),
+                source_len: metadata.len(),
+                next_offset: 0,
+                parser_version: METADATA_PARSER_VERSION,
+                opaque_state: Vec::new(),
+            },
+        });
+    }
+    request.budget.check(length)?;
+    let summary = parse_transcript(request.cli_kind, &path, workdir)
+        .map_err(SessionMetadataLookupError::Parse)?
+        .filter(|summary| summary.id == request.session_id);
+    let Some(summary) = summary else {
+        return Ok(SessionMetadataLookupResult::NotReady);
+    };
+    let revision = metadata_revision(&path, &summary);
+    let activity = summary
+        .updated_at
+        .as_deref()
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.timestamp_millis());
+    let snapshot = SessionMetadataSnapshot {
+        title: Some(summary.title),
+        model: summary.model,
+        workdir: Some(summary.workdir),
+        last_activity_at: activity,
+        source_revision: revision.clone(),
+    };
+    Ok(SessionMetadataLookupResult::Ready {
+        snapshot,
+        cursor: Some(SessionMetadataCursor {
+            source_identity: revision,
+            source_len: metadata.len(),
+            next_offset: metadata.len(),
+            parser_version: METADATA_PARSER_VERSION,
+            opaque_state: Vec::new(),
+        }),
+    })
+}
+
+fn metadata_revision(path: &Path, summary: &CliSessionSummary) -> String {
+    use sha2::{Digest, Sha256};
+    let modified = fs::metadata(path)
+        .ok()
+        .and_then(|value| value.modified().ok())
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos().to_string())
+        .unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    hasher.update(modified.as_bytes());
+    hasher.update(summary.id.as_bytes());
+    hasher.update(summary.title.as_bytes());
+    hasher.update(summary.model.as_deref().unwrap_or_default().as_bytes());
+    hasher.update(summary.updated_at.as_deref().unwrap_or_default().as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn index_transcript(

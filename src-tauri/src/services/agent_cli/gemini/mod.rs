@@ -3,14 +3,14 @@ mod launch;
 mod liveness;
 mod sessions;
 
+use super::discovery::paths::node_cli_home_candidates;
 use super::{
     contracts::{
-        DefaultConfigAdapter, EndpointAdapter, LivenessAdapter, SessionAdapter,
+        DefaultConfigAdapter, EndpointAdapter, EnvironmentAdapter, LivenessAdapter, SessionAdapter,
         TemporaryLaunchAdapter, TemporaryLaunchFeatures,
     },
     AgentCliDefinition,
 };
-use super::discovery::paths::node_cli_home_candidates;
 use crate::models::AgentCliKind;
 use std::path::{Path, PathBuf};
 
@@ -40,6 +40,7 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
             Some(sessions::search),
             Some(sessions::detail),
             Some(sessions::index),
+            Some(sessions::metadata_lookup),
         )),
         liveness: Some(LivenessAdapter::new(
             liveness::build_plan,
@@ -50,7 +51,171 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
             config::preview,
             config::switch,
         )),
+        environment: EnvironmentAdapter::new(discover_assets, "@google/gemini-cli"),
     }
+}
+
+fn discover_assets(
+    home: &Path,
+    workspace: Option<&Path>,
+) -> Vec<super::contracts::AgentAssetDeclaration> {
+    const TEMPLATES: &[super::environment::AssetTemplate] = &[
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Config,
+            native_id: "settings",
+            label: "Gemini CLI 设置",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 20,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Config,
+            native_id: "env",
+            label: "Gemini CLI 环境配置",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".gemini/.env",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 20,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Skill,
+            native_id: "skills",
+            label: "Gemini CLI Skills",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".gemini/skills",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 20,
+            sensitive: false,
+            is_directory: true,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Skill,
+            native_id: "agent-skills",
+            label: "Gemini CLI 共享 Skills",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".agents/skills",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 30,
+            sensitive: false,
+            is_directory: true,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Extension,
+            native_id: "extensions",
+            label: "Gemini CLI Extensions",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".gemini/extensions",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 20,
+            sensitive: false,
+            is_directory: true,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Mcp,
+            native_id: "mcp",
+            label: "Gemini CLI MCP",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 20,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Hook,
+            native_id: "hooks",
+            label: "Gemini CLI Hooks",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 20,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::StatusUi,
+            native_id: "footer",
+            label: "Gemini CLI Status UI",
+            root: super::environment::AssetRoot::User,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::User,
+            precedence: 20,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Skill,
+            native_id: "workspace-skills",
+            label: "Gemini CLI 工作区 Skills",
+            root: super::environment::AssetRoot::Workspace,
+            relative_path: ".agents/skills",
+            scope: crate::models::AgentAssetScope::Workspace,
+            precedence: 5,
+            sensitive: false,
+            is_directory: true,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Skill,
+            native_id: "workspace-gemini-skills",
+            label: "Gemini CLI 工作区 Skills",
+            root: super::environment::AssetRoot::Workspace,
+            relative_path: ".gemini/skills",
+            scope: crate::models::AgentAssetScope::Workspace,
+            precedence: 10,
+            sensitive: false,
+            is_directory: true,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Config,
+            native_id: "workspace-settings",
+            label: "Gemini CLI 工作区设置",
+            root: super::environment::AssetRoot::Workspace,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::Workspace,
+            precedence: 10,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Mcp,
+            native_id: "workspace-mcp",
+            label: "Gemini CLI 工作区 MCP",
+            root: super::environment::AssetRoot::Workspace,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::Workspace,
+            precedence: 10,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::Hook,
+            native_id: "workspace-hooks",
+            label: "Gemini CLI 工作区 Hooks",
+            root: super::environment::AssetRoot::Workspace,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::Workspace,
+            precedence: 10,
+            sensitive: true,
+            is_directory: false,
+        },
+        super::environment::AssetTemplate {
+            category: crate::models::AgentAssetCategory::StatusUi,
+            native_id: "workspace-footer",
+            label: "Gemini CLI 工作区 Status UI",
+            root: super::environment::AssetRoot::Workspace,
+            relative_path: ".gemini/settings.json",
+            scope: crate::models::AgentAssetScope::Workspace,
+            precedence: 10,
+            sensitive: true,
+            is_directory: false,
+        },
+    ];
+    super::environment::from_templates(home, workspace, TEMPLATES)
 }
 
 fn normalize_base_url(base_url: &str) -> String {

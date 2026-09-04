@@ -13,7 +13,7 @@ use std::{
 
 static SUMMARY_LIST_CALLS: AtomicUsize = AtomicUsize::new(0);
 static SUMMARY_CACHE_TEST_ADAPTER: SessionAdapter =
-    SessionAdapter::new(cached_summary_lister, None, None, None);
+    SessionAdapter::new(cached_summary_lister, None, None, None, None);
 
 fn cached_summary_lister(
     cli_kind: AgentCliKind,

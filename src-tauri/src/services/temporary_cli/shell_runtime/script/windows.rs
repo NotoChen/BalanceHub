@@ -1,5 +1,8 @@
 #[cfg(target_os = "windows")]
-use super::{temporary_windows_launch_payload_path, write_auxiliary_file, LaunchScriptInput};
+use super::{
+    runtime_instance_id_from_status_path, temporary_windows_launch_payload_path,
+    write_auxiliary_file, LaunchScriptInput,
+};
 #[cfg(target_os = "windows")]
 use crate::services::temporary_cli::shell_runtime::environment::capture_shell_snapshot;
 use crate::{
@@ -30,6 +33,18 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
         proxy_environment: input.proxy_environment,
         shell_snapshot: &shell_snapshot,
     });
+    let mut launch_payload = launch_payload;
+    if let Some(instance_id) = runtime_instance_id_from_status_path(input.status_path) {
+        if let Some(set_env) = launch_payload
+            .get_mut("setEnv")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            set_env.insert(
+                "BALANCEHUB_CLI_INSTANCE_ID".to_string(),
+                serde_json::Value::String(instance_id),
+            );
+        }
+    }
     let launch_payload_text = serde_json::to_string_pretty(&launch_payload)
         .map_err(|err| format!("生成 Windows 临时 CLI 启动参数失败: {err}"))?;
     fs::write(&launch_payload_path, launch_payload_text)

@@ -40,6 +40,7 @@ pub(crate) struct LaunchOptions<'a> {
     pub(crate) resume_id: &'a str,
     pub(crate) session_mode: TemporaryCliSessionMode,
     pub(crate) api_key_label: &'a str,
+    pub(crate) api_key_local_id: Option<&'a str>,
 }
 
 pub fn preview(
@@ -206,6 +207,7 @@ pub fn launch(
         settings.temporary_cli_terminal_kind,
         &session_title,
         &account_label,
+        options.api_key_local_id,
     )?;
     if let Some(parent) = script.parent() {
         if let Err(err) = fs::create_dir_all(parent) {

@@ -127,6 +127,32 @@ fn sanitize_path_part(value: &str) -> String {
         .collect()
 }
 
+/// Launch status files are created below `.../instances/<instance-id>/status.json`.
+/// Deriving the correlation value from this owned path keeps it tied to the
+/// registered launch without introducing a second mutable launch identifier.
+pub(in crate::services::temporary_cli) fn runtime_instance_id_from_status_path(
+    status_path: &Path,
+) -> Option<String> {
+    let instance_dir = status_path.parent()?;
+    let instances_dir = instance_dir.parent()?;
+    let runtime_dir = instances_dir.parent()?;
+    if instances_dir.file_name()?.to_str()? != "instances"
+        || runtime_dir.file_name()?.to_str()? != "balancehub-cli-runtime-v1"
+        || status_path.file_name()?.to_str()? != "status.json"
+    {
+        return None;
+    }
+    let instance_id = instance_dir.file_name()?.to_str()?;
+    if instance_id.is_empty()
+        || !instance_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+    {
+        return None;
+    }
+    Some(instance_id.to_string())
+}
+
 pub(in crate::services::temporary_cli) struct LaunchScriptInput<'a> {
     pub(in crate::services::temporary_cli) script: &'a Path,
     pub(in crate::services::temporary_cli) cli_path: &'a str,

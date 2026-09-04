@@ -7,6 +7,7 @@
 pub(crate) mod config_support;
 pub(crate) mod contracts;
 mod discovery;
+pub(crate) mod environment;
 mod liveness_support;
 
 use crate::models::{
@@ -14,7 +15,8 @@ use crate::models::{
     CliToolProbeResult, Provider,
 };
 use contracts::{
-    DefaultConfigAdapter, EndpointAdapter, LivenessAdapter, SessionAdapter, TemporaryLaunchAdapter,
+    DefaultConfigAdapter, EndpointAdapter, EnvironmentAdapter, LivenessAdapter, SessionAdapter,
+    TemporaryLaunchAdapter,
 };
 use std::path::{Path, PathBuf};
 
@@ -32,6 +34,7 @@ pub(crate) struct AgentCliDefinition {
     sessions: Option<SessionAdapter>,
     liveness: Option<LivenessAdapter>,
     default_config: Option<DefaultConfigAdapter>,
+    environment: EnvironmentAdapter,
 }
 
 impl AgentCliDefinition {
@@ -73,6 +76,10 @@ impl AgentCliDefinition {
 
     pub(crate) fn default_config(&self) -> Option<&DefaultConfigAdapter> {
         self.default_config.as_ref()
+    }
+
+    pub(crate) fn environment(&self) -> &EnvironmentAdapter {
+        &self.environment
     }
 }
 
@@ -194,6 +201,28 @@ pub(crate) fn probe_all(settings: &AppSettings, include_shell: bool) -> CliEnvir
 
 pub(crate) fn runtime_path_for(cli_path: &Path) -> Option<std::ffi::OsString> {
     discovery::runtime_path_for(cli_path)
+}
+
+pub(crate) fn environment_inventory(
+    settings: &AppSettings,
+    workspace: Option<&Path>,
+) -> Result<crate::models::AgentEnvironmentInventory, String> {
+    crate::services::agent_cli::environment::inventory(settings, workspace)
+}
+
+pub(crate) fn environment_asset_path(
+    asset_id: &str,
+    workspace: Option<&Path>,
+    target: crate::models::AgentAssetOpenTarget,
+) -> Result<PathBuf, String> {
+    crate::services::agent_cli::environment::open_asset_path(asset_id, workspace, target)
+}
+
+pub(crate) fn read_environment_asset(
+    asset_id: &str,
+    workspace: Option<&Path>,
+) -> Result<crate::models::AgentAssetReadResult, String> {
+    crate::services::agent_cli::environment::read_asset(asset_id, workspace)
 }
 
 pub(crate) fn provider_base_url(kind: AgentCliKind, provider: &Provider) -> String {

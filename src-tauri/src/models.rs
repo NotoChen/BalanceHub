@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[path = "models/agent_cli.rs"]
 mod agent_cli;
+#[path = "models/agent_environment.rs"]
+mod agent_environment;
+#[path = "models/agent_hook.rs"]
+mod agent_hook;
+#[path = "models/agent_runtime.rs"]
+mod agent_runtime;
 #[path = "models/app_settings.rs"]
 mod app_settings;
 #[path = "models/cli_sessions.rs"]
@@ -20,6 +26,9 @@ mod provider_results;
 mod workspace;
 
 pub use agent_cli::*;
+pub use agent_environment::*;
+pub use agent_hook::*;
+pub use agent_runtime::*;
 pub(crate) use app_settings::{
     default_liveness_interval, default_liveness_placeholder_pools,
     default_liveness_random_min_interval, default_liveness_timeout,

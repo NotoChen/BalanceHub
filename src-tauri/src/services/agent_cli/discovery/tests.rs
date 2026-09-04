@@ -134,6 +134,10 @@ fn cli_probe_keeps_symlink_entrypoint_runtime_path() {
             sessions: None,
             liveness: None,
             default_config: None,
+            environment: super::super::contracts::EnvironmentAdapter::new(
+                no_asset_discovery,
+                "test-agent",
+            ),
         },
         true,
     )
@@ -142,6 +146,13 @@ fn cli_probe_keeps_symlink_entrypoint_runtime_path() {
     assert_eq!(result.path, entrypoint.to_string_lossy());
     assert_eq!(result.version, "test-cli 1.0");
     fs::remove_dir_all(root).unwrap();
+}
+
+fn no_asset_discovery(
+    _home: &std::path::Path,
+    _workspace: Option<&std::path::Path>,
+) -> Vec<super::super::contracts::AgentAssetDeclaration> {
+    Vec::new()
 }
 
 #[test]

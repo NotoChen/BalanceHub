@@ -21,13 +21,18 @@ use std::{
 
 use super::super::contracts::{
     SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
-    SessionIndexMessage, SessionReadLimits,
+    SessionIndexMessage, SessionMetadataCursor, SessionMetadataLookupError,
+    SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionMetadataSnapshot,
+    SessionReadLimits,
 };
 
 const MAX_SCAN_DIRECTORIES: usize = 10_000;
 const MAX_SUMMARY_FILES: usize = 2_000;
 const MAX_SUMMARY_FILE_BYTES: usize = 256 * 1024;
 const INDEX_PARSER_VERSION: u32 = 1;
+const METADATA_PARSER_VERSION: u32 = 1;
+const MAX_METADATA_WORKSPACE_ROOTS: usize = 64;
+const MAX_CWD_MARKER_BYTES: u64 = 4 * 1024;
 
 pub(super) fn list(
     cli_kind: AgentCliKind,
@@ -183,6 +188,261 @@ pub(super) fn index(
         });
     }
     Err("未找到指定的 Grok Build 会话".to_string())
+}
+
+/// Reads the bounded Grok summary for one exact workspace and session. The
+/// only fallback inspects direct workspace `.cwd` markers for long path names;
+/// it never recursively scans historical session summaries.
+pub(super) fn metadata_lookup(
+    request: SessionMetadataLookupRequest<'_>,
+) -> Result<SessionMetadataLookupResult, SessionMetadataLookupError> {
+    let home = super::config::config_dir()
+        .ok_or_else(|| SessionMetadataLookupError::Io("无法定位用户目录".to_string()))?;
+    metadata_lookup_from_home(&home, request)
+}
+
+fn metadata_lookup_from_home(
+    home: &Path,
+    request: SessionMetadataLookupRequest<'_>,
+) -> Result<SessionMetadataLookupResult, SessionMetadataLookupError> {
+    let Some(workdir) = request.workdir else {
+        return Ok(SessionMetadataLookupResult::NotReady);
+    };
+    if !is_safe_session_id(request.session_id) {
+        return Err(SessionMetadataLookupError::InvalidSource);
+    }
+    let root = home.join("sessions");
+    let Ok(canonical_root) = root.canonicalize() else {
+        return Ok(SessionMetadataLookupResult::NotReady);
+    };
+    let mut candidates = Vec::new();
+    if let Some(hint) = request.transcript_path_hint {
+        if fs::symlink_metadata(hint)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(SessionMetadataLookupError::InvalidSource);
+        }
+        let Ok(canonical_hint) = hint.canonicalize() else {
+            return Ok(SessionMetadataLookupResult::NotReady);
+        };
+        if path_has_symlink_component(&canonical_root, hint)?
+            || !canonical_hint.starts_with(&canonical_root)
+            || canonical_hint.file_name().is_none_or(|name| name != "summary.json")
+        {
+            return Err(SessionMetadataLookupError::InvalidSource);
+        }
+        candidates.push(canonical_hint);
+    }
+    if candidates.is_empty() {
+        for workspace_root in exact_workspace_roots(&canonical_root, workdir, &request.budget)? {
+            let candidate = workspace_root
+                .join(request.session_id)
+                .join("summary.json");
+            if let Some(candidate) = contained_regular_file(&canonical_root, &candidate)? {
+                candidates.push(candidate);
+            }
+        }
+    }
+    for path in candidates {
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            return Ok(SessionMetadataLookupResult::NotReady);
+        };
+        if !metadata.file_type().is_file() {
+            return Err(SessionMetadataLookupError::InvalidSource);
+        }
+        let length = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+        if length > request.budget.max_bytes {
+            return Ok(SessionMetadataLookupResult::Pending {
+                partial: None,
+                cursor: SessionMetadataCursor {
+                    source_identity: path.to_string_lossy().to_string(),
+                    source_len: metadata.len(),
+                    next_offset: 0,
+                    parser_version: METADATA_PARSER_VERSION,
+                    opaque_state: Vec::new(),
+                },
+            });
+        }
+        request.budget.check(length)?;
+        let summary = parse_summary(request.cli_kind, &path, workdir)
+            .map_err(SessionMetadataLookupError::Parse)?;
+        let Some(summary) = summary.filter(|summary| summary.id == request.session_id) else {
+            continue;
+        };
+        let revision = metadata_revision(&path, &summary);
+        let activity = summary
+            .updated_at
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.timestamp_millis());
+        let snapshot = SessionMetadataSnapshot {
+            title: Some(summary.title),
+            model: summary.model,
+            workdir: Some(summary.workdir),
+            last_activity_at: activity,
+            source_revision: revision.clone(),
+        };
+        return Ok(SessionMetadataLookupResult::Ready {
+            snapshot,
+            cursor: Some(SessionMetadataCursor {
+                source_identity: revision,
+                source_len: metadata.len(),
+                next_offset: metadata.len(),
+                parser_version: METADATA_PARSER_VERSION,
+                opaque_state: Vec::new(),
+            }),
+        });
+    }
+    Ok(SessionMetadataLookupResult::NotReady)
+}
+
+fn is_safe_session_id(session_id: &str) -> bool {
+    !session_id.is_empty()
+        && session_id != "."
+        && session_id != ".."
+        && !session_id.chars().any(|character| {
+            matches!(character, '/' | '\\' | ':' | '\0') || character.is_control()
+        })
+}
+
+fn exact_workspace_roots(
+    sessions_root: &Path,
+    workdir: &Path,
+    budget: &super::super::contracts::SessionMetadataLookupBudget,
+) -> Result<Vec<PathBuf>, SessionMetadataLookupError> {
+    let mut roots = BTreeSet::new();
+    for path in [Some(workdir.to_path_buf()), workdir.canonicalize().ok()]
+        .into_iter()
+        .flatten()
+    {
+        let candidate = sessions_root.join(percent_encode_workspace(&path));
+        if let Some(candidate) = contained_directory(sessions_root, &candidate)? {
+            roots.insert(candidate);
+        }
+    }
+
+    let entries = fs::read_dir(sessions_root)
+        .map_err(|error| SessionMetadataLookupError::Io(error.to_string()))?;
+    let mut checked = 0usize;
+    for entry in entries.flatten() {
+        if checked >= MAX_METADATA_WORKSPACE_ROOTS {
+            break;
+        }
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() || file_type.is_symlink() {
+            continue;
+        }
+        checked += 1;
+        let directory = entry.path();
+        let marker = directory.join(".cwd");
+        let Ok(metadata) = fs::symlink_metadata(&marker) else {
+            continue;
+        };
+        if !metadata.file_type().is_file() || metadata.len() > MAX_CWD_MARKER_BYTES {
+            continue;
+        }
+        budget.check(usize::try_from(metadata.len()).unwrap_or(usize::MAX))?;
+        let Ok(value) = fs::read_to_string(&marker) else {
+            continue;
+        };
+        if path_key(Path::new(value.trim())) == path_key(workdir) {
+            if let Some(directory) = contained_directory(sessions_root, &directory)? {
+                roots.insert(directory);
+            }
+        }
+    }
+    Ok(roots.into_iter().collect())
+}
+
+fn contained_directory(
+    root: &Path,
+    candidate: &Path,
+) -> Result<Option<PathBuf>, SessionMetadataLookupError> {
+    let Ok(metadata) = fs::symlink_metadata(candidate) else {
+        return Ok(None);
+    };
+    if path_has_symlink_component(root, candidate)? || !metadata.file_type().is_dir() {
+        return Err(SessionMetadataLookupError::InvalidSource);
+    }
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|error| SessionMetadataLookupError::Io(error.to_string()))?;
+    if !canonical.starts_with(root) {
+        return Err(SessionMetadataLookupError::InvalidSource);
+    }
+    Ok(Some(canonical))
+}
+
+fn contained_regular_file(
+    root: &Path,
+    candidate: &Path,
+) -> Result<Option<PathBuf>, SessionMetadataLookupError> {
+    let Ok(metadata) = fs::symlink_metadata(candidate) else {
+        return Ok(None);
+    };
+    if path_has_symlink_component(root, candidate)? || !metadata.file_type().is_file() {
+        return Err(SessionMetadataLookupError::InvalidSource);
+    }
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|error| SessionMetadataLookupError::Io(error.to_string()))?;
+    if !canonical.starts_with(root) {
+        return Err(SessionMetadataLookupError::InvalidSource);
+    }
+    Ok(Some(canonical))
+}
+
+fn path_has_symlink_component(
+    root: &Path,
+    candidate: &Path,
+) -> Result<bool, SessionMetadataLookupError> {
+    let relative = candidate
+        .strip_prefix(root)
+        .map_err(|_| SessionMetadataLookupError::InvalidSource)?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        let metadata = fs::symlink_metadata(&current)
+            .map_err(|error| SessionMetadataLookupError::Io(error.to_string()))?;
+        if metadata.file_type().is_symlink() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn percent_encode_workspace(path: &Path) -> String {
+    let mut encoded = String::new();
+    for byte in path.to_string_lossy().as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(*byte));
+        } else {
+            use std::fmt::Write;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
+fn metadata_revision(path: &Path, summary: &CliSessionSummary) -> String {
+    use sha2::{Digest, Sha256};
+    let modified = fs::metadata(path)
+        .ok()
+        .and_then(|value| value.modified().ok())
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos().to_string())
+        .unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    hasher.update(modified.as_bytes());
+    hasher.update(summary.id.as_bytes());
+    hasher.update(summary.title.as_bytes());
+    hasher.update(summary.model.as_deref().unwrap_or_default().as_bytes());
+    hasher.update(summary.updated_at.as_deref().unwrap_or_default().as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn index_updates(

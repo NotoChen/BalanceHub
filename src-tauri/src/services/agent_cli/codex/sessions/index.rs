@@ -77,6 +77,44 @@ pub(super) fn read_session_titles(
     Ok(titles)
 }
 
+pub(super) fn read_session_title(
+    codex_home: &Path,
+    session_id: &str,
+    max_bytes: usize,
+) -> Option<String> {
+    let path = codex_home.join(SESSION_INDEX_FILE);
+    let file = fs::File::open(path).ok()?;
+    let mut consumed = 0usize;
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        consumed = consumed.saturating_add(line.len());
+        if consumed > max_bytes {
+            break;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(id) = value
+            .get("id")
+            .or_else(|| value.get("session_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+        else {
+            continue;
+        };
+        if id != session_id {
+            continue;
+        }
+        return value
+            .get("thread_name")
+            .or_else(|| value.get("name"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string);
+    }
+    None
+}
+
 pub(super) fn read_database(
     cli_kind: AgentCliKind,
     path: &Path,

@@ -18,5 +18,8 @@ mod util;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some(exit_code) = services::agent_runtime::managed_hook::helper_from_process_args() {
+        std::process::exit(exit_code);
+    }
     desktop::run();
 }

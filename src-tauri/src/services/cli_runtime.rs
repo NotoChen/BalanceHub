@@ -26,7 +26,10 @@ const METADATA_FILE_NAME: &str = "instance.json";
 const STATUS_FILE_NAME: &str = "status.json";
 const STARTING_TIMEOUT_MILLIS: u128 = 2 * 60 * 1000;
 const UNKNOWN_PID_TIMEOUT_MILLIS: u128 = 24 * 60 * 60 * 1000;
-const EXITED_INSTANCE_RETENTION_MILLIS: u128 = 2 * 60 * 1000;
+// Exit records are tiny and contain no credentials. Keep them long enough for
+// the unified runtime repository to recover exit evidence after the App has
+// been offline, while the global item cap bounds disk usage.
+const EXITED_INSTANCE_RETENTION_MILLIS: u128 = 7 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_INSTANCES: usize = 80;
 
 static INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -39,6 +42,7 @@ pub struct RegisteredCliInstance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum CliTerminalLocator {
+    #[serde(rename_all = "camelCase")]
     Ghostty { terminal_id: String },
 }
 
@@ -57,6 +61,8 @@ struct StoredInstanceMetadata {
     session_title: String,
     #[serde(default)]
     account_label: String,
+    #[serde(default)]
+    api_key_local_id: Option<String>,
     cli_kind: AgentCliKind,
     workdir: String,
     terminal_kind: TemporaryCliTerminalKind,
@@ -81,12 +87,14 @@ pub fn snapshot(providers: &[Provider]) -> CliRuntimeSnapshot {
             .filter(|definition| definition.default_config().is_some())
             .map(|definition| config::config_snapshot(providers, definition.kind))
             .collect(),
-        instances: load_instances(),
     }
 }
 
-pub fn active_instances() -> Vec<TemporaryCliInstance> {
-    load_instances()
+/// Returns active instances plus recently exited launch records. The unified
+/// runtime projection needs the exit code as strong evidence; the public
+/// activity list intentionally keeps its historical active-only semantics.
+pub(crate) fn runtime_instances() -> Vec<TemporaryCliInstance> {
+    load_instances(true)
 }
 
 pub fn instance(id: &str) -> Result<Option<TemporaryCliInstance>, String> {
@@ -104,6 +112,29 @@ pub fn instance(id: &str) -> Result<Option<TemporaryCliInstance>, String> {
     Ok(Some(merge_instance(metadata, status)))
 }
 
+/// Returns whether a launch record with this ID is present in the private
+/// runtime directory. Hook helpers use this as an additional correlation
+/// boundary: a process-supplied ID alone must never be enough to merge an
+/// external event into a BalanceHub launch.
+pub(crate) fn instance_exists(id: &str) -> bool {
+    let Ok(instance_dir) = validated_instance_dir(id) else {
+        return false;
+    };
+    let Ok(directory_metadata) = fs::symlink_metadata(&instance_dir) else {
+        return false;
+    };
+    if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
+        return false;
+    }
+    let metadata_path = instance_dir.join(METADATA_FILE_NAME);
+    let Ok(metadata) = fs::symlink_metadata(&metadata_path) else {
+        return false;
+    };
+    !metadata.file_type().is_symlink()
+        && metadata.is_file()
+        && read_json::<StoredInstanceMetadata>(&metadata_path).is_ok()
+}
+
 pub fn register_instance(
     provider: &Provider,
     cli_kind: AgentCliKind,
@@ -111,6 +142,7 @@ pub fn register_instance(
     terminal_kind: TemporaryCliTerminalKind,
     session_title: &str,
     account_label: &str,
+    api_key_local_id: Option<&str>,
 ) -> Result<RegisteredCliInstance, String> {
     let started_at = unix_millis().to_string();
     let id = format!(
@@ -134,6 +166,10 @@ pub fn register_instance(
         provider_name: provider.display_label(),
         session_title: session_title.trim().to_string(),
         account_label: account_label.trim().to_string(),
+        api_key_local_id: api_key_local_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string),
         cli_kind,
         workdir: workdir.to_string_lossy().to_string(),
         terminal_kind,
@@ -219,7 +255,7 @@ fn validated_instance_dir(id: &str) -> Result<PathBuf, String> {
     Ok(instances_dir().join(id))
 }
 
-fn load_instances() -> Vec<TemporaryCliInstance> {
+fn load_instances(include_exited: bool) -> Vec<TemporaryCliInstance> {
     let Ok(entries) = fs::read_dir(instances_dir()) else {
         return Vec::new();
     };
@@ -235,8 +271,11 @@ fn load_instances() -> Vec<TemporaryCliInstance> {
             if instance.status == TemporaryCliInstanceStatus::Exited {
                 if exited_instance_expired(&instance) {
                     let _ = fs::remove_dir_all(path);
+                    return None;
                 }
-                return None;
+                if !include_exited {
+                    return None;
+                }
             }
             Some(instance)
         })
@@ -307,10 +346,15 @@ fn merge_instance(
         provider_name: metadata.provider_name,
         session_title: metadata.session_title,
         account_label: metadata.account_label,
+        api_key_local_id: metadata.api_key_local_id,
         cli_kind: metadata.cli_kind,
         workdir: metadata.workdir,
         terminal_kind: metadata.terminal_kind,
         terminal_name: metadata.terminal_kind.label().to_string(),
+        terminal_locator: metadata
+            .terminal_locator
+            .as_ref()
+            .and_then(|locator| serde_json::to_string(locator).ok()),
         started_at: metadata.started_at,
         ended_at: status
             .ended_at
@@ -469,6 +513,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn instance_exists_rejects_unknown_and_unsafe_ids() {
+        assert!(!instance_exists("missing-instance"));
+        assert!(!instance_exists("../outside"));
+        assert!(!instance_exists(""));
+    }
+
+    #[test]
     fn single_instance_query_preserves_recent_exit_details() {
         let id = format!(
             "test-{:x}-{:x}",
@@ -483,6 +534,7 @@ mod tests {
             provider_name: "Relay".to_string(),
             session_title: "继续测试会话".to_string(),
             account_label: "tester".to_string(),
+            api_key_local_id: None,
             cli_kind: AgentCliKind::Codex,
             workdir: "/workspace".to_string(),
             terminal_kind: TemporaryCliTerminalKind::Terminal,
@@ -502,6 +554,12 @@ mod tests {
         assert_eq!(loaded.status, TemporaryCliInstanceStatus::Exited);
         assert_eq!(loaded.exit_code, Some(17));
         assert!(instance_dir.is_dir());
+        assert!(load_instances(false).iter().all(|item| item.id != id));
+        let runtime_loaded = runtime_instances()
+            .into_iter()
+            .find(|item| item.id == id)
+            .expect("recently exited instance remains available to runtime projection");
+        assert_eq!(runtime_loaded.exit_code, Some(17));
 
         let _ = fs::remove_dir_all(instance_dir);
     }
@@ -530,6 +588,7 @@ mod tests {
             TemporaryCliTerminalKind::Terminal,
             "测试会话",
             "tester",
+            Some("local-key-1"),
         )
         .unwrap();
         let instance_dir = registered.status_path.parent().unwrap();
@@ -537,5 +596,52 @@ mod tests {
 
         assert_eq!(mode, 0o700);
         let _ = fs::remove_dir_all(instance_dir);
+    }
+
+    #[test]
+    fn instance_metadata_round_trip_preserves_key_reference_and_terminal_locator() {
+        let provider = Provider::from_input(
+            crate::models::ProviderInput::default(),
+            format!(
+                "metadata-test-{:x}",
+                INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ),
+        );
+        let registered = register_instance(
+            &provider,
+            AgentCliKind::Codex,
+            Path::new("/workspace"),
+            TemporaryCliTerminalKind::Ghostty,
+            "会话",
+            "账号",
+            Some("local-key-1"),
+        )
+        .unwrap();
+        assert_eq!(
+            registered.instance.api_key_local_id.as_deref(),
+            Some("local-key-1")
+        );
+        assert_eq!(registered.instance.terminal_locator, None);
+
+        let located = record_terminal_launch(
+            &registered.instance.id,
+            TemporaryCliTerminalKind::Ghostty,
+            Some(CliTerminalLocator::Ghostty {
+                terminal_id: "terminal-1".to_string(),
+            }),
+        )
+        .unwrap();
+        assert_eq!(located.api_key_local_id.as_deref(), Some("local-key-1"));
+        assert_eq!(
+            located.terminal_locator.as_deref(),
+            Some(r#"{"kind":"ghostty","terminalId":"terminal-1"}"#)
+        );
+        assert!(located.can_activate);
+
+        let reloaded = instance(&registered.instance.id).unwrap().unwrap();
+        assert_eq!(reloaded.api_key_local_id.as_deref(), Some("local-key-1"));
+        assert_eq!(reloaded.terminal_locator, located.terminal_locator);
+        assert!(reloaded.can_activate);
+        let _ = fs::remove_dir_all(registered.status_path.parent().unwrap());
     }
 }

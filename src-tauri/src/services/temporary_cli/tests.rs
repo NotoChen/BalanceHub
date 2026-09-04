@@ -5,8 +5,8 @@ use super::resolve_session_name;
 use super::shell_runtime::environment::ShellEnvironmentSnapshot;
 use super::shell_runtime::script::{
     effective_model, escape_cmd_value, format_cli_command, preview_cli_auxiliary_path,
-    temporary_script_path, windows_launch_payload, WindowsLaunchPayloadInput,
-    WINDOWS_LAUNCH_PAYLOAD_COMMAND,
+    runtime_instance_id_from_status_path, temporary_script_path, windows_launch_payload,
+    WindowsLaunchPayloadInput, WINDOWS_LAUNCH_PAYLOAD_COMMAND,
 };
 #[cfg(not(target_os = "windows"))]
 use super::shell_runtime::script::{
@@ -37,6 +37,26 @@ use std::path::Path;
 use std::path::PathBuf;
 #[cfg(not(target_os = "windows"))]
 use std::{env, fs, process::Command};
+
+#[test]
+fn runtime_instance_id_is_derived_only_from_owned_status_layout() {
+    assert_eq!(
+        runtime_instance_id_from_status_path(Path::new(
+            "/tmp/balancehub-cli-runtime-v1/instances/instance-1/status.json",
+        )),
+        Some("instance-1".to_string())
+    );
+    assert_eq!(
+        runtime_instance_id_from_status_path(Path::new("/tmp/status.json")),
+        None
+    );
+    assert_eq!(
+        runtime_instance_id_from_status_path(Path::new(
+            "/tmp/balancehub-cli-runtime-v1/instances/instance%2F1/status.json",
+        )),
+        None
+    );
+}
 
 #[test]
 fn api_key_runtime_account_label_uses_the_selected_local_remark() {

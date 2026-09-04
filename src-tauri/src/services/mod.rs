@@ -1,4 +1,5 @@
 pub(crate) mod agent_cli;
+pub mod agent_runtime;
 pub mod app_updater;
 pub(crate) mod cli_paths;
 pub mod cli_runtime;

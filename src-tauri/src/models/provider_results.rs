@@ -707,10 +707,16 @@ pub struct TemporaryCliInstance {
     /// 启动时记录的非敏感账号展示快照（用户名、用户 ID 或 API Key 标签）。
     #[serde(default)]
     pub account_label: String,
+    /// 选中的本机 API Key 稳定标识；只作为本地引用，不保存 Key 内容。
+    #[serde(default)]
+    pub api_key_local_id: Option<String>,
     pub cli_kind: AgentCliKind,
     pub workdir: String,
     pub terminal_kind: TemporaryCliTerminalKind,
     pub terminal_name: String,
+    /// 终端的 opaque 定位信息，用于精确激活；不包含命令或凭据。
+    #[serde(default)]
+    pub terminal_locator: Option<String>,
     pub started_at: String,
     pub ended_at: Option<String>,
     pub pid: Option<u32>,
@@ -726,7 +732,6 @@ pub struct CliRuntimeSnapshot {
     #[serde(default)]
     pub agents: Vec<crate::models::AgentCliDescriptor>,
     pub configs: Vec<CliConfigSnapshot>,
-    pub instances: Vec<TemporaryCliInstance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

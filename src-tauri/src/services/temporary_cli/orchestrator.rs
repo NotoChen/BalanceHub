@@ -25,6 +25,7 @@ struct PreparedTemporaryCliLaunch {
     workdir: PathBuf,
     api_key: String,
     api_key_label: String,
+    api_key_local_id: Option<String>,
     model: String,
     preference_model: String,
 }
@@ -131,6 +132,21 @@ impl<'a> TemporaryCliLaunchService<'a> {
             .as_ref()
             .map(provider_api_key_label)
             .unwrap_or_default();
+        let api_key_local_id = selected_local_key
+            .as_ref()
+            .map(|option| option.local_id.clone())
+            .or_else(|| {
+                let configured_key = input.api_key.trim();
+                if configured_key.is_empty() {
+                    return None;
+                }
+                provider
+                    .auth
+                    .api_key_options
+                    .iter()
+                    .find(|option| option.key == configured_key)
+                    .map(|option| option.local_id.clone())
+            });
         let api_key = if let Some(option) = selected_local_key {
             if !option.key_available || !is_full_api_key_value(&option.key) {
                 return Err("所选 API Key 未读取到完整值，无法启动临时 CLI".to_string());
@@ -191,6 +207,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
             workdir,
             api_key,
             api_key_label,
+            api_key_local_id,
             model,
             preference_model,
         })
@@ -206,6 +223,7 @@ fn launch_options(prepared: &PreparedTemporaryCliLaunch) -> LaunchOptions<'_> {
         resume_id: &prepared.input.resume_id,
         session_mode: prepared.input.session_mode,
         api_key_label: &prepared.api_key_label,
+        api_key_local_id: prepared.api_key_local_id.as_deref(),
     }
 }
 

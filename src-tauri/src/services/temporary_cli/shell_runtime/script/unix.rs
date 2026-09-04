@@ -1,4 +1,4 @@
-use super::{write_auxiliary_file, LaunchScriptInput};
+use super::{runtime_instance_id_from_status_path, write_auxiliary_file, LaunchScriptInput};
 use crate::{
     network::ProxyEnvironment,
     services::agent_cli::{self, contracts::EnvironmentPatch},
@@ -32,6 +32,9 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
     let cli_invocation =
         unix_cli_invocation(input.cli_command_name, input.cli_path, &input.plan.args);
     let proxy_block = unix_proxy_block(input.proxy_environment);
+    let runtime_instance_id_block = runtime_instance_id_from_status_path(input.status_path)
+        .map(|id| format!("export BALANCEHUB_CLI_INSTANCE_ID={}\n", shell_quote(&id)))
+        .unwrap_or_default();
 
     let text = format!(
         r#"#!/bin/sh
@@ -52,7 +55,7 @@ if [ "$bh_exit_code" -ne 0 ]; then
   bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
   exit "$bh_exit_code"
 fi
-    {path_export}{color_block}{proxy_block}{agent_environment_block}bh_write_status running "$$" null null
+    {runtime_instance_id_block}{path_export}{color_block}{proxy_block}{agent_environment_block}bh_write_status running "$$" null null
 {cli_invocation}
 bh_exit_code=$?
 bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
@@ -63,6 +66,7 @@ exit "$bh_exit_code"
         status_path = shell_quote(&input.status_path.to_string_lossy()),
         login_shell_bootstrap = login_shell_bootstrap,
         script_path = script_path,
+        runtime_instance_id_block = runtime_instance_id_block,
         workdir = shell_quote(&input.workdir.to_string_lossy()),
         color_block = unix_color_block(),
         proxy_block = proxy_block,
