@@ -1,0 +1,33 @@
+{
+  "id": "product-evolution-roadmap",
+  "name": "product-evolution-roadmap",
+  "title": "BalanceHub 功能优化与拓展路线图",
+  "description": "规划可用性决策中心、Agent 环境与运行时、Agent 会话工作台、自动化规则、一键诊断和中转站接入向导，并明确阶段依赖与共同架构边界。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "notochen",
+  "assignee": "notochen",
+  "createdAt": "2026-09-04",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-04-availability-decision-center",
+    "09-04-agent-session-workbench",
+    "09-04-automation-rules-center",
+    "09-04-diagnostics-center",
+    "09-04-provider-onboarding-wizard",
+    "09-04-agent-environment-runtime-center"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

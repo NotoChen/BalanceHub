@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"执行前端质量和回归检查"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"检查工作区组件边界、异步状态和可访问交互"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"检查未知语义、revision 和过期请求不会回写"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/availability-decision-center.md","reason":"核对只读语义、凭据边界、性能上限和排序真实性"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/architecture-risk-audit.md","reason":"核对共享契约拆分、禁用模式和三端风险"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/availability-navigation-ux-review.md","reason":"核对返回上下文、键盘语义和 376/600/930/1100px 布局"}

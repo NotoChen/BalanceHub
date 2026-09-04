@@ -1,0 +1,7 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"六项能力都必须先冻结 Rust 数据源、IPC 契约和前端消费边界"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用 Provider、Agent、Terminal、网络、调度和会话现有抽象，避免第二套实现"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/architecture-risk-audit.md","reason":"实施顺序、大文件拆分、并发存储风险和三端验证依据"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/roadmap-dependency-audit.md","reason":"路线图子任务的依赖、最小交付、排除范围和独立验收边界"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/temporary-cli-hook-convergence.md","reason":"Agent 运行时与 Hook 管理子任务的统一投影、所有权和迁移边界"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/agent-assets-versioning-audit.md","reason":"Agent 环境盘点、配置入口、版本比较和后续受控资产能力边界"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/availability-navigation-ux-review.md","reason":"可用性入口、主体替换、状态恢复、窄窗口与未来导航升级边界"}
