@@ -28,8 +28,8 @@ page_class: document-page
 | 修改密码 | 在支持的账号协议上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/adapters/new_api/account.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 仅在协议、站点能力和认证信息满足要求时展示操作入口。 |
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
 | CLI 测活 | 使用已注册的 Agent CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness.rs`、`src-tauri/src/services/agent_cli/<agent>/liveness.rs` | 当前内置 Codex CLI、Claude Code、Gemini CLI、Grok Build；测活会消耗真实额度，首次开启自动测活前会要求确认。 |
-| CLI 候选扫描 | 扫描本机已注册 Agent CLI 的可执行文件。 | `src-tauri/src/services/agent_cli/discovery.rs`、`src/components/settings/SettingsCliManager.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
-| 临时 CLI 启动 | 使用当前中转站临时启动已注册的 Agent CLI。 | `src-tauri/src/services/temporary_cli/`、`src-tauri/src/services/agent_cli/<agent>/launch.rs`、`src/components/TemporaryCliModal.vue` | 覆盖 API Key、Base URL、模型和当前中转站的有效代理；工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
+| CLI 候选扫描 | 扫描本机已注册 Agent CLI 的可执行文件。 | `src-tauri/src/services/agent_cli/discovery.rs`、`src/components/settings/SettingsAgentEnvironmentCenter.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
+| 临时 CLI 启动 | 使用当前中转站临时启动已注册的 Agent CLI。 | `src-tauri/src/services/temporary_cli/`、`src-tauri/src/services/agent_cli/<agent>/launch.rs`、`src/components/AgentRuntimeModal.vue` | 覆盖 API Key、Base URL、模型和当前中转站的有效代理；工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
 | 统一代理 | 为业务请求、Webhook、updater、测活 CLI 和临时 CLI 解析同一套代理语义。 | `src-tauri/src/network/` | 支持无代理、自定义 HTTP/SOCKS 代理及系统手工 HTTP/HTTPS/SOCKS 配置；PAC/WPAD 或无法静态读取的桌面配置保留运行环境，不虚构已解析结果。 |
 | CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/commands/app.rs`、`src-tauri/src/platform/cc_switch.rs` | 支持 Codex CLI、Claude Code、OpenCode、OpenClaw、Hermes 目标；macOS 优先定位 CC Switch bundle，其他情况交给安全的系统处理器。 |
 | 测活时间线 | 保存并展示每个中转站最近的测活结果。 | `src/components/ProviderLivenessTimeline.vue`、`src/utils/provider-liveness.ts` | 用于区分余额正常但 CLI 不可用、模型不可用或网络异常。 |

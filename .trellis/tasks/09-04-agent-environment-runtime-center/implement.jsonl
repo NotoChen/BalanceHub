@@ -1,0 +1,8 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"统一 Hook、launcher、session enrichment 到单一 Rust runtime projection"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用现有 launcher repository、Agent adapters 与 terminal capability，避免平行运行时"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"事件推送、快照校准、request/revision 防过期及忙碌状态收口"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/agent-runtime-hooks-audit.md","reason":"四 Agent 官方 Hook、平台差异、事件语义和隐私边界依据"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/agent-assets-versioning-audit.md","reason":"环境 identity、资产/配置只读盘点、版本来源和安全写入边界"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/temporary-cli-hook-convergence.md","reason":"现有临时 CLI 强证据、统一 runtime、ownership、spool 与迁移边界"}
+{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/github-agent-dynamic-island-audit.md","reason":"外部观察器的 Hook、进程证据、离线捕获和终端定位经验"}
+{"file":".trellis/tasks/09-04-agent-environment-runtime-center/research/phase1-frontend-landing-map.md","reason":"设置页落点、前端类型/store/composable/组件边界和异步交互清单"}
