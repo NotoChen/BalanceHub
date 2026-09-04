@@ -110,3 +110,24 @@ Final verification found Trellis 0.6.15 preserves the generated Codex and Claude
 ### Next Steps
 
 - Commit the reviewed Trellis integration files when you are ready
+
+
+## Session 4: 重构 GitHub Pages 产品入口
+
+**Date**: 2026-09-04
+**Task**: 重构 GitHub Pages 产品入口
+**Branch**: `main`
+
+### Summary
+
+重构 Pages 首页与文档站，复用真实品牌和 Agent 图标，新增由根 CHANGELOG 生成的更新记录页，完善响应式、可访问性与文档专用 CI 路径。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5cde89b` | (see git log) |
+
+### Status
+
+[OK] **Completed**

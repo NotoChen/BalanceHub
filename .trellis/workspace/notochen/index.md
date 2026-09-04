@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-08-26
+- **Total Sessions**: 4
+- **Last Active**: 2026-09-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~112 | Active |
+| `journal-1.md` | ~133 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-09-04 | 重构 GitHub Pages 产品入口 | `5cde89b` | `main` |
 | 3 | 2026-08-26 | Correct official platform detection note | - | `main` |
 | 2 | 2026-08-26 | Verify Trellis integration boundaries | - | `main` |
 | 1 | 2026-08-26 | Integrate official Trellis workflow | - | `main` |
