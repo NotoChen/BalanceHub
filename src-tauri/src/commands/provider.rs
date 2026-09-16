@@ -5,17 +5,43 @@ use crate::{
     },
     models::{
         ProviderApiKeyOption, ProviderBatchProgressEvent, ProviderCheckInRecordsResult,
-        ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
-        ProviderInput, ProviderProtocolDetectionResult, ProviderRemovalResult,
-        ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSaveOptions,
-        ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncementsSnapshot,
+        ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
+        ProviderProtocolDetectionResult, ProviderRemovalResult, ProviderRequestLogsQuery,
+        ProviderRequestLogsResult, ProviderSaveOptions, ProviderSiteProbeResult,
+        ProviderUsageSummary, SiteAnnouncementsSnapshot,
     },
     services::provider_service::ProviderService,
     tray,
 };
 use tauri::{ipc::Channel, AppHandle};
+use tauri_plugin_opener::OpenerExt;
 
 use super::run_blocking;
+
+#[tauri::command]
+pub(crate) async fn open_provider_site(app: AppHandle, id: String) -> Result<(), String> {
+    run_blocking("打开中转站", move || {
+        let data = ProviderService::new(&app).load_app_data()?;
+        let provider = data
+            .providers
+            .iter()
+            .find(|provider| provider.identity.id == id)
+            .ok_or("中转站已删除")?;
+        let url =
+            reqwest::Url::parse(provider.identity.base_url.trim()).map_err(|_| "中转站地址无效")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Err("仅支持不含账号凭据的 HTTP 或 HTTPS 站点地址".to_string());
+        }
+        app.opener()
+            .open_url(url.as_str(), None::<&str>)
+            .map_err(|_| "无法打开系统默认浏览器".to_string())
+    })
+    .await
+}
 
 #[tauri::command]
 pub(crate) async fn save_provider(
@@ -324,21 +350,40 @@ pub(crate) async fn refresh_providers(
 }
 
 #[tauri::command]
-pub(crate) async fn check_in_provider(
+pub(crate) fn check_in_provider(
     app: AppHandle,
     id: String,
-) -> Result<ProviderCheckInResult, String> {
-    ProviderService::new(&app).check_in(id).await
+) -> Result<crate::models::CheckInTask, String> {
+    crate::services::check_in_tasks::enqueue(
+        &app,
+        id,
+        crate::models::CheckInSource::Manual,
+        None,
+        0,
+    )
 }
 
 #[tauri::command]
-pub(crate) async fn check_in_all_providers(
+pub(crate) fn list_check_in_tasks(app: AppHandle) -> Vec<crate::models::CheckInTask> {
+    crate::services::check_in_tasks::list(&app)
+}
+
+#[tauri::command]
+pub(crate) fn cancel_check_in_task(app: AppHandle, run_id: String) -> Result<(), String> {
+    crate::services::check_in_tasks::cancel(&app, &run_id)
+}
+
+#[tauri::command]
+pub(crate) fn resume_check_in_task(
     app: AppHandle,
-    on_event: Channel<ProviderBatchProgressEvent>,
-) -> Result<RefreshResultView, String> {
-    let result = ProviderService::new(&app)
-        .check_in_all_with_progress(on_event)
-        .await?;
-    tray::refresh_from_state(&app);
-    Ok(result.into())
+    run_id: String,
+) -> Result<crate::models::CheckInTask, String> {
+    crate::services::check_in_tasks::resume(&app, &run_id)
+}
+
+#[tauri::command]
+pub(crate) fn check_in_all_providers(
+    app: AppHandle,
+) -> Result<crate::models::CheckInBatch, String> {
+    crate::services::check_in_tasks::enqueue_all(&app)
 }

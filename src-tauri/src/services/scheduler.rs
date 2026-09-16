@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::{stream, StreamExt};
 use tauri::{AppHandle, Emitter};
 
 use crate::{
@@ -24,11 +23,6 @@ const AUTO_REFRESH_TASK: SchedulerTaskDescriptor = SchedulerTaskDescriptor {
     id: "scheduler-refresh",
     kind: "autoRefresh",
     title: "自动刷新中转站",
-};
-const AUTO_CHECK_IN_TASK: SchedulerTaskDescriptor = SchedulerTaskDescriptor {
-    id: "scheduler-check-in",
-    kind: "autoCheckIn",
-    title: "自动签到中转站",
 };
 const AUTO_LIVENESS_TASK: SchedulerTaskDescriptor = SchedulerTaskDescriptor {
     id: "scheduler-liveness",
@@ -70,8 +64,6 @@ fn emit_background_task(
 const TICK_SECS: u64 = 30;
 /// 自动测活并发上限，沿用原前端实现，避免一批到期时被单个最长超时拖垮。
 const LIVENESS_CONCURRENCY: usize = 3;
-/// 自动签到同样采用小并发窗口，避免大量站点逐个等待最长网络超时。
-const CHECK_IN_CONCURRENCY: usize = 3;
 /// 首轮执行前的等待：给前端 webview 注册 `providers-changed` 监听留出时间，
 /// 确保启动后的首次刷新/签到结果能通过事件回流到界面。
 const INITIAL_DELAY_SECS: u64 = 5;
@@ -98,12 +90,6 @@ struct SchedulerState {
     /// 每个中转站「上次发起刷新」的时刻（秒），避免刷新失败时每 tick 重试。
     refresh_attempts: HashMap<String, u64>,
     check_in_attempts: HashMap<String, CheckInAttemptState>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct AutomationItemResult {
-    changed: bool,
-    ok: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -253,65 +239,18 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
             })
             .cloned()
             .collect();
-        let attempts = due
-            .into_iter()
-            .map(|provider| {
-                let attempt = record_check_in_attempt(
-                    &mut state.check_in_attempts,
-                    &provider,
-                    &today,
-                    now_secs,
-                );
-                (provider, attempt)
-            })
-            .collect::<Vec<_>>();
-        if !attempts.is_empty() {
-            let task_started_at = unix_millis() as u64;
-            emit_background_task(
-                app,
-                &AUTO_CHECK_IN_TASK,
-                "running",
-                format!("正在处理 {} 个到期签到", attempts.len()),
-                None,
-                task_started_at,
-                None,
-            );
-            let service = &service;
-            let results = stream::iter(attempts)
-                .map(|(provider, attempt)| async move {
-                    run_auto_check_in(app, service, &provider, settings, attempt).await
-                })
-                .buffer_unordered(CHECK_IN_CONCURRENCY)
-                .collect::<Vec<_>>()
-                .await;
-            let check_in_summary = results.into_iter().fold(
-                AutomationBatchResult::default(),
-                |mut summary, result| {
-                    summary.changed |= result.changed;
-                    summary.failed += usize::from(!result.ok);
-                    summary
-                },
-            );
-            if check_in_summary.changed {
-                changed = true;
+        for provider in due {
+            if super::check_in_tasks::automatic_pending(&provider) {
+                continue;
             }
-            emit_background_task(
+            let attempt =
+                record_check_in_attempt(&mut state.check_in_attempts, &provider, &today, now_secs);
+            let _ = super::check_in_tasks::enqueue(
                 app,
-                &AUTO_CHECK_IN_TASK,
-                if check_in_summary.failed > 0 {
-                    "failed"
-                } else {
-                    "success"
-                },
-                if check_in_summary.failed > 0 {
-                    format!("自动签到已完成，{} 个中转站失败", check_in_summary.failed)
-                } else {
-                    "自动签到任务已完成".to_string()
-                },
-                Some(1.0),
-                task_started_at,
-                (check_in_summary.failed > 0)
-                    .then(|| format!("{} 个中转站签到失败", check_in_summary.failed)),
+                provider.identity.id.clone(),
+                crate::models::CheckInSource::Automatic,
+                None,
+                attempt,
             );
         }
     }
@@ -419,84 +358,6 @@ fn record_check_in_attempt(
             last_attempt_secs: now_secs,
         });
     entry.attempts
-}
-
-/// 自动签到，返回是否产生状态变更及本次结果是否成功。
-///
-/// 失败仍写入 `error_message` 供界面展示，但重试与否只由调度器的尝试记录决定；
-/// 通知只在当日首次失败时发送一条，后续静默重试，避免轰炸。
-async fn run_auto_check_in(
-    app: &AppHandle,
-    service: &ProviderService<'_>,
-    provider: &Provider,
-    settings: &AppSettings,
-    attempt: u32,
-) -> AutomationItemResult {
-    let retry_hint = if attempt < CHECK_IN_MAX_ATTEMPTS_PER_DAY {
-        format!(
-            "，约 {} 分钟后自动重试（今日最多 {} 次）",
-            CHECK_IN_RETRY_BACKOFF_SECS / 60,
-            CHECK_IN_MAX_ATTEMPTS_PER_DAY
-        )
-    } else {
-        "，今日已达重试上限，明天再试".to_string()
-    };
-    match service.check_in(provider.identity.id.clone()).await {
-        Ok(result) if result.ok => {
-            notify_provider_event(
-                app,
-                settings,
-                provider,
-                "BalanceHub 签到成功",
-                non_empty(&result.message, "签到成功"),
-            )
-            .await;
-            AutomationItemResult {
-                changed: true,
-                ok: true,
-            }
-        }
-        Ok(result) => {
-            let display = format!("自动签到失败：{}", non_empty(&result.message, "签到失败"));
-            let _ = service
-                .mark_auto_check_in_failure(provider, display.clone())
-                .await;
-            if attempt == 1 {
-                notify_provider_event(
-                    app,
-                    settings,
-                    provider,
-                    "BalanceHub 签到失败",
-                    &format!("{display}{retry_hint}"),
-                )
-                .await;
-            }
-            AutomationItemResult {
-                changed: true,
-                ok: false,
-            }
-        }
-        Err(message) => {
-            let display = format!("自动签到异常：{}", non_empty(&message, "签到异常"));
-            let _ = service
-                .mark_auto_check_in_failure(provider, display.clone())
-                .await;
-            if attempt == 1 {
-                notify_provider_event(
-                    app,
-                    settings,
-                    provider,
-                    "BalanceHub 签到异常",
-                    &format!("{display}{retry_hint}"),
-                )
-                .await;
-            }
-            AutomationItemResult {
-                changed: true,
-                ok: false,
-            }
-        }
-    }
 }
 
 /// 自动刷新的边沿触发通知：只对「本轮刷新中从非 Error 翻转为 Error」的中转站各发一条。

@@ -36,6 +36,11 @@ pub fn supports_check_in(provider: &Provider, is_anyrouter: bool) -> bool {
     {
         return false;
     }
+    if uses_login_check_in(provider) {
+        return matches!(provider.auth.mode, AuthMode::Password)
+            && !provider.auth.login_username.trim().is_empty()
+            && !provider.auth.login_password.trim().is_empty();
+    }
     let capabilities = &provider.capabilities;
     if capabilities.check_in_known {
         return capabilities.check_in_supported;
@@ -51,8 +56,19 @@ pub fn supports_check_in(provider: &Provider, is_anyrouter: bool) -> bool {
             && auth::has_session(provider)
             && auth::has_api_user(provider))
         || (matches!(provider.auth.mode, AuthMode::Password)
-            && auth::has_session(provider)
-            && auth::has_api_user(provider))
+            && ((!provider.auth.login_username.trim().is_empty()
+                && !provider.auth.login_password.trim().is_empty())
+                || auth::has_session(provider) && auth::has_api_user(provider)))
+}
+
+/// AgentRouter's documented daily action is a fresh login, not /user/checkin.
+/// Match the actual host; a provider label or URL path is not a dialect signal.
+pub fn uses_login_check_in(provider: &Provider) -> bool {
+    matches!(provider.identity.protocol, ProviderProtocol::NewApi)
+        && reqwest::Url::parse(&provider.identity.base_url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+            .is_some_and(|host| host == "agentrouter.org" || host.ends_with(".agentrouter.org"))
 }
 
 pub fn supports_api_key_management(provider: &Provider) -> bool {
@@ -79,6 +95,8 @@ pub fn check_in_user(provider: &Provider, is_anyrouter: bool) -> String {
     let api_user = provider.auth.api_user.trim();
     if !api_user.is_empty() {
         api_user.to_string()
+    } else if matches!(provider.auth.mode, AuthMode::Password) {
+        provider.auth.login_username.clone()
     } else if is_anyrouter {
         provider.identity.id.clone()
     } else {
@@ -126,6 +144,22 @@ fn local_ymd_from_stored(value: &Option<String>) -> Option<(i32, u32, u32)> {
 mod tests {
     use super::*;
     use crate::models::{ProviderAuth, ProviderIdentityInput, ProviderInput};
+
+    #[test]
+    fn agentrouter_login_check_in_requires_password_and_ignores_standard_endpoint_probe() {
+        let mut provider = Provider::from_input(ProviderInput::default(), "login".into());
+        provider.identity.base_url = "https://agentrouter.org".into();
+        provider.auth.mode = AuthMode::Password;
+        provider.auth.login_username = "example".into();
+        provider.auth.login_password = "fixture-password".into();
+        provider.capabilities.check_in_known = true;
+        provider.capabilities.check_in_supported = false;
+        assert!(supports_check_in(&provider, false));
+        provider.auth.login_password.clear();
+        assert!(!supports_check_in(&provider, false));
+        provider.identity.base_url = "https://example.com/agentrouter.org".into();
+        assert!(!uses_login_check_in(&provider));
+    }
 
     fn provider() -> Provider {
         Provider::from_input(

@@ -15,4 +15,7 @@ mod site;
 mod usage;
 
 pub(crate) use adapter::NewApiAdapter;
+pub(crate) use check_in::check_in_with_browser;
 pub(crate) use http::provider_is_anyrouter;
+mod agentrouter;
+pub(crate) use agentrouter::check_in_with_browser as login_check_in_with_browser;

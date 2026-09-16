@@ -3,6 +3,7 @@ import zhCN from "@arco-design/web-vue/es/locale/lang/zh-cn";
 import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
+import BrowserRuntimeModal from "./components/BrowserRuntimeModal.vue";
 import CliConfigKeyPickerModal from "./components/CliConfigKeyPickerModal.vue";
 import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
 import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
@@ -19,6 +20,7 @@ useWindowGridSnap();
   <a-config-provider :locale="zhCN">
     <!-- 桌面界面不显示 WebView 原生右键菜单，卡片操作统一在卡片内完成。 -->
     <div class="app-shell" @contextmenu.prevent>
+      <BrowserRuntimeModal />
       <AppWorkspace
         :loading="app.loading"
         :initialized="app.initialized"

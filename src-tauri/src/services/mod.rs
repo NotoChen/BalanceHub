@@ -1,5 +1,8 @@
 pub(crate) mod agent_cli;
 pub mod app_updater;
+pub(crate) mod browser_check_in;
+pub(crate) mod browser_runtime;
+pub(crate) mod check_in_tasks;
 pub(crate) mod cli_paths;
 pub mod cli_runtime;
 pub mod cli_sessions;

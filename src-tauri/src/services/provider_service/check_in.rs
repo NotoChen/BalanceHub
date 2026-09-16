@@ -1,16 +1,16 @@
+use crate::services::check_in_tasks::{CheckInContext, HTTP_SLOTS};
 use crate::{
     adapters::protocol::ProtocolAdapter,
     limits,
     models::{
-        check_in_message_indicates_disabled, provider_domain, Provider, ProviderBatchDetails,
-        ProviderBatchOperation, ProviderBatchProgressEvent, ProviderBatchProgressItem,
-        ProviderBatchStatus, ProviderCheckInRecord, ProviderCheckInRecordsResult,
-        ProviderCheckInResult, ProviderQuotaDisplay, ProviderStatus, RefreshResult,
+        check_in_message_indicates_disabled, provider_domain, CheckInError, CheckInPhase, Provider,
+        ProviderCheckInRecord, ProviderCheckInRecordsResult, ProviderCheckInResult,
+        ProviderQuotaDisplay, ProviderStatus,
     },
     util::unix_millis as current_timestamp_millis,
 };
-use std::sync::Arc;
-use tauri::{ipc::Channel, Manager};
+use std::time::Duration;
+use tauri::Manager;
 
 use super::{
     find_provider, refresh::apply_refresh_owned_fields, MutationDecision, ProviderRequestContext,
@@ -51,55 +51,84 @@ impl<'a> ProviderService<'a> {
         }
     }
 
-    pub async fn check_in(&self, id: String) -> Result<ProviderCheckInResult, String> {
-        let state = self.app.state::<crate::state::AppState>();
-        let _network_gate = state.refresh_gate.lock().await;
-        let _gate = state.check_in_gate.lock().await;
-        self.check_in_inner(id).await
-    }
-
-    pub async fn mark_auto_check_in_failure(
+    pub(crate) async fn check_in_attempt(
         &self,
-        provider: &Provider,
-        message: String,
-    ) -> Result<(), String> {
-        let request_context = ProviderRequestContext::capture(provider);
-        self.mutate_decided_async(move |data| {
-            if let Some(provider) = data
-                .providers
-                .iter_mut()
-                .find(|provider| request_context.matches(provider))
-            {
-                let changed = !matches!(provider.runtime.status, ProviderStatus::Error)
-                    || provider.runtime.error_message.as_deref() != Some(message.as_str());
-                if !changed {
-                    return Ok(MutationDecision::unchanged(()));
-                }
-                provider.runtime.status = ProviderStatus::Error;
-                provider.runtime.error_message = Some(message);
-                return Ok(MutationDecision::changed(()));
-            }
-            Ok(MutationDecision::unchanged(()))
-        })
-        .await
-    }
-
-    async fn check_in_inner(&self, id: String) -> Result<ProviderCheckInResult, String> {
+        id: String,
+        task: &CheckInContext,
+    ) -> Result<ProviderCheckInResult, CheckInError> {
+        let http_slot = HTTP_SLOTS.acquire().await.map_err(|_| "签到队列不可用")?;
+        task.phase(self.app, CheckInPhase::Checking);
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
-        let operation = adapter.check_in(&data.settings, &provider).await?;
-        let effective_provider = self
-            .persist_operation_credentials(&request_context, &operation.credentials)
+        let state = self.app.state::<crate::state::AppState>();
+        let network_gate = state.refresh_gate.lock().await;
+        self.current_operation_provider(&request_context)
             .await?
+            .ok_or("账号配置已变更，已停止本次签到")?;
+        task.phase(self.app, CheckInPhase::Requesting);
+        let operation = tokio::time::timeout(
+            Duration::from_secs(120),
+            adapter.check_in(&data.settings, &provider),
+        )
+        .await
+        .map_err(|_| {
+            CheckInError::Unconfirmed("签到请求超时；结果可能已提交，请查看站点记录".to_string())
+        })??;
+        let mut effective_provider = self
+            .persist_operation_credentials(&request_context, &operation.credentials)
+            .await
+            .map_err(|error| {
+                CheckInError::Unconfirmed(format!(
+                    "签到请求已返回，但本地会话保存失败：{error}；已停止自动重试"
+                ))
+            })?
             .ok_or_else(|| {
-                "签到请求已完成，但本地配置已变更，本次结果未写入当前账号".to_string()
+                CheckInError::Unconfirmed(
+                    "签到请求已完成，但本地配置已变更，本次结果未写入当前账号".to_string(),
+                )
             })?;
-        let mutation_context = ProviderRequestContext::capture(&effective_provider);
+        drop(network_gate);
+        drop(http_slot);
+        task.authenticated(&effective_provider);
         let mut result = operation.value;
         let is_anyrouter = adapter.is_anyrouter(&effective_provider);
-        let refreshed_provider = if result.ok {
+        let browser_assisted = result.verification_required.is_some();
+        if let Some(verification) = result.verification_required {
+            let browser_operation = crate::services::browser_check_in::run(
+                self.app,
+                &data.settings,
+                &effective_provider,
+                verification,
+                task,
+            )
+            .await?;
+            effective_provider = self
+                .persist_operation_credentials(
+                    &ProviderRequestContext::capture(&effective_provider),
+                    &browser_operation.credentials,
+                )
+                .await
+                .map_err(|error| {
+                    CheckInError::Unconfirmed(format!(
+                        "站点操作已完成，但本地会话保存失败：{error}；已停止自动重试"
+                    ))
+                })?
+                .ok_or_else(|| {
+                    CheckInError::Unconfirmed("站点操作已完成，但账号配置已变更".to_string())
+                })?;
+            task.authenticated(&effective_provider);
+            result = browser_operation.value;
+        }
+        if result.unconfirmed {
+            return Err(CheckInError::Unconfirmed(result.message));
+        }
+        let mutation_context = ProviderRequestContext::capture(&effective_provider);
+        // Browser requests already confirmed the result. A full HTTP refresh
+        // would immediately re-enter the same wall and create unrelated traffic.
+        let refreshed_provider = if result.ok && !browser_assisted {
+            let _network_gate = state.refresh_gate.lock().await;
             let refresh_outcome = adapter
                 .refresh_provider(&data.settings, &effective_provider)
                 .await;
@@ -111,6 +140,7 @@ impl<'a> ProviderService<'a> {
         };
 
         if result.ok {
+            task.phase(self.app, CheckInPhase::Saving);
             let checked_in_at = current_timestamp_millis().to_string();
             let check_in_user =
                 provider_domain::capabilities::check_in_user(&effective_provider, is_anyrouter);
@@ -164,15 +194,19 @@ impl<'a> ProviderService<'a> {
                         Ok(MutationDecision::unchanged(false))
                     }
                 })
-                .await?;
+                .await
+                .map_err(|error| {
+                    CheckInError::Unconfirmed(format!(
+                        "站点已确认签到，但本地记录保存失败：{error}；请勿重复提交"
+                    ))
+                })?;
             if persisted {
                 result.last_checked_in_at = Some(checked_in_at);
                 result.last_check_in_user = Some(check_in_user);
             } else {
-                result.message = format!(
-                    "{}；本地配置已变更，本次结果未写入当前账号",
-                    non_empty(&result.message, "签到成功")
-                );
+                return Err(CheckInError::Unconfirmed(
+                    "站点已确认签到，但本地配置已变更，记录未写入当前账号".to_string(),
+                ));
             }
         } else if check_in_message_indicates_disabled(&result.message) {
             let probed_at = current_timestamp_millis().to_string();
@@ -195,152 +229,6 @@ impl<'a> ProviderService<'a> {
 
         Ok(result)
     }
-
-    /// 批量签到的唯一后端入口。目标清单、跳过原因和逐站结果均由 Rust 根据当前
-    /// 存储状态计算，前端只负责订阅事件和展示，不再维护第二套签到筛选规则。
-    pub async fn check_in_all_with_progress(
-        &self,
-        channel: Channel<ProviderBatchProgressEvent>,
-    ) -> Result<RefreshResult, String> {
-        const MAX_CONCURRENT_CHECK_IN: usize = 6;
-
-        // 与全局刷新共用闸门，避免签到后的静默刷新和全量刷新同时写同一张卡片。
-        let state = self.app.state::<crate::state::AppState>();
-        let _refresh_gate = state.refresh_gate.lock().await;
-        let _check_in_gate = state.check_in_gate.lock().await;
-        let data = self.snapshot_async().await?;
-        let mut progress_items = Vec::with_capacity(data.providers.len());
-        let mut targets = Vec::new();
-        for provider in &data.providers {
-            let item = if !provider.runtime.enabled {
-                ProviderBatchProgressItem::skipped(provider, "中转站已停用")
-            } else {
-                let is_anyrouter = ProtocolAdapter.is_anyrouter(provider);
-                let supports =
-                    provider_domain::capabilities::supports_check_in(provider, is_anyrouter);
-                if !supports {
-                    ProviderBatchProgressItem::skipped(provider, "当前协议或站点不支持签到")
-                } else if provider_domain::capabilities::checked_in_today(provider, is_anyrouter) {
-                    ProviderBatchProgressItem::skipped(provider, "今日已签到")
-                } else {
-                    targets.push(provider.clone());
-                    ProviderBatchProgressItem::pending(provider)
-                }
-            };
-            progress_items.push(item);
-        }
-        send_progress(
-            &channel,
-            ProviderBatchProgressEvent::Started {
-                operation: ProviderBatchOperation::CheckIn,
-                total: progress_items.len(),
-                items: progress_items.clone(),
-            },
-        );
-
-        let target_ids = targets
-            .iter()
-            .map(|provider| provider.identity.id.clone())
-            .collect::<Vec<_>>();
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CHECK_IN));
-        let mut handles = Vec::with_capacity(targets.len());
-        for provider in targets {
-            let app = self.app.clone();
-            let semaphore = Arc::clone(&semaphore);
-            let progress = channel.clone();
-            handles.push(tauri::async_runtime::spawn(async move {
-                let _permit = semaphore
-                    .acquire()
-                    .await
-                    .expect("check-in semaphore closed");
-                send_progress(
-                    &progress,
-                    ProviderBatchProgressEvent::ProviderStarted {
-                        operation: ProviderBatchOperation::CheckIn,
-                        item: ProviderBatchProgressItem::new(
-                            &provider,
-                            ProviderBatchStatus::Running,
-                            "正在签到",
-                            None,
-                        ),
-                    },
-                );
-
-                let provider_id = provider.identity.id.clone();
-                let service = ProviderService::new(&app);
-                let (status, message, quota_delta) = match service.check_in_inner(provider_id).await
-                {
-                    Ok(result) => (
-                        if result.ok {
-                            ProviderBatchStatus::Success
-                        } else {
-                            ProviderBatchStatus::Failed
-                        },
-                        non_empty(
-                            &result.message,
-                            if result.ok {
-                                "签到成功"
-                            } else {
-                                "签到失败"
-                            },
-                        )
-                        .to_string(),
-                        result.quota_delta,
-                    ),
-                    Err(error) => (ProviderBatchStatus::Failed, error, None),
-                };
-                let latest = service
-                    .snapshot_async()
-                    .await
-                    .ok()
-                    .and_then(|data| find_provider(&data, &provider.identity.id).ok());
-                let display_provider = latest.as_ref().unwrap_or(&provider);
-                let item = ProviderBatchProgressItem::new(
-                    display_provider,
-                    status,
-                    message,
-                    Some(ProviderBatchDetails::from_provider(
-                        display_provider,
-                        quota_delta,
-                    )),
-                );
-                send_progress(
-                    &progress,
-                    ProviderBatchProgressEvent::ProviderFinished {
-                        operation: ProviderBatchOperation::CheckIn,
-                        item: item.clone(),
-                    },
-                );
-                item
-            }));
-        }
-
-        for handle in handles {
-            let item = handle
-                .await
-                .map_err(|error| format!("签到任务异常: {error}"))?;
-            if let Some(slot) = progress_items
-                .iter_mut()
-                .find(|slot| slot.provider_id == item.provider_id)
-            {
-                *slot = item;
-            }
-        }
-
-        let updated_providers = self.providers_by_ids_async(&target_ids).await?;
-        send_progress(
-            &channel,
-            ProviderBatchProgressEvent::Completed {
-                operation: ProviderBatchOperation::CheckIn,
-                summary: crate::models::ProviderBatchSummary::from_items(&progress_items),
-            },
-        );
-        Ok(RefreshResult { updated_providers })
-    }
-}
-
-fn send_progress(channel: &Channel<ProviderBatchProgressEvent>, event: ProviderBatchProgressEvent) {
-    let _ = channel.send(event);
 }
 
 fn is_auto_check_in_error(message: &str) -> bool {

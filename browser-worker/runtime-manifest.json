@@ -1,0 +1,101 @@
+{
+  "version": "1-node22.23.2-pw1.55.0-chromium1187",
+  "browserVersion": "140.0.7339.16",
+  "playwright": {
+    "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.55.0.tgz",
+    "sha256": "6b63fdf41725afb924880728d39cf560d770f785a861d18c15611e99dd3172bd",
+    "size": 1915434
+  },
+  "targets": {
+    "macos-aarch64": {
+      "node": {
+        "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-arm64.tar.gz",
+        "sha256": "61130f394c1630d211dd50aecc4353d379480f36d3ac913cd85dbba1aed585c6",
+        "size": 60000000
+      },
+      "nodePrefix": "node-v22.23.2-darwin-arm64",
+      "browser": {
+        "archive": "chromium-mac-arm64.zip",
+        "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1187/chromium-mac-arm64.zip",
+        "sha256": "e19db0c508577e03896398b891dd76c67df4249d51a967680458848859948265",
+        "size": 135997748
+      },
+      "browserExecutable": "chrome-mac/Chromium.app/Contents/MacOS/Chromium"
+    },
+    "macos-x86_64": {
+      "node": {
+        "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-x64.tar.gz",
+        "sha256": "58e99022c2ff89395576cc7fd4d98cea24bb68081475d5f88b801ee8729fb026",
+        "size": 60000000
+      },
+      "nodePrefix": "node-v22.23.2-darwin-x64",
+      "browser": {
+        "archive": "chromium-mac.zip",
+        "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1187/chromium-mac.zip",
+        "sha256": "95e2172125783397535938073e8cb101a2727537c9fa655ddbb59923ca75da0b",
+        "size": 142829723
+      },
+      "browserExecutable": "chrome-mac/Chromium.app/Contents/MacOS/Chromium"
+    },
+    "linux-aarch64": {
+      "node": {
+        "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-arm64.tar.gz",
+        "sha256": "013b59cfd2819703a6f4a14ab891fc46fc2a4e3f5bcd92de3fb4929b43e35b30",
+        "size": 60000000
+      },
+      "nodePrefix": "node-v22.23.2-linux-arm64",
+      "browser": {
+        "archive": "chromium-linux-arm64.zip",
+        "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1187/chromium-linux-arm64.zip",
+        "sha256": "fc28cdbd2627ef39fe9b0a52d1cd927f21720de6989798313944ff44311a9a7c",
+        "size": 183891188
+      },
+      "browserExecutable": "chrome-linux/chrome"
+    },
+    "linux-x86_64": {
+      "node": {
+        "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-x64.tar.gz",
+        "sha256": "b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a",
+        "size": 60000000
+      },
+      "nodePrefix": "node-v22.23.2-linux-x64",
+      "browser": {
+        "archive": "chromium-linux.zip",
+        "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1187/chromium-linux.zip",
+        "sha256": "395e829e88f9ff3fc108cc9a3db49907afd9f5860066e9678694b01a406ee979",
+        "size": 182166967
+      },
+      "browserExecutable": "chrome-linux/chrome"
+    },
+    "windows-aarch64": {
+      "node": {
+        "url": "https://nodejs.org/dist/v22.23.2/win-arm64/node.exe",
+        "sha256": "97cce5301a815d2dce07ac5bfd1e6039eae88185ec1d10ae4f8cb712f1732878",
+        "size": 60000000
+      },
+      "nodePrefix": "",
+      "browser": {
+        "archive": "chromium-win64.zip",
+        "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1187/chromium-win64.zip",
+        "sha256": "5ff4e8e85e1184a5c6bb7d9a5e3ab1547277a88ba2221556c98906f5968ff658",
+        "size": 156113826
+      },
+      "browserExecutable": "chrome-win/chrome.exe"
+    },
+    "windows-x86_64": {
+      "node": {
+        "url": "https://nodejs.org/dist/v22.23.2/win-x64/node.exe",
+        "sha256": "0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4",
+        "size": 60000000
+      },
+      "nodePrefix": "",
+      "browser": {
+        "archive": "chromium-win64.zip",
+        "url": "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1187/chromium-win64.zip",
+        "sha256": "5ff4e8e85e1184a5c6bb7d9a5e3ab1547277a88ba2221556c98906f5968ff658",
+        "size": 156113826
+      },
+      "browserExecutable": "chrome-win/chrome.exe"
+    }
+  }
+}

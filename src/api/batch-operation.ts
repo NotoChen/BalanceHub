@@ -1,7 +1,7 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
 import type { Provider } from "../stores/providers";
 
-export type ProviderBatchOperation = "refresh" | "checkIn";
+export type ProviderBatchOperation = "refresh";
 export type ProviderBatchStatus = "pending" | "running" | "success" | "failed" | "skipped";
 
 export interface ProviderBatchDetails {
@@ -75,8 +75,4 @@ export interface BatchOperationResult {
 
 export function refreshAllProvidersWithProgress(onEvent: Channel<ProviderBatchProgressEvent>) {
   return invoke<BatchOperationResult>("refresh_all_providers_with_progress", { onEvent });
-}
-
-export function checkInAllProviders(onEvent: Channel<ProviderBatchProgressEvent>) {
-  return invoke<BatchOperationResult>("check_in_all_providers", { onEvent });
 }

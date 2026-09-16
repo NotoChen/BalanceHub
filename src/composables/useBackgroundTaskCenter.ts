@@ -10,8 +10,10 @@ import type {
   ProviderBatchProgressItem,
 } from "../api/batch-operation";
 import { providerDisplayLabel } from "../utils/provider-display";
+import type { CheckInTask } from "../api/checkin";
+import type { BrowserRuntimeStatus } from "../api/browser-runtime";
 
-export type BackgroundTaskStatus = "running" | "success" | "failed";
+export type BackgroundTaskStatus = "running" | "waiting" | "success" | "failed" | "cancelled" | "unconfirmed";
 
 export type BackgroundTaskKind =
   | "refresh"
@@ -37,6 +39,7 @@ export interface BackgroundTask {
   finishedAt?: number;
   error?: string;
   source: "manual" | "automatic";
+  actions?: { label: string; disabled?: boolean; run: () => void }[];
 }
 
 interface BackgroundTaskEvent {
@@ -60,8 +63,12 @@ interface UseBackgroundTaskCenterOptions {
   batchOperationCompleted: Ref<boolean>;
   refreshInProgress: Ref<boolean>;
   refreshingProviderIds: Ref<Set<string>>;
-  globalCheckInInProgress: Ref<boolean>;
-  checkingInProviderIds: Ref<string[]>;
+  checkInTasks: Ref<CheckInTask[]>;
+  checkInPending: Ref<string[]>;
+  resumeCheckInTask: (task: CheckInTask) => Promise<void>;
+  cancelCheckInTask: (task: CheckInTask) => Promise<void>;
+  browserRuntime: Ref<BrowserRuntimeStatus | null>;
+  cancelBrowserRuntime: () => Promise<void>;
   checkingForUpdate: Ref<boolean>;
   updateCheckError: Ref<string>;
   installingUpdate: Ref<boolean>;
@@ -93,6 +100,20 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   let previousActive = new Map<string, BackgroundTask>();
   let observedActiveState = false;
   const rememberedTemporaryCliTaskIds = new Set<string>();
+  const rememberedCheckInIds = new Set<string>();
+  let disposed = false;
+
+  function checkInBackgroundTask(task: CheckInTask): BackgroundTask {
+    const busy = options.checkInPending.value.some((key) => key.endsWith(`:${task.runId}`));
+    const actions: NonNullable<BackgroundTask["actions"]> = [];
+    if (task.canResume) actions.push({ label: task.phase === "waitingBrowser" ? "安装 / 继续" : "继续验证", disabled: busy, run: () => { void options.resumeCheckInTask(task); } });
+    if (task.canCancel) actions.push({ label: "取消", disabled: busy, run: () => { void options.cancelCheckInTask(task); } });
+    const status: BackgroundTaskStatus = task.phase === "completed" ? "success" : task.phase === "failed" ? "failed"
+      : task.phase === "cancelled" ? "cancelled" : task.phase === "unconfirmed" ? "unconfirmed" : task.canResume ? "waiting" : "running";
+    return { id: task.runId, kind: task.source === "automatic" ? "autoCheckIn" : "checkIn", title: `签到 · ${task.providerName}`,
+      detail: task.message, status, progress: null, startedAt: task.startedAt, finishedAt: task.finishedAt ?? undefined,
+      source: task.source === "automatic" ? "automatic" : "manual", actions };
+  }
 
   const activeTasks = computed<BackgroundTask[]>(() => {
     const tasks: BackgroundTask[] = [];
@@ -100,15 +121,14 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     const batchItems = options.batchOperationItems.value;
 
     if (options.batchOperationRunning.value) {
-      const operation = options.batchOperation.value;
       const completed = batchItems.filter((item) =>
         ["success", "failed", "skipped"].includes(item.status),
       ).length;
       const total = batchItems.length;
       tasks.push({
         id: "manual-batch-operation",
-        kind: operation === "checkIn" ? "checkIn" : "refresh",
-        title: operation === "checkIn" ? "一键签到" : "全局刷新",
+        kind: "refresh",
+        title: "全局刷新",
         detail: total > 0 ? `已完成 ${completed} / ${total} 个中转站` : "正在准备中转站任务",
         status: "running",
         progress: total > 0 ? completed / total : null,
@@ -142,29 +162,13 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       }
     }
 
-    if (options.globalCheckInInProgress.value && !options.batchOperationRunning.value) {
-      tasks.push({
-        id: "provider-check-in",
-        kind: "checkIn",
-        title: "签到中转站",
-        detail: "正在处理签到请求",
-        status: "running",
-        progress: null,
-        startedAt: previousActive.get("provider-check-in")?.startedAt ?? now,
-        source: "manual",
-      });
-    } else if (options.checkingInProviderIds.value.length > 0 && !options.batchOperationRunning.value) {
-      tasks.push({
-        id: "provider-check-in",
-        kind: "checkIn",
-        title: "签到中转站",
-        detail: `${options.checkingInProviderIds.value.length} 个中转站正在签到`,
-        status: "running",
-        progress: null,
-        startedAt: previousActive.get("provider-check-in")?.startedAt ?? now,
-        source: "manual",
-      });
-    }
+    tasks.push(...options.checkInTasks.value.filter((task) => !task.finished).map(checkInBackgroundTask));
+    const runtime = options.browserRuntime.value;
+    if (runtime?.phase === "installing") tasks.push({
+      id: "browser-runtime-install", kind: "update", title: "安装浏览器签到组件", detail: runtime.message,
+      status: "running", progress: runtime.progress, startedAt: previousActive.get("browser-runtime-install")?.startedAt ?? now,
+      source: "manual", actions: [{ label: "取消", run: () => { void options.cancelBrowserRuntime(); } }],
+    });
 
     if (options.checkingForUpdate.value) {
       tasks.push({
@@ -308,8 +312,6 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       switch (task.id) {
         case "provider-refresh":
           return "中转站同步已完成";
-        case "provider-check-in":
-          return "签到任务已完成";
         case "update-check":
           return "版本检查已完成";
         case "update-install":
@@ -341,6 +343,8 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
           !next.has(id)
           && !id.startsWith("scheduler-")
           && !id.startsWith("temporary-cli-launch-")
+          && !id.startsWith("checkin-")
+          && id !== "browser-runtime-install"
         ) {
           rememberRecent(completedLocalTask(previous));
         }
@@ -398,15 +402,18 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     pruneRecent();
     recentPruneTimer = window.setInterval(pruneRecent, 60_000);
     try {
-      schedulerUnlisten = await listen<BackgroundTaskEvent>(TASK_EVENT_NAME, (event) => {
+      const dispose = await listen<BackgroundTaskEvent>(TASK_EVENT_NAME, (event) => {
         handleSchedulerEvent(event.payload);
       });
+      if (disposed) dispose();
+      else schedulerUnlisten = dispose;
     } catch {
       // Vite/browser preview has no Tauri event bus; local observable tasks remain available.
     }
   });
 
   onUnmounted(() => {
+    disposed = true;
     schedulerUnlisten?.();
     schedulerUnlisten = null;
     if (recentPruneTimer !== null) {
@@ -419,6 +426,20 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   watch(options.temporaryCliLaunchTasks, handleTemporaryCliTaskChanges, {
     deep: true,
     immediate: true,
+  });
+  watch(options.checkInTasks, (tasks) => {
+    for (const task of tasks) {
+      if (task.finished && !rememberedCheckInIds.has(task.runId)) {
+        rememberedCheckInIds.add(task.runId);
+        rememberRecent(checkInBackgroundTask(task));
+      }
+    }
+  }, { immediate: true });
+  watch(options.browserRuntime, (runtime, previous) => {
+    if (!runtime || previous?.phase !== "installing" || runtime.phase === "installing") return;
+    rememberRecent({ id: "browser-runtime-install", kind: "update", title: "浏览器签到组件", detail: runtime.message,
+      status: runtime.phase === "ready" ? "success" : runtime.phase === "cancelled" ? "cancelled" : "failed",
+      progress: null, startedAt: previousActive.get("browser-runtime-install")?.startedAt ?? Date.now(), finishedAt: Date.now(), source: "manual" });
   });
 
   return {

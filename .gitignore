@@ -12,6 +12,7 @@ dist
 dist-ssr
 src-tauri/target
 src-tauri/gen
+.runtime/
 *.local
 .env
 .env.*

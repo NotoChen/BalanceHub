@@ -1,35 +1,12 @@
 import { Message } from "@arco-design/web-vue";
-import type { Ref } from "vue";
 import { sendAppNotification } from "../api/app";
-import type { AppSettings, Provider } from "../stores/providers";
+import type { AppSettings } from "../stores/providers";
 
 /**
- * 常规通知（notifySystem）读「已保存」的 store 配置，与后台调度器读到的保持一致；
+ * 常规签到通知由后端任务服务发送；
  * 测试按钮（sendTestNotification）读设置抽屉草稿，允许先验证 webhook 再保存。
  */
-export function useSystemNotification(
-  savedSettings: Ref<AppSettings>,
-  draftSettings: AppSettings,
-) {
-  async function notifySystem(
-    title: string,
-    markdown: string,
-    options: { ignoreSwitch?: boolean; provider?: Provider } = {},
-  ) {
-    try {
-      const result = await sendAppNotification(
-        savedSettings.value,
-        title,
-        markdown,
-        Boolean(options.ignoreSwitch),
-        options.provider,
-      );
-      return result.sentCount > 0;
-    } catch {
-      return false;
-    }
-  }
-
+export function useSystemNotification(draftSettings: AppSettings) {
   async function sendTestNotification() {
     try {
       const result = await sendAppNotification(
@@ -61,7 +38,6 @@ export function useSystemNotification(
   }
 
   return {
-    notifySystem,
     sendTestNotification,
   };
 }

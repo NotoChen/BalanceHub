@@ -378,11 +378,16 @@ impl NewApiAdapter {
             return Err("API Key 认证不支持用户签到，请切换到 Cookie 或访问令牌".to_string());
         }
         let client = crate::adapters::transport::build_client(settings, provider).await?;
+        if crate::models::provider_domain::capabilities::uses_login_check_in(provider) {
+            return super::agentrouter::check_in(&client, provider).await;
+        }
         let authenticated = authenticated_provider(&client, provider).await?;
         let first = check_in_for_provider(&client, &authenticated).await;
         match first {
             Ok(value)
                 if value.ok
+                    || value.unconfirmed
+                    || value.verification_required.is_some()
                     || client
                         .shield_blocked_for(&authenticated.identity.base_url)
                         .await
@@ -549,7 +554,14 @@ pub async fn probe_capabilities(
         return (capabilities, invite_link, None);
     }
 
-    if is_anyrouter {
+    if crate::models::provider_domain::capabilities::uses_login_check_in(provider) {
+        capabilities.check_in_known = true;
+        capabilities.check_in_supported = !provider.auth.login_username.trim().is_empty()
+            && !provider.auth.login_password.trim().is_empty();
+        if capabilities.check_in_supported {
+            capabilities.check_in_auth_modes.push(AuthMode::Password);
+        }
+    } else if is_anyrouter {
         capabilities.check_in_known = true;
         capabilities.check_in_supported = !provider.auth.session_cookie.trim().is_empty();
         if capabilities.check_in_supported {

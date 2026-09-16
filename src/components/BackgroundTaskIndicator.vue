@@ -51,6 +51,9 @@ function iconFor(kind: BackgroundTaskKind) {
 function statusLabel(task: BackgroundTask) {
   if (task.status === "failed") return "失败";
   if (task.status === "success") return "完成";
+  if (task.status === "waiting") return "待处理";
+  if (task.status === "cancelled") return "已取消";
+  if (task.status === "unconfirmed") return "待确认";
   if (task.progress === null) return "进行中";
   return `${Math.round(task.progress * 100)}%`;
 }
@@ -135,13 +138,16 @@ function formatTime(value?: number) {
         </header>
 
         <div v-if="tasks.length > 0" class="background-task-list" aria-label="正在执行">
-          <article v-for="task in tasks" :key="task.id" class="background-task-row is-running">
+          <article v-for="task in tasks" :key="task.id" class="background-task-row" :class="`is-${task.status}`">
             <span class="background-task-row-icon">
               <component :is="iconFor(task.kind)" :size="16" :stroke-width="1.9" />
             </span>
             <div class="background-task-row-copy">
               <strong>{{ task.title }}</strong>
               <span>{{ task.detail }}</span>
+              <div v-if="task.actions?.length" class="background-task-actions">
+                <button v-for="action in task.actions" :key="action.label" type="button" :disabled="action.disabled" @click.stop="action.run">{{ action.label }}</button>
+              </div>
               <a-progress
                 v-if="task.progress !== null"
                 :percent="task.progress"
@@ -183,3 +189,9 @@ function formatTime(value?: number) {
     </template>
   </a-popover>
 </template>
+
+<style scoped>
+.background-task-actions { display: flex; gap: 12px; margin-top: 5px; }
+.background-task-actions button { padding: 2px 0; border: 0; background: transparent; color: rgb(var(--primary-6)); font-size: 12px; cursor: pointer; }
+.background-task-actions button:disabled { opacity: 0.5; cursor: default; }
+</style>

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 mod agent_cli;
 #[path = "models/app_settings.rs"]
 mod app_settings;
+#[path = "models/check_in_task.rs"]
+mod check_in_task;
 #[path = "models/cli_sessions.rs"]
 mod cli_sessions;
 #[path = "models/enums.rs"]
@@ -28,6 +30,7 @@ pub(crate) use app_settings::{
 pub use app_settings::{
     AppSettings, LivenessPlaceholderPool, NotificationChannel, NotificationChannelKind,
 };
+pub use check_in_task::*;
 pub use cli_sessions::{
     CliSessionDetail, CliSessionIndexAgentStats, CliSessionIndexState, CliSessionIndexStatus,
     CliSessionMessage, CliSessionMessageRole, CliSessionSearchResponse, CliSessionSearchResult,

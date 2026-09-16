@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, inject } from "vue";
+import { BROWSER_RUNTIME_CONTEXT } from "../../composables/useBrowserRuntime";
 import { IconCalendarClock, IconRefresh } from "@arco-design/web-vue/es/icon";
 import { durationUnitOptions, type DurationUnit } from "../../utils/duration";
 import type { AppSettings } from "../../stores/providers";
@@ -10,6 +11,7 @@ const props = defineProps<{
   globalRefreshAmount: number;
   globalRefreshUnit: DurationUnit;
 }>();
+const browserRuntime = inject(BROWSER_RUNTIME_CONTEXT);
 
 const emit = defineEmits<{
   toggle: [];
@@ -105,6 +107,13 @@ const globalRefreshUnitModel = computed({
             disable-confirm
             :disabled="!settings.autoCheckInEnabled"
           />
+        </div>
+        <div v-if="browserRuntime" class="settings-setting-row">
+          <div class="settings-setting-copy">
+            <strong>浏览器辅助签到</strong>
+            <span>{{ browserRuntime.state.value?.ready ? '组件可用' : '遇到站点验证时可按需安装组件' }}</span>
+          </div>
+          <a-button size="small" @click="browserRuntime.open">管理组件</a-button>
         </div>
       </div>
     </section>

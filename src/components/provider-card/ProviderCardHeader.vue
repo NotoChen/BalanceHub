@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { Message } from "@arco-design/web-vue";
+import { ExternalLink } from "@lucide/vue";
+import { openProviderSite } from "../../api/provider-site";
 import { IconCopy } from "@arco-design/web-vue/es/icon";
 import AgentCliIcon from "../AgentCliIcon.vue";
 import ProviderApiKeySwitcher from "./ProviderApiKeySwitcher.vue";
@@ -106,6 +109,14 @@ function handleProviderLogoError(event: Event) {
 function openCliInstances(cliKind: AgentCliKind) {
   emit("openCliInstances", props.provider, cliKind);
 }
+
+async function openSite() {
+  try {
+    await openProviderSite(props.provider.identity.id);
+  } catch (error) {
+    Message.error(String(error));
+  }
+}
 </script>
 
 <template>
@@ -190,6 +201,16 @@ function openCliInstances(cliKind: AgentCliKind) {
     </div>
   </div>
   <div class="provider-card-header-meta">
+    <button
+      v-if="interactive && provider.identity.baseUrl.trim()"
+      type="button"
+      class="provider-card-open-site"
+      title="打开中转站"
+      aria-label="打开中转站"
+      @click.stop="openSite"
+      @pointerdown.stop
+      @keydown.enter.stop
+    ><ExternalLink :size="14" /></button>
     <div
       v-if="activeCliSignals.length > 0"
       class="provider-card-cli-signals"
@@ -227,3 +248,20 @@ function openCliInstances(cliKind: AgentCliKind) {
   </div>
 </header>
 </template>
+
+<style scoped>
+.provider-card-open-site {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-3);
+  cursor: pointer;
+}
+.provider-card-open-site:hover,
+.provider-card-open-site:focus-visible { color: rgb(var(--primary-6)); background: var(--color-fill-2); }
+</style>

@@ -1,76 +1,77 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, onMounted, onUnmounted, provide, shallowRef, watch, type ComputedRef, type InjectionKey } from "vue";
 import { Message } from "@arco-design/web-vue";
-import { checkInProvider } from "../api/checkin";
+import { checkInProvider, checkInAllProviders, cancelCheckInTask, listCheckInTasks, listenCheckInTasks, resumeCheckInTask, type CheckInTask } from "../api/checkin";
 import type { Provider } from "../stores/providers";
-import { providerDisplayLabel } from "../utils/provider-display";
+import { createCheckInTracker, type CheckInSnapshot } from "../utils/check-in-tasks";
+import type { BrowserRuntimeController } from "./useBrowserRuntime";
 
-interface UseCheckInActionsOptions {
-  providers: Ref<Provider[]>;
-  reload: () => Promise<unknown>;
-  notifySystem: (
-    title: string,
-    body: string,
-    options?: { ignoreSwitch?: boolean; provider?: Provider },
-  ) => Promise<boolean>;
+interface CheckInController {
+  tasks: ComputedRef<CheckInTask[]>;
+  pending: ComputedRef<string[]>;
+  resume: (task: CheckInTask) => Promise<void>;
+  cancel: (task: CheckInTask) => Promise<void>;
 }
+export const CHECK_IN_CONTEXT: InjectionKey<CheckInController> = Symbol("check-in-tasks");
 
-type CheckInRunStatus = "success" | "failed" | "skipped";
+export function useCheckInActions(options: { reload: () => Promise<unknown>; browserRuntime: BrowserRuntimeController }) {
+  const state = shallowRef<CheckInSnapshot>({ items: [], pending: [], error: "" });
+  const tracker = createCheckInTracker({ list: listCheckInTasks, listen: listenCheckInTasks,
+    submit: checkInProvider, submitAll: checkInAllProviders, resume: resumeCheckInTask, cancel: cancelCheckInTask,
+  }, (snapshot) => { state.value = snapshot; });
+  const tasks = computed(() => state.value.items);
+  const pending = computed(() => state.value.pending);
+  const checkingInProviderIds = computed(() => [...new Set([
+    ...tasks.value.filter((task) => !task.finished && !task.canResume).map((task) => task.providerId),
+    ...pending.value.filter((key) => key.startsWith("submit:")).map((key) => key.slice(7)),
+  ])]);
+  const globalCheckInInProgress = computed(() => pending.value.includes("batch")
+    || tasks.value.some((task) => task.source === "batch" && !task.finished && !task.canResume));
 
-export function useCheckInActions(options: UseCheckInActionsOptions) {
-  const checkingInProviderIdSet = ref<Set<string>>(new Set());
-  const checkingInProviderIds = computed(() => [...checkingInProviderIdSet.value]);
-
-  async function runCheckIn(
-    provider: Provider,
-    behavior: { reload: boolean; showMessage: boolean },
-  ): Promise<CheckInRunStatus> {
-    const providerId = provider.identity.id;
-    if (checkingInProviderIdSet.value.has(providerId)) {
-      return "skipped";
+  async function resume(task: CheckInTask) {
+    if (task.phase === "waitingBrowser" && !options.browserRuntime.state.value?.ready) {
+      options.browserRuntime.open();
+      return;
     }
-    checkingInProviderIdSet.value = new Set(checkingInProviderIdSet.value).add(providerId);
-    try {
-      const result = await checkInProvider(providerId);
-      const message = result.message || (result.ok ? "签到成功" : "签到失败");
-      if (result.ok) {
-        if (behavior.showMessage) Message.success(message);
-        await options.notifySystem("BalanceHub 签到成功", checkInMarkdown(provider, message), {
-          provider,
-        });
-      } else {
-        if (behavior.showMessage) Message.error(message);
-        await options.notifySystem("BalanceHub 签到失败", checkInMarkdown(provider, message), {
-          provider,
-        });
-      }
-      return result.ok ? "success" : "failed";
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (behavior.showMessage) Message.error(message);
-      await options.notifySystem("BalanceHub 签到异常", checkInMarkdown(provider, message), {
-        provider,
-      });
-      return "failed";
-    } finally {
-      const next = new Set(checkingInProviderIdSet.value);
-      next.delete(providerId);
-      checkingInProviderIdSet.value = next;
-      if (behavior.reload) {
-        await options.reload().catch(() => {});
-      }
-    }
+    await tracker.resume(task.runId);
   }
+  async function cancel(task: CheckInTask) { await tracker.cancel(task.runId); }
 
   async function checkInProviderAction(provider: Provider) {
-    await runCheckIn(provider, { reload: true, showMessage: true });
+    const existing = tasks.value.find((task) => task.providerId === provider.identity.id && !task.finished);
+    if (existing?.canResume) { await resume(existing); return; }
+    const task = await tracker.submit(provider.identity.id);
+    if (task?.canResume) await resume(task);
   }
 
-  return {
-    checkingInProviderIds,
-    checkInProviderAction,
-  };
-}
+  async function checkInAllProvidersAction() {
+    const batch = await tracker.submitAll();
+    if (batch) Message.info(batch.tasks.length ? `${batch.tasks.length} 个签到任务已加入后台，跳过 ${batch.skipped} 个` : "当前没有需要签到的中转站");
+  }
 
-function checkInMarkdown(provider: Provider, message: string) {
-  return `**中转站**：${providerDisplayLabel(provider)}\n\n**结果**：${message}`;
+  const seen = new Set<string>();
+  const prompted = new Set<string>();
+  watch(tasks, (items) => {
+    let reload = false;
+    for (const task of items) {
+      if (task.phase === "waitingBrowser" && task.source === "manual" && !prompted.has(task.runId)) {
+        prompted.add(task.runId);
+        options.browserRuntime.open();
+      }
+      if (task.finished && !seen.has(task.runId)) {
+        seen.add(task.runId);
+        reload = true;
+        if (task.source === "manual") {
+          if (task.phase === "completed") Message.success(task.message);
+          else if (task.phase !== "cancelled") Message.warning(task.message);
+        }
+      }
+    }
+    if (reload) void options.reload().catch(() => {});
+  });
+  watch(() => state.value.error, (error) => { if (error) Message.error(error); });
+  onMounted(() => { void tracker.start(); window.addEventListener("focus", tracker.refresh); });
+  onUnmounted(() => { tracker.stop(); window.removeEventListener("focus", tracker.refresh); });
+  provide(CHECK_IN_CONTEXT, { tasks, pending, resume, cancel });
+  return { checkInTasks: tasks, checkInPending: pending, resumeCheckInTask: resume, cancelCheckInTask: cancel,
+    checkingInProviderIds, globalCheckInInProgress, checkInProviderAction, checkInAllProvidersAction };
 }

@@ -89,7 +89,7 @@ pub(crate) struct ProviderObservationPatch {
     user_id: String,
     site_logo: String,
     quota: ProviderQuota,
-    available_models: Option<Vec<String>>,
+    available_models: Vec<String>,
     last_synced_at: Option<String>,
     status: ProviderStatus,
     error_message: Option<String>,
@@ -104,8 +104,9 @@ impl ProviderObservationPatch {
             user_id: refreshed.identity.user_id.clone(),
             site_logo: refreshed.identity.site_logo.clone(),
             quota: refreshed.quota.clone(),
-            available_models: (!matches!(refreshed.runtime.status, ProviderStatus::Error))
-                .then(|| refreshed.capabilities.available_models.clone()),
+            // Adapters retain the previous list on fetch failure and replace it
+            // only on success. Quota errors must not discard successful models.
+            available_models: refreshed.capabilities.available_models.clone(),
             last_synced_at: refreshed.automation.last_synced_at.clone(),
             status: refreshed.runtime.status,
             error_message: refreshed.runtime.error_message.clone(),
@@ -122,9 +123,10 @@ impl ProviderObservationPatch {
         provider.identity.user_id.clone_from(&self.user_id);
         provider.identity.site_logo.clone_from(&self.site_logo);
         provider.quota.clone_from(&self.quota);
-        if let Some(models) = &self.available_models {
-            provider.capabilities.available_models.clone_from(models);
-        }
+        provider
+            .capabilities
+            .available_models
+            .clone_from(&self.available_models);
         provider
             .automation
             .last_synced_at
@@ -438,7 +440,6 @@ mod tests {
         let mut original = provider(ProviderProtocol::Api);
         original.capabilities.available_models = vec!["known-model".to_string()];
         let mut refreshed = original.clone();
-        refreshed.capabilities.available_models.clear();
         refreshed.runtime.status = ProviderStatus::Error;
 
         ProviderOperationOutcome::<()>::refreshed(&original.clone(), refreshed)
@@ -448,5 +449,21 @@ mod tests {
             original.capabilities.available_models,
             vec!["known-model".to_string()]
         );
+    }
+
+    #[test]
+    fn successful_empty_models_replace_cache_even_when_quota_failed() {
+        let mut original = provider(ProviderProtocol::NewApi);
+        original.capabilities.available_models = vec!["old-model".to_string()];
+        let mut refreshed = original.clone();
+        refreshed.capabilities.available_models.clear();
+        refreshed.runtime.status = ProviderStatus::Error;
+        refreshed.runtime.error_message = Some("额度查询失败".to_string());
+
+        ProviderOperationOutcome::<()>::refreshed(&original.clone(), refreshed)
+            .apply_to(&mut original);
+
+        assert!(original.capabilities.available_models.is_empty());
+        assert!(matches!(original.runtime.status, ProviderStatus::Error));
     }
 }

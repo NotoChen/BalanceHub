@@ -34,6 +34,9 @@ toml_edit = "0.20"
 base64 = "0.22"
 hmac = "0.12"
 sha2 = "0.10"
+flate2 = "1"
+tar = "0.4"
+zip = { version = "4", default-features = false, features = ["deflate"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -44,7 +47,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["native-tls", "zip"] }
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
-tokio = { version = "1", features = ["time", "sync", "macros"] }
+tokio = { version = "1", features = ["time", "sync", "macros", "process", "io-util", "fs"] }
 
 [target.'cfg(unix)'.dependencies]
 # 仅用于测活超时后按进程组杀灭子进程树（libc::kill 负 pid）。

@@ -2,7 +2,6 @@
 import { computed, ref } from "vue";
 import {
   Ban,
-  CalendarCheck2,
   CheckCircle2,
   CircleAlert,
   CircleDashed,
@@ -35,9 +34,9 @@ type RowFilter = "all" | ProviderBatchStatus;
 const rowFilter = ref<RowFilter>("all");
 
 const title = computed(() =>
-  props.operation === "checkIn" ? "一键签到进度" : "全局刷新进度",
+  "全局刷新进度",
 );
-const icon = computed(() => (props.operation === "checkIn" ? CalendarCheck2 : RefreshCw));
+const icon = computed(() => RefreshCw);
 const total = computed(() => props.items.length);
 const completedCount = computed(
   () =>

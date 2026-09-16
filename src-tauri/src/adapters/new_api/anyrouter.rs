@@ -52,6 +52,8 @@ pub async fn check_in_provider(
     let result = parse_check_in_response(status, &body);
 
     Ok(ProviderCheckInResult {
+        verification_required: None,
+        unconfirmed: false,
         ok: result.ok,
         message: result.message,
         last_checked_in_at: None,

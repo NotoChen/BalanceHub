@@ -1,4 +1,5 @@
 pub(crate) mod app;
+pub(crate) mod browser_runtime;
 pub(crate) mod cli;
 pub(crate) mod provider;
 

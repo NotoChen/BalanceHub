@@ -10,8 +10,17 @@ use reqwest::{
 use serde::Deserialize;
 use serde_json::Value;
 
+#[path = "check_in/browser.rs"]
+mod browser;
+#[path = "check_in/challenge.rs"]
+mod challenge;
 #[path = "check_in/records.rs"]
 mod records;
+
+pub(crate) use browser::check_in_with_browser;
+pub(super) use browser::turnstile_token;
+use challenge::parse_checked_in;
+pub(super) use challenge::{verification_required, verification_result};
 
 use super::http::{
     apply_auth_headers, apply_session_cookie, build_url, normalize_base_url, provider_is_anyrouter,
@@ -179,14 +188,26 @@ async fn check_in_provider_once(
     validate_check_in_credentials(provider)?;
 
     let base_url = normalize_base_url(&provider.identity.base_url);
-    if check_in_status(client, provider, &base_url).await? {
-        return Ok(ProviderCheckInResult {
-            ok: true,
-            message: "今日已签到".to_string(),
-            last_checked_in_at: None,
-            last_check_in_user: None,
-            quota_delta: None,
-        });
+    let response = match check_in_status(client, provider, &base_url).await {
+        Ok(response) => response,
+        // This is a GET before any submission. A browser may recover a TLS or
+        // transport failure, but still has to establish the real check-in state.
+        Err(_) => {
+            return Ok(verification_result(
+                crate::models::ProviderCheckInVerification::Connection,
+            ))
+        }
+    };
+    if let Some(kind) = verification_required(response.status, &response.headers, &response.body) {
+        return Ok(verification_result(kind));
+    }
+    if response.status.is_success() && serde_json::from_str::<Value>(&response.body).is_err() {
+        return Ok(verification_result(
+            crate::models::ProviderCheckInVerification::Connection,
+        ));
+    }
+    if parse_checked_in(response.status, &response.body)? {
+        return Ok(already_checked_in());
     }
 
     let url = build_url(&base_url, "/api/user/checkin")?;
@@ -203,18 +224,31 @@ async fn check_in_provider_once(
     request = apply_auth_headers(request, provider);
     request = apply_session_cookie(request, provider);
 
-    let response = client.send(request, "请求签到").await?;
-    let status = response.status;
-    let body = response.body;
-
-    Ok(parse_check_in_response(status, &body))
+    let response = match client.send(request, "请求签到").await {
+        Ok(response) => response,
+        Err(_) => {
+            // A POST may have committed before the connection disappeared.
+            if let Ok(response) = check_in_status(client, provider, &base_url).await {
+                if parse_checked_in(response.status, &response.body) == Ok(true) {
+                    return Ok(already_checked_in());
+                }
+            }
+            let mut result = already_checked_in();
+            result.ok = false;
+            result.unconfirmed = true;
+            result.message =
+                "签到提交后连接中断，结果尚未确认；已停止自动重试，请查看站点记录".to_string();
+            return Ok(result);
+        }
+    };
+    Ok(parse_check_in_transport_response(&response))
 }
 
 async fn check_in_status(
     client: &ProviderTransport,
     provider: &Provider,
     base_url: &str,
-) -> Result<bool, String> {
+) -> Result<crate::adapters::transport::TransportResponse, String> {
     let url = build_url(
         base_url,
         &format!("/api/user/checkin?month={}", current_month()),
@@ -230,23 +264,29 @@ async fn check_in_status(
     request = apply_auth_headers(request, provider);
     request = apply_session_cookie(request, provider);
 
-    let (status, body) = send_text(client, request, "读取签到状态").await?;
-
-    if !status.is_success() {
-        return Ok(false);
-    }
-
-    let decoded = match serde_json::from_str::<Value>(&body) {
-        Ok(decoded) => decoded,
-        Err(_) => return Ok(false),
-    };
-
-    Ok(decoded
-        .pointer("/data/stats/checked_in_today")
-        .and_then(Value::as_bool)
-        .unwrap_or(false))
+    client.send(request, "读取签到状态").await
 }
 
+fn already_checked_in() -> ProviderCheckInResult {
+    ProviderCheckInResult {
+        ok: true,
+        message: "今日已签到".to_string(),
+        verification_required: None,
+        unconfirmed: false,
+        last_checked_in_at: None,
+        last_check_in_user: None,
+        quota_delta: None,
+    }
+}
+
+fn parse_check_in_transport_response(
+    response: &crate::adapters::transport::TransportResponse,
+) -> ProviderCheckInResult {
+    if let Some(kind) = verification_required(response.status, &response.headers, &response.body) {
+        return verification_result(kind);
+    }
+    parse_check_in_response(response.status, &response.body)
+}
 fn validate_check_in_credentials(provider: &Provider) -> Result<(), String> {
     match provider.auth.mode {
         AuthMode::AccessToken
@@ -271,6 +311,8 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
     if !status.is_success() && status != StatusCode::BAD_REQUEST {
         return ProviderCheckInResult {
             ok: false,
+            verification_required: None,
+            unconfirmed: false,
             message: format!("HTTP {}: {}", status.as_u16(), trim_message(body)),
             last_checked_in_at: None,
             last_check_in_user: None,
@@ -283,6 +325,8 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
         Err(err) => {
             return ProviderCheckInResult {
                 ok: false,
+                verification_required: None,
+                unconfirmed: false,
                 message: format!("解析签到响应失败: {err}: {}", trim_message(body)),
                 last_checked_in_at: None,
                 last_check_in_user: None,
@@ -302,6 +346,8 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
     if ok {
         ProviderCheckInResult {
             ok: true,
+            verification_required: None,
+            unconfirmed: false,
             message: if message.trim().is_empty() {
                 "签到成功".to_string()
             } else {
@@ -314,6 +360,8 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
     } else {
         ProviderCheckInResult {
             ok: false,
+            verification_required: None,
+            unconfirmed: false,
             message: if message.trim().is_empty() {
                 format!("签到失败: {}", trim_message(body))
             } else {

@@ -114,10 +114,18 @@ async fn authenticate_password_provider_inner(
         .json(&json!({ "username": username, "password": password }));
 
     let response = client.send(request, "账号密码登录").await?;
+    authenticated_from_login_response(provider, &response)
+}
+
+pub(crate) fn authenticated_from_login_response(
+    provider: &Provider,
+    response: &crate::adapters::transport::TransportResponse,
+) -> Result<Provider, String> {
     let status = response.status;
+    let base_url = normalize_base_url(&provider.identity.base_url);
     let session_cookie = extract_login_cookie(&response.headers, &base_url);
-    let body = response.body;
-    let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+    let body = &response.body;
+    let payload = serde_json::from_str::<Value>(body).unwrap_or(Value::Null);
     let success = payload
         .get("success")
         .and_then(Value::as_bool)
@@ -334,16 +342,31 @@ where
 }
 
 pub(crate) fn apply_auth_headers(
-    request: reqwest::RequestBuilder,
+    mut request: reqwest::RequestBuilder,
     provider: &Provider,
 ) -> reqwest::RequestBuilder {
+    for (name, value) in auth_header_values(provider) {
+        request = request.header(name, value);
+    }
+    request
+}
+
+pub(crate) fn auth_header_values(provider: &Provider) -> Vec<(&'static str, String)> {
     match provider.auth.mode {
-        AuthMode::ApiKey => request.bearer_auth(provider.auth.api_key.trim()),
-        AuthMode::AccessToken => request
-            .bearer_auth(provider.auth.access_token.trim())
-            .header("new-api-user", provider.auth.api_user.trim()),
-        AuthMode::Session => request.header("new-api-user", provider.auth.api_user.trim()),
-        AuthMode::Password => request.header("new-api-user", provider.auth.api_user.trim()),
+        AuthMode::ApiKey => vec![(
+            "authorization",
+            format!("Bearer {}", provider.auth.api_key.trim()),
+        )],
+        AuthMode::AccessToken => vec![
+            (
+                "authorization",
+                format!("Bearer {}", provider.auth.access_token.trim()),
+            ),
+            ("new-api-user", provider.auth.api_user.trim().to_string()),
+        ],
+        AuthMode::Session | AuthMode::Password => {
+            vec![("new-api-user", provider.auth.api_user.trim().to_string())]
+        }
     }
 }
 

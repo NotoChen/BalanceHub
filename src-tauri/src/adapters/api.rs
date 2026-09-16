@@ -215,6 +215,11 @@ pub(crate) async fn fetch_models(
 fn parse_models(body: &str) -> Result<Vec<String>, String> {
     let value =
         serde_json::from_str::<Value>(body).map_err(|err| format!("解析模型列表失败: {err}"))?;
+    if value.get("success").and_then(Value::as_bool) == Some(false)
+        || value.get("error").is_some_and(|error| !error.is_null())
+    {
+        return Err("站点返回模型列表错误，已保留上次结果".to_string());
+    }
     let values = value
         .get("data")
         .and_then(Value::as_array)
@@ -239,8 +244,8 @@ fn parse_models(body: &str) -> Result<Vec<String>, String> {
     models.sort();
     models.dedup();
     limits::truncate_models(&mut models);
-    if models.is_empty() {
-        return Err("模型列表为空".to_string());
+    if !values.is_empty() && models.is_empty() {
+        return Err("模型列表内容无效，已保留上次结果".to_string());
     }
     Ok(models)
 }
@@ -355,5 +360,17 @@ mod tests {
         let models =
             parse_models(r#"{"data":[{"id":"gpt-4o"},{"model":"claude-3"},"custom"]}"#).unwrap();
         assert_eq!(models, vec!["claude-3", "custom", "gpt-4o"]);
+    }
+
+    #[test]
+    fn empty_model_list_is_a_successful_snapshot() {
+        assert_eq!(
+            parse_models(r#"{"data":[]}"#).unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(parse_models("[]").unwrap(), Vec::<String>::new());
+        assert!(parse_models(r#"{"success":false,"data":[]}"#).is_err());
+        assert!(parse_models(r#"{"data":[{}]}"#).is_err());
+        assert!(parse_models("<html>challenge</html>").is_err());
     }
 }

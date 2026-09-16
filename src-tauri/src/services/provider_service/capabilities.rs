@@ -74,6 +74,8 @@ impl<'a> ProviderService<'a> {
             .ok_or_else(|| "本地配置已变更，本次能力探测结果已忽略".to_string())?;
         let operation_context = ProviderRequestContext::capture(&effective_provider);
         let (mut capabilities, invite_link, error) = operation.value;
+        // Only a successful model response (including []) replaces the snapshot.
+        capabilities.available_models = effective_provider.capabilities.available_models.clone();
         let models_result = if provider_domain::auth::has_api_key(&effective_provider) {
             Some(fetch_available_models(&data.settings, &effective_provider).await)
         } else {
@@ -93,7 +95,6 @@ impl<'a> ProviderService<'a> {
         capabilities.error_message = join_capability_errors(capability_errors);
         let probed_at = current_timestamp_millis().to_string();
         let message = model_count
-            .filter(|count| *count > 0)
             .map(|count| format!("站点能力已探测，已获取 {count} 个模型"))
             .unwrap_or_else(|| "站点能力已探测".to_string());
         let provider_id = id.clone();
