@@ -41,6 +41,7 @@ pub(crate) fn verification_result(kind: ProviderCheckInVerification) -> Provider
         ok: false,
         message: "正在转入浏览器完成签到验证".to_string(),
         verification_required: Some(kind),
+        verification_requires_login: false,
         unconfirmed: false,
         last_checked_in_at: None,
         last_check_in_user: None,

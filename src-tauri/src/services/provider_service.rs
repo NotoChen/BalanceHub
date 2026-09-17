@@ -13,7 +13,10 @@ mod transaction;
 mod usage;
 mod workspaces;
 
-use crate::models::{AppData, AuthMode, AuthSource, Provider, ProviderProtocol};
+use crate::models::{
+    AppData, AuthMode, AuthSource, Provider, ProviderCheckInMethod, ProviderProtocol,
+    ProviderTurnstileMode,
+};
 use tauri::AppHandle;
 
 use transaction::MutationDecision;
@@ -43,6 +46,9 @@ pub(super) struct ProviderRequestContext {
     login_password: String,
     refresh_token: String,
     access_token_expires_at: Option<i64>,
+    check_in_method: ProviderCheckInMethod,
+    auto_shield: bool,
+    turnstile_mode: ProviderTurnstileMode,
 }
 
 impl ProviderRequestContext {
@@ -62,6 +68,9 @@ impl ProviderRequestContext {
             login_password: provider.auth.login_password.clone(),
             refresh_token: provider.auth.refresh_token.clone(),
             access_token_expires_at: provider.auth.access_token_expires_at,
+            check_in_method: provider.automation.check_in_method,
+            auto_shield: provider.automation.auto_shield,
+            turnstile_mode: provider.automation.turnstile_mode,
         }
     }
 
@@ -80,6 +89,9 @@ impl ProviderRequestContext {
             && self.login_password == provider.auth.login_password
             && self.refresh_token == provider.auth.refresh_token
             && self.access_token_expires_at == provider.auth.access_token_expires_at
+            && self.check_in_method == provider.automation.check_in_method
+            && self.auto_shield == provider.automation.auto_shield
+            && self.turnstile_mode == provider.automation.turnstile_mode
     }
 }
 
@@ -103,6 +115,20 @@ pub(super) fn find_provider(data: &AppData, id: &str) -> Result<Provider, String
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn check_in_policy_changes_invalidate_old_request_contexts() {
+        let original = provider("fixture");
+        let context = super::ProviderRequestContext::capture(&original);
+        let mut edited = original.clone();
+        edited.automation.auto_shield = false;
+        assert!(!context.matches(&edited));
+        edited = original.clone();
+        edited.automation.check_in_method = crate::models::ProviderCheckInMethod::SessionSignIn;
+        assert!(!context.matches(&edited));
+        edited = original;
+        edited.automation.turnstile_mode = crate::models::ProviderTurnstileMode::Always;
+        assert!(!context.matches(&edited));
+    }
     use crate::models::{Provider, ProviderInput};
 
     fn provider(id: &str) -> Provider {

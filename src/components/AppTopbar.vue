@@ -130,16 +130,16 @@ const announcementTooltip = computed(() => {
           <template #icon><RefreshCw :class="{ 'topbar-action-spin': refreshInProgress }" :size="18" :stroke-width="1.9" /></template>
         </a-button>
       </a-tooltip>
-      <a-tooltip content="一键签到">
+      <a-tooltip :content="globalCheckInInProgress ? '查看签到进度' : '一键签到'">
         <a-button
           class="topbar-icon-button topbar-icon-checkin"
           shape="circle"
           :class="{ 'is-loading': globalCheckInInProgress }"
           :aria-busy="globalCheckInInProgress"
-          aria-label="一键签到"
+          :aria-label="globalCheckInInProgress ? '查看签到进度' : '一键签到'"
           @click="emit('checkIn')"
         >
-          <template #icon><CalendarCheck2 :class="{ 'topbar-action-spin': globalCheckInInProgress }" :size="20" :stroke-width="1.8" /></template>
+          <template #icon><CalendarCheck2 :size="20" :stroke-width="1.8" /></template>
         </a-button>
       </a-tooltip>
       <BackgroundTaskIndicator

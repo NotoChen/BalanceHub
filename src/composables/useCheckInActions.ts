@@ -4,6 +4,7 @@ import { checkInProvider, checkInAllProviders, cancelCheckInTask, listCheckInTas
 import type { Provider } from "../stores/providers";
 import { createCheckInTracker, type CheckInSnapshot } from "../utils/check-in-tasks";
 import type { BrowserRuntimeController } from "./useBrowserRuntime";
+import { useCheckInBatchProgress } from "./useCheckInBatchProgress";
 
 interface CheckInController {
   tasks: ComputedRef<CheckInTask[]>;
@@ -20,12 +21,13 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
   }, (snapshot) => { state.value = snapshot; });
   const tasks = computed(() => state.value.items);
   const pending = computed(() => state.value.pending);
+  const batchProgress = useCheckInBatchProgress({ snapshot: () => state.value, submit: () => tracker.submitAll() });
   const checkingInProviderIds = computed(() => [...new Set([
     ...tasks.value.filter((task) => !task.finished && !task.canResume).map((task) => task.providerId),
     ...pending.value.filter((key) => key.startsWith("submit:")).map((key) => key.slice(7)),
   ])]);
-  const globalCheckInInProgress = computed(() => pending.value.includes("batch")
-    || tasks.value.some((task) => task.source === "batch" && !task.finished && !task.canResume));
+  const globalCheckInInProgress = computed(() => batchProgress.progress.value.running || pending.value.includes("batch")
+    || tasks.value.some((task) => task.source === "batch" && !task.finished));
 
   async function resume(task: CheckInTask) {
     if (task.phase === "waitingBrowser" && !options.browserRuntime.state.value?.ready) {
@@ -44,8 +46,7 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
   }
 
   async function checkInAllProvidersAction() {
-    const batch = await tracker.submitAll();
-    if (batch) Message.info(batch.tasks.length ? `${batch.tasks.length} 个签到任务已加入后台，跳过 ${batch.skipped} 个` : "当前没有需要签到的中转站");
+    await batchProgress.open();
   }
 
   const seen = new Set<string>();
@@ -73,5 +74,6 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
   onUnmounted(() => { tracker.stop(); window.removeEventListener("focus", tracker.refresh); });
   provide(CHECK_IN_CONTEXT, { tasks, pending, resume, cancel });
   return { checkInTasks: tasks, checkInPending: pending, resumeCheckInTask: resume, cancelCheckInTask: cancel,
+    checkInBatchVisible: batchProgress.visible, checkInBatchProgress: batchProgress.progress,
     checkingInProviderIds, globalCheckInInProgress, checkInProviderAction, checkInAllProvidersAction };
 }

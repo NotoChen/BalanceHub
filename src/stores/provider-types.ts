@@ -191,9 +191,18 @@ export interface ProviderCapabilities {
   availableModels: string[];
 }
 
-export interface ProviderAutomation {
-  refreshInterval: number;
-  checkInTime: string;
+export type ProviderCheckInMethod = "auto" | "standard" | "sessionSignIn" | "freshLogin";
+export type ProviderTurnstileMode = "auto" | "always";
+
+export interface ProviderCheckInPolicyPreview {
+  method: Exclude<ProviderCheckInMethod, "auto">;
+  methodLabel: string;
+  configurable: boolean;
+  supported: boolean;
+  message: string;
+}
+
+export interface ProviderAutomation extends ProviderAutomationInput {
   lastSyncedAt: string | null;
   lastCheckedInAt: string | null;
   lastCheckInUser: string;
@@ -203,6 +212,9 @@ export interface ProviderAutomation {
 export interface ProviderAutomationInput {
   refreshInterval: number;
   checkInTime: string;
+  checkInMethod: ProviderCheckInMethod;
+  autoShield: boolean;
+  turnstileMode: ProviderTurnstileMode;
 }
 
 export interface ProviderLiveness {

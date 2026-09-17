@@ -93,9 +93,12 @@ impl<'a> ProviderService<'a> {
         drop(http_slot);
         task.authenticated(&effective_provider);
         let mut result = operation.value;
-        let is_anyrouter = adapter.is_anyrouter(&effective_provider);
         let browser_assisted = result.verification_required.is_some();
         if let Some(verification) = result.verification_required {
+            let verification = crate::models::CheckInVerificationRequest {
+                kind: verification,
+                requires_login: result.verification_requires_login,
+            };
             let browser_operation = crate::services::browser_check_in::run(
                 self.app,
                 &data.settings,
@@ -142,8 +145,7 @@ impl<'a> ProviderService<'a> {
         if result.ok {
             task.phase(self.app, CheckInPhase::Saving);
             let checked_in_at = current_timestamp_millis().to_string();
-            let check_in_user =
-                provider_domain::capabilities::check_in_user(&effective_provider, is_anyrouter);
+            let check_in_user = provider_domain::capabilities::check_in_user(&effective_provider);
             let quota_delta = refreshed_provider
                 .as_ref()
                 .and_then(|refreshed| check_in_quota_delta(&effective_provider, refreshed));

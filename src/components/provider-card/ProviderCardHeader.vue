@@ -141,6 +141,16 @@ async function openSite() {
         :title="provider.identity.baseUrl"
       >
         <span class="provider-card-api-endpoint-text">{{ providerUrlDisplay }}</span>
+        <button
+          v-if="interactive"
+          type="button"
+          class="provider-card-icon-action provider-card-open-site"
+          title="打开中转站"
+          aria-label="打开中转站"
+          @click.stop="openSite"
+          @pointerdown.stop
+          @keydown.enter.stop
+        ><ExternalLink :size="15" :stroke-width="1.8" /></button>
       </div>
       <div v-else class="provider-card-api-value-muted">未配置</div>
     </div>
@@ -192,25 +202,27 @@ async function openSite() {
       />
     </div>
     <div class="provider-card-brand-copy">
-      <h3 class="provider-card-title" :title="providerHeaderTitle">
-        {{ providerHeaderTitle }}
-      </h3>
+      <div class="provider-card-title-row">
+        <h3 class="provider-card-title" :title="providerHeaderTitle">
+          {{ providerHeaderTitle }}
+        </h3>
+        <button
+          v-if="interactive && provider.identity.baseUrl.trim()"
+          type="button"
+          class="provider-card-icon-action provider-card-open-site"
+          title="打开中转站"
+          aria-label="打开中转站"
+          @click.stop="openSite"
+          @pointerdown.stop
+          @keydown.enter.stop
+        ><ExternalLink :size="15" :stroke-width="1.8" /></button>
+      </div>
       <span class="provider-card-type">
         {{ providerHeaderSubtitle }}
       </span>
     </div>
   </div>
   <div class="provider-card-header-meta">
-    <button
-      v-if="interactive && provider.identity.baseUrl.trim()"
-      type="button"
-      class="provider-card-open-site"
-      title="打开中转站"
-      aria-label="打开中转站"
-      @click.stop="openSite"
-      @pointerdown.stop
-      @keydown.enter.stop
-    ><ExternalLink :size="14" /></button>
     <div
       v-if="activeCliSignals.length > 0"
       class="provider-card-cli-signals"
@@ -248,20 +260,3 @@ async function openSite() {
   </div>
 </header>
 </template>
-
-<style scoped>
-.provider-card-open-site {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text-3);
-  cursor: pointer;
-}
-.provider-card-open-site:hover,
-.provider-card-open-site:focus-visible { color: rgb(var(--primary-6)); background: var(--color-fill-2); }
-</style>

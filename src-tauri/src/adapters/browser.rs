@@ -145,15 +145,6 @@ impl BrowserSession {
         }
     }
 
-    pub(crate) async fn fetch(
-        &mut self,
-        path: &str,
-        method: &str,
-        headers: &Value,
-    ) -> Result<TransportResponse, CheckInError> {
-        self.fetch_with_body(path, method, headers, None).await
-    }
-
     pub(crate) async fn fetch_with_body(
         &mut self,
         path: &str,

@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { ref } from "vue";
 import {
-  IconCheckCircle,
   IconCloud,
   IconExperiment,
-  IconLock,
   IconSave,
-  IconTool,
 } from "@arco-design/web-vue/es/icon";
 import ProviderEditorAdvancedSection from "./provider-editor/ProviderEditorAdvancedSection.vue";
 import ProviderEditorBasicsSection from "./provider-editor/ProviderEditorBasicsSection.vue";
@@ -23,10 +20,9 @@ import type {
   ProviderSiteProbeResult,
 } from "../stores/providers";
 import type { ApiKeyManagerOperation } from "../composables/useApiKeyManager";
-import { providerAuthModeDescriptor } from "../utils/provider-protocol";
 import type {
   ProtocolSelectionSource,
-  ProviderEditorStep,
+  ProviderEditorSection,
 } from "../composables/provider-editor-shared";
 import type {
   CredentialCompletionState,
@@ -36,7 +32,7 @@ import type {
 const props = defineProps<{
   visible: boolean;
   editorSession: number;
-  initialStep: ProviderEditorStep;
+  initialSection: ProviderEditorSection;
   title: string;
   draft: ProviderInput;
   providerProtocols: ProviderProtocolDescriptor[];
@@ -95,90 +91,27 @@ const emit = defineEmits<{
   save: [];
 }>();
 
-const activeStep = ref<ProviderEditorStep>("basics");
+const formScroll = ref<HTMLElement | null>(null);
 
-const steps: Record<ProviderEditorStep, { label: string; icon: typeof IconCloud }> = {
-  basics: { label: "基础信息", icon: IconCloud },
-  credentials: { label: "认证凭据", icon: IconLock },
-  advanced: { label: "运行策略", icon: IconTool },
-};
-
-const activeStepMeta = computed(() => steps[activeStep.value]);
-const activeStepIndex = computed(() => Object.keys(steps).indexOf(activeStep.value) + 1);
-const stepKeys = Object.keys(steps) as ProviderEditorStep[];
-
-const authLabel = computed(() =>
-  providerAuthModeDescriptor(
-    props.providerProtocols,
-    props.draft.identity.protocol,
-    props.draft.auth.mode,
-  )?.label || "认证凭据",
-);
-
-const credentialReady = computed(() => {
-  const schema = providerAuthModeDescriptor(
-    props.providerProtocols,
-    props.draft.identity.protocol,
-    props.draft.auth.mode,
-  );
-  return Boolean(schema?.requiredFields.every((field) => authFieldValue(field).trim()));
-});
-
-function authFieldValue(field: string) {
-  const auth = props.draft.auth;
-  const values: Record<string, string> = {
-    apiKey: auth.apiKey,
-    accessToken: auth.accessToken,
-    refreshToken: auth.refreshToken,
-    sessionCookie: auth.sessionCookie,
-    apiUser: auth.apiUser,
-    loginUsername: auth.loginUsername,
-    loginPassword: auth.loginPassword,
-  };
-  return values[field] ?? "";
+function scrollToInitialSection() {
+  const container = formScroll.value;
+  if (!container) return;
+  container.scrollTop = 0;
+  if (props.initialSection !== "basics") {
+    container.querySelector<HTMLElement>(`[data-provider-section="${props.initialSection}"]`)
+      ?.scrollIntoView({ block: "start" });
+  }
 }
-
-const connectionReady = computed(() =>
-  Boolean(props.draft.identity.baseUrl.trim()) && credentialReady.value,
-);
-
-function selectStep(step: ProviderEditorStep) {
-  activeStep.value = step;
-}
-
-function stepComplete(step: ProviderEditorStep) {
-  if (step === "basics") return Boolean(props.draft.identity.baseUrl.trim());
-  if (step === "credentials") return credentialReady.value;
-  return true;
-}
-
-function goPrevious() {
-  const index = Math.max(0, stepKeys.indexOf(activeStep.value) - 1);
-  activeStep.value = stepKeys[index];
-}
-
-function goNext() {
-  const index = Math.min(stepKeys.length - 1, stepKeys.indexOf(activeStep.value) + 1);
-  activeStep.value = stepKeys[index];
-}
-
-watch(
-  () => [props.visible, props.editorSession, props.initialStep] as const,
-  ([visible]) => {
-    if (visible) {
-      activeStep.value = props.initialStep;
-    }
-  },
-);
 </script>
 
 <template>
   <a-modal
     :visible="visible"
     :width="1020"
-    modal-class="surface-modal provider-editor-modal provider-editor-modal-v3"
+    modal-class="surface-modal provider-editor-modal provider-editor-modal-v3 provider-editor-unified"
     :footer="false"
     unmount-on-close
+    @open="scrollToInitialSection"
     @update:visible="emit('update:visible', $event)"
   >
     <template #title>
@@ -187,117 +120,80 @@ watch(
         <span class="surface-modal-title-copy">
           <strong>{{ title }}</strong>
         </span>
-        <span class="surface-modal-title-meta" :class="{ ready: connectionReady }">{{ authLabel }}</span>
       </div>
     </template>
 
-    <div class="provider-editor-studio">
-      <aside class="provider-editor-rail" aria-label="中转站配置步骤">
-        <nav class="provider-editor-stepbar provider-editor-stepbar-v3">
-          <button
-            v-for="(step, key) in steps"
-            :key="key"
-            type="button"
-            class="provider-editor-step-tab"
-            :class="{ active: activeStep === key, complete: stepComplete(key as ProviderEditorStep) }"
-            :aria-current="activeStep === key ? 'step' : undefined"
-            @click="selectStep(key as ProviderEditorStep)"
-          >
-            <span class="provider-editor-step-tab-icon"><component :is="step.icon" /></span>
-            <span class="provider-editor-step-tab-copy"><strong>{{ step.label }}</strong></span>
-            <IconCheckCircle v-if="stepComplete(key as ProviderEditorStep)" class="provider-editor-step-tab-complete" />
-          </button>
-        </nav>
-      </aside>
-
-      <section class="provider-editor-main">
-        <header class="provider-editor-workflow-header">
-          <div>
-            <h2>{{ activeStepMeta.label }}</h2>
+    <div class="provider-editor-layout">
+      <div ref="formScroll" class="provider-editor-scroll">
+        <a-form :key="editorSession" :model="draft" layout="vertical" class="provider-editor-form">
+          <ProviderEditorBasicsSection
+            data-provider-section="basics"
+            :draft="draft"
+            :provider-protocols="providerProtocols"
+            :site-probe-result="siteProbeResult"
+            :protocol-detection-result="protocolDetectionResult"
+            :protocol-selection-source="protocolSelectionSource"
+            :probing-site="probingSite"
+            :site-name-source-base-url="siteNameSourceBaseUrl"
+            @probe-site="emit('probe-site', $event)"
+            @select-protocol="emit('select-protocol', $event)"
+          />
+          <div data-provider-section="credentials" class="provider-editor-credentials">
+            <ProviderEditorCredentialsSection
+              :draft="draft"
+              :provider-protocols="providerProtocols"
+              :api-key-options="apiKeyOptions"
+              :api-key-remote-managed="apiKeyRemoteManaged"
+              :api-key-manager-provider="apiKeyManagerProvider"
+              :api-key-manager-operation="apiKeyManagerOperation"
+              :api-key-create-visible="apiKeyCreateVisible"
+              :api-key-create-name="apiKeyCreateName"
+              :api-key-add-visible="apiKeyAddVisible"
+              :api-key-add-remark="apiKeyAddRemark"
+              :api-key-add-value="apiKeyAddValue"
+              :api-key-remark-visible="apiKeyRemarkVisible"
+              :api-key-remark-value="apiKeyRemarkValue"
+              :api-key-remark-target="apiKeyRemarkTarget"
+              @copy-api-key="emit('copy-api-key')"
+              @update:api-key-create-visible="emit('update:api-key-create-visible', $event)"
+              @update:api-key-create-name="emit('update:api-key-create-name', $event)"
+              @update:api-key-add-visible="emit('update:api-key-add-visible', $event)"
+              @update:api-key-add-remark="emit('update:api-key-add-remark', $event)"
+              @update:api-key-add-value="emit('update:api-key-add-value', $event)"
+              @update:api-key-remark-visible="emit('update:api-key-remark-visible', $event)"
+              @update:api-key-remark-value="emit('update:api-key-remark-value', $event)"
+              @sync-remote-api-keys="emit('sync-remote-api-keys')"
+              @open-api-key-create-panel="emit('open-api-key-create-panel')"
+              @open-api-key-add-panel="emit('open-api-key-add-panel')"
+              @open-api-key-remark-editor="emit('open-api-key-remark-editor', $event)"
+              @create-managed-api-key="emit('create-managed-api-key')"
+              @add-local-api-key="emit('add-local-api-key')"
+              @save-managed-api-key-remark="emit('save-managed-api-key-remark')"
+              @set-default-managed-api-key="emit('set-default-managed-api-key', $event)"
+              @copy-managed-api-key="emit('copy-managed-api-key', $event)"
+              @delete-managed-api-key="emit('delete-managed-api-key', $event)"
+            />
+            <ProviderCredentialAssistant
+              :draft="draft"
+              :provider-protocols="providerProtocols"
+              :state="credentialAssistantState"
+              :steps="credentialAssistantSteps"
+              :message="credentialAssistantMessage"
+              :busy="credentialAssistantBusy"
+              :can-run="canRunCredentialAssistant"
+              :saved="credentialAssistantSaved"
+              @run="emit('run-credential-assistant')"
+            />
           </div>
-          <div class="provider-editor-workflow-status" :class="{ ready: connectionReady }">
-            <i />
-            <span>{{ connectionReady ? "可以测试连接" : "等待补全必填项" }}</span>
-          </div>
-        </header>
-
-        <div class="provider-editor-stage">
-          <main class="provider-editor-canvas">
-            <div class="provider-editor-main-scroll">
-              <a-form :model="draft" layout="vertical">
-                <ProviderEditorBasicsSection
-                  v-if="activeStep === 'basics'"
-                  :draft="draft"
-                  :provider-protocols="providerProtocols"
-                  :site-probe-result="siteProbeResult"
-                  :protocol-detection-result="protocolDetectionResult"
-                  :protocol-selection-source="protocolSelectionSource"
-                  :probing-site="probingSite"
-                  :site-name-source-base-url="siteNameSourceBaseUrl"
-                  @probe-site="emit('probe-site', $event)"
-                  @select-protocol="emit('select-protocol', $event)"
-                />
-                <template v-else-if="activeStep === 'credentials'">
-                  <ProviderEditorCredentialsSection
-                    :draft="draft"
-                    :provider-protocols="providerProtocols"
-                    :api-key-options="apiKeyOptions"
-                    :api-key-remote-managed="apiKeyRemoteManaged"
-                    :api-key-manager-provider="apiKeyManagerProvider"
-                    :api-key-manager-operation="apiKeyManagerOperation"
-                    :api-key-create-visible="apiKeyCreateVisible"
-                    :api-key-create-name="apiKeyCreateName"
-                    :api-key-add-visible="apiKeyAddVisible"
-                    :api-key-add-remark="apiKeyAddRemark"
-                    :api-key-add-value="apiKeyAddValue"
-                    :api-key-remark-visible="apiKeyRemarkVisible"
-                    :api-key-remark-value="apiKeyRemarkValue"
-                    :api-key-remark-target="apiKeyRemarkTarget"
-                    @copy-api-key="emit('copy-api-key')"
-                    @update:api-key-create-visible="emit('update:api-key-create-visible', $event)"
-                    @update:api-key-create-name="emit('update:api-key-create-name', $event)"
-                    @update:api-key-add-visible="emit('update:api-key-add-visible', $event)"
-                    @update:api-key-add-remark="emit('update:api-key-add-remark', $event)"
-                    @update:api-key-add-value="emit('update:api-key-add-value', $event)"
-                    @update:api-key-remark-visible="emit('update:api-key-remark-visible', $event)"
-                    @update:api-key-remark-value="emit('update:api-key-remark-value', $event)"
-                    @sync-remote-api-keys="emit('sync-remote-api-keys')"
-                    @open-api-key-create-panel="emit('open-api-key-create-panel')"
-                    @open-api-key-add-panel="emit('open-api-key-add-panel')"
-                    @open-api-key-remark-editor="emit('open-api-key-remark-editor', $event)"
-                    @create-managed-api-key="emit('create-managed-api-key')"
-                    @add-local-api-key="emit('add-local-api-key')"
-                    @save-managed-api-key-remark="emit('save-managed-api-key-remark')"
-                    @set-default-managed-api-key="emit('set-default-managed-api-key', $event)"
-                    @copy-managed-api-key="emit('copy-managed-api-key', $event)"
-                    @delete-managed-api-key="emit('delete-managed-api-key', $event)"
-                  />
-                  <ProviderCredentialAssistant
-                    :draft="draft"
-                    :provider-protocols="providerProtocols"
-                    :state="credentialAssistantState"
-                    :steps="credentialAssistantSteps"
-                    :message="credentialAssistantMessage"
-                    :busy="credentialAssistantBusy"
-                    :can-run="canRunCredentialAssistant"
-                    :saved="credentialAssistantSaved"
-                    @run="emit('run-credential-assistant')"
-                  />
-                </template>
-                <ProviderEditorAdvancedSection
-                  v-else
-                  :draft="draft"
-                  :settings="settings"
-                  :available-models="availableModels"
-                  :initially-expanded="true"
-                />
-              </a-form>
-            </div>
-          </main>
-
-        </div>
-
-        <footer class="provider-editor-main-footer">
+          <ProviderEditorAdvancedSection
+            data-provider-section="advanced"
+            :draft="draft"
+            :settings="settings"
+            :available-models="availableModels"
+          />
+        </a-form>
+      </div>
+      <footer class="provider-editor-footer">
         <a-tooltip content="测试当前认证方式">
           <a-button
             :loading="testingConnection"
@@ -309,8 +205,7 @@ watch(
           </a-button>
         </a-tooltip>
         <span class="provider-editor-footer-spacer" />
-        <a-button v-if="activeStepIndex > 1" type="text" @click="goPrevious">上一步</a-button>
-        <a-button v-if="activeStepIndex < 3" type="secondary" @click="goNext">下一步</a-button>
+        <a-button @click="emit('update:visible', false)">取消</a-button>
         <a-button
           type="primary"
           :disabled="!draft.identity.baseUrl"
@@ -319,8 +214,7 @@ watch(
           <template #icon><IconSave /></template>
           保存中转站
         </a-button>
-        </footer>
-      </section>
+      </footer>
     </div>
   </a-modal>
 </template>

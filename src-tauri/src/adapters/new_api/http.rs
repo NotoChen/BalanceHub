@@ -384,14 +384,14 @@ pub(crate) fn apply_session_cookie(
     )
 }
 
-fn provider_cookie_header_for_base(raw: &str, base_url: &str) -> String {
+pub(super) fn provider_cookie_header_for_base(raw: &str, base_url: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
     }
 
     if is_anyrouter_base_url(base_url) {
-        let session = super::anyrouter::normalize_session_cookie(trimmed);
+        let session = super::check_in::normalize_session_cookie(trimmed);
         return if session.is_empty() {
             String::new()
         } else {
@@ -436,13 +436,8 @@ pub(crate) fn normalize_base_url(raw: &str) -> String {
 }
 
 pub fn is_anyrouter_base_url(base_url: &str) -> bool {
-    base_url.to_lowercase().contains("anyrouter")
-}
-
-/// 识别 NewAPI 的特殊接口方言。anyrouter 不作为独立站点类型暴露，
-/// 当前统一按站点地址启发式识别。
-pub fn provider_is_anyrouter(provider: &Provider) -> bool {
-    is_anyrouter_base_url(&normalize_base_url(&provider.identity.base_url))
+    crate::models::provider_domain::check_in::preset_for_url(base_url)
+        == Some(crate::models::ProviderCheckInMethod::SessionSignIn)
 }
 
 #[cfg(test)]

@@ -57,5 +57,4 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
     capability_probe: &ADAPTER,
     check_in: None,
     announcements: None,
-    is_anyrouter: |_| false,
 };

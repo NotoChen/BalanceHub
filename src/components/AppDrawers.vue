@@ -18,7 +18,7 @@ import type {
 } from "../composables/useProviderCredentialCompletion";
 import type {
   ProtocolSelectionSource,
-  ProviderEditorStep,
+  ProviderEditorSection,
 } from "../composables/provider-editor-shared";
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { DurationUnit } from "../utils/duration";
@@ -34,7 +34,7 @@ defineProps<{
   checkingForUpdate: boolean;
   providerEditorTitle: string;
   providerEditorSession: number;
-  providerEditorInitialStep: ProviderEditorStep;
+  providerEditorInitialSection: ProviderEditorSection;
   draftProvider: ProviderInput;
   providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderApiKeyOption[];
@@ -123,7 +123,7 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     v-model:visible="providerEditorVisible"
     :title="providerEditorTitle"
     :editor-session="providerEditorSession"
-    :initial-step="providerEditorInitialStep"
+    :initial-section="providerEditorInitialSection"
     :draft="draftProvider"
     :provider-protocols="providerProtocols"
     :api-key-options="apiKeyOptions"

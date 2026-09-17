@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CheckInVerificationRequest {
+    pub kind: crate::models::ProviderCheckInVerification,
+    pub requires_login: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CheckInPhase {

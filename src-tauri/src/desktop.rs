@@ -53,6 +53,7 @@ pub(crate) fn run() {
             switch_cli_config,
             load_app_data,
             save_provider,
+            preview_provider_check_in_policy,
             remove_provider,
             reorder_providers,
             save_settings,

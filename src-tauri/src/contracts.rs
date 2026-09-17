@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::{
-    adapters::protocol::{self, ProtocolAdapter},
+    adapters::protocol,
     models::{
         provider_domain, AppData, AppDataTransferResult, AppSettings, AuthMode, Provider,
         ProviderCapabilityProbeResult, ProviderModelSyncResult, ProviderProtocol,
@@ -46,16 +46,12 @@ impl From<Provider> for ProviderView {
             .auth_schemas
             .iter()
             .find(|schema| schema.mode == provider.auth.mode);
-        let is_anyrouter = ProtocolAdapter.is_anyrouter(&provider);
         let actions = ProviderActions {
             account_management: provider_domain::capabilities::supports_account_management(
                 &provider,
             ),
-            check_in: provider_domain::capabilities::supports_check_in(&provider, is_anyrouter),
-            checked_in_today: provider_domain::capabilities::checked_in_today(
-                &provider,
-                is_anyrouter,
-            ),
+            check_in: provider_domain::capabilities::supports_check_in(&provider),
+            checked_in_today: provider_domain::capabilities::checked_in_today(&provider),
             api_key_management: provider_domain::capabilities::supports_api_key_management(
                 &provider,
             ),

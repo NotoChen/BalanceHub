@@ -337,6 +337,9 @@ pub struct ProviderCheckInResult {
     pub unconfirmed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification_required: Option<ProviderCheckInVerification>,
+    /// In-process continuation state; never stored or exposed as provider data.
+    #[serde(skip)]
+    pub(crate) verification_requires_login: bool,
     #[serde(rename = "lastCheckedInAt", skip_serializing_if = "Option::is_none")]
     pub last_checked_in_at: Option<String>,
     #[serde(rename = "lastCheckInUser", skip_serializing_if = "Option::is_none")]

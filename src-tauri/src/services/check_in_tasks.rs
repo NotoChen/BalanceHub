@@ -1,6 +1,5 @@
 //! All check-in entry points enqueue here. Waiting tasks own no browser or HTTP slot.
 use crate::{
-    adapters::protocol::ProtocolAdapter,
     app_events::PROVIDERS_CHANGED_EVENT,
     models::{
         provider_domain, CheckInBatch, CheckInError, CheckInPhase, CheckInSource, CheckInTask,
@@ -47,6 +46,16 @@ pub(crate) struct CheckInContext {
 }
 
 impl CheckInContext {
+    pub(crate) fn queued_for_browser(&self, app: &AppHandle) {
+        publish(
+            app,
+            &self.run_id,
+            CheckInPhase::Queued,
+            "正在排队等待验证窗口，前面的中转站处理后自动继续".to_string(),
+            true,
+        );
+    }
+
     pub(crate) fn phase(&self, app: &AppHandle, phase: CheckInPhase) {
         let message = if phase == CheckInPhase::WaitingHuman && self.interactive {
             "请在浏览器中完成验证，完成后自动继续"
@@ -145,8 +154,7 @@ pub(crate) fn enqueue(
     if !provider.runtime.enabled {
         return Err("中转站已停用".to_string());
     }
-    let dialect = ProtocolAdapter.is_anyrouter(&provider);
-    if !provider_domain::capabilities::supports_check_in(&provider, dialect) {
+    if !provider_domain::capabilities::supports_check_in(&provider) {
         return Err("当前站点或认证方式不支持签到，请检查账号配置".to_string());
     }
     let key = account_key(&provider);
@@ -221,10 +229,9 @@ pub(crate) fn enqueue_all(app: &AppHandle) -> Result<CheckInBatch, String> {
     let mut tasks = Vec::new();
     let mut skipped = 0;
     for provider in providers {
-        let dialect = ProtocolAdapter.is_anyrouter(&provider);
         if !provider.runtime.enabled
-            || !provider_domain::capabilities::supports_check_in(&provider, dialect)
-            || provider_domain::capabilities::checked_in_today(&provider, dialect)
+            || !provider_domain::capabilities::supports_check_in(&provider)
+            || provider_domain::capabilities::checked_in_today(&provider)
         {
             skipped += 1;
             continue;
@@ -302,6 +309,31 @@ pub(crate) fn cancel(app: &AppHandle, run_id: &str) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// Editing a policy or credential must also stop a currently waiting browser.
+pub(crate) fn cancel_outdated(app: &AppHandle) {
+    let providers = match app.state::<AppState>().data.read() {
+        Ok(data) => data.providers.clone(),
+        Err(_) => return,
+    };
+    let ids = runs()
+        .lock()
+        .map(|runs| {
+            runs.values()
+                .filter(|run| {
+                    !run.task.finished
+                        && !providers.iter().any(|provider| {
+                            provider.runtime.enabled && run.context.matches(provider)
+                        })
+                })
+                .map(|run| run.task.run_id.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for id in ids {
+        let _ = cancel(app, &id);
+    }
 }
 
 fn set_phase(task: &mut CheckInTask, phase: CheckInPhase, message: String, executing: bool) {

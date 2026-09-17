@@ -2,7 +2,7 @@ import type { Provider, ProviderInput } from "../stores/providers";
 import {
   DEFAULT_LIVENESS_INTERVAL,
   DEFAULT_LIVENESS_RANDOM_MIN_INTERVAL,
-} from "./liveness-defaults";
+} from "./liveness-defaults.ts";
 
 /// 新建中转站时的空白草稿。集中在此，避免多处手写同一份字段列表导致漂移。
 export function emptyDraft(): ProviderInput {
@@ -35,6 +35,9 @@ export function emptyDraft(): ProviderInput {
     automation: {
       refreshInterval: 0,
       checkInTime: "",
+      checkInMethod: "auto",
+      autoShield: true,
+      turnstileMode: "auto",
     },
     proxy: {
       mode: "inherit",
@@ -91,6 +94,9 @@ export function providerToInput(
     automation: {
       refreshInterval: provider.automation.refreshInterval,
       checkInTime: provider.automation.checkInTime,
+      checkInMethod: provider.automation.checkInMethod,
+      autoShield: provider.automation.autoShield,
+      turnstileMode: provider.automation.turnstileMode,
     },
     proxy: { ...provider.proxy },
     notification: {

@@ -174,6 +174,8 @@
   color: #ff8b94;
 }
 
+:root.theme-dark .provider-card-open-site:hover,
+:root.theme-dark .provider-card-open-site:focus-visible,
 :root.theme-dark .provider-card-copy-action:hover,
 :root.theme-dark .provider-card-copy-action:focus-visible,
 :root.theme-dark .provider-card-data-action:hover,
@@ -198,6 +200,12 @@
 :root.theme-dark .provider-card-delete-action:focus-visible {
   background: color-mix(in srgb, currentColor 16%, transparent);
   color: currentColor;
+}
+
+:root.theme-dark .provider-card-open-site,
+:root.theme-dark .provider-card-open-site:hover,
+:root.theme-dark .provider-card-open-site:focus-visible {
+  color: #75cbdc;
 }
 
 :root.theme-dark .provider-card-action-popover {

@@ -30,6 +30,7 @@ const MAX_SHIELD_ROUNDS: usize = 2;
 #[derive(Clone)]
 pub(crate) struct ProviderTransport {
     client: Client,
+    auto_shield: bool,
     shield_context: shield::ShieldContext,
     shield_state: Arc<AsyncMutex<ShieldAttemptState>>,
 }
@@ -76,6 +77,7 @@ fn build_client_blocking(
         shield::ShieldContext::new(provider.identity.id.clone(), proxy.fingerprint());
     Ok(ProviderTransport {
         client,
+        auto_shield: provider.automation.auto_shield,
         shield_context,
         shield_state: Arc::new(AsyncMutex::new(ShieldAttemptState::default())),
     })
@@ -110,6 +112,10 @@ impl ProviderTransport {
         let mut first = request
             .build()
             .map_err(|err| format!("{context}失败: 构建请求异常: {err}"))?;
+        if !self.auto_shield {
+            strip_shield_cookies(&mut first);
+            return self.execute(first, context).await;
+        }
         if let Some(error) = self.blocked_shield_error(first.url()).await {
             return Err(error);
         }
@@ -262,6 +268,31 @@ fn replay_template(request: &Request) -> Option<Request> {
     body_is_bounded.then(|| request.try_clone()).flatten()
 }
 
+fn strip_shield_cookies(request: &mut Request) {
+    let Some(cookie) = request
+        .headers()
+        .get(COOKIE)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return;
+    };
+    let cookie = cookie
+        .split(';')
+        .filter(|pair| {
+            let name = pair.trim().split('=').next().unwrap_or_default();
+            !matches!(name, "cf_clearance" | "__cf_bm" | "acw_tc" | "acw_sc__v2")
+                && !name.starts_with("cf_chl_")
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    request.headers_mut().remove(COOKIE);
+    if !cookie.trim().is_empty() {
+        if let Ok(value) = cookie.trim().parse() {
+            request.headers_mut().insert(COOKIE, value);
+        }
+    }
+}
+
 fn apply_cached_credentials(
     request: &mut Request,
     context: &shield::ShieldContext,
@@ -327,6 +358,43 @@ mod tests {
         thread,
         time::{Duration, Instant},
     };
+
+    #[tokio::test]
+    async fn check_in_disabled_shield_does_not_inject_cached_cookies_or_solve() {
+        let (url, requests, server) = mock_server(3);
+        let mut transport = test_transport("disabled-shield-provider");
+        transport
+            .send(transport.get(url.clone()), "fixture")
+            .await
+            .unwrap();
+        transport.auto_shield = false;
+        transport
+            .send(
+                transport
+                    .get(url)
+                    .header(COOKIE, "session=fixture; cf_clearance=old-fixture"),
+                "fixture",
+            )
+            .await
+            .unwrap();
+        let _first = requests.recv_timeout(Duration::from_secs(2)).unwrap();
+        let retried = requests.recv_timeout(Duration::from_secs(2)).unwrap();
+        let disabled = requests.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(retried.contains("acw_sc__v2="));
+        assert!(!disabled.contains("acw_sc__v2="));
+        assert!(!disabled.contains("cf_clearance="));
+        assert!(disabled.contains("session=fixture"));
+        server.join().unwrap();
+
+        let (url, requests, server) = mock_server(1);
+        transport.send(transport.get(url), "fixture").await.unwrap();
+        assert!(!requests
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .contains("acw_sc__v2="));
+        assert!(requests.try_recv().is_err());
+        server.join().unwrap();
+    }
 
     #[test]
     fn merging_shield_cookie_does_not_drop_business_cookie() {
@@ -460,6 +528,7 @@ mod tests {
 
     fn test_transport(provider_id: &str) -> ProviderTransport {
         ProviderTransport {
+            auto_shield: true,
             client: Client::builder()
                 .no_proxy()
                 .build()

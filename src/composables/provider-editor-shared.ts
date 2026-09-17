@@ -30,7 +30,7 @@ export interface ProviderEditorStore {
 }
 
 export type ProtocolSelectionSource = "auto" | "unresolved" | "manual" | "saved";
-export type ProviderEditorStep = "basics" | "credentials" | "advanced";
+export type ProviderEditorSection = "basics" | "credentials" | "advanced";
 export type ProviderDuplicateDecision = "createSeparate" | "merge" | "overwrite" | "cancel";
 export type ProviderSaveCompletion = "standard" | "mergedApiKey";
 

@@ -23,6 +23,8 @@ import type {
   SiteAnnouncementSourceError,
 } from "../stores/providers";
 import type { ProviderBatchOperation, ProviderBatchProgressItem } from "../api/batch-operation";
+import type { CheckInTask } from "../api/checkin";
+import type { CheckInBatchProgress } from "../composables/useCheckInBatchProgress";
 import type { UsagePeriod } from "../utils/usage-trend";
 
 defineProps<{
@@ -76,6 +78,8 @@ defineProps<{
   batchOperationStartedAt: number | null;
   batchOperationFinishedAt: number | null;
   batchOperationCompleted: boolean;
+  checkInBatchProgress: CheckInBatchProgress;
+  checkInPending: string[];
   siteAnnouncementsLoading: boolean;
   siteAnnouncementsFatalError: string;
   siteAnnouncements: SiteAnnouncement[];
@@ -103,6 +107,8 @@ const emit = defineEmits<{
   refreshCliRuntime: [];
   activateCliInstance: [instance: TemporaryCliInstance];
   loadCheckInRecords: [options?: { force?: boolean }];
+  resumeCheckInTask: [task: CheckInTask];
+  cancelCheckInTask: [task: CheckInTask];
   retryCapabilityProbe: [];
   dismissUpdate: [];
   cancelUpdate: [];
@@ -123,6 +129,7 @@ const checkInRecordsVisible = defineModel<boolean>("checkInRecordsVisible", { re
 const checkInRecordsMonth = defineModel<string>("checkInRecordsMonth", { required: true });
 const capabilityProbeVisible = defineModel<boolean>("capabilityProbeVisible", { required: true });
 const batchOperationVisible = defineModel<boolean>("batchOperationVisible", { required: true });
+const checkInBatchVisible = defineModel<boolean>("checkInBatchVisible", { required: true });
 const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible", { required: true });
 </script>
 
@@ -162,6 +169,23 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :started-at="batchOperationStartedAt"
     :finished-at="batchOperationFinishedAt"
     :completed="batchOperationCompleted"
+  />
+
+  <BatchOperationProgressModal
+    v-model:visible="checkInBatchVisible"
+    operation="checkIn"
+    :running="checkInBatchProgress.running"
+    :submitting="checkInBatchProgress.submitting"
+    :items="[]"
+    :check-in-tasks="checkInBatchProgress.tasks"
+    :check-in-pending="checkInPending"
+    :skipped-count="checkInBatchProgress.skipped"
+    :error="checkInBatchProgress.error"
+    :started-at="checkInBatchProgress.startedAt"
+    :finished-at="checkInBatchProgress.finishedAt"
+    :completed="checkInBatchProgress.completed"
+    @resume-check-in="emit('resumeCheckInTask', $event)"
+    @cancel-check-in="emit('cancelCheckInTask', $event)"
   />
 
   <UsageTrendModal

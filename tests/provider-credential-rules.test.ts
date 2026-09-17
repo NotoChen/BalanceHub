@@ -87,7 +87,7 @@ function input(): ProviderInput {
       accessTokenExpiresAt: null,
     },
     cli: { preferredModel: "" },
-    automation: { refreshInterval: 0, checkInTime: "" },
+    automation: { refreshInterval: 0, checkInTime: "", checkInMethod: "auto", autoShield: true, turnstileMode: "auto" },
     liveness: {
       useGlobal: true,
       enabled: false,

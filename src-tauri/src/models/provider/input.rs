@@ -66,6 +66,9 @@ impl Default for ProviderInput {
             automation: ProviderAutomationInput {
                 refresh_interval: 0,
                 check_in_time: String::new(),
+                check_in_method: Default::default(),
+                auto_shield: true,
+                turnstile_mode: Default::default(),
             },
             liveness: ProviderLivenessInput {
                 use_global: true,
@@ -150,6 +153,9 @@ impl Provider {
             automation: ProviderAutomation {
                 refresh_interval: input.automation.refresh_interval,
                 check_in_time: input.automation.check_in_time,
+                check_in_method: input.automation.check_in_method,
+                auto_shield: input.automation.auto_shield,
+                turnstile_mode: input.automation.turnstile_mode,
                 last_synced_at: None,
                 last_checked_in_at: None,
                 last_check_in_user: String::new(),
@@ -309,6 +315,10 @@ impl Provider {
     }
 
     pub fn apply_input(&mut self, input: ProviderInput) {
+        let check_in_policy_changed = self.automation.check_in_method
+            != input.automation.check_in_method
+            || self.automation.auto_shield != input.automation.auto_shield
+            || self.automation.turnstile_mode != input.automation.turnstile_mode;
         let previous_check_in_user = self.auth.api_user.trim();
         let protocol_changed = self.identity.protocol != input.identity.protocol;
         let base_url_changed = self.identity.base_url.trim_end_matches('/')
@@ -453,6 +463,14 @@ impl Provider {
         self.cli.preferred_model = input.cli.preferred_model.trim().to_string();
         self.automation.refresh_interval = input.automation.refresh_interval;
         self.automation.check_in_time = input.automation.check_in_time;
+        self.automation.check_in_method = input.automation.check_in_method;
+        self.automation.auto_shield = input.automation.auto_shield;
+        self.automation.turnstile_mode = input.automation.turnstile_mode;
+        if check_in_policy_changed {
+            self.capabilities.check_in_known = false;
+            self.capabilities.check_in_supported = false;
+            self.capabilities.check_in_auth_modes.clear();
+        }
         self.proxy = input.proxy;
         self.notification.mode = input.notification.mode;
         self.notification.channel_ids = string_list(input.notification.channel_ids);
@@ -597,6 +615,57 @@ fn normalize_agent_base_urls(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn check_in_policy_defaults_round_trip_and_preserves_history_on_edit() {
+        use crate::models::{ProviderCheckInMethod, ProviderTurnstileMode};
+        let input = super::ProviderInput::default();
+        let mut payload = serde_json::to_value(&input).unwrap();
+        let automation = payload["automation"].as_object_mut().unwrap();
+        for key in ["checkInMethod", "autoShield", "turnstileMode"] {
+            automation.remove(key);
+        }
+        let mut input: super::ProviderInput = serde_json::from_value(payload).unwrap();
+        assert_eq!(
+            input.automation.check_in_method,
+            ProviderCheckInMethod::Auto
+        );
+        assert!(input.automation.auto_shield);
+        assert_eq!(input.automation.turnstile_mode, ProviderTurnstileMode::Auto);
+        let mut provider = super::Provider::from_input(input.clone(), "fixture".into());
+        provider.automation.last_checked_in_at = Some("123".into());
+        provider.capabilities.check_in_known = true;
+        input.automation.check_in_method = ProviderCheckInMethod::FreshLogin;
+        input.automation.auto_shield = false;
+        input.automation.turnstile_mode = ProviderTurnstileMode::Always;
+        provider.apply_input(input);
+        assert_eq!(
+            provider.automation.last_checked_in_at.as_deref(),
+            Some("123")
+        );
+        assert!(!provider.capabilities.check_in_known);
+        let restored: super::Provider =
+            serde_json::from_value(serde_json::to_value(&provider).unwrap()).unwrap();
+        assert_eq!(
+            restored.automation.check_in_method,
+            ProviderCheckInMethod::FreshLogin
+        );
+        assert!(!restored.automation.auto_shield);
+        assert_eq!(
+            restored.automation.turnstile_mode,
+            ProviderTurnstileMode::Always
+        );
+        let mut payload = serde_json::to_value(&provider).unwrap();
+        let automation = payload["automation"].as_object_mut().unwrap();
+        for key in ["checkInMethod", "autoShield", "turnstileMode"] {
+            automation.remove(key);
+        }
+        let restored: super::Provider = serde_json::from_value(payload).unwrap();
+        assert_eq!(
+            restored.automation.check_in_method,
+            ProviderCheckInMethod::Auto
+        );
+        assert!(restored.automation.auto_shield);
+    }
     use super::*;
 
     #[test]

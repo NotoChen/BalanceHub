@@ -1,7 +1,6 @@
 mod account;
 mod adapter;
 mod announcements;
-mod anyrouter;
 mod check_in;
 mod credentials;
 mod http;
@@ -15,7 +14,4 @@ mod site;
 mod usage;
 
 pub(crate) use adapter::NewApiAdapter;
-pub(crate) use check_in::check_in_with_browser;
-pub(crate) use http::provider_is_anyrouter;
-mod agentrouter;
-pub(crate) use agentrouter::check_in_with_browser as login_check_in_with_browser;
+pub(crate) use check_in::{browser_cookie_header, check_in_with_browser};

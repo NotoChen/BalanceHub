@@ -1,4 +1,4 @@
-use super::anyrouter::normalize_session_cookie;
+use super::check_in::normalize_session_cookie;
 
 pub fn decode_session_user_id(raw: &str) -> Option<String> {
     let session = normalize_session_cookie(raw);

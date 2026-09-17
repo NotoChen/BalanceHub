@@ -1,65 +1,87 @@
-//! AnyRouter 的 NewAPI 方言：签到走 `/api/user/sign_in`，且只认 `session` Cookie。
-//!
-//! 这里不再包含任何过盾逻辑。AnyRouter 站点常用阿里云 WAF，但那是**站点**的属性
-//! 而不是**方言**的属性：盾的检测与求解已经上移到 [`crate::network::shield`]，由
-//! 通用发送器在响应命中挑战页时自动处理。本模块因此不需要预热请求，也不需要知道
-//! 目标站点有没有盾。
-
-use crate::{
-    adapters::transport::ProviderTransport,
-    models::{Provider, ProviderCheckInResult},
+//! Session-only `/api/user/sign_in`, selectable on any compatible NewAPI site.
+use crate::models::{
+    CheckInError, CheckInPhase, Provider, ProviderCheckInResult, ProviderCheckInVerification,
 };
-use reqwest::{
-    header::{ACCEPT, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, USER_AGENT},
-    Method, StatusCode,
-};
+use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
-use super::http::{build_url, USER_AGENT_VALUE};
-use super::response::trim_message;
+use super::{
+    super::{http::build_url, response::trim_message},
+    challenge::{verification_required, verification_result},
+    executor::{Credentials, Executor},
+};
 
-const DEFAULT_UPSTREAM: &str = "https://anyrouter.top";
-
-pub async fn check_in_provider(
-    client: &ProviderTransport,
+pub(super) async fn run(
+    executor: &mut Executor<'_>,
     provider: &Provider,
-) -> Result<ProviderCheckInResult, String> {
-    let upstream = normalize_base_url(Some(&provider.identity.base_url), DEFAULT_UPSTREAM);
-    if !super::adapter::is_anyrouter_base_url(&upstream) {
-        return Err("当前中转站不是 AnyRouter 地址".to_string());
+    mut needs_token: bool,
+) -> Result<ProviderCheckInResult, CheckInError> {
+    if normalize_session_cookie(&provider.auth.session_cookie).is_empty() {
+        return Err("会话签到需要 session Cookie".into());
     }
-
-    let session = normalize_session_value(&provider.auth.session_cookie);
-    if session.is_empty() {
-        return Err("AnyRouter 签到需要在中转站中配置会话 Cookie".to_string());
+    let public_url = build_url(&provider.identity.base_url, "/api/status")?;
+    for attempt in 0..3 {
+        let mut submit_url = build_url(&provider.identity.base_url, "/api/user/sign_in")?;
+        if needs_token {
+            let Some(token) = executor.turnstile_token(provider).await? else {
+                return Ok(verification_result(ProviderCheckInVerification::Turnstile));
+            };
+            submit_url
+                .query_pairs_mut()
+                .append_pair("turnstile", &token);
+        }
+        executor.phase(CheckInPhase::Requesting);
+        let response = executor
+            .send(
+                provider,
+                &submit_url,
+                Method::POST,
+                Credentials::SessionOnly,
+                Some(String::new()),
+            )
+            .await
+            .map_err(|_| {
+                CheckInError::Unconfirmed(
+                    "会话签到提交后连接中断；已停止自动重试，请查看站点记录".into(),
+                )
+            })?;
+        if let Some(kind) =
+            verification_required(response.status, &response.headers, &response.body)
+        {
+            if !executor
+                .retry_verification(provider, kind, &public_url)
+                .await?
+            {
+                return Ok(verification_result(kind));
+            }
+            if attempt == 2 {
+                return Err("完成验证后站点仍拒绝签到，已停止重试".into());
+            }
+            needs_token |= kind == ProviderCheckInVerification::Turnstile;
+            continue;
+        }
+        let result = parse_check_in_response(response.status, &response.body);
+        let explicitly_rejected = serde_json::from_str::<Value>(&response.body)
+            .ok()
+            .and_then(|value| value.get("success").and_then(Value::as_bool))
+            == Some(false);
+        if response.status.is_success() && !result.ok && !explicitly_rejected {
+            return Err(CheckInError::Unconfirmed(
+                "会话签到请求已返回，但结果无法确认；已停止自动重试，请查看站点记录".into(),
+            ));
+        }
+        return Ok(ProviderCheckInResult {
+            verification_required: None,
+            verification_requires_login: false,
+            unconfirmed: false,
+            ok: result.ok,
+            message: result.message,
+            last_checked_in_at: None,
+            last_check_in_user: None,
+            quota_delta: None,
+        });
     }
-
-    // 直接发签到请求，不预热、不猜站点有没有盾。命中挑战页时通用层会用挑战页
-    // 正文本身求解并重试——比原先"每次签到都先探一遍"少一半请求。
-    let request = client
-        .request(Method::POST, build_url(&upstream, "/api/user/sign_in")?)
-        .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(CONTENT_TYPE, "application/json")
-        .header(ACCEPT, "application/json, text/plain, */*")
-        .header(ORIGIN, &upstream)
-        .header(REFERER, format!("{upstream}/"))
-        .header(COOKIE, format!("session={session}"))
-        .body("");
-
-    let response = client.send(request, "请求 AnyRouter 签到").await?;
-    let status = response.status;
-    let body = response.body;
-    let result = parse_check_in_response(status, &body);
-
-    Ok(ProviderCheckInResult {
-        verification_required: None,
-        unconfirmed: false,
-        ok: result.ok,
-        message: result.message,
-        last_checked_in_at: None,
-        last_check_in_user: None,
-        quota_delta: None,
-    })
+    Err("签到验证未完成".into())
 }
 
 pub fn normalize_session_cookie(raw: &str) -> String {
@@ -153,11 +175,6 @@ pub(crate) fn anyrouter_message_indicates_already_checked_in(message: &str) -> b
         || compact.contains("重复签到")
         || (compact.contains("already") && compact.contains("sign"))
         || (compact.contains("already") && compact.contains("check"))
-}
-
-fn normalize_base_url(raw: Option<&str>, fallback: &str) -> String {
-    let base = raw.unwrap_or(fallback).trim();
-    base.trim_end_matches('/').to_string()
 }
 
 fn normalize_session_value(raw: &str) -> String {

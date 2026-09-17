@@ -4,7 +4,7 @@ use super::super::definition::{
     ProviderProtocolOperationMethods,
 };
 use crate::{
-    adapters::new_api::{provider_is_anyrouter, NewApiAdapter},
+    adapters::new_api::NewApiAdapter,
     models::{AuthMode, ProviderProtocol},
 };
 
@@ -158,5 +158,4 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
     capability_probe: &ADAPTER,
     check_in: Some(&ADAPTER),
     announcements: Some(&ADAPTER),
-    is_anyrouter: provider_is_anyrouter,
 };

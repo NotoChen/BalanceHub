@@ -21,8 +21,6 @@ pub(crate) struct ProviderProtocolCapabilities {
     pub(crate) announcements: bool,
 }
 
-pub(crate) type DialectChecker = fn(&Provider) -> bool;
-
 pub(crate) struct ProviderProtocolAuthSchema {
     pub(crate) mode: AuthMode,
     pub(crate) label: &'static str,
@@ -107,7 +105,6 @@ pub(crate) struct ProviderProtocolDefinition {
     pub(crate) capability_probe: &'static dyn CapabilityProbe,
     pub(crate) check_in: Option<&'static dyn CheckInCapability>,
     pub(crate) announcements: Option<&'static dyn AnnouncementCapability>,
-    pub(crate) is_anyrouter: DialectChecker,
 }
 
 #[derive(Debug, Clone, Copy)]

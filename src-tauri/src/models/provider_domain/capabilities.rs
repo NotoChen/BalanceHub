@@ -1,6 +1,9 @@
 use chrono::{Datelike, Local};
 
-use crate::models::{provider_domain::auth, AuthMode, Provider, ProviderProtocol};
+use crate::models::{
+    provider_domain::{auth, check_in},
+    AuthMode, Provider, ProviderCheckInMethod, ProviderProtocol,
+};
 
 pub fn supports_account_management(provider: &Provider) -> bool {
     if matches!(provider.identity.protocol, ProviderProtocol::Api)
@@ -30,45 +33,18 @@ pub fn supports_account_management(provider: &Provider) -> bool {
         && (auth::has_access_token(provider) || auth::has_session(provider))
 }
 
-pub fn supports_check_in(provider: &Provider, is_anyrouter: bool) -> bool {
-    if !matches!(provider.identity.protocol, ProviderProtocol::NewApi)
-        || matches!(provider.auth.mode, AuthMode::ApiKey)
-    {
+pub fn supports_check_in(provider: &Provider) -> bool {
+    if check_in::validate_credentials(provider).is_err() {
         return false;
     }
-    if uses_login_check_in(provider) {
-        return matches!(provider.auth.mode, AuthMode::Password)
-            && !provider.auth.login_username.trim().is_empty()
-            && !provider.auth.login_password.trim().is_empty();
-    }
     let capabilities = &provider.capabilities;
-    if capabilities.check_in_known {
+    if provider.automation.check_in_method == ProviderCheckInMethod::Auto
+        && check_in::effective_method(provider) == ProviderCheckInMethod::Standard
+        && capabilities.check_in_known
+    {
         return capabilities.check_in_supported;
     }
-    if is_anyrouter {
-        return auth::has_session(provider);
-    }
-
-    (matches!(provider.auth.mode, AuthMode::AccessToken)
-        && auth::has_access_token(provider)
-        && auth::has_api_user(provider))
-        || (matches!(provider.auth.mode, AuthMode::Session)
-            && auth::has_session(provider)
-            && auth::has_api_user(provider))
-        || (matches!(provider.auth.mode, AuthMode::Password)
-            && ((!provider.auth.login_username.trim().is_empty()
-                && !provider.auth.login_password.trim().is_empty())
-                || auth::has_session(provider) && auth::has_api_user(provider)))
-}
-
-/// AgentRouter's documented daily action is a fresh login, not /user/checkin.
-/// Match the actual host; a provider label or URL path is not a dialect signal.
-pub fn uses_login_check_in(provider: &Provider) -> bool {
-    matches!(provider.identity.protocol, ProviderProtocol::NewApi)
-        && reqwest::Url::parse(&provider.identity.base_url)
-            .ok()
-            .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
-            .is_some_and(|host| host == "agentrouter.org" || host.ends_with(".agentrouter.org"))
+    true
 }
 
 pub fn supports_api_key_management(provider: &Provider) -> bool {
@@ -91,21 +67,21 @@ pub fn supports_invitation(provider: &Provider) -> bool {
     !provider.capabilities.invite_link.trim().is_empty() || supports_account_management(provider)
 }
 
-pub fn check_in_user(provider: &Provider, is_anyrouter: bool) -> String {
+pub fn check_in_user(provider: &Provider) -> String {
     let api_user = provider.auth.api_user.trim();
     if !api_user.is_empty() {
         api_user.to_string()
     } else if matches!(provider.auth.mode, AuthMode::Password) {
         provider.auth.login_username.clone()
-    } else if is_anyrouter {
+    } else if check_in::effective_method(provider) == ProviderCheckInMethod::SessionSignIn {
         provider.identity.id.clone()
     } else {
         String::new()
     }
 }
 
-pub fn checked_in_today(provider: &Provider, is_anyrouter: bool) -> bool {
-    if !supports_check_in(provider, is_anyrouter) {
+pub fn checked_in_today(provider: &Provider) -> bool {
+    if !supports_check_in(provider) {
         return false;
     }
     let Some(checked_ymd) = local_ymd_from_stored(&provider.automation.last_checked_in_at) else {
@@ -116,7 +92,7 @@ pub fn checked_in_today(provider: &Provider, is_anyrouter: bool) -> bool {
         return false;
     }
     let checked_user = provider.automation.last_check_in_user.trim();
-    checked_user.is_empty() || checked_user == check_in_user(provider, is_anyrouter)
+    checked_user.is_empty() || checked_user == check_in_user(provider)
 }
 
 /// 把存储的「上次签到时刻」（毫秒/秒数字串，或 RFC3339）解析为本地年月日。
@@ -154,11 +130,14 @@ mod tests {
         provider.auth.login_password = "fixture-password".into();
         provider.capabilities.check_in_known = true;
         provider.capabilities.check_in_supported = false;
-        assert!(supports_check_in(&provider, false));
+        assert!(supports_check_in(&provider));
         provider.auth.login_password.clear();
-        assert!(!supports_check_in(&provider, false));
+        assert!(!supports_check_in(&provider));
         provider.identity.base_url = "https://example.com/agentrouter.org".into();
-        assert!(!uses_login_check_in(&provider));
+        assert_eq!(
+            check_in::effective_method(&provider),
+            ProviderCheckInMethod::Standard
+        );
     }
 
     fn provider() -> Provider {
@@ -187,7 +166,9 @@ mod tests {
         provider.capabilities.check_in_known = true;
         provider.capabilities.check_in_supported = false;
 
-        assert!(!supports_check_in(&provider, false));
+        assert!(!supports_check_in(&provider));
+        provider.automation.check_in_method = ProviderCheckInMethod::Standard;
+        assert!(supports_check_in(&provider));
     }
 
     #[test]
@@ -197,7 +178,7 @@ mod tests {
         provider.capabilities.check_in_known = true;
         provider.capabilities.check_in_supported = true;
 
-        assert!(!supports_check_in(&provider, false));
+        assert!(!supports_check_in(&provider));
     }
 
     #[test]
@@ -220,7 +201,7 @@ mod tests {
         provider.auth.mode = AuthMode::AccessToken;
         provider.auth.access_token = "token".to_string();
 
-        assert!(!supports_check_in(&provider, false));
+        assert!(!supports_check_in(&provider));
     }
 
     #[test]
@@ -228,7 +209,9 @@ mod tests {
         let mut provider = provider();
         provider.auth.api_user.clear();
 
-        assert_eq!(check_in_user(&provider, true), "p1");
-        assert_eq!(check_in_user(&provider, false), "");
+        provider.automation.check_in_method = ProviderCheckInMethod::SessionSignIn;
+        assert_eq!(check_in_user(&provider), "p1");
+        provider.automation.check_in_method = ProviderCheckInMethod::Standard;
+        assert_eq!(check_in_user(&provider), "");
     }
 }

@@ -4,7 +4,7 @@ import { copyText } from "./useClipboard";
 import {
   normalizeProviderBaseUrl,
   providerDuplicateSaveResolution,
-  type ProviderEditorStep,
+  type ProviderEditorSection,
   type ProviderSaveCompletion,
   type ProviderEditorStore,
 } from "./provider-editor-shared";
@@ -83,8 +83,8 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     credentialAssistant.resetCredentialAssistant();
   }
 
-  function openEditProvider(provider: Provider, initialStep: ProviderEditorStep = "basics") {
-    state.openEditProvider(provider, initialStep);
+  function openEditProvider(provider: Provider, initialSection: ProviderEditorSection = "basics") {
+    state.openEditProvider(provider, initialSection);
     credentialAssistant.resetCredentialAssistant();
   }
 

@@ -7,8 +7,8 @@ use crate::{
         protocol::contracts::ProviderOperationOutcome,
     },
     models::{
-        AppSettings, AuthMode, CheckInError, CheckInPhase, Provider, ProviderCheckInResult,
-        ProviderCheckInVerification,
+        AppSettings, CheckInError, CheckInPhase, CheckInVerificationRequest, Provider,
+        ProviderCheckInResult,
     },
     network,
     state::AppState,
@@ -25,12 +25,12 @@ pub(crate) async fn run(
     app: &AppHandle,
     settings: &AppSettings,
     provider: &Provider,
-    verification: ProviderCheckInVerification,
+    verification: CheckInVerificationRequest,
     task: &CheckInContext,
 ) -> Result<ProviderOperationOutcome<ProviderCheckInResult>, CheckInError> {
     // Queue time is not counted as browser execution time. The enclosing task
     // owns cancellation, including while this permit is pending.
-    task.phase(app, CheckInPhase::Queued);
+    task.queued_for_browser(app);
     let _slot = BROWSER_SLOT
         .acquire()
         .await
@@ -75,7 +75,7 @@ async fn execute(
     app: &AppHandle,
     settings: &AppSettings,
     provider: &Provider,
-    verification: ProviderCheckInVerification,
+    verification: CheckInVerificationRequest,
     task: &CheckInContext,
     executable: &std::path::Path,
     session: &mut BrowserSession,
@@ -104,12 +104,13 @@ async fn execute(
         "{:x}",
         Sha256::digest(
             format!(
-                "{}|{}|{}|{:?}|{}",
+                "{}|{}|{}|{:?}|{}|{}",
                 provider.identity.id,
                 url.origin().ascii_serialization(),
                 provider.auth.api_user,
                 provider.auth.mode,
-                proxy_key
+                proxy_key,
+                provider.automation.auto_shield
             )
             .as_bytes()
         )
@@ -120,39 +121,23 @@ async fn execute(
         .map_err(|_| "无法获取浏览器会话目录")?
         .join("checkin-browser")
         .join(profile_key);
-    let cookies = if matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password) {
-        provider
-            .auth
-            .session_cookie
-            .split(';')
-            .filter_map(|item| {
-                let (name, value) = item.trim().split_once('=')?;
-                Some(json!({ "name": name.trim(), "value": value.trim() }))
-            })
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
+    let cookies = crate::adapters::new_api::browser_cookie_header(provider)
+        .split(';')
+        .filter_map(|item| {
+            let (name, value) = item.trim().split_once('=')?;
+            Some(json!({ "name": name.trim(), "value": value.trim() }))
+        })
+        .collect::<Vec<_>>();
     session
         .request(
             "open",
             json!({
                 "url": url.as_str(), "profileDir": profile_dir, "proxy": proxy.browser(&url)?,
+                "providerName": provider.display_label(),
                 "cookies": cookies, "executablePath": executable, "interactive": task.interactive,
+                "autoShield": provider.automation.auto_shield,
             }),
         )
         .await?;
-    if crate::models::provider_domain::capabilities::uses_login_check_in(provider) {
-        crate::adapters::new_api::login_check_in_with_browser(
-            session,
-            provider,
-            verification,
-            &ensure_current,
-        )
-        .await
-    } else {
-        check_in_with_browser(session, provider, verification, &ensure_current)
-            .await
-            .map(ProviderOperationOutcome::unchanged)
-    }
+    check_in_with_browser(session, provider, verification, &ensure_current).await
 }

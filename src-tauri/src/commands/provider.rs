@@ -19,6 +19,14 @@ use tauri_plugin_opener::OpenerExt;
 use super::run_blocking;
 
 #[tauri::command]
+pub(crate) fn preview_provider_check_in_policy(
+    input: ProviderInput,
+) -> crate::models::provider_domain::check_in::ProviderCheckInPolicyPreview {
+    let provider = crate::models::Provider::from_input(input, String::new());
+    crate::models::provider_domain::check_in::preview(&provider)
+}
+
+#[tauri::command]
 pub(crate) async fn open_provider_site(app: AppHandle, id: String) -> Result<(), String> {
     run_blocking("打开中转站", move || {
         let data = ProviderService::new(&app).load_app_data()?;
@@ -55,6 +63,7 @@ pub(crate) async fn save_provider(
     })
     .await?;
     if result.saved {
+        crate::services::check_in_tasks::cancel_outdated(&app);
         tray::refresh_from_state(&app);
     }
     Ok(result.into())

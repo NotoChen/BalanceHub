@@ -1,4 +1,3 @@
-use super::anyrouter;
 use super::check_in::probe_check_in_capability;
 use super::http::{
     access_token_fallback_provider, build_url, build_user_request, normalize_base_url,
@@ -6,8 +5,7 @@ use super::http::{
     ProviderTransport,
 };
 pub(crate) use super::http::{
-    authenticate_password_provider, build_client, is_anyrouter_base_url, login_password_provider,
-    provider_is_anyrouter,
+    authenticate_password_provider, build_client, login_password_provider,
 };
 use super::keys::{
     create_api_key, delete_api_key, fetch_api_key_options, probe_api_key_management,
@@ -16,7 +14,8 @@ use super::response::{extract_string_field, parse_success_data, send_text};
 use super::site::fetch_site_metadata;
 pub use super::site::SiteMetadata;
 use crate::models::{
-    AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCapabilities,
+    provider_domain::check_in as check_in_policy, AppSettings, AuthMode, Provider,
+    ProviderApiKeyOption, ProviderCapabilities, ProviderCheckInMethod,
     ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
     ProviderCredentialCompletionResult, ProviderInput, ProviderQuotaDisplay,
     ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
@@ -374,57 +373,36 @@ impl NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<(Provider, ProviderCheckInResult), String> {
-        if matches!(provider.auth.mode, AuthMode::ApiKey) {
-            return Err("API Key 认证不支持用户签到，请切换到 Cookie 或访问令牌".to_string());
+        let client = build_client(settings, provider).await?;
+        let first = super::check_in::check_in_provider(&client, provider).await;
+        // Only the standard method can switch authentication after an explicit
+        // auth rejection. Session-only and fresh-login methods keep their contract.
+        if check_in_policy::effective_method(provider) != ProviderCheckInMethod::Standard
+            || client
+                .shield_blocked_for(&provider.identity.base_url)
+                .await
+                .is_some()
+        {
+            return first;
         }
-        let client = crate::adapters::transport::build_client(settings, provider).await?;
-        if crate::models::provider_domain::capabilities::uses_login_check_in(provider) {
-            return super::agentrouter::check_in(&client, provider).await;
-        }
-        let authenticated = authenticated_provider(&client, provider).await?;
-        let first = check_in_for_provider(&client, &authenticated).await;
-        match first {
-            Ok(value)
-                if value.ok
-                    || value.unconfirmed
-                    || value.verification_required.is_some()
-                    || client
-                        .shield_blocked_for(&authenticated.identity.base_url)
-                        .await
-                        .is_some()
-                    || !should_retry_with_access_token(&value.message) =>
+        let (candidate, message) = match &first {
+            Ok((authenticated, value))
+                if !value.ok && !value.unconfirmed && value.verification_required.is_none() =>
             {
-                Ok((authenticated, value))
+                (authenticated, value.message.as_str())
             }
-            Ok(value) => {
-                let Some(fallback_provider) = access_token_fallback_provider(&authenticated) else {
-                    return Ok((authenticated, value));
-                };
-                let retry_client = client.clone();
-                let retry = check_in_for_provider(&retry_client, &fallback_provider)
-                    .await
-                    .map_err(|retry_error| {
-                        format!(
-                            "{}；已尝试改用访问令牌，仍失败: {retry_error}",
-                            value.message
-                        )
-                    })?;
-                Ok((fallback_provider, retry))
-            }
-            Err(message) => {
-                let (provider, value) = retry_with_access_token(
-                    &client,
-                    &authenticated,
-                    async { Err::<ProviderCheckInResult, String>(message.clone()) },
-                    |candidate| {
-                        let retry_client = client.clone();
-                        async move { check_in_for_provider(&retry_client, &candidate).await }
-                    },
-                )
-                .await?;
-                Ok((provider, value))
-            }
+            Err(message) => (provider, message.as_str()),
+            _ => return first,
+        };
+        if !should_retry_with_access_token(message) {
+            return first;
         }
+        let Some(fallback) = access_token_fallback_provider(candidate) else {
+            return first;
+        };
+        super::check_in::check_in_provider(&client, &fallback)
+            .await
+            .map_err(|error| format!("{message}；改用访问令牌仍失败: {error}"))
     }
 
     pub(crate) async fn check_in_records(
@@ -436,11 +414,11 @@ impl NewApiAdapter {
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("API Key 认证不支持签到记录，请切换到 Cookie 或访问令牌".to_string());
         }
+        if check_in_policy::effective_method(provider) != ProviderCheckInMethod::Standard {
+            return Err("当前签到方式没有可用的官方历史接口".to_string());
+        }
         let client = build_client(settings, provider).await?;
         let authenticated = authenticated_provider(&client, provider).await?;
-        if provider_is_anyrouter(&authenticated) {
-            return Err("当前暂未发现 AnyRouter 的签到历史接口".to_string());
-        }
         let (provider, value) = retry_with_access_token(
             &client,
             &authenticated,
@@ -472,17 +450,6 @@ async fn authenticated_provider(
         login_password_provider(client, provider).await
     } else {
         authenticate_password_provider(client, provider).await
-    }
-}
-
-async fn check_in_for_provider(
-    client: &ProviderTransport,
-    provider: &Provider,
-) -> Result<ProviderCheckInResult, String> {
-    if provider_is_anyrouter(provider) {
-        anyrouter::check_in_provider(client, provider).await
-    } else {
-        super::check_in::check_in_provider(client, provider).await
     }
 }
 
@@ -543,7 +510,6 @@ pub async fn probe_capabilities(
         );
     }
 
-    let is_anyrouter = provider_is_anyrouter(provider);
     if matches!(provider.auth.mode, AuthMode::ApiKey) {
         capabilities.check_in_known = true;
         capabilities.check_in_supported = false;
@@ -554,14 +520,14 @@ pub async fn probe_capabilities(
         return (capabilities, invite_link, None);
     }
 
-    if crate::models::provider_domain::capabilities::uses_login_check_in(provider) {
+    if check_in_policy::effective_method(provider) == ProviderCheckInMethod::FreshLogin {
         capabilities.check_in_known = true;
         capabilities.check_in_supported = !provider.auth.login_username.trim().is_empty()
             && !provider.auth.login_password.trim().is_empty();
         if capabilities.check_in_supported {
             capabilities.check_in_auth_modes.push(AuthMode::Password);
         }
-    } else if is_anyrouter {
+    } else if check_in_policy::effective_method(provider) == ProviderCheckInMethod::SessionSignIn {
         capabilities.check_in_known = true;
         capabilities.check_in_supported = !provider.auth.session_cookie.trim().is_empty();
         if capabilities.check_in_supported {

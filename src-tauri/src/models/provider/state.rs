@@ -5,8 +5,9 @@ use super::defaults;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
     default_true, AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode,
-    LivenessRecord, ProviderApiKeyOption, ProviderCheckInRecord, ProviderNotificationMode,
-    ProviderProtocol, ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
+    LivenessRecord, ProviderApiKeyOption, ProviderCheckInMethod, ProviderCheckInRecord,
+    ProviderNotificationMode, ProviderProtocol, ProviderProxyMode, ProviderQuotaScope,
+    ProviderStatus, ProviderTurnstileMode,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,6 +188,12 @@ pub struct ProviderAutomation {
     pub refresh_interval: u64,
     #[serde(default)]
     pub check_in_time: String,
+    #[serde(default)]
+    pub check_in_method: ProviderCheckInMethod,
+    #[serde(default = "default_true")]
+    pub auto_shield: bool,
+    #[serde(default)]
+    pub turnstile_mode: ProviderTurnstileMode,
     pub last_synced_at: Option<String>,
     #[serde(default)]
     pub last_checked_in_at: Option<String>,
@@ -203,6 +210,12 @@ pub struct ProviderAutomationInput {
     pub refresh_interval: u64,
     #[serde(default)]
     pub check_in_time: String,
+    #[serde(default)]
+    pub check_in_method: ProviderCheckInMethod,
+    #[serde(default = "default_true")]
+    pub auto_shield: bool,
+    #[serde(default)]
+    pub turnstile_mode: ProviderTurnstileMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

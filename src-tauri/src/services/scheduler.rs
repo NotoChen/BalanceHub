@@ -5,7 +5,6 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use crate::{
-    adapters::protocol::ProtocolAdapter,
     app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
     models::{provider_domain, AppSettings, Provider, ProviderStatus},
     services::{notifications, provider_service::ProviderService},
@@ -226,10 +225,9 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
             .providers
             .iter()
             .filter(|provider| {
-                let is_anyrouter = ProtocolAdapter.is_anyrouter(provider);
                 provider.runtime.enabled
-                    && provider_domain::capabilities::supports_check_in(provider, is_anyrouter)
-                    && !provider_domain::capabilities::checked_in_today(provider, is_anyrouter)
+                    && provider_domain::capabilities::supports_check_in(provider)
+                    && !provider_domain::capabilities::checked_in_today(provider)
                     && provider_domain::automation::check_in_due_now(provider, settings)
                     && check_in_attempt_allowed(
                         state.check_in_attempts.get(&provider.identity.id),
