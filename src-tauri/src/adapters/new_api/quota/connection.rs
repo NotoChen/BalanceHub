@@ -1,4 +1,4 @@
-use super::super::http::{login_password_provider, ProviderTransport};
+use super::super::http::{authenticate_password_provider, ProviderTransport};
 use super::fetch_quota;
 use crate::models::{
     AuthMode, Provider, ProviderConnectionTestResult, ProviderConnectionTestStep,
@@ -12,7 +12,7 @@ pub async fn test_connection(
     let mut steps = Vec::new();
 
     if matches!(provider.auth.mode, AuthMode::Password) {
-        let (authenticated, step) = match login_password_provider(client, provider).await {
+        let (authenticated, step) = match authenticate_password_provider(client, provider).await {
             Ok(authenticated) => {
                 let step = match fetch_quota(client, &authenticated).await {
                     Ok(profile) => ProviderConnectionTestStep {
@@ -82,7 +82,7 @@ pub async fn test_connection(
         ));
     }
 
-    if !provider.auth.session_cookie.trim().is_empty() {
+    if crate::models::provider_domain::auth::has_session(provider) {
         steps.push(test_connection_with_auth(client, provider, AuthMode::Session).await);
     } else {
         steps.push(skipped_test_step("会话 Cookie", "未配置，跳过"));

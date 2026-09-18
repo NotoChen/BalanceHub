@@ -63,6 +63,9 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         let operation = ProtocolAdapter
             .probe_capabilities(&data.settings, &provider)
@@ -129,6 +132,9 @@ impl<'a> ProviderService<'a> {
     ) -> Result<ProviderModelSyncResult, String> {
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         let models = fetch_available_models(&data.settings, &provider).await?;
         let stored_models = models.clone();
@@ -168,6 +174,9 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         if !provider.capabilities.invite_link.trim().is_empty() {
             let invite_link = normalize_invite_link(&provider.capabilities.invite_link);

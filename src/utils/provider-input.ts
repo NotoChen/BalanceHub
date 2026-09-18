@@ -28,6 +28,10 @@ export function emptyDraft(): ProviderInput {
       loginPassword: "",
       refreshToken: "",
       accessTokenExpiresAt: null,
+      newApiSession: null,
+      browserBinding: null,
+      credentialRevision: 0,
+      sessionUpdatedAt: null,
     },
     cli: {
       preferredModel: "",
@@ -86,6 +90,7 @@ export function providerToInput(
     },
     auth: {
       ...provider.auth,
+      newApiSession: provider.auth.newApiSession ? { ...provider.auth.newApiSession } : null,
       apiKeyOptions: [...(provider.auth.apiKeyOptions || [])],
     },
     cli: {

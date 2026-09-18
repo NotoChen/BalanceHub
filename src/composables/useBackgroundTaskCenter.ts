@@ -1,3 +1,6 @@
+import { Message } from "@arco-design/web-vue";
+import { cancelProviderBrowserLogin, listProviderBrowserLogins, showProviderLoginWindow } from "../api/provider-browser-login";
+import { createLoginTaskControl } from "../utils/login-task-control";
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -16,6 +19,7 @@ import type { BrowserRuntimeStatus } from "../api/browser-runtime";
 export type BackgroundTaskStatus = "running" | "waiting" | "success" | "failed" | "cancelled" | "unconfirmed";
 
 export type BackgroundTaskKind =
+  | "providerLogin"
   | "refresh"
   | "checkIn"
   | "announcement"
@@ -44,6 +48,10 @@ export interface BackgroundTask {
 
 interface BackgroundTaskEvent {
   taskId: string;
+  canCancel?: boolean;
+  canShowWindow?: boolean;
+  loginAccountId?: string;
+  providerId?: string;
   kind: BackgroundTaskKind;
   status: BackgroundTaskStatus;
   title: string;
@@ -56,6 +64,8 @@ interface BackgroundTaskEvent {
 
 interface UseBackgroundTaskCenterOptions {
   providers: Ref<Provider[]>;
+  openLoginAccount: (id: string) => void;
+  openProviderCredentials: (id: string) => void;
   batchOperation: Ref<ProviderBatchOperation | null>;
   batchOperationRunning: Ref<boolean>;
   batchOperationItems: Ref<ProviderBatchProgressItem[]>;
@@ -102,6 +112,14 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   const rememberedTemporaryCliTaskIds = new Set<string>();
   const rememberedCheckInIds = new Set<string>();
   let disposed = false;
+  const observedLoginEvents = new Set<string>();
+  const loginControl = createLoginTaskControl({
+    changed: (id, pending) => {
+      const task = remoteTasks.value[id];
+      if (task) remoteTasks.value = { ...remoteTasks.value, [id]: { ...task, actions: task.actions?.map((action) => ({ ...action, disabled: pending })) } };
+    },
+    failed: (message) => { Message.error(message); },
+  });
 
   function checkInBackgroundTask(task: CheckInTask): BackgroundTask {
     const busy = options.checkInPending.value.some((key) => key.endsWith(`:${task.runId}`));
@@ -165,7 +183,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     tasks.push(...options.checkInTasks.value.filter((task) => !task.finished).map(checkInBackgroundTask));
     const runtime = options.browserRuntime.value;
     if (runtime?.phase === "installing") tasks.push({
-      id: "browser-runtime-install", kind: "update", title: "安装浏览器签到组件", detail: runtime.message,
+      id: "browser-runtime-install", kind: "update", title: "安装浏览器登录与验证组件", detail: runtime.message,
       status: "running", progress: runtime.progress, startedAt: previousActive.get("browser-runtime-install")?.startedAt ?? now,
       source: "manual", actions: [{ label: "取消", run: () => { void options.cancelBrowserRuntime(); } }],
     });
@@ -246,7 +264,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     }
 
     for (const task of Object.values(remoteTasks.value)) {
-      if (task.status === "running") tasks.push(task);
+      if (task.status === "running" || task.status === "waiting") tasks.push(task);
     }
     return tasks.sort((left, right) => left.startedAt - right.startedAt);
   });
@@ -341,6 +359,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       for (const [id, previous] of previousActive) {
         if (
           !next.has(id)
+          && previous.kind !== "providerLogin"
           && !id.startsWith("scheduler-")
           && !id.startsWith("temporary-cli-launch-")
           && !id.startsWith("checkin-")
@@ -356,6 +375,18 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
 
   function handleSchedulerEvent(event: BackgroundTaskEvent) {
     if (!event || !event.taskId || !event.title) return;
+    const actions: NonNullable<BackgroundTask["actions"]> = [];
+    if (event.kind === "providerLogin") {
+      const disabled = loginControl.pending(event.taskId);
+      if (event.canShowWindow) actions.push({ label: "显示登录窗口", disabled, run: () => { void loginControl.run(event.taskId, () => showProviderLoginWindow(event.taskId)); } });
+      if (event.canCancel) actions.push({ label: "取消", disabled, run: () => { void loginControl.run(event.taskId, () => cancelProviderBrowserLogin(event.taskId)); } });
+      if (event.status === "success") {
+        const providerId = event.providerId;
+        const accountId = event.loginAccountId;
+        if (providerId) actions.push({ label: "查看站点凭据", run: () => options.openProviderCredentials(providerId) });
+        else if (accountId) actions.push({ label: "查看登录账号", run: () => options.openLoginAccount(accountId) });
+      }
+    }
     const task: BackgroundTask = {
       id: event.taskId,
       kind: event.kind,
@@ -366,9 +397,10 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       startedAt: event.startedAt || Date.now(),
       finishedAt: event.finishedAt ?? undefined,
       error: event.error ?? undefined,
-      source: "automatic",
+      source: event.kind === "providerLogin" ? "manual" : "automatic",
+      actions,
     };
-    if (event.status === "running") {
+    if (event.status === "running" || event.status === "waiting") {
       remoteTasks.value = { ...remoteTasks.value, [task.id]: task };
       return;
     }
@@ -403,10 +435,23 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     recentPruneTimer = window.setInterval(pruneRecent, 60_000);
     try {
       const dispose = await listen<BackgroundTaskEvent>(TASK_EVENT_NAME, (event) => {
+        if (event.payload.kind === "providerLogin") observedLoginEvents.add(event.payload.taskId);
         handleSchedulerEvent(event.payload);
       });
       if (disposed) dispose();
       else schedulerUnlisten = dispose;
+      if (!disposed) {
+        const tasks = await listProviderBrowserLogins();
+        if (disposed) return;
+        for (const task of tasks) {
+          if (observedLoginEvents.has(task.runId)) continue;
+          handleSchedulerEvent({ taskId: task.runId, kind: "providerLogin", title: `${task.operation === "account" ? "管理登录账号" : "登录并导入"} · ${task.providerName}`,
+            detail: task.message, status: task.phase === "completed" ? "success" : task.phase === "failed" ? "failed"
+              : task.phase === "cancelled" ? "cancelled" : task.phase === "queued" || task.phase === "waitingLogin" ? "waiting" : "running",
+            progress: null, startedAt: task.startedAt, finishedAt: task.finishedAt, error: task.error, canCancel: task.canCancel,
+            canShowWindow: task.canShowWindow, loginAccountId: task.loginAccountId, providerId: task.providerId ?? undefined });
+        }
+      }
     } catch {
       // Vite/browser preview has no Tauri event bus; local observable tasks remain available.
     }
@@ -414,6 +459,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
 
   onUnmounted(() => {
     disposed = true;
+    loginControl.dispose();
     schedulerUnlisten?.();
     schedulerUnlisten = null;
     if (recentPruneTimer !== null) {
@@ -437,7 +483,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   }, { immediate: true });
   watch(options.browserRuntime, (runtime, previous) => {
     if (!runtime || previous?.phase !== "installing" || runtime.phase === "installing") return;
-    rememberRecent({ id: "browser-runtime-install", kind: "update", title: "浏览器签到组件", detail: runtime.message,
+    rememberRecent({ id: "browser-runtime-install", kind: "update", title: "浏览器登录与验证组件", detail: runtime.message,
       status: runtime.phase === "ready" ? "success" : runtime.phase === "cancelled" ? "cancelled" : "failed",
       progress: null, startedAt: previousActive.get("browser-runtime-install")?.startedAt ?? Date.now(), finishedAt: Date.now(), source: "manual" });
   });

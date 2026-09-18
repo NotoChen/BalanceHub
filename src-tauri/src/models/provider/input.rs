@@ -61,6 +61,10 @@ impl Default for ProviderInput {
                 login_password: String::new(),
                 refresh_token: String::new(),
                 access_token_expires_at: None,
+                new_api_session: None,
+                browser_binding: None,
+                credential_revision: 0,
+                session_updated_at: None,
             },
             cli: ProviderCliInput::default(),
             automation: ProviderAutomationInput {
@@ -368,6 +372,21 @@ impl Provider {
         } else {
             input.auth.access_token_expires_at
         };
+        // The backend owns rotating NewAPI credentials. Editing unrelated fields
+        // must not restore a stale session copied into a frontend draft.
+        let next_new_api_session = if protocol_changed
+            || base_url_changed
+            || password_session_invalidated
+            || self.auth.mode != next_auth_mode
+            || self.auth.session_cookie != next_session_cookie
+            || self.auth.api_user != next_api_user
+            || self.auth.login_username != input.auth.login_username
+            || self.auth.login_password != input.auth.login_password
+        {
+            None
+        } else {
+            self.auth.new_api_session.clone()
+        };
         let auth_material_changed = protocol_changed
             || base_url_changed
             || self.auth.mode != next_auth_mode
@@ -443,6 +462,18 @@ impl Provider {
         } else {
             input.auth.api_key_options
         };
+        let next_browser_binding = if protocol_changed
+            || base_url_changed
+            || password_session_invalidated
+            || self.auth.session_cookie != next_session_cookie
+            || self.auth.api_user != next_api_user
+            || self.auth.login_username != input.auth.login_username
+            || self.auth.login_password != input.auth.login_password
+        {
+            None
+        } else {
+            self.auth.browser_binding.clone()
+        };
         self.auth = normalize_provider_auth(
             ProviderAuth {
                 mode: next_auth_mode,
@@ -457,6 +488,11 @@ impl Provider {
                 login_password: input.auth.login_password,
                 refresh_token: next_refresh_token,
                 access_token_expires_at: next_access_token_expires_at,
+                new_api_session: next_new_api_session,
+                browser_binding: next_browser_binding,
+                credential_revision: self.auth.credential_revision
+                    + u64::from(auth_material_changed),
+                session_updated_at: self.auth.session_updated_at,
             },
             self.identity.protocol,
         );
@@ -497,6 +533,9 @@ pub(crate) fn normalize_provider_auth(
     mut auth: ProviderAuth,
     protocol: ProviderProtocol,
 ) -> ProviderAuth {
+    if !matches!(protocol, ProviderProtocol::NewApi) {
+        auth.new_api_session = None;
+    }
     // Sub2API 没有会话 Cookie 概念；防御性纠正，避免非法组合被持久化（导入等旁路）。
     if matches!(protocol, ProviderProtocol::Sub2Api) && matches!(auth.mode, AuthMode::Session) {
         auth.mode = AuthMode::Password;
@@ -615,6 +654,55 @@ fn normalize_agent_base_urls(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn editing_with_an_old_draft_keeps_the_rotated_new_api_session() {
+        use crate::models::{AuthMode, NewApiSession, Provider};
+        let mut input = super::ProviderInput::default();
+        input.identity.base_url = "https://example.test".into();
+        input.auth.mode = AuthMode::Session;
+        input.auth.api_user = "42".into();
+        input.auth.new_api_session = Some(NewApiSession {
+            refresh_cookie: "old-refresh".into(),
+            access_token: "old-access".into(),
+            session_id: "fixture".into(),
+            access_expires_at: Some(1),
+        });
+        let mut provider = Provider::from_input(input.clone(), "fixture".into());
+        provider
+            .auth
+            .new_api_session
+            .as_mut()
+            .unwrap()
+            .refresh_cookie = "rotated-refresh".into();
+        input.identity.remark = "user edit".into();
+        provider.apply_input(input.clone());
+        assert_eq!(
+            provider
+                .auth
+                .new_api_session
+                .as_ref()
+                .unwrap()
+                .refresh_cookie,
+            "rotated-refresh"
+        );
+        input.identity.base_url = "https://another.test".into();
+        provider.apply_input(input);
+        assert!(provider.auth.new_api_session.is_none());
+    }
+
+    #[test]
+    fn missing_new_api_session_loads_without_changing_existing_authentication() {
+        let input = super::ProviderInput::default();
+        let mut json = serde_json::to_value(input).unwrap();
+        json["auth"]
+            .as_object_mut()
+            .unwrap()
+            .remove("newApiSession");
+        let loaded: super::ProviderInput = serde_json::from_value(json).unwrap();
+        assert!(loaded.auth.new_api_session.is_none());
+        assert_eq!(loaded.auth.mode, crate::models::AuthMode::Password);
+    }
+
     #[test]
     fn check_in_policy_defaults_round_trip_and_preserves_history_on_edit() {
         use crate::models::{ProviderCheckInMethod, ProviderTurnstileMode};

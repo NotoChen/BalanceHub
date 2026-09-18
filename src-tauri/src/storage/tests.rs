@@ -8,6 +8,32 @@ fn new_app_data_uses_current_schema_version() {
 }
 
 #[test]
+fn schema_eleven_adds_accounts_without_inventing_bindings_or_losing_credentials() {
+    let mut provider = crate::models::Provider::from_input(
+        crate::models::ProviderInput::default(),
+        "fixture".into(),
+    );
+    provider.auth.session_cookie = "session=fixture-cookie".into();
+    let data = AppData::new_current(vec![provider], crate::models::AppSettings::default());
+    let mut value = serde_json::to_value(data).unwrap();
+    value["schemaVersion"] = serde_json::json!(11);
+    value.as_object_mut().unwrap().remove("loginAccounts");
+    let auth = value["providers"][0]["auth"].as_object_mut().unwrap();
+    auth.remove("browserBinding");
+    auth.remove("credentialRevision");
+    auth.remove("sessionUpdatedAt");
+    let loaded = migrate_app_data(&value.to_string(), 11).unwrap();
+    assert_eq!(loaded.schema_version, 12);
+    assert!(loaded.login_accounts.is_empty());
+    assert!(loaded.providers[0].auth.browser_binding.is_none());
+    assert_eq!(loaded.providers[0].auth.credential_revision, 0);
+    assert_eq!(
+        loaded.providers[0].auth.session_cookie,
+        "session=fixture-cookie"
+    );
+}
+
+#[test]
 fn rejects_app_data_when_schema_version_is_missing() {
     let data = serde_json::from_value::<AppData>(serde_json::json!({
         "providers": [],

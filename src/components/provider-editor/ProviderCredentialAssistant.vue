@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ProviderInput, ProviderProtocolDescriptor } from "../../stores/providers";
+import { canSkipAssistantAccessToken, missingCredentialRequirements } from "../../composables/provider-credential-rules";
+import { fieldLabel } from "../../composables/provider-editor-shared";
 import {
   providerAuthModeDescriptor,
   providerProtocolDescriptor,
@@ -65,25 +67,22 @@ const descriptionText = computed(() => {
   if (!props.draft.identity.baseUrl.trim()) {
     missing.push("中转站地址");
   }
-  for (const field of schema.requiredFields) {
-    if (!authFieldValue(field).trim()) {
-      missing.push(schema.fields.find((candidate) => candidate.field === field)?.label || field);
-    }
-  }
+  missing.push(...missingCredentialRequirements(props.draft, schema).map((fields) =>
+    fields.map((field) => schema.fields.find((candidate) => candidate.field === field)?.label || fieldLabel(field)).join("或"),
+  ));
   if (missing.length > 0) {
     return `填写${missing.join("、")}后，可以自动补全配置。`;
   }
+  if (currentProtocol.value && canSkipAssistantAccessToken(props.draft, currentProtocol.value)) {
+    return "登录会话已就绪，可直接同步账号信息和 API Key。";
+  }
   const targets = [];
-  if (currentProtocol.value?.capabilities.accessToken) targets.push("访问令牌");
+  if (currentProtocol.value?.capabilities.accessToken
+    && !canSkipAssistantAccessToken(props.draft, currentProtocol.value)) targets.push("访问令牌");
   if (currentProtocol.value?.capabilities.apiKeyManagement) targets.push("API Key");
   const targetText = targets.length > 0 ? `，并同步${targets.join("和")}` : "";
   return `所需信息已填写，将${schema.description}${targetText}。`;
 });
-
-function authFieldValue(field: string) {
-  const value = props.draft.auth[field as keyof ProviderInput["auth"]];
-  return typeof value === "string" ? value : "";
-}
 
 const actionText = computed(() => {
   if (props.state === "failed") return "重新尝试";

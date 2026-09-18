@@ -41,10 +41,38 @@ pub(super) fn target() -> Result<&'static Target, String> {
     manifest()
         .targets
         .get(&key)
-        .ok_or_else(|| "当前系统架构暂不支持浏览器签到组件".to_string())
+        .ok_or_else(|| "当前系统架构暂不支持浏览器组件".to_string())
 }
 
-pub(super) const WORKER: &str = include_str!("../../../../browser-worker/worker.mjs");
+pub(super) fn write_worker_files(directory: &std::path::Path) -> Result<(), String> {
+    static WRITE_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = WRITE_GATE.lock().map_err(|_| "无法准备浏览器执行器")?;
+    for (name, content) in [
+        (
+            "worker.mjs",
+            include_str!("../../../../browser-worker/worker.mjs"),
+        ),
+        (
+            "launch.mjs",
+            include_str!("../../../../browser-worker/launch.mjs"),
+        ),
+        (
+            "login.mjs",
+            include_str!("../../../../browser-worker/login.mjs"),
+        ),
+        (
+            "accounts.mjs",
+            include_str!("../../../../browser-worker/accounts.mjs"),
+        ),
+    ] {
+        let path = directory.join(name);
+        if std::fs::read(&path).is_ok_and(|current| current == content.as_bytes()) {
+            continue;
+        }
+        std::fs::write(path, content).map_err(|_| "无法准备浏览器执行器".to_string())?;
+    }
+    Ok(())
+}
 pub(super) fn node_name() -> &'static str {
     if cfg!(windows) {
         "node.exe"

@@ -27,6 +27,7 @@ pub(crate) struct ProviderProtocolAuthSchema {
     pub(crate) description: &'static str,
     pub(crate) note: &'static str,
     pub(crate) required_fields: &'static [&'static str],
+    pub(crate) required_any_fields: &'static [&'static str],
     pub(crate) optional_fields: &'static [&'static str],
     pub(crate) fields: &'static [ProviderAuthFieldSchema],
 }
@@ -47,9 +48,18 @@ impl ProviderProtocolAuthSchema {
             description,
             note,
             required_fields,
+            required_any_fields: &[],
             optional_fields,
             fields,
         }
+    }
+
+    pub(crate) const fn with_required_any_fields(
+        mut self,
+        fields: &'static [&'static str],
+    ) -> Self {
+        self.required_any_fields = fields;
+        self
     }
 }
 
@@ -137,6 +147,7 @@ impl ProviderAccessTokenAssistantFlow {
 pub(crate) struct ProviderCredentialAssistantDefinition {
     pub(crate) enabled: bool,
     pub(crate) access_token_flow: ProviderAccessTokenAssistantFlow,
+    pub(crate) access_token_skip_fields: &'static [&'static str],
     pub(crate) api_key_required_fields: &'static [&'static str],
     pub(crate) api_key_required_any_fields: &'static [&'static str],
 }

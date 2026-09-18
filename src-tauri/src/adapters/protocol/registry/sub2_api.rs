@@ -99,6 +99,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
     credential_assistant: ProviderCredentialAssistantDefinition {
         enabled: true,
         access_token_flow: ProviderAccessTokenAssistantFlow::CredentialCompletion,
+        access_token_skip_fields: &[],
         api_key_required_fields: &[],
         api_key_required_any_fields: &[],
     },

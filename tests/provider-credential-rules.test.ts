@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canRunCredentialAssistantForInput } from "../src/composables/provider-credential-rules.ts";
+import {
+  canRunCredentialAssistantForInput,
+  canSkipAssistantAccessToken,
+  credentialFieldHasValue,
+  missingCredentialRequirements,
+} from "../src/composables/provider-credential-rules.ts";
 import type {
   ProviderInput,
   ProviderProtocolDescriptor,
@@ -13,6 +18,7 @@ const descriptors: ProviderProtocolDescriptor[] = [
     label: "NewAPI",
     description: "",
     defaultAuthMode: "password",
+    browserLoginSupported: true,
     authModes: [
       {
         mode: "password",
@@ -20,6 +26,17 @@ const descriptors: ProviderProtocolDescriptor[] = [
         description: "",
         note: "",
         requiredFields: ["loginUsername", "loginPassword"],
+        requiredAnyFields: [],
+        optionalFields: [],
+        fields: [],
+      },
+      {
+        mode: "session",
+        label: "登录会话",
+        description: "",
+        note: "",
+        requiredFields: [],
+        requiredAnyFields: ["sessionCookie", "newApiSession.refreshCookie"],
         optionalFields: [],
         fields: [],
       },
@@ -29,6 +46,7 @@ const descriptors: ProviderProtocolDescriptor[] = [
         description: "",
         note: "",
         requiredFields: ["accessToken", "apiUser"],
+        requiredAnyFields: [],
         optionalFields: [],
         fields: [],
       },
@@ -38,6 +56,7 @@ const descriptors: ProviderProtocolDescriptor[] = [
         description: "",
         note: "",
         requiredFields: ["apiKey"],
+        requiredAnyFields: [],
         optionalFields: [],
         fields: [],
       },
@@ -58,8 +77,9 @@ const descriptors: ProviderProtocolDescriptor[] = [
     credentialAssistant: {
       enabled: true,
       accessTokenFlow: "sessionGeneration",
+      accessTokenSkipFields: ["newApiSession.refreshCookie"],
       apiKeyRequiredFields: ["apiUser"],
-      apiKeyRequiredAnyFields: ["sessionCookie", "accessToken"],
+      apiKeyRequiredAnyFields: ["sessionCookie", "accessToken", "newApiSession.refreshCookie"],
     },
   },
 ];
@@ -85,6 +105,7 @@ function input(): ProviderInput {
       loginPassword: "",
       refreshToken: "",
       accessTokenExpiresAt: null,
+      newApiSession: null,
     },
     cli: { preferredModel: "" },
     automation: { refreshInterval: 0, checkInTime: "", checkInMethod: "auto", autoShield: true, turnstileMode: "auto" },
@@ -174,4 +195,63 @@ test("unknown schema fields fail closed instead of being treated as completed", 
   }];
 
   assert.equal(canRunCredentialAssistantForInput(draft, extended, false), false);
+});
+
+test("imported renewable sessions enable the assistant without a classic cookie or PAT", () => {
+  const draft = input();
+  draft.identity.baseUrl = "https://relay.example.com";
+  draft.auth.mode = "session";
+  draft.auth.apiUser = "42";
+  draft.auth.newApiSession = {
+    refreshCookie: "fixture-refresh",
+    sessionId: "fixture-session",
+    accessToken: "",
+    accessExpiresAt: null,
+  };
+  const schema = descriptors[0].authModes.find((mode) => mode.mode === "session")!;
+
+  assert.equal(canRunCredentialAssistantForInput(draft, descriptors, false), true);
+  assert.deepEqual(missingCredentialRequirements(draft, schema), []);
+  assert.equal(canSkipAssistantAccessToken(draft, descriptors[0]), true);
+  assert.equal(descriptors[0].credentialAssistant.apiKeyRequiredAnyFields
+    .some((field) => credentialFieldHasValue(draft, field)), true);
+
+  draft.auth.newApiSession.refreshCookie = " ";
+  assert.equal(canRunCredentialAssistantForInput(draft, descriptors, false), false);
+  assert.equal(canSkipAssistantAccessToken(draft, descriptors[0]), false);
+  assert.deepEqual(missingCredentialRequirements(draft, schema), [schema.requiredAnyFields]);
+
+  draft.auth.newApiSession = null;
+  draft.auth.sessionCookie = "session=fixture-classic";
+  assert.equal(canRunCredentialAssistantForInput(draft, descriptors, false), true);
+  assert.equal(canSkipAssistantAccessToken(draft, descriptors[0]), false);
+});
+
+test("modern sessions do not bypass a different selected mode or backend-declared requirements", () => {
+  const draft = input();
+  draft.identity.baseUrl = "https://relay.example.com";
+  draft.auth.newApiSession = {
+    refreshCookie: "fixture-refresh",
+    sessionId: "fixture-session",
+    accessToken: "fixture-jwt",
+    accessExpiresAt: 900,
+  };
+  assert.equal(canRunCredentialAssistantForInput(draft, descriptors, false), false);
+
+  draft.auth.mode = "accessToken";
+  draft.auth.apiUser = "42";
+  assert.equal(canRunCredentialAssistantForInput(draft, descriptors, false), false);
+
+  draft.auth.mode = "session";
+  const classicOnly = [{
+    ...descriptors[0],
+    authModes: descriptors[0].authModes.map((mode) => mode.mode === "session"
+      ? { ...mode, requiredAnyFields: ["sessionCookie"] }
+      : mode),
+    credentialAssistant: { ...descriptors[0].credentialAssistant, accessTokenSkipFields: [] },
+  }];
+  assert.equal(canRunCredentialAssistantForInput(draft, classicOnly, false), false);
+  assert.equal(canSkipAssistantAccessToken(draft, classicOnly[0]), false);
+  assert.equal(credentialFieldHasValue(draft, "newApiSession.unknown"), false);
+  assert.equal(credentialFieldHasValue(draft, "newApiSession.__proto__"), false);
 });

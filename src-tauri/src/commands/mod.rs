@@ -1,7 +1,9 @@
 pub(crate) mod app;
 pub(crate) mod browser_runtime;
 pub(crate) mod cli;
+pub(crate) mod login_accounts;
 pub(crate) mod provider;
+pub(crate) mod provider_browser_login;
 
 pub(crate) async fn run_blocking<T, F>(label: &'static str, task: F) -> Result<T, String>
 where

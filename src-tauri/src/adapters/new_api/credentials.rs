@@ -1,14 +1,15 @@
 use crate::models::{
-    normalize_api_key, AuthMode, Provider, ProviderApiKeyOption,
-    ProviderCredentialCompletionResult, ProviderCredentialCompletionStep, ProviderInput,
+    normalize_api_key, Provider, ProviderApiKeyOption, ProviderCredentialCompletionResult,
+    ProviderCredentialCompletionStep, ProviderInput,
 };
 use reqwest::Method;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
 use super::http::{
-    access_token_fallback_provider, build_url, build_user_request, login_password_provider,
-    normalize_base_url, should_retry_with_access_token, ProviderTransport, UserCredential,
+    access_token_fallback_provider, authenticate_password_provider, build_url, build_user_request,
+    normalize_base_url, should_retry_with_access_token, user_management_credential,
+    ProviderTransport, UserCredential,
 };
 use super::keys::fetch_api_key_options;
 use super::response::{extract_string_field, parse_success_data, send_text};
@@ -24,11 +25,17 @@ pub async fn complete_credentials(
         return Err("请先填写中转站地址".to_string());
     }
 
+    if super::auth_session::cookie_value(&updated.auth.session_cookie, "new_api_refresh").is_some()
+        && updated.auth.new_api_session.is_none()
+    {
+        return Err("请先保存或使用登录并导入，输入补全不会消耗刷新 Cookie".to_string());
+    }
     if matches!(updated.auth.mode, crate::models::AuthMode::Password) {
         let provider = Provider::from_input(updated.clone(), "credential-completion".to_string());
-        let authenticated = login_password_provider(client, &provider).await?;
+        let authenticated = authenticate_password_provider(client, &provider).await?;
         updated.auth.session_cookie = authenticated.auth.session_cookie;
         updated.auth.api_user = authenticated.auth.api_user;
+        updated.auth.new_api_session = authenticated.auth.new_api_session;
     }
     let mut changed_fields = BTreeSet::new();
     let mut steps = Vec::new();
@@ -45,7 +52,7 @@ pub async fn complete_credentials(
     }
 
     if updated.auth.access_token.trim().is_empty() {
-        if updated.auth.session_cookie.trim().is_empty() {
+        if updated.auth.session_cookie.trim().is_empty() && updated.auth.new_api_session.is_none() {
             steps.push(completion_step(
                 "会话 Cookie -> 访问令牌",
                 false,
@@ -116,15 +123,7 @@ pub async fn complete_credentials(
         ));
     }
 
-    let credential = if !updated.auth.session_cookie.trim().is_empty() {
-        Some(UserCredential::Session(updated.auth.session_cookie.clone()))
-    } else if !updated.auth.access_token.trim().is_empty() {
-        Some(UserCredential::AccessToken(
-            updated.auth.access_token.clone(),
-        ))
-    } else {
-        None
-    };
+    let credential = user_self_credential(&updated);
 
     if updated.auth.api_user.trim().is_empty() {
         if updated.auth.api_key.trim().is_empty() {
@@ -333,24 +332,8 @@ fn fill_login_username_from_self(input: &mut ProviderInput, data: &Value) -> boo
 }
 
 fn user_self_credential(input: &ProviderInput) -> Option<UserCredential> {
-    let session_cookie = input.auth.session_cookie.trim();
-    let access_token = input.auth.access_token.trim();
-
-    match input.auth.mode {
-        AuthMode::AccessToken if !access_token.is_empty() => {
-            Some(UserCredential::AccessToken(input.auth.access_token.clone()))
-        }
-        AuthMode::Session | AuthMode::Password if !session_cookie.is_empty() => {
-            Some(UserCredential::Session(input.auth.session_cookie.clone()))
-        }
-        _ if !session_cookie.is_empty() => {
-            Some(UserCredential::Session(input.auth.session_cookie.clone()))
-        }
-        _ if !access_token.is_empty() => {
-            Some(UserCredential::AccessToken(input.auth.access_token.clone()))
-        }
-        _ => None,
-    }
+    let provider = Provider::from_input(input.clone(), "credential-completion".to_string());
+    user_management_credential(&provider).ok()
 }
 
 pub async fn create_access_token(
@@ -365,14 +348,12 @@ pub async fn create_access_token(
     if api_user.is_empty() {
         return Err("缺少 API User ID，无法生成访问令牌".to_string());
     }
-    if provider.auth.session_cookie.trim().is_empty() {
-        return Err("缺少会话 Cookie，无法生成访问令牌".to_string());
-    }
+
     generate_access_token(
         client,
         &base_url,
         api_user,
-        provider.auth.session_cookie.clone(),
+        user_management_credential(provider)?,
     )
     .await
 }
@@ -461,17 +442,10 @@ async fn generate_access_token(
     client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
-    session_cookie: String,
+    credential: UserCredential,
 ) -> Result<String, String> {
     let url = build_url(base_url, "/api/user/token")?;
-    let request = build_user_request(
-        client,
-        Method::GET,
-        url,
-        base_url,
-        api_user,
-        UserCredential::Session(session_cookie),
-    );
+    let request = build_user_request(client, Method::GET, url, base_url, api_user, credential);
     let (status, body) = send_text(client, request, "创建访问令牌").await?;
     let data = parse_success_data(&status, body, "创建访问令牌")?;
 

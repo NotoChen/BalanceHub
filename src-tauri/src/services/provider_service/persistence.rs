@@ -21,6 +21,15 @@ impl ProviderService<'_> {
         options: ProviderSaveOptions,
     ) -> Result<ProviderSaveResult, String> {
         let (saved, saved_provider_id, conflict) = self.mutate_decided(|data| {
+            if let Some(stored) = input
+                .id
+                .as_ref()
+                .and_then(|id| data.providers.iter().find(|p| &p.identity.id == id))
+            {
+                if stored.auth.credential_revision != input.auth.credential_revision {
+                    return Err("该中转站凭据已更改，请重新打开编辑窗口，避免恢复旧凭据".into());
+                }
+            }
             let separate_retry = options.create_separate_from_provider_id.is_some();
             let editing_existing = input.id.as_deref().is_some_and(|id| {
                 data.providers

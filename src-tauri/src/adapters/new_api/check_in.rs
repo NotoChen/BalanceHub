@@ -70,7 +70,7 @@ pub(crate) async fn probe_check_in_capability(
         }
     }
 
-    if !provider.auth.session_cookie.trim().is_empty() {
+    if crate::models::provider_domain::auth::has_session(provider) {
         let mut testing_provider = provider.clone();
         testing_provider.auth.mode = AuthMode::Session;
         match check_in_status_probe(client, &testing_provider, base_url).await {
@@ -120,6 +120,12 @@ async fn execute(
     mut verification: Option<CheckInVerificationRequest>,
 ) -> Result<ProviderCheckInResult, CheckInError> {
     policy::validate_credentials(provider)?;
+    if provider.auth.mode == AuthMode::Password
+        && provider.auth.new_api_session.is_some()
+        && policy::effective_method(provider) != ProviderCheckInMethod::FreshLogin
+    {
+        provider.auth.mode = AuthMode::Session;
+    }
     let method = policy::effective_method(provider);
     let always = provider.automation.turnstile_mode == ProviderTurnstileMode::Always;
     if method == ProviderCheckInMethod::FreshLogin {
@@ -320,7 +326,7 @@ fn validate_check_in_credentials(provider: &Provider) -> Result<(), String> {
             Err("AccessToken 签到需要访问令牌和 API User ID".to_string())
         }
         AuthMode::Session
-            if provider.auth.session_cookie.trim().is_empty()
+            if (!crate::models::provider_domain::auth::has_session(provider))
                 || provider.auth.api_user.trim().is_empty() =>
         {
             Err("Cookie 签到需要会话 Cookie 和 API User ID".to_string())

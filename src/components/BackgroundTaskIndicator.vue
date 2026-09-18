@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, useId, watch } from "vue";
-import { Activity, CalendarCheck2, CheckCircle2, CircleAlert, CloudDownload, Megaphone, RefreshCw, Search, Terminal } from "@lucide/vue";
+import { Activity, CalendarCheck2, CheckCircle2, CircleAlert, CloudDownload, Megaphone, RefreshCw, Search, Terminal, LogIn } from "@lucide/vue";
 import type { BackgroundTask, BackgroundTaskKind } from "../composables/useBackgroundTaskCenter";
 
 const props = defineProps<{
@@ -25,6 +25,8 @@ watch(popupVisible, (visible, previous) => {
 
 function iconFor(kind: BackgroundTaskKind) {
   switch (kind) {
+    case "providerLogin":
+      return LogIn;
     case "refresh":
     case "sync":
     case "autoRefresh":
@@ -66,6 +68,11 @@ function formatTime(value?: number) {
     second: "2-digit",
     hour12: false,
   }).format(new Date(value));
+}
+
+function openResult(run: () => void) {
+  popupVisible.value = false;
+  run();
 }
 </script>
 
@@ -176,6 +183,9 @@ function formatTime(value?: number) {
             <div class="background-task-row-copy">
               <strong>{{ task.title }}</strong>
               <span>{{ task.error || task.detail }}</span>
+              <div v-if="task.actions?.length" class="background-task-actions">
+                <button v-for="action in task.actions" :key="action.label" type="button" :disabled="action.disabled" @click.stop="openResult(action.run)">{{ action.label }}</button>
+              </div>
             </div>
             <time>{{ formatTime(task.finishedAt) }}</time>
           </article>

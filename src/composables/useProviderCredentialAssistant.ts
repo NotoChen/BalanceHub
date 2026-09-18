@@ -1,11 +1,14 @@
 import { computed, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
-import type { ProviderApiKeyOption, ProviderInput } from "../stores/providers";
+import type { ProviderApiKeyOption } from "../stores/providers";
 import { confirmAction, promptApiKeyName } from "./provider-credential-dialogs";
 import {
   blockingCredentialCompletionFailures,
   canRunCredentialAssistantForInput,
+  canSkipAssistantAccessToken,
+  credentialFieldHasValue,
   isEmptyApiKeyMessage,
+  missingCredentialRequirements,
 } from "./provider-credential-rules";
 import { fieldLabel } from "./provider-editor-shared";
 import {
@@ -79,11 +82,6 @@ export function useProviderCredentialAssistant(
       options.draftProvider.identity.protocol,
       options.draftProvider.auth.mode,
     );
-  }
-
-  function authFieldValue(field: string) {
-    const value = options.draftProvider.auth[field as keyof ProviderInput["auth"]];
-    return typeof value === "string" ? value : "";
   }
 
   function authFieldLabel(field: string) {
@@ -269,6 +267,10 @@ export function useProviderCredentialAssistant(
       setAssistantStep("accessToken", "获取访问令牌", "skipped", "当前协议不需要访问令牌");
       return true;
     }
+    if (protocol && canSkipAssistantAccessToken(options.draftProvider, protocol)) {
+      setAssistantStep("accessToken", "获取访问令牌", "skipped", "已有可续期的登录会话，无需额外生成访问令牌");
+      return true;
+    }
     if (flow === "credentialCompletion") {
       if (options.draftProvider.auth.accessToken.trim()) {
         setAssistantStep("accessToken", "获取访问令牌", "skipped", "访问令牌已存在");
@@ -393,7 +395,7 @@ export function useProviderCredentialAssistant(
       return false;
     }
     const requiredFields = protocol.credentialAssistant.apiKeyRequiredFields.filter(
-      (field) => !authFieldValue(field).trim(),
+      (field) => !credentialFieldHasValue(options.draftProvider, field),
     );
     if (requiredFields.length > 0) {
       failAssistantStep(
@@ -403,7 +405,7 @@ export function useProviderCredentialAssistant(
       return false;
     }
     const anyFields = protocol.credentialAssistant.apiKeyRequiredAnyFields;
-    if (anyFields.length > 0 && !anyFields.some((field) => authFieldValue(field).trim())) {
+    if (anyFields.length > 0 && !anyFields.some((field) => credentialFieldHasValue(options.draftProvider, field))) {
       failAssistantStep(
         "apiKey",
         `至少需要${anyFields.map(authFieldLabel).join("或")}，无法创建 API 密钥`,
@@ -538,11 +540,14 @@ export function useProviderCredentialAssistant(
       return false;
     }
     const schema = currentAuthModeDescriptor();
-    const missingFields = schema?.requiredFields.filter(
-      (field) => !authFieldValue(field).trim(),
-    ) ?? [];
+    if (!schema) {
+      Message.warning("认证信息尚未加载，请重新打开编辑窗口");
+      return false;
+    }
+    const missingFields = missingCredentialRequirements(options.draftProvider, schema)
+      .map((fields) => fields.map(authFieldLabel).join("或"));
     if (missingFields.length > 0) {
-      Message.warning(`请先填写${missingFields.map(authFieldLabel).join("、")}`);
+      Message.warning(`请先填写${missingFields.join("、")}`);
       return false;
     }
     return true;

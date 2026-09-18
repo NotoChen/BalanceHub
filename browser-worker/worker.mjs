@@ -1,21 +1,13 @@
-import { chromium } from "playwright-core";
-import { mkdir, chmod } from "node:fs/promises";
+import { launchBrowser, showBrowserWindow, bootstrapHtml, WorkerError, NeedsHuman } from "./launch.mjs";
+import { LoginBrowser } from "./login.mjs";
+import { AccountBrowser } from "./accounts.mjs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const VERIFY_TIMEOUT_MS = 180_000;
-const INITIAL_WINDOW_WIDTH = 420;
-const INITIAL_WINDOW_HEIGHT = 360;
 const SHIELD_COOKIE = /^(cf_clearance|__cf_bm|cf_chl_.*|acw_tc|acw_sc__v2)$/;
-
-function bootstrapHtml(title) {
-  const escaped = title.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[character]);
-  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escaped}</title><body>正在准备签到验证…</body></html>`;
-}
 
 function keepVerificationTitle({ origin, title }) {
   if (window !== window.top || location.origin !== origin) return;
@@ -35,9 +27,6 @@ function keepVerificationTitle({ origin, title }) {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
   else start();
 }
-
-class WorkerError extends Error {}
-class NeedsHuman extends WorkerError {}
 
 export function sameOriginUrl(origin, target) {
   const url = new URL(target, origin);
@@ -61,6 +50,23 @@ export class BrowserWorker {
     this.autoShield = true;
   }
 
+  async login(params) {
+    if (this.context || this.loginBrowser || this.closing) throw new WorkerError("浏览器任务已启动或已取消");
+    this.loginBrowser = new LoginBrowser(this.emit);
+    return this.loginBrowser.run(params);
+  }
+
+  async account(params) {
+    if (this.context || this.loginBrowser || this.accountBrowser || this.closing) throw new WorkerError("浏览器任务已启动或已取消");
+    this.accountBrowser = new AccountBrowser(this.emit);
+    return this.accountBrowser.run(params);
+  }
+
+  async showWindow() {
+    if (this.closing) throw new WorkerError("登录窗口已关闭");
+    return showBrowserWindow(this.accountBrowser?.context || this.loginBrowser?.context || this.context);
+  }
+
   async open({ url, providerName, profileDir, proxy, cookies = [], executablePath, interactive = false, autoShield = true }) {
     if (this.context || this.closing) throw new WorkerError("浏览器任务已启动或已取消");
     const target = new URL(url);
@@ -74,41 +80,11 @@ export class BrowserWorker {
     const bootstrap = bootstrapHtml(this.windowTitle);
     this.interactive = interactive;
     this.autoShield = autoShield;
-    if (!executablePath) throw new WorkerError("没有可用的签到浏览器，请在 App 中安装组件");
-    await mkdir(profileDir, { recursive: true, mode: 0o700 });
-    if (process.platform !== "win32") await chmod(profileDir, 0o700);
-    this.context = await chromium.launchPersistentContext(profileDir, {
-      executablePath,
-      headless: false,
-      viewport: null,
-      timeout: 30_000,
-      // The positional about:blank would open a second, ordinary browser window.
-      ignoreDefaultArgs: ["--enable-automation", "about:blank"],
-      args: [
-        `--app=data:text/html;charset=utf-8,${encodeURIComponent(bootstrap)}`,
-        `--window-size=${INITIAL_WINDOW_WIDTH},${INITIAL_WINDOW_HEIGHT}`,
-        // Suppress Chromium's missing Google API key / test-flag infobars.
-        "--test-type",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-session-crashed-bubble",
-        ...(proxy?.direct ? ["--no-proxy-server"] : []),
-      ],
-      proxy: proxy?.server ? {
-        server: proxy.server,
-        bypass: proxy.bypass || undefined,
-        username: proxy.username || undefined,
-        password: proxy.password || undefined,
-      } : undefined,
-    });
+    this.context = await launchBrowser({ profileDir, executablePath, proxy, title: this.windowTitle }, this.emit);
     if (this.closing) {
       await this.context.close();
       throw new WorkerError("签到验证已取消");
     }
-    const cdp = await this.context.browser().newBrowserCDPSession();
-    const processes = await cdp.send("SystemInfo.getProcessInfo");
-    this.browserPid = processes.processInfo.find((item) => item.type === "browser")?.id ?? null;
-    await cdp.detach();
-    this.emit({ event: "browserStarted", browserPid: this.browserPid });
     // The configured account is authoritative; never inherit a previous login.
     await this.context.clearCookies({ name: "session" });
     if (!this.autoShield) {
@@ -396,9 +372,9 @@ export class BrowserWorker {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async cookies() {
+  async cookies({ url } = {}) {
     this.assertOrigin();
-    return { cookies: await this.context.cookies(this.origin) };
+    return { cookies: await this.context.cookies(url ? [this.origin, sameOriginUrl(this.origin, url)] : this.origin) };
   }
 
   async clearSession() {
@@ -409,6 +385,8 @@ export class BrowserWorker {
 
   async close() {
     this.closing = true;
+    await this.loginBrowser?.close();
+    await this.accountBrowser?.close();
     if (this.context) {
       await this.context.close().catch(() => {});
       this.context = null;
@@ -416,6 +394,43 @@ export class BrowserWorker {
     this.windowSession = null;
     return {};
   }
+}
+
+export function createWorkerRequestDispatcher(worker, emit) {
+  let queue = Promise.resolve();
+  const reply = async (message) => {
+    const reference = message?.controlId === undefined ? { id: message?.id } : { controlId: message.controlId };
+    try {
+      const data = await worker[message.op](message.params || {});
+      emit({ ...reference, ok: true, data });
+    } catch (error) { fail(reference, error); }
+  };
+  function fail(reference, error) {
+    emit({ ...reference, ok: false, code: error instanceof NeedsHuman ? "needsHuman" : "failed",
+      error: error instanceof WorkerError ? error.message
+        : String(error).match(/net::ERR_[A-Z_]+/)?.[0]
+          ? "浏览器连接失败：" + String(error).match(/net::ERR_[A-Z_]+/)[0]
+          : "浏览器操作失败，窗口可能已关闭或站点没有响应" });
+  }
+  return (line) => {
+    let message;
+    try {
+      if (Buffer.byteLength(line) > 128 * 1024) throw new WorkerError("浏览器请求过长");
+      message = JSON.parse(line);
+      if (message.op === "showWindow" && Number.isSafeInteger(message.controlId) && message.controlId > 0) {
+        return reply(message);
+      }
+      if (message.controlId !== undefined || !["login", "account", "open", "navigate", "verify", "fetch", "cookies", "clearSession", "close"].includes(message.op)) {
+        throw new WorkerError("不支持的浏览器操作");
+      }
+      // Business requests remain serial; window controls bypass a long login.
+      queue = queue.then(() => reply(message));
+      return queue;
+    } catch (error) {
+      fail(message?.controlId === undefined ? { id: message?.id } : { controlId: message.controlId }, error);
+      return Promise.resolve();
+    }
+  };
 }
 
 async function main() {
@@ -434,29 +449,9 @@ async function main() {
   process.on("SIGTERM", stop);
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
   input.once("close", stop);
-  for await (const line of input) {
-    if (stopping) break;
-    let message;
-    try {
-      if (Buffer.byteLength(line) > 128 * 1024) throw new WorkerError("浏览器请求过长");
-      message = JSON.parse(line);
-      if (!["open", "navigate", "verify", "fetch", "cookies", "clearSession", "close"].includes(message.op)) {
-        throw new WorkerError("不支持的浏览器操作");
-      }
-      const data = await worker[message.op](message.params || {});
-      emit({ id: message.id, ok: true, data });
-    } catch (error) {
-      emit({
-        id: message?.id,
-        ok: false,
-        code: error instanceof NeedsHuman ? "needsHuman" : "failed",
-        error: error instanceof WorkerError ? error.message
-          : String(error).match(/net::ERR_[A-Z_]+/)?.[0]
-            ? "浏览器连接失败：" + String(error).match(/net::ERR_[A-Z_]+/)[0]
-            : "浏览器操作失败，窗口可能已关闭或站点没有响应",
-      });
-    }
-  }
+  const dispatch = createWorkerRequestDispatcher(worker, emit);
+  input.on("line", (line) => { if (!stopping) void dispatch(line); });
+  await new Promise((resolve) => input.once("close", resolve));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

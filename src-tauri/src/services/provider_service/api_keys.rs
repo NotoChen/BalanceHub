@@ -5,7 +5,6 @@ use crate::{
         is_full_api_key_value, normalize_api_key_for_protocol, Provider, ProviderApiKeyOption,
         ProviderAuth, ProviderInput, ProviderProtocol,
     },
-    util::unix_millis as current_timestamp_millis,
 };
 use tauri::Manager;
 
@@ -96,6 +95,9 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         let operation = ProtocolAdapter
             .list_api_keys(&data.settings, &provider)
@@ -123,6 +125,9 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
         let created = adapter
@@ -159,11 +164,7 @@ impl<'a> ProviderService<'a> {
         let state = self.app.state::<crate::state::AppState>();
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
-        let provider_id = input
-            .id
-            .clone()
-            .unwrap_or_else(|| format!("provider-{}", current_timestamp_millis()));
-        let provider = Provider::from_input(input, provider_id);
+        let provider = self.prepare_input_provider(&data.settings, input).await?;
         let operation = ProtocolAdapter
             .create_api_key(&data.settings, &provider, &name)
             .await?;
@@ -179,6 +180,9 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         let adapter = ProtocolAdapter;
         let deleted = adapter

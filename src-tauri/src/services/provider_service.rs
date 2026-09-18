@@ -2,9 +2,14 @@ mod account;
 mod announcements;
 mod api_keys;
 mod available_models;
+mod browser_login;
+mod login_accounts;
+pub(crate) use login_accounts::{LoginAccountSummary, LoginCookieSummary};
 mod capabilities;
 mod check_in;
+mod credential_details;
 mod credentials;
+pub(crate) use credential_details::{CredentialKind, ProviderCredentialDetails};
 mod liveness;
 mod persistence;
 mod quota;
@@ -46,6 +51,8 @@ pub(super) struct ProviderRequestContext {
     login_password: String,
     refresh_token: String,
     access_token_expires_at: Option<i64>,
+    new_api_session: Option<crate::models::NewApiSession>,
+    credential_revision: u64,
     check_in_method: ProviderCheckInMethod,
     auto_shield: bool,
     turnstile_mode: ProviderTurnstileMode,
@@ -68,6 +75,8 @@ impl ProviderRequestContext {
             login_password: provider.auth.login_password.clone(),
             refresh_token: provider.auth.refresh_token.clone(),
             access_token_expires_at: provider.auth.access_token_expires_at,
+            new_api_session: provider.auth.new_api_session.clone(),
+            credential_revision: provider.auth.credential_revision,
             check_in_method: provider.automation.check_in_method,
             auto_shield: provider.automation.auto_shield,
             turnstile_mode: provider.automation.turnstile_mode,
@@ -89,6 +98,8 @@ impl ProviderRequestContext {
             && self.login_password == provider.auth.login_password
             && self.refresh_token == provider.auth.refresh_token
             && self.access_token_expires_at == provider.auth.access_token_expires_at
+            && self.new_api_session == provider.auth.new_api_session
+            && self.credential_revision == provider.auth.credential_revision
             && self.check_in_method == provider.automation.check_in_method
             && self.auto_shield == provider.automation.auto_shield
             && self.turnstile_mode == provider.automation.turnstile_mode

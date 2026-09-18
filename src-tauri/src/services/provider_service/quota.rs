@@ -1,7 +1,7 @@
 use crate::{
     adapters::protocol::ProtocolAdapter,
-    models::{Provider, ProviderConnectionTestResult, ProviderInput, ProviderStatus},
-    util::{unix_millis as current_timestamp_millis, unix_secs},
+    models::{ProviderConnectionTestResult, ProviderInput, ProviderStatus},
+    util::unix_secs,
 };
 use tauri::Manager;
 
@@ -15,11 +15,7 @@ impl<'a> ProviderService<'a> {
         let state = self.app.state::<crate::state::AppState>();
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
-        let provider_id = input
-            .id
-            .clone()
-            .unwrap_or_else(|| format!("provider-{}", current_timestamp_millis()));
-        let provider = Provider::from_input(input, provider_id);
+        let provider = self.prepare_input_provider(&data.settings, input).await?;
         let request_context = ProviderRequestContext::capture(&provider);
         let operation = ProtocolAdapter
             .test_connection(&data.settings, &provider)

@@ -77,6 +77,8 @@ export function fieldLabel(field: string) {
     apiKeyOptions: "API Key 列表",
     apiUser: "API User ID",
     loginUsername: "登录账号",
+    newApiSession: "登录会话",
+    "newApiSession.refreshCookie": "登录会话",
   };
   return labels[field] ?? field;
 }

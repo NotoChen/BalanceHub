@@ -17,6 +17,9 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let operation = ProtocolAdapter
             .change_password(&data.settings, &provider, &original_password, &password)
             .await?;

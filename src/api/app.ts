@@ -46,6 +46,7 @@ export interface AppData {
   settings: AppSettings;
   workspaces: Workspace[];
   temporaryCliPreferences: TemporaryCliPreference[];
+  loginAccounts: import("../stores/provider-types").LoginAccount[];
 }
 
 export interface RefreshResult {

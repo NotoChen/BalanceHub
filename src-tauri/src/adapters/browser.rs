@@ -1,14 +1,16 @@
 use super::transport::TransportResponse;
+mod control;
 use crate::{
     models::{CheckInError, CheckInPhase},
     platform::process::{configure_process_group, kill_process_tree},
 };
+pub(crate) use control::BrowserWindowControl;
 use reqwest::{header::HeaderMap, StatusCode, Url};
 use serde_json::{json, Value};
 use std::{path::Path, process::Stdio, sync::Arc, time::Duration};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, ChildStdout, Command},
+    io::{AsyncBufReadExt, BufReader},
+    process::{Child, ChildStdout, Command},
 };
 
 const MAX_REPLY_BYTES: usize = 7 * 1024 * 1024;
@@ -18,7 +20,7 @@ pub(crate) type ProgressSink = Arc<dyn Fn(CheckInPhase) + Send + Sync>;
 /// command arguments, app events, or process logs.
 pub(crate) struct BrowserSession {
     child: Child,
-    input: Option<ChildStdin>,
+    control: BrowserWindowControl,
     output: BufReader<ChildStdout>,
     browser_pid: Option<u32>,
     sequence: u64,
@@ -30,7 +32,7 @@ impl BrowserSession {
         let node = runtime.join(if cfg!(windows) { "node.exe" } else { "node" });
         let worker = runtime.join("worker.mjs");
         if !node.is_file() || !worker.is_file() {
-            return Err("签到浏览器组件缺失，请在设置中安装或修复组件".to_string());
+            return Err("浏览器组件缺失，请在设置中安装或修复组件".to_string());
         }
         let mut command = std::process::Command::new(node);
         command
@@ -44,12 +46,12 @@ impl BrowserSession {
         let mut child = Command::from(command)
             .kill_on_drop(true)
             .spawn()
-            .map_err(|_| "无法启动签到浏览器组件".to_string())?;
+            .map_err(|_| "无法启动浏览器组件".to_string())?;
         let input = child.stdin.take().ok_or("无法连接浏览器输入通道")?;
         let output = child.stdout.take().ok_or("无法连接浏览器输出通道")?;
         Ok(Self {
             child,
-            input: Some(input),
+            control: BrowserWindowControl::new(input),
             output: BufReader::new(output),
             browser_pid: None,
             sequence: 0,
@@ -61,15 +63,21 @@ impl BrowserSession {
         (self.progress)(phase);
     }
 
+    pub(crate) fn window_control(&self) -> BrowserWindowControl {
+        self.control.clone()
+    }
+
     pub(crate) async fn request(&mut self, op: &str, params: Value) -> Result<Value, CheckInError> {
-        let seconds = if matches!(op, "open" | "navigate" | "verify") {
+        let seconds = if matches!(op, "login" | "account") {
+            620
+        } else if matches!(op, "open" | "navigate" | "verify") {
             220
         } else {
             35
         };
         tokio::time::timeout(Duration::from_secs(seconds), self.exchange(op, params))
             .await
-            .map_err(|_| "浏览器操作超时，签到已停止".to_string())?
+            .map_err(|_| "浏览器操作超时，任务已停止".to_string())?
     }
 
     async fn exchange(&mut self, op: &str, params: Value) -> Result<Value, CheckInError> {
@@ -78,14 +86,12 @@ impl BrowserSession {
         let mut message = serde_json::to_vec(&json!({ "id": id, "op": op, "params": params }))
             .map_err(|_| "无法编码浏览器请求")?;
         message.push(b'\n');
-        self.input
-            .as_mut()
-            .ok_or("浏览器通道已关闭")?
-            .write_all(&message)
-            .await
-            .map_err(|_| "浏览器通道已关闭")?;
+        self.control.write(&message).await?;
         loop {
             let value = self.read_reply().await?;
+            if self.control.accept_reply(&value) {
+                continue;
+            }
             if value.get("event").and_then(Value::as_str) == Some("browserStarted") {
                 self.browser_pid = value
                     .get("browserPid")
@@ -104,7 +110,7 @@ impl BrowserSession {
                 continue;
             }
             if value.get("id").and_then(Value::as_u64) != Some(id) {
-                return Err("浏览器响应顺序异常，签到已停止".into());
+                return Err("浏览器响应顺序异常，任务已停止".into());
             }
             if value.get("ok").and_then(Value::as_bool) == Some(true) {
                 return Ok(value.get("data").cloned().unwrap_or(Value::Null));
@@ -135,7 +141,7 @@ impl BrowserSession {
             let end = available.iter().position(|byte| *byte == b'\n');
             let count = end.map_or(available.len(), |index| index + 1);
             if line.len() + count > MAX_REPLY_BYTES {
-                return Err("浏览器响应过长，签到已停止".to_string());
+                return Err("浏览器响应过长，任务已停止".to_string());
             }
             line.extend_from_slice(&available[..count]);
             self.output.consume(count);
@@ -197,7 +203,7 @@ impl BrowserSession {
 
     pub(crate) async fn close(&mut self) {
         // EOF is handled independently of a pending verification by the worker.
-        self.input.take();
+        self.control.close().await;
         if tokio::time::timeout(Duration::from_secs(6), self.child.wait())
             .await
             .is_err()
@@ -221,6 +227,7 @@ impl BrowserSession {
 
 impl Drop for BrowserSession {
     fn drop(&mut self) {
+        self.control.abort();
         self.kill();
     }
 }

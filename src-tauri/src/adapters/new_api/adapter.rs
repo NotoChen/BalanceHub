@@ -4,9 +4,7 @@ use super::http::{
     provider_user_management_context, retry_with_access_token, should_retry_with_access_token,
     ProviderTransport,
 };
-pub(crate) use super::http::{
-    authenticate_password_provider, build_client, login_password_provider,
-};
+pub(crate) use super::http::{authenticate_password_provider, build_client};
 use super::keys::{
     create_api_key, delete_api_key, fetch_api_key_options, probe_api_key_management,
 };
@@ -446,11 +444,7 @@ async fn authenticated_provider(
     client: &ProviderTransport,
     provider: &Provider,
 ) -> Result<Provider, String> {
-    if matches!(provider.auth.mode, AuthMode::Password) {
-        login_password_provider(client, provider).await
-    } else {
-        authenticate_password_provider(client, provider).await
-    }
+    authenticate_password_provider(client, provider).await
 }
 
 pub async fn discover_site_metadata(

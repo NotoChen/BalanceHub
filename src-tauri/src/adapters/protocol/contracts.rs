@@ -19,10 +19,11 @@ pub(crate) struct ProviderCredentialPatch {
     refresh_token: Option<String>,
     access_token_expires_at: Option<Option<i64>>,
     login_username: Option<String>,
+    new_api_session: Option<Option<crate::models::NewApiSession>>,
 }
 
 impl ProviderCredentialPatch {
-    fn from_authenticated(original: &Provider, authenticated: &Provider) -> Self {
+    pub(crate) fn from_authenticated(original: &Provider, authenticated: &Provider) -> Self {
         let mut patch = Self::default();
         match original.identity.protocol {
             crate::models::ProviderProtocol::Sub2Api => {
@@ -36,7 +37,10 @@ impl ProviderCredentialPatch {
                 }
             }
             crate::models::ProviderProtocol::NewApi => {
-                if !authenticated.auth.session_cookie.trim().is_empty() {
+                if original.auth.new_api_session != authenticated.auth.new_api_session {
+                    patch.new_api_session = Some(authenticated.auth.new_api_session.clone());
+                }
+                if original.auth.session_cookie != authenticated.auth.session_cookie {
                     patch.session_cookie = Some(authenticated.auth.session_cookie.clone());
                 }
                 if !authenticated.auth.api_user.trim().is_empty() {
@@ -70,7 +74,18 @@ impl ProviderCredentialPatch {
             provider.auth.access_token_expires_at = expires_at;
         }
         apply_string(&mut provider.auth.login_username, &self.login_username);
-        provider.auth != previous
+        if let Some(session) = &self.new_api_session {
+            provider.auth.new_api_session = session.clone();
+        }
+        let changed = provider.auth != previous;
+        if changed
+            && (provider.auth.new_api_session != previous.new_api_session
+                || provider.auth.session_cookie != previous.session_cookie
+                || provider.auth.refresh_token != previous.refresh_token)
+        {
+            provider.auth.session_updated_at = Some(crate::util::unix_millis() as i64);
+        }
+        changed
     }
 }
 
@@ -367,6 +382,24 @@ mod tests {
         assert_eq!(stored.auth.api_user, "42");
         assert_eq!(stored.identity.name, original.identity.name);
         assert_eq!(stored.quota.available, original.quota.available);
+    }
+
+    #[test]
+    fn new_api_session_invalidation_does_not_remove_a_configured_pat() {
+        let mut original = provider(ProviderProtocol::NewApi);
+        original.auth.access_token = "configured-pat".into();
+        original.auth.new_api_session = Some(crate::models::NewApiSession {
+            refresh_cookie: "revoked".into(),
+            access_token: "expired".into(),
+            access_expires_at: Some(1),
+            session_id: "fixture".into(),
+        });
+        let mut invalidated = original.clone();
+        invalidated.auth.new_api_session = None;
+        let operation = ProviderOperationOutcome::authenticated(&original, invalidated, ());
+        operation.apply_to(&mut original);
+        assert!(original.auth.new_api_session.is_none());
+        assert_eq!(original.auth.access_token, "configured-pat");
     }
 
     #[test]

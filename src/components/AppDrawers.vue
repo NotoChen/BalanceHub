@@ -56,6 +56,7 @@ defineProps<{
   probingSite: boolean;
   siteNameSourceBaseUrl: string;
   testingConnection: boolean;
+  startingBrowserLogin: boolean;
   credentialAssistantState: CredentialCompletionState;
   credentialAssistantSteps: CredentialCompletionStep[];
   credentialAssistantMessage: string;
@@ -82,6 +83,7 @@ const emit = defineEmits<{
   deleteManagedApiKey: [option: ProviderApiKeyOption];
   runCredentialAssistant: [];
   testConnection: [];
+  loginAndImport: [];
   probeSite: [options?: { force?: boolean }];
   selectProtocol: [protocol: ProviderProtocol];
   saveProvider: [];
@@ -145,6 +147,8 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     :probing-site="probingSite"
     :site-name-source-base-url="siteNameSourceBaseUrl"
     :settings="settings"
+    :starting-browser-login="startingBrowserLogin"
+    @login-and-import="emit('loginAndImport')"
     :testing-connection="testingConnection"
     :credential-assistant-state="credentialAssistantState"
     :credential-assistant-steps="credentialAssistantSteps"

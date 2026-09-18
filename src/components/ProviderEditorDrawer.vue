@@ -56,6 +56,7 @@ const props = defineProps<{
   siteNameSourceBaseUrl: string;
   settings: AppSettings;
   testingConnection: boolean;
+  startingBrowserLogin: boolean;
   credentialAssistantState: CredentialCompletionState;
   credentialAssistantSteps: CredentialCompletionStep[];
   credentialAssistantMessage: string;
@@ -86,6 +87,7 @@ const emit = defineEmits<{
   "delete-managed-api-key": [option: ProviderApiKeyOption];
   "run-credential-assistant": [];
   "test-connection": [];
+  "login-and-import": [];
   "probe-site": [options?: { force?: boolean }];
   "select-protocol": [protocol: ProviderProtocol];
   save: [];
@@ -140,6 +142,8 @@ function scrollToInitialSection() {
           />
           <div data-provider-section="credentials" class="provider-editor-credentials">
             <ProviderEditorCredentialsSection
+              :starting-browser-login="startingBrowserLogin"
+              @login-and-import="emit('login-and-import')"
               :draft="draft"
               :provider-protocols="providerProtocols"
               :api-key-options="apiKeyOptions"

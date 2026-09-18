@@ -1,6 +1,6 @@
 use super::{
     detection::Installed,
-    manifest::{manifest, node_name, Artifact, Target, WORKER},
+    manifest::{manifest, node_name, write_worker_files, Artifact, Target},
     publish, root_dir,
 };
 use crate::{models::AppSettings, network, platform::process::configure_process_group};
@@ -93,7 +93,7 @@ async fn prepare(
         &node_archive,
         cancelled,
         (0.0, if include_browser { 0.18 } else { 0.75 }),
-        "正在下载签到运行环境",
+        "正在下载浏览器运行组件",
     )
     .await?;
     let target_copy = target.clone();
@@ -169,7 +169,7 @@ async fn prepare(
         set_executable(&staging.join("chromium").join(&target.browser_executable))?;
     }
     check_cancelled(cancelled)?;
-    fs::write(staging.join("worker.mjs"), WORKER).map_err(|_| "无法安装签到执行器")?;
+    write_worker_files(staging)?;
     publish(app, "installing", "正在检查组件完整性", Some(0.96));
     let mut command = std::process::Command::new(staging.join(node_name()));
     command

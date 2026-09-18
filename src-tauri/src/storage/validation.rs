@@ -13,6 +13,15 @@ pub(super) fn validate_app_data_schema(data: &AppData) -> Result<(), String> {
             CURRENT_SCHEMA_VERSION, data.schema_version
         ));
     }
+    let mut ids = std::collections::HashSet::new();
+    for account in &data.login_accounts {
+        if !crate::models::valid_login_account_id(&account.id) || !ids.insert(&account.id) {
+            return Err("登录账号标识无效或重复".into());
+        }
+    }
+    if data.login_accounts.len() > 100 {
+        return Err("登录账号数量超过上限".into());
+    }
     limits::validate_app_data_limits(data)
 }
 

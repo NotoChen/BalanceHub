@@ -78,6 +78,11 @@ async fn authenticate_password_provider_inner(
     provider: &Provider,
     force_login: bool,
 ) -> Result<Provider, String> {
+    if !force_login && super::auth_session::active(provider) {
+        return super::auth_session::authenticate(client, provider)
+            .await
+            .map_err(|error| error.message());
+    }
     if !matches!(provider.auth.mode, AuthMode::Password) {
         return Ok(provider.clone());
     }
@@ -151,9 +156,11 @@ pub(crate) fn authenticated_from_login_response(
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        return Err(
-            "该账号启用了 2FA，当前无法在本地自动完成验证码登录，请改用 Cookie".to_string(),
-        );
+        return Err("该账号启用了 2FA，请使用登录并导入，在站点窗口中完成验证".to_string());
+    }
+
+    if data.get("access_token").is_some() && data.get("user").is_some() {
+        return super::auth_session::authenticated_bundle(provider, response, &data);
     }
 
     let session_cookie = session_cookie.ok_or_else(|| {
@@ -177,6 +184,7 @@ pub(crate) fn authenticated_from_login_response(
     let mut authenticated = provider.clone();
     authenticated.auth.mode = AuthMode::Session;
     authenticated.auth.session_cookie = session_cookie;
+    authenticated.auth.new_api_session = None;
     authenticated.auth.api_user = api_user;
     Ok(authenticated)
 }
@@ -239,7 +247,10 @@ pub(crate) fn provider_user_management_context(
     Ok((base_url, api_user, credential))
 }
 
-fn user_management_credential(provider: &Provider) -> Result<UserCredential, String> {
+pub(super) fn user_management_credential(provider: &Provider) -> Result<UserCredential, String> {
+    if let Some(token) = dashboard_access_token(provider) {
+        return Ok(UserCredential::AccessToken(token.to_string()));
+    }
     let session = provider.auth.session_cookie.trim();
     let access_token = provider.auth.access_token.trim();
 
@@ -351,7 +362,22 @@ pub(crate) fn apply_auth_headers(
     request
 }
 
+pub(super) fn dashboard_access_token(provider: &Provider) -> Option<&str> {
+    if !matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password) {
+        return None;
+    }
+    provider
+        .auth
+        .new_api_session
+        .as_ref()
+        .map(|session| session.access_token.as_str())
+        .filter(|token| !token.is_empty())
+}
+
 pub(crate) fn auth_header_values(provider: &Provider) -> Vec<(&'static str, String)> {
+    if let Some(token) = dashboard_access_token(provider) {
+        return vec![("authorization", format!("Bearer {token}"))];
+    }
     match provider.auth.mode {
         AuthMode::ApiKey => vec![(
             "authorization",
@@ -374,7 +400,9 @@ pub(crate) fn apply_session_cookie(
     request: reqwest::RequestBuilder,
     provider: &Provider,
 ) -> reqwest::RequestBuilder {
-    if !matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password) {
+    if !matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password)
+        || provider.auth.new_api_session.is_some()
+    {
         return request;
     }
 

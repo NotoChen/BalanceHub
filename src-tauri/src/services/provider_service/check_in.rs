@@ -27,6 +27,9 @@ impl<'a> ProviderService<'a> {
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         match ProtocolAdapter
             .check_in_records(&data.settings, &provider, &month)
@@ -58,15 +61,25 @@ impl<'a> ProviderService<'a> {
     ) -> Result<ProviderCheckInResult, CheckInError> {
         let http_slot = HTTP_SLOTS.acquire().await.map_err(|_| "签到队列不可用")?;
         task.phase(self.app, CheckInPhase::Checking);
-        let data = self.snapshot_async().await?;
-        let provider = find_provider(&data, &id)?;
-        let request_context = ProviderRequestContext::capture(&provider);
-        let adapter = ProtocolAdapter;
         let state = self.app.state::<crate::state::AppState>();
         let network_gate = state.refresh_gate.lock().await;
-        self.current_operation_provider(&request_context)
-            .await?
-            .ok_or("账号配置已变更，已停止本次签到")?;
+        let data = self.snapshot_async().await?;
+        let provider = find_provider(&data, &id)?;
+        // Login itself is the business action for these sites; do not perform
+        // an extra preflight password login that would already check in.
+        let provider = if provider_domain::check_in::effective_method(&provider)
+            == crate::models::ProviderCheckInMethod::FreshLogin
+            || (provider.auth.mode == crate::models::AuthMode::Password
+                && provider.auth.new_api_session.is_none())
+        {
+            provider
+        } else {
+            self.prepare_operation_provider(&data.settings, &provider)
+                .await?
+        };
+        let request_context = ProviderRequestContext::capture(&provider);
+        task.authenticated(&provider);
+        let adapter = ProtocolAdapter;
         task.phase(self.app, CheckInPhase::Requesting);
         let operation = tokio::time::timeout(
             Duration::from_secs(120),

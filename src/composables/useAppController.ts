@@ -14,6 +14,8 @@ import { useAvailableModels } from "./useAvailableModels";
 import { useBatchOperation } from "./useBatchOperation";
 import { useBackgroundTaskCenter } from "./useBackgroundTaskCenter";
 import { useBrowserRuntime } from "./useBrowserRuntime";
+import { useLoginAccounts } from "./useLoginAccounts";
+import { useProviderCredentials } from "./useProviderCredentials";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
@@ -78,6 +80,7 @@ export function useAppController() {
   });
 
   const browserRuntime = useBrowserRuntime();
+  const loginAccounts = useLoginAccounts(browserRuntime);
   const checkIn = useCheckInActions({
     reload: () => providerStore.reload(),
     browserRuntime,
@@ -118,7 +121,13 @@ export function useAppController() {
       providerStore.changePassword(providerId, originalPassword, password),
   });
 
-  const providerEditor = useProviderEditor({ store: providerStore });
+  const providerEditor = useProviderEditor({ store: providerStore, browserRuntime, loginAccounts });
+  const providerCredentials = useProviderCredentials((id) => {
+    const provider = providers.value.find((p) => p.identity.id === id);
+    if (!provider) { Message.error("中转站已不存在"); return; }
+    providerEditor.openEditProvider(provider, "credentials");
+    void providerEditor.loginAndImport();
+  });
   const editorApiKeyRemoteManaged = computed(() => {
     const providerId = providerEditor.editingProviderId.value;
     return Boolean(
@@ -340,6 +349,8 @@ export function useAppController() {
 
   const backgroundTaskCenter = useBackgroundTaskCenter({
     providers,
+    openLoginAccount: loginAccounts.open,
+    openProviderCredentials: providerCredentials.open,
     batchOperation: batchOperation.operation,
     batchOperationRunning: batchOperation.running,
     batchOperationItems: batchOperation.items,

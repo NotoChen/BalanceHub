@@ -93,6 +93,88 @@ async fn run(provider: &Provider) -> Result<(Provider, ProviderCheckInResult), S
 }
 
 #[tokio::test]
+async fn modern_rotation_is_committed_before_a_later_business_failure() {
+    let (mut provider, requests, server) = serve(vec![
+        Some(Reply {
+            body: r#"{"success":true,"data":{"access_token":"fixture-jwt-new","access_expires_at":4102444800,"user":{"id":42},"session":{"sid":"fixture-sid"}}}"#,
+            headers:
+                "Set-Cookie: new_api_refresh=fixture-rotated; Path=/api/user/auth; HttpOnly\r\n",
+        }),
+        json(r#"{"success":false,"message":"fixture business failure"}"#),
+    ]);
+    provider.auth.session_cookie.clear();
+    provider.auth.new_api_session = Some(crate::models::NewApiSession {
+        refresh_cookie: "fixture-old".into(),
+        access_token: "fixture-expired".into(),
+        access_expires_at: Some(1),
+        session_id: "fixture-sid".into(),
+    });
+    let prepared =
+        crate::adapters::new_api::prepare_authentication(&AppSettings::default(), &provider)
+            .await
+            .unwrap();
+    prepared.value.unwrap();
+    prepared.credentials.apply(&mut provider);
+    assert!(run(&provider).await.is_err());
+    assert_eq!(
+        provider
+            .auth
+            .new_api_session
+            .as_ref()
+            .unwrap()
+            .refresh_cookie,
+        "fixture-rotated"
+    );
+    server.join().unwrap();
+    let requests = requests.try_iter().collect::<Vec<_>>();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].starts_with("POST /relay/api/user/auth/refresh "));
+    assert!(requests[0].contains("new_api_refresh=fixture-old"));
+    assert!(requests[1]
+        .to_ascii_lowercase()
+        .contains("authorization: bearer fixture-jwt-new"));
+    assert!(!requests[1].contains("new_api_refresh"));
+}
+
+#[tokio::test]
+async fn modern_browser_session_refreshes_quota_without_legacy_cookie() {
+    let (mut provider, requests, server) = serve(vec![
+        json(
+            r#"{"success":true,"data":{"system_name":"Fixture","quota_per_unit":500000,"display_type":"USD"}}"#,
+        ),
+        json(
+            r#"{"success":true,"data":{"id":42,"username":"fixture","quota":25000000,"used_quota":5000000}}"#,
+        ),
+    ]);
+    provider.auth.session_cookie.clear();
+    provider.auth.new_api_session = Some(crate::models::NewApiSession {
+        refresh_cookie: "fixture-refresh".into(),
+        access_token: "fixture-dashboard-jwt".into(),
+        access_expires_at: Some(4102444800),
+        session_id: "fixture-sid".into(),
+    });
+    let client = crate::adapters::transport::build_client(&AppSettings::default(), &provider)
+        .await
+        .unwrap();
+    let refreshed = crate::adapters::new_api::quota::refresh_provider(&client, &provider).await;
+    server.join().unwrap();
+    assert_eq!(refreshed.quota.available, 50.0);
+    assert_eq!(refreshed.quota.used, 10.0);
+    assert!(refreshed.runtime.error_message.is_none());
+    assert_eq!(
+        refreshed.auth.new_api_session,
+        provider.auth.new_api_session
+    );
+    let requests = requests.try_iter().collect::<Vec<_>>();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1].starts_with("GET /relay/api/user/self "));
+    assert!(requests[1]
+        .to_ascii_lowercase()
+        .contains("authorization: bearer fixture-dashboard-jwt"));
+    assert!(!requests[1].contains("fixture-refresh"));
+}
+
+#[tokio::test]
 async fn standard_check_in_submits_once_and_reads_back_today() {
     let (provider, requests, server) = serve(vec![json(NOT_CHECKED), json(SUCCESS), json(CHECKED)]);
     let (_, result) = run(&provider).await.unwrap();

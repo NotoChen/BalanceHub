@@ -1,3 +1,8 @@
+import { ref, watch, onUnmounted } from "vue";
+import type { BrowserRuntimeController } from "./useBrowserRuntime";
+import type { LoginAccountsController } from "./useLoginAccounts";
+import { createProviderLoginFlow } from "../utils/provider-login-flow";
+import { startProviderBrowserLogin, cancelProviderBrowserLogin } from "../api/provider-browser-login";
 import { Message } from "@arco-design/web-vue";
 import type { Provider, ProviderInput } from "../stores/providers";
 import { copyText } from "./useClipboard";
@@ -19,6 +24,8 @@ import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseProviderEditorOptions {
   store: ProviderEditorStore;
+  browserRuntime: BrowserRuntimeController;
+  loginAccounts: LoginAccountsController;
 }
 
 export function useProviderEditor(options: UseProviderEditorOptions) {
@@ -77,6 +84,35 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     saveDraftAndFindProvider,
     refreshAfterSave,
   });
+
+  const startingBrowserLogin = ref(false);
+  const loginFlow = createProviderLoginFlow({
+    editorSession: () => editorSession.value,
+    visible: () => drawerVisible.value,
+    input: currentProviderInput,
+    ensureRuntime: async () => {
+      await options.browserRuntime.refresh(true);
+      if (options.browserRuntime.state.value?.ready) return true;
+      options.browserRuntime.open();
+      Message.info("请先确认安装浏览器组件，完成后再次点击登录并导入");
+      return false;
+    },
+    start: startProviderBrowserLogin,
+    chooseAccount: (input) => options.loginAccounts.choose({
+      name: input.identity.name.trim() || "此中转站",
+      baseUrl: input.identity.baseUrl,
+      previousAccountId: input.auth.browserBinding?.accountId ?? null,
+    }),
+    cancelSelection: options.loginAccounts.cancelSelection,
+    cancel: cancelProviderBrowserLogin,
+    close: () => { drawerVisible.value = false; },
+    pending: (value) => { startingBrowserLogin.value = value; },
+    started: () => { Message.info("登录任务已开始，可在后台任务中查看进度或取消"); },
+    failed: (message) => { Message.error(message); },
+  });
+  watch(editorSession, loginFlow.invalidate);
+  watch(drawerVisible, (visible) => { if (!visible) loginFlow.invalidate(); });
+  onUnmounted(loginFlow.invalidate);
 
   function openAddProvider() {
     state.openAddProvider();
@@ -163,6 +199,9 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
         return undefined;
       }
       editingProviderId.value = savedProvider.identity.id;
+      draftProvider.auth.credentialRevision = savedProvider.auth.credentialRevision;
+      draftProvider.auth.browserBinding = savedProvider.auth.browserBinding;
+      draftProvider.auth.sessionUpdatedAt = savedProvider.auth.sessionUpdatedAt;
       siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(savedProvider.identity.baseUrl);
       return savedProvider;
     }
@@ -245,6 +284,8 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
 
   return {
     ...state,
+    startingBrowserLogin,
+    loginAndImport: loginFlow.run,
     openAddProvider,
     openEditProvider,
     copyDraftApiKey,

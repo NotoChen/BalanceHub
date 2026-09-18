@@ -71,6 +71,7 @@ impl<'a> ProviderService<'a> {
         );
         let settings = Arc::new(data.settings);
         let refreshed = refresh_providers_concurrently(
+            self.app.clone(),
             settings,
             data.providers,
             |_| true,
@@ -114,6 +115,7 @@ impl<'a> ProviderService<'a> {
         let settings = Arc::new(data.settings);
         let id_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
         let refreshed = refresh_providers_concurrently(
+            self.app.clone(),
             settings,
             data.providers,
             |provider| id_set.contains(provider.identity.id.as_str()),
@@ -184,6 +186,7 @@ pub(super) fn apply_refresh_owned_fields(
 /// 并发用信号量做滚动窗口（最多 6 个在飞），而非固定分批：分批会被批内最慢的
 /// 一个（最长 20s 超时）拖住整批，滚动窗口下一个完成立刻补位。
 pub(super) async fn refresh_providers_concurrently(
+    app: tauri::AppHandle,
     settings: Arc<AppSettings>,
     providers: Vec<Provider>,
     should_refresh: impl Fn(&Provider) -> bool,
@@ -212,16 +215,31 @@ pub(super) async fn refresh_providers_concurrently(
         );
         let settings = Arc::clone(&settings);
         let semaphore = Arc::clone(&semaphore);
-        let request_context = ProviderRequestContext::capture(&provider);
+        let app = app.clone();
         let progress = progress.clone();
         handles.push(tauri::async_runtime::spawn(async move {
             // 信号量只在本函数生命周期内使用、从不 close，acquire 不会失败。
             let _permit = semaphore.acquire().await.expect("refresh semaphore closed");
-            let outcome = ProtocolAdapter
-                .refresh_provider(settings.as_ref(), &provider)
+            let service = ProviderService::new(&app);
+            let prepared = service
+                .prepare_operation_auth(settings.as_ref(), &provider)
                 .await;
-            let mut refreshed = provider;
-            outcome.apply_to(&mut refreshed);
+            let (mut refreshed, preparation_error) = match prepared {
+                Ok((prepared, result)) => (prepared, result.err()),
+                // Keep the original context on rejection; never attach an old
+                // failure to a concurrently edited account's latest snapshot.
+                Err(message) => (provider, Some(message)),
+            };
+            let request_context = ProviderRequestContext::capture(&refreshed);
+            if let Some(message) = preparation_error {
+                refreshed.runtime.status = ProviderStatus::Error;
+                refreshed.runtime.error_message = Some(message);
+            } else {
+                let outcome = ProtocolAdapter
+                    .refresh_provider(settings.as_ref(), &refreshed)
+                    .await;
+                outcome.apply_to(&mut refreshed);
+            }
             let status = if matches!(refreshed.runtime.status, ProviderStatus::Error) {
                 ProviderBatchStatus::Failed
             } else {

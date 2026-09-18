@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { IconCheckCircle, IconLock, IconRight } from "@arco-design/web-vue/es/icon";
+import { computed, inject } from "vue";
+import { LOGIN_ACCOUNTS_CONTEXT } from "../../composables/useLoginAccounts";
+import { PROVIDER_CREDENTIALS_CONTEXT } from "../../composables/useProviderCredentials";
+import { IconCheckCircle, IconLock, IconRight, IconUser } from "@arco-design/web-vue/es/icon";
 import type {
   AuthMode,
   Provider,
@@ -10,12 +12,17 @@ import type {
 } from "../../stores/providers";
 import type { ApiKeyManagerOperation } from "../../composables/useApiKeyManager";
 import { providerProtocolDescriptor } from "../../utils/provider-protocol";
+import { credentialFieldHasValue, missingCredentialRequirements } from "../../composables/provider-credential-rules";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import ProviderCredentialFields from "./ProviderCredentialFields.vue";
 import ProviderApiKeyVault from "./ProviderApiKeyVault.vue";
 
+const loginAccounts = inject(LOGIN_ACCOUNTS_CONTEXT);
+const providerCredentials = inject(PROVIDER_CREDENTIALS_CONTEXT);
+
 const props = defineProps<{
   draft: ProviderInput;
+  startingBrowserLogin: boolean;
   providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderInput["auth"]["apiKeyOptions"];
   apiKeyRemoteManaged: boolean;
@@ -33,6 +40,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "copy-api-key": [];
+  "login-and-import": [];
   "update:api-key-create-visible": [visible: boolean];
   "update:api-key-create-name": [name: string];
   "update:api-key-add-visible": [visible: boolean];
@@ -96,6 +104,8 @@ function updateField(field: ProviderAuthFieldDescriptor, value: string) {
   (props.draft.auth as unknown as Record<string, unknown>)[key as string] = value;
   if (field.field === "apiKey") {
     syncApiKeySelection();
+  } else if (field.field === "sessionCookie") {
+    props.draft.auth.newApiSession = null;
   } else if (field.field === "accessToken") {
     invalidateRefreshTokenChain();
   } else if (field.field === "loginUsername" || field.field === "loginPassword") {
@@ -104,7 +114,9 @@ function updateField(field: ProviderAuthFieldDescriptor, value: string) {
 }
 
 function stageHasValue(mode: AuthMode) {
-  return fieldsForMode(mode).some((field) => Boolean(fieldValue(field).trim()));
+  const schema = visibleAuthModes.value.find((candidate) => candidate.mode === mode);
+  return fieldsForMode(mode).some((field) => Boolean(fieldValue(field).trim()))
+    || Boolean(schema?.requiredAnyFields.some((field) => credentialFieldHasValue(props.draft, field)));
 }
 
 function stageStatus(mode: AuthMode) {
@@ -115,7 +127,8 @@ function stageStatus(mode: AuthMode) {
     return "可补全";
   }
   if (mode === "session") {
-    if (auth.sessionCookie.trim()) return "已保存";
+    const schema = visibleAuthModes.value.find((candidate) => candidate.mode === mode);
+    if (schema && missingCredentialRequirements(props.draft, schema).length === 0) return "已保存";
     return props.draft.auth.mode === "password" ? "登录后生成" : "待补充";
   }
   if (mode === "accessToken") {
@@ -143,6 +156,7 @@ function selectMode(mode: AuthMode) {
   // 切入账号密码时强制重新登录；从账号密码切到下游认证时保留已建立的会话，
   // 这样用户不需要再次粘贴 Cookie。
   if (mode === "password" && props.draft.auth.mode !== "password") {
+    props.draft.auth.newApiSession = null;
     props.draft.auth.sessionCookie = "";
     props.draft.auth.apiUser = "";
     clearTokenChain();
@@ -152,6 +166,7 @@ function selectMode(mode: AuthMode) {
 
 function invalidatePasswordSession() {
   if (props.draft.auth.mode === "password") {
+    props.draft.auth.newApiSession = null;
     props.draft.auth.sessionCookie = "";
     props.draft.auth.apiUser = "";
     clearTokenChain();
@@ -176,18 +191,31 @@ function syncApiKeySelection() {
 }
 
 function activeLabel() {
+  if (props.draft.auth.newApiSession && props.draft.auth.mode === "session") return "登录会话";
   return currentAuthMode.value?.label || "认证凭据";
 }
 </script>
 
 <template>
   <div class="provider-form-page provider-credentials-page">
+    <div class="provider-login-management">
+      <a-button size="small" @click="loginAccounts?.open(draft.auth.browserBinding?.accountId ?? undefined)">登录账号管理</a-button>
+      <a-button v-if="draft.id" size="small" @click="providerCredentials?.open(draft.id)">凭据详情</a-button>
+    </div>
     <section v-if="showAuthModePicker" class="provider-form-block provider-auth-picker-block">
       <header class="provider-form-block-header">
         <span class="provider-form-block-icon"><IconLock /></span>
         <div><strong>认证方式</strong></div>
+        <a-button v-if="currentProtocol?.browserLoginSupported" type="primary" size="small"
+          class="provider-browser-login-button" :loading="startingBrowserLogin" :disabled="!draft.identity.baseUrl.trim()"
+          @click="emit('login-and-import')">
+          <template #icon><IconUser /></template>登录并导入
+        </a-button>
       </header>
       <div class="provider-form-block-body">
+        <p v-if="currentProtocol?.browserLoginSupported" class="provider-credential-inline-note">
+          先选择登录账号，再打开站点。Linux DO、GitHub 的多个账号可独立保存和复用。
+        </p>
         <div class="provider-auth-mode-grid" role="radiogroup" aria-label="认证方式">
           <button
             v-for="mode in visibleAuthModes"
@@ -219,14 +247,17 @@ function activeLabel() {
         <span class="provider-form-block-required">当前使用</span>
       </header>
       <div class="provider-form-block-body provider-field-grid">
-        <ProviderCredentialFields
+        <p v-if="draft.auth.newApiSession && draft.auth.mode === 'session'" class="provider-credential-inline-note provider-field-wide">
+          <IconCheckCircle /> 已登录 {{ draft.auth.loginUsername || draft.auth.apiUser }}，会话自动续期。JWT 和 Cookie 可在“凭据详情”中查看和管理。
+        </p>
+        <ProviderCredentialFields v-else
           :fields="activeFields"
           :required-fields="currentAuthMode?.requiredFields ?? []"
           :draft="draft"
           @copy-api-key="emit('copy-api-key')"
           @update-field="updateField"
         />
-        <p v-if="currentAuthMode?.note" class="provider-credential-inline-note provider-field-wide">
+        <p v-if="currentAuthMode?.note && !(draft.auth.newApiSession && draft.auth.mode === 'session')" class="provider-credential-inline-note provider-field-wide">
           {{ currentAuthMode.note }}
         </p>
       </div>
@@ -309,3 +340,9 @@ function activeLabel() {
     />
   </div>
 </template>
+
+<style scoped>
+.provider-login-management { display: flex; justify-content: flex-end; gap: 8px; }
+.provider-browser-login-button { margin-left: auto; }
+.provider-auth-picker-block .provider-credential-inline-note { margin: 0 0 12px; }
+</style>

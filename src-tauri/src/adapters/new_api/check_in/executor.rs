@@ -212,14 +212,26 @@ impl Executor<'_> {
         } = self
         {
             ensure_current()?;
-            let cookies = session.request("cookies", json!({})).await?;
+            let refresh_url = response
+                .url
+                .as_str()
+                .split("/api/user/login")
+                .next()
+                .unwrap_or(response.url.as_str())
+                .to_string()
+                + "/api/user/auth/refresh";
+            let cookies = session
+                .request("cookies", json!({ "url": refresh_url }))
+                .await?;
             if let Some(cookies) = cookies.get("cookies").and_then(Value::as_array) {
                 for cookie in cookies {
-                    if cookie.get("name").and_then(Value::as_str) == Some("session") {
+                    if let Some(name @ ("session" | "new_api_refresh")) =
+                        cookie.get("name").and_then(Value::as_str)
+                    {
                         if let Some(value) = cookie.get("value").and_then(Value::as_str) {
                             response.headers.append(
                                 SET_COOKIE,
-                                format!("session={value}")
+                                format!("{name}={value}")
                                     .parse()
                                     .map_err(|_| "登录返回的会话格式无效")?,
                             );

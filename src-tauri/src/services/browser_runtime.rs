@@ -70,7 +70,7 @@ fn root_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map(|path| path.join("components/checkin-browser"))
-        .map_err(|_| "无法定位浏览器签到组件目录".to_string())
+        .map_err(|_| "无法定位浏览器组件目录".to_string())
 }
 
 pub(crate) fn status(app: &AppHandle, force: bool) -> Result<BrowserRuntimeStatus, String> {
@@ -101,15 +101,15 @@ pub(crate) fn status(app: &AppHandle, force: bool) -> Result<BrowserRuntimeStatu
         .as_ref()
         .is_some_and(|(installed, _)| installed.version == manifest::manifest().version);
     let (phase, message) = if selected.is_err() {
-        ("unsupported", "当前系统架构暂不支持浏览器签到组件")
+        ("unsupported", "当前系统架构暂不支持浏览器组件")
     } else if !core_ready {
-        ("notInstalled", "浏览器签到组件尚未安装")
+        ("notInstalled", "浏览器组件尚未安装")
     } else if !compatible {
         ("needsUpdate", "组件版本需要更新，请确认后下载")
     } else if browser.is_none() {
         ("needsBrowser", "未找到可用浏览器，可安装独立 Chromium")
     } else {
-        ("ready", "浏览器签到组件可用")
+        ("ready", "浏览器组件可用")
     };
     let snapshot = BrowserRuntimeStatus {
         phase: phase.to_string(),
@@ -156,16 +156,16 @@ pub(crate) struct RuntimeSession {
 pub(crate) async fn acquire(app: &AppHandle) -> Result<RuntimeSession, String> {
     let guard = access()
         .try_read_owned()
-        .map_err(|_| "组件正在安装或卸载，完成后可继续签到")?;
+        .map_err(|_| "组件正在安装或卸载，完成后可继续登录或验证")?;
     let snapshot = status(app, true)?;
     if !snapshot.ready {
         return Err(snapshot.message);
     }
-    let (_, directory) = detection::installed(app).ok_or("浏览器签到组件缺失")?;
+    let (_, directory) = detection::installed(app).ok_or("浏览器组件缺失")?;
     let browser = snapshot.browser.ok_or("未找到可用浏览器")?.path;
     // The small worker ships as source inside the App, and follows its IPC ABI.
     // Executables and Playwright remain exclusively in the optional directory.
-    fs::write(directory.join("worker.mjs"), manifest::WORKER).map_err(|_| "无法准备签到执行器")?;
+    manifest::write_worker_files(&directory)?;
     Ok(RuntimeSession {
         directory,
         browser,
@@ -179,7 +179,7 @@ pub(crate) fn start_install(
 ) -> Result<BrowserRuntimeStatus, String> {
     let guard = access()
         .try_write_owned()
-        .map_err(|_| "浏览器签到任务正在使用组件，请结束后再安装")?;
+        .map_err(|_| "浏览器任务正在使用组件，请结束后再安装")?;
     let snapshot = status(app, true)?;
     if !include_browser && snapshot.system_browser.is_none() {
         return Err("未找到本机浏览器，请选择同时安装独立浏览器".to_string());
@@ -200,7 +200,7 @@ pub(crate) fn start_install(
         }
         state.cancel = Some(sender);
     }
-    publish(app, "installing", "正在准备安装浏览器签到组件", Some(0.0));
+    publish(app, "installing", "正在准备安装浏览器组件", Some(0.0));
     let app = app.clone();
     let initial = state()
         .lock()
@@ -219,7 +219,7 @@ pub(crate) fn start_install(
         match result {
             Ok(()) => match detected {
                 Ok(snapshot) if snapshot.ready => {
-                    publish(&app, "ready", "安装完成，可以继续签到", Some(1.0))
+                    publish(&app, "ready", "安装完成，可以继续登录或验证", Some(1.0))
                 }
                 Ok(snapshot) => publish(&app, &snapshot.phase, &snapshot.message, None),
                 Err(message) => publish(&app, "failed", &message, None),
@@ -244,10 +244,10 @@ pub(crate) fn cancel_install() -> Result<(), String> {
 pub(crate) fn uninstall(app: &AppHandle) -> Result<BrowserRuntimeStatus, String> {
     let _guard = access()
         .try_write_owned()
-        .map_err(|_| "组件正在使用中，请先取消签到或安装任务")?;
+        .map_err(|_| "组件正在使用中，请先取消登录、签到或安装任务")?;
     let root = root_dir(app)?;
     if root.exists() {
-        fs::remove_dir_all(root).map_err(|_| "无法卸载浏览器签到组件")?;
+        fs::remove_dir_all(root).map_err(|_| "无法卸载浏览器组件")?;
     }
     let profiles = app
         .path()
@@ -257,6 +257,7 @@ pub(crate) fn uninstall(app: &AppHandle) -> Result<BrowserRuntimeStatus, String>
     if profiles.exists() {
         fs::remove_dir_all(profiles).map_err(|_| "组件已卸载，但验证会话清理失败")?;
     }
+    // Saved login accounts have an independent lifecycle in account management.
     let result = status(app, true)?;
     let _ = app.emit(EVENT, &result);
     Ok(result)

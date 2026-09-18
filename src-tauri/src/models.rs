@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+#[path = "models/login_account.rs"]
+mod login_account;
+pub use login_account::*;
+
 #[path = "models/agent_cli.rs"]
 mod agent_cli;
 #[path = "models/app_settings.rs"]
@@ -43,7 +47,7 @@ pub(crate) use provider_results::is_full_api_key_value;
 pub use provider_results::*;
 pub use workspace::*;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 11;
+pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +63,8 @@ pub struct AppData {
     pub workspaces: Vec<Workspace>,
     #[serde(default)]
     pub temporary_cli_preferences: Vec<TemporaryCliPreference>,
+    #[serde(default)]
+    pub login_accounts: Vec<LoginAccount>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -78,6 +84,7 @@ impl AppData {
             settings,
             workspaces: Vec::new(),
             temporary_cli_preferences: Vec::new(),
+            login_accounts: Vec::new(),
         }
     }
 }

@@ -7,7 +7,7 @@ pub(crate) async fn get_browser_runtime_status(
     app: AppHandle,
     force: bool,
 ) -> Result<BrowserRuntimeStatus, String> {
-    run_blocking("检测浏览器签到组件", move || {
+    run_blocking("检测浏览器组件", move || {
         browser_runtime::status(&app, force)
     })
     .await
@@ -30,7 +30,7 @@ pub(crate) fn cancel_browser_runtime_install() -> Result<(), String> {
 pub(crate) async fn uninstall_browser_runtime(
     app: AppHandle,
 ) -> Result<BrowserRuntimeStatus, String> {
-    run_blocking("卸载浏览器签到组件", move || {
+    run_blocking("卸载浏览器组件", move || {
         browser_runtime::uninstall(&app)
     })
     .await

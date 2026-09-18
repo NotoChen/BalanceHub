@@ -4,6 +4,9 @@ import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
 import BrowserRuntimeModal from "./components/BrowserRuntimeModal.vue";
+import LoginAccountsModal from "./components/LoginAccountsModal.vue";
+import LoginAccountPicker from "./components/LoginAccountPicker.vue";
+import ProviderCredentialsModal from "./components/ProviderCredentialsModal.vue";
 import CliConfigKeyPickerModal from "./components/CliConfigKeyPickerModal.vue";
 import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
 import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
@@ -21,6 +24,9 @@ useWindowGridSnap();
     <!-- 桌面界面不显示 WebView 原生右键菜单，卡片操作统一在卡片内完成。 -->
     <div class="app-shell" @contextmenu.prevent>
       <BrowserRuntimeModal />
+      <LoginAccountsModal />
+      <LoginAccountPicker />
+      <ProviderCredentialsModal />
       <AppWorkspace
         :loading="app.loading"
         :initialized="app.initialized"
@@ -293,6 +299,8 @@ useWindowGridSnap();
       :probing-site="app.probingSite"
       :site-name-source-base-url="app.siteNameSourceBaseUrl"
       :testing-connection="app.testingConnection"
+      :starting-browser-login="app.startingBrowserLogin"
+      @login-and-import="app.loginAndImport"
       :credential-assistant-state="app.credentialAssistantState"
       :credential-assistant-steps="app.credentialAssistantSteps"
       :credential-assistant-message="app.credentialAssistantMessage"
