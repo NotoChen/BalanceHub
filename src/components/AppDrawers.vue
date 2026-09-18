@@ -18,7 +18,7 @@ import type {
 } from "../composables/useProviderCredentialCompletion";
 import type {
   ProtocolSelectionSource,
-  ProviderEditorStep,
+  ProviderEditorSection,
 } from "../composables/provider-editor-shared";
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import type { DurationUnit } from "../utils/duration";
@@ -34,7 +34,7 @@ defineProps<{
   checkingForUpdate: boolean;
   providerEditorTitle: string;
   providerEditorSession: number;
-  providerEditorInitialStep: ProviderEditorStep;
+  providerEditorInitialSection: ProviderEditorSection;
   draftProvider: ProviderInput;
   providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderApiKeyOption[];
@@ -56,6 +56,7 @@ defineProps<{
   probingSite: boolean;
   siteNameSourceBaseUrl: string;
   testingConnection: boolean;
+  startingBrowserLogin: boolean;
   credentialAssistantState: CredentialCompletionState;
   credentialAssistantSteps: CredentialCompletionStep[];
   credentialAssistantMessage: string;
@@ -82,6 +83,7 @@ const emit = defineEmits<{
   deleteManagedApiKey: [option: ProviderApiKeyOption];
   runCredentialAssistant: [];
   testConnection: [];
+  loginAndImport: [];
   probeSite: [options?: { force?: boolean }];
   selectProtocol: [protocol: ProviderProtocol];
   saveProvider: [];
@@ -123,7 +125,7 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     v-model:visible="providerEditorVisible"
     :title="providerEditorTitle"
     :editor-session="providerEditorSession"
-    :initial-step="providerEditorInitialStep"
+    :initial-section="providerEditorInitialSection"
     :draft="draftProvider"
     :provider-protocols="providerProtocols"
     :api-key-options="apiKeyOptions"
@@ -145,6 +147,8 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     :probing-site="probingSite"
     :site-name-source-base-url="siteNameSourceBaseUrl"
     :settings="settings"
+    :starting-browser-login="startingBrowserLogin"
+    @login-and-import="emit('loginAndImport')"
     :testing-connection="testingConnection"
     :credential-assistant-state="credentialAssistantState"
     :credential-assistant-steps="credentialAssistantSteps"

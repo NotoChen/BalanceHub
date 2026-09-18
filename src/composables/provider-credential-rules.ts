@@ -1,4 +1,4 @@
-import type { ProviderInput, ProviderProtocolDescriptor } from "../stores/providers";
+import type { ProviderAuthModeDescriptor, ProviderInput, ProviderProtocolDescriptor } from "../stores/providers";
 import {
   providerAuthModeDescriptor,
   providerProtocolDescriptor,
@@ -31,13 +31,36 @@ export function canRunCredentialAssistantForInput(
     input.auth.mode,
   );
   return Boolean(
-    schema && schema.requiredFields.every((field) => credentialFieldHasValue(input, field)),
+    schema && missingCredentialRequirements(input, schema).length === 0,
   );
 }
 
-function credentialFieldHasValue(input: ProviderInput, field: string) {
-  const value = input.auth[field as keyof ProviderInput["auth"]];
+// Field paths and alternatives come from Rust's protocol descriptor. This
+// helper only evaluates form completeness; backend authentication stays authoritative.
+export function credentialFieldHasValue(input: ProviderInput, field: string) {
+  let value: unknown = input.auth;
+  for (const key of field.split(".")) {
+    if (value === null || typeof value !== "object"
+      || !Object.prototype.hasOwnProperty.call(value, key)) return false;
+    value = Reflect.get(value, key);
+  }
   return typeof value === "string" && Boolean(value.trim());
+}
+
+export function missingCredentialRequirements(input: ProviderInput, schema: ProviderAuthModeDescriptor) {
+  const missing = schema.requiredFields
+    .filter((field) => !credentialFieldHasValue(input, field))
+    .map((field) => [field]);
+  if (schema.requiredAnyFields.length > 0
+    && !schema.requiredAnyFields.some((field) => credentialFieldHasValue(input, field))) {
+    missing.push(schema.requiredAnyFields);
+  }
+  return missing;
+}
+
+export function canSkipAssistantAccessToken(input: ProviderInput, protocol: ProviderProtocolDescriptor) {
+  return protocol.credentialAssistant.accessTokenSkipFields
+    .some((field) => credentialFieldHasValue(input, field));
 }
 
 export function blockingCredentialCompletionFailures(steps: CredentialResultStep[]) {

@@ -5,8 +5,9 @@ use super::defaults;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
     default_true, AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode,
-    LivenessRecord, ProviderApiKeyOption, ProviderCheckInRecord, ProviderNotificationMode,
-    ProviderProtocol, ProviderProxyMode, ProviderQuotaScope, ProviderStatus,
+    LivenessRecord, ProviderApiKeyOption, ProviderCheckInMethod, ProviderCheckInRecord,
+    ProviderNotificationMode, ProviderProtocol, ProviderProxyMode, ProviderQuotaScope,
+    ProviderStatus, ProviderTurnstileMode,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +104,16 @@ pub struct ProviderCliInput {
     pub preferred_model: String,
 }
 
+/// NewAPI dashboard login session. Independent of the user's long-lived PAT.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewApiSession {
+    pub refresh_cookie: String,
+    pub session_id: String,
+    pub access_token: String,
+    pub access_expires_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAuth {
@@ -128,6 +139,15 @@ pub struct ProviderAuth {
     /// access_token 过期时刻（unix 秒）；None 表示未知（NewAPI 等无此概念）。
     #[serde(default)]
     pub access_token_expires_at: Option<i64>,
+    #[serde(default)]
+    pub new_api_session: Option<NewApiSession>,
+    #[serde(default)]
+    pub browser_binding: Option<crate::models::BrowserLoginBinding>,
+    /// Advances on explicit credential replacement/removal, not token rotation.
+    #[serde(default)]
+    pub credential_revision: u64,
+    #[serde(default)]
+    pub session_updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,6 +207,12 @@ pub struct ProviderAutomation {
     pub refresh_interval: u64,
     #[serde(default)]
     pub check_in_time: String,
+    #[serde(default)]
+    pub check_in_method: ProviderCheckInMethod,
+    #[serde(default = "default_true")]
+    pub auto_shield: bool,
+    #[serde(default)]
+    pub turnstile_mode: ProviderTurnstileMode,
     pub last_synced_at: Option<String>,
     #[serde(default)]
     pub last_checked_in_at: Option<String>,
@@ -203,6 +229,12 @@ pub struct ProviderAutomationInput {
     pub refresh_interval: u64,
     #[serde(default)]
     pub check_in_time: String,
+    #[serde(default)]
+    pub check_in_method: ProviderCheckInMethod,
+    #[serde(default = "default_true")]
+    pub auto_shield: bool,
+    #[serde(default)]
+    pub turnstile_mode: ProviderTurnstileMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

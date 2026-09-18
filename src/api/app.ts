@@ -16,6 +16,7 @@ import type {
   ProviderApiKeyOption,
   ProviderCapabilityProbeResult,
   ProviderCheckInRecordsResult,
+  ProviderCheckInPolicyPreview,
   ProviderCredentialCompletionResult,
   ProviderConnectionTestResult,
   ProviderInput,
@@ -53,6 +54,7 @@ export interface AppData {
   settings: AppSettings;
   workspaces: Workspace[];
   temporaryCliPreferences: TemporaryCliPreference[];
+  loginAccounts: import("../stores/provider-types").LoginAccount[];
 }
 
 export interface RefreshResult {
@@ -136,6 +138,10 @@ export function cancelVisibleRelaunch() {
 
 export function saveProvider(input: ProviderInput, options: ProviderSaveOptions = {}) {
   return invoke<ProviderSaveResult>("save_provider", { input, options });
+}
+
+export function previewProviderCheckInPolicy(input: ProviderInput) {
+  return invoke<ProviderCheckInPolicyPreview>("preview_provider_check_in_policy", { input });
 }
 
 export function removeProvider(id: string) {

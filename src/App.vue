@@ -3,6 +3,10 @@ import zhCN from "@arco-design/web-vue/es/locale/lang/zh-cn";
 import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
+import BrowserRuntimeModal from "./components/BrowserRuntimeModal.vue";
+import LoginAccountsModal from "./components/LoginAccountsModal.vue";
+import LoginAccountPicker from "./components/LoginAccountPicker.vue";
+import ProviderCredentialsModal from "./components/ProviderCredentialsModal.vue";
 import CliConfigKeyPickerModal from "./components/CliConfigKeyPickerModal.vue";
 import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
 import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
@@ -19,6 +23,10 @@ useWindowGridSnap();
   <a-config-provider :locale="zhCN">
     <!-- 桌面界面不显示 WebView 原生右键菜单，卡片操作统一在卡片内完成。 -->
     <div class="app-shell" @contextmenu.prevent>
+      <BrowserRuntimeModal />
+      <LoginAccountsModal />
+      <LoginAccountPicker />
+      <ProviderCredentialsModal />
       <AppWorkspace
         :loading="app.loading"
         :initialized="app.initialized"
@@ -166,6 +174,7 @@ useWindowGridSnap();
       v-model:check-in-records-month="app.checkInRecordsMonth"
       v-model:capability-probe-visible="app.capabilityProbeVisible"
       v-model:batch-operation-visible="app.batchOperationVisible"
+      v-model:check-in-batch-visible="app.checkInBatchVisible"
       v-model:site-announcements-visible="app.siteAnnouncementsVisible"
       :onboarding-visible="app.onboardingVisible"
       :onboarding-provider-count="app.onboardingProviderCount"
@@ -218,6 +227,8 @@ useWindowGridSnap();
       :batch-operation-started-at="app.batchOperationStartedAt"
       :batch-operation-finished-at="app.batchOperationFinishedAt"
       :batch-operation-completed="app.batchOperationCompleted"
+      :check-in-batch-progress="app.checkInBatchProgress"
+      :check-in-pending="app.checkInPending"
       :site-announcements-loading="app.siteAnnouncementsLoading"
       :site-announcements-fatal-error="app.siteAnnouncementsFatalError"
       :site-announcements="app.siteAnnouncements"
@@ -242,6 +253,8 @@ useWindowGridSnap();
       @refresh-cli-runtime="app.refreshCliRuntime"
       @activate-cli-instance="app.activateCliInstance"
       @load-check-in-records="app.loadCheckInRecords"
+      @resume-check-in-task="app.resumeCheckInTask"
+      @cancel-check-in-task="app.cancelCheckInTask"
       @retry-capability-probe="app.retryCapabilityProbe"
       @dismiss-update="app.dismissUpdate"
       @cancel-update="app.cancelUpdate"
@@ -273,7 +286,7 @@ useWindowGridSnap();
       :checking-for-update="app.checkingForUpdate"
       :provider-editor-title="app.drawerTitle"
       :provider-editor-session="app.editorSession"
-      :provider-editor-initial-step="app.editorInitialStep"
+      :provider-editor-initial-section="app.editorInitialSection"
       :draft-provider="app.draftProvider"
       :provider-protocols="app.providerProtocols"
       :api-key-options="app.apiKeyOptions"
@@ -288,6 +301,8 @@ useWindowGridSnap();
       :probing-site="app.probingSite"
       :site-name-source-base-url="app.siteNameSourceBaseUrl"
       :testing-connection="app.testingConnection"
+      :starting-browser-login="app.startingBrowserLogin"
+      @login-and-import="app.loginAndImport"
       :credential-assistant-state="app.credentialAssistantState"
       :credential-assistant-steps="app.credentialAssistantSteps"
       :credential-assistant-message="app.credentialAssistantMessage"

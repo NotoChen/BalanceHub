@@ -21,10 +21,6 @@ use contracts::ProviderOperationOutcome;
 pub(crate) struct ProtocolAdapter;
 
 impl ProtocolAdapter {
-    pub(crate) fn is_anyrouter(&self, provider: &Provider) -> bool {
-        (definition(provider.identity.protocol).is_anyrouter)(provider)
-    }
-
     pub(crate) async fn complete_credentials(
         &self,
         settings: &AppSettings,

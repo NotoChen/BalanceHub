@@ -548,3 +548,176 @@
 .provider-liveness-fields .provider-field-grid {
   gap: 0 10px;
 }
+
+/* The original access and credential sections now share one scrolling editor. */
+.provider-editor-layout {
+  display: flex;
+  height: min(670px, calc(100dvh - 104px));
+  min-height: 0;
+  flex-direction: column;
+  background: #f6f7f9;
+}
+
+.provider-editor-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 18px 24px 24px;
+}
+
+.provider-editor-form {
+  display: grid;
+  gap: 16px;
+  max-width: 840px;
+  margin: 0 auto;
+}
+
+.provider-editor-footer {
+  display: flex;
+  min-height: 56px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--color-border-2);
+  background: var(--color-bg-2);
+  padding: 10px 24px;
+}
+
+.provider-editor-policies {
+  display: grid;
+  gap: 16px;
+}
+
+.provider-form-section {
+  min-width: 0;
+}
+
+.provider-form-section-title {
+  margin: 0 0 6px;
+  border-bottom: 1px solid var(--color-border-2);
+  padding: 12px 0 10px;
+  color: var(--color-text-1);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.provider-form-section-body {
+  min-width: 0;
+}
+
+.provider-editor-policies .provider-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  margin-bottom: 0;
+  padding: 8px 0;
+}
+
+.provider-editor-policies .provider-field > .arco-form-item-label-col {
+  width: 154px;
+  max-width: 154px;
+  flex: 0 0 154px;
+  padding: 6px 18px 0 0;
+  text-align: left;
+}
+
+.provider-editor-policies .provider-field > .arco-form-item-wrapper-col {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  flex: 1;
+}
+
+.provider-editor-policies .provider-field .arco-form-item-label {
+  padding: 0;
+  line-height: 20px;
+}
+
+.provider-editor-policies .provider-field .arco-form-item-label > label {
+  color: var(--color-text-2);
+  font-size: 12px;
+}
+
+.provider-editor-policies .provider-field .arco-form-item-content {
+  min-height: 32px;
+}
+
+.provider-editor-policies .provider-field .arco-form-item-extra {
+  min-height: 0;
+  padding-top: 5px;
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.provider-setting-controls {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.provider-setting-controls .duration-control {
+  width: 230px;
+  max-width: 100%;
+}
+
+.provider-setting-controls .arco-picker {
+  width: 150px;
+}
+
+.provider-form-disclosure {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border-2);
+}
+
+.provider-form-disclosure > summary {
+  width: fit-content;
+  padding: 12px 0;
+  color: var(--color-text-2);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.provider-form-disclosure > summary:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid rgb(var(--primary-6));
+  outline-offset: 2px;
+}
+
+:root.theme-dark .provider-editor-layout {
+  background: #151d28;
+}
+
+@media (max-width: 640px) {
+  .provider-editor-scroll {
+    padding: 14px;
+  }
+
+  .provider-editor-policies .provider-field {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .provider-editor-policies .provider-field > .arco-form-item-label-col {
+    width: 100%;
+    max-width: none;
+    flex: 0 0 auto;
+    padding: 0;
+  }
+
+  .provider-editor-policies .provider-field > .arco-form-item-wrapper-col {
+    width: 100%;
+  }
+
+  .provider-editor-footer {
+    padding: 10px 16px;
+  }
+}

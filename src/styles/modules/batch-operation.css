@@ -112,8 +112,14 @@
   color: #f53f3f;
 }
 
-.batch-operation-summary-counts .is-skipped {
+.batch-operation-summary-counts .is-skipped,
+.batch-operation-summary-counts .is-cancelled {
   color: #86909c;
+}
+
+.batch-operation-summary-counts .is-waiting,
+.batch-operation-summary-counts .is-unconfirmed {
+  color: #ff7d00;
 }
 
 .batch-operation-progress-line {
@@ -205,9 +211,15 @@
   background: rgba(245, 63, 63, 0.035);
 }
 
-.batch-operation-row.is-skipped {
+.batch-operation-row.is-skipped,
+.batch-operation-row.is-cancelled {
   border-left-color: #86909c;
   background: var(--glass-card-muted, #f7f8fa);
+}
+
+.batch-operation-row.is-waiting,
+.batch-operation-row.is-unconfirmed {
+  border-left-color: #ff7d00;
 }
 
 .batch-operation-row-heading {
@@ -238,6 +250,11 @@
   color: #f53f3f;
 }
 
+.batch-operation-row.is-waiting .batch-operation-row-status,
+.batch-operation-row.is-unconfirmed .batch-operation-row-status {
+  color: #ff7d00;
+}
+
 .batch-operation-row-name {
   min-width: 0;
   overflow: hidden;
@@ -264,8 +281,19 @@
 
 .batch-operation-row.is-failed .batch-operation-row-message {
   color: #f53f3f;
+}
+
+.batch-operation-row.is-failed .batch-operation-row-message,
+.batch-operation-row.is-waiting .batch-operation-row-message,
+.batch-operation-row.is-unconfirmed .batch-operation-row-message {
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.batch-operation-row-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: 26px;
 }
 
 .batch-operation-row-details {

@@ -4,5 +4,7 @@ pub mod auth;
 pub mod automation;
 #[path = "provider_domain/capabilities.rs"]
 pub mod capabilities;
+#[path = "provider_domain/check_in.rs"]
+pub mod check_in;
 #[path = "provider_domain/liveness.rs"]
 pub mod liveness;

@@ -329,6 +329,10 @@ fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String
             }
             Ok(())
         }
+        11 => {
+            data["loginAccounts"] = serde_json::json!([]);
+            Ok(())
+        }
         other => Err(format!(
             "没有从 schemaVersion {other} 出发的迁移路径，请重新初始化配置或导入新版配置"
         )),

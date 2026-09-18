@@ -46,6 +46,24 @@ pub enum AuthMode {
     Password,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderCheckInMethod {
+    #[default]
+    Auto,
+    Standard,
+    SessionSignIn,
+    FreshLogin,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderTurnstileMode {
+    #[default]
+    Auto,
+    Always,
+}
+
 /// 主凭据的来源/获取方式，与「用什么凭据」(AuthMode) 正交。账号密码、OAuth 都是
 /// 产出主凭据的来源，而非与 Cookie/Token 并列的认证方式。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

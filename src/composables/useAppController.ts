@@ -13,6 +13,9 @@ import { useAppVersion } from "./useAppVersion";
 import { useAvailableModels } from "./useAvailableModels";
 import { useBatchOperation } from "./useBatchOperation";
 import { useBackgroundTaskCenter } from "./useBackgroundTaskCenter";
+import { useBrowserRuntime } from "./useBrowserRuntime";
+import { useLoginAccounts } from "./useLoginAccounts";
+import { useProviderCredentials } from "./useProviderCredentials";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
@@ -65,10 +68,7 @@ export function useAppController() {
     probeCliTools: (deep) => cliRuntimeStore.probeCliTools(deep),
   });
 
-  const { notifySystem, sendTestNotification } = useSystemNotification(
-    settings,
-    settingsController.settingsForm,
-  );
+  const { sendTestNotification } = useSystemNotification(settingsController.settingsForm);
   const { appVersion } = useAppVersion();
   const appUpdater = useAppUpdater();
 
@@ -80,10 +80,11 @@ export function useAppController() {
     },
   });
 
+  const browserRuntime = useBrowserRuntime();
+  const loginAccounts = useLoginAccounts(browserRuntime);
   const checkIn = useCheckInActions({
-    providers,
     reload: () => providerStore.reload(),
-    notifySystem,
+    browserRuntime,
   });
 
   const batchOperation = useBatchOperation({
@@ -99,7 +100,6 @@ export function useAppController() {
       }
     },
     refreshCliRuntime: () => cliRuntimeStore.refresh(),
-    notifySystem,
   });
 
   const checkInRecords = useCheckInRecords({
@@ -122,7 +122,13 @@ export function useAppController() {
       providerStore.changePassword(providerId, originalPassword, password),
   });
 
-  const providerEditor = useProviderEditor({ store: providerStore });
+  const providerEditor = useProviderEditor({ store: providerStore, browserRuntime, loginAccounts });
+  const providerCredentials = useProviderCredentials((id) => {
+    const provider = providers.value.find((p) => p.identity.id === id);
+    if (!provider) { Message.error("中转站已不存在"); return; }
+    providerEditor.openEditProvider(provider, "credentials");
+    void providerEditor.loginAndImport();
+  });
   const editorApiKeyRemoteManaged = computed(() => {
     const providerId = providerEditor.editingProviderId.value;
     return Boolean(
@@ -330,7 +336,7 @@ export function useAppController() {
   }
 
   async function checkInAllProviders() {
-    await batchOperation.runCheckIn();
+    await checkIn.checkInAllProvidersAction();
   }
 
   async function openProjectRepository() {
@@ -341,12 +347,12 @@ export function useAppController() {
     }
   }
 
-  const globalCheckInInProgress = computed(
-    () => batchOperation.running.value && batchOperation.operation.value === "checkIn",
-  );
+  const globalCheckInInProgress = checkIn.globalCheckInInProgress;
 
   const backgroundTaskCenter = useBackgroundTaskCenter({
     providers,
+    openLoginAccount: loginAccounts.open,
+    openProviderCredentials: providerCredentials.open,
     batchOperation: batchOperation.operation,
     batchOperationRunning: batchOperation.running,
     batchOperationItems: batchOperation.items,
@@ -354,8 +360,12 @@ export function useAppController() {
     batchOperationCompleted: batchOperation.completed,
     refreshInProgress,
     refreshingProviderIds: refreshingIds,
-    globalCheckInInProgress,
-    checkingInProviderIds: checkIn.checkingInProviderIds,
+    checkInTasks: checkIn.checkInTasks,
+    checkInPending: checkIn.checkInPending,
+    resumeCheckInTask: checkIn.resumeCheckInTask,
+    cancelCheckInTask: checkIn.cancelCheckInTask,
+    browserRuntime: browserRuntime.state,
+    cancelBrowserRuntime: browserRuntime.cancel,
     checkingForUpdate: appUpdater.checkingForUpdate,
     updateCheckError: appUpdater.updateCheckError,
     installingUpdate: appUpdater.installingUpdate,

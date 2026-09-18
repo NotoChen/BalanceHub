@@ -18,6 +18,14 @@ pub(crate) struct BackgroundTaskEvent {
     pub started_at: u64,
     pub finished_at: Option<u64>,
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub can_cancel: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub can_show_window: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub login_account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
 }
 
 #[cfg(test)]
@@ -36,6 +44,10 @@ mod tests {
             started_at: 1,
             finished_at: None,
             error: None,
+            can_cancel: None,
+            can_show_window: None,
+            login_account_id: None,
+            provider_id: None,
         })
         .expect("background task event should serialize");
 

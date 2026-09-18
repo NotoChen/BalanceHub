@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+#[path = "models/login_account.rs"]
+mod login_account;
+pub use login_account::*;
+
 #[path = "models/agent_cli.rs"]
 mod agent_cli;
 #[path = "models/agent_environment.rs"]
@@ -10,6 +14,8 @@ mod agent_hook;
 mod agent_runtime;
 #[path = "models/app_settings.rs"]
 mod app_settings;
+#[path = "models/check_in_task.rs"]
+mod check_in_task;
 #[path = "models/cli_sessions.rs"]
 mod cli_sessions;
 #[path = "models/enums.rs"]
@@ -37,6 +43,7 @@ pub(crate) use app_settings::{
 pub use app_settings::{
     AppSettings, LivenessPlaceholderPool, NotificationChannel, NotificationChannelKind,
 };
+pub use check_in_task::*;
 pub use cli_sessions::{
     CliSessionDetail, CliSessionIndexAgentStats, CliSessionIndexState, CliSessionIndexStatus,
     CliSessionMessage, CliSessionMessageRole, CliSessionSearchResponse, CliSessionSearchResult,
@@ -49,7 +56,7 @@ pub(crate) use provider_results::is_full_api_key_value;
 pub use provider_results::*;
 pub use workspace::*;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 11;
+pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +72,8 @@ pub struct AppData {
     pub workspaces: Vec<Workspace>,
     #[serde(default)]
     pub temporary_cli_preferences: Vec<TemporaryCliPreference>,
+    #[serde(default)]
+    pub login_accounts: Vec<LoginAccount>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,6 +93,7 @@ impl AppData {
             settings,
             workspaces: Vec::new(),
             temporary_cli_preferences: Vec::new(),
+            login_accounts: Vec::new(),
         }
     }
 }

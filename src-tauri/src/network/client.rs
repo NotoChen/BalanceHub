@@ -38,6 +38,19 @@ pub(crate) async fn build_webhook_client(settings: &AppSettings) -> Result<Clien
     .map_err(|err| format!("初始化 Webhook 网络客户端任务异常: {err}"))?
 }
 
+pub(crate) fn build_download_client(settings: &AppSettings) -> Result<Client, String> {
+    configure_reqwest_builder(
+        Client::builder()
+            .connect_timeout(Duration::from_secs(20))
+            .read_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(600))
+            .redirect(Policy::limited(5)),
+        &resolve_global_proxy(settings),
+    )?
+    .build()
+    .map_err(|_| "初始化组件下载网络失败".to_string())
+}
+
 fn build_cached_client(
     profile: HttpClientProfile,
     proxy: EffectiveProxy,

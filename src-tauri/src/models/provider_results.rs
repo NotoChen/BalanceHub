@@ -333,12 +333,27 @@ pub struct RefreshResult {
 pub struct ProviderCheckInResult {
     pub ok: bool,
     pub message: String,
+    #[serde(default)]
+    pub unconfirmed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_required: Option<ProviderCheckInVerification>,
+    /// In-process continuation state; never stored or exposed as provider data.
+    #[serde(skip)]
+    pub(crate) verification_requires_login: bool,
     #[serde(rename = "lastCheckedInAt", skip_serializing_if = "Option::is_none")]
     pub last_checked_in_at: Option<String>,
     #[serde(rename = "lastCheckInUser", skip_serializing_if = "Option::is_none")]
     pub last_check_in_user: Option<String>,
     #[serde(rename = "quotaDelta", skip_serializing_if = "Option::is_none")]
     pub quota_delta: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderCheckInVerification {
+    Cloudflare,
+    Turnstile,
+    Connection,
 }
 
 /// 批量刷新/签到通过 Tauri Channel 推送的安全展示数据。
@@ -349,7 +364,6 @@ pub struct ProviderCheckInResult {
 #[serde(rename_all = "camelCase")]
 pub enum ProviderBatchOperation {
     Refresh,
-    CheckIn,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -833,13 +847,13 @@ mod tests {
     fn batch_progress_event_uses_frontend_event_names() {
         let provider = Provider::from_input(ProviderInput::default(), "provider-1".to_string());
         let event = ProviderBatchProgressEvent::Started {
-            operation: ProviderBatchOperation::CheckIn,
+            operation: ProviderBatchOperation::Refresh,
             total: 1,
             items: vec![ProviderBatchProgressItem::pending(&provider)],
         };
         let value = serde_json::to_value(event).expect("batch event should serialize");
         assert_eq!(value["event"], "started");
-        assert_eq!(value["data"]["operation"], "checkIn");
+        assert_eq!(value["data"]["operation"], "refresh");
         assert_eq!(value["data"]["items"][0]["status"], "pending");
         assert!(value["data"]["items"][0]["providerId"] == "provider-1");
     }

@@ -5,17 +5,40 @@ use crate::models::{
 use crate::util::current_month;
 use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT},
-    Method, StatusCode,
+    StatusCode,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
+#[path = "check_in/challenge.rs"]
+mod challenge;
+#[path = "check_in/executor.rs"]
+mod executor;
+#[path = "check_in/fresh_login.rs"]
+mod fresh_login;
 #[path = "check_in/records.rs"]
 mod records;
+#[path = "check_in/session_sign_in.rs"]
+mod session_sign_in;
+#[path = "check_in/standard.rs"]
+mod standard;
+#[cfg(test)]
+#[path = "check_in/tests.rs"]
+mod tests;
+
+use crate::{
+    adapters::{browser::BrowserSession, protocol::contracts::ProviderOperationOutcome},
+    models::{
+        provider_domain::check_in as policy, CheckInError, CheckInVerificationRequest,
+        ProviderCheckInMethod, ProviderCheckInVerification, ProviderTurnstileMode,
+    },
+};
+use executor::Executor;
+pub(super) use session_sign_in::normalize_session_cookie;
 
 use super::http::{
-    apply_auth_headers, apply_session_cookie, build_url, normalize_base_url, provider_is_anyrouter,
-    ProviderTransport, USER_AGENT_VALUE,
+    apply_auth_headers, apply_session_cookie, build_url, normalize_base_url, ProviderTransport,
+    USER_AGENT_VALUE,
 };
 use super::response::{parse_success_data, send_text, trim_message};
 use super::site::{apply_site_metadata, fetch_site_metadata_or, site_metadata_from_provider};
@@ -47,7 +70,7 @@ pub(crate) async fn probe_check_in_capability(
         }
     }
 
-    if !provider.auth.session_cookie.trim().is_empty() {
+    if crate::models::provider_domain::auth::has_session(provider) {
         let mut testing_provider = provider.clone();
         testing_provider.auth.mode = AuthMode::Session;
         match check_in_status_probe(client, &testing_provider, base_url).await {
@@ -67,12 +90,121 @@ pub(crate) async fn probe_check_in_capability(
 pub async fn check_in_provider(
     client: &ProviderTransport,
     provider: &Provider,
-) -> Result<ProviderCheckInResult, String> {
-    if provider_is_anyrouter(provider) {
-        return Err("AnyRouter 签到需要走专用逻辑".to_string());
-    }
+) -> Result<(Provider, ProviderCheckInResult), String> {
+    let mut effective = provider.clone();
+    let result = execute(&mut Executor::Http(client), &mut effective, None).await;
+    let result = finish_result(result).map_err(|error| error.to_string())?;
+    Ok((effective, result))
+}
 
-    check_in_provider_once(client, provider).await
+pub(crate) async fn check_in_with_browser(
+    session: &mut BrowserSession,
+    provider: &Provider,
+    verification: CheckInVerificationRequest,
+    ensure_current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+) -> Result<ProviderOperationOutcome<ProviderCheckInResult>, CheckInError> {
+    let mut effective = provider.clone();
+    let mut executor = Executor::Browser {
+        session,
+        ensure_current,
+    };
+    let result = finish_result(execute(&mut executor, &mut effective, Some(verification)).await)?;
+    Ok(ProviderOperationOutcome::authenticated(
+        provider, effective, result,
+    ))
+}
+
+async fn execute(
+    executor: &mut Executor<'_>,
+    provider: &mut Provider,
+    mut verification: Option<CheckInVerificationRequest>,
+) -> Result<ProviderCheckInResult, CheckInError> {
+    policy::validate_credentials(provider)?;
+    if provider.auth.mode == AuthMode::Password
+        && provider.auth.new_api_session.is_some()
+        && policy::effective_method(provider) != ProviderCheckInMethod::FreshLogin
+    {
+        provider.auth.mode = AuthMode::Session;
+    }
+    let method = policy::effective_method(provider);
+    let always = provider.automation.turnstile_mode == ProviderTurnstileMode::Always;
+    if method == ProviderCheckInMethod::FreshLogin {
+        return fresh_login::run(
+            executor,
+            provider,
+            always
+                || verification
+                    .is_some_and(|request| request.kind == ProviderCheckInVerification::Turnstile),
+        )
+        .await;
+    }
+    // Preserve the HTTP password-login preflight. Browser continuation reuses
+    // that freshly persisted session instead of repeating the login mutation.
+    if provider.auth.mode == AuthMode::Password
+        && (!executor.is_browser()
+            || verification.is_some_and(|request| request.requires_login)
+            || provider.auth.session_cookie.trim().is_empty()
+            || method == ProviderCheckInMethod::Standard
+                && provider.auth.api_user.trim().is_empty())
+    {
+        if let Some(result) = fresh_login::login(
+            executor,
+            provider,
+            verification
+                .is_some_and(|request| request.kind == ProviderCheckInVerification::Turnstile),
+        )
+        .await?
+        {
+            return Ok(result);
+        }
+        verification = None;
+    }
+    let needs_token = always
+        || verification
+            .is_some_and(|request| request.kind == ProviderCheckInVerification::Turnstile);
+    match method {
+        ProviderCheckInMethod::SessionSignIn => {
+            session_sign_in::run(executor, provider, needs_token).await
+        }
+        _ => standard::run(executor, provider, needs_token).await,
+    }
+}
+
+fn finish_result(
+    result: Result<ProviderCheckInResult, CheckInError>,
+) -> Result<ProviderCheckInResult, CheckInError> {
+    match result {
+        Err(CheckInError::Unconfirmed(message)) => Ok(ProviderCheckInResult {
+            ok: false,
+            message,
+            unconfirmed: true,
+            verification_required: None,
+            verification_requires_login: false,
+            last_checked_in_at: None,
+            last_check_in_user: None,
+            quota_delta: None,
+        }),
+        other => other,
+    }
+}
+
+pub(crate) fn browser_cookie_header(provider: &Provider) -> String {
+    if policy::effective_method(provider) == ProviderCheckInMethod::SessionSignIn {
+        let session = normalize_session_cookie(&provider.auth.session_cookie);
+        return if session.is_empty() {
+            String::new()
+        } else {
+            format!("session={session}")
+        };
+    }
+    if matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password) {
+        super::http::provider_cookie_header_for_base(
+            &provider.auth.session_cookie,
+            &provider.identity.base_url,
+        )
+    } else {
+        String::new()
+    }
 }
 
 pub async fn fetch_check_in_records(
@@ -172,79 +304,17 @@ async fn check_in_status_probe(
     Ok(true)
 }
 
-async fn check_in_provider_once(
-    client: &ProviderTransport,
-    provider: &Provider,
-) -> Result<ProviderCheckInResult, String> {
-    validate_check_in_credentials(provider)?;
-
-    let base_url = normalize_base_url(&provider.identity.base_url);
-    if check_in_status(client, provider, &base_url).await? {
-        return Ok(ProviderCheckInResult {
-            ok: true,
-            message: "今日已签到".to_string(),
-            last_checked_in_at: None,
-            last_check_in_user: None,
-            quota_delta: None,
-        });
+fn already_checked_in() -> ProviderCheckInResult {
+    ProviderCheckInResult {
+        ok: true,
+        message: "今日已签到".to_string(),
+        verification_required: None,
+        verification_requires_login: false,
+        unconfirmed: false,
+        last_checked_in_at: None,
+        last_check_in_user: None,
+        quota_delta: None,
     }
-
-    let url = build_url(&base_url, "/api/user/checkin")?;
-    let mut request = client
-        .request(Method::POST, url)
-        .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(CONTENT_TYPE, "application/json")
-        .header(ACCEPT, "application/json, text/plain, */*")
-        .header(ORIGIN, &base_url)
-        .header(REFERER, format!("{base_url}/"))
-        .header("X-Requested-With", "XMLHttpRequest")
-        .body("");
-
-    request = apply_auth_headers(request, provider);
-    request = apply_session_cookie(request, provider);
-
-    let response = client.send(request, "请求签到").await?;
-    let status = response.status;
-    let body = response.body;
-
-    Ok(parse_check_in_response(status, &body))
-}
-
-async fn check_in_status(
-    client: &ProviderTransport,
-    provider: &Provider,
-    base_url: &str,
-) -> Result<bool, String> {
-    let url = build_url(
-        base_url,
-        &format!("/api/user/checkin?month={}", current_month()),
-    )?;
-    let mut request = client
-        .get(url)
-        .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(CONTENT_TYPE, "application/json")
-        .header(ACCEPT, "application/json, text/plain, */*")
-        .header(ORIGIN, base_url)
-        .header(REFERER, format!("{base_url}/"));
-
-    request = apply_auth_headers(request, provider);
-    request = apply_session_cookie(request, provider);
-
-    let (status, body) = send_text(client, request, "读取签到状态").await?;
-
-    if !status.is_success() {
-        return Ok(false);
-    }
-
-    let decoded = match serde_json::from_str::<Value>(&body) {
-        Ok(decoded) => decoded,
-        Err(_) => return Ok(false),
-    };
-
-    Ok(decoded
-        .pointer("/data/stats/checked_in_today")
-        .and_then(Value::as_bool)
-        .unwrap_or(false))
 }
 
 fn validate_check_in_credentials(provider: &Provider) -> Result<(), String> {
@@ -256,7 +326,7 @@ fn validate_check_in_credentials(provider: &Provider) -> Result<(), String> {
             Err("AccessToken 签到需要访问令牌和 API User ID".to_string())
         }
         AuthMode::Session
-            if provider.auth.session_cookie.trim().is_empty()
+            if (!crate::models::provider_domain::auth::has_session(provider))
                 || provider.auth.api_user.trim().is_empty() =>
         {
             Err("Cookie 签到需要会话 Cookie 和 API User ID".to_string())
@@ -271,6 +341,9 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
     if !status.is_success() && status != StatusCode::BAD_REQUEST {
         return ProviderCheckInResult {
             ok: false,
+            verification_required: None,
+            verification_requires_login: false,
+            unconfirmed: false,
             message: format!("HTTP {}: {}", status.as_u16(), trim_message(body)),
             last_checked_in_at: None,
             last_check_in_user: None,
@@ -283,6 +356,9 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
         Err(err) => {
             return ProviderCheckInResult {
                 ok: false,
+                verification_required: None,
+                verification_requires_login: false,
+                unconfirmed: false,
                 message: format!("解析签到响应失败: {err}: {}", trim_message(body)),
                 last_checked_in_at: None,
                 last_check_in_user: None,
@@ -302,6 +378,9 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
     if ok {
         ProviderCheckInResult {
             ok: true,
+            verification_required: None,
+            verification_requires_login: false,
+            unconfirmed: false,
             message: if message.trim().is_empty() {
                 "签到成功".to_string()
             } else {
@@ -314,6 +393,9 @@ fn parse_check_in_response(status: StatusCode, body: &str) -> ProviderCheckInRes
     } else {
         ProviderCheckInResult {
             ok: false,
+            verification_required: None,
+            verification_requires_login: false,
+            unconfirmed: false,
             message: if message.trim().is_empty() {
                 format!("签到失败: {}", trim_message(body))
             } else {

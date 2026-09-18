@@ -30,7 +30,7 @@ export interface ProviderEditorStore {
 }
 
 export type ProtocolSelectionSource = "auto" | "unresolved" | "manual" | "saved";
-export type ProviderEditorStep = "basics" | "credentials" | "advanced";
+export type ProviderEditorSection = "basics" | "credentials" | "advanced";
 export type ProviderDuplicateDecision = "createSeparate" | "merge" | "overwrite" | "cancel";
 export type ProviderSaveCompletion = "standard" | "mergedApiKey";
 
@@ -77,6 +77,8 @@ export function fieldLabel(field: string) {
     apiKeyOptions: "API Key 列表",
     apiUser: "API User ID",
     loginUsername: "登录账号",
+    newApiSession: "登录会话",
+    "newApiSession.refreshCookie": "登录会话",
   };
   return labels[field] ?? field;
 }

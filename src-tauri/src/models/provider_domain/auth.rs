@@ -10,6 +10,15 @@ pub fn has_access_token(provider: &Provider) -> bool {
 
 pub fn has_session(provider: &Provider) -> bool {
     !provider.auth.session_cookie.trim().is_empty()
+        || provider
+            .auth
+            .new_api_session
+            .as_ref()
+            .is_some_and(|session| !session.refresh_cookie.is_empty())
+}
+
+pub fn browser_login_supported(protocol: crate::models::ProviderProtocol) -> bool {
+    matches!(protocol, crate::models::ProviderProtocol::NewApi)
 }
 
 pub fn has_api_user(provider: &Provider) -> bool {

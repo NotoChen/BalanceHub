@@ -61,3 +61,21 @@ responses before they overwrite newer provider state.
 Do not make a second store for the same provider data, mutate a deep reactive
 copy as an identity token, or let a component infer backend capabilities from
 field presence alone.
+
+## Login Accounts and Credential Views
+
+Clearing a login session must retain the account's observed identity and station
+bindings. A new platform identity belongs to another account entry; browser
+storage is replaceable session state, not the identity owner. Render the Rust
+`sessionLabel` and `canLogin` projection instead of treating Cookie presence as
+proof that the platform is currently authenticated.
+
+A station's account picker carries its target name, URL, and previous binding.
+Account creation must complete that same choice or be cancelled when the picker
+closes; late results cannot launch an abandoned station. Full account management
+is a separate surface. See `login-account-selection.ts` for this lifecycle.
+
+Credential validation describes the current station request and its scope.
+Displaying all stored credentials must not imply that one successful sync
+validated every saved PAT, API Key, password, or platform login. Keep the scope
+and action label in the Rust credential-details response.

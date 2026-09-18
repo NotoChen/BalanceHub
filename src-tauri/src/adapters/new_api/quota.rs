@@ -60,7 +60,8 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
         return next;
     }
 
-    let using_cached_password_session = matches!(provider.auth.mode, AuthMode::Password)
+    let using_cached_password_session = provider.auth.new_api_session.is_none()
+        && matches!(provider.auth.mode, AuthMode::Password)
         && !provider.auth.session_cookie.trim().is_empty()
         && !provider.auth.api_user.trim().is_empty();
     let mut effective_provider = match authenticate_password_provider(client, provider).await {
@@ -95,6 +96,12 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
             }
         }
     }
+
+    crate::adapters::protocol::contracts::ProviderCredentialPatch::from_authenticated(
+        provider,
+        &effective_provider,
+    )
+    .apply(&mut next);
 
     match quota_result {
         Ok(profile) => {
@@ -300,7 +307,7 @@ fn validate_credentials(provider: &Provider) -> Result<(), String> {
             Err("缺少访问令牌或 API User ID".to_string())
         }
         AuthMode::Session
-            if provider.auth.session_cookie.trim().is_empty()
+            if !crate::models::provider_domain::auth::has_session(provider)
                 || provider.auth.api_user.trim().is_empty() =>
         {
             Err("缺少会话 Cookie 或 API User ID".to_string())

@@ -10,12 +10,12 @@ import type {
 import { emptyDraft, providerToInput } from "../utils/provider-input";
 import { effectiveProviderApiKeyOptions } from "../utils/provider-api-key-options";
 import { normalizeProviderBaseUrl } from "./provider-editor-shared";
-import type { ProtocolSelectionSource, ProviderEditorStep } from "./provider-editor-shared";
+import type { ProtocolSelectionSource, ProviderEditorSection } from "./provider-editor-shared";
 
 export function useProviderEditorState() {
   const drawerVisible = ref(false);
   const editorSession = ref(0);
-  const editorInitialStep = ref<ProviderEditorStep>("basics");
+  const editorInitialSection = ref<ProviderEditorSection>("basics");
   const editingProviderId = ref<string | null>(null);
   const completingCredentials = ref(false);
   const testingConnection = ref(false);
@@ -60,15 +60,15 @@ export function useProviderEditorState() {
 
   function openAddProvider() {
     editorSession.value += 1;
-    editorInitialStep.value = "basics";
+    editorInitialSection.value = "basics";
     editingProviderId.value = null;
     resetDraft();
     drawerVisible.value = true;
   }
 
-  function openEditProvider(provider: Provider, initialStep: ProviderEditorStep = "basics") {
+  function openEditProvider(provider: Provider, initialSection: ProviderEditorSection = "basics") {
     editorSession.value += 1;
-    editorInitialStep.value = initialStep;
+    editorInitialSection.value = initialSection;
     completingCredentials.value = false;
     testingConnection.value = false;
     probingSite.value = false;
@@ -106,7 +106,7 @@ export function useProviderEditorState() {
   return {
     drawerVisible,
     editorSession,
-    editorInitialStep,
+    editorInitialSection,
     editingProviderId,
     completingCredentials,
     testingConnection,

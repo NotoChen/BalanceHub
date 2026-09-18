@@ -78,6 +78,11 @@ async fn authenticate_password_provider_inner(
     provider: &Provider,
     force_login: bool,
 ) -> Result<Provider, String> {
+    if !force_login && super::auth_session::active(provider) {
+        return super::auth_session::authenticate(client, provider)
+            .await
+            .map_err(|error| error.message());
+    }
     if !matches!(provider.auth.mode, AuthMode::Password) {
         return Ok(provider.clone());
     }
@@ -114,10 +119,18 @@ async fn authenticate_password_provider_inner(
         .json(&json!({ "username": username, "password": password }));
 
     let response = client.send(request, "账号密码登录").await?;
+    authenticated_from_login_response(provider, &response)
+}
+
+pub(crate) fn authenticated_from_login_response(
+    provider: &Provider,
+    response: &crate::adapters::transport::TransportResponse,
+) -> Result<Provider, String> {
     let status = response.status;
+    let base_url = normalize_base_url(&provider.identity.base_url);
     let session_cookie = extract_login_cookie(&response.headers, &base_url);
-    let body = response.body;
-    let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+    let body = &response.body;
+    let payload = serde_json::from_str::<Value>(body).unwrap_or(Value::Null);
     let success = payload
         .get("success")
         .and_then(Value::as_bool)
@@ -143,9 +156,11 @@ async fn authenticate_password_provider_inner(
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        return Err(
-            "该账号启用了 2FA，当前无法在本地自动完成验证码登录，请改用 Cookie".to_string(),
-        );
+        return Err("该账号启用了 2FA，请使用登录并导入，在站点窗口中完成验证".to_string());
+    }
+
+    if data.get("access_token").is_some() && data.get("user").is_some() {
+        return super::auth_session::authenticated_bundle(provider, response, &data);
     }
 
     let session_cookie = session_cookie.ok_or_else(|| {
@@ -169,6 +184,7 @@ async fn authenticate_password_provider_inner(
     let mut authenticated = provider.clone();
     authenticated.auth.mode = AuthMode::Session;
     authenticated.auth.session_cookie = session_cookie;
+    authenticated.auth.new_api_session = None;
     authenticated.auth.api_user = api_user;
     Ok(authenticated)
 }
@@ -231,7 +247,10 @@ pub(crate) fn provider_user_management_context(
     Ok((base_url, api_user, credential))
 }
 
-fn user_management_credential(provider: &Provider) -> Result<UserCredential, String> {
+pub(super) fn user_management_credential(provider: &Provider) -> Result<UserCredential, String> {
+    if let Some(token) = dashboard_access_token(provider) {
+        return Ok(UserCredential::AccessToken(token.to_string()));
+    }
     let session = provider.auth.session_cookie.trim();
     let access_token = provider.auth.access_token.trim();
 
@@ -334,16 +353,46 @@ where
 }
 
 pub(crate) fn apply_auth_headers(
-    request: reqwest::RequestBuilder,
+    mut request: reqwest::RequestBuilder,
     provider: &Provider,
 ) -> reqwest::RequestBuilder {
+    for (name, value) in auth_header_values(provider) {
+        request = request.header(name, value);
+    }
+    request
+}
+
+pub(super) fn dashboard_access_token(provider: &Provider) -> Option<&str> {
+    if !matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password) {
+        return None;
+    }
+    provider
+        .auth
+        .new_api_session
+        .as_ref()
+        .map(|session| session.access_token.as_str())
+        .filter(|token| !token.is_empty())
+}
+
+pub(crate) fn auth_header_values(provider: &Provider) -> Vec<(&'static str, String)> {
+    if let Some(token) = dashboard_access_token(provider) {
+        return vec![("authorization", format!("Bearer {token}"))];
+    }
     match provider.auth.mode {
-        AuthMode::ApiKey => request.bearer_auth(provider.auth.api_key.trim()),
-        AuthMode::AccessToken => request
-            .bearer_auth(provider.auth.access_token.trim())
-            .header("new-api-user", provider.auth.api_user.trim()),
-        AuthMode::Session => request.header("new-api-user", provider.auth.api_user.trim()),
-        AuthMode::Password => request.header("new-api-user", provider.auth.api_user.trim()),
+        AuthMode::ApiKey => vec![(
+            "authorization",
+            format!("Bearer {}", provider.auth.api_key.trim()),
+        )],
+        AuthMode::AccessToken => vec![
+            (
+                "authorization",
+                format!("Bearer {}", provider.auth.access_token.trim()),
+            ),
+            ("new-api-user", provider.auth.api_user.trim().to_string()),
+        ],
+        AuthMode::Session | AuthMode::Password => {
+            vec![("new-api-user", provider.auth.api_user.trim().to_string())]
+        }
     }
 }
 
@@ -351,7 +400,9 @@ pub(crate) fn apply_session_cookie(
     request: reqwest::RequestBuilder,
     provider: &Provider,
 ) -> reqwest::RequestBuilder {
-    if !matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password) {
+    if !matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password)
+        || provider.auth.new_api_session.is_some()
+    {
         return request;
     }
 
@@ -361,14 +412,14 @@ pub(crate) fn apply_session_cookie(
     )
 }
 
-fn provider_cookie_header_for_base(raw: &str, base_url: &str) -> String {
+pub(super) fn provider_cookie_header_for_base(raw: &str, base_url: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
     }
 
     if is_anyrouter_base_url(base_url) {
-        let session = super::anyrouter::normalize_session_cookie(trimmed);
+        let session = super::check_in::normalize_session_cookie(trimmed);
         return if session.is_empty() {
             String::new()
         } else {
@@ -413,13 +464,8 @@ pub(crate) fn normalize_base_url(raw: &str) -> String {
 }
 
 pub fn is_anyrouter_base_url(base_url: &str) -> bool {
-    base_url.to_lowercase().contains("anyrouter")
-}
-
-/// 识别 NewAPI 的特殊接口方言。anyrouter 不作为独立站点类型暴露，
-/// 当前统一按站点地址启发式识别。
-pub fn provider_is_anyrouter(provider: &Provider) -> bool {
-    is_anyrouter_base_url(&normalize_base_url(&provider.identity.base_url))
+    crate::models::provider_domain::check_in::preset_for_url(base_url)
+        == Some(crate::models::ProviderCheckInMethod::SessionSignIn)
 }
 
 #[cfg(test)]

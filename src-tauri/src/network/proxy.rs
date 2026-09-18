@@ -54,6 +54,39 @@ pub(crate) struct EffectiveProxy {
 }
 
 impl EffectiveProxy {
+    pub(crate) fn browser(&self, target: &reqwest::Url) -> Result<BrowserProxy, String> {
+        let direct = matches!(self.mode, ProxyMode::NoProxy) || self.no_proxy.trim() == "*";
+        let scheme_url = if target.scheme() == "https" {
+            &self.https_url
+        } else {
+            &self.http_url
+        };
+        let raw = if scheme_url.trim().is_empty() {
+            self.all_url.trim()
+        } else {
+            scheme_url.trim()
+        };
+        let mut result = BrowserProxy {
+            direct,
+            server: None,
+            bypass: self.no_proxy.clone(),
+            username: None,
+            password: None,
+        };
+        if !direct && !raw.is_empty() {
+            let mut url =
+                reqwest::Url::parse(raw).map_err(|_| "浏览器无法解析当前代理地址".to_string())?;
+            if !url.username().is_empty() {
+                result.username = Some(url.username().to_string());
+                result.password = url.password().map(str::to_string);
+                url.set_username("").map_err(|_| "代理认证配置无效")?;
+                url.set_password(None).map_err(|_| "代理认证配置无效")?;
+            }
+            result.server = Some(url.as_str().trim_end_matches('/').to_string());
+        }
+        Ok(result)
+    }
+
     pub(crate) fn none() -> Self {
         Self {
             mode: ProxyMode::NoProxy,
@@ -106,6 +139,15 @@ impl EffectiveProxy {
         );
         format!("{:x}", Sha256::digest(material.as_bytes()))
     }
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct BrowserProxy {
+    direct: bool,
+    server: Option<String>,
+    bypass: String,
+    username: Option<String>,
+    password: Option<String>,
 }
 
 /// 进程代理环境的唯一表示。测活命令、Unix 临时脚本和 Windows launch.json

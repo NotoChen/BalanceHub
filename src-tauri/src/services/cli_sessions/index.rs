@@ -1533,6 +1533,10 @@ fn emit_task(
     let _ = app.emit(
         BACKGROUND_TASK_EVENT,
         BackgroundTaskEvent {
+            can_show_window: None,
+            login_account_id: None,
+            provider_id: None,
+            can_cancel: None,
             task_id: task_id.to_string(),
             kind: INDEX_TASK_KIND.to_string(),
             status: status.to_string(),

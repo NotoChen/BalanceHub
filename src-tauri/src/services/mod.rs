@@ -1,11 +1,16 @@
 pub(crate) mod agent_cli;
 pub mod agent_runtime;
 pub mod app_updater;
+pub(crate) mod browser_check_in;
+pub(crate) mod browser_runtime;
+pub(crate) mod check_in_tasks;
 pub(crate) mod cli_paths;
 pub mod cli_runtime;
 pub mod cli_sessions;
 pub mod liveness;
+pub(crate) mod login_profiles;
 pub mod notifications;
+pub(crate) mod provider_browser_login;
 pub mod provider_service;
 pub mod scheduler;
 pub mod temporary_cli;

@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::{
-    adapters::protocol::{self, ProtocolAdapter},
+    adapters::protocol,
     models::{
         provider_domain, AppData, AppDataTransferResult, AppSettings, AuthMode, Provider,
         ProviderCapabilityProbeResult, ProviderModelSyncResult, ProviderProtocol,
@@ -46,16 +46,12 @@ impl From<Provider> for ProviderView {
             .auth_schemas
             .iter()
             .find(|schema| schema.mode == provider.auth.mode);
-        let is_anyrouter = ProtocolAdapter.is_anyrouter(&provider);
         let actions = ProviderActions {
             account_management: provider_domain::capabilities::supports_account_management(
                 &provider,
             ),
-            check_in: provider_domain::capabilities::supports_check_in(&provider, is_anyrouter),
-            checked_in_today: provider_domain::capabilities::checked_in_today(
-                &provider,
-                is_anyrouter,
-            ),
+            check_in: provider_domain::capabilities::supports_check_in(&provider),
+            checked_in_today: provider_domain::capabilities::checked_in_today(&provider),
             api_key_management: provider_domain::capabilities::supports_api_key_management(
                 &provider,
             ),
@@ -87,6 +83,7 @@ pub struct ProviderAuthModeDescriptorView {
     pub description: &'static str,
     pub note: &'static str,
     pub required_fields: Vec<&'static str>,
+    pub required_any_fields: Vec<&'static str>,
     pub optional_fields: Vec<&'static str>,
     pub fields: Vec<ProviderAuthFieldDescriptorView>,
 }
@@ -129,6 +126,7 @@ pub struct ProviderProtocolOperationMethodsView {
 pub struct ProviderCredentialAssistantDescriptorView {
     pub enabled: bool,
     pub access_token_flow: &'static str,
+    pub access_token_skip_fields: Vec<&'static str>,
     pub api_key_required_fields: Vec<&'static str>,
     pub api_key_required_any_fields: Vec<&'static str>,
 }
@@ -140,6 +138,7 @@ pub struct ProviderProtocolDescriptorView {
     pub label: &'static str,
     pub description: &'static str,
     pub default_auth_mode: AuthMode,
+    pub browser_login_supported: bool,
     pub auth_modes: Vec<ProviderAuthModeDescriptorView>,
     pub capabilities: ProviderProtocolCapabilitiesView,
     pub operation_methods: ProviderProtocolOperationMethodsView,
@@ -156,6 +155,8 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                 label: definition.label,
                 description: definition.description,
                 default_auth_mode: definition.default_auth_mode,
+                browser_login_supported:
+                    crate::models::provider_domain::auth::browser_login_supported(definition.kind),
                 auth_modes: definition.auth_schemas.iter().map(auth_mode_view).collect(),
                 capabilities: ProviderProtocolCapabilitiesView {
                     access_token: capabilities.access_token,
@@ -175,6 +176,10 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                 credential_assistant: ProviderCredentialAssistantDescriptorView {
                     enabled: definition.credential_assistant.enabled,
                     access_token_flow: definition.credential_assistant.access_token_flow.key(),
+                    access_token_skip_fields: definition
+                        .credential_assistant
+                        .access_token_skip_fields
+                        .to_vec(),
                     api_key_required_fields: definition
                         .credential_assistant
                         .api_key_required_fields
@@ -196,6 +201,7 @@ fn auth_mode_view(schema: &protocol::ProviderProtocolAuthSchema) -> ProviderAuth
         description: schema.description,
         note: schema.note,
         required_fields: schema.required_fields.to_vec(),
+        required_any_fields: schema.required_any_fields.to_vec(),
         optional_fields: schema.optional_fields.to_vec(),
         fields: schema
             .fields
@@ -241,6 +247,7 @@ pub struct AppDataView {
     pub settings: AppSettings,
     pub workspaces: Vec<Workspace>,
     pub temporary_cli_preferences: Vec<TemporaryCliPreference>,
+    pub login_accounts: Vec<crate::models::LoginAccount>,
 }
 
 impl From<AppData> for AppDataView {
@@ -253,6 +260,7 @@ impl From<AppData> for AppDataView {
             settings: data.settings,
             workspaces: data.workspaces,
             temporary_cli_preferences: data.temporary_cli_preferences,
+            login_accounts: data.login_accounts,
         }
     }
 }
@@ -382,6 +390,7 @@ mod tests {
             .expect("NewAPI access token schema");
 
         assert_eq!(access_token.required_fields, ["accessToken", "apiUser"]);
+        assert!(access_token.required_any_fields.is_empty());
         assert!(access_token.note.is_empty());
         assert_eq!(
             access_token
@@ -399,6 +408,25 @@ mod tests {
             new_api.credential_assistant.api_key_required_fields,
             ["apiUser"]
         );
+        let session = new_api
+            .auth_modes
+            .iter()
+            .find(|mode| mode.mode == AuthMode::Session)
+            .expect("NewAPI session schema");
+        assert_eq!(session.label, "登录会话");
+        assert!(session.required_fields.is_empty());
+        assert_eq!(
+            session.required_any_fields,
+            ["sessionCookie", "newApiSession.refreshCookie"]
+        );
+        assert_eq!(
+            new_api.credential_assistant.access_token_skip_fields,
+            ["newApiSession.refreshCookie"]
+        );
+        assert!(new_api
+            .credential_assistant
+            .api_key_required_any_fields
+            .contains(&"newApiSession.refreshCookie"));
         assert_eq!(new_api.operation_methods.api_keys, Some("GET /api/token/"));
         let password = new_api
             .auth_modes

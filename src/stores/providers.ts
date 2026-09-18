@@ -18,6 +18,7 @@ import {
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
   probeProviderSite as probeProviderSiteCommand,
+  previewProviderCheckInPolicy as previewProviderCheckInPolicyCommand,
   refreshProviders,
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
@@ -65,6 +66,9 @@ export const useProviderStore = defineStore("providers", {
   }),
   getters: {},
   actions: {
+    previewCheckInPolicy(input: ProviderInput) {
+      return previewProviderCheckInPolicyCommand(input);
+    },
     replaceProviders(providers: Provider[]) {
       this.providers = providers;
     },

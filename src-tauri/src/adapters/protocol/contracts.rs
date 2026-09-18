@@ -19,10 +19,11 @@ pub(crate) struct ProviderCredentialPatch {
     refresh_token: Option<String>,
     access_token_expires_at: Option<Option<i64>>,
     login_username: Option<String>,
+    new_api_session: Option<Option<crate::models::NewApiSession>>,
 }
 
 impl ProviderCredentialPatch {
-    fn from_authenticated(original: &Provider, authenticated: &Provider) -> Self {
+    pub(crate) fn from_authenticated(original: &Provider, authenticated: &Provider) -> Self {
         let mut patch = Self::default();
         match original.identity.protocol {
             crate::models::ProviderProtocol::Sub2Api => {
@@ -36,7 +37,10 @@ impl ProviderCredentialPatch {
                 }
             }
             crate::models::ProviderProtocol::NewApi => {
-                if !authenticated.auth.session_cookie.trim().is_empty() {
+                if original.auth.new_api_session != authenticated.auth.new_api_session {
+                    patch.new_api_session = Some(authenticated.auth.new_api_session.clone());
+                }
+                if original.auth.session_cookie != authenticated.auth.session_cookie {
                     patch.session_cookie = Some(authenticated.auth.session_cookie.clone());
                 }
                 if !authenticated.auth.api_user.trim().is_empty() {
@@ -70,7 +74,18 @@ impl ProviderCredentialPatch {
             provider.auth.access_token_expires_at = expires_at;
         }
         apply_string(&mut provider.auth.login_username, &self.login_username);
-        provider.auth != previous
+        if let Some(session) = &self.new_api_session {
+            provider.auth.new_api_session = session.clone();
+        }
+        let changed = provider.auth != previous;
+        if changed
+            && (provider.auth.new_api_session != previous.new_api_session
+                || provider.auth.session_cookie != previous.session_cookie
+                || provider.auth.refresh_token != previous.refresh_token)
+        {
+            provider.auth.session_updated_at = Some(crate::util::unix_millis() as i64);
+        }
+        changed
     }
 }
 
@@ -89,7 +104,7 @@ pub(crate) struct ProviderObservationPatch {
     user_id: String,
     site_logo: String,
     quota: ProviderQuota,
-    available_models: Option<Vec<String>>,
+    available_models: Vec<String>,
     last_synced_at: Option<String>,
     status: ProviderStatus,
     error_message: Option<String>,
@@ -104,8 +119,9 @@ impl ProviderObservationPatch {
             user_id: refreshed.identity.user_id.clone(),
             site_logo: refreshed.identity.site_logo.clone(),
             quota: refreshed.quota.clone(),
-            available_models: (!matches!(refreshed.runtime.status, ProviderStatus::Error))
-                .then(|| refreshed.capabilities.available_models.clone()),
+            // Adapters retain the previous list on fetch failure and replace it
+            // only on success. Quota errors must not discard successful models.
+            available_models: refreshed.capabilities.available_models.clone(),
             last_synced_at: refreshed.automation.last_synced_at.clone(),
             status: refreshed.runtime.status,
             error_message: refreshed.runtime.error_message.clone(),
@@ -122,9 +138,10 @@ impl ProviderObservationPatch {
         provider.identity.user_id.clone_from(&self.user_id);
         provider.identity.site_logo.clone_from(&self.site_logo);
         provider.quota.clone_from(&self.quota);
-        if let Some(models) = &self.available_models {
-            provider.capabilities.available_models.clone_from(models);
-        }
+        provider
+            .capabilities
+            .available_models
+            .clone_from(&self.available_models);
         provider
             .automation
             .last_synced_at
@@ -368,6 +385,24 @@ mod tests {
     }
 
     #[test]
+    fn new_api_session_invalidation_does_not_remove_a_configured_pat() {
+        let mut original = provider(ProviderProtocol::NewApi);
+        original.auth.access_token = "configured-pat".into();
+        original.auth.new_api_session = Some(crate::models::NewApiSession {
+            refresh_cookie: "revoked".into(),
+            access_token: "expired".into(),
+            access_expires_at: Some(1),
+            session_id: "fixture".into(),
+        });
+        let mut invalidated = original.clone();
+        invalidated.auth.new_api_session = None;
+        let operation = ProviderOperationOutcome::authenticated(&original, invalidated, ());
+        operation.apply_to(&mut original);
+        assert!(original.auth.new_api_session.is_none());
+        assert_eq!(original.auth.access_token, "configured-pat");
+    }
+
+    #[test]
     fn sub2_credential_patch_can_clear_expired_tokens() {
         let mut original = provider(ProviderProtocol::Sub2Api);
         original.auth.access_token = "expired".to_string();
@@ -438,7 +473,6 @@ mod tests {
         let mut original = provider(ProviderProtocol::Api);
         original.capabilities.available_models = vec!["known-model".to_string()];
         let mut refreshed = original.clone();
-        refreshed.capabilities.available_models.clear();
         refreshed.runtime.status = ProviderStatus::Error;
 
         ProviderOperationOutcome::<()>::refreshed(&original.clone(), refreshed)
@@ -448,5 +482,21 @@ mod tests {
             original.capabilities.available_models,
             vec!["known-model".to_string()]
         );
+    }
+
+    #[test]
+    fn successful_empty_models_replace_cache_even_when_quota_failed() {
+        let mut original = provider(ProviderProtocol::NewApi);
+        original.capabilities.available_models = vec!["old-model".to_string()];
+        let mut refreshed = original.clone();
+        refreshed.capabilities.available_models.clear();
+        refreshed.runtime.status = ProviderStatus::Error;
+        refreshed.runtime.error_message = Some("额度查询失败".to_string());
+
+        ProviderOperationOutcome::<()>::refreshed(&original.clone(), refreshed)
+            .apply_to(&mut original);
+
+        assert!(original.capabilities.available_models.is_empty());
+        assert!(matches!(original.runtime.status, ProviderStatus::Error));
     }
 }

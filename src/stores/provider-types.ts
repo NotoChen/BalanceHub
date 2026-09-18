@@ -12,6 +12,7 @@ export interface ProviderAuthModeDescriptor {
   description: string;
   note: string;
   requiredFields: string[];
+  requiredAnyFields: string[];
   optionalFields: string[];
   fields: ProviderAuthFieldDescriptor[];
 }
@@ -46,6 +47,7 @@ export interface ProviderProtocolOperationMethodsDescriptor {
 export interface ProviderCredentialAssistantDescriptor {
   enabled: boolean;
   accessTokenFlow: "none" | "credentialCompletion" | "sessionGeneration";
+  accessTokenSkipFields: string[];
   apiKeyRequiredFields: string[];
   apiKeyRequiredAnyFields: string[];
 }
@@ -55,6 +57,7 @@ export interface ProviderProtocolDescriptor {
   label: string;
   description: string;
   defaultAuthMode: AuthMode;
+  browserLoginSupported: boolean;
   authModes: ProviderAuthModeDescriptor[];
   capabilities: ProviderProtocolCapabilitiesDescriptor;
   operationMethods: ProviderProtocolOperationMethodsDescriptor;
@@ -149,6 +152,13 @@ export interface ProviderCliInput {
   preferredModel: string;
 }
 
+export interface NewApiSession {
+  refreshCookie: string;
+  sessionId: string;
+  accessToken: string;
+  accessExpiresAt: number | null;
+}
+
 export interface ProviderAuth {
   mode: AuthMode;
   source?: AuthSource;
@@ -162,6 +172,75 @@ export interface ProviderAuth {
   loginPassword: string;
   refreshToken: string;
   accessTokenExpiresAt?: number | null;
+  newApiSession?: NewApiSession | null;
+  browserBinding?: BrowserLoginBinding | null;
+  credentialRevision?: number;
+  sessionUpdatedAt?: number | null;
+}
+
+export type LoginPlatform = "linuxDo" | "github" | "other" | "unknown";
+export interface BrowserLoginBinding {
+  accountId: string | null;
+  platform: LoginPlatform;
+  mechanism: "oauth" | "password" | "unknown";
+  importedAt: number;
+}
+export interface LoginAccount {
+  id: string;
+  name: string;
+  platform: LoginPlatform;
+  identity: string | null;
+  createdAt: number;
+  lastOpenedAt: number | null;
+  lastUsedAt: number | null;
+  identityObservedAt: number | null;
+  generation: number;
+}
+export interface LoginAccountSummary extends LoginAccount {
+  platformLabel: string;
+  profilePresent: boolean;
+  cookieCount: number;
+  busy: boolean;
+  canLogin: boolean;
+  sessionLabel: string;
+  canOpen: boolean;
+  sessionProblem: string | null;
+  linkedProviders: { id: string; name: string }[];
+}
+export interface LoginCookieSummary {
+  id: string;
+  name: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+}
+export type CredentialKind = "dashboardJwt" | "refreshCookie" | "sessionCookie" | "accessToken" | "refreshToken" | "apiKey" | "password";
+export interface CredentialSummary {
+  kind: CredentialKind;
+  label: string;
+  source: string;
+  expiresAt: number | null;
+  status: string;
+  clearLabel: string | null;
+}
+export interface ProviderCredentialDetails {
+  providerId: string;
+  providerName: string;
+  credentialRevision: number;
+  binding: BrowserLoginBinding | null;
+  accountName: string | null;
+  sessionId: string | null;
+  updatedAt: number | null;
+  verifiedAt: string | null;
+  error: string | null;
+  authenticationLabel: string;
+  validationLabel: string;
+  validationScope: string;
+  entries: CredentialSummary[];
+  canLogin: boolean;
+  canValidate: boolean;
 }
 
 export interface ProviderQuota {
@@ -191,9 +270,18 @@ export interface ProviderCapabilities {
   availableModels: string[];
 }
 
-export interface ProviderAutomation {
-  refreshInterval: number;
-  checkInTime: string;
+export type ProviderCheckInMethod = "auto" | "standard" | "sessionSignIn" | "freshLogin";
+export type ProviderTurnstileMode = "auto" | "always";
+
+export interface ProviderCheckInPolicyPreview {
+  method: Exclude<ProviderCheckInMethod, "auto">;
+  methodLabel: string;
+  configurable: boolean;
+  supported: boolean;
+  message: string;
+}
+
+export interface ProviderAutomation extends ProviderAutomationInput {
   lastSyncedAt: string | null;
   lastCheckedInAt: string | null;
   lastCheckInUser: string;
@@ -203,6 +291,9 @@ export interface ProviderAutomation {
 export interface ProviderAutomationInput {
   refreshInterval: number;
   checkInTime: string;
+  checkInMethod: ProviderCheckInMethod;
+  autoShield: boolean;
+  turnstileMode: ProviderTurnstileMode;
 }
 
 export interface ProviderLiveness {

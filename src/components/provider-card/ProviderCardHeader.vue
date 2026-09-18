@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { Message } from "@arco-design/web-vue";
+import { ExternalLink } from "@lucide/vue";
+import { openProviderSite } from "../../api/provider-site";
 import { IconCopy } from "@arco-design/web-vue/es/icon";
 import AgentCliIcon from "../AgentCliIcon.vue";
 import ProviderApiKeySwitcher from "./ProviderApiKeySwitcher.vue";
@@ -106,6 +109,14 @@ function handleProviderLogoError(event: Event) {
 function openCliInstances(cliKind: AgentCliKind) {
   emit("openCliInstances", props.provider, cliKind);
 }
+
+async function openSite() {
+  try {
+    await openProviderSite(props.provider.identity.id);
+  } catch (error) {
+    Message.error(String(error));
+  }
+}
 </script>
 
 <template>
@@ -130,6 +141,16 @@ function openCliInstances(cliKind: AgentCliKind) {
         :title="provider.identity.baseUrl"
       >
         <span class="provider-card-api-endpoint-text">{{ providerUrlDisplay }}</span>
+        <button
+          v-if="interactive"
+          type="button"
+          class="provider-card-icon-action provider-card-open-site"
+          title="打开中转站"
+          aria-label="打开中转站"
+          @click.stop="openSite"
+          @pointerdown.stop
+          @keydown.enter.stop
+        ><ExternalLink :size="15" :stroke-width="1.8" /></button>
       </div>
       <div v-else class="provider-card-api-value-muted">未配置</div>
     </div>
@@ -181,9 +202,21 @@ function openCliInstances(cliKind: AgentCliKind) {
       />
     </div>
     <div class="provider-card-brand-copy">
-      <h3 class="provider-card-title" :title="providerHeaderTitle">
-        {{ providerHeaderTitle }}
-      </h3>
+      <div class="provider-card-title-row">
+        <h3 class="provider-card-title" :title="providerHeaderTitle">
+          {{ providerHeaderTitle }}
+        </h3>
+        <button
+          v-if="interactive && provider.identity.baseUrl.trim()"
+          type="button"
+          class="provider-card-icon-action provider-card-open-site"
+          title="打开中转站"
+          aria-label="打开中转站"
+          @click.stop="openSite"
+          @pointerdown.stop
+          @keydown.enter.stop
+        ><ExternalLink :size="15" :stroke-width="1.8" /></button>
+      </div>
       <span class="provider-card-type">
         {{ providerHeaderSubtitle }}
       </span>
