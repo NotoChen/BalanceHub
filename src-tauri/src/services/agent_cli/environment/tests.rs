@@ -3189,7 +3189,7 @@ fn build_claude_trust_case(
     };
     let workspace_input = lexical_workspace.then(|| {
         fs::create_dir_all(root.join("workspace")).unwrap();
-        fs::canonicalize(root.join("workspace")).unwrap().join(".")
+        root.join("workspace").join(".")
     });
     build_claude_inventory_at_root_with_workspace(
         root,
@@ -9422,7 +9422,7 @@ fn claude_workspace_trust_is_exact_and_fail_closed() {
         (
             "claude-trust-lexical-true",
             Some(claude_json(serde_json::json!({
-                "projects": { "__WORKSPACE__/.": { "hasTrustDialogAccepted": true } }
+                "projects": { "__WORKSPACE_LEXICAL__": { "hasTrustDialogAccepted": true } }
             }))),
             None,
             false,
@@ -9495,7 +9495,7 @@ fn claude_workspace_trust_is_exact_and_fail_closed() {
             Some(claude_json(serde_json::json!({
                 "projects": {
                     "__WORKSPACE__": { "hasTrustDialogAccepted": true },
-                    "__WORKSPACE__/.": { "hasTrustDialogAccepted": false }
+                    "__WORKSPACE_LEXICAL__": { "hasTrustDialogAccepted": false }
                 }
             }))),
             None,
@@ -17447,7 +17447,7 @@ fn claude_passive_inventory_never_executes_or_leaks() {
         let source = inventory
             .sources
             .iter()
-            .find(|source| source.path == expected.path.to_string_lossy())
+            .find(|source| Path::new(&source.path) == expected.path)
             .expect("expected passive source");
         assert_eq!(
             source.source_kind, expected.kind,
