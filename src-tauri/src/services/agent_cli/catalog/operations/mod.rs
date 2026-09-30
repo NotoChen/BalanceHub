@@ -87,7 +87,7 @@ struct OperationState {
 }
 
 impl CatalogService {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn plan(
         &self,
         actor: &str,

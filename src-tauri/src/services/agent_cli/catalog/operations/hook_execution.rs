@@ -7,12 +7,14 @@ use super::{
     hooks::{HookMember, PreparedHookGroup},
     OperationCell,
 };
+#[cfg(unix)]
+use crate::services::agent_cli::environment::mutation::atomic;
 use crate::{
     models::*,
     services::agent_cli::{
         definition,
         environment::mutation::{
-            atomic, classify_outcome, ApplyEvidence, MutationInventory, WriteObservation,
+            classify_outcome, ApplyEvidence, MutationInventory, WriteObservation,
         },
     },
 };
@@ -99,6 +101,10 @@ impl CatalogService {
             before_deadline(deadline)?;
             // Native documents first; auxiliary ownership follows under the
             // same locks. A partial outcome retains the durable complete intent.
+            #[cfg(not(unix))]
+            if !fresh.writes.is_empty() {
+                return Err("当前平台不支持原子写入 Hook 配置".to_owned());
+            }
             fresh.writes.sort_by_key(|write| write.source_id.is_none());
             self.repository.checkpointed(|library, checkpoint| {
                 let entry = library.entries.get(&item.id).ok_or("Hook 全局资产已变化")?;
@@ -146,8 +152,7 @@ impl CatalogService {
                 cell.phase(&indexes, AgentAssetOperationPhase::Applying);
                 #[cfg(unix)]
                 let mut completed_domains = BTreeMap::<String, Vec<u8>>::new();
-                #[cfg(not(unix))]
-                let completed_domains = BTreeMap::<String, Vec<u8>>::new();
+                #[cfg(unix)]
                 for write in &fresh.writes {
                     before_deadline(deadline)?;
                     revalidate_reads(&fresh, &completed_domains).map_err(|error| error.message)?;
@@ -186,8 +191,6 @@ impl CatalogService {
                         cell.before_commit(&write.indexes)
                     })
                     .map_err(|error| error.message)?;
-                    #[cfg(not(unix))]
-                    match result {}
                     #[cfg(unix)]
                     {
                         match result {
@@ -292,6 +295,7 @@ impl CatalogService {
     }
 }
 
+#[cfg(unix)]
 fn revalidate_reads(
     group: &PreparedHookGroup,
     completed_domains: &BTreeMap<String, Vec<u8>>,

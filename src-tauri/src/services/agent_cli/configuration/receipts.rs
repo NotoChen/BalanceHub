@@ -103,10 +103,14 @@ impl ReceiptStore {
                 .map_err(|_| conflict())?;
         }
         let mut staged = StagedFile::prepare(&source, &bytes, || Ok(()))?;
-        if matches!(staged.commit(|| Ok(()))?, CommitResult::AppliedNotSynced) {
-            return Err(AgentConfigurationError::new(
-                AgentConfigurationErrorKind::WriteFailed,
-            ));
+        match staged.commit(|| Ok(()))? {
+            #[cfg(unix)]
+            CommitResult::AppliedNotSynced => {
+                return Err(AgentConfigurationError::new(
+                    AgentConfigurationErrorKind::WriteFailed,
+                ));
+            }
+            CommitResult::Unchanged | CommitResult::Applied => {}
         }
         staged.verify()?;
         self.prune();

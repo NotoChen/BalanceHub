@@ -866,6 +866,12 @@ fn directory_revalidation_detects_content_epoch_change() {
     let fixture = fs::canonicalize(fixture).unwrap();
     let source = fixture.join("source");
 
+    // Set a distinct epoch so the test does not depend on filesystem clock resolution.
+    #[cfg(unix)]
+    fs::File::open(&source)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH)
+        .unwrap();
     let probe = directory_probe_from_open_handle_after(&source, || {
         fs::write(source.join("after.txt"), b"after").unwrap();
     })
@@ -3453,6 +3459,7 @@ fn fixture_passive_asset_source(
     let _terminal_result = output.emit_initial(source);
 }
 
+#[cfg(unix)]
 fn fixture_empty_parse(_request: AgentAssetParseRequest<'_>, _output: &mut dyn AgentParseOutput) {}
 
 fn fixture_empty_resolve(
@@ -3461,6 +3468,7 @@ fn fixture_empty_resolve(
 ) {
 }
 
+#[cfg(unix)]
 fn fixture_system_boundary_sources(
     _request: AgentSourceDiscoveryRequest<'_>,
     output: &mut dyn InitialSourceOutput,
@@ -3547,10 +3555,12 @@ fn fixture_system_boundary_sources(
     }
 }
 
+#[cfg(unix)]
 struct BoundarySnapshotPort {
     elevated_roots: Arc<Mutex<Vec<(String, bool)>>>,
 }
 
+#[cfg(unix)]
 impl SnapshotPort for BoundarySnapshotPort {
     fn snapshot(
         &self,

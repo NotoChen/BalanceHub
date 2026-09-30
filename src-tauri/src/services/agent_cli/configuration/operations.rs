@@ -507,6 +507,7 @@ impl ConfigurationService {
                             cell.native_mutated.store(true, Ordering::Release);
                             AgentConfigurationFileState::Applied
                         }
+                        #[cfg(unix)]
                         CommitResult::AppliedNotSynced => {
                             cell.native_mutated.store(true, Ordering::Release);
                             verified = false;

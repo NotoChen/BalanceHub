@@ -78,6 +78,12 @@ fn complete_same_bytes_allowed_root_replacement_changes_file_revision() {
 fn read_after_validation_rejects_in_place_mutation_and_same_bytes_replacement() {
     for replace in [false, true] {
         let fixture = AccessFixture::new("read-race");
+        fs::File::options()
+            .write(true)
+            .open(&fixture.file)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH)
+            .unwrap();
         let anchor = capture(&fixture, &fixture.file);
         let guard = reopen_verified_path(&anchor).unwrap();
         let original = fs::read(&fixture.file).unwrap();
@@ -134,6 +140,10 @@ fn bounded_file_reads_never_return_partial_documents() {
 fn directory_identity_mode_allows_own_sibling_changes_but_keeps_root_binding() {
     let fixture = AccessFixture::new("directory-identity");
     let root = fixture.root.join(".codex");
+    fs::File::open(&root)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH)
+        .unwrap();
     let guard = inspect_verified_path(
         &[&fixture.root],
         &root,

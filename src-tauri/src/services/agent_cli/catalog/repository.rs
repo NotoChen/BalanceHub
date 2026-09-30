@@ -331,11 +331,11 @@ impl Repository {
         checkpoint(&library)?;
         Ok((output, file))
     }
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn inject_persistence_fault(&self, fault: PersistenceFault) {
         *self.persistence_fault.lock().unwrap() = Some(fault);
     }
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn inject_failure_after_save(&self) {
         *self.failure_after_save.lock().unwrap() = true;
     }

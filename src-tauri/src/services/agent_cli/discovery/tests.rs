@@ -6,9 +6,11 @@ use super::paths::{
 };
 use super::paths::{AgentHomeCandidateScanRequest, RuntimePathSnapshot};
 use super::*;
+#[cfg(unix)]
+use crate::models::AgentConfigurationContext;
 use crate::models::{
     AgentAssetDiagnostic, AgentAssetLimitKind, AgentAssetLimits, AgentCliKind,
-    AgentConfigurationContext, AgentExecutableProbeErrorKind, AgentInstallation,
+    AgentExecutableProbeErrorKind, AgentInstallation,
 };
 use crate::services::agent_cli::definition;
 use crate::services::agent_cli::environment::run::{AgentInventoryRun, SystemMonotonicClock};
@@ -901,12 +903,14 @@ fn fully_truncated_version_output_is_never_accepted() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
 fn no_asset_parse(
     _request: super::super::contracts::AgentAssetParseRequest<'_>,
     _output: &mut dyn super::super::contracts::AgentParseOutput,
 ) {
 }
 
+#[cfg(unix)]
 fn no_asset_contexts(
     _request: super::super::contracts::AgentContextDiscoveryRequest<'_>,
     _output: &mut dyn super::super::contracts::AgentDiagnosticOutput,
@@ -914,12 +918,14 @@ fn no_asset_contexts(
     Vec::new()
 }
 
+#[cfg(unix)]
 fn no_asset_sources(
     _request: super::super::contracts::AgentSourceDiscoveryRequest<'_>,
     _output: &mut dyn super::super::contracts::InitialSourceOutput,
 ) {
 }
 
+#[cfg(unix)]
 fn no_asset_resolve(
     _request: super::super::contracts::AgentAssetResolveRequest<'_>,
     _output: &mut dyn super::super::contracts::AgentResolveOutput,

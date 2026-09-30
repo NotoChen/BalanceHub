@@ -516,6 +516,7 @@ impl GuardedFile {
         }
     }
 
+    #[cfg(unix)]
     pub(crate) fn reopen_present(&self) -> Result<VerifiedPathGuard, AgentAssetMutationError> {
         self.revalidate()?;
         match &self.evidence {

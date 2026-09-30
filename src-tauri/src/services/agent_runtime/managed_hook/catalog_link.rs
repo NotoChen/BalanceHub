@@ -192,7 +192,9 @@ fn detached_change(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AgentHookHealthState, AgentHookMutation};
+    #[cfg(unix)]
+    use crate::models::AgentHookHealthState;
+    use crate::models::AgentHookMutation;
     #[cfg(unix)]
     use crate::services::agent_cli::environment::mutation::atomic;
     use crate::services::agent_runtime::managed_hook::CodexHookService;

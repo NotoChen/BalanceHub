@@ -28,6 +28,7 @@ pub(super) struct StagedFile {
 pub(super) enum CommitResult {
     Unchanged,
     Applied,
+    #[cfg(unix)]
     AppliedNotSynced,
 }
 impl StagedFile {

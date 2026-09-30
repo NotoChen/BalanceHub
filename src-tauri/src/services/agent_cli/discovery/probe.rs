@@ -94,7 +94,7 @@ impl CliProcessGate {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn active(&self) -> usize {
         *self.lock_active()
     }

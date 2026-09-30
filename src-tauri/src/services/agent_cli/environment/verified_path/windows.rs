@@ -318,7 +318,7 @@ fn parse_directory_record(buffer: &[u64], offset: usize) -> io::Result<ParsedDir
     let last_header_offset = buffer_bytes
         .checked_sub(header_bytes)
         .ok_or_else(invalid_directory_record)?;
-    if offset % size_of::<u64>() != 0 || offset > last_header_offset {
+    if !offset.is_multiple_of(size_of::<u64>()) || offset > last_header_offset {
         return Err(invalid_directory_record());
     }
 
@@ -344,7 +344,7 @@ fn parse_directory_record(buffer: &[u64], offset: usize) -> io::Result<ParsedDir
         bytes,
         field_offset(offset_of!(FILE_ID_BOTH_DIR_INFO, FileNameLength))?,
     )? as usize;
-    if name_bytes == 0 || name_bytes % size_of::<u16>() != 0 {
+    if name_bytes == 0 || !name_bytes.is_multiple_of(size_of::<u16>()) {
         return Err(invalid_directory_record());
     }
 
@@ -358,7 +358,9 @@ fn parse_directory_record(buffer: &[u64], offset: usize) -> io::Result<ParsedDir
         .get(name_offset..name_end)
         .ok_or_else(invalid_directory_record)?;
     let name_units = name_slice
-        .chunks_exact(size_of::<u16>())
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|unit| u16::from_ne_bytes([unit[0], unit[1]]))
         .collect::<Vec<_>>();
 
@@ -372,7 +374,7 @@ fn parse_directory_record(buffer: &[u64], offset: usize) -> io::Result<ParsedDir
         let next_offset = offset
             .checked_add(next_delta)
             .ok_or_else(invalid_directory_record)?;
-        if next_delta % size_of::<u64>() != 0
+        if !next_delta.is_multiple_of(size_of::<u64>())
             || next_delta < record_bytes
             || next_offset > last_header_offset
         {
