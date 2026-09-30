@@ -2990,7 +2990,7 @@ fn real_gemini_inventory_discovers_root_child_skills_extension_children_and_hook
         ".gemini/extensions/alpha/hooks/hooks.json",
     ] {
         assert!(
-            paths.iter().any(|path| path.ends_with(suffix)),
+            paths.iter().any(|path| path.replace('\\', "/").ends_with(suffix)),
             "missing production source {suffix}"
         );
     }

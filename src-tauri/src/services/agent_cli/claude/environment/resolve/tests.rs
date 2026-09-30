@@ -1,4 +1,5 @@
 use super::*;
+macro_rules! fixture_path { ($path:literal) => { if cfg!(windows) { concat!("C:", $path) } else { $path } }; }
 use crate::models::{AgentAssetDiagnostic, AgentAssetRevision, AgentAssetSourceKind};
 use crate::services::agent_cli::contracts::{
     AgentAssetParseRequest, AgentAssetSnapshot, AgentDiagnosticEmission, AgentDiagnosticOutput,
@@ -55,10 +56,10 @@ impl Fixture {
             id: "claude-proof-context".to_owned(),
             environment_id: "native".to_owned(),
             agent_kind: crate::models::AgentCliKind::ClaudeCode,
-            config_root: "/fixture/.claude".to_owned(),
+            config_root: fixture_path!("/fixture/.claude").to_owned(),
             profile: "default".to_owned(),
             parser_version: 3,
-            workspace_id: Some("/fixture/work".to_owned()),
+            workspace_id: Some(fixture_path!("/fixture/work").to_owned()),
             trust_context: AgentTrustState::Trusted,
             schema_facts: BTreeMap::new(),
             compatible_installation_ids: Vec::new(),
@@ -123,11 +124,11 @@ impl Fixture {
                 origin: crate::models::AgentAssetInstallationOrigin::Unknown,
                 native_source_key: key,
                 label: "fixture",
-                allowed_root: Path::new("/fixture"),
+                allowed_root: Path::new(fixture_path!("/fixture")),
                 path: if key == "plugin-registry" {
-                    PathBuf::from("/fixture/.claude/plugins/installed_plugins.json")
+                    PathBuf::from(fixture_path!("/fixture/.claude/plugins/installed_plugins.json"))
                 } else {
-                    PathBuf::from(format!("/fixture/{key}.json"))
+                    PathBuf::from(format!("{}/{key}.json", fixture_path!("/fixture")))
                 },
                 scope,
                 precedence,
@@ -180,7 +181,7 @@ impl Fixture {
                     context: &context,
                     source: &spec,
                     snapshot: &snapshot,
-                    workspace_canonical: Some(Path::new("/fixture/work")),
+                    workspace_canonical: Some(Path::new(fixture_path!("/fixture/work"))),
                     workspace_lexical: None,
                 },
                 &mut parsed,
@@ -214,7 +215,7 @@ fn account() -> serde_json::Value {
     serde_json::json!({ "mcpServers": { "alpha": {"command": "fixture-node", "args": ["fixture-script"]} } })
 }
 fn registry() -> serde_json::Value {
-    serde_json::json!({"version":2,"plugins":{"demo@fixture":[{"scope":"user","installPath":"/fixture/demo"}]}})
+    serde_json::json!({"version":2,"plugins":{"demo@fixture":[{"scope":"user","installPath":fixture_path!("/fixture/demo")}]}})
 }
 fn terminal_evidence(decision: &NativeDecision<'_>) -> usize {
     match &decision.effective {
@@ -612,8 +613,8 @@ fn plugin_structural_tie_cannot_be_repaired_by_enabled_overlay() {
         (
             "plugin-registry",
             serde_json::json!({"version":2,"plugins":{"demo@fixture":[
-            {"scope":"user","installPath":"/fixture/demo-a"},
-            {"scope":"user","installPath":"/fixture/demo-b"}]}}),
+            {"scope":"user","installPath":fixture_path!("/fixture/demo-a")},
+            {"scope":"user","installPath":fixture_path!("/fixture/demo-b")}]}}),
         ),
         (
             "settings",
@@ -655,8 +656,8 @@ fn plugin_replacement_loser_keeps_own_basis_and_shadowed_route() {
         (
             "plugin-registry",
             serde_json::json!({"version":2,"plugins":{"demo@fixture":[
-            {"scope":"user","installPath":"/fixture/demo-user"},
-            {"scope":"local","projectPath":"/fixture/work","installPath":"/fixture/demo-local"}]}}),
+            {"scope":"user","installPath":fixture_path!("/fixture/demo-user")},
+            {"scope":"local","projectPath":fixture_path!("/fixture/work"),"installPath":fixture_path!("/fixture/demo-local")}]}}),
         ),
         (
             "settings",
@@ -704,7 +705,7 @@ fn personal_and_plugin_conflicts_keep_all_decisive_peers_on_declared_axis() {
     let mut fixture = Fixture::parse(&[
         (
             "account",
-            serde_json::json!({"mcpServers":{"alpha":{"command":"runner"}},"projects":{"/fixture/work":{
+            serde_json::json!({"mcpServers":{"alpha":{"command":"runner"}},"projects":{fixture_path!("/fixture/work"):{
             "enabledMcpServers":["alpha"],"disabledMcpServers":["alpha"]}}}),
         ),
         ("plugin-registry", registry()),

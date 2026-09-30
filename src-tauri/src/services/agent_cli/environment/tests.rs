@@ -872,6 +872,17 @@ fn directory_revalidation_detects_content_epoch_change() {
         .unwrap()
         .set_modified(std::time::UNIX_EPOCH)
         .unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .access_mode(0x100)
+            .custom_flags(0x02000000)
+            .open(&source)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH)
+            .unwrap();
+    }
     let probe = directory_probe_from_open_handle_after(&source, || {
         fs::write(source.join("after.txt"), b"after").unwrap();
     })
@@ -1445,8 +1456,16 @@ fn public_asset_contract_round_trips_typed_relationship_and_policy_fields() {
 
 #[test]
 fn agent_adapters_declare_documented_user_and_workspace_sources() {
-    let home = Path::new("/home/tester");
-    let workspace = Path::new("/work/project");
+    let home = Path::new(if cfg!(windows) {
+        "C:/home/tester"
+    } else {
+        "/home/tester"
+    });
+    let workspace = Path::new(if cfg!(windows) {
+        "C:/work/project"
+    } else {
+        "/work/project"
+    });
     let expected = [
         (
             AgentCliKind::Codex,
@@ -3056,15 +3075,26 @@ fn build_claude_inventory_at_root_with_workspace_and_adapter(
         bytes
     };
     let expand = |bytes: Vec<u8>| {
+        let bytes = if cfg!(windows) {
+            replace_bytes(bytes, b"/fixture", b"C:/fixture")
+        } else {
+            bytes
+        };
         let bytes = replace_bytes(
             bytes,
             b"__WORKSPACE__",
-            workspace.to_string_lossy().as_bytes(),
+            serde_json::to_string(&workspace.to_string_lossy())
+                .unwrap()
+                .trim_matches('"')
+                .as_bytes(),
         );
         replace_bytes(
             bytes,
             b"__WORKSPACE_LEXICAL__",
-            workspace_input.to_string_lossy().as_bytes(),
+            serde_json::to_string(&workspace_input.to_string_lossy())
+                .unwrap()
+                .trim_matches('"')
+                .as_bytes(),
         )
     };
     let files = files
@@ -4325,7 +4355,12 @@ fn build_codex_fixture(
     }
     let expand_workspace = |bytes: &[u8]| {
         String::from_utf8_lossy(bytes)
-            .replace("__WORKSPACE__", workspace.to_string_lossy().as_ref())
+            .replace(
+                "__WORKSPACE__",
+                serde_json::to_string(&workspace.to_string_lossy())
+                    .unwrap()
+                    .trim_matches('"'),
+            )
             .into_bytes()
     };
     let mut files = vec![("config", expand_workspace(config))];
@@ -4423,7 +4458,12 @@ fn build_codex_inventory_at_root_with_probe(
     let workspace = root.join("workspace");
     let expand_workspace = |bytes: &[u8]| {
         String::from_utf8_lossy(bytes)
-            .replace("__WORKSPACE__", workspace.to_string_lossy().as_ref())
+            .replace(
+                "__WORKSPACE__",
+                serde_json::to_string(&workspace.to_string_lossy())
+                    .unwrap()
+                    .trim_matches('"'),
+            )
             .into_bytes()
     };
     let mut files = vec![("config", expand_workspace(input.config))];
@@ -4716,6 +4756,7 @@ fn assert_codex_empty_config_policy_declarations(
     )));
 }
 
+#[cfg(unix)]
 #[test]
 fn codex_deep_merges_same_id() {
     let (root, inventory, state) = build_codex_fixture(
@@ -4763,7 +4804,10 @@ fn codex_deep_merges_same_id() {
         .sources
         .iter()
         .find(|source| source.id == asset.inspection_source_id)
-        .is_some_and(|source| source.path.ends_with("workspace/.codex/config.toml")));
+        .is_some_and(|source| source
+            .path
+            .replace('\\', "/")
+            .ends_with("workspace/.codex/config.toml")));
     let state = state.lock().expect("deep merge snapshot state lock");
     assert_eq!(
         state
@@ -5198,6 +5242,7 @@ fn codex_trusted_and_suppressed_project() {
     let _ = fs::remove_dir_all(policy_only_root);
 }
 
+#[cfg(unix)]
 #[test]
 fn codex_authority_diagnostic_rebinds_to_final_source_id() {
     let (root, inventory, _) = build_codex_fixture(
@@ -5296,6 +5341,7 @@ fn codex_different_ids_are_additive_set() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[cfg(unix)]
 #[test]
 fn codex_lists_replace_and_deny_wins() {
     let (root, inventory, _) = build_codex_fixture(
@@ -6004,7 +6050,7 @@ fn codex_plugin_cache_is_physical_only() {
     let cache_source = inventory
         .sources
         .iter()
-        .find(|source| source.path.ends_with("plugins/cache"))
+        .find(|source| source.path.replace('\\', "/").ends_with("plugins/cache"))
         .expect("physical plugin cache source");
     assert!(cache_source.revision.is_directory);
     assert!(!cache_source.revision.identity.is_empty());
@@ -6653,15 +6699,15 @@ fn follow_up_source_one_over_keeps_completed_parent_and_child_pipeline_outputs()
     assert!(inventory
         .sources
         .iter()
-        .any(|source| source.path.ends_with("fixture/parent")));
-    assert!(inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("fixture/parent/childdir/file1")));
-    assert!(!inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("fixture/parent/childdir/file2")));
+        .any(|source| source.path.replace('\\', "/").ends_with("fixture/parent")));
+    assert!(inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("fixture/parent/childdir/file1")));
+    assert!(!inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("fixture/parent/childdir/file2")));
     assert_eq!(
         inventory
             .diagnostics
@@ -6784,7 +6830,7 @@ fn follow_up_break_stops_later_parent_callbacks_and_snapshots() {
     assert!(!inventory
         .sources
         .iter()
-        .any(|source| source.path.ends_with("fixture/parent-z")));
+        .any(|source| source.path.replace('\\', "/").ends_with("fixture/parent-z")));
     assert_eq!(
         probe
             .events()
@@ -6847,7 +6893,10 @@ fn follow_up_collision_cannot_reject_or_resnapshot_its_shallower_parent() {
     assert_eq!(inventory.sources.len(), 1);
     assert_eq!(inventory.declarations.len(), 1);
     assert_eq!(inventory.assets.len(), 1);
-    assert!(inventory.sources[0].path.ends_with("fixture/parent"));
+    assert!(inventory.sources[0]
+        .path
+        .replace('\\', "/")
+        .ends_with("fixture/parent"));
     assert!(inventory.diagnostics.iter().any(|diagnostic| matches!(
         diagnostic,
         AgentAssetDiagnostic::InvalidProjection { projection_key }
@@ -7209,11 +7258,11 @@ fn follow_up_snapshot_reuses_cached_parent_and_allows_bounded_child_inspection()
     assert!(inventory
         .sources
         .iter()
-        .any(|source| source.path.ends_with("fixture/parent")));
-    assert!(inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("fixture/parent/childdir/file")));
+        .any(|source| source.path.replace('\\', "/").ends_with("fixture/parent")));
+    assert!(inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("fixture/parent/childdir/file")));
     assert_eq!(inventory.sources.len(), 2);
     assert_eq!(inventory.declarations.len(), 2);
     assert_eq!(inventory.assets.len(), 2);
@@ -7286,9 +7335,11 @@ fn follow_up_expands_breadth_first_through_depth_two_only() {
     assert_eq!(inventory.sources.len(), 3);
     assert!(inventory.sources.iter().any(|source| source
         .path
+        .replace('\\', "/")
         .ends_with("fixture/parent/childdir/child-config")));
     assert!(inventory.sources.iter().any(|source| source
         .path
+        .replace('\\', "/")
         .ends_with("fixture/parent/childdir/child-config/nested/grandchild-config")));
     assert!(!probe.events().iter().any(|event| {
         matches!(
@@ -8022,14 +8073,14 @@ fn inventory_closes_follow_up_at_deadline_and_bytes_and_hides_unsnapshotted_chil
             },
         ]
     );
-    assert!(inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("parent/childdir/file1")));
-    assert!(!inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("parent/childdir/file2")));
+    assert!(inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("parent/childdir/file1")));
+    assert!(!inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("parent/childdir/file2")));
     drop(child_snapshot_state);
     child_snapshots.assert_next_scripted("fixture-file2");
     let _ = fs::remove_dir_all(child_root);
@@ -9499,8 +9550,11 @@ fn claude_workspace_trust_is_exact_and_fail_closed() {
             .chain(account_source.diagnostics.iter())
             .all(|diagnostic| {
                 let serialized = serde_json::to_string(diagnostic).unwrap();
-                !serialized.contains(workspace.to_string_lossy().as_ref())
-                    && !serialized.contains("fixture-secret")
+                !serialized.contains(
+                    serde_json::to_string(&workspace.to_string_lossy())
+                        .unwrap()
+                        .trim_matches('"'),
+                ) && !serialized.contains("fixture-secret")
             }));
         if name == "claude-trust-blocked" {
             assert_eq!(account_source.diagnostics.len(), 1);
@@ -9652,7 +9706,12 @@ fn claude_authority_snapshot_is_reused() {
     );
     assert_eq!(account_read.1, local[0].evidence.revision.identity);
     let expected_account_bytes = String::from_utf8_lossy(&account_bytes)
-        .replace("__WORKSPACE__", workspace.to_string_lossy().as_ref())
+        .replace(
+            "__WORKSPACE__",
+            serde_json::to_string(&workspace.to_string_lossy())
+                .unwrap()
+                .trim_matches('"'),
+        )
         .into_bytes();
     assert_eq!(account_read.2.as_slice(), expected_account_bytes.as_slice());
     assert_eq!(
@@ -10181,9 +10240,11 @@ fn claude_untrusted_workspace_is_suppressed() {
     }));
     assert!(unknown_matrix.sources.iter().all(|source| {
         source.diagnostics.iter().all(|diagnostic| {
-            !serde_json::to_string(diagnostic)
-                .unwrap()
-                .contains(unknown_matrix_workspace.to_string_lossy().as_ref())
+            !serde_json::to_string(diagnostic).unwrap().contains(
+                serde_json::to_string(&unknown_matrix_workspace.to_string_lossy())
+                    .unwrap()
+                    .trim_matches('"'),
+            )
         })
     }));
     assert_claude_source_callback_stops_after_break(
@@ -10406,7 +10467,12 @@ fn claude_mcp_whole_entry_precedence() {
             "same": { "command": "local", "args": ["l"], "env": { "OWNER": "local" } }
         } } }
     })))
-    .replace("__WORKSPACE__", workspace.to_string_lossy().as_ref())
+    .replace(
+        "__WORKSPACE__",
+        serde_json::to_string(&workspace.to_string_lossy())
+            .unwrap()
+            .trim_matches('"'),
+    )
     .into_bytes();
     let payload_snapshot = AgentAssetSnapshot::File {
         bytes: payload_bytes,
@@ -12814,7 +12880,12 @@ fn claude_plugin_registry_v2_is_only_registration_authority() {
     let registry_source_id = inventory
         .sources
         .iter()
-        .find(|source| source.path.ends_with("plugins/installed_plugins.json"))
+        .find(|source| {
+            source
+                .path
+                .replace('\\', "/")
+                .ends_with("plugins/installed_plugins.json")
+        })
         .expect("Claude plugin registry source")
         .id
         .clone();
@@ -12845,14 +12916,14 @@ fn claude_plugin_registry_v2_is_only_registration_authority() {
         .sources
         .iter()
         .filter(|source| {
-            source.path.ends_with("plugins/cache")
+            source.path.replace('\\', "/").ends_with("plugins/cache")
                 || source.path.ends_with("known_marketplaces.json")
         })
         .all(|source| source.categories.is_empty()));
     let cache_source_ids = inventory
         .sources
         .iter()
-        .filter(|source| source.path.ends_with("plugins/cache"))
+        .filter(|source| source.path.replace('\\', "/").ends_with("plugins/cache"))
         .map(|source| source.id.clone())
         .collect::<std::collections::BTreeSet<_>>();
     let marketplace_source_ids = inventory
@@ -13226,7 +13297,7 @@ fn claude_plugin_state_is_typed_overlay() {
     assert!(inventory
         .sources
         .iter()
-        .filter(|source| source.path.ends_with("plugins/cache"))
+        .filter(|source| source.path.replace('\\', "/").ends_with("plugins/cache"))
         .all(|source| source.categories.is_empty()));
     assert_claude_source_callback_stops_after_break(&root, &workspace);
 
@@ -13497,22 +13568,22 @@ fn claude_skill_follow_up_and_manual_only() {
         .collect::<Vec<_>>();
     assert!(skill_source_paths
         .iter()
-        .any(|path| path.ends_with("skills/manual/SKILL.md")));
+        .any(|path| path.replace('\\', "/").ends_with("skills/manual/SKILL.md")));
+    assert!(skill_source_paths.iter().any(|path| path
+        .replace('\\', "/")
+        .ends_with("workspace/.claude/skills/manual/SKILL.md")));
     assert!(skill_source_paths
         .iter()
-        .any(|path| path.ends_with("workspace/.claude/skills/manual/SKILL.md")));
+        .any(|path| path.replace('\\', "/").ends_with("skills/auto/SKILL.md")));
     assert!(skill_source_paths
         .iter()
-        .any(|path| path.ends_with("skills/auto/SKILL.md")));
+        .any(|path| path.replace('\\', "/").ends_with("skills/plain/SKILL.md")));
     assert!(skill_source_paths
         .iter()
-        .any(|path| path.ends_with("skills/plain/SKILL.md")));
-    assert!(skill_source_paths
-        .iter()
-        .any(|path| path.ends_with("skills/missing/SKILL.md")));
-    assert!(skill_source_paths
-        .iter()
-        .any(|path| path.ends_with("workspace/.claude/skills/workspace-missing/SKILL.md")));
+        .any(|path| path.replace('\\', "/").ends_with("skills/missing/SKILL.md")));
+    assert!(skill_source_paths.iter().any(|path| path
+        .replace('\\', "/")
+        .ends_with("workspace/.claude/skills/workspace-missing/SKILL.md")));
     assert!(skill_source_paths
         .iter()
         .all(|path| !path.contains("unsafe") && !path.contains("plugin")));
@@ -13760,7 +13831,7 @@ fn claude_skill_follow_up_and_manual_only() {
     let cache_source = inventory
         .sources
         .iter()
-        .find(|source| source.path.ends_with("plugins/cache"))
+        .find(|source| source.path.replace('\\', "/").ends_with("plugins/cache"))
         .expect("Claude plugin cache source");
     let marketplace_source = inventory
         .sources
@@ -18995,24 +19066,34 @@ fn direct_manifest_file_runs_inventory_follow_up_snapshot_and_parse_pipeline() {
         },
     )
     .unwrap();
-    assert!(inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("manifest/SKILL.md")));
-    assert!(inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("manifest/release/SKILL.md")));
+    assert!(inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("manifest/SKILL.md")));
+    assert!(inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("manifest/release/SKILL.md")));
     let direct_source_ids = inventory
         .sources
         .iter()
-        .filter(|source| source.path.ends_with("manifest/SKILL.md"))
+        .filter(|source| {
+            source
+                .path
+                .replace('\\', "/")
+                .ends_with("manifest/SKILL.md")
+        })
         .map(|source| source.id.as_str())
         .collect::<BTreeSet<_>>();
     let child_source_ids = inventory
         .sources
         .iter()
-        .filter(|source| source.path.ends_with("manifest/release/SKILL.md"))
+        .filter(|source| {
+            source
+                .path
+                .replace('\\', "/")
+                .ends_with("manifest/release/SKILL.md")
+        })
         .map(|source| source.id.as_str())
         .collect::<BTreeSet<_>>();
     assert!(inventory
@@ -19085,11 +19166,11 @@ fn direct_and_descendant_children_reuse_parent_snapshot_and_close_resources() {
     assert!(inventory
         .sources
         .iter()
-        .any(|source| source.path.ends_with("parent/SKILL.md")));
-    assert!(inventory
-        .sources
-        .iter()
-        .any(|source| source.path.ends_with("parent/release/SKILL.md")));
+        .any(|source| source.path.replace('\\', "/").ends_with("parent/SKILL.md")));
+    assert!(inventory.sources.iter().any(|source| source
+        .path
+        .replace('\\', "/")
+        .ends_with("parent/release/SKILL.md")));
     snapshots.assert_scripted_exhausted();
     drop(state);
     let _ = fs::remove_dir_all(root);
@@ -19442,10 +19523,10 @@ fn mixed_direct_descendant_pipeline_is_bounded_collision_free_and_deterministic(
     assert!(first_paths.iter().any(|path| path.ends_with("mixed")));
     assert!(first_paths
         .iter()
-        .any(|path| path.ends_with("mixed/release/SKILL.md")));
+        .any(|path| path.replace('\\', "/").ends_with("mixed/release/SKILL.md")));
     assert!(!first_paths
         .iter()
-        .any(|path| path.ends_with("mixed/SKILL.md")));
+        .any(|path| path.replace('\\', "/").ends_with("mixed/SKILL.md")));
     assert!(first.diagnostics.iter().any(|diagnostic| matches!(diagnostic, AgentAssetDiagnostic::InvalidProjection { projection_key } if projection_key == "source:mixed-collision")));
     assert!(first.diagnostics.iter().any(|diagnostic| matches!(
         diagnostic,

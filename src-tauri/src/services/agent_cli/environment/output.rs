@@ -901,6 +901,14 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    fn fixture_path(path: &str) -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(format!("C:{path}"))
+        } else {
+            PathBuf::from(path)
+        }
+    }
+
     fn source(native_source_key: &str, path: &str) -> AgentAssetSourceSpec {
         AgentAssetSourceSpec {
             verified_physical_path: None,
@@ -911,8 +919,8 @@ mod tests {
             native_source_key: native_source_key.to_owned(),
             label: native_source_key.to_owned(),
             scope: AgentAssetScope::User,
-            path: PathBuf::from(path),
-            allowed_root: PathBuf::from("/tmp"),
+            path: fixture_path(path),
+            allowed_root: PathBuf::from(if cfg!(windows) { "C:/tmp" } else { "/tmp" }),
             precedence: 1,
             writable: true,
             sensitive: false,
@@ -1026,7 +1034,7 @@ mod tests {
     ) {
         let mut parent = directory_source("skills", "/tmp/home/.claude/skills");
         parent.path_policy = AgentAssetSourcePathPolicy::ReadonlySkillLinkRoot {
-            shared_root: PathBuf::from("/tmp/home/.agents/skills"),
+            shared_root: fixture_path("/tmp/home/.agents/skills"),
         };
         let revision = AgentAssetRevision {
             identity: "complete-manifest".to_owned(),
@@ -1086,7 +1094,7 @@ mod tests {
             assert!(
                 matches!(&child.path_policy, AgentAssetSourcePathPolicy::ReadonlySkillLink {
                 manifest_revision, entry_name, shared_root, ..
-            } if manifest_revision == &revision && entry_name == "alias" && shared_root == &PathBuf::from("/tmp/home/.agents/skills"))
+            } if manifest_revision == &revision && entry_name == "alias" && shared_root == &fixture_path("/tmp/home/.agents/skills"))
             );
             assert!(run.finish_diagnostics().is_empty());
 
@@ -1268,7 +1276,7 @@ mod tests {
         drop(output);
         let retained = state.finish(&mut run, "context:test");
         assert_eq!(retained.len(), 1);
-        assert_eq!(retained[0].path, PathBuf::from("/tmp/skills/SKILL.md"));
+        assert_eq!(retained[0].path, fixture_path("/tmp/skills/SKILL.md"));
         assert_eq!(retained[0].source_kind, AgentAssetSourceKind::File);
     }
 

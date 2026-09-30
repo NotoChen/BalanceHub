@@ -307,7 +307,7 @@ fn real_codex_plugin_cache_binding_ignores_orphans_and_uses_local_then_semver() 
         .find(|source| {
             source
                 .path
-                .ends_with("selected/local/.codex-plugin/plugin.json")
+                .replace('\\', "/").ends_with("selected/local/.codex-plugin/plugin.json")
         })
         .unwrap();
     assert!(selected.source_ids.contains(&local_manifest.id));
@@ -330,7 +330,7 @@ fn real_codex_plugin_cache_binding_ignores_orphans_and_uses_local_then_semver() 
         .find(|source| {
             source
                 .path
-                .ends_with("selected/10.0.0/.codex-plugin/plugin.json")
+                .replace('\\', "/").ends_with("selected/10.0.0/.codex-plugin/plugin.json")
         })
         .unwrap();
     assert!(!next.source_ids.contains(&local_manifest.id));

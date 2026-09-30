@@ -118,7 +118,15 @@ X-Custom = "toml-header-secret"
 futureCredential = "future-secret"
 "#;
     for kind in [AgentCliKind::Codex, AgentCliKind::Grok] {
-        let result = render_preview(policy(kind, "config"), bytes);
+        let portable = String::from_utf8_lossy(bytes).replace(
+            "/safe/workspace",
+            if cfg!(windows) {
+                "C:/safe/workspace"
+            } else {
+                "/safe/workspace"
+            },
+        );
+        let result = render_preview(policy(kind, "config"), portable.as_bytes());
         let output = result.content.expect("native TOML policy");
         for safe in [
             "npx",

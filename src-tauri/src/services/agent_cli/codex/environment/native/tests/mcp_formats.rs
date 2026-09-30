@@ -107,7 +107,7 @@ fn legacy_mcp_normalization_matches_native_oauth_cwd_and_optional_nulls() {
     assert_eq!(decoded.transport, AgentMcpTransport::Stdio);
     assert_eq!(
         Path::new(table.get("cwd").unwrap().as_str().unwrap()),
-        root.join("helpers")
+        Path::new(root.join("helpers").to_string_lossy().trim_start_matches(r"\\?\"))
     );
     assert!(table.get("oauth").is_none());
     for value in [

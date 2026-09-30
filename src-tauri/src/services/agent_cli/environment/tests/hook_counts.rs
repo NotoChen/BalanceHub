@@ -361,7 +361,7 @@ fn hook_counts_grok_reads_only_direct_json_and_counts_command_and_http_rules() {
     assert!(rows.iter().all(|row| row
         .path
         .as_ref()
-        .is_some_and(|path| path.ends_with("hooks/configured.json"))));
+        .is_some_and(|path| path.replace('\\', "/").ends_with("hooks/configured.json"))));
     assert!(rows.iter().all(|row| matches!(
         row.details,
         AgentAssetDetails::Hook {

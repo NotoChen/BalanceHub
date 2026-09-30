@@ -875,8 +875,10 @@ fn codex_native_hook_status_and_skill_rows_retain_native_proofs_after_reversal()
         assert_eq!(
             hook.native_id,
             format!(
-                "{}/hooks.json:session_start:0:0",
-                run.inventory.contexts[0].config_root
+                "{}:session_start:0:0",
+                Path::new(&run.inventory.contexts[0].config_root)
+                    .join("hooks.json")
+                    .display()
             )
         );
         assert_eq!(hook.declared_state, AgentAssetState::Enabled);
