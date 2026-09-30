@@ -228,6 +228,10 @@ fn prepared_mutation_rejects_changed_or_new_directory_sources() {
         let path = inspector.root.join("asset-directory");
         if existed {
             fs::create_dir(&path).unwrap();
+            fs::File::open(&path)
+                .unwrap()
+                .set_modified(std::time::UNIX_EPOCH)
+                .unwrap();
         }
         let mut snapshot = inspector.snapshot();
         let mut source = snapshot.inventory.sources[0].clone();

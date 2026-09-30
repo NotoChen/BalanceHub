@@ -39,6 +39,12 @@ impl SkillLinkFixture {
         fs::create_dir_all(&target).unwrap();
         fs::create_dir(shared.join("same-byte-package")).unwrap();
         fs::write(target.join("SKILL.md"), MARKDOWN).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(target.join("SKILL.md"))
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH)
+            .unwrap();
         fs::write(shared.join("same-byte-package/SKILL.md"), MARKDOWN).unwrap();
         let link = manifest.join("declared-alias");
         symlink(
