@@ -6,6 +6,7 @@ import type {
   ProviderProtocol,
   ProviderQuotaDisplay,
 } from "../stores/providers";
+import { providerNeedsCheckIn } from "./provider-actions.ts";
 
 export type ProviderCardTone =
   | "disabled"
@@ -15,6 +16,16 @@ export type ProviderCardTone =
   | "empty"
   | "ok"
   | "syncing";
+
+/** 卡片与筛选共用的状态；签到、探测等临时进度由卡片单独显示。 */
+export function providerCardStatusTone(provider: Provider): Exclude<ProviderCardTone, "syncing"> {
+  if (!provider.runtime.enabled) return "disabled";
+  if (provider.runtime.status === "warning" && !provider.automation.lastSyncedAt) return "pending";
+  if (provider.runtime.status === "error") return "error";
+  if (providerNeedsCheckIn(provider)) return "warning";
+  if (providerHasNoAvailableBalance(provider)) return "empty";
+  return "ok";
+}
 
 const providerAuthModeLabels: Record<AuthMode, string> = {
   session: "Cookie",
@@ -40,6 +51,100 @@ export function providerProtocolLabel(protocol: ProviderProtocol | Provider): st
 export function providerTransportProtocol(baseUrl: string): string {
   const match = baseUrl.trim().match(/^([a-z][a-z0-9+.-]*):\/\//i);
   return match?.[1]?.toUpperCase() || "";
+}
+
+function decodedDisplaySecret(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function sensitiveUrlParameterValues(parameters: string): string[] {
+  return parameters.split("&").flatMap((parameter) => {
+    const separator = parameter.indexOf("=");
+    if (separator < 0) return [];
+    const name = decodedDisplaySecret(parameter.slice(0, separator).replace(/\+/g, " "))
+      .replace(/[^a-z0-9]/gi, "");
+    if (!/(?:key|token|secret|password|passwd|pwd|cookie|session(?:id)?|credentials?|authorization|auth|signature|sig|code)$/i.test(name)) {
+      return [];
+    }
+    const value = parameter.slice(separator + 1);
+    return [value, decodedDisplaySecret(value.replace(/\+/g, " "))];
+  });
+}
+
+function providerUrlDisplaySecrets(baseUrl: string): string[] {
+  try {
+    const url = new URL(baseUrl.trim());
+    const query = url.search.slice(1);
+    const fragment = url.hash.slice(1);
+    const secrets = [url.username, url.password, query, fragment, ...sensitiveUrlParameterValues(query)];
+    // Fragments can carry an opaque token or OAuth parameters, including after a route.
+    const fragmentParameters = fragment.includes("=") ? fragment : decodedDisplaySecret(fragment);
+    if (fragmentParameters.includes("=")) {
+      secrets.push(...sensitiveUrlParameterValues(fragmentParameters.slice(fragmentParameters.indexOf("?") + 1)));
+    }
+    return secrets;
+  } catch {
+    return [];
+  }
+}
+
+function displaySecretVariants(value: string): string[] {
+  const raw = value.trim();
+  if (!raw) return [];
+  const decoded = decodedDisplaySecret(raw);
+  return [raw, decoded].flatMap((secret) => {
+    try {
+      const encoded = encodeURIComponent(secret);
+      return [secret, encoded, encoded.replace(/%20/g, "+")];
+    } catch {
+      return [secret];
+    }
+  });
+}
+
+/** Removes configured and URL-derived secrets from labels without changing provider data. */
+export function providerSafeDisplayText(provider: Provider, value: string): string {
+  const secrets = [
+    provider.auth.apiKey,
+    provider.auth.accessToken,
+    provider.auth.sessionCookie,
+    provider.auth.loginPassword,
+    provider.auth.refreshToken,
+    ...provider.auth.apiKeyOptions.map((option) => option.key),
+    ...providerUrlDisplaySecrets(provider.identity.baseUrl),
+  ];
+  const patterns = [...new Set(secrets.flatMap(displaySecretVariants))]
+    .sort((left, right) => right.length - left.length)
+    .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      // Percent-escape hex casing is insignificant; credential character casing is not.
+      .replace(/%[0-9a-f]{2}/gi, (octet) => octet.replace(/[a-f]/gi, (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`)));
+  return patterns.length ? value.replace(new RegExp(patterns.join("|"), "g"), "••••") : value;
+}
+
+/** Keeps a distinguishing HTTP(S) site path, never URL authentication or raw invalid input. */
+export function providerSiteAddressLabel(provider: Provider): string {
+  const value = provider.identity.baseUrl.trim();
+  if (!value) return "地址未配置";
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "地址格式异常";
+    const path = url.pathname.split("/").map((segment) => {
+      try {
+        const decoded = decodeURIComponent(segment);
+        return providerSafeDisplayText(provider, decoded) === decoded ? segment : "••••";
+      } catch {
+        return "••••";
+      }
+    }).join("/").replace(/\/+$/, "");
+    return providerSafeDisplayText(provider, `${url.origin}${path}`);
+  } catch {
+    return "地址格式异常";
+  }
 }
 
 export function providerQuotaKnown(provider: Provider) {
@@ -79,13 +184,17 @@ export function formatNumberCompact(value: number, fractionDigits = 2) {
   }).format(value);
 }
 
-export function formatQuotaValue(value: number, quotaDisplay: ProviderQuotaDisplay) {
+export function formatQuotaValue(value: number, quotaDisplay: ProviderQuotaDisplay, precision?: number) {
+  if (!Number.isFinite(value)) return "—";
   const displayType = quotaDisplay.quotaDisplayType || "currency";
+  const formatted = precision === undefined
+    ? formatNumberCompact(value, displayType.toLowerCase() === "tokens" ? 0 : 2)
+    : new Intl.NumberFormat("en-US", { maximumFractionDigits: precision }).format(value);
   if (displayType.toLowerCase() === "tokens") {
-    return formatNumberCompact(value, 0);
+    return formatted;
   }
   const symbol = normalizeCurrencySymbol(displayType, quotaDisplay.currencySymbol);
-  return `${symbol}${formatNumberCompact(value)}`;
+  return `${symbol}${formatted}`;
 }
 
 function normalizeCurrencySymbol(displayType: string, value: string) {
@@ -320,7 +429,7 @@ export function availablePercent(provider: Provider) {
     return 1;
   }
   const total = provider.quota.available + provider.quota.used;
-  return total === 0 ? 0 : provider.quota.available / total;
+  return total <= 0 ? 0 : Math.max(0, Math.min(1, provider.quota.available / total));
 }
 
 export function availablePercentLabel(provider: Provider) {

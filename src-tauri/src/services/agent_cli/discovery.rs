@@ -1,85 +1,86 @@
-use crate::{limits, platform::process::run_command_with_output_timeout};
+use crate::limits;
 
+mod candidates;
+mod distribution;
+mod installations;
 pub(super) mod paths;
+mod probe;
 #[cfg(test)]
 mod tests;
+mod version_cache;
 
 use super::{AgentCliDefinition, AgentCliExecutable};
+use crate::models::AgentDiscoverySource;
+use candidates::{
+    candidate_matches_preferred, collect_all_candidates, compare_version_keys, explicit_env_values,
+    numeric_version_key, preferred_path_is_version_managed, CandidateCollectionMode,
+    CandidateCollector,
+};
 use std::{
     cmp::Ordering,
-    env,
-    path::{Path, PathBuf},
-    process::Command,
-    time::Duration,
+    collections::BTreeSet,
+    path::Path,
+    time::{Duration, Instant},
 };
 
+pub(super) use distribution::{npm_package_owner, NpmPackageOwner};
+pub(super) use installations::discover_installations;
 pub(super) use paths::runtime_path_for;
-use paths::{
-    binary_names, clean_preferred_path, expand_home_path, has_path_separator, home_dir,
-    normalize_path, path_candidates, platform_global_dirs, shell_command_candidates,
-};
+use paths::{clean_preferred_path, expand_home_path, RuntimePathSnapshot};
+pub(super) use version_cache::initialize as initialize_cache;
+
+#[cfg(test)]
+use candidates::{balancehub_cli_path_env_key, CliCandidate};
+#[cfg(test)]
+use installations::{candidate_truncation_diagnostic, discover_installations_with_run};
+#[cfg(test)]
+use paths::{has_path_separator, lexical_comparison_key};
+#[cfg(test)]
+use probe::{ProbeFailure, ProbedCli};
 
 const CLI_VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 
-fn explicit_env_candidates(spec: &AgentCliDefinition, include_shell: bool) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    let balancehub_key = balancehub_cli_path_env_key(spec.kind);
-    for key in
-        std::iter::once(balancehub_key.as_str()).chain(spec.additional_env_keys.iter().copied())
-    {
-        if let Ok(path) = env::var(key) {
-            let path = clean_preferred_path(&path);
-            if !path.is_empty() {
-                candidates.push(expand_home_path(&path));
-                if !has_path_separator(&path) {
-                    candidates.extend(path_candidates(&path, include_shell));
+/// Shallow discovery and filesystem metadata only; never runs a CLI or login shell.
+pub(super) fn observe_candidates(
+    digest: &mut sha2::Sha256,
+    preferred: &str,
+    spec: &AgentCliDefinition,
+) {
+    use sha2::Digest;
+    let collection = collect_all_candidates(
+        preferred,
+        &explicit_env_values(spec),
+        spec,
+        false,
+        crate::models::AgentAssetLimits::HARD_CAP.candidate_paths_per_agent,
+        CandidateCollectionMode::InventoryBounded {
+            deadline: Instant::now() + Duration::from_secs(1),
+        },
+    );
+    digest.update([
+        u8::from(collection.collector.truncated),
+        u8::from(collection.collector.budget_exceeded),
+    ]);
+    for candidate in collection.collector.candidates {
+        super::cache::observe_path(digest, &candidate.runtime_entrypoint);
+        if let Ok(canonical) = std::fs::canonicalize(&candidate.runtime_entrypoint) {
+            super::cache::observe_path(digest, &canonical);
+            for parent in canonical.ancestors().skip(1).take(6) {
+                let manifest = parent.join("package.json");
+                super::cache::observe_path(digest, &manifest);
+                if manifest.is_file() {
+                    super::cache::observe_path(digest, parent);
+                    break;
                 }
             }
         }
-    }
-    candidates
-}
-
-/// 按优先级构建 CLI 候选路径：preferred → 环境变量 → 各 CLI 专属路径 → 常见安装目录 → PATH → shell。
-fn cli_candidates(
-    preferred_path: &str,
-    explicit_env_candidates: &[PathBuf],
-    spec: &AgentCliDefinition,
-    include_shell: bool,
-) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    let preferred_path = clean_preferred_path(preferred_path);
-    if !preferred_path.is_empty() {
-        let preferred = expand_home_path(&preferred_path);
-        candidates.push(preferred.clone());
-        if !has_path_separator(&preferred_path) {
-            candidates.extend(path_candidates(&preferred_path, include_shell));
+        if let Some(path) = collection
+            .runtime_path
+            .path_for(&candidate.runtime_entrypoint)
+        {
+            digest.update(path.as_encoded_bytes());
         }
     }
-    candidates.extend(explicit_env_candidates.iter().cloned());
-    if let Some(home) = home_dir() {
-        candidates.extend((spec.home_candidates)(&home));
-    }
-    for dir in platform_global_dirs() {
-        candidates.extend(
-            binary_names(spec.executable)
-                .into_iter()
-                .map(|name| PathBuf::from(dir).join(name)),
-        );
-    }
-    if let Ok(path) = env::var("PATH") {
-        for dir in env::split_paths(&path) {
-            candidates.extend(
-                binary_names(spec.executable)
-                    .into_iter()
-                    .map(|name| dir.join(name)),
-            );
-        }
-    }
-    if include_shell {
-        candidates.extend(shell_command_candidates(spec.executable));
-    }
-    candidates
 }
 
 /// 显式自定义路径有效时优先使用；NVM/FNM 版本路径与自动发现候选则选择最高版本。
@@ -90,48 +91,58 @@ pub(super) fn find_cli(
 ) -> Result<AgentCliExecutable, String> {
     let preferred_path = clean_preferred_path(preferred_path);
     let preferred_can_move = preferred_path_is_version_managed(&preferred_path);
-    let explicit_env_candidates = explicit_env_candidates(spec, include_shell);
-    let mut seen = Vec::new();
-    let mut best: Option<(AgentCliExecutable, Vec<u64>)> = None;
-    let mut failures = Vec::new();
-
-    // 固定路径不需要等待登录 shell 扫描。优先探测它们既符合用户选择，
-    // 也避免 shell 插件或版本管理器让一次本地 CLI 扫描无谓阻塞数秒。
-    let mut fixed_candidates = Vec::new();
+    let explicit_values = explicit_env_values(spec);
+    let mut fixed = CandidateCollector::new(usize::MAX);
     if !preferred_path.is_empty() && !preferred_can_move {
-        fixed_candidates.push(expand_home_path(&preferred_path));
+        fixed.push(
+            expand_home_path(&preferred_path),
+            AgentDiscoverySource::Configured,
+            true,
+        );
     }
-    fixed_candidates.extend(explicit_env_candidates.iter().cloned());
-    for candidate in fixed_candidates {
-        if seen.iter().any(|item: &PathBuf| item == &candidate) {
-            continue;
-        }
-        seen.push(candidate.clone());
-        match probe_cli_candidate(&candidate, spec, include_shell) {
-            Ok(result) => return Ok(result),
-            Err(message) => failures.push(format!("{}: {message}", candidate.display())),
+    for value in &explicit_values {
+        fixed.push(
+            expand_home_path(value),
+            AgentDiscoverySource::Configured,
+            true,
+        );
+    }
+
+    // Keep the fixed-path fast path genuinely staged. A configured launcher
+    // normally finds its interpreter beside itself or on the process PATH, so
+    // it must not wait for login-shell or version-manager discovery first.
+    let fast_runtime_path = RuntimePathSnapshot::from_parts(Vec::new(), None);
+    for candidate in &fixed.candidates {
+        if let Ok(result) =
+            probe_candidate_for_legacy(&candidate.runtime_entrypoint, spec, &fast_runtime_path)
+        {
+            return Ok(result);
         }
     }
 
-    for candidate in cli_candidates(
+    // If the fast path failed, build one complete legacy snapshot and retry
+    // those candidates through the common collector. This preserves launchers
+    // whose interpreter exists only in a version-manager or login-shell PATH.
+    let collection = collect_all_candidates(
         &preferred_path,
-        &explicit_env_candidates,
+        &explicit_values,
         spec,
         include_shell,
-    ) {
-        if seen.iter().any(|item: &PathBuf| item == &candidate) {
+        usize::MAX,
+        CandidateCollectionMode::Legacy,
+    );
+    let runtime_path = collection.runtime_path;
+
+    let mut seen = BTreeSet::new();
+    let mut failures = Vec::new();
+    let mut best: Option<(AgentCliExecutable, Vec<u64>)> = None;
+    for candidate in collection.collector.candidates {
+        if !seen.insert(candidate.lexical_key.clone()) {
             continue;
         }
-        seen.push(candidate.clone());
-        let explicit_env = explicit_env_candidates.contains(&candidate);
-        match probe_cli_candidate(&candidate, spec, include_shell) {
+        match probe_candidate_for_legacy(&candidate.runtime_entrypoint, spec, &runtime_path) {
             Ok(result) => {
-                if candidate_has_fixed_priority(
-                    &candidate,
-                    &preferred_path,
-                    preferred_can_move,
-                    &explicit_env_candidates,
-                ) {
+                if candidate.fixed_priority {
                     return Ok(result);
                 }
                 let version_key = numeric_version_key(&result.version);
@@ -145,9 +156,12 @@ pub(super) fn find_cli(
             Err(message) => {
                 if failures.len() < 4
                     || candidate_matches_preferred(&candidate, &preferred_path)
-                    || explicit_env
+                    || candidate.source == AgentDiscoverySource::Configured
                 {
-                    failures.push(format!("{}: {message}", candidate.display()));
+                    failures.push(format!(
+                        "{}: {message}",
+                        candidate.runtime_entrypoint.display()
+                    ));
                 }
             }
         }
@@ -174,149 +188,64 @@ pub(super) fn find_cli(
     }
 }
 
+pub(super) fn current_installation_id(
+    preferred_path: &str,
+    spec: &AgentCliDefinition,
+    installations: &[crate::models::AgentInstallation],
+) -> Option<String> {
+    use crate::models::AgentInstallationAvailability;
+    let candidates: Vec<_> = installations
+        .iter()
+        .filter(|installation| {
+            installation.agent_kind == spec.kind
+                && installation.availability == AgentInstallationAvailability::Available
+        })
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    let selected = find_cli(preferred_path, spec, false).ok()?;
+    let selected_path = Path::new(&selected.path);
+    let exact = candidates.iter().find(|installation| {
+        installation.executable_path.as_deref().map(Path::new) == Some(selected_path)
+    });
+    if let Some(installation) = exact {
+        return Some(installation.id.clone());
+    }
+    let canonical = std::fs::canonicalize(selected_path).ok()?;
+    candidates
+        .iter()
+        .find(|installation| {
+            installation
+                .executable_identity
+                .as_ref()
+                .is_some_and(|identity| Path::new(&identity.canonical_path) == canonical)
+        })
+        .map(|installation| installation.id.clone())
+}
+
 pub(super) fn find_cli_at_path(
     candidate: &Path,
     spec: &AgentCliDefinition,
 ) -> Result<AgentCliExecutable, String> {
-    probe_cli_candidate(candidate, spec, false)
+    let runtime_path = paths::legacy_runtime_path_snapshot(false);
+    probe_candidate_for_legacy(candidate, spec, &runtime_path)
 }
 
-fn probe_cli_candidate(
+fn probe_candidate_for_legacy(
     candidate: &Path,
     spec: &AgentCliDefinition,
-    include_shell: bool,
+    runtime_path: &RuntimePathSnapshot,
 ) -> Result<AgentCliExecutable, String> {
-    if let Some(validate) = spec.invalid_path_reason {
-        if let Some(message) = validate(&normalize_path(candidate.to_path_buf())) {
-            return Err(message.to_string());
-        }
-    }
-    if !candidate.is_file() {
-        return Err("文件不存在".to_string());
-    }
-    let version = cli_version(candidate, spec.require_version_substring, include_shell)?;
-    Ok(AgentCliExecutable {
-        path: candidate.to_string_lossy().to_string(),
-        version,
-    })
-}
-
-fn balancehub_cli_path_env_key(kind: crate::models::AgentCliKind) -> String {
-    let mut key = String::from("BALANCEHUB_");
-    let mut previous_was_lowercase = false;
-    for character in kind.key().chars() {
-        if character.is_ascii_uppercase() && previous_was_lowercase {
-            key.push('_');
-        }
-        key.push(character.to_ascii_uppercase());
-        previous_was_lowercase = character.is_ascii_lowercase();
-    }
-    key.push_str("_CLI_PATH");
-    key
-}
-
-fn candidate_matches_preferred(candidate: &Path, preferred_path: &str) -> bool {
-    !preferred_path.is_empty() && candidate == expand_home_path(preferred_path)
-}
-
-fn candidate_has_fixed_priority(
-    candidate: &Path,
-    preferred_path: &str,
-    preferred_can_move: bool,
-    explicit_env_candidates: &[PathBuf],
-) -> bool {
-    (candidate_matches_preferred(candidate, preferred_path) && !preferred_can_move)
-        || explicit_env_candidates.iter().any(|path| path == candidate)
-}
-
-fn preferred_path_is_version_managed(preferred_path: &str) -> bool {
-    if preferred_path.is_empty() {
-        return false;
-    }
-    let path = expand_home_path(preferred_path)
-        .to_string_lossy()
-        .replace('\\', "/");
-    path.contains("/.nvm/versions/node/")
-        || path.contains("/.fnm/node-versions/")
-        || path.contains("/.local/share/fnm/node-versions/")
-        || path.contains("/.local/state/fnm_multishells/")
-}
-
-fn numeric_version_key(value: &str) -> Vec<u64> {
-    value
-        .split(|character: char| !character.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<u64>().ok())
-        .collect()
-}
-
-fn compare_version_keys(left: &[u64], right: &[u64]) -> Ordering {
-    let length = left.len().max(right.len());
-    for index in 0..length {
-        match left
-            .get(index)
-            .copied()
-            .unwrap_or(0)
-            .cmp(&right.get(index).copied().unwrap_or(0))
-        {
-            Ordering::Equal => continue,
-            ordering => return ordering,
-        }
-    }
-    Ordering::Equal
-}
-
-fn cli_version(
-    path: &Path,
-    require_substring: Option<&str>,
-    include_shell: bool,
-) -> Result<String, String> {
-    let mut command = Command::new(path);
-    let runtime_path = if include_shell {
-        paths::runtime_path_for(path)
-    } else {
-        paths::runtime_path_for_without_shell(path)
-    };
-    if let Some(path_env) = runtime_path {
-        command.env("PATH", path_env);
-    }
-    command.arg("--version");
-    let outcome = run_command_with_output_timeout(
-        &mut command,
+    let deadline = Instant::now() + CLI_VERSION_TIMEOUT;
+    probe::probe_cli_candidate(
+        candidate,
+        spec,
+        runtime_path,
+        deadline,
         CLI_VERSION_TIMEOUT,
         limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
     )
-    .map_err(|err| err.to_string())?;
-    if outcome.timed_out {
-        return Err("CLI 版本探测超时".to_string());
-    }
-    if !outcome.status.is_some_and(|status| status.success()) {
-        let detail = outcome
-            .stderr
-            .lines()
-            .chain(outcome.stdout.lines())
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .map(|line| line.chars().take(180).collect::<String>());
-        return Err(detail
-            .map(|detail| format!("CLI 不可用：{detail}"))
-            .unwrap_or_else(|| "CLI 不可用".to_string()));
-    }
-    let version = outcome
-        .stdout
-        .lines()
-        .chain(outcome.stderr.lines())
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or_default()
-        .to_string();
-    if version.is_empty() {
-        return Err("CLI 未返回版本信息".to_string());
-    }
-    if let Some(substring) = require_substring {
-        if !version.to_ascii_lowercase().contains(substring) {
-            return Err("CLI 版本信息不匹配".to_string());
-        }
-    }
-    Ok(version)
+    .map(|probed| probed.executable)
+    .map_err(|failure| failure.message)
 }

@@ -7,12 +7,13 @@ import { createPinia, setActivePinia } from "pinia";
 import { createRenderer, createSSRApp, defineComponent, h } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { createServer, type ViteDevServer } from "vite";
-import type { AppSettings, CliEnvironmentProbeResult } from "../src/stores/provider-types.ts";
+import type { AppSettings, CliEnvironmentProbeResult, AgentEnvironmentInventory, AgentInstallation, AgentAssetReadResult, AgentAssetSource } from "../src/stores/provider-types.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 type StoreModule = typeof import("../src/stores/agent-environment.ts");
 type HookStoreModule = typeof import("../src/stores/agent-hooks.ts");
+type CenterModule = typeof import("../src/composables/useAgentEnvironmentCenter.ts");
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -36,7 +37,7 @@ before(async () => {
       },
     },
   });
-  server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
+  server = await createServer({ optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
   storeModule = await server.ssrLoadModule("/src/stores/agent-environment.ts") as StoreModule;
   hookStoreModule = await server.ssrLoadModule("/src/stores/agent-hooks.ts") as HookStoreModule;
 });
@@ -49,10 +50,66 @@ after(async () => {
 test("Agent environment API keeps the Rust command boundary explicit", () => {
   const source = read("src/api/app.ts");
   assert.match(source, /get_agent_environment_inventory/);
-  assert.match(source, /check_agent_latest_versions/);
   assert.match(source, /read_agent_environment_asset/);
   assert.match(source, /open_agent_environment_asset/);
+  assert.match(source, /read_agent_environment_source/);
+  assert.match(source, /open_agent_environment_source/);
   assert.doesNotMatch(source, /openPath|open_path/);
+});
+
+test("Agent environment TypeScript mirrors the strict Rust declaration and relationship shape", () => {
+  const types = read("src/stores/provider-types.ts");
+  const nativeRef = types.match(
+    /export interface AgentAssetNativeRef \{([\s\S]*?)\n\}/,
+  )?.[1];
+  assert.ok(nativeRef);
+  assert.match(nativeRef, /category: AgentAssetCategory;/);
+  assert.match(nativeRef, /nativeId: string;/);
+  assert.match(nativeRef, /qualifier: string \| null;/);
+  assert.doesNotMatch(nativeRef, /declarationKey/);
+
+  const declaration = types.match(
+    /export interface AgentAssetDeclaration \{([\s\S]*?)\n\}/,
+  )?.[1];
+  assert.ok(declaration);
+  assert.match(declaration, /role: AgentAssetDeclarationRole;/);
+  assert.match(declaration, /participation: AgentAssetResolutionParticipation;/);
+  assert.match(declaration, /providedBy: AgentAssetNativeRef \| null;/);
+  assert.match(declaration, /actionOwner: AgentAssetNativeRef \| null;/);
+  assert.match(declaration, /explicitlyAffected: AgentAssetNativeRef\[\];/);
+});
+
+test("Skill diagnostics explain YAML errors, bounded reads and unobserved native state separately", async () => {
+  const { formatAgentAssetDiagnostic: format } = await server.ssrLoadModule(
+    "/src/utils/agent-environment-diagnostics.ts",
+  ) as typeof import("../src/utils/agent-environment-diagnostics.ts");
+  for (const [location, expected] of [
+    ["frontmatter.encoding", /UTF-8.*编码.*刷新/],
+    ["frontmatter.unterminated", /缺少结束分隔线.*SKILL\.md.*刷新/],
+    ["frontmatter.syntax", /YAML.*语法.*字段重复.*刷新/],
+    ["frontmatter.root", /YAML.*字段映射.*刷新/],
+    ["frontmatter.name", /name.*非空单行文本.*刷新/],
+    ["frontmatter.disable-model-invocation", /disable-model-invocation.*true.*false.*刷新/],
+    ["frontmatter.complexity", /复杂度上限.*BalanceHub 无法完整判断状态.*源文件.*Agent/],
+  ] as const) {
+    const message = format({ kind: "malformed", format: "yaml", location });
+    assert.match(message, expected);
+    assert.doesNotMatch(message, /JSON|不支持|已启用|已加载/);
+  }
+  for (const [limit, accepted, unit] of [
+    ["frontmatterLines", 64, "行"],
+    ["frontmatterBytes", 16384, "字节"],
+  ] as const) {
+    const message = format({ kind: "truncated", limit, accepted, observedAtLeast: accepted + 1 });
+    assert.match(message, new RegExp(`${accepted} ${unit}读取上限`));
+    assert.match(message, /BalanceHub 无法完整判断状态.*源文件.*Agent/);
+    assert.doesNotMatch(message, /语法有误|已启用|已加载/);
+  }
+  assert.match(format({ kind: "readFailed", sourceId: "source:fixture", errorKind: "permissionDenied" }), /权限不足.*检查文件权限.*刷新/);
+  assert.match(format({ kind: "discoveryIncomplete", agentKind: "claudeCode", category: "skill", reason: "runtimeStateUnobserved" }), /已读取静态配置.*Agent 运行时确定/);
+  assert.match(format({ kind: "discoveryIncomplete", agentKind: "claudeCode", category: "skill", reason: "unsupportedVersion" }), /BalanceHub 尚未适配/);
+  assert.equal(format({ kind: "malformed", format: "yaml", location: null }), "YAML 内容无法解析");
+  assert.equal(format({ kind: "malformed", format: "json", location: "statusLine" }), "JSON 内容无法解析（statusLine）");
 });
 
 test("managed Hook API exposes plans and owned apply without accepting paths", () => {
@@ -120,17 +177,16 @@ test("managed Hook plan modal stays closable and applies only after explicit con
   assert.doesNotMatch(source, /balancehub-critical-modal-lock/);
 });
 
-test("Agent environment uses a dynamic list with explicit row controls", () => {
-  const page = read("src/components/settings/SettingsAgentEnvironmentCenter.vue");
-  const consoleSource = read("src/components/settings/agent-environment/AgentEnvironmentConsole.vue");
+test("Agent environment remains a per-tool detail while primary management moves out of settings", () => {
+  const dashboard = read("src/components/agent-workspace/AgentDashboard.vue");
+  const detail = read("src/components/agent-workspace/AgentInstallationModal.vue");
   const row = read("src/components/settings/agent-environment/AgentEnvironmentRow.vue");
-  assert.match(page, /AgentEnvironmentConsole/);
-  assert.doesNotMatch(page, /AgentInstallationGrid|AgentHookManager/);
-  assert.match(consoleSource, /v-for="row in rows"/);
-  assert.match(consoleSource, /agentHookTargetKey/);
-  assert.doesNotMatch(consoleSource, /codex|claude|gemini|grok/);
+  const settings = read("src/components/settings/SettingsTerminalSection.vue");
+  assert.match(dashboard, /AgentOverviewCard/);
+  assert.match(dashboard, /AgentCatalogPanel/);
+  assert.match(detail, /AgentInstallationTarget/);
+  assert.doesNotMatch(settings, /SettingsAgentEnvironmentCenter|AgentEnvironmentConsole/);
   assert.match(row, /<article class="agent-environment-row"/);
-  assert.doesNotMatch(row, /<button[\s\S]*agent-environment-row/);
   assert.match(row, /emit\('detail'/);
   assert.match(row, /healthAction\?\.available/);
   assert.match(row, /verifyAction\?\.available/);
@@ -195,46 +251,13 @@ test("a superseded inventory failure cannot replace a newer ready state", async 
   assert.equal(store.inventoryErrors.__native__, null);
 });
 
-test("version state is isolated by workspace and stale checks cannot overwrite it", async () => {
+test("a late config preview cannot replace the newer preview for the same source", async () => {
   const store = freshStore();
-  const nativeInventory = inventoryFixture("native");
-  const workspaceInventory = inventoryFixture("workspace", "/workspace");
-  store.inventories.__native__ = nativeInventory;
-  store.inventories["/workspace"] = workspaceInventory;
-
-  const oldNative = queueCommand("check_agent_latest_versions");
-  const newNative = queueCommand("check_agent_latest_versions");
-  const workspace = queueCommand("check_agent_latest_versions");
-  const oldPromise = store.refreshLatestVersions();
-  const newPromise = store.refreshLatestVersions();
-  const workspacePromise = store.refreshLatestVersions("/workspace");
-
-  workspace.resolve(versionFixture("3.0.0", "workspace"));
-  newNative.resolve(versionFixture("2.0.0", "new"));
-  await Promise.all([workspacePromise, newPromise]);
-  oldNative.resolve(versionFixture("1.0.0", "old"));
-  await oldPromise;
-
-  assert.equal(store.inventory()?.installations[0].latestStableVersion, "2.0.0");
-  assert.equal(store.inventory("/workspace")?.installations[0].latestStableVersion, "3.0.0");
-  assert.equal(store.versionState.__native__, "ready");
-  assert.equal(store.versionState["/workspace"], "ready");
-
-  const failedCheck = queueCommand("check_agent_latest_versions");
-  const failedPromise = store.refreshLatestVersions();
-  failedCheck.reject(new Error("registry unavailable"));
-  await assert.rejects(failedPromise, /registry unavailable/);
-  assert.equal(store.inventory()?.installations[0].latestStableVersion, "2.0.0");
-  assert.equal(store.versionState.__native__, "error");
-  assert.equal(store.versionErrors.__native__, "registry unavailable");
-});
-
-test("a late config preview cannot replace the newer preview for the same asset", async () => {
-  const store = freshStore();
-  const oldRequest = queueCommand("read_agent_environment_asset");
-  const newRequest = queueCommand("read_agent_environment_asset");
-  const oldPromise = store.readConfigPreview("asset:config");
-  const newPromise = store.readConfigPreview("asset:config");
+  const oldRequest = queueCommand("read_agent_environment_source");
+  const newRequest = queueCommand("read_agent_environment_source");
+  const access = { accessId: "access:config", environmentId: "native:macos" };
+  const oldPromise = store.readConfigPreview("source:config", access);
+  const newPromise = store.readConfigPreview("source:config", access);
 
   newRequest.resolve(previewFixture("new content"));
   await newPromise;
@@ -275,57 +298,55 @@ test("closing or unmounting ignores late local results without invalidating shar
   app.use(pinia);
   app.mount({});
   const store = storeModule.useAgentEnvironmentStore();
-  const asset = assetFixture();
-  const previewRequest = queueCommand("read_agent_environment_asset");
-  const previewPromise = center!.selectConfig(asset);
+  const fixture = inventoryFixture("before preview");
+  fixture.sources = [sourceFixture()];
+  store.inventories.__native__ = fixture;
+  const previewRequest = queueCommand("read_agent_environment_source");
+  const previewPromise = center!.assets.action("source", "source:config", "preview");
 
-  center!.closeInstallation();
+  center!.assets.closeDetail();
   previewRequest.resolve(previewFixture("late preview"));
   await previewPromise;
-  assert.equal(center!.configPreview.value, null);
-  assert.equal(center!.configPreviewState.value, "idle");
+  assert.equal(center!.assets.preview.value, null);
+  assert.equal(center!.assets.previewState.value, "idle");
   assert.equal(Object.values(store.previews)[0]?.content, "late preview");
   assert.deepEqual(Object.values(store.previewState), ["ready"]);
 
   const inventoryRequest = queueCommand("get_agent_environment_inventory");
-  const inventoryPromise = center!.loadInventory(true);
+  const inventoryPromise = store.loadInventory(undefined, true);
   app.unmount();
   inventoryRequest.resolve(inventoryFixture("late inventory"));
-  assert.equal(await inventoryPromise, null);
+  await inventoryPromise;
   assert.equal(store.inventories.__native__?.scannedAt, "late inventory");
   assert.equal(store.inventoryState.__native__, "ready");
 });
 
 test("Agent environment configuration preview is bounded and read-only", () => {
-  const source = read("src/components/settings/agent-environment/AgentConfigBrowser.vue");
+  const source = read("src/components/settings/agent-environment/AgentAssetPreview.vue");
   const styles = read("src/styles/modules/agent-environment.css");
   assert.match(source, /内容已截断/);
   assert.match(source, /仅元数据/);
-  assert.match(source, /当前文件不提供内容预览/);
-  assert.match(styles, /\.agent-config-content[\s\S]*overflow: auto/);
+  assert.match(source, /没有可预览的内容/);
+  assert.match(read("src/styles/modules/code-editor.css"), /\.code-editor \.cm-scroller[^}]*overflow: auto/);
   assert.match(styles, /\.agent-config-preview[\s\S]*min-height: 286px/);
 });
 
 test("metadata-only previews and unknown versions render without inventing failure or update state", async () => {
   const configModule = await server.ssrLoadModule(
-    "/src/components/settings/agent-environment/AgentConfigBrowser.vue",
+    "/src/components/settings/agent-environment/AgentAssetPreview.vue",
   );
   const versionModule = await server.ssrLoadModule(
-    "/src/components/settings/agent-environment/AgentVersionStatus.vue",
+    "/src/components/agent-workspace/AgentVersionStatus.vue",
   );
   const configApp = createSSRApp(configModule.default, {
-    files: [assetFixture()],
-    supported: true,
-    selectedId: "asset:config",
     preview: {
       ...previewFixture(""),
       content: null,
       metadataOnly: true,
-      diagnostic: "敏感凭据文件仅提供元数据",
+      diagnostics: ["sensitiveFileMetadataOnly"],
     },
-    previewState: "ready",
-    previewError: "",
-    copiedPathId: null,
+    state: "ready",
+    error: "",
   });
   configApp.component("a-button", defineComponent({
     setup(_, { slots }) {
@@ -334,19 +355,19 @@ test("metadata-only previews and unknown versions render without inventing failu
   }));
   const configHtml = await renderToString(configApp);
   const versionHtml = await renderToString(createSSRApp(versionModule.default, {
-    installation: installationFixture(),
+    version: null,
     compact: false,
     checking: false,
   }));
 
-  assert.match(configHtml, /当前资产仅提供元数据/);
-  assert.match(configHtml, /敏感凭据文件仅提供元数据/);
+  assert.match(configHtml, /此来源仅提供元数据/);
+  assert.match(configHtml, /凭据文件仅提供元数据/);
   assert.doesNotMatch(configHtml, /文件缺失或不可读取/);
-  assert.match(versionHtml, /版本未知/);
+  assert.match(versionHtml, /未检查/);
   assert.doesNotMatch(versionHtml, /有可用更新/);
 });
 
-test("deep scan adopts one candidate only after an unchanged settings snapshot", async () => {
+test("deep scan offers a candidate without changing the configured executable", async () => {
   const centerModule = await server.ssrLoadModule("/src/composables/useAgentEnvironmentCenter.ts");
   const settings = deepScanSettings();
   const { center, app } = mountCenter(centerModule.useAgentEnvironmentCenter, settings);
@@ -358,9 +379,8 @@ test("deep scan adopts one candidate only after an unchanged settings snapshot",
   await pending;
 
   assert.equal(center.deepScanCandidates.value.length, 1);
-  assert.equal(center.adoptDeepScanCandidate(center.deepScanCandidates.value[0]), true);
-  assert.equal(settings.agentCliPaths.codex, "/login-shell/bin/codex");
-  assert.equal(center.isDeepScanCandidateAdopted(center.deepScanCandidates.value[0]), true);
+  assert.equal(center.canAdoptDeepScanCandidate(center.deepScanCandidates.value[0]), true);
+  assert.deepEqual(settings.agentCliPaths, {});
   app.unmount();
 });
 
@@ -378,7 +398,6 @@ test("deep scan keeps a concurrent path edit and disables only that candidate", 
   const candidate = center.deepScanCandidates.value[0];
   assert.equal(center.deepScanDraftChanged.value, true);
   assert.equal(center.canAdoptDeepScanCandidate(candidate), false);
-  assert.equal(center.adoptDeepScanCandidate(candidate), false);
   assert.equal(settings.agentCliPaths.codex, "/manual/bin/codex");
   app.unmount();
 });
@@ -418,7 +437,7 @@ test("unmounting the environment center cancels deep scan UI state", async () =>
   await pending;
 
   assert.equal(center.deepScanState.value, "idle");
-  assert.equal(center.deepScanResult.value, null);
+  assert.deepEqual(center.deepScanCandidates.value, []);
   assert.deepEqual(settings.agentCliPaths, {});
 });
 
@@ -443,10 +462,10 @@ function freshStore() {
   return storeModule.useAgentEnvironmentStore();
 }
 
-function mountCenter(factory: (options: { settings?: AppSettings }) => any, settings: AppSettings) {
+function mountCenter(factory: CenterModule["useAgentEnvironmentCenter"], settings: AppSettings) {
   const pinia = createPinia();
   setActivePinia(pinia);
-  let center: any;
+  let center!: ReturnType<CenterModule["useAgentEnvironmentCenter"]>;
   const renderer = createRenderer<Record<string, unknown>, Record<string, unknown>>({
     patchProp() {},
     insert() {},
@@ -525,12 +544,13 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-function inventoryFixture(scannedAt: string, workspace: string | null = null) {
+function inventoryFixture(scannedAt: string, workspace: string | null = null): AgentEnvironmentInventory {
   return {
     environment: {
       id: "native:macos",
       kind: "native",
       hostPlatform: "macos",
+      hostArchitecture: "aarch64",
       guestPlatform: null,
       displayName: "本机 (macos)",
       capabilities: ["readOnlyInventory", "boundedPreview"],
@@ -539,12 +559,18 @@ function inventoryFixture(scannedAt: string, workspace: string | null = null) {
     sources: [],
     capabilities: [{ agentKind: "codex", assets: [] }],
     assets: [],
+    hookRuleCounts: [{ agentKind: "codex", ruleCount: 0 }],
     scannedAt,
     workspace,
+    contexts: [{ id: "context:codex:default", environmentId: "native:macos", agentKind: "codex", configRoot: "/tmp", profile: "default", workspaceId: workspace, trustContext: "trusted", parserVersion: 1, schemaFacts: {}, compatibleInstallationIds: ["installation:codex"] }],
+    declarations: [],
+    mechanisms: [],
+    diagnostics: [],
+    limits: { candidatePathsPerAgent: 32, installationsPerAgent: 8, sourcesPerContext: 128, firstLevelEntries: 512, bytesPerSource: 524288, bytesPerRefresh: 8388608, refreshBudgetMs: 5000, cliOutputBytes: 262144, cliConcurrency: 2, watchers: 64, diagnostics: 100 },
   };
 }
 
-function installationFixture() {
+function installationFixture(): AgentInstallation {
   return {
     id: "installation:codex",
     environmentId: "native:macos",
@@ -552,66 +578,194 @@ function installationFixture() {
     label: "Codex",
     availability: "available",
     executablePath: "/usr/local/bin/codex",
+    executableIdentity: { owner: "fixture", canonicalPath: "/usr/local/bin/codex", installationSource: "automatic" },
+    executableRevision: "fixture:executable:revision",
     installedVersion: "1.0.0",
     discoverySource: "automatic",
+    distribution: "npm",
     channel: "stable",
     installedVersionSource: "localExecutable",
-    latestStableVersion: null,
-    latestVersionSource: "unknown",
-    versionState: "unknown",
-    versionCheckedAt: null,
-    diagnostic: null,
+    diagnostics: [],
   };
 }
 
-function versionFixture(version: string, checkedAt: string) {
+function previewFixture(content: string): AgentAssetReadResult {
   return {
-    installations: [{
-      ...installationFixture(),
-      latestStableVersion: version,
-      latestVersionSource: "npmRegistry",
-      versionState: "updateAvailable",
-      versionCheckedAt: checkedAt,
-    }],
-    checkedAt,
-  };
-}
-
-function previewFixture(content: string) {
-  return {
-    stableId: "asset:config",
+    stableId: "source:config",
+    accessId: "access:config",
+    sourceRevision: sourceFixture().revision,
     path: "/tmp/config.toml",
     content,
     sizeBytes: content.length,
     modifiedAt: null,
     truncated: false,
     metadataOnly: false,
-    diagnostic: null,
+    diagnostics: [],
   };
 }
 
-function assetFixture() {
+function sourceFixture(): AgentAssetSource {
   return {
-    stableId: "asset:config",
-    agentKind: "codex",
-    category: "config",
-    nativeId: "config",
+    id: "source:config",
+    contextId: "context:codex:default",
     label: "config.toml",
-    sourceId: "source:config",
     scope: "user",
+    origin: "configEntry",
     environmentId: "native:macos",
     workspaceId: null,
     path: "/tmp/config.toml",
     precedence: 1,
     writable: true,
-    declaredState: "unknown",
-    effectiveState: "unknown",
-    trustState: null,
-    diagnostics: [],
-    revision: "revision",
     sensitive: true,
-    isDirectory: false,
+    sourceKind: "file",
+    categories: ["mcp"],
+    revision: {
+      identity: "revision:config",
+      observedAt: "2026-09-05T00:00:00Z",
+      sizeBytes: 2,
+      isMissing: false,
+      isDirectory: false,
+      isSymlink: false,
+    },
+    diagnostics: [],
+    access: { kind: "ready", accessId: "access:config" },
+    actions: ["inspect", "preview"].map((action) => ({ action: action === "inspect" ? "inspect" : "preview", available: true, reason: null, mechanismId: null, confirmationRequired: false, reloadEffect: null, trustEffect: null, selectedInstallationId: null, risks: [] })),
   };
+}
+
+test("asset details expose explicit installation state without legacy boolean", () => {
+  const source = read("src/stores/provider-types.ts");
+  assert.match(source, /export type AgentAssetInstallState =/);
+  assert.match(source, /"installed"[\s\S]*"notInstalled"[\s\S]*"unknown"/);
+  const plugin = unionVariant(source, "AgentAssetDetails", "plugin");
+  const extension = unionVariant(source, "AgentAssetDetails", "extension");
+  assert.match(plugin, /installState: AgentAssetInstallState/);
+  assert.match(extension, /installState: AgentAssetInstallState/);
+  assert.doesNotMatch(plugin, /installed: boolean/);
+  assert.doesNotMatch(extension, /installed: boolean/);
+});
+
+test("Agent environment TypeScript tagged unions use the complete camelCase wire contract", () => {
+  const types = read("src/stores/provider-types.ts");
+  const diagnosticVariants: Record<string, string[]> = {
+    truncated: ["limit", "accepted", "observedAtLeast"],
+    malformed: ["format", "location"],
+    duplicateNativeId: ["category", "nativeId"],
+    unknownField: ["fieldPath"],
+    symlinkRejected: ["sourceId"],
+    budgetExceeded: ["elapsedMs", "budgetMs"],
+    readFailed: ["sourceId", "errorKind"],
+    invalidNativeId: ["category"],
+    unresolvedRelationship: ["relation", "nativeId"],
+    invalidProjection: ["projectionKey"],
+    invalidResolution: ["projectionKey", "resolution"],
+    installationProbeFailed: ["candidateSource", "errorKind"],
+    sourceOutsideAllowedRoot: ["sourceId"],
+    sourceTypeMismatch: ["sourceId", "expected", "actual"],
+    invalidCompatibleInstallation: ["installationId"],
+    declarationSuppressed: ["reason"],
+    discoveryIncomplete: ["agentKind", "category", "reason"],
+    policyBlocked: [],
+  };
+  const diagnosticLegacyFields: Record<string, string[]> = {
+    truncated: ["observed_at_least"],
+    duplicateNativeId: ["native_id"],
+    unknownField: ["field_path"],
+    symlinkRejected: ["source_id"],
+    budgetExceeded: ["elapsed_ms", "budget_ms"],
+    readFailed: ["source_id", "error_kind"],
+    unresolvedRelationship: ["native_id"],
+    invalidProjection: ["projection_key"],
+    invalidResolution: ["projection_key"],
+    installationProbeFailed: ["candidate_source", "error_kind"],
+    sourceOutsideAllowedRoot: ["source_id"],
+    sourceTypeMismatch: ["source_id"],
+    invalidCompatibleInstallation: ["installation_id"],
+    discoveryIncomplete: ["agent_kind"],
+  };
+  assert.deepEqual(Object.keys(diagnosticVariants).sort(), Object.keys(diagnosticLegacyFields).concat([
+    "malformed",
+    "invalidNativeId",
+    "declarationSuppressed",
+    "policyBlocked",
+  ]).sort());
+  for (const [kind, fields] of Object.entries(diagnosticVariants)) {
+    const variant = unionVariant(types, "AgentAssetDiagnostic", kind);
+    assert.match(variant, new RegExp(`kind: "${kind}"`));
+    for (const field of fields) assert.match(variant, new RegExp(`\\b${field}\\s*:`));
+    for (const field of diagnosticLegacyFields[kind] ?? []) {
+      assert.doesNotMatch(variant, new RegExp(`\\b${field}\\s*:`));
+    }
+  }
+
+  const policyFields = {
+    declaration: ["declarationId"],
+    source: ["sourceId"],
+  };
+  for (const [kind, fields] of Object.entries(policyFields)) {
+    const variant = unionVariant(types, "AgentAssetPolicyReference", kind);
+    for (const field of fields) assert.match(variant, new RegExp(`\\b${field}\\s*:`));
+    assert.doesNotMatch(variant, /declaration_id|source_id/);
+  }
+
+  const detailFields = {
+    skill: ["enabled", "invocationPolicy"],
+    mcp: ["transport", "declaredState", "approvalState", "effectiveAvailability"],
+    plugin: ["installState", "enabled", "trusted"],
+    extension: ["installState", "enabled", "trusted"],
+    hook: ["managed", "enabled", "ruleCount"],
+    statusUi: ["mode", "commandPresent"],
+  };
+  for (const [kind, fields] of Object.entries(detailFields)) {
+    const variant = unionVariant(types, "AgentAssetDetails", kind);
+    for (const field of fields) assert.match(variant, new RegExp(`\\b${field}\\s*:`));
+    for (const field of [
+      "invocation_policy",
+      "declared_state",
+      "approval_state",
+      "effective_availability",
+      "install_state",
+      "command_present",
+      "rule_count",
+      "installed",
+    ]) {
+      assert.doesNotMatch(variant, new RegExp(`\\b${field}\\s*:`));
+    }
+  }
+  assert.match(unionVariant(types, "AgentAssetDetails", "hook"), /ruleCount\s*:\s*number\s*\|\s*null/);
+  assert.match(types, /interface AgentHookRuleCount\s*\{\s*agentKind:\s*AgentCliKind;\s*ruleCount:\s*number\s*\|\s*null;/);
+  assert.match(types, /hookRuleCounts:\s*AgentHookRuleCount\[\]/);
+});
+
+test("Agent environment participation unions keep reason only on suppressed", () => {
+  const types = read("src/stores/provider-types.ts");
+  const participates = unionVariant(
+    types,
+    "AgentAssetResolutionParticipation",
+    "participates",
+  );
+  const suppressed = unionVariant(
+    types,
+    "AgentAssetResolutionParticipation",
+    "suppressed",
+  );
+
+  assert.match(participates, /kind: "participates"/);
+  assert.doesNotMatch(participates, /\breason\s*:/);
+  assert.match(suppressed, /kind: "suppressed"/);
+  assert.match(suppressed, /reason: AgentAssetSuppressionReason/);
+});
+
+function unionVariant(source: string, typeName: string, kind: string) {
+  const typeStart = source.indexOf(`export type ${typeName} =`);
+  assert.notEqual(typeStart, -1, `missing union ${typeName}`);
+  const typeEnd = source.indexOf("\nexport ", typeStart + 1);
+  const union = source.slice(typeStart, typeEnd === -1 ? undefined : typeEnd);
+  const marker = `kind: "${kind}"`;
+  const variantStart = union.indexOf(marker);
+  assert.notEqual(variantStart, -1, `missing ${typeName}.${kind}`);
+  const nextVariantStart = union.indexOf('kind: "', variantStart + marker.length);
+  return union.slice(variantStart, nextVariantStart === -1 ? undefined : nextVariantStart);
 }
 
 function hookInspectionFixture(state: "healthy" | "not_installed", revision: string) {
@@ -649,6 +803,7 @@ function hookPlanFixture() {
       fingerprint: "fingerprint",
       kind: "add",
     }],
+    contentChanges: [],
     summary: "install",
   };
 }

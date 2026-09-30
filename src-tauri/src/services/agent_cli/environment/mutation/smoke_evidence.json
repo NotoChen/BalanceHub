@@ -1,0 +1,200 @@
+[
+  {
+    "id": "grok-mcp-persistent-cli-macos-aarch64-1.0.24-r1",
+    "mechanismKey": "grok-mcp-persistent-cli",
+    "fixtureDigest": "032b1a0754730557ae3bac3be48d7be8f8f7df5ab2da9ab10913eb4e8c4e33ed",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "vendorNative",
+    "testedVersion": {
+      "major": 1,
+      "minor": 0,
+      "patch": 24,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 2,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "gemini-extension-persistent-cli-macos-aarch64-0.59.0-r1",
+    "mechanismKey": "gemini-extension-persistent-cli",
+    "fixtureDigest": "1ba84af1ebf0f67ff91dffd769fa1bfc80b29f99a234258b5ed329ad851e20bb",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "npm",
+    "testedVersion": {
+      "major": 0,
+      "minor": 59,
+      "patch": 0,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 2,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "codex-mcp-enabled-toml-macos-aarch64-0.154.0-r1",
+    "mechanismKey": "codex-mcp-enabled-toml",
+    "fixtureDigest": "1fdfcc9848eccb7a5c394fbf02cb59fc0a8a4079104438cf641663f3dea107ba",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "npm",
+    "testedVersion": {
+      "major": 0,
+      "minor": 154,
+      "patch": 0,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 2,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "codex-skill-enabled-toml-macos-aarch64-0.154.0-r1",
+    "mechanismKey": "codex-skill-enabled-toml",
+    "fixtureDigest": "7bf0c293beabd6949db23677dc31a85f0eec3203e53a0bfa9a8a15d714584258",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "npm",
+    "testedVersion": {
+      "major": 0,
+      "minor": 154,
+      "patch": 0,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 2,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "codex-plugin-enabled-toml-macos-aarch64-0.154.0-r1",
+    "mechanismKey": "codex-plugin-enabled-toml",
+    "fixtureDigest": "384f6f127649158e31258910ee176474f74f27724c6207550973a4fa9e05e50e",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "npm",
+    "testedVersion": {
+      "major": 0,
+      "minor": 154,
+      "patch": 0,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 2,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "grok-skill-disabled-toml-macos-aarch64-1.0.24-r1",
+    "mechanismKey": "grok-skill-disabled-toml",
+    "fixtureDigest": "2223e383af399bdff52de19c7516ff38ba006540d156dd20cde3255065ea08a3",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "vendorNative",
+    "testedVersion": {
+      "major": 1,
+      "minor": 0,
+      "patch": 24,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 2,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "claude-plugin-persistent-cli-macos-aarch64-2.1.269-r1",
+    "mechanismKey": "claude-plugin-persistent-cli",
+    "fixtureDigest": "ee9747e10e2dfc8a487580f5e74b57ba1fd25de452bd9201282c465b8835d657",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "vendorNative",
+    "testedVersion": {
+      "major": 2,
+      "minor": 1,
+      "patch": 269,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 3,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "gemini-skill-persistent-cli-macos-aarch64-0.59.0-r1",
+    "mechanismKey": "gemini-skill-persistent-cli",
+    "fixtureDigest": "bd6782ad36732da1874e38488a8f417ef98ea4d3c0b619d52cad5e703fae5e8f",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "npm",
+    "testedVersion": {
+      "major": 0,
+      "minor": 59,
+      "patch": 0,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 2,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  },
+  {
+    "id": "claude-plugin-persistent-cli-macos-aarch64-2.1.270-r1",
+    "mechanismKey": "claude-plugin-persistent-cli",
+    "fixtureDigest": "ee9747e10e2dfc8a487580f5e74b57ba1fd25de452bd9201282c465b8835d657",
+    "target": {
+      "platform": "macos",
+      "architecture": "aarch64"
+    },
+    "distribution": "vendorNative",
+    "testedVersion": {
+      "major": 2,
+      "minor": 1,
+      "patch": 270,
+      "prerelease": []
+    },
+    "adapterSchemaVersion": 3,
+    "actions": [
+      "enable",
+      "disable"
+    ],
+    "passed": true
+  }
+]

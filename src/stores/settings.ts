@@ -6,14 +6,18 @@ import type { AppSettings } from "./provider-types";
 export const useSettingsStore = defineStore("settings", {
   state: () => ({
     settings: defaultSettings(),
+    saveRequestId: 0,
   }),
   actions: {
     hydrate(settings: AppSettings) {
+      this.saveRequestId += 1;
       this.settings = settings;
     },
     async save(settings: AppSettings) {
-      this.settings = await saveSettingsCommand(settings);
-      return this.settings;
+      const requestId = ++this.saveRequestId;
+      const saved = await saveSettingsCommand(settings);
+      if (requestId === this.saveRequestId) this.settings = saved;
+      return saved;
     },
   },
 });

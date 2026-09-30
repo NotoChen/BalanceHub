@@ -1,20 +1,26 @@
 use super::super::config_support::{
-    cli_target_for_key, config_error, config_revision, ensure_revision, file_content,
-    latest_modified_at, match_provider_key, read_cli_config, read_stable_optional,
-    validate_file_set, write_config_text,
+    cli_target_for_key, config_error, latest_modified_at, match_provider_key, read_cli_config,
+    read_stable_optional,
 };
+use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use crate::{
-    models::{AgentCliKind, CliConfigFile, CliConfigPreview, CliConfigSnapshot, Provider},
+    models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::{configured_path, user_home},
 };
 use serde_json::Value as JsonValue;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use toml_edit::{value as toml_value, Document as TomlDocument};
 
 pub(super) fn config_dir() -> Option<PathBuf> {
-    configured_path("BALANCEHUB_CODEX_HOME")
-        .or_else(|| configured_path("CODEX_HOME"))
-        .or_else(|| user_home().map(|home| home.join(".codex")))
+    configured_config_dir().or_else(|| user_home().map(|home| home.join(".codex")))
+}
+
+pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
+    configured_config_dir().unwrap_or_else(|| home.join(".codex"))
+}
+
+fn configured_config_dir() -> Option<PathBuf> {
+    configured_path("BALANCEHUB_CODEX_HOME").or_else(|| configured_path("CODEX_HOME"))
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {
@@ -69,98 +75,40 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
     }
 }
 
-pub(super) fn preview(
+pub(super) fn candidates(
     cli_kind: AgentCliKind,
     provider: &Provider,
     api_key_local_id: &str,
-) -> Result<CliConfigPreview, String> {
+) -> Result<Vec<ProviderConfigurationCandidate>, String> {
     let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let config_path = config_dir.join("config.toml");
-    let auth_path = config_dir.join("auth.json");
+    let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let config_path = root.join("config.toml");
+    let auth_path = root.join("auth.json");
     let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
     let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
-    let (next_config, next_auth) =
+    let (config, auth) =
         rewrite_codex_config(&config_text, &auth_text, &target.base_url, &target.api_key)?;
-    Ok(CliConfigPreview {
-        provider_id: provider.identity.id.clone(),
-        provider_name: provider.display_label(),
-        api_key_local_id: target.api_key_local_id,
-        api_key_label: target.api_key_label,
-        cli_kind,
-        revision: config_revision(&[
-            &config_text,
-            &auth_text,
-            &target.base_url,
-            &target.api_key,
-        ]),
-        original_files: vec![
-            config_file(&config_path, config_text),
-            config_file(&auth_path, auth_text),
-        ],
-        files: vec![
-            config_file(&config_path, next_config),
-            config_file(&auth_path, next_auth),
-        ],
-    })
-}
-
-pub(super) fn switch(
-    cli_kind: AgentCliKind,
-    provider: &Provider,
-    api_key_local_id: &str,
-    expected_revision: Option<&str>,
-    files: &[CliConfigFile],
-) -> Result<(), String> {
-    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let config_path = config_dir.join("config.toml");
-    let auth_path = config_dir.join("auth.json");
-    let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
-    let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
-    validate_file_set(files, &[&config_path, &auth_path])?;
-    ensure_revision(
-        expected_revision,
-        config_revision(&[
-            &config_text,
-            &auth_text,
-            &target.base_url,
-            &target.api_key,
-        ]),
-    )?;
-    let edited_config = file_content(files, &config_path)?;
-    let edited_auth = file_content(files, &auth_path)?;
-    let config_document = edited_config
-        .parse::<TomlDocument>()
-        .map_err(|_| "Codex 配置文件格式无效".to_string())?;
-    let auth = serde_json::from_str::<JsonValue>(edited_auth)
-        .map_err(|_| "Codex 认证文件格式无效".to_string())?;
-    let next_config = config_document.to_string();
-    let next_auth = serde_json::to_string_pretty(&auth)
-        .map_err(|err| format!("生成 Codex 认证配置失败: {err}"))?
-        + "\n";
-
-    write_config_text(&config_path, &next_config, "Codex 配置")?;
-    if let Err(err) = write_config_text(&auth_path, &next_auth, "Codex 认证") {
-        let rollback_error = write_config_text(&config_path, &config_text, "Codex 配置回滚").err();
-        return Err(match rollback_error {
-            Some(rollback) => format!("{err}；{rollback}"),
-            None => err,
-        });
-    }
-    Ok(())
-}
-
-fn config_file(path: &std::path::Path, content: String) -> CliConfigFile {
-    CliConfigFile {
-        file_path: path.to_string_lossy().into_owned(),
-        content,
-    }
+    Ok(vec![
+        ProviderConfigurationCandidate {
+            path: config_path,
+            before: Some(config_text),
+            after: config,
+        },
+        ProviderConfigurationCandidate {
+            path: auth_path,
+            before: Some(auth_text),
+            after: auth,
+        },
+    ])
 }
 
 fn parse_codex_config(config: &str, auth: &str) -> Result<Option<(String, String)>, ()> {
     let config = config.parse::<toml::Value>().map_err(|_| ())?;
-    let auth = serde_json::from_str::<JsonValue>(auth).map_err(|_| ())?;
+    let auth = crate::services::agent_cli::environment::config_document::parse(
+        auth.as_bytes(),
+        crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
+    )
+    .ok_or(())?;
     let provider_name = config.get("model_provider").and_then(toml::Value::as_str);
     let base_url = provider_name
         .and_then(|name| config.get("model_providers")?.get(name))
@@ -206,19 +154,13 @@ fn rewrite_codex_config(
         .ok_or_else(|| format!("Codex 配置缺少当前 provider：{provider_name}"))?;
     selected.insert("base_url", toml_value(base_url.trim()));
 
-    let mut auth = serde_json::from_str::<JsonValue>(auth)
-        .map_err(|_| "Codex 认证文件格式无效".to_string())?;
-    let auth = auth
-        .as_object_mut()
-        .ok_or_else(|| "Codex 认证文件格式无效".to_string())?;
-    auth.insert(
-        "OPENAI_API_KEY".to_string(),
-        JsonValue::String(api_key.trim().to_string()),
-    );
-    let auth = serde_json::to_string_pretty(auth)
-        .map_err(|err| format!("生成 Codex 认证配置失败: {err}"))?;
-
-    Ok((document.to_string(), format!("{auth}\n")))
+    let auth = crate::services::agent_cli::config_support::rewrite_json_string_fields(
+        auth,
+        &[],
+        &[("OPENAI_API_KEY", api_key.trim())],
+    )
+    .map_err(|_| "Codex 认证文件格式无效".to_owned())?;
+    Ok((document.to_string(), auth))
 }
 
 #[cfg(test)]

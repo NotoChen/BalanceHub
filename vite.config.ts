@@ -34,6 +34,8 @@ export default defineConfig(async () => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes("node_modules/@taplo/")) return "formatter-toml";
+          if (id.includes("node_modules/prettier/")) return "formatter-text";
           if (id.includes("node_modules/@arco-design")) return "arco";
           if (id.includes("node_modules/@tauri-apps")) return "tauri";
           if (id.includes("node_modules/vue") || id.includes("node_modules/pinia")) {

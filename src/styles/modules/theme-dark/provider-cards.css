@@ -1,53 +1,37 @@
+:root.theme-dark .provider-card,
+:root.theme-dark .provider-card-action-popover,
+:root.theme-dark .provider-card-api-key-popover {
+  --glass-canvas: #17171a;
+  --glass-card: #24262f;
+  --glass-card-muted: #202126;
+  --glass-border: #343743;
+}
+
 /* State color drives both the card gradient and the compact status signal. */
-:root.theme-dark .provider-card {
-  --provider-card-surface: var(--glass-card);
-  border-color: transparent;
-  background: var(--provider-card-surface);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-:root.theme-dark .provider-card:hover {
-  border-color: transparent;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
-}
-
-:root.theme-dark .provider-card:focus-visible {
-  border-color: transparent;
-  box-shadow: 0 0 0 3px rgba(122, 167, 255, 0.18), 0 8px 22px rgba(0, 0, 0, 0.28);
-}
 
 :root.theme-dark .provider-card-ok {
-  --provider-card-state: #4fd1a1;
+  --workspace-card-state: #4fd1a1;
 }
 
 :root.theme-dark .provider-card-warning {
-  --provider-card-state: #f2b84b;
+  --workspace-card-state: #f2b84b;
 }
 
 :root.theme-dark .provider-card-pending,
 :root.theme-dark .provider-card-syncing {
-  --provider-card-state: #7aa7ff;
+  --workspace-card-state: #7aa7ff;
 }
 
 :root.theme-dark .provider-card-error {
-  --provider-card-state: #ff7d7d;
+  --workspace-card-state: #ff7d7d;
 }
 
 :root.theme-dark .provider-card-empty {
-  --provider-card-state: #a9aeb8;
-}
-
-:root.theme-dark .provider-card::after {
-  background: linear-gradient(
-    to bottom left,
-    color-mix(in srgb, var(--provider-card-state) 15%, transparent),
-    color-mix(in srgb, var(--provider-card-state) 5%, transparent) 22%,
-    transparent 48%
-  );
+  --workspace-card-state: #a9aeb8;
 }
 
 :root.theme-dark .provider-card-status {
-  color: var(--provider-card-state);
+  color: var(--workspace-card-state);
 }
 
 :root.theme-dark .provider-card-quota-neutral {
@@ -78,16 +62,11 @@
   background-color: var(--provider-quota-color);
 }
 
-:root.theme-dark .provider-card-model-more {
-  border-color: rgba(122, 167, 255, 0.34);
-  color: #94bfff;
-}
-
 :root.theme-dark .provider-card-disabled {
-  --provider-card-surface: var(--glass-card-muted);
-  --provider-card-state: #6b7280;
+  --workspace-card-surface: var(--glass-card-muted);
+  --workspace-card-state: #6b7280;
   border-color: var(--glass-border);
-  background: var(--provider-card-surface);
+  background: var(--workspace-card-surface);
   box-shadow: none;
 }
 
@@ -101,24 +80,6 @@
   color: #6b7280;
 }
 
-:root.theme-dark .provider-card-quick-actions {
-  border-color: var(--glass-border);
-}
-
-:root.theme-dark .provider-card-icon-action {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .provider-card-icon-action:hover,
-:root.theme-dark .provider-card-icon-action:focus-visible {
-  background: rgba(122, 167, 255, 0.14);
-  color: #94bfff;
-}
-
-:root.theme-dark .provider-card-icon-action:disabled {
-  color: #5f6470;
-}
-
 :root.theme-dark .provider-card-api-key-inline-actions button {
   color: #93a1b4;
 }
@@ -127,91 +88,6 @@
 :root.theme-dark .provider-card-api-key-inline-actions button:focus-visible {
   background: rgba(122, 167, 255, 0.14);
   color: #94bfff;
-}
-
-:root.theme-dark .provider-card-copy-action {
-  color: #9bb0c8;
-}
-
-:root.theme-dark .provider-card-data-action {
-  color: #82b4f4;
-}
-
-:root.theme-dark .provider-card-site-action {
-  color: #d9ad69;
-}
-
-:root.theme-dark .provider-card-cli-config-action {
-  color: #78d0ae;
-}
-
-:root.theme-dark .provider-card-ccswitch-action {
-  color: #f0a06a;
-}
-
-:root.theme-dark .provider-card-launch-action {
-  color: #94bfff;
-}
-
-:root.theme-dark .provider-card-checkin-action,
-:root.theme-dark .provider-card-enable-action {
-  color: #69d3ab;
-}
-
-:root.theme-dark .provider-card-refresh-action {
-  color: #82b4f4;
-}
-
-:root.theme-dark .provider-card-edit-action {
-  color: #a9b5c5;
-}
-
-:root.theme-dark .provider-card-toggle-action {
-  color: #f0c078;
-}
-
-:root.theme-dark .provider-card-delete-action {
-  color: #ff8b94;
-}
-
-:root.theme-dark .provider-card-open-site:hover,
-:root.theme-dark .provider-card-open-site:focus-visible,
-:root.theme-dark .provider-card-copy-action:hover,
-:root.theme-dark .provider-card-copy-action:focus-visible,
-:root.theme-dark .provider-card-data-action:hover,
-:root.theme-dark .provider-card-data-action:focus-visible,
-:root.theme-dark .provider-card-site-action:hover,
-:root.theme-dark .provider-card-site-action:focus-visible,
-:root.theme-dark .provider-card-cli-config-action:hover,
-:root.theme-dark .provider-card-cli-config-action:focus-visible,
-:root.theme-dark .provider-card-ccswitch-action:hover,
-:root.theme-dark .provider-card-ccswitch-action:focus-visible,
-:root.theme-dark .provider-card-launch-action:hover,
-:root.theme-dark .provider-card-launch-action:focus-visible,
-:root.theme-dark .provider-card-checkin-action:hover,
-:root.theme-dark .provider-card-checkin-action:focus-visible,
-:root.theme-dark .provider-card-refresh-action:hover,
-:root.theme-dark .provider-card-refresh-action:focus-visible,
-:root.theme-dark .provider-card-edit-action:hover,
-:root.theme-dark .provider-card-edit-action:focus-visible,
-:root.theme-dark .provider-card-toggle-action:hover,
-:root.theme-dark .provider-card-toggle-action:focus-visible,
-:root.theme-dark .provider-card-delete-action:hover,
-:root.theme-dark .provider-card-delete-action:focus-visible {
-  background: color-mix(in srgb, currentColor 16%, transparent);
-  color: currentColor;
-}
-
-:root.theme-dark .provider-card-open-site,
-:root.theme-dark .provider-card-open-site:hover,
-:root.theme-dark .provider-card-open-site:focus-visible {
-  color: #75cbdc;
-}
-
-:root.theme-dark .provider-card-action-popover {
-  border-color: var(--glass-border) !important;
-  background: var(--glass-card) !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.36) !important;
 }
 
 :root.theme-dark .provider-card-api-key-popover {
@@ -240,33 +116,12 @@
   color: #94bfff;
 }
 
-:root.theme-dark .provider-card-action-panel-title {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .provider-card-copy-panel button,
 :root.theme-dark .provider-card-cli-config-list button {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .provider-card-copy-panel button:hover,
-:root.theme-dark .provider-card-copy-panel button:focus-visible {
-  background: rgba(64, 128, 255, 0.14);
-}
-
-:root.theme-dark .provider-card-copy-panel button svg {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .provider-card-copy-panel button span {
   color: #f2f3f5;
 }
 
 :root.theme-dark .provider-card-cli-signals {
   border-color: var(--glass-border);
-}
-
-:root.theme-dark .provider-card {
 }
 
 :root.theme-dark .provider-card-cli-signal {
@@ -277,12 +132,12 @@
 
 :root.theme-dark .provider-card-cli-signal-default b {
   background: #a9b7cc;
-  border-color: var(--provider-card-surface);
+  border-color: var(--workspace-card-surface);
   color: #1f2026;
 }
 
 :root.theme-dark .provider-card-cli-signal-active b {
-  border-color: var(--provider-card-surface);
+  border-color: var(--workspace-card-surface);
   background: #f06a73;
 }
 
@@ -291,7 +146,7 @@
 }
 
 :root.theme-dark .provider-auth-icon-session {
-  color: #f2c14e;
+  color: var(--card-icon-automation);
 }
 
 :root.theme-dark .provider-auth-icon-access-token {
@@ -299,11 +154,11 @@
 }
 
 :root.theme-dark .provider-auth-icon-api-key {
-  color: #55d6a5;
+  color: var(--card-icon-key);
 }
 
 :root.theme-dark .provider-card-auth-summary > .provider-auth-icon-session {
-  color: #f2c14e;
+  color: var(--card-icon-automation);
 }
 
 :root.theme-dark .provider-card-auth-summary > .provider-auth-icon-access-token {
@@ -311,7 +166,7 @@
 }
 
 :root.theme-dark .provider-card-auth-summary > .provider-auth-icon-api-key {
-  color: #55d6a5;
+  color: var(--card-icon-key);
 }
 
 :root.theme-dark .provider-card-action-list button {
@@ -332,7 +187,7 @@
 }
 
 :root.theme-dark .provider-card-action-list button .provider-auth-icon-session {
-  color: #f2c14e;
+  color: var(--card-icon-automation);
 }
 
 :root.theme-dark .provider-card-action-list button .provider-auth-icon-access-token {
@@ -342,7 +197,7 @@
 :root.theme-dark .provider-card-action-list button .provider-auth-icon-api-key,
 :root.theme-dark .provider-card-action-list button .provider-card-action-icon-checkin-records,
 :root.theme-dark .provider-card-action-list button .provider-card-action-icon-keys {
-  color: #55d6a5;
+  color: var(--card-icon-key);
 }
 
 :root.theme-dark .provider-card-action-list button .provider-card-action-icon-url,
@@ -361,11 +216,7 @@
 }
 
 :root.theme-dark .provider-card-action-list button .provider-card-action-icon-liveness {
-  color: #f2c14e;
-}
-
-:root.theme-dark .provider-card-action-list button .provider-card-action-icon-models {
-  color: #b5a7ff;
+  color: var(--card-icon-automation);
 }
 
 :root.theme-dark .provider-card-action-list button .provider-card-action-icon-password {
@@ -376,6 +227,6 @@
   color: #78d0ae;
 }
 
-:root.theme-dark .provider-card-action-panel-section-title {
-  color: #a9aeb8;
+:root.theme-dark .provider-card-action-list button .provider-card-action-icon-models {
+  color: var(--card-icon-models);
 }

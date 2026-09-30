@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, type CSSProperties } from "vue";
+import { computed, ref, watch, type CSSProperties } from "vue";
 import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
+import AgentDashboard from "./agent-workspace/AgentDashboard.vue";
+import { useAgentWorkspaceStore } from "../stores/agent-workspace";
 import type {
   CliRuntimeSnapshot,
   AgentRuntimeSnapshot,
   AgentCliKind,
+  AgentRuntimeSession,
   Provider,
   ProviderApiKeyOption,
 } from "../stores/providers";
@@ -28,6 +31,8 @@ const props = defineProps<{
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
   agentRuntimeSnapshot: AgentRuntimeSnapshot;
+  runtimeLoading: boolean;
+  activatingRuntimeId: string | null;
   announcementsLoaded: boolean;
   announcementsLoading: boolean;
   announcementTotalCount: number;
@@ -53,6 +58,27 @@ const props = defineProps<{
 }>();
 
 const searchQuery = ref("");
+const agentWorkspace = useAgentWorkspaceStore();
+const agentOpened = ref(agentWorkspace.view === "agents");
+const agentRefreshing = ref(false);
+const dashboard = ref<InstanceType<typeof AgentDashboard> | null>(null);
+watch(() => agentWorkspace.view, (view) => { if (view === "agents") agentOpened.value = true; });
+const currentSearch = computed(() => agentWorkspace.view === "agents" ? agentWorkspace.query : searchQuery.value);
+
+function updateSearch(value: string) {
+  if (agentWorkspace.view === "agents") agentWorkspace.query = value;
+  else searchQuery.value = value;
+}
+
+function refreshCurrentView() {
+  if (agentWorkspace.view === "agents") void dashboard.value?.refresh();
+  else emit("refreshAll");
+}
+
+function openRuntime(kind: AgentCliKind) {
+  if (agentWorkspace.view === "agents") agentWorkspace.openSessions("active", kind);
+  else emit("openAgentCliInstances", kind);
+}
 
 function matchesSearch(provider: Provider) {
   return providerMatchesSearch(provider, searchQuery.value);
@@ -68,6 +94,7 @@ const emit = defineEmits<{
   startDrag: [event: MouseEvent];
   add: [];
   importData: [];
+  retryLoad: [];
   checkForUpdate: [];
   openGithub: [];
   refreshAll: [];
@@ -99,14 +126,18 @@ const emit = defineEmits<{
   openSiteAnnouncements: [];
   clearBackgroundTasks: [];
   switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
+  refreshRuntime: [];
+  activateRuntime: [instance: AgentRuntimeSession];
 }>();
 </script>
 
 <template>
   <AppTopbar
-    :refresh-in-progress="refreshInProgress"
+    :workspace-view="agentWorkspace.view"
+    :refresh-in-progress="agentWorkspace.view === 'agents' ? agentRefreshing : refreshInProgress"
     :global-check-in-in-progress="globalCheckInInProgress"
-    :search-query="searchQuery"
+    :search-query="currentSearch"
+    :search-placeholder="agentWorkspace.view === 'agents' ? agentWorkspace.searchPlaceholder : undefined"
     :app-version="appVersion"
     :checking-for-update="checkingForUpdate"
     :cli-runtime="cliRuntime"
@@ -120,24 +151,27 @@ const emit = defineEmits<{
     :recent-background-tasks="recentBackgroundTasks"
     :background-task-count="backgroundTaskCount"
     @start-drag="emit('startDrag', $event)"
-    @set-search-query="searchQuery = $event"
+    @set-search-query="updateSearch"
+    @set-workspace-view="agentWorkspace.setView"
     @add="emit('add')"
     @import-data="emit('importData')"
     @check-for-update="emit('checkForUpdate')"
     @open-github="emit('openGithub')"
-    @refresh="emit('refreshAll')"
+    @refresh="refreshCurrentView"
     @check-in="emit('checkInAll')"
-    @open-cli="emit('openAgentCliInstances', $event)"
+    @open-cli="openRuntime"
     @open-announcements="emit('openSiteAnnouncements')"
     @clear-background-tasks="emit('clearBackgroundTasks')"
     @settings="emit('settings')"
   />
 
   <ProviderBoard
+    v-show="agentWorkspace.view === 'providers'"
     :loading="loading"
     :initialized="initialized"
     :load-error="loadError"
     :providers="providers"
+    :search-query="searchQuery"
     :liveness-providers="filteredLivenessProviders"
     :regular-providers="filteredRegularProviders"
     :cli-runtime="cliRuntime"
@@ -154,6 +188,7 @@ const emit = defineEmits<{
     :show-liveness-timeline="showLivenessTimeline"
     @add="emit('add')"
     @import-data="emit('importData')"
+    @retry-load="emit('retryLoad')"
     @card-click="emit('cardClick', $event)"
     @card-pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
     @toggle="emit('toggle', $event)"
@@ -178,5 +213,20 @@ const emit = defineEmits<{
     @open-cli-instances="(provider, cliKind) => emit('openCliInstances', provider, cliKind)"
     @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
     @clear-search="clearSearch"
+  />
+  <AgentDashboard
+    v-if="agentOpened"
+    v-show="agentWorkspace.view === 'agents'"
+    ref="dashboard"
+    :active="agentWorkspace.view === 'agents'"
+    :providers="providers"
+    :cli-runtime="cliRuntime"
+    :runtime-snapshot="agentRuntimeSnapshot"
+    :runtime-loading="runtimeLoading"
+    :activating-id="activatingRuntimeId"
+    @refreshing="agentRefreshing = $event"
+    @refresh-runtime="emit('refreshRuntime')"
+    @activate-runtime="emit('activateRuntime', $event)"
+    @launch="(provider, kind) => emit('launchTemporaryCli', provider, kind)"
   />
 </template>

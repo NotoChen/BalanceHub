@@ -8,7 +8,6 @@ import type { Provider, ProviderInput } from "../stores/providers";
 import { copyText } from "./useClipboard";
 import {
   normalizeProviderBaseUrl,
-  providerDuplicateSaveResolution,
   type ProviderEditorSection,
   type ProviderSaveCompletion,
   type ProviderEditorStore,
@@ -16,10 +15,9 @@ import {
 import { useProviderConnectionTest } from "./useProviderConnectionTest";
 import { useProviderCredentialCompletion } from "./useProviderCredentialCompletion";
 import { useProviderEditorState } from "./useProviderEditorState";
+import { useProviderSave } from "./useProviderSave";
 import { normalizeLivenessTiming } from "../utils/liveness-defaults";
-import { providerToInput } from "../utils/provider-input";
 import { chooseSameSiteApiKeyAction, confirmAction } from "./provider-credential-dialogs";
-import type { ProviderSaveOptions } from "../stores/provider-types";
 import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseProviderEditorOptions {
@@ -35,7 +33,6 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     editorSession,
     editingProviderId,
     completingCredentials,
-    testingConnection,
     probingSite,
     credentialCompletionMessage,
     credentialCompletionSteps,
@@ -50,14 +47,28 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     setApiKeyOptions,
   } = state;
 
-  const { testConnection } = useProviderConnectionTest({
+  const { testConnection, testingConnection } = useProviderConnectionTest({
     draftProvider,
     drawerVisible,
     editorSession,
     editingProviderId,
-    testingConnection,
     connectionTestResult,
     testProviderConnection: (input) => options.store.testProviderConnection(input),
+  });
+
+  const saveFlow = useProviderSave({
+    visible: drawerVisible,
+    session: editorSession,
+    input: currentProviderInput,
+    prepare: () => credentialAssistant.ensureProtocolSelection(),
+    canSave: () => !credentialAssistant.credentialAssistantBusy.value && !startingBrowserLogin.value,
+    save: (input, saveOptions) => options.store.saveProvider(input, saveOptions),
+    resolveConflict: (conflict) => resolveDuplicateConflict(conflict.kind, conflict.existingProviderName),
+    accept: acceptSavedProvider,
+    completed: (provider) => {
+      Message.success("中转站已保存");
+      refreshAfterSave(provider);
+    },
   });
 
   const credentialAssistant = useProviderCredentialCompletion({
@@ -81,7 +92,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     createApiKeyForInput: (input, name) => options.store.createApiKeyForInput(input, name),
     generateAccessTokenForInput: (input) => options.store.generateAccessTokenForInput(input),
     setApiKeyOptions,
-    saveDraftAndFindProvider,
+    saveDraftAndFindProvider: saveFlow.saveDraft,
     refreshAfterSave,
   });
 
@@ -139,73 +150,18 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     }
   }
 
-  async function saveProvider() {
-    try {
-      const session = editorSession.value;
-      await credentialAssistant.ensureProtocolSelection();
-      if (editorSession.value !== session || !drawerVisible.value) {
-        return;
-      }
-      const savedProvider = await saveDraftAndFindProvider(
-        () => editorSession.value === session && drawerVisible.value,
-      );
-      if (editorSession.value !== session || !drawerVisible.value) {
-        return;
-      }
-      if (!savedProvider) {
-        return;
-      }
-      if (savedProvider && connectionTestResult.value?.ok) {
-        await options.store.testProviderConnection(providerToInput(savedProvider));
-      }
-      if (editorSession.value !== session || !drawerVisible.value) {
-        return;
-      }
-      drawerVisible.value = false;
+  function acceptSavedProvider(savedProvider: Provider, completion: ProviderSaveCompletion) {
+    if (completion === "mergedApiKey") {
+      openEditProvider(savedProvider, "credentials");
       refreshAfterSave(savedProvider);
-    } catch (error) {
-      // Keep the editor open so the user can correct a duplicate or invalid value in place.
-      Message.error(error instanceof Error ? error.message : String(error));
+      Message.success(`API Key 已加入“${providerDisplayLabel(savedProvider)}”的认证凭据`);
+      return;
     }
-  }
-
-  async function saveDraftAndFindProvider(
-    isCurrent: () => boolean = () => true,
-    saveOptions: ProviderSaveOptions = {},
-    completion: ProviderSaveCompletion = "standard",
-  ) {
-    const input = currentProviderInput();
-    const result = await options.store.saveProvider(input, saveOptions);
-    if (!result.saved) {
-      const conflict = result.conflict;
-      if (!conflict || !isCurrent()) {
-        return undefined;
-      }
-      const decision = await resolveDuplicateConflict(conflict.kind, conflict.existingProviderName);
-      if (decision === "cancel" || !isCurrent()) {
-        return undefined;
-      }
-      const resolution = providerDuplicateSaveResolution(conflict, decision);
-      if (!resolution) return undefined;
-      return saveDraftAndFindProvider(isCurrent, resolution.options, resolution.completion);
-    }
-
-    const savedProvider = result.provider ?? undefined;
-    if (savedProvider && isCurrent()) {
-      if (completion === "mergedApiKey") {
-        openEditProvider(savedProvider, "credentials");
-        refreshAfterSave(savedProvider);
-        Message.success(`API Key 已加入“${providerDisplayLabel(savedProvider)}”的认证凭据`);
-        return undefined;
-      }
-      editingProviderId.value = savedProvider.identity.id;
-      draftProvider.auth.credentialRevision = savedProvider.auth.credentialRevision;
-      draftProvider.auth.browserBinding = savedProvider.auth.browserBinding;
-      draftProvider.auth.sessionUpdatedAt = savedProvider.auth.sessionUpdatedAt;
-      siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(savedProvider.identity.baseUrl);
-      return savedProvider;
-    }
-    return undefined;
+    editingProviderId.value = savedProvider.identity.id;
+    draftProvider.auth.credentialRevision = savedProvider.auth.credentialRevision;
+    draftProvider.auth.browserBinding = savedProvider.auth.browserBinding;
+    draftProvider.auth.sessionUpdatedAt = savedProvider.auth.sessionUpdatedAt;
+    siteNameSourceBaseUrl.value = normalizeProviderBaseUrl(savedProvider.identity.baseUrl);
   }
 
   async function resolveDuplicateConflict(
@@ -267,15 +223,18 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     if (!provider?.runtime.enabled) {
       return;
     }
+    const session = editorSession.value;
     void options.store.refreshByIds([provider.identity.id]).then((error) => {
       if (error) {
         Message.error(`保存后刷新失败：${error}`);
       }
+    }).catch((error: unknown) => {
+      Message.warning(`中转站已保存，额度刷新失败：${error instanceof Error ? error.message : String(error)}`);
     });
     void options.store
       .probeCapabilities(provider.identity.id)
       .then((result) => {
-        if (editingProviderId.value === provider.identity.id) {
+        if (editorSession.value === session && editingProviderId.value === provider.identity.id) {
           availableModels.value = [...(result.provider.capabilities.availableModels || [])];
         }
       })
@@ -290,7 +249,10 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     openEditProvider,
     copyDraftApiKey,
     testConnection,
-    saveProvider,
+    testingConnection,
+    saveProvider: saveFlow.run,
+    savingProvider: saveFlow.saving,
+    providerSaveError: saveFlow.error,
     ...credentialAssistant,
   };
 }

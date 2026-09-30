@@ -3,6 +3,7 @@ import { computed, inject, ref, watch } from "vue";
 import { Modal } from "@arco-design/web-vue";
 import { Globe, Download, RefreshCw } from "@lucide/vue";
 import { BROWSER_RUNTIME_CONTEXT } from "../composables/useBrowserRuntime";
+import ContextDetails from "./ContextDetails.vue";
 
 const runtime = inject(BROWSER_RUNTIME_CONTEXT);
 const state = computed(() => runtime?.state.value ?? null);
@@ -26,7 +27,7 @@ function remove() {
   <a-modal v-if="runtime" v-model:visible="runtime.visible.value" :width="570" :footer="false" modal-class="surface-modal">
     <template #title><span class="browser-component-heading"><Globe :size="20" /> 浏览器登录与验证</span></template>
     <div class="browser-component-content">
-      <p>可选组件，用于浏览器登录、导入账号和站点验证码。普通账号密码或 API Key 的接口请求无需安装。首次使用时确认下载。</p>
+      <p>用于浏览器登录、导入账号和处理验证码，首次使用时安装。</p>
       <a-alert :type="state?.ready ? 'success' : state?.phase === 'failed' ? 'error' : 'info'">{{ state?.message || '正在检测本机环境…' }}</a-alert>
       <div v-if="state?.browser" class="browser-component-current">
         当前浏览器：<strong>{{ state.browser.name }}</strong>
@@ -40,7 +41,6 @@ function remove() {
           </a-radio>
           <a-radio value="managed">安装独立 Chromium，仅供 BalanceHub 使用</a-radio>
         </a-radio-group>
-        <p class="browser-component-note">两种方式都为每个登录账号保存独立环境。选择本机浏览器时只下载运行组件；独立模式会额外下载 Chromium。</p>
         <p class="browser-component-note">预计下载不超过 {{ downloadSize }} MiB，使用 App 的网络代理。安装失败或取消会保留原组件。</p>
         <a-button type="primary" :disabled="busy" @click="runtime.install(mode === 'managed')">
           <template #icon><Download :size="15" /></template>
@@ -57,8 +57,12 @@ function remove() {
         <a-button size="small" :disabled="busy || installing" @click="runtime.refresh(true)"><template #icon><RefreshCw :size="13" /></template>重新检测</a-button>
         <a-button v-if="state?.canUninstall" size="small" status="danger" :disabled="busy" @click="remove">卸载组件</a-button>
       </div>
-      <p class="browser-component-note">每次登录或验证前检查环境。组件版本随 App 管理，更新需确认；可在后台任务中查看进度或取消。</p>
-      <p class="browser-component-note">Linux 需要图形桌面及 Chromium 系统依赖；Windows ARM64 的独立浏览器使用系统的 x64 兼容支持。</p>
+      <ContextDetails label="组件说明与系统要求">
+        <p>普通账号密码或 API Key 的接口请求无需安装此组件。</p>
+        <p>两种方式均为每个账号保存独立登录环境。本机模式只下载运行组件；独立模式额外下载 Chromium。</p>
+        <p>登录或验证前自动检查环境。组件随 App 管理，更新需确认；进度与取消操作可在后台任务中查看。</p>
+        <p>Linux 需要图形桌面及 Chromium 系统依赖；Windows ARM64 的独立浏览器使用系统的 x64 兼容支持。</p>
+      </ContextDetails>
     </div>
   </a-modal>
 </template>

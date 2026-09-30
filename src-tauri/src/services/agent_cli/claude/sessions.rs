@@ -1,244 +1,41 @@
 use crate::{
-    models::{
-        AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary,
-    },
+    models::{AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary},
     services::cli_sessions::{
-        clean_text, compact_json, first_non_empty, normalize_timestamp,
-        read_json_lines_limited, scan_json_lines_matching, scan_json_records_background,
-        session_index_source_fingerprint, SessionContentSearchCollector, SessionMessageCollector,
+        clean_text, compact_json, first_non_empty, normalize_timestamp, read_json_lines_limited,
+        scan_json_lines_matching, scan_json_records_background, session_index_source_fingerprint,
+        SessionContentSearchCollector, SessionMessageCollector,
     },
 };
 use serde_json::Value;
 use std::{
     collections::{BTreeSet, HashMap},
-    fs::{self, File},
-    io::{BufRead, BufReader},
+    fs,
     path::Path,
 };
 
 use super::super::contracts::{
     SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
-    SessionIndexMessage, SessionMetadataCursor, SessionMetadataLookupError,
-    SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionMetadataSnapshot,
-    SessionReadLimits,
+    SessionIndexMessage, SessionMetadataLookupError, SessionMetadataLookupRequest,
+    SessionMetadataLookupResult, SessionReadLimits,
 };
 
 const INDEX_PARSER_VERSION: u32 = 1;
-const METADATA_PARSER_VERSION: u32 = 1;
 
-pub(super) fn list(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-) -> Result<Vec<CliSessionSummary>, String> {
-    let projects = super::config::config_dir()
-        .map(|config_dir| config_dir.join("projects"))
-        .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
-    let encoded = encode_project_path(workdir);
-    let project_dir = projects.join(encoded);
-    if !project_dir.is_dir() {
-        return Ok(Vec::new());
-    }
+mod history;
+mod metadata;
+mod projects;
+pub(super) use history::HISTORY;
 
-    // Claude stores main transcripts directly in this directory and keeps
-    // sub-agent transcripts below each session's `subagents/` directory.
-    // Only the direct files are resumable targets for the selected session.
-    let files = fs::read_dir(&project_dir)
-        .map_err(|err| {
-            format!(
-                "读取 Claude Code 项目会话目录失败：{}：{err}",
-                project_dir.display()
-            )
-        })?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "jsonl"))
-        .collect::<Vec<_>>();
-
-    let mut sessions = Vec::new();
-    let mut last_error = None;
-    let mut failed_files = 0;
-    for path in files.iter() {
-        match parse_transcript(cli_kind, path, workdir) {
-            Ok(Some(session)) if session.can_resume => sessions.push(session),
-            Ok(_) => {}
-            Err(error) => {
-                failed_files += 1;
-                last_error = Some(error);
-            }
-        }
-    }
-    if !files.is_empty() && sessions.is_empty() && failed_files == files.len() {
-        return Err(last_error.unwrap_or_else(|| "读取 Claude Code 历史会话失败".to_string()));
-    }
-    Ok(sessions)
-}
-
-pub(super) fn detail(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    session_id: &str,
-    limits: SessionReadLimits,
-) -> Result<CliSessionDetail, String> {
-    let projects = super::config::config_dir()
-        .map(|config_dir| config_dir.join("projects"))
-        .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
-    let project_dir = projects.join(encode_project_path(workdir));
-    let path = find_transcript_path(cli_kind, &project_dir, workdir, session_id)?
-        .ok_or_else(|| "未找到指定的 Claude Code 会话".to_string())?;
-    let summary = parse_transcript(cli_kind, &path, workdir)?
-        .filter(|summary| summary.id == session_id)
-        .ok_or_else(|| "Claude Code 会话索引与正文文件不一致".to_string())?;
-    let (messages, truncated, omitted_message_count) =
-        parse_transcript_messages(&path, limits)?;
-    Ok(CliSessionDetail {
-        session: summary,
-        messages,
-        truncated,
-        omitted_message_count,
-        content_source: "claudeTranscript".to_string(),
-    })
-}
-
-pub(super) fn search(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    session_id: &str,
-    request: &SessionContentSearchRequest,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionContentSearchResult, String> {
-    let projects = super::config::config_dir()
-        .map(|config_dir| config_dir.join("projects"))
-        .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
-    let project_dir = projects.join(encode_project_path(workdir));
-    let path = find_transcript_path(cli_kind, &project_dir, workdir, session_id)?
-        .ok_or_else(|| "未找到指定的 Claude Code 会话".to_string())?;
-    search_transcript(&path, request, is_current)
-}
-
-pub(super) fn index(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    session_id: &str,
-    known_fingerprint: Option<&str>,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
-    let projects = super::config::config_dir()
-        .map(|config_dir| config_dir.join("projects"))
-        .ok_or_else(|| "无法定位用户目录，无法读取 Claude Code 历史会话".to_string())?;
-    let project_dir = projects.join(encode_project_path(workdir));
-    let path = find_transcript_path(cli_kind, &project_dir, workdir, session_id)?
-        .ok_or_else(|| "未找到指定的 Claude Code 会话".to_string())?;
-    index_transcript(&path, known_fingerprint, is_current)
-}
-
-/// Resolve and parse exactly one transcript. The runtime path deliberately
-/// has no directory-scan fallback: a missing or not-yet-flushed transcript is
-/// reported as NotReady and retried by the producer later.
 pub(super) fn metadata_lookup(
     request: SessionMetadataLookupRequest<'_>,
 ) -> Result<SessionMetadataLookupResult, SessionMetadataLookupError> {
-    let Some(workdir) = request.workdir else {
+    request.budget.check(0)?;
+    if request.workdir.is_none() {
         return Ok(SessionMetadataLookupResult::NotReady);
-    };
+    }
     let config_dir = super::config::config_dir()
         .ok_or_else(|| SessionMetadataLookupError::Io("无法定位用户目录".to_string()))?;
-    let project_dir = config_dir.join("projects").join(encode_project_path(workdir));
-    let path = if let Some(hint) = request.transcript_path_hint {
-        if fs::symlink_metadata(hint)
-            .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return Err(SessionMetadataLookupError::InvalidSource);
-        }
-        let Ok(canonical_project) = project_dir.canonicalize() else {
-            return Ok(SessionMetadataLookupResult::NotReady);
-        };
-        let Ok(canonical_hint) = hint.canonicalize() else {
-            return Ok(SessionMetadataLookupResult::NotReady);
-        };
-        if canonical_hint.parent() != Some(canonical_project.as_path())
-            || canonical_hint.extension().is_none_or(|ext| ext != "jsonl")
-        {
-            return Err(SessionMetadataLookupError::InvalidSource);
-        }
-        canonical_hint
-    } else {
-        if request
-            .session_id
-            .chars()
-            .any(|character| matches!(character, '/' | '\\'))
-        {
-            return Err(SessionMetadataLookupError::InvalidSource);
-        }
-        project_dir.join(format!("{}.jsonl", request.session_id))
-    };
-    let Ok(metadata) = fs::symlink_metadata(&path) else {
-        return Ok(SessionMetadataLookupResult::NotReady);
-    };
-    if !metadata.file_type().is_file() {
-        return Err(SessionMetadataLookupError::InvalidSource);
-    }
-    let length = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
-    if length > request.budget.max_bytes {
-        return Ok(SessionMetadataLookupResult::Pending {
-            partial: None,
-            cursor: SessionMetadataCursor {
-                source_identity: path.to_string_lossy().to_string(),
-                source_len: metadata.len(),
-                next_offset: 0,
-                parser_version: METADATA_PARSER_VERSION,
-                opaque_state: Vec::new(),
-            },
-        });
-    }
-    request.budget.check(length)?;
-    let summary = parse_transcript(request.cli_kind, &path, workdir)
-        .map_err(SessionMetadataLookupError::Parse)?
-        .filter(|summary| summary.id == request.session_id);
-    let Some(summary) = summary else {
-        return Ok(SessionMetadataLookupResult::NotReady);
-    };
-    let revision = metadata_revision(&path, &summary);
-    let activity = summary
-        .updated_at
-        .as_deref()
-        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-        .map(|value| value.timestamp_millis());
-    let snapshot = SessionMetadataSnapshot {
-        title: Some(summary.title),
-        model: summary.model,
-        workdir: Some(summary.workdir),
-        last_activity_at: activity,
-        source_revision: revision.clone(),
-    };
-    Ok(SessionMetadataLookupResult::Ready {
-        snapshot,
-        cursor: Some(SessionMetadataCursor {
-            source_identity: revision,
-            source_len: metadata.len(),
-            next_offset: metadata.len(),
-            parser_version: METADATA_PARSER_VERSION,
-            opaque_state: Vec::new(),
-        }),
-    })
-}
-
-fn metadata_revision(path: &Path, summary: &CliSessionSummary) -> String {
-    use sha2::{Digest, Sha256};
-    let modified = fs::metadata(path)
-        .ok()
-        .and_then(|value| value.modified().ok())
-        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|value| value.as_nanos().to_string())
-        .unwrap_or_default();
-    let mut hasher = Sha256::new();
-    hasher.update(path.to_string_lossy().as_bytes());
-    hasher.update(modified.as_bytes());
-    hasher.update(summary.id.as_bytes());
-    hasher.update(summary.title.as_bytes());
-    hasher.update(summary.model.as_deref().unwrap_or_default().as_bytes());
-    hasher.update(summary.updated_at.as_deref().unwrap_or_default().as_bytes());
-    format!("{:x}", hasher.finalize())
+    metadata::lookup(&config_dir, request)
 }
 
 fn index_transcript(
@@ -246,8 +43,7 @@ fn index_transcript(
     known_fingerprint: Option<&str>,
     is_current: &dyn Fn() -> bool,
 ) -> Result<SessionIndexLoadResult, String> {
-    let (fingerprint, source_bytes) =
-        session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
+    let (fingerprint, source_bytes) = session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
     if known_fingerprint == Some(fingerprint.as_str()) {
         return Ok(SessionIndexLoadResult::Unchanged {
             fingerprint,
@@ -256,82 +52,93 @@ fn index_transcript(
     }
 
     let mut messages = Vec::new();
-    scan_json_records_background(path, "索引 Claude Code 会话正文", is_current, |line_index, line| {
-        if !(line.windows(4).any(|window| window.eq_ignore_ascii_case(b"user"))
-            || line
-                .windows(9)
-                .any(|window| window.eq_ignore_ascii_case(b"assistant")))
-        {
-            return false;
-        }
-        if line.windows(11).any(|window| window == b"tool_result")
-            && !line.windows(6).any(|window| window == b"\"text\"")
-        {
-            return false;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
-            return false;
-        };
-        if value
-            .get("isSidechain")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-            || value
-                .get("isMeta")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        {
-            return false;
-        }
-        let role = match value.get("type").and_then(Value::as_str) {
-            Some("user") => CliSessionMessageRole::User,
-            Some("assistant") => CliSessionMessageRole::Assistant,
-            _ => return false,
-        };
-        let Some(content) = value
-            .get("message")
-            .and_then(|message| message.get("content"))
-        else {
-            return false;
-        };
-        if let Some(text) = content.as_str() {
-            let text = text.trim();
-            if !text.is_empty()
-                && (role != CliSessionMessageRole::User || visible_user_text(text))
+    scan_json_records_background(
+        path,
+        "索引 Claude Code 会话正文",
+        is_current,
+        |line_index, line| {
+            if !(line
+                .windows(4)
+                .any(|window| window.eq_ignore_ascii_case(b"user"))
+                || line
+                    .windows(9)
+                    .any(|window| window.eq_ignore_ascii_case(b"assistant")))
             {
-                messages.push(SessionIndexMessage {
-                    id: format!("claude-{line_index}"),
-                    role,
-                    content: text.to_string(),
-                });
+                return false;
             }
-            return false;
-        }
-        if let Some(parts) = content.as_array() {
-            for (part_index, part) in parts.iter().enumerate() {
-                if !matches!(part.get("type").and_then(Value::as_str), Some("text") | None) {
-                    continue;
-                }
-                let Some(text) = part
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                else {
-                    continue;
-                };
-                if role == CliSessionMessageRole::User && !visible_user_text(text) {
-                    continue;
-                }
-                messages.push(SessionIndexMessage {
-                    id: format!("claude-{line_index}-{part_index}"),
-                    role,
-                    content: text.to_string(),
-                });
+            if line.windows(11).any(|window| window == b"tool_result")
+                && !line.windows(6).any(|window| window == b"\"text\"")
+            {
+                return false;
             }
-        }
-        false
-    })?;
+            let Ok(value) = serde_json::from_slice::<Value>(line) else {
+                return false;
+            };
+            if (!history::is_subagent_path(path)
+                && value
+                    .get("isSidechain")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false))
+                || value
+                    .get("isMeta")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            {
+                return false;
+            }
+            let role = match value.get("type").and_then(Value::as_str) {
+                Some("user") => CliSessionMessageRole::User,
+                Some("assistant") => CliSessionMessageRole::Assistant,
+                _ => return false,
+            };
+            let Some(content) = value
+                .get("message")
+                .and_then(|message| message.get("content"))
+            else {
+                return false;
+            };
+            if let Some(text) = content.as_str() {
+                let text = text.trim();
+                if !text.is_empty()
+                    && (role != CliSessionMessageRole::User || visible_user_text(text))
+                {
+                    messages.push(SessionIndexMessage {
+                        id: format!("claude-{line_index}"),
+                        role,
+                        content: text.to_string(),
+                    });
+                }
+                return false;
+            }
+            if let Some(parts) = content.as_array() {
+                for (part_index, part) in parts.iter().enumerate() {
+                    if !matches!(
+                        part.get("type").and_then(Value::as_str),
+                        Some("text") | None
+                    ) {
+                        continue;
+                    }
+                    let Some(text) = part
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                    else {
+                        continue;
+                    };
+                    if role == CliSessionMessageRole::User && !visible_user_text(text) {
+                        continue;
+                    }
+                    messages.push(SessionIndexMessage {
+                        id: format!("claude-{line_index}-{part_index}"),
+                        role,
+                        content: text.to_string(),
+                    });
+                }
+            }
+            false
+        },
+    )?;
     Ok(SessionIndexLoadResult::Updated {
         fingerprint,
         source_bytes,
@@ -351,10 +158,11 @@ fn search_transcript(
         request,
         is_current,
         |_line_index, value| {
-            if value
-                .get("isSidechain")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
+            if (!history::is_subagent_path(path)
+                && value
+                    .get("isSidechain")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false))
                 || value
                     .get("isMeta")
                     .and_then(Value::as_bool)
@@ -405,45 +213,6 @@ fn search_transcript(
     Ok(collector.finish())
 }
 
-fn find_transcript_path(
-    cli_kind: AgentCliKind,
-    project_dir: &Path,
-    workdir: &Path,
-    session_id: &str,
-) -> Result<Option<std::path::PathBuf>, String> {
-    if !session_id
-        .chars()
-        .any(|character| matches!(character, '/' | '\\'))
-    {
-        let direct = project_dir.join(format!("{session_id}.jsonl"));
-        if direct.is_file() {
-            return Ok(Some(direct));
-        }
-    }
-    let entries = match fs::read_dir(project_dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(format!(
-                "读取 Claude Code 项目会话目录失败：{}：{error}",
-                project_dir.display()
-            ));
-        }
-    };
-    for path in entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "jsonl"))
-    {
-        if parse_transcript(cli_kind, &path, workdir)?
-            .is_some_and(|summary| summary.id == session_id)
-        {
-            return Ok(Some(path));
-        }
-    }
-    Ok(None)
-}
-
 fn parse_transcript_messages(
     path: &Path,
     limits: SessionReadLimits,
@@ -455,10 +224,11 @@ fn parse_transcript_messages(
         limits.max_file_bytes,
         "读取 Claude Code 会话正文",
         |line_index, value| {
-            if value
-                .get("isSidechain")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
+            if (!history::is_subagent_path(path)
+                && value
+                    .get("isSidechain")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false))
                 || value
                     .get("isMeta")
                     .and_then(Value::as_bool)
@@ -575,83 +345,134 @@ fn parse_transcript_messages(
     Ok(collector.finish(source_truncated))
 }
 
+struct ParsedClaudeTranscript {
+    summary: CliSessionSummary,
+    native_origin_workdir: Option<std::path::PathBuf>,
+    read_limit_reason: Option<String>,
+}
+
 fn parse_transcript(
     cli_kind: AgentCliKind,
     path: &Path,
-    expected_workdir: &Path,
-) -> Result<Option<CliSessionSummary>, String> {
-    let file = File::open(path)
-        .map_err(|err| format!("打开 Claude Code 会话记录失败：{}：{err}", path.display()))?;
+) -> Result<Option<ParsedClaudeTranscript>, String> {
     let mut summary = TranscriptSummary::default();
-    for line in BufReader::new(file).lines() {
-        let line = line
-            .map_err(|err| format!("读取 Claude Code 会话记录失败：{}：{err}", path.display()))?;
-        let value: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        if value
-            .get("isSidechain")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
+    let mut valid_record = false;
+    let limit = crate::services::cli_sessions::workbench::session_file_read_limit(path)?;
+    let mut observe = |value: &Value| {
+        valid_record = true;
+        if history::is_subagent_path(path)
+            || !value
+                .get("isSidechain")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
         {
-            continue;
+            summary.observe(value);
         }
-        summary.observe(&value);
+    };
+    if let Some(limit) = &limit {
+        crate::services::cli_sessions::read_json_lines_prefix(
+            path,
+            limit.prefix_bytes,
+            "读取 Claude Code 会话有限摘要",
+            |value| observe(&value),
+        )?;
+    } else {
+        crate::services::cli_sessions::scan_json_records(
+            path,
+            "读取 Claude Code 会话摘要",
+            &|| true,
+            |_sequence, line| {
+                if let Ok(value) = serde_json::from_slice::<Value>(line) {
+                    observe(&value);
+                }
+                false
+            },
+        )?;
+    }
+    let read_limit_reason = limit.map(|limit| limit.reason);
+    if let Some(reason) = &read_limit_reason {
+        if summary
+            .session_id
+            .as_deref()
+            .is_none_or(|id| id.trim().is_empty())
+        {
+            return Err(format!("{reason}；有限前缀未包含可验证的原生会话 ID"));
+        }
     }
 
-    // The encoded project directory is Claude's primary workspace index. A
-    // transcript can contain events written after a directory change, or omit
-    // `cwd` on metadata-only records, so do not discard it solely because the
-    // first observed cwd is absent or differs from the selected path.
-    let workdir = summary.workdir_for(expected_workdir);
-    let id = summary.session_id.or_else(|| {
-        path.file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(str::to_string)
+    if !valid_record {
+        if fs::metadata(path).is_ok_and(|metadata| metadata.len() == 0) {
+            return Ok(None);
+        }
+        return Err("Claude 会话记录没有可解析的原生事件".into());
+    }
+
+    let native_origin_workdir = summary.native_origin_workdir.clone();
+    let workdir = native_origin_workdir
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let id = summary
+        .session_id
+        .ok_or("Claude 会话记录没有有效的原生会话 ID")?;
+    let first_message = summary.first_user_message.or_else(|| {
+        if history::is_subagent_path(path) {
+            summary.first_assistant_message
+        } else {
+            None
+        }
     });
-    let Some(id) = id.filter(|id| !id.trim().is_empty()) else {
-        return Ok(None);
-    };
     let title = first_non_empty([
         summary
             .latest_ai_title
             .and_then(|value| clean_text(value, 100)),
-        summary
-            .first_user_message
+        first_message
             .clone()
             .and_then(|value| clean_text(value, 100)),
     ]);
-    let preview = summary
-        .first_user_message
-        .and_then(|value| clean_text(value, 240));
+    let preview = first_message.and_then(|value| clean_text(value, 240));
     let model = summary.last_model.clone();
     let models = summary.models.into_iter().collect::<Vec<_>>();
-    Ok(Some(CliSessionSummary {
-        id,
-        title,
-        preview,
-        model,
-        models,
-        cli_kind,
-        created_at: normalize_timestamp(summary.created_at.as_deref()),
-        updated_at: normalize_timestamp(summary.updated_at.as_deref()),
-        workdir,
-        cli_version: summary.cli_version.and_then(|value| clean_text(value, 50)),
-        archived: false,
-        can_resume: true,
-        metadata_source: "claudeTranscript".to_string(),
+    Ok(Some(ParsedClaudeTranscript {
+        summary: CliSessionSummary {
+            id,
+            title,
+            preview,
+            model,
+            models,
+            cli_kind,
+            created_at: normalize_timestamp(summary.created_at.as_deref()),
+            // A bounded prefix cannot prove the latest native activity timestamp.
+            updated_at: if read_limit_reason.is_none() {
+                normalize_timestamp(summary.updated_at.as_deref())
+            } else {
+                None
+            },
+            workdir,
+            cli_version: summary.cli_version.and_then(|value| clean_text(value, 50)),
+            archived: false,
+            can_resume: read_limit_reason.is_none(),
+            metadata_source: if read_limit_reason.is_some() {
+                "claudeTranscriptPrefix"
+            } else {
+                "claudeTranscript"
+            }
+            .to_string(),
+        },
+        native_origin_workdir,
+        read_limit_reason,
     }))
 }
 
 #[derive(Default)]
 struct TranscriptSummary {
     session_id: Option<String>,
-    workdirs: Vec<String>,
+    native_origin_workdir: Option<std::path::PathBuf>,
     cli_version: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
     first_user_message: Option<String>,
+    first_assistant_message: Option<String>,
     latest_ai_title: Option<String>,
     last_model: Option<String>,
     models: BTreeSet<String>,
@@ -659,15 +480,14 @@ struct TranscriptSummary {
 
 impl TranscriptSummary {
     fn observe(&mut self, value: &Value) {
+        let (session_id, native_origin_workdir) = transcript_identity(value);
         self.session_id = self
             .session_id
             .take()
             .filter(|value| !value.trim().is_empty())
-            .or_else(|| string_field(value, &["sessionId", "session_id"]));
-        if let Some(workdir) = string_field(value, &["cwd", "workdir"]) {
-            if !workdir.trim().is_empty() && !self.workdirs.iter().any(|item| item == &workdir) {
-                self.workdirs.push(workdir);
-            }
+            .or(session_id);
+        if self.native_origin_workdir.is_none() {
+            self.native_origin_workdir = native_origin_workdir;
         }
         self.cli_version = self
             .cli_version
@@ -699,6 +519,14 @@ impl TranscriptSummary {
             self.first_user_message = message_text(value);
         }
         if value.get("type").and_then(Value::as_str) == Some("assistant") {
+            if self.first_assistant_message.is_none()
+                && !value
+                    .get("isMeta")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            {
+                self.first_assistant_message = message_text(value);
+            }
             if let Some(model) = value
                 .get("message")
                 .and_then(|message| message.get("model"))
@@ -711,15 +539,24 @@ impl TranscriptSummary {
             }
         }
     }
+}
 
-    fn workdir_for(&self, expected: &Path) -> String {
-        let expected_key = path_key(expected);
-        self.workdirs
-            .iter()
-            .find(|workdir| path_key(Path::new(workdir)) == expected_key)
-            .cloned()
-            .unwrap_or_else(|| expected.to_string_lossy().to_string())
-    }
+fn transcript_identity(value: &Value) -> (Option<String>, Option<std::path::PathBuf>) {
+    (
+        ["sessionId", "session_id"].into_iter().find_map(|field| {
+            value
+                .get(field)?
+                .as_str()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+        }),
+        ["cwd", "workdir"].into_iter().find_map(|field| {
+            let path = value.get(field)?.as_str()?;
+            (Path::new(path).is_absolute() && !path.chars().any(char::is_control))
+                .then(|| std::path::PathBuf::from(path))
+        }),
+    )
 }
 
 fn string_field(value: &Value, fields: &[&str]) -> Option<String> {
@@ -805,9 +642,12 @@ fn path_key(path: &Path) -> String {
 fn encode_project_path(path: &Path) -> String {
     path.to_string_lossy()
         .chars()
-        .map(|character| match character {
-            '/' | '\\' | ':' => '-',
-            other => other,
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
         })
         .collect()
 }

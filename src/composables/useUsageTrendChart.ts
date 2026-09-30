@@ -1,6 +1,6 @@
 import { computed } from "vue";
 import type { ProviderUsageModelStat, ProviderUsageSummary } from "../stores/providers";
-import { usagePeriodTitle, type UsagePeriod } from "../utils/usage-trend";
+import { usagePeriodTitle, type UsagePeriod } from "../utils/usage-trend.ts";
 
 interface UseUsageTrendChartOptions {
   summary: ProviderUsageSummary | null;
@@ -12,7 +12,7 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
 
   const maxUsageValue = computed(() => {
     const points = options.summary?.points ?? [];
-    return Math.max(1, ...points.map((point) => point.used));
+    return Math.max(0, ...points.map((point) => point.used)) || 1;
   });
 
   const usageTotal = computed(() =>
@@ -27,20 +27,15 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
     (options.summary?.points ?? []).reduce((total, point) => total + point.tokenUsed, 0),
   );
 
-  const usageAverage = computed(() => {
-    const count = options.summary?.points.length ?? 0;
-    return count > 0 ? usageTotal.value / count : 0;
-  });
-
   const usageTimeRangeMinutes = computed(() => {
     if (options.period === "24h") return 24 * 60;
     if (options.period === "7d") return 7 * 24 * 60;
     return 30 * 24 * 60;
   });
 
-  const usageAverageRpm = computed(() => safeDivide(usageRequestTotal.value, usageTimeRangeMinutes.value, 3));
+  const usageAverageRpm = computed(() => safeDivide(usageRequestTotal.value, usageTimeRangeMinutes.value));
 
-  const usageAverageTpm = computed(() => safeDivide(usageTokenTotal.value, usageTimeRangeMinutes.value, 3));
+  const usageAverageTpm = computed(() => safeDivide(usageTokenTotal.value, usageTimeRangeMinutes.value));
 
   const usageModelStats = computed(() =>
     [...(options.summary?.modelStats ?? [])]
@@ -61,7 +56,7 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
       .slice(0, 8),
   );
 
-  const usageMaxModelQuota = computed(() => Math.max(1, ...usageTopQuotaModels.value.map((item) => item.used)));
+  const usageMaxModelQuota = computed(() => Math.max(0, ...usageTopQuotaModels.value.map((item) => item.used)) || 1);
 
   const usageMaxModelCalls = computed(() => Math.max(1, ...usageTopCallModels.value.map((item) => item.requestCount)));
 
@@ -118,24 +113,22 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
   const usagePeakPoint = computed(() => {
     const points = usageChartPoints.value;
     if (points.length === 0) return null;
-    return points.reduce((peak, point) => (point.used > peak.used ? point : peak), points[0]);
+    const peak = points.reduce((current, point) => (point.used > current.used ? point : current), points[0]);
+    return peak.used > 0 ? peak : null;
   });
 
   return {
     maxUsageValue,
     title,
     usageAreaPath,
-    usageAverage,
     usageAverageRpm,
     usageAverageTpm,
     usageChartPoints,
     usageLinePath,
     usageMaxModelCalls,
     usageMaxModelQuota,
-    usageModelStats,
     usagePeakPoint,
     usageRequestTotal,
-    usageTimeRangeMinutes,
     usageTokenTotal,
     usageTopCallModels,
     usageTopQuotaModels,
@@ -145,11 +138,10 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
   };
 }
 
-function safeDivide(value: number, divisor: number, precision = 3) {
+function safeDivide(value: number, divisor: number) {
   const result = value / divisor;
   if (!Number.isFinite(result)) return 0;
-  const factor = 10 ** precision;
-  return Math.round(result * factor) / factor;
+  return result;
 }
 
 function sortModelStats(left: ProviderUsageModelStat, right: ProviderUsageModelStat) {

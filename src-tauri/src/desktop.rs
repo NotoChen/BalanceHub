@@ -1,7 +1,8 @@
 use crate::{
     commands::{
-        app::*, browser_runtime::*, cli::*, login_accounts::*, provider::*,
-        provider_browser_login::*,
+        agent_assets::*, agent_catalog::*, agent_configuration::*, agent_lifecycle::*,
+        agent_overview::*, agent_session_resume::*, agent_sessions::*, app::*, browser_runtime::*,
+        cli::*, login_accounts::*, provider::*, provider_browser_login::*,
     },
     models::AppData,
     services::{self, app_updater::AppUpdaterState},
@@ -36,14 +37,31 @@ pub(crate) fn run() {
         .plugin(updater_plugin())
         .menu(build_app_menu)
         .setup(setup_app)
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Destroyed) {
+                services::cli_sessions::workbench::release_window(
+                    window.app_handle(),
+                    window.label(),
+                );
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    state.clear_asset_actor(window.label());
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             host_platform,
             open_ccswitch_deeplink,
             open_project_repository,
             launch_temporary_cli,
             preview_temporary_cli_launch,
-            search_cli_sessions,
-            get_cli_session_detail,
+            get_agent_session_scope,
+            query_agent_sessions,
+            get_agent_session_detail,
+            cancel_agent_session_query,
+            resume_agent_session,
+            get_agent_session_resume_operation,
+            list_agent_session_resume_operations,
+            cancel_agent_session_resume_operation,
             get_cli_session_index_status,
             clear_cli_session_index,
             get_cli_runtime_snapshot,
@@ -54,7 +72,18 @@ pub(crate) fn run() {
             forget_workspace,
             browse_workspace_directories,
             preview_cli_config,
-            switch_cli_config,
+            list_agent_configuration_sources,
+            read_agent_configuration_source,
+            begin_agent_configuration_edit,
+            begin_agent_resource_edit,
+            open_agent_resource_link,
+            plan_agent_configuration_save,
+            apply_agent_configuration_plan,
+            discard_agent_configuration_edit,
+            get_agent_configuration_operation,
+            list_agent_configuration_operations,
+            cancel_agent_configuration_operation,
+            open_agent_configuration_source,
             load_app_data,
             save_provider,
             preview_provider_check_in_policy,
@@ -67,6 +96,10 @@ pub(crate) fn run() {
             complete_provider_credentials,
             test_provider_connection,
             probe_cli_tools,
+            get_cached_cli_tools,
+            get_cached_agent_overview,
+            count_agent_sessions,
+            refresh_agent_overview,
             inspect_agent_hook,
             plan_agent_hook,
             apply_agent_hook,
@@ -74,9 +107,41 @@ pub(crate) fn run() {
             repair_agent_hook,
             verify_agent_hook,
             get_agent_environment_inventory,
-            check_agent_latest_versions,
             read_agent_environment_asset,
             open_agent_environment_asset,
+            read_agent_environment_source,
+            open_agent_environment_source,
+            plan_agent_asset,
+            apply_agent_asset,
+            get_agent_asset_operation,
+            cancel_agent_asset_operation,
+            list_agent_asset_operations,
+            verify_agent_asset_operation,
+            get_agent_asset_catalog,
+            get_agent_catalog_revision,
+            has_agent_catalog_changes,
+            read_agent_catalog_content,
+            cancel_agent_catalog_read,
+            get_agent_catalog_definition,
+            read_agent_mcp_form,
+            render_agent_mcp_form,
+            save_agent_catalog_definition,
+            delete_agent_catalog_definition,
+            adopt_agent_catalog_asset,
+            get_agent_catalog_agent_panel,
+            preview_agent_catalog_relation,
+            commit_agent_catalog_relation,
+            plan_agent_catalog,
+            apply_agent_catalog,
+            get_agent_catalog_operation,
+            list_agent_catalog_operations,
+            cancel_agent_catalog_operation,
+            get_agent_lifecycle_catalog,
+            plan_agent_lifecycle,
+            apply_agent_lifecycle,
+            get_agent_lifecycle_operation,
+            list_agent_lifecycle_operations,
+            cancel_agent_lifecycle_operation,
             probe_terminals,
             preview_liveness_prompts,
             detect_provider_protocol,
@@ -191,6 +256,10 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         Ok(data) => AppState::new(data),
         Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
     };
+    if let Ok(root) = app.path().app_data_dir() {
+        services::agent_cli::initialize_discovery_cache(root.join("agent-discovery-cache"));
+        services::agent_cli::lifecycle::initialize_journal(root.join("agent-upgrades"));
+    }
     // updater/手动可见重启会继承原进程参数；一次性环境标记用于覆盖继承的
     // --silent-start，读取后立即删除，避免污染后续普通启动。
     let force_visible_start = services::app_updater::consume_visible_relaunch();

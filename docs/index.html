@@ -1,7 +1,7 @@
 ---
 layout: default
 title: AI 中转站与 Agent CLI 桌面管理工具
-description: 在 macOS、Windows 和 Linux 上集中管理 NewAPI、Sub2API 与通用 API，并用本机 Agent CLI 验证、启动和恢复会话。
+description: 在本地桌面集中管理 AI 中转站，并通过 Agent 工作台管理 CLI、共享资产绑定、版本和运行实例。
 page_class: landing-page
 ---
 
@@ -10,14 +10,15 @@ page_class: landing-page
     <div class="hero-copy">
       <p class="eyebrow">本地桌面 App · 三端支持</p>
       <h1 id="hero-title">
-        <span class="title-line">把多个 AI 中转站</span>
+        <span class="title-line">把中转站与 Agent</span>
         <span class="title-line">收进一个本地</span>
         <span class="title-line">桌面面板。</span>
       </h1>
       <p class="hero-lead">
-        集中查看余额、签到、Key、用量和日志，再用你机器上的真实 Agent CLI
-        验证账号是否可用。确认无误后，直接从卡片启动终端或接续历史会话。
+        中转站视角集中查看余额、签到、Key、用量和日志；Agent 视角管理本机
+        CLI、共享资产与运行实例，也能从卡片启动终端或接续历史会话。
       </p>
+      <p class="download-note">Agent 工作台说明对应当前仓库源码；发布安装包的功能以 <a href="{{ '/changelog.html' | relative_url }}">更新记录</a> 为准。</p>
       <div class="hero-actions">
         <a class="button button-primary" href="https://github.com/NotoChen/BalanceHub/releases/latest">
           下载最新版
@@ -49,7 +50,7 @@ page_class: landing-page
         />
       </div>
       <figcaption class="hero-caption">
-        <strong>真实 Tauri 桌面应用</strong>
+        <strong>中转站视角 · 真实 Tauri 桌面应用</strong>
         <span>截图使用隔离演示数据</span>
       </figcaption>
     </figure>
@@ -96,11 +97,10 @@ page_class: landing-page
     <div class="section-heading">
       <div>
         <p class="section-kicker">核心能力</p>
-        <h2 id="capabilities-title">一块面板，覆盖账号的日常运维。</h2>
+        <h2 id="capabilities-title">一块面板，管理中转站与 Agent。</h2>
       </div>
       <p>
-        账号、Key 与 Agent 配置各有明确边界。需要站点权限的能力由协议决定，界面不会把通用
-        API Key 伪装成完整账号。
+        账号、Key 与 Agent 资产各有入口。站点操作按协议提供，Agent 安装与配置操作按具体来源和能力开放。
       </p>
     </div>
 
@@ -137,8 +137,8 @@ page_class: landing-page
 
       <article class="capability capability-agent">
         <p class="capability-kicker">Agent CLI</p>
-        <h3>真实测活，也能直接启动。</h3>
-        <p>自动发现已安装的独立 CLI；测活、临时启动和运行实例都沿用同一套 Agent 能力定义。</p>
+        <h3>Agent 卡片与全局资产。</h3>
+        <p>统一查看 Skill、MCP、插件、Hook 的来源及各 Agent 的绑定与差异。共享定义保存后显式应用；版本安装、升级和环境配置从卡片进入。</p>
         <ul class="agent-list" aria-label="已支持的 Agent CLI">
           <li class="agent-chip">
             <img class="agent-icon" src="{{ '/assets/agent-icons/codex.svg' | relative_url }}" width="22" height="22" alt="" aria-hidden="true" />
@@ -157,6 +157,7 @@ page_class: landing-page
             Grok Build
           </li>
         </ul>
+        <p><a href="{{ '/agent-workbench.html' | relative_url }}">查看 Agent 工作台使用说明 →</a></p>
       </article>
 
       <article class="capability capability-keys">
@@ -184,7 +185,7 @@ page_class: landing-page
       <article class="capability capability-operations">
         <p class="capability-kicker">Background tasks</p>
         <h3>自动任务有迹可循。</h3>
-        <p>刷新、签到、测活和公告进入统一任务中心，当前动作和完成结果不再藏在后台。</p>
+        <p>刷新、签到、测活、资产应用和 CLI 升级在后台跟踪，确认后可继续使用面板，再查看各项结果。</p>
         <div class="task-preview" aria-hidden="true">
           <div class="task-line"><span>刷新账号状态</span><span>8 / 8</span></div>
           <div class="task-line"><span>同步可用模型</span><span>完成</span></div>
@@ -347,7 +348,7 @@ page_class: landing-page
         <p class="section-kicker">使用文档</p>
         <h2 id="docs-title">从第一次添加，到具体问题排查。</h2>
       </div>
-      <p>首页只解释产品路径；认证边界、测活配置、架构与发布细节都在独立文档中持续维护。</p>
+      <p>认证边界、Agent 工作台、测活配置、架构与发布细节见各项使用文档。</p>
     </div>
 
     <div class="docs-grid">
@@ -357,20 +358,23 @@ page_class: landing-page
       <a class="doc-link" href="{{ '/provider-config.html' | relative_url }}">
         <span class="doc-number">02</span><div><h3>中转站配置</h3><p>协议、认证方式、API Key 与连接测试。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
+      <a class="doc-link" href="{{ '/agent-workbench.html' | relative_url }}">
+        <span class="doc-number">03</span><div><h3>Agent 工作台</h3><p>双视角、全局资产、版本安装与环境管理。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+      </a>
       <a class="doc-link" href="{{ '/liveness.html' | relative_url }}">
-        <span class="doc-number">03</span><div><h3>测活配置</h3><p>本机 CLI、模型、凭据与常见错误。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+        <span class="doc-number">04</span><div><h3>测活配置</h3><p>本机 CLI、模型、凭据与常见错误。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
       <a class="doc-link" href="{{ '/reference.html' | relative_url }}">
-        <span class="doc-number">04</span><div><h3>功能与架构</h3><p>完整能力边界、技术框架和代码分层。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+        <span class="doc-number">05</span><div><h3>功能与架构</h3><p>完整能力边界、技术框架和代码分层。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
       <a class="doc-link" href="{{ '/release.html' | relative_url }}">
-        <span class="doc-number">05</span><div><h3>发布与更新</h3><p>各平台安装包、更新机制和签名文件。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+        <span class="doc-number">06</span><div><h3>发布与更新</h3><p>各平台安装包、更新机制和签名文件。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
       <a class="doc-link" href="{{ '/faq.html' | relative_url }}">
-        <span class="doc-number">06</span><div><h3>常见问题</h3><p>未知开发者、签到记录与无限额度。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+        <span class="doc-number">07</span><div><h3>常见问题</h3><p>未知开发者、签到记录与无限额度。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
-      <a class="doc-link doc-link-wide" href="{{ '/changelog.html' | relative_url }}">
-        <span class="doc-number">07</span><div><h3>更新记录</h3><p>按版本查看新增能力、行为变化和问题修复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+      <a class="doc-link" href="{{ '/changelog.html' | relative_url }}">
+        <span class="doc-number">08</span><div><h3>更新记录</h3><p>按版本查看新增能力、行为变化和问题修复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
     </div>
   </div>

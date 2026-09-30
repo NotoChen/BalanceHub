@@ -1,5 +1,5 @@
-import type { Ref } from "vue";
-import { Message } from "@arco-design/web-vue";
+import { watch, type Ref } from "vue";
+import { useLatestRequest } from "./useLatestRequest.ts";
 import type { ProviderConnectionTestResult, ProviderInput } from "../stores/providers";
 
 interface UseProviderConnectionTestOptions {
@@ -7,61 +7,43 @@ interface UseProviderConnectionTestOptions {
   drawerVisible: Ref<boolean>;
   editorSession: Ref<number>;
   editingProviderId: Ref<string | null>;
-  testingConnection: Ref<boolean>;
   connectionTestResult: Ref<ProviderConnectionTestResult | null>;
   testProviderConnection: (input: ProviderInput) => Promise<ProviderConnectionTestResult>;
 }
 
 export function useProviderConnectionTest(options: UseProviderConnectionTestOptions) {
+  const request = useLatestRequest({ timeoutMs: 60_000, timeoutMessage: "连接测试超时，请检查地址、网络或认证信息后重试" });
+  watch([
+    options.drawerVisible,
+    options.editorSession,
+    () => JSON.stringify(snapshotInput(options.draftProvider, options.editingProviderId.value)),
+  ], () => {
+    request.invalidate();
+    options.connectionTestResult.value = null;
+  }, { flush: "sync" });
+
+  watch(request.error, (message) => {
+    if (message) options.connectionTestResult.value = failedResult(message);
+  }, { flush: "sync" });
+
   async function testConnection() {
+    if (!options.drawerVisible.value || request.loading.value) return;
     if (!options.draftProvider.identity.baseUrl.trim()) {
-      Message.warning("请先填写中转站地址");
+      options.connectionTestResult.value = failedResult("请先填写中转站地址");
       return;
     }
-
-    options.testingConnection.value = true;
     options.connectionTestResult.value = null;
-    const editorSession = options.editorSession.value;
-    const providerId = options.editingProviderId.value;
-    const input = snapshotInput(options.draftProvider, providerId);
-    const inputFingerprint = JSON.stringify(input);
-    const requestIsCurrent = () =>
-      options.drawerVisible.value &&
-      options.editorSession.value === editorSession &&
-      options.editingProviderId.value === providerId &&
-      JSON.stringify(snapshotInput(options.draftProvider, providerId)) === inputFingerprint;
-    try {
-      const result = await options.testProviderConnection(input);
-      if (!requestIsCurrent()) return;
+    const input = snapshotInput(options.draftProvider, options.editingProviderId.value);
+    await request.run(() => options.testProviderConnection(input), (result) => {
       options.connectionTestResult.value = result;
-      if (result.ok) {
-        Message.success(result.message || "测试通过");
-      } else {
-        Message.error(result.message || "测试失败");
-      }
-    } catch (error) {
-      if (!requestIsCurrent()) return;
-      const message = error instanceof Error ? error.message : String(error);
-      options.connectionTestResult.value = {
-        ok: false,
-        message,
-        available: null,
-        used: null,
-        quotaDisplay: { quotaDisplayType: "currency", currencySymbol: "$" },
-        steps: [],
-      };
-      Message.error(message);
-    } finally {
-      if (
-        options.drawerVisible.value &&
-        options.editorSession.value === editorSession
-      ) {
-        options.testingConnection.value = false;
-      }
-    }
+    });
   }
 
-  return { testConnection };
+  return { testConnection, testingConnection: request.loading };
+}
+
+function failedResult(message: string): ProviderConnectionTestResult {
+  return { ok: false, message, available: null, used: null, quotaDisplay: { quotaDisplayType: "currency", currencySymbol: "$" }, steps: [] };
 }
 
 function snapshotInput(draftProvider: ProviderInput, providerId: string | null): ProviderInput {

@@ -447,6 +447,7 @@ mod tests {
             origin,
             agent_kind: AgentCliKind::Codex,
             agent_session_id: None,
+            native_session: None,
             balancehub_instance_id: Some("instance-1".to_string()),
             provider: None,
             workdir: None,
@@ -508,8 +509,9 @@ mod tests {
         repository
             .refresh_with_launch_snapshots(&[TemporaryCliInstance {
                 id: "instance-1".to_string(),
-                provider_id: "provider-1".to_string(),
-                provider_name: "Provider".to_string(),
+                native_session: None,
+                provider_id: Some("provider-1".to_string()),
+                provider_name: Some("Provider".to_string()),
                 session_title: "Session".to_string(),
                 account_label: "Account".to_string(),
                 api_key_local_id: None,

@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, onScopeDispose, ref, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type { AppSettings, Provider } from "../stores/providers";
 
@@ -8,8 +8,7 @@ interface UseOnboardingControllerOptions {
   providers: Ref<Provider[]>;
   settings: Ref<AppSettings>;
   settingsForm: AppSettings;
-  saveSettings: (settings: AppSettings) => Promise<unknown>;
-  syncFromSettings: (settings?: AppSettings) => void;
+  flushSettingsSave: () => Promise<boolean>;
   importAppData: () => Promise<unknown>;
   openAddProvider: () => void;
   openSettings: () => void;
@@ -17,6 +16,9 @@ interface UseOnboardingControllerOptions {
 
 export function useOnboardingController(options: UseOnboardingControllerOptions) {
   const hiddenForSession = ref(false);
+  let completing = false;
+  let disposed = false;
+  onScopeDispose(() => { disposed = true; });
 
   const onboardingProviderCount = computed(() => options.providers.value.length);
   const onboardingCliConfigured = computed(() =>
@@ -49,17 +51,19 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
   }
 
   async function completeOnboarding() {
+    if (disposed || completing) return;
+    completing = true;
     hiddenForSession.value = true;
     try {
-      const nextSettings = {
-        ...options.settings.value,
-        onboardingCompleted: true,
-      };
-      await options.saveSettings(nextSettings);
-      options.syncFromSettings(nextSettings);
+      options.settingsForm.onboardingCompleted = true;
+      if (!await options.flushSettingsSave() && !disposed) hiddenForSession.value = false;
     } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
-      hiddenForSession.value = false;
+      if (!disposed) {
+        Message.error(error instanceof Error ? error.message : String(error));
+        hiddenForSession.value = false;
+      }
+    } finally {
+      completing = false;
     }
   }
 

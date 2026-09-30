@@ -1,0 +1,49 @@
+{
+  "revision": 1,
+  "cells": [
+    {
+      "agentKind": "claudeCode",
+      "schemaVersion": "claude-hook-2.1.270",
+      "version": "2.1.273 (Claude Code)",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "fixtureDigest": "6e99e19ebd33fc7b14e49a2b65a98797d090c66fbe174cf6d90783360f05897d",
+      "configurationVerified": true,
+      "nativeSwitchVerified": false,
+      "configurationOnly": true
+    },
+    {
+      "agentKind": "codex",
+      "schemaVersion": "codex-hook-rust-v0.154.0",
+      "version": "codex-cli 0.154.0",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "fixtureDigest": "6e99e19ebd33fc7b14e49a2b65a98797d090c66fbe174cf6d90783360f05897d",
+      "configurationVerified": true,
+      "nativeSwitchVerified": true,
+      "configurationOnly": true
+    },
+    {
+      "agentKind": "gemini",
+      "schemaVersion": "gemini-hooks-0.59.0",
+      "version": "0.60.0",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "fixtureDigest": "6e99e19ebd33fc7b14e49a2b65a98797d090c66fbe174cf6d90783360f05897d",
+      "configurationVerified": true,
+      "nativeSwitchVerified": true,
+      "configurationOnly": true
+    },
+    {
+      "agentKind": "grok",
+      "schemaVersion": "grok-hook-72a61251fcffb464bcc687aeb5a998e5a98ec0c9",
+      "version": "grok 1.0.30 (04b7ffed98c6)",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "fixtureDigest": "6e99e19ebd33fc7b14e49a2b65a98797d090c66fbe174cf6d90783360f05897d",
+      "configurationVerified": true,
+      "nativeSwitchVerified": true,
+      "configurationOnly": true
+    }
+  ]
+}

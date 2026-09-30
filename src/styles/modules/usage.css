@@ -61,7 +61,13 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
+
+.usage-point-details { border-top: 1px solid var(--surface-line); padding-top: 10px; }
+.usage-point-details summary { width: fit-content; color: var(--surface-muted); font-size: 12px; line-height: 1.8; cursor: pointer; }
+.usage-point-details .usage-list { max-height: 240px; overflow: auto; margin-top: 10px; }
 
 .usage-summary-cards small {
   overflow: hidden;
@@ -235,6 +241,8 @@
   border-radius: 8px;
   background: var(--glass-card);
 }
+
+.usage-model-panel:only-child { grid-column: 1 / -1; }
 
 .usage-model-panel-header {
   display: flex;

@@ -40,7 +40,7 @@ export function agentCliLabel(
 export function agentCliVersionLabel(value: string) {
   const version = value.trim();
   if (!version) return "";
-  return version.match(/(?:^|[^0-9])(\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?)/)?.[1] || version;
+  return version.match(/(?:^|[^0-9])(\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)/)?.[1] || version;
 }
 
 export function canNameSessionAtLaunch(
@@ -161,28 +161,4 @@ export function agentCliPathsMatchSnapshot(
     (settings.agentCliPaths[kind as AgentCliKind] || "")
       === (expected.agentCliPaths[kind as AgentCliKind] || ""),
   );
-}
-
-/** 把设置页手动扫描结果写回发起扫描时的草稿快照，避免覆盖扫描期间的用户修改。 */
-export function applyCliEnvironmentProbeResult(
-  settings: AppSettings,
-  probe: CliEnvironmentProbeResult,
-  expected: CliEnvironmentSettingsSnapshot,
-) {
-  for (const tool of probe.tools) {
-    const currentPath = settings.agentCliPaths[tool.kind] || "";
-    const expectedPath = expected.agentCliPaths[tool.kind] || "";
-    if (currentPath === expectedPath && tool.available && tool.path.trim()) {
-      settings.agentCliPaths[tool.kind] = tool.path;
-    }
-  }
-
-  const cliKinds = availableCliKinds(probe, "liveness");
-  if (
-    settings.livenessCliKind === expected.livenessCliKind
-    && cliKinds.length > 0
-    && !cliKinds.includes(settings.livenessCliKind)
-  ) {
-    settings.livenessCliKind = cliKinds[0];
-  }
 }

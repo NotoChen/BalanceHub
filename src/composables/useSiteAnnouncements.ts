@@ -1,11 +1,12 @@
 import {
   computed,
-  onBeforeUnmount,
+  onScopeDispose,
   ref,
   watch,
   type Ref,
 } from "vue";
 import { Message } from "@arco-design/web-vue";
+import { withTimeout } from "../utils/promise-timeout";
 import {
   getSiteAnnouncements,
   markSiteAnnouncementRead as markSiteAnnouncementReadCommand,
@@ -44,6 +45,7 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
   let refreshPromise: Promise<void> | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let sourceSignature = providerAnnouncementSourceSignature(options.providers.value);
+  let disposed = false;
 
   const siteAnnouncements = computed(() =>
     [...(siteAnnouncementsSnapshot.value?.announcements ?? [])].sort(
@@ -70,20 +72,26 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
   }
 
   function openSiteAnnouncements() {
+    if (disposed) return;
     siteAnnouncementsVisible.value = true;
+    const unread = siteAnnouncements.value.find((item) => !announcementIsRead(item));
+    if (unread) selectSiteAnnouncement(unread);
+    else selectInitialAnnouncement();
     if (isStale()) {
       void refreshSiteAnnouncements();
     }
   }
 
   async function refreshSiteAnnouncements() {
+    if (disposed) return;
     if (refreshPromise) return refreshPromise;
     refreshPromise = (async () => {
       const requestedSourceSignature = sourceSignature;
       siteAnnouncementsLoading.value = true;
       siteAnnouncementsFatalError.value = "";
       try {
-        const snapshot = await getSiteAnnouncements();
+        const snapshot = await withTimeout(getSiteAnnouncements(), 60_000, "读取站点公告超时，请重试");
+        if (disposed) return;
         if (requestedSourceSignature !== sourceSignature) {
           scheduleNextRefresh(SOURCE_CHANGE_REFRESH_DELAY_MS);
           return;
@@ -98,11 +106,13 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
         ) {
           selectedAnnouncementFingerprint.value = "";
         }
+        selectInitialAnnouncement();
         // Sub2API 的公告读取可能滚动更新令牌。先结束公告加载，让顶部入口及时
         // 可用，再异步同步 Provider 快照，避免一次公告请求把弹窗拖成“卡住”。
         void options.reloadProviders().catch(() => {});
         scheduleNextRefresh(REFRESH_INTERVAL_MS);
       } catch (error) {
+        if (disposed) return;
         if (requestedSourceSignature !== sourceSignature) {
           scheduleNextRefresh(SOURCE_CHANGE_REFRESH_DELAY_MS);
           return;
@@ -111,7 +121,7 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
         lastRefreshAt = Date.now();
         scheduleNextRefresh(REFRESH_INTERVAL_MS);
       } finally {
-        siteAnnouncementsLoading.value = false;
+        if (!disposed) siteAnnouncementsLoading.value = false;
       }
     })().finally(() => {
       refreshPromise = null;
@@ -120,10 +130,17 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
   }
 
   function selectSiteAnnouncement(item: SiteAnnouncement) {
+    if (disposed) return;
     selectedAnnouncementFingerprint.value = item.fingerprint;
     if (!announcementIsRead(item)) {
       void markSiteAnnouncementRead(item);
     }
+  }
+
+  function selectInitialAnnouncement() {
+    if (!siteAnnouncementsVisible.value || selectedSiteAnnouncement.value) return;
+    const first = siteAnnouncements.value.find((item) => !announcementIsRead(item)) ?? siteAnnouncements.value[0];
+    if (first) selectSiteAnnouncement(first);
   }
 
   /**
@@ -152,18 +169,20 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
     item: SiteAnnouncement,
     markOptions: { notifyFailure?: boolean; reloadProviders?: boolean } = {},
   ): Promise<boolean> {
+    if (disposed) return false;
     markAnnouncementReadLocally(item);
     if (!item.canMarkRead || !item.id.trim()) return true;
     if (markingAnnouncementFingerprints.value.has(item.fingerprint)) return true;
 
     setMarking(item.fingerprint, true);
     try {
-      await markSiteAnnouncementReadCommand(item.providerId, item.id);
+      await withTimeout(markSiteAnnouncementReadCommand(item.providerId, item.id), 15_000, "同步公告已读状态超时");
+      if (disposed) return false;
       if (markOptions.reloadProviders !== false) {
         void options.reloadProviders().catch(() => {});
       }
     } catch (error) {
-      if (markOptions.notifyFailure !== false) {
+      if (!disposed && markOptions.notifyFailure !== false) {
         Message.warning(`公告已在本地标记为已读，站点同步失败：${errorMessage(error)}`);
       }
       return false;
@@ -179,6 +198,7 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
    * leave the user with a stale unread count.
    */
   async function markAllSiteAnnouncementsRead() {
+    if (disposed) return;
     const unread = siteAnnouncements.value.filter((item) => !announcementIsRead(item));
     if (unread.length === 0) return;
     unread.forEach(markAnnouncementReadLocally);
@@ -191,6 +211,7 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
         }),
       ),
     );
+    if (disposed) return;
     const failed = results.filter((result) => !result).length;
     if (results.some(Boolean)) {
       void options.reloadProviders().catch(() => {});
@@ -239,6 +260,7 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
   }
 
   function scheduleNextRefresh(delay: number) {
+    if (disposed) return;
     if (refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
       refreshTimer = null;
@@ -270,7 +292,9 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
     { immediate: true },
   );
 
-  onBeforeUnmount(() => {
+  onScopeDispose(() => {
+    disposed = true;
+    siteAnnouncementsLoading.value = false;
     if (refreshTimer) clearTimeout(refreshTimer);
   });
 

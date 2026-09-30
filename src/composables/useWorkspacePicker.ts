@@ -1,8 +1,6 @@
 import { computed, ref, watch, type Ref } from "vue";
 import type {
   AgentCliKind,
-  CliSessionDetail,
-  CliSessionSearchResponse,
   CliEnvironmentProbeResult,
   Provider,
   ProviderApiKeyOption,
@@ -26,7 +24,9 @@ import {
 import { useWorkspaceApiKeySelection } from "./useWorkspaceApiKeySelection";
 import { useWorkspaceDirectoryBrowser } from "./useWorkspaceDirectoryBrowser";
 import { useWorkspaceLaunchFlow } from "./useWorkspaceLaunchFlow";
+import type { AgentSessionQueryApi } from "../api/agent-sessions";
 import { useWorkspaceSessionHistory } from "./useWorkspaceSessionHistory";
+import { useAgentSessionResumeStore } from "../stores/agent-session-resume";
 
 interface UseWorkspacePickerOptions {
   workspaces: Ref<Workspace[]>;
@@ -42,20 +42,11 @@ interface UseWorkspacePickerOptions {
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
   preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
   getInstance: (instanceId: string) => Promise<TemporaryCliInstance | null>;
-  searchSessions: (
-    cliKind: AgentCliKind,
-    workdir: string,
-    query: string,
-    forceRefresh?: boolean,
-  ) => Promise<CliSessionSearchResponse>;
-  getSessionDetail: (
-    cliKind: AgentCliKind,
-    workdir: string,
-    sessionId: string,
-  ) => Promise<CliSessionDetail>;
+  sessionApi?: AgentSessionQueryApi;
 }
 
 export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
+  const sessionResume = useAgentSessionResumeStore();
   const workspacePickerVisible = ref(false);
   const workspacePickerProvider = ref<Provider | null>(null);
   const workspacePickerCliKind = ref<AgentCliKind>("codex");
@@ -96,8 +87,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     sessionMode: workspaceSessionMode,
     selectedModel: workspaceSelectedModel,
     directory: directoryBrowser.workspaceDirectory,
-    searchSessions: options.searchSessions,
-    getSessionDetail: options.getSessionDetail,
+    sessionApi: options.sessionApi,
   });
   const launchFlow = useWorkspaceLaunchFlow({
     visible: workspacePickerVisible,
@@ -116,11 +106,14 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     sessionName: workspaceSessionName,
     canNameSession: workspaceCanNameSession,
     selectedResumeId: sessionHistory.workspaceSelectedResumeId,
+    selectedSessionRef: sessionHistory.workspaceSelectedSessionRef,
+    sessionScopeRevision: sessionHistory.workspaceSessionScopeRevision,
     selectedSessionTitle: sessionHistory.workspaceSelectedSessionTitle,
     error: directoryBrowser.workspaceBrowserError,
     launch: options.launch,
     preview: options.preview,
     getInstance: options.getInstance,
+    resume: sessionResume.submit,
   });
 
   async function browseWorkspaceDirectory(path?: string) {
@@ -275,6 +268,11 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionQuery: sessionHistory.workspaceSessionQuery,
     workspaceSessionResults: sessionHistory.workspaceSessionResults,
     workspaceSessionsLoading: sessionHistory.workspaceSessionsLoading,
+    workspaceSessionsLoadingMore: sessionHistory.workspaceSessionsLoadingMore,
+    workspaceSessionRoleFilter: sessionHistory.workspaceSessionRoleFilter,
+    workspaceSessionTotal: sessionHistory.workspaceSessionTotal,
+    workspaceSessionHasMore: sessionHistory.workspaceSessionHasMore,
+    workspaceSelectedSessionRef: sessionHistory.workspaceSelectedSessionRef,
     workspaceSessionsError: sessionHistory.workspaceSessionsError,
     workspaceSessionIndexState: sessionHistory.workspaceSessionIndexState,
     workspaceSessionIndexMessage: sessionHistory.workspaceSessionIndexMessage,
@@ -284,6 +282,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionDetailLoading: sessionHistory.workspaceSessionDetailLoading,
     workspaceSessionDetailError: sessionHistory.workspaceSessionDetailError,
     workspaceSessionDetail: sessionHistory.workspaceSessionDetail,
+    workspaceSessionDetailRow: sessionHistory.workspaceSessionDetailRow,
     workspaceTerminalKind,
     workspaceTerminalOptions,
     workspaceDirectory: directoryBrowser.workspaceDirectory,
@@ -301,6 +300,8 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     confirmWorkspaceLaunch: launchFlow.confirmWorkspaceLaunch,
     loadWorkspaceSessions: sessionHistory.loadWorkspaceSessions,
     refreshWorkspaceSessions: sessionHistory.refreshWorkspaceSessions,
+    loadMoreWorkspaceSessions: sessionHistory.loadMoreWorkspaceSessions,
+    openWorkspaceSessionParent: sessionHistory.openWorkspaceSessionParent,
     openWorkspaceSessionDetail: sessionHistory.openWorkspaceSessionDetail,
     closeWorkspaceSessionDetail: sessionHistory.closeWorkspaceSessionDetail,
     selectWorkspaceSession: sessionHistory.selectWorkspaceSession,

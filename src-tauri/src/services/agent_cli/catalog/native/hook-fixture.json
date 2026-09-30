@@ -1,0 +1,21 @@
+{
+  "revision": 1,
+  "command": "/usr/bin/touch user-hook-fixture",
+  "updatedCommand": "/usr/bin/touch user-hook-fixture-v2",
+  "unrelatedCommand": "/usr/bin/touch user-hook-neighbor",
+  "claudeEvent": "PreToolUse",
+  "codexEvent": "PreToolUse",
+  "geminiEvent": "BeforeTool",
+  "grokEvent": "PreToolUse",
+  "requiredChecks": [
+    "native-handler-inventory",
+    "ordinary-user-hook-adoption-and-update",
+    "unknown-fields-and-secret-retention",
+    "native-enable-disable-preserves-policy",
+    "suspension-restart-and-version-update",
+    "restoration-with-neighbor-preservation",
+    "same-source-composed-update",
+    "stale-and-ambiguous-node-rejection",
+    "remove-selected-binding"
+  ]
+}

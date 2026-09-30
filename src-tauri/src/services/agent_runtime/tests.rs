@@ -219,11 +219,56 @@ fn same_agent_session_id_in_different_scopes_does_not_merge() {
 }
 
 #[test]
+fn native_resume_identity_is_available_before_hooks_and_start_timeout_is_unknown() {
+    let identity = crate::models::AgentSessionLaunchIdentity {
+        session_ref: "source-bound-reference".to_owned(),
+        source_identity: "native-source-1".to_owned(),
+        native_session_id: "native-session-1".to_owned(),
+        runtime_scope: AgentRuntimeScope::Native,
+    };
+    let instance = crate::models::TemporaryCliInstance {
+        id: "native-instance".to_owned(),
+        provider_id: None,
+        provider_name: None,
+        native_session: Some(identity.clone()),
+        session_title: String::new(),
+        account_label: String::new(),
+        api_key_local_id: None,
+        cli_kind: AgentCliKind::Codex,
+        workdir: "/synthetic/workspace".to_owned(),
+        terminal_kind: TemporaryCliTerminalKind::Terminal,
+        terminal_name: "Terminal".to_owned(),
+        terminal_locator: None,
+        started_at: "100".to_owned(),
+        ended_at: None,
+        pid: None,
+        status: TemporaryCliInstanceStatus::Starting,
+        exit_code: None,
+        can_activate: false,
+    };
+    let launch = event_from_temporary_cli(&instance, 100);
+    assert_eq!(launch.agent_session_id.as_deref(), Some("native-session-1"));
+    let projection = reduce(AgentRuntimeProjection::default(), launch);
+    let session = projection.sessions().next().unwrap();
+    assert_eq!(session.native_session.as_ref(), Some(&identity));
+    assert!(session.provider.is_none());
+    assert_eq!(session.state, AgentRuntimeState::Starting);
+
+    let expired = event_from_temporary_cli(&instance, 120_100);
+    let projection = reduce(projection, expired);
+    let session = projection.sessions().next().unwrap();
+    assert_eq!(session.state, AgentRuntimeState::Unknown);
+    assert_eq!(session.native_session.as_ref(), Some(&identity));
+    assert!(session.ended_at.is_none());
+}
+
+#[test]
 fn launch_adapter_preserves_non_secret_source_and_runtime_id() {
     let instance = crate::models::TemporaryCliInstance {
         id: "instance-1".to_string(),
-        provider_id: "provider-1".to_string(),
-        provider_name: "Relay".to_string(),
+        native_session: None,
+        provider_id: Some("provider-1".to_string()),
+        provider_name: Some("Relay".to_string()),
         session_title: "Session".to_string(),
         account_label: "Account".to_string(),
         cli_kind: AgentCliKind::Gemini,
@@ -269,8 +314,9 @@ fn launch_adapter_preserves_non_secret_source_and_runtime_id() {
 fn launch_snapshot_event_id_is_stable_until_snapshot_content_changes() {
     let mut instance = crate::models::TemporaryCliInstance {
         id: "instance-stable".to_string(),
-        provider_id: "provider-1".to_string(),
-        provider_name: "Relay".to_string(),
+        native_session: None,
+        provider_id: Some("provider-1".to_string()),
+        provider_name: Some("Relay".to_string()),
         session_title: "Session".to_string(),
         account_label: "Account".to_string(),
         api_key_local_id: Some("local-key-1".to_string()),

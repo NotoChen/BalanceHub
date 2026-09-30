@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, type CSSProperties } from "vue";
+import { computed, ref, watch, type CSSProperties } from "vue";
+import { SearchX, ServerPlus } from "@lucide/vue";
 import ProviderCard from "./ProviderCard.vue";
+import ProviderBoardToolbar from "./ProviderBoardToolbar.vue";
 import type {
   CliRuntimeSnapshot,
   AgentRuntimeSnapshot,
@@ -17,18 +19,20 @@ import {
 import { providerApiKeyDisplayName, providerDefaultApiKeyOption } from "../utils/provider-display";
 import { agentCliLabel } from "../utils/cli-environment";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
-import { activeAgentRuntimeSessions } from "../utils/agent-runtime";
+import { activeAgentRuntimeSessions, isConfirmedAgentRuntimeSession } from "../utils/agent-runtime";
+import { countProviderFilters, providerMatchesFilter, providerFilters, type ProviderFilter } from "../utils/provider-filters";
 
 interface ProviderDragState {
   providerId: string | null;
   dragging: boolean;
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   loading: boolean;
   initialized: boolean;
   loadError: string | null;
   providers: Provider[];
+  searchQuery?: string;
   livenessProviders: Provider[];
   regularProviders: Provider[];
   cliRuntime: CliRuntimeSnapshot;
@@ -43,12 +47,22 @@ const props = defineProps<{
   providerCardTone: (provider: Provider) => ProviderCardTone;
   cardStatusTooltip: (provider: Provider) => string;
   showLivenessTimeline: (provider: Provider) => boolean;
-}>();
+}>(), { searchQuery: "" });
 const cliStore = useCliRuntimeStore();
+const boardRef = ref<HTMLElement | null>(null);
+const activeFilter = ref<ProviderFilter>("all");
+const hasSearch = computed(() => Boolean(props.searchQuery.trim()));
+const selectedFilterLabel = computed(() =>
+  providerFilters.find((option) => option.value === activeFilter.value)!.label,
+);
+watch([() => props.searchQuery, activeFilter], () => {
+  if (boardRef.value) boardRef.value.scrollTop = 0;
+}, { flush: "post" });
 
 const emit = defineEmits<{
   add: [];
   importData: [];
+  retryLoad: [];
   cardClick: [provider: Provider];
   cardPointerdown: [provider: Provider, event: PointerEvent];
   toggle: [provider: Provider];
@@ -75,17 +89,27 @@ const emit = defineEmits<{
   clearSearch: [];
 }>();
 
-const filteredLivenessProviders = computed(() => props.livenessProviders);
-const filteredRegularProviders = computed(() => props.regularProviders);
-const accountProviders = computed(() =>
-  filteredRegularProviders.value.filter((provider) => provider.auth.mode !== "apiKey"),
+const unfilteredSections = computed(() => [
+  { key: "liveness", label: "自动测活", providers: props.livenessProviders, liveness: true },
+  { key: "account", label: "账户认证", providers: props.regularProviders.filter((provider) => provider.auth.mode !== "apiKey"), liveness: false },
+  { key: "apiKey", label: "API Key", providers: props.regularProviders.filter((provider) => provider.auth.mode === "apiKey"), liveness: false },
+]);
+const filterCounts = computed(() => countProviderFilters(
+  unfilteredSections.value.flatMap((section) => section.providers),
+));
+const providerSections = computed(() => unfilteredSections.value.map((section) => ({
+  ...section,
+  providers: section.providers.filter((provider) => providerMatchesFilter(provider, activeFilter.value)),
+})).filter((section) => section.providers.length > 0));
+const visibleProviderCount = computed(() =>
+  providerSections.value.reduce((total, section) => total + section.providers.length, 0),
 );
-const apiKeyProviders = computed(() =>
-  filteredRegularProviders.value.filter((provider) => provider.auth.mode === "apiKey"),
-);
-const visibleProviderCount = computed(
-  () => filteredLivenessProviders.value.length + filteredRegularProviders.value.length,
-);
+
+function clearFilters() {
+  activeFilter.value = "all";
+  emit("clearSearch");
+}
+
 function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
   return props.cliRuntime.configs
     .filter((snapshot) => snapshot.providerId === provider.identity.id)
@@ -102,7 +126,7 @@ function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
 }
 
 function providerActiveCliCounts(provider: Provider) {
-  return activeAgentRuntimeSessions(props.agentRuntimeSnapshot).reduce<Partial<Record<AgentCliKind, number>>>(
+  return activeAgentRuntimeSessions(props.agentRuntimeSnapshot).filter(isConfirmedAgentRuntimeSession).reduce<Partial<Record<AgentCliKind, number>>>(
     (counts, session) => {
       if (session.provider?.providerId === provider.identity.id) {
         counts[session.agentKind] = (counts[session.agentKind] || 0) + 1;
@@ -121,32 +145,46 @@ function providerSwitchingCliKind(provider: Provider) {
 </script>
 
 <template>
-  <section class="content provider-board">
+  <section ref="boardRef" class="content provider-board">
     <a-spin v-if="loading && !initialized" tip="正在加载本地配置..." />
 
     <a-alert v-if="loadError" type="error" show-icon class="provider-load-error">
       <template #title>本地配置未加载</template>
       <div class="provider-load-error-content">
         <span>{{ loadError }}</span>
-        <a-button size="small" @click="emit('importData')">导入配置</a-button>
+        <div class="provider-load-error-actions">
+          <a-button type="primary" size="small" :loading="loading" @click="emit('retryLoad')">重新读取</a-button>
+          <a-button size="small" :disabled="loading" @click="emit('importData')">从备份恢复</a-button>
+        </div>
       </div>
     </a-alert>
 
-    <section v-if="!loadError && filteredLivenessProviders.length > 0" class="provider-board-section">
+    <template v-if="!loadError">
+    <ProviderBoardToolbar
+      v-if="providers.length > 0"
+      :filter="activeFilter"
+      :counts="filterCounts"
+      :visible-count="visibleProviderCount"
+      :total-count="providers.length"
+      :has-search="hasSearch"
+      @select="activeFilter = $event"
+      @reset="clearFilters"
+    />
+    <section v-for="section in providerSections" :key="section.key" class="provider-board-section">
       <div class="provider-board-section-header">
-        <h2>自动测活</h2>
-        <span>{{ filteredLivenessProviders.length }}</span>
+        <h2>{{ section.label }}</h2>
+        <span>{{ section.providers.length }}</span>
       </div>
       <TransitionGroup name="provider-grid" tag="div" class="overview-provider-grid">
         <ProviderCard
-          v-for="provider in filteredLivenessProviders"
+          v-for="provider in section.providers"
           :key="provider.identity.id"
           :provider="provider"
           :tone="providerCardTone(provider)"
           :placeholder="providerDrag.providerId === provider.identity.id && providerDrag.dragging"
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
-          :show-liveness-timeline="true"
+          :show-liveness-timeline="section.liveness"
           :cli-orbits="providerCliOrbits(provider)"
           :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
@@ -180,118 +218,26 @@ function providerSwitchingCliKind(provider: Provider) {
         />
       </TransitionGroup>
     </section>
+    </template>
 
-    <section v-if="!loadError && accountProviders.length > 0" class="provider-board-section">
-      <div class="provider-board-section-header">
-        <h2>账户认证</h2>
-        <span>{{ accountProviders.length }}</span>
-      </div>
-      <TransitionGroup name="provider-grid" tag="div" class="overview-provider-grid">
-        <ProviderCard
-          v-for="provider in accountProviders"
-          :key="provider.identity.id"
-          :provider="provider"
-          :tone="providerCardTone(provider)"
-          :placeholder="providerDrag.providerId === provider.identity.id && providerDrag.dragging"
-          :drag-over="dragOverProviderId === provider.identity.id"
-          :title="cardStatusTooltip(provider)"
-          :show-liveness-timeline="false"
-          :cli-orbits="providerCliOrbits(provider)"
-          :active-cli-counts="providerActiveCliCounts(provider)"
-          :switching-cli-kind="providerSwitchingCliKind(provider)"
-          :cli-config-switching="Boolean(switchingCliConfig)"
-          :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
-          :checking-in="checkingInProviderIds.includes(provider.identity.id)"
-          @click="emit('cardClick', $event)"
-          @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
-          @enter="emit('cardClick', $event)"
-          @open-cli-instances="(provider, cliKind) => emit('openCliInstances', provider, cliKind)"
-          @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
-          @probe-capabilities="emit('probeCapabilities', $event)"
-          @open-api-key-manager="emit('openApiKeyManager', $event)"
-          @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
-          @open-available-models="emit('openAvailableModels', $event)"
-          @open-usage="emit('openUsage', $event)"
-          @open-request-logs="emit('openRequestLogs', $event)"
-          @open-password-change="emit('openPasswordChange', $event)"
-          @open-liveness-details="emit('openLivenessDetails', $event)"
-          @open-check-in-records="emit('openCheckInRecords', $event)"
-          @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"
-          @launch-temporary-cli="emit('launchTemporaryCli', $event)"
-          @copy-url="emit('copyUrl', $event)"
-          @copy-invite="emit('copyInvite', $event)"
-          @copy-secret="(provider, field) => emit('copySecret', provider, field)"
-          @edit="emit('edit', $event)"
-          @toggle="emit('toggle', $event)"
-          @refresh="emit('refresh', $event)"
-          @check-in="emit('checkIn', $event)"
-          @remove="emit('remove', $event)"
-        />
-      </TransitionGroup>
-    </section>
-
-    <section v-if="!loadError && apiKeyProviders.length > 0" class="provider-board-section">
-      <div class="provider-board-section-header">
-        <h2>API Key</h2>
-        <span>{{ apiKeyProviders.length }}</span>
-      </div>
-      <TransitionGroup name="provider-grid" tag="div" class="overview-provider-grid">
-        <ProviderCard
-          v-for="provider in apiKeyProviders"
-          :key="provider.identity.id"
-          :provider="provider"
-          :tone="providerCardTone(provider)"
-          :placeholder="providerDrag.providerId === provider.identity.id && providerDrag.dragging"
-          :drag-over="dragOverProviderId === provider.identity.id"
-          :title="cardStatusTooltip(provider)"
-          :show-liveness-timeline="false"
-          :cli-orbits="providerCliOrbits(provider)"
-          :active-cli-counts="providerActiveCliCounts(provider)"
-          :switching-cli-kind="providerSwitchingCliKind(provider)"
-          :cli-config-switching="Boolean(switchingCliConfig)"
-          :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
-          :checking-in="checkingInProviderIds.includes(provider.identity.id)"
-          @click="emit('cardClick', $event)"
-          @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
-          @enter="emit('cardClick', $event)"
-          @open-cli-instances="(provider, cliKind) => emit('openCliInstances', provider, cliKind)"
-          @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
-          @probe-capabilities="emit('probeCapabilities', $event)"
-          @open-api-key-manager="emit('openApiKeyManager', $event)"
-          @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
-          @open-available-models="emit('openAvailableModels', $event)"
-          @open-usage="emit('openUsage', $event)"
-          @open-request-logs="emit('openRequestLogs', $event)"
-          @open-password-change="emit('openPasswordChange', $event)"
-          @open-liveness-details="emit('openLivenessDetails', $event)"
-          @open-check-in-records="emit('openCheckInRecords', $event)"
-          @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"
-          @launch-temporary-cli="emit('launchTemporaryCli', $event)"
-          @copy-url="emit('copyUrl', $event)"
-          @copy-invite="emit('copyInvite', $event)"
-          @copy-secret="(provider, field) => emit('copySecret', provider, field)"
-          @edit="emit('edit', $event)"
-          @toggle="emit('toggle', $event)"
-          @refresh="emit('refresh', $event)"
-          @check-in="emit('checkIn', $event)"
-          @remove="emit('remove', $event)"
-        />
-      </TransitionGroup>
-    </section>
-
-    <div v-if="!loadError && providers.length === 0 && !loading" class="empty-state">
+    <div v-if="!loadError && providers.length === 0 && !loading" class="empty-state provider-board-empty">
+      <span class="provider-board-empty-icon"><ServerPlus :size="24" aria-hidden="true" /></span>
       <h3>还没有中转站</h3>
-      <p>添加中转站地址后会尝试读取站点名称，再配置认证方式。</p>
-      <a-button type="primary" @click="emit('add')">添加中转站</a-button>
+      <p>添加中转站统一查看余额、签到和模型，也可以从已有备份导入。</p>
+      <div class="provider-board-empty-actions">
+        <a-button type="primary" @click="emit('add')">添加中转站</a-button>
+        <a-button @click="emit('importData')">从备份导入</a-button>
+      </div>
     </div>
 
     <div
       v-else-if="!loadError && providers.length > 0 && visibleProviderCount === 0"
-      class="empty-state provider-board-search-empty"
+      class="empty-state provider-board-empty provider-board-search-empty"
     >
-      <h3>没有匹配的中转站</h3>
-      <p>当前搜索条件没有结果。</p>
-      <a-button @click="emit('clearSearch')">清除搜索</a-button>
+      <span class="provider-board-empty-icon"><SearchX :size="24" aria-hidden="true" /></span>
+      <h3>{{ hasSearch || activeFilter === 'all' ? '没有匹配的中转站' : `暂无${selectedFilterLabel}的中转站` }}</h3>
+      <p>可以调整筛选条件或搜索词，也可以重置筛选查看全部中转站。</p>
+      <a-button @click="clearFilters">查看全部中转站</a-button>
     </div>
 
     <ProviderCard

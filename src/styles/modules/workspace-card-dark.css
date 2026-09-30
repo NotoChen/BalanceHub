@@ -1,0 +1,60 @@
+:root.theme-dark .workspace-card-title {
+  color: #f2f3f5;
+}
+
+:root.theme-dark .workspace-card-subtitle {
+  color: #a9aeb8;
+}
+
+:root.theme-dark .workspace-card-chip {
+  color: #a9aeb8;
+  border-color: var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:root.theme-dark .workspace-card-chip-more {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(122, 167, 255, 0.34);
+  color: #94bfff;
+}
+
+:root.theme-dark .workspace-card {
+  --workspace-card-surface: var(--glass-card);
+  border-color: transparent;
+  background: var(--workspace-card-surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+:root.theme-dark .workspace-card-logo-framed {
+  background: rgba(39, 42, 51, 0.42);
+  box-shadow: inset 0 0 0 1px var(--glass-border);
+}
+
+:root.theme-dark .workspace-card:hover {
+  border-color: transparent;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+:root.theme-dark .workspace-card:focus-visible {
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(122, 167, 255, 0.18), 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+:root.theme-dark .workspace-card::after {
+  background: linear-gradient(
+    to bottom left,
+    color-mix(in srgb, var(--workspace-card-state) 15%, transparent),
+    color-mix(in srgb, var(--workspace-card-state) 5%, transparent) 22%,
+    transparent 48%
+  );
+}
+
+:root.theme-dark .workspace-card-quick-actions {
+  border-color: var(--glass-border);
+}
+
+:root.theme-dark .workspace-card-action-popover {
+  border-color: var(--glass-border) !important;
+  background: var(--glass-card) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.36) !important;
+}

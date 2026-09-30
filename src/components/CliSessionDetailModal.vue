@@ -7,17 +7,20 @@ import {
   IconCopy,
   IconDown,
   IconFile,
-  IconLeft,
-  IconRight,
+  IconFolder,
+  IconUp,
   IconSearch,
   IconUser,
 } from "@arco-design/web-vue/es/icon";
 import type { CliSessionDetail, CliSessionMessage } from "../stores/providers";
+import type { AgentSessionRow } from "../stores/agent-session-types";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import { copyText } from "../composables/useClipboard";
 import { agentCliLabel } from "../utils/cli-environment";
 import AgentCliIcon from "./AgentCliIcon.vue";
 import CliSessionMessageContent from "./CliSessionMessageContent.vue";
+import AgentSessionRelation from "./agent-workspace/AgentSessionRelation.vue";
+import { sessionModelLabel as formatSessionModel, sessionTime } from "../utils/agent-session-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -25,11 +28,13 @@ const props = defineProps<{
   error: string;
   detail: CliSessionDetail | null;
   selectedResumeId: string;
+  sessionRow?: AgentSessionRow | null;
 }>();
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
   select: [];
+  parent: [sessionRef: string];
 }>();
 
 type TimelineItem =
@@ -50,6 +55,7 @@ const sessionSearchQuery = ref("");
 const currentMatchPosition = ref(-1);
 const visibleMessageCount = ref(INITIAL_MESSAGE_COUNT);
 const expandedActivityKeys = ref<Set<string>>(new Set());
+let searchNavigationRevision = 0;
 
 const session = computed(() => props.detail?.session ?? null);
 const cliLabel = computed(() =>
@@ -106,8 +112,9 @@ const conversationStats = computed(() => {
 });
 
 watch(
-  () => [props.visible, props.detail?.session.id] as const,
+  () => [props.visible, props.sessionRow?.sessionRef || props.detail?.session.id] as const,
   () => {
+    searchNavigationRevision += 1;
     sessionSearchQuery.value = "";
     currentMatchPosition.value = -1;
     visibleMessageCount.value = INITIAL_MESSAGE_COUNT;
@@ -126,23 +133,13 @@ watch(
   { flush: "post" },
 );
 
-function sessionTime(value: string | null) {
-  if (!value) return "时间未知";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
 function messageTime(message: CliSessionMessage) {
   return message.timestamp ? sessionTime(message.timestamp) : "";
 }
 
 const sessionModelLabel = computed(() => {
   const value = session.value;
-  if (!value) return "未记录模型";
-  if (value.models.length > 1) {
-    return `多模型 · 最近 ${value.model || value.models[value.models.length - 1]}`;
-  }
-  return value.model || "未记录模型";
+  return value ? formatSessionModel(value) : "未记录模型";
 });
 
 function messageRoleLabel(message: CliSessionMessage) {
@@ -168,14 +165,13 @@ function activityContainsCurrentMatch(item: Extract<TimelineItem, { type: "activ
 }
 
 function activityIsOpen(item: Extract<TimelineItem, { type: "activity" }>) {
-  return expandedActivityKeys.value.has(item.key) || activityContainsCurrentMatch(item);
+  return expandedActivityKeys.value.has(item.key);
 }
 
 function handleActivityToggle(
   item: Extract<TimelineItem, { type: "activity" }>,
   event: Event,
 ) {
-  if (activityContainsCurrentMatch(item)) return;
   const target = event.currentTarget as HTMLDetailsElement;
   const next = new Set(expandedActivityKeys.value);
   if (target.open) {
@@ -205,28 +201,26 @@ async function navigateSearchMatch(direction: number) {
 }
 
 async function scrollToSearchMatch(position: number, behavior: ScrollBehavior) {
+  const revision = ++searchNavigationRevision;
   const targetIndex = searchMatches.value[position]?.index;
   if (targetIndex === undefined) return;
   visibleMessageCount.value = Math.max(visibleMessageCount.value, targetIndex + 1);
+  const activity = timeline.value.find((item) => item.type === "activity"
+    && targetIndex >= item.startIndex && targetIndex <= item.endIndex);
+  if (activity) {
+    expandedActivityKeys.value = new Set(expandedActivityKeys.value).add(activity.key);
+  }
   await nextTick();
+  if (revision !== searchNavigationRevision || !props.visible || targetIndex !== currentMatchedMessageIndex.value) return;
   const target = messageList.value?.querySelector<HTMLElement>(
-    `[data-message-start="${timelineStartForIndex(targetIndex)}"]`,
+    `[data-message-index="${targetIndex}"]`,
   );
-  target?.scrollIntoView({ behavior, block: "center" });
-}
-
-function timelineStartForIndex(index: number) {
-  const item = timeline.value.find((candidate) =>
-    candidate.type === "message"
-      ? candidate.index === index
-      : index >= candidate.startIndex && index <= candidate.endIndex,
-  );
-  return item?.type === "activity" ? item.startIndex : index;
+  (target?.querySelector<HTMLElement>("mark") || target)?.scrollIntoView({ behavior, block: "center", inline: "nearest" });
 }
 
 async function copySessionId() {
   const id = session.value?.id.trim();
-  if (id) await copyValue(id, "已复制 Resume ID");
+  if (id) await copyValue(id, "已复制会话 ID");
 }
 
 async function copyMessage(message: CliSessionMessage) {
@@ -258,16 +252,8 @@ async function copyValue(value: string, successMessage: string) {
   >
     <template #title>
       <div class="surface-modal-title cli-session-detail-title">
-        <span class="surface-modal-title-icon">
-          <AgentCliIcon
-            v-if="session"
-            :kind="session.cliKind"
-            :size="18"
-            :decorative="false"
-            :label="cliLabel"
-          />
-          <icon-file v-else />
-        </span>
+        <AgentCliIcon v-if="session" :kind="session.cliKind" :size="26" :decorative="false" :label="cliLabel" />
+        <span v-else class="surface-modal-title-icon"><icon-file /></span>
         <span class="surface-modal-title-copy">
           <strong>{{ session?.title || "会话详情" }}</strong>
         </span>
@@ -294,24 +280,28 @@ async function copyValue(value: string, successMessage: string) {
         <header class="cli-session-detail-meta">
           <div class="cli-session-detail-meta-main">
             <span class="cli-session-detail-agent">
-              <AgentCliIcon :kind="session.cliKind" :size="15" />
               {{ cliLabel }}
             </span>
+            <AgentSessionRelation v-if="sessionRow" :row="sessionRow" @parent="emit('parent', $event)" />
             <span>{{ sessionModelLabel }}</span>
             <span>{{ conversationStats }}</span>
             <span><icon-clock-circle /> {{ sessionTime(session.updatedAt) }}</span>
-            <span class="cli-session-detail-path" :title="session.workdir">{{ session.workdir }}</span>
+            <span v-if="sessionRow" class="agent-session-activity" :class="{ 'is-active': sessionRow.activityState === 'active' }">{{ sessionRow.activityState === 'active' ? '活动中' : '待确认活动' }}</span>
+            <span v-if="session.archived" class="agent-session-archived">已归档</span>
           </div>
-          <button
-            type="button"
-            class="cli-session-detail-id"
-            title="复制 Resume ID"
-            aria-label="复制 Resume ID"
-            @click="copySessionId"
-          >
-            <span>{{ session.id }}</span>
-            <icon-copy />
-          </button>
+          <div class="cli-session-detail-locations">
+            <button v-if="session.workdir" type="button" class="cli-session-detail-path" :title="`复制完整目录：${session.workdir}`" aria-label="复制会话目录" @click="copyValue(session.workdir, '已复制会话目录')"><icon-folder /><span>{{ session.workdir }}</span><icon-copy /></button>
+            <button
+              type="button"
+              class="cli-session-detail-id"
+              :title="`复制会话 ID：${session.id}`"
+              aria-label="复制会话 ID"
+              @click="copySessionId"
+            >
+              <span>会话 ID</span><code>{{ session.id }}</code>
+              <icon-copy />
+            </button>
+          </div>
         </header>
 
         <div class="cli-session-detail-searchbar">
@@ -319,36 +309,40 @@ async function copyValue(value: string, successMessage: string) {
             v-model="sessionSearchQuery"
             size="small"
             allow-clear
-            placeholder="在当前会话中查找"
-            aria-label="在当前会话中查找"
+            placeholder="搜索对话与执行活动"
+            aria-label="搜索当前会话中的对话与执行活动"
+            title="Enter 查找下一条匹配消息，Shift+Enter 查找上一条"
+            @press-enter="!$event.isComposing && navigateSearchMatch($event.shiftKey ? -1 : 1)"
           >
             <template #prefix><icon-search /></template>
           </a-input>
-          <span class="cli-session-detail-search-count">
-            {{ searchMatches.length > 0 ? `${currentMatchPosition + 1} / ${searchMatches.length}` : sessionSearchQuery.trim() ? "0 / 0" : `${detail.messages.length} 条消息` }}
+          <span class="cli-session-detail-search-count" role="status" aria-live="polite">
+            {{ searchMatches.length > 0 ? `${currentMatchPosition + 1} / ${searchMatches.length} 条匹配` : sessionSearchQuery.trim() ? "未找到匹配" : `${detail.messages.length} 条消息` }}
           </span>
           <a-button-group>
             <a-button
               size="mini"
               :disabled="searchMatches.length === 0"
-              aria-label="上一个命中"
+              aria-label="上一条匹配消息"
+              title="上一条匹配消息（Shift+Enter）"
               @click="navigateSearchMatch(-1)"
             >
-              <template #icon><icon-left /></template>
+              <template #icon><icon-up /></template>
             </a-button>
             <a-button
               size="mini"
               :disabled="searchMatches.length === 0"
-              aria-label="下一个命中"
+              aria-label="下一条匹配消息"
+              title="下一条匹配消息（Enter）"
               @click="navigateSearchMatch(1)"
             >
-              <template #icon><icon-right /></template>
+              <template #icon><icon-down /></template>
             </a-button>
           </a-button-group>
         </div>
 
         <a-alert v-if="detail.truncated" class="cli-session-detail-truncated" type="warning">
-          会话较长，本次只读取了安全范围内的内容<span v-if="detail.omittedMessageCount > 0">，另有 {{ detail.omittedMessageCount }} 条消息未载入</span>。
+          本次读取的会话内容不完整<span v-if="detail.omittedMessageCount > 0">，另有 {{ detail.omittedMessageCount }} 条消息未载入</span>；搜索仅覆盖已读取的内容。
         </a-alert>
 
         <div v-if="detail.messages.length === 0" class="cli-session-detail-empty">
@@ -364,7 +358,6 @@ async function copyValue(value: string, successMessage: string) {
                 class="cli-session-activity-group"
                 :class="{ 'is-match': activityContainsCurrentMatch(item) }"
                 :open="activityIsOpen(item)"
-                :data-message-start="item.startIndex"
                 @toggle="handleActivityToggle(item, $event)"
               >
                 <summary>
@@ -376,12 +369,13 @@ async function copyValue(value: string, successMessage: string) {
                   <small>{{ item.messages.length }} 项</small>
                   <icon-down class="cli-session-activity-chevron" />
                 </summary>
-                <div class="cli-session-activity-list">
+                <div v-if="activityIsOpen(item)" class="cli-session-activity-list">
                   <article
                     v-for="entry in item.messages"
                     :key="entry.message.id || entry.index"
                     class="cli-session-activity-item"
                     :class="{ 'is-match': entry.index === currentMatchedMessageIndex }"
+                    :data-message-index="entry.index"
                   >
                     <header>
                       <strong>{{ messageRoleLabel(entry.message) }}</strong>
@@ -410,7 +404,7 @@ async function copyValue(value: string, successMessage: string) {
                   `cli-session-message-${item.message.role}`,
                   { 'is-match': item.index === currentMatchedMessageIndex },
                 ]"
-                :data-message-start="item.index"
+                :data-message-index="item.index"
               >
                 <header class="cli-session-message-header">
                   <span class="cli-session-message-avatar" aria-hidden="true">
@@ -423,7 +417,7 @@ async function copyValue(value: string, successMessage: string) {
                     <icon-file v-else />
                   </span>
                   <strong>{{ messageRoleLabel(item.message) }}</strong>
-                  <span v-if="item.message.model">{{ item.message.model }}</span>
+                  <span v-if="item.message.model" :title="item.message.model">{{ item.message.model }}</span>
                   <div class="cli-session-message-actions">
                     <time v-if="messageTime(item.message)">{{ messageTime(item.message) }}</time>
                     <button
@@ -457,15 +451,11 @@ async function copyValue(value: string, successMessage: string) {
         </div>
 
         <footer class="cli-session-detail-footer">
-          <span v-if="selected">该会话已选中</span>
-          <span v-else>选择后将使用该 Resume ID 启动 CLI。</span>
-          <a-button
-            type="primary"
-            :disabled="selected || !session.canResume"
-            @click="emit('select')"
-          >
-            {{ selected ? "已选中" : "选中并返回" }}
-          </a-button>
+          <slot name="footer">
+            <span v-if="selected">该会话已选中</span>
+            <span v-else>{{ sessionRow?.resumeReason || '选择后将使用该 Resume ID 启动 CLI。' }}</span>
+            <a-button type="primary" :disabled="selected || !session.canResume" @click="emit('select')">{{ selected ? "已选中" : "选中并返回" }}</a-button>
+          </slot>
         </footer>
       </template>
     </div>

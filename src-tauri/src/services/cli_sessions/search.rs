@@ -100,20 +100,6 @@ impl SearchQuery {
     pub(crate) fn is_empty(&self) -> bool {
         self.terms.is_empty()
     }
-
-    pub(crate) fn content_request(&self) -> SessionContentSearchRequest {
-        SessionContentSearchRequest {
-            terms: self
-                .terms
-                .iter()
-                .enumerate()
-                .map(|(index, value)| SessionSearchTerm {
-                    index,
-                    value: value.clone(),
-                })
-                .collect(),
-        }
-    }
 }
 
 pub(crate) struct SearchAccumulator<'a> {

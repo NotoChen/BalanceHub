@@ -16,6 +16,8 @@ function updateValue(value: unknown) {
     class="agent-environment-scope-select"
     size="small"
     :model-value="modelValue"
+    aria-label="配置范围"
+    :title="modelValue || '全局配置'"
     :options="options"
     @update:model-value="updateValue"
   />

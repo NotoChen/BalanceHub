@@ -1,0 +1,107 @@
+.configuration-diff {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-panel);
+  border: 1px solid var(--surface-line-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.configuration-diff-summary { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--surface-line); color: var(--surface-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.configuration-diff-added-count { color: #067647; }
+.configuration-diff-removed-count { color: #b42318; }
+.configuration-diff-omitted { display: block; width: 100%; border: 0; padding: 7px 12px; background: var(--surface-panel-soft); color: var(--surface-ink-soft); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+.configuration-diff-omitted:hover { color: var(--surface-accent); }
+.configuration-diff-omitted:focus-visible { outline: 2px solid var(--surface-accent); outline-offset: -2px; }
+.configuration-diff-note { margin: 0; padding: 8px 12px; color: var(--surface-ink-soft); font-size: 12px; }
+:root.theme-dark .configuration-diff-added-count { color: #8be4c2; }
+:root.theme-dark .configuration-diff-removed-count { color: #ffb3b3; }
+
+.configuration-diff-scroll {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 8px 0 14px;
+}
+
+.configuration-diff-line {
+  display: grid;
+  min-width: max-content;
+  min-height: 25px;
+  grid-template-columns: 22px 42px 42px minmax(0, 1fr);
+  align-items: stretch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.configuration-diff-line-removed {
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.configuration-diff-line-added {
+  background: #edf9f5;
+  color: #067647;
+}
+
+.configuration-diff-line-context {
+  color: var(--surface-ink);
+}
+
+.configuration-diff-marker,
+.configuration-diff-number {
+  display: flex;
+  min-height: 25px;
+  align-items: center;
+  justify-content: center;
+  color: var(--surface-muted);
+  font-size: 10px;
+  user-select: none;
+}
+
+.configuration-diff-line-removed .configuration-diff-marker {
+  color: #c53b43;
+  font-weight: 800;
+}
+
+.configuration-diff-line-added .configuration-diff-marker {
+  color: #168a65;
+  font-weight: 800;
+}
+
+.configuration-diff-text {
+  display: block;
+  min-width: 0;
+  min-height: 25px;
+  box-sizing: border-box;
+  overflow-wrap: normal;
+  padding: 3px 12px 3px 8px;
+  white-space: pre;
+}
+
+:root.theme-dark .configuration-diff-line-removed {
+  background: rgba(255, 125, 125, 0.1);
+  color: #ffb3b3;
+}
+
+:root.theme-dark .configuration-diff-line-added {
+  background: rgba(79, 209, 161, 0.11);
+  color: #8be4c2;
+}
+.content-editor { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 10px; }
+.content-editor-toolbar { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.content-editor-tabs { display: flex; gap: 2px; border: 1px solid var(--surface-line-strong); border-radius: 6px; padding: 3px; background: var(--surface-panel); }
+.content-editor-tabs > button { border: 0; border-radius: 4px; padding: 5px 14px; background: transparent; color: var(--surface-ink-soft); font: inherit; font-size: 12px; cursor: pointer; }
+.content-editor-tabs > button[aria-pressed="true"] { background: var(--surface-accent-soft); color: var(--surface-accent); font-weight: 600; }
+.content-editor-tabs > button:focus-visible { outline: 2px solid var(--surface-accent); }
+.content-editor-dirty { color: var(--surface-warning); font-size: 11px; }
+.content-editor-actions { display: flex; flex-wrap: wrap; gap: 2px; margin-left: auto; }
+.content-editor-actions > .arco-btn { color: var(--surface-ink-soft); }
+.content-editor-actions > .arco-btn[aria-pressed="true"] { background: var(--surface-accent-soft); color: var(--surface-accent); }
+.content-editor > .configuration-diff { height: var(--code-editor-height, clamp(340px, 52dvh, 680px)); }

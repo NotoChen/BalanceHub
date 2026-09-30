@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AgentHookChangeKind, AgentHookMutation, AgentHookPlan } from "../../../stores/provider-types";
+import ContentChange from "../../ContentChange.vue";
 
 defineProps<{
   visible: boolean;
@@ -20,7 +21,7 @@ const changeKindLabels: Record<AgentHookChangeKind, string> = { add: "新增", r
 <template>
   <a-modal
     :visible="visible"
-    width="min(680px, calc(100vw - 32px))"
+    width="min(960px, calc(100vw - 32px))"
     modal-class="surface-modal agent-hook-plan-modal"
     title-align="start"
     closable
@@ -34,12 +35,13 @@ const changeKindLabels: Record<AgentHookChangeKind, string> = { add: "新增", r
     <div v-if="plan" class="agent-hook-plan">
       <p>{{ plan.summary }}</p>
       <code :title="plan.configPath">{{ plan.configPath }}</code>
-      <div v-if="plan.changes.length" class="agent-hook-change-list">
+      <ContentChange v-for="(change, index) in plan.contentChanges" :key="index" v-bind="change" />
+      <details v-if="plan.changes.length"><summary>受影响事件 · {{ plan.changes.length }}</summary><div class="agent-hook-change-list">
         <div v-for="change in plan.changes" :key="change.structuralIdentity" class="agent-hook-change">
           <span :class="`is-${change.kind}`">{{ changeKindLabels[change.kind] }}</span>
           <div><strong>{{ change.eventName }}</strong><small :title="change.structuralIdentity">{{ change.structuralIdentity }}</small></div>
         </div>
-      </div>
+      </div></details>
       <a-alert v-if="plan.conflict" type="warning" show-icon>当前配置存在冲突，BalanceHub 不会覆盖文件。</a-alert>
       <a-alert v-else-if="!plan.supported" type="info" show-icon>当前 Agent 不满足此操作条件，配置不会被修改。</a-alert>
       <div class="agent-hook-plan-actions">

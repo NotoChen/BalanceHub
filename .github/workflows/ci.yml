@@ -12,7 +12,6 @@ on:
       - "LICENSE"
       - "docs/**"
       - ".gitignore"
-      - ".trellis/**"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/scripts/prepare-pages-changelog.mjs"
       - ".github/workflows/pages.yml"

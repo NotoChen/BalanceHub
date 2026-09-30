@@ -11,10 +11,10 @@ impl CodexHookService {
         let inspection = self.inspect();
         let mut changes = Vec::new();
         let manifest = read_manifest(&self.manifest_path).ok().flatten();
-        let found = inspection
-            .config_exists
-            .then(|| read_config(&self.config_path).snapshot)
-            .flatten()
+        let config = read_config(&self.config_path);
+        let found = config
+            .snapshot
+            .as_ref()
             .map(|snapshot| find_resources(&snapshot.value))
             .unwrap_or_default();
         let definitions = definitions(&self.helper_path, &self.spool_root);
@@ -80,19 +80,48 @@ impl CodexHookService {
             .iter()
             .filter(|change| change.kind != AgentHookChangeKind::Keep)
             .count();
+        let (content_changes, preview_error) = if conflict {
+            (Vec::new(), None)
+        } else {
+            match self.prepare_configuration(mutation, &config, manifest.as_ref(), changed > 0) {
+                Ok(prepared) => {
+                    let mut contents = prepared.content_changes(
+                        &self.config_path,
+                        config
+                            .snapshot
+                            .as_ref()
+                            .map(|snapshot| snapshot.text.as_str()),
+                    );
+                    super::super::common::append_state_change(
+                        &mut contents,
+                        inspection.installed,
+                        inspection.enabled,
+                        mutation,
+                    );
+                    (contents, None)
+                }
+                Err(error) => (Vec::new(), Some(error)),
+            }
+        };
+        let has_content_changes = !content_changes.is_empty();
         AgentHookPlan {
             agent_kind: AgentCliKind::Codex,
             mutation,
             runtime_scope: AgentRuntimeScope::Native,
             config_path: self.config_path.to_string_lossy().into_owned(),
             expected_revision: inspection.revision,
-            supported: true,
+            supported: preview_error.is_none(),
             conflict,
             changes,
-            summary: if conflict {
+            content_changes,
+            summary: if let Some(error) = preview_error {
+                error
+            } else if conflict {
                 "检测到配置或所有权冲突，未生成可应用变更".to_string()
-            } else if changed == 0 {
+            } else if changed == 0 && !has_content_changes {
                 format!("无需{action_word}，当前状态已满足请求")
+            } else if changed == 0 {
+                format!("确认后将{action_word} Codex 会话接入")
             } else {
                 format!("确认后将{action_word} {changed} 个 Codex Hook 节点")
             },

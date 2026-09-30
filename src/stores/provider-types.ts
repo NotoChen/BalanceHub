@@ -1,6 +1,10 @@
 import type { AgentCliKind } from "../agent-cli/visuals.ts";
+import type { AgentSessionLaunchIdentity } from "./agent-session-types";
 
 export type { AgentCliKind } from "../agent-cli/visuals.ts";
+export type * from "./agent-catalog-types";
+export type * from "./agent-lifecycle-types";
+export type * from "./agent-session-types";
 
 export type AuthMode = "apiKey" | "accessToken" | "session" | "password";
 export type AuthSource = "manual" | "password" | "oauth";
@@ -86,12 +90,7 @@ export type TemporaryCliTerminalKind =
   | "commandPrompt"
   | "powerShell";
 export type NotificationChannelKind =
-  | "system"
-  | "dingtalk"
-  | "wecom"
-  | "feishu"
-  | "slack"
-  | "generic";
+  "system" | "dingtalk" | "wecom" | "feishu" | "slack" | "generic";
 
 export interface Provider {
   revision: number;
@@ -363,9 +362,7 @@ export interface ProviderInput {
 }
 
 export type ProviderSaveConflictKind =
-  | "sameAccount"
-  | "sameApiKey"
-  | "sameUrlDifferentApiKey";
+  "sameAccount" | "sameApiKey" | "sameUrlDifferentApiKey";
 
 export interface ProviderSaveOptions {
   overwriteProviderId?: string;
@@ -450,38 +447,228 @@ export interface CliEnvironmentProbeResult {
   tools: CliToolProbeResult[];
 }
 
-/** Rust-owned read-only Agent environment inventory contract. */
+/** Rust-owned Agent environment inventory and asset control contracts. */
 export type AgentEnvironmentKind = "native";
 export type AgentHostPlatform = "macos" | "linux" | "windows";
+export type AgentHostArchitecture = "aarch64" | "x86_64" | "unknown";
+export type AgentCliDistribution =
+  "npm" | "homebrew" | "vendorNative" | "winGet" | "apt" | "dnf" | "apk" | "unknown";
 export type AgentEnvironmentCapability = "readOnlyInventory" | "boundedPreview";
 export type AgentAssetCategory =
-  | "config"
-  | "skill"
-  | "plugin"
-  | "extension"
-  | "mcp"
-  | "hook"
-  | "statusUi";
-export type AgentAssetScope = "user" | "workspace" | "local" | "system" | "managed";
-export type AgentAssetState = "enabled" | "disabled" | "shadowed" | "blocked" | "invalid" | "unknown";
-export type AgentAssetMutation = "readOnly" | "nativeToggle" | "managedMutation" | "externalCommand";
-export type AgentAssetOpenTarget = "asset" | "parentDirectory";
+  "skill" | "plugin" | "extension" | "mcp" | "hook" | "statusUi";
+export type AgentAssetScope =
+  "user" | "workspace" | "local" | "system" | "managed";
+export type AgentAssetState =
+  "enabled" | "disabled" | "notInstalled" | "shadowed" | "blocked" | "invalid" | "unknown";
+export type AgentAssetMutation =
+  "readOnly" | "nativeToggle" | "managedMutation" | "externalCommand";
+export type AgentAssetOpenTarget = "asset" | "reveal";
 export type AgentTrustState = "trusted" | "untrusted" | "required" | "unknown";
-export type AgentInstallationChannel = "stable" | "preview" | "nightly" | "unknown";
-export type AgentVersionState =
-  | "upToDate"
-  | "updateAvailable"
-  | "aheadOfStable"
-  | "unknown"
-  | "unavailable";
+export type AgentInstallationChannel =
+  "stable" | "preview" | "nightly" | "unknown";
 export type AgentVersionSource = "npmRegistry" | "localExecutable" | "unknown";
 export type AgentDiscoverySource = "configured" | "automatic";
 export type AgentInstallationAvailability = "available" | "unavailable";
+export type AgentAssetLimitKind =
+  | "candidatePathsPerAgent"
+  | "installationsPerAgent"
+  | "sourcesPerContext"
+  | "firstLevelEntries"
+  | "frontmatterLines"
+  | "frontmatterBytes"
+  | "bytesPerSource"
+  | "bytesPerRefresh"
+  | "refreshBudget"
+  | "cliOutput"
+  | "cliConcurrency"
+  | "watchers"
+  | "diagnostics";
+export type AgentAssetDocumentFormat = "json" | "toml" | "yaml" | "manifest" | "unknown";
+export type AgentAssetSourceKind = "file" | "directory";
+export type AgentAssetIoErrorKind =
+  "notFound" | "permissionDenied" | "invalidData" | "other";
+export type AgentExecutableProbeErrorKind =
+  | "notFound"
+  | "permissionDenied"
+  | "timedOut"
+  | "invalidVersion"
+  | "changedDuringProbe"
+  | "failed";
+export type AgentAssetRelationKind =
+  "providedBy" | "actionOwner" | "explicitImpact";
+export type AgentAssetPresence =
+  "present" | "missing" | "invalid" | "blocked" | "unknown";
+export type AgentAssetDeclaredState =
+  "enabled" | "disabled" | "pending" | "rejected" | "unknown";
+export type AgentAssetResolutionRelation =
+  | "independent"
+  | "replaceWinner"
+  | "replaced"
+  | "merged"
+  | "additive"
+  | "unknown";
+export type AgentAssetResolutionTerminal = "policyBlocked" | "unknown";
+export type AgentAssetInstallState =
+  | "installed"
+  | "notInstalled"
+  | "unknown";
+export type AgentAssetDeclarationRole =
+  | "definition"
+  | "stateOverlay"
+  | "policyOverlay";
+export type AgentAssetSuppressionReason =
+  | "untrustedWorkspace"
+  | "compatibilitySourceDisabled"
+  | "unsupportedContext"
+  | "duplicatePhysicalSource"
+  | "parentNotSelected"
+  | "unknown";
+export type AgentAssetResolutionParticipation =
+  | { kind: "participates" }
+  | { kind: "suppressed"; reason: AgentAssetSuppressionReason };
+export type AgentAssetDiscoveryIncompleteReason =
+  | "unsupportedVersion"
+  | "installationUnverified"
+  | "sourceUnavailable"
+  | "runtimeStateUnobserved"
+  | "unsupportedEntryPoint"
+  | "nativeEquivalenceUnobserved";
+
+export type AgentAssetDiagnostic =
+  | {
+      kind: "truncated";
+      limit: AgentAssetLimitKind;
+      accepted: number;
+      observedAtLeast: number;
+    }
+  | {
+      kind: "malformed";
+      format: AgentAssetDocumentFormat;
+      location: string | null;
+    }
+  | {
+      kind: "duplicateNativeId";
+      category: AgentAssetCategory;
+      nativeId: string;
+    }
+  | { kind: "unknownField"; fieldPath: string }
+  | { kind: "symlinkRejected"; sourceId: string }
+  | { kind: "budgetExceeded"; elapsedMs: number; budgetMs: number }
+  | { kind: "readFailed"; sourceId: string; errorKind: AgentAssetIoErrorKind }
+  | { kind: "invalidNativeId"; category: AgentAssetCategory }
+  | {
+      kind: "unresolvedRelationship";
+      relation: AgentAssetRelationKind;
+      nativeId: string;
+    }
+  | { kind: "invalidProjection"; projectionKey: string }
+  | {
+      kind: "invalidResolution";
+      projectionKey: string;
+      resolution: AgentAssetResolutionRelation;
+    }
+  | {
+      kind: "installationProbeFailed";
+      candidateSource: AgentDiscoverySource;
+      errorKind: AgentExecutableProbeErrorKind;
+    }
+  | { kind: "sourceOutsideAllowedRoot"; sourceId: string }
+  | {
+      kind: "sourceTypeMismatch";
+      sourceId: string;
+      expected: AgentAssetSourceKind;
+      actual: AgentAssetSourceKind;
+    }
+  | { kind: "invalidCompatibleInstallation"; installationId: string }
+  | { kind: "declarationSuppressed"; reason: AgentAssetSuppressionReason }
+  | {
+      kind: "discoveryIncomplete";
+      agentKind: AgentCliKind;
+      category: AgentAssetCategory;
+      reason: AgentAssetDiscoveryIncompleteReason;
+    }
+  | { kind: "policyBlocked" };
+export type AgentAssetPolicyReference =
+  | { kind: "declaration"; declarationId: string }
+  | { kind: "source"; sourceId: string };
+export interface AgentAssetRevision {
+  identity: string;
+  observedAt: string;
+  sizeBytes: number | null;
+  isMissing: boolean;
+  isDirectory: boolean;
+  isSymlink: boolean;
+}
+export interface AgentExecutableIdentity {
+  owner: string;
+  canonicalPath: string;
+  installationSource: AgentDiscoverySource;
+}
+export interface AgentConfigurationContext {
+  id: string;
+  environmentId: string;
+  agentKind: AgentCliKind;
+  configRoot: string;
+  profile: string;
+  workspaceId: string | null;
+  trustContext: AgentTrustState;
+  parserVersion: number;
+  schemaFacts: Record<string, string>;
+  compatibleInstallationIds: string[];
+}
+export interface AgentAssetNativeRef {
+  category: AgentAssetCategory;
+  nativeId: string;
+  qualifier: string | null;
+}
+export type AgentMcpTransport =
+  "stdio" | "http" | "sse" | "webSocket" | "unknown";
+export type AgentMcpApprovalState =
+  "approved" | "rejected" | "pending" | "notRequired" | "unknown";
+export type AgentAssetEffectiveAvailability =
+  | "available"
+  | "disabled"
+  | "approvalRequired"
+  | "policyBlocked"
+  | "trustRequired"
+  | "invalid"
+  | "unknown";
+export type AgentSkillInvocationPolicy =
+  "modelInvocable" | "manualOnly" | "disabled" | "unknown";
+export type AgentStatusUiMode = "builtIn" | "command" | "disabled" | "unknown";
+export type AgentAssetDetails =
+  | {
+      kind: "skill";
+      enabled: AgentAssetDeclaredState;
+      invocationPolicy: AgentSkillInvocationPolicy;
+    }
+  | {
+      kind: "mcp";
+      transport: AgentMcpTransport;
+      declaredState: AgentAssetDeclaredState;
+      approvalState: AgentMcpApprovalState;
+      effectiveAvailability: AgentAssetEffectiveAvailability;
+    }
+  | {
+      kind: "plugin";
+      installState: AgentAssetInstallState;
+      enabled: AgentAssetDeclaredState;
+      trusted: AgentTrustState;
+    }
+  | {
+      kind: "extension";
+      installState: AgentAssetInstallState;
+      enabled: AgentAssetDeclaredState;
+      trusted: AgentTrustState;
+    }
+  | { kind: "hook"; managed: boolean; enabled: AgentAssetDeclaredState; ruleCount: number | null }
+  | { kind: "statusUi"; mode: AgentStatusUiMode; commandPresent: boolean };
 
 export interface AgentEnvironmentDescriptor {
   id: string;
   kind: AgentEnvironmentKind;
   hostPlatform: AgentHostPlatform;
+  hostArchitecture: AgentHostArchitecture;
   guestPlatform: string | null;
   displayName: string;
   capabilities: AgentEnvironmentCapability[];
@@ -495,14 +682,42 @@ export interface AgentAssetCapability {
   requiresTrust: boolean;
 }
 
+export type AgentAssetProvision = "agentBuiltIn" | "pluginProvided" | "independent" | "unknown";
+export type AgentAssetProviderOrigin = "agentVendor" | "thirdParty" | "userDeclared" | "unknown";
+export type AgentAssetInstallationOrigin =
+  | "bundled" | "nativePackage" | "localFiles" | "sharedFiles" | "linked" | "configEntry" | "unknown";
+export interface AgentAssetProvenance {
+  sourceId: string;
+  declarationId: string;
+  scope: AgentAssetScope;
+  provision: AgentAssetProvision;
+  installation: AgentAssetInstallationOrigin;
+  provider: AgentAssetProviderOrigin;
+}
+export interface AgentAssetProvenanceSummary {
+  provisions: AgentAssetProvision[];
+  installations: AgentAssetInstallationOrigin[];
+  providers: AgentAssetProviderOrigin[];
+}
+
 export interface AgentAssetSource {
   id: string;
+  contextId: string;
+  label: string;
   scope: AgentAssetScope;
+  origin: AgentAssetInstallationOrigin;
   environmentId: string;
   workspaceId: string | null;
   path: string;
   precedence: number;
   writable: boolean;
+  sensitive: boolean;
+  sourceKind: AgentAssetSourceKind;
+  categories: AgentAssetCategory[];
+  revision: AgentAssetRevision;
+  diagnostics: AgentAssetDiagnostic[];
+  access: AgentAssetAccess;
+  actions: AgentAssetAction[];
 }
 
 export interface AgentCapabilities {
@@ -517,15 +732,14 @@ export interface AgentInstallation {
   label: string;
   availability: AgentInstallationAvailability;
   executablePath: string | null;
+  executableIdentity: AgentExecutableIdentity | null;
+  executableRevision: string | null;
   installedVersion: string | null;
   discoverySource: AgentDiscoverySource;
+  distribution: AgentCliDistribution;
   channel: AgentInstallationChannel;
   installedVersionSource: AgentVersionSource;
-  latestStableVersion: string | null;
-  latestVersionSource: AgentVersionSource;
-  versionState: AgentVersionState;
-  versionCheckedAt: string | null;
-  diagnostic: string | null;
+  diagnostics: AgentAssetDiagnostic[];
 }
 
 export interface AgentAssetRecord {
@@ -534,8 +748,10 @@ export interface AgentAssetRecord {
   category: AgentAssetCategory;
   nativeId: string;
   label: string;
-  sourceId: string;
+  sourceIds: string[];
+  inspectionSourceId: string;
   scope: AgentAssetScope;
+  provenance: AgentAssetProvenance[];
   environmentId: string;
   workspaceId: string | null;
   path: string | null;
@@ -543,11 +759,75 @@ export interface AgentAssetRecord {
   writable: boolean;
   declaredState: AgentAssetState;
   effectiveState: AgentAssetState;
-  trustState: AgentTrustState | null;
-  diagnostics: string[];
-  revision: string | null;
+  trustState: AgentTrustState;
+  diagnostics: AgentAssetDiagnostic[];
+  revision: AgentAssetRevision;
   sensitive: boolean;
   isDirectory: boolean;
+  contextId: string;
+  representedDeclarationIds: string[];
+  resolution: AgentAssetResolution;
+  relationships: AgentAssetRelationships;
+  actions: AgentAssetAction[];
+  access: AgentAssetAccess;
+  compatibleInstallationIds: string[];
+  selectedActionInstallationId: string | null;
+  details: AgentAssetDetails;
+}
+
+export interface AgentAssetResolution {
+  relation: AgentAssetResolutionRelation;
+  qualifiedCollision: boolean;
+  terminal: AgentAssetResolutionTerminal | null;
+  contributorIds: string[];
+  winnerId: string | null;
+  controlSource: AgentAssetPolicyReference | null;
+  diagnostics: AgentAssetDiagnostic[];
+}
+export interface AgentAssetRelationships {
+  providedBy: string | null;
+  actionOwner: string | null;
+  affectedAssetIds: string[];
+}
+export type AgentAssetActionKind =
+  "inspect" | "enable" | "disable" | "remove" | "preview" | "open" | "reveal";
+export type AgentAssetActionUnavailableReason =
+  | "mutationDisabled"
+  | "noOfficialMechanism"
+  | "unsupportedPlatform"
+  | "unsupportedScope"
+  | "unsupportedSchema"
+  | "noCompatibleInstallation"
+  | "installationUnavailable"
+  | "assetNotInstalled"
+  | "assetInstallationUnknown"
+  | "ambiguousMechanism"
+  | "nativeInteractiveOnly"
+  | "invocationPolicyOnly"
+  | "noReversibleMechanism"
+  | "managedByAssetCatalog"
+  | "trustRequired"
+  | "scopeAmbiguous"
+  | "childOwnedByParent"
+  | "shadowed"
+  | "policyBlocked"
+  | "sourceUnavailable"
+  | "unknown";
+export interface AgentAssetAction {
+  action: AgentAssetActionKind;
+  available: boolean;
+  reason: AgentAssetActionUnavailableReason | null;
+  mechanismId: string | null;
+  confirmationRequired: boolean;
+  reloadEffect: string | null;
+  trustEffect: string | null;
+  selectedInstallationId: string | null;
+  risks: AgentAssetAccessRisk[];
+}
+
+export interface AgentHookRuleCount {
+  agentKind: AgentCliKind;
+  ruleCount: number | null;
 }
 
 export interface AgentEnvironmentInventory {
@@ -556,32 +836,201 @@ export interface AgentEnvironmentInventory {
   sources: AgentAssetSource[];
   capabilities: AgentCapabilities[];
   assets: AgentAssetRecord[];
+  hookRuleCounts: AgentHookRuleCount[];
   scannedAt: string;
   workspace: string | null;
+  contexts: AgentConfigurationContext[];
+  declarations: AgentAssetDeclaration[];
+  limits: AgentAssetLimits;
+  diagnostics: AgentAssetDiagnostic[];
+  mechanisms: AgentAssetMechanismRecord[];
+}
+
+export interface AgentAssetDeclaration {
+  id: string;
+  contextId: string;
+  sourceId: string;
+  scope: AgentAssetScope;
+  nativeKind: AgentAssetCategory;
+  nativeId: string;
+  declarationKey: string;
+  label: string;
+  precedence: number;
+  presence: AgentAssetPresence;
+  declaredState: AgentAssetDeclaredState;
+  trustState: AgentTrustState;
+  role: AgentAssetDeclarationRole;
+  participation: AgentAssetResolutionParticipation;
+  evidence: {
+    revision: AgentAssetRevision;
+    parserVersion: number;
+    observedAt: string;
+    facts: Record<string, string>;
+  };
+  diagnostics: AgentAssetDiagnostic[];
+  providedBy: AgentAssetNativeRef | null;
+  actionOwner: AgentAssetNativeRef | null;
+  explicitlyAffected: AgentAssetNativeRef[];
+}
+export interface AgentAssetLimits {
+  candidatePathsPerAgent: number;
+  installationsPerAgent: number;
+  sourcesPerContext: number;
+  firstLevelEntries: number;
+  bytesPerSource: number;
+  bytesPerRefresh: number;
+  refreshBudgetMs: number;
+  cliOutputBytes: number;
+  cliConcurrency: number;
+  watchers: number;
+  diagnostics: number;
+}
+export interface AgentAssetMechanismRecord {
+  id: string;
+  agentKind: AgentCliKind;
+  category: AgentAssetCategory;
+  action: AgentAssetActionKind;
+  platforms: AgentHostPlatform[];
+  adapterSchemaVersion: number;
+  sourceSchema: string | null;
+  executableArgv: string[];
+  scopes: AgentAssetScope[];
+  inspection: string;
+  idempotent: boolean;
+  commitPoint: string;
+  reloadEffect: string | null;
+  redactionRules: string[];
+}
+
+export interface AgentNativeTarget {
+  platform: AgentHostPlatform;
+  architecture: AgentHostArchitecture;
+}
+export type AgentVersionIdentifier =
+  | { kind: "numeric"; value: number }
+  | { kind: "text"; value: string };
+export interface AgentSemanticVersion {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: AgentVersionIdentifier[];
+}
+export type AgentAssetAccessUnavailableReason =
+  "sourceUnavailable" | "snapshotUnavailable" | "policyUnavailable" | "unsupportedPlatform";
+export type AgentAssetAccess =
+  | { kind: "unavailable"; reason: AgentAssetAccessUnavailableReason }
+  | { kind: "ready"; accessId: string };
+export type AgentAssetAccessRisk = "externalPathnameRace" | "rawSensitiveContent";
+export type AgentAssetAccessErrorKind =
+  | "accessExpired" | "actorMismatch" | "targetMismatch" | "environmentMismatch"
+  | "workspaceMismatch" | "rootChanged" | "sourceChanged" | "schemaChanged"
+  | "policyUnavailable" | "outsideAllowedRoot" | "symlinkRejected"
+  | "confirmationRequired" | "externalOpenFailed" | "unsupportedPlatform"
+  | "accessUnavailable" | "readFailed";
+export interface AgentAssetAccessError {
+  kind: AgentAssetAccessErrorKind;
+  message: string;
+}
+export interface AgentAssetReadRequest {
+  targetId: string;
+  accessId: string;
+  environmentId: string;
+  workspace: string | null;
+}
+export interface AgentAssetOpenRequest extends AgentAssetReadRequest {
+  target: AgentAssetOpenTarget;
+  acceptedRisks: AgentAssetAccessRisk[];
+}
+export interface AgentAssetPlanRequest {
+  assetId: string;
+  action: AgentAssetActionKind;
+  workspace: string | null;
+  expectedRevision: string;
+  installationId: string | null;
+}
+export interface AgentAssetApplyRequest {
+  planToken: string;
+  assetId: string;
+  action: AgentAssetActionKind;
+}
+export interface AgentAssetPlanChange {
+  label: string;
+  path: string | null;
+  before: string | null;
+  after: string | null;
+}
+export interface AgentAssetPlan {
+  token: string;
+  assetId: string;
+  action: AgentAssetActionKind;
+  title: string;
+  mechanismId: string;
+  selectedInstallationId: string | null;
+  expiresAt: string;
+  changes: AgentAssetPlanChange[];
+  affectedAssetIds: string[];
+  affectedInstallationIds: string[];
+  sourceIds: string[];
+  reloadEffect: string | null;
+  trustEffect: string | null;
+}
+export type AgentAssetOperationPhase =
+  "preparing" | "waitingForLock" | "revalidating" | "applying" | "verifying" | "completed";
+export type AgentAssetOperationOutcome =
+  | "canceledBeforeCommit" | "unchangedConflict" | "unchangedFailure"
+  | "appliedVerified" | "appliedUnverified" | "outcomeUnknown";
+export interface AgentAssetOperation {
+  id: string;
+  assetId: string;
+  action: AgentAssetActionKind;
+  phase: AgentAssetOperationPhase;
+  canCancel: boolean;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  outcome: AgentAssetOperationOutcome | null;
+  message: string | null;
+  affectedAssetIds: string[];
+  reloadEffect: string | null;
+}
+export type AgentAssetMutationErrorKind =
+  | "invalidRequest" | "planExpired" | "planConsumed" | "actorMismatch"
+  | "targetMismatch" | "actionMismatch" | "operationNotFound" | "sourceConflict"
+  | "actionUnavailable" | "preparationFailed" | "capacityExceeded" | "internalFailure";
+export interface AgentAssetMutationError {
+  kind: AgentAssetMutationErrorKind;
+  message: string;
+  reason: AgentAssetActionUnavailableReason | null;
 }
 
 export interface AgentAssetReadResult {
   stableId: string;
+  accessId: string;
+  sourceRevision: AgentAssetRevision;
   path: string;
   content: string | null;
   sizeBytes: number;
   modifiedAt: string | null;
   truncated: boolean;
   metadataOnly: boolean;
-  diagnostic: string | null;
+  diagnostics: AgentAssetReadDiagnostic[];
 }
 
-export interface AgentVersionCheckResult {
-  installations: AgentInstallation[];
-  checkedAt: string;
-}
+export type AgentAssetReadDiagnostic =
+  | "directoryMetadataOnly"
+  | "sensitiveFileMetadataOnly"
+  | "sensitiveValuesRedacted"
+  | "unsupportedSchemaMetadataOnly"
+  | "invalidDocumentMetadataOnly"
+  | "readLimitMetadataOnly";
 
 export type AgentRuntimeScope =
-  | { kind: "native" }
-  | { kind: "wsl"; distro_id: string };
+  { kind: "native" } | { kind: "wsl"; distro_id: string };
 export type AgentHookMutation = "install" | "remove" | "enable" | "disable";
-export type AgentHookActionKind = AgentHookMutation | "health" | "verify" | "repair";
-export type AgentHookTrust = "unknown" | "trusted" | "required" | "not_applicable";
+export type AgentHookActionKind =
+  AgentHookMutation | "health" | "verify" | "repair";
+export type AgentHookTrust =
+  "unknown" | "trusted" | "required" | "not_applicable";
 export type AgentHookHealthState =
   | "not_installed"
   | "installed_untrusted"
@@ -650,11 +1099,13 @@ export interface AgentHookPlan {
   supported: boolean;
   conflict: boolean;
   changes: AgentHookChange[];
+  contentChanges: AgentAssetPlanChange[];
   summary: string;
 }
 
 export type AgentRuntimeOrigin = "balancehub_launch" | "external_hook";
-export type AgentRuntimeState = "starting" | "busy" | "idle" | "ended" | "unknown";
+export type AgentRuntimeState =
+  "starting" | "busy" | "idle" | "ended" | "unknown";
 export type AgentRuntimeEvidenceSource =
   | "launch_registration"
   | "launch_status"
@@ -698,6 +1149,7 @@ export interface AgentRuntimeActions {
 
 export interface AgentRuntimeSession {
   runtimeId: string;
+  nativeSession: AgentSessionLaunchIdentity | null;
   runtimeScope: AgentRuntimeScope;
   origin: AgentRuntimeOrigin;
   agentKind: AgentCliKind;
@@ -916,26 +1368,11 @@ export interface CliConfigSnapshot {
   errorMessage: string | null;
 }
 
-export interface CliConfigFile {
-  filePath: string;
-  content: string;
-}
-
-export interface CliConfigPreview {
-  providerId: string;
-  providerName: string;
-  apiKeyLocalId: string;
-  apiKeyLabel: string;
-  cliKind: AgentCliKind;
-  revision: string;
-  originalFiles: CliConfigFile[];
-  files: CliConfigFile[];
-}
-
 export interface TemporaryCliInstance {
   id: string;
-  providerId: string;
-  providerName: string;
+  providerId: string | null;
+  providerName: string | null;
+  nativeSession: AgentSessionLaunchIdentity | null;
   apiKeyLocalId?: string | null;
   sessionTitle: string;
   accountLabel: string;
@@ -1036,17 +1473,8 @@ export interface CliSessionDetail {
   contentSource: string;
 }
 
-export interface CliSessionSearchResult {
-  session: CliSessionSummary;
-}
-
-export type CliSessionIndexState = "ready" | "building" | "disabled" | "fallback";
-
-export interface CliSessionSearchResponse {
-  results: CliSessionSearchResult[];
-  indexState: CliSessionIndexState;
-  indexMessage: string | null;
-}
+export type CliSessionIndexState =
+  "ready" | "disabled" | "fallback";
 
 export interface CliSessionIndexAgentStats {
   cliKind: AgentCliKind;

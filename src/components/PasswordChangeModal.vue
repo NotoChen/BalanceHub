@@ -9,6 +9,7 @@ const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
   loading: boolean;
+  error: string;
 }>();
 
 const emit = defineEmits<{
@@ -25,17 +26,16 @@ const modalTitle = computed(() =>
 );
 
 watch(
-  () => props.visible,
-  (visible) => {
-    if (!visible) {
+  [() => props.visible, () => props.provider?.identity.id],
+  () => {
       originalPassword.value = "";
       password.value = "";
       confirmPassword.value = "";
-    }
   },
 );
 
 function submit() {
+  if (props.loading || !props.provider) return;
   if (!password.value.trim()) {
     Message.warning("请输入新密码");
     return;
@@ -65,10 +65,12 @@ function submit() {
       </div>
     </template>
     <div class="password-change-form">
+      <a-alert v-if="error" type="error" show-icon>{{ error }}</a-alert>
       <label>
         <span>原密码</span>
         <a-input-password
           v-model="originalPassword"
+          :disabled="loading"
           allow-clear
           autocomplete="current-password"
           placeholder="已有密码账号填写；首次设置可留空"
@@ -77,14 +79,15 @@ function submit() {
       </label>
       <label>
         <span>新密码</span>
-        <a-input-password v-model="password" allow-clear autocomplete="new-password" />
+        <a-input-password v-model="password" :disabled="loading" allow-clear autocomplete="new-password" />
       </label>
       <label>
         <span>确认新密码</span>
-        <a-input-password v-model="confirmPassword" allow-clear autocomplete="new-password" />
+        <a-input-password v-model="confirmPassword" :disabled="loading" allow-clear autocomplete="new-password" @press-enter="(event: KeyboardEvent) => { if (!event.isComposing && event.keyCode !== 229) submit(); }" />
       </label>
       <div class="password-change-actions">
-        <a-button type="primary" :loading="loading" @click="submit">更新密码</a-button>
+        <a-button @click="emit('update:visible', false)">关闭</a-button>
+        <a-button type="primary" :loading="loading" :disabled="!password || !confirmPassword || !provider" @click="submit">更新密码</a-button>
       </div>
     </div>
   </a-modal>

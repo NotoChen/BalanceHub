@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { IconCloud, IconDelete, IconLink, IconPlus, IconRefresh } from "@arco-design/web-vue/es/icon";
+import { IconCloud, IconLink, IconRefresh } from "@arco-design/web-vue/es/icon";
 import type {
   ProviderInput,
   ProviderProtocol,
@@ -10,6 +10,7 @@ import type {
 } from "../../stores/providers";
 import type { ProtocolSelectionSource } from "../../composables/provider-editor-shared";
 import { providerProtocolLabel } from "../../utils/provider-protocol";
+import RadioChoiceGroup from "../RadioChoiceGroup.vue";
 
 const props = defineProps<{
   draft: ProviderInput;
@@ -19,6 +20,7 @@ const props = defineProps<{
   protocolSelectionSource: ProtocolSelectionSource;
   probingSite: boolean;
   siteNameSourceBaseUrl: string;
+  disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -72,17 +74,12 @@ const protocolOptions = computed(() => props.providerProtocols.map((descriptor) 
   label: descriptor.label,
   description: descriptor.description,
 })));
+const selectedProtocolDescription = computed(() =>
+  protocolOptions.value.find((option) => option.value === props.draft.identity.protocol)?.description,
+);
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
-}
-
-function addBackupUrl() {
-  props.draft.identity.backupUrls.push("");
-}
-
-function removeBackupUrl(index: number) {
-  props.draft.identity.backupUrls.splice(index, 1);
 }
 
 function protocolLabel(protocol: ProviderProtocol) {
@@ -95,26 +92,28 @@ function protocolLabel(protocol: ProviderProtocol) {
     <section class="provider-form-block provider-form-block-primary">
       <header class="provider-form-block-header">
         <span class="provider-form-block-icon"><IconCloud /></span>
-        <div><strong>中转站</strong></div>
-        <span class="provider-form-block-required">地址必填</span>
+        <div><strong>连接信息</strong></div>
       </header>
       <div class="provider-form-block-body">
-        <div class="provider-protocol-picker" role="radiogroup" aria-label="中转站协议">
-          <button
-            v-for="option in protocolOptions"
-            :key="option.value"
-            type="button"
-            class="provider-protocol-option"
-            :class="{ active: draft.identity.protocol === option.value }"
-            :aria-checked="draft.identity.protocol === option.value"
-            role="radio"
-            :title="option.description"
-            @click="emit('select-protocol', option.value)"
+        <a-form-item class="provider-field" label="中转站类型">
+          <RadioChoiceGroup
+            :model-value="draft.identity.protocol"
+            :options="protocolOptions"
+            :disabled="disabled"
+            label="中转站类型"
+            class="provider-protocol-picker"
+            option-class="provider-protocol-option"
+            @update:model-value="emit('select-protocol', $event)"
           >
-            <strong>{{ option.label }}</strong>
-          </button>
-        </div>
-        <a-form-item class="provider-field" field="identity.baseUrl" label="主站地址" required>
+            <template #default="{ option }">
+              <strong>{{ option.label }}</strong>
+            </template>
+          </RadioChoiceGroup>
+          <p v-if="selectedProtocolDescription" class="provider-protocol-hint">
+            {{ selectedProtocolDescription }}
+          </p>
+        </a-form-item>
+        <a-form-item class="provider-field" field="identity.baseUrl" label="中转站地址" required>
           <a-input
             v-model="draft.identity.baseUrl"
             placeholder="https://relay.example.com"
@@ -128,6 +127,7 @@ function protocolLabel(protocol: ProviderProtocol) {
                   type="button"
                   class="provider-inline-icon-button"
                   :class="{ spinning: probingSite }"
+                  :disabled="disabled || probingSite"
                   aria-label="重新识别站点"
                   @click.stop="emit('probe-site', { force: true })"
                 >
@@ -136,6 +136,16 @@ function protocolLabel(protocol: ProviderProtocol) {
               </a-tooltip>
             </template>
           </a-input>
+          <template v-if="draft.identity.baseUrl.trim()" #extra>
+            <div
+              class="provider-site-detection"
+              :class="{ loading: probingSite, ready: siteProbeResult?.ok, warning: protocolDetectionResult && !protocolDetectionResult.detectedProtocol }"
+              role="status"
+            >
+              <span class="provider-site-detection-copy"><strong>{{ detectedName }}</strong><span>{{ detectionLabel }}</span></span>
+              <span v-if="detectionIsCurrent && siteProbeResult?.message" class="provider-site-detection-message">{{ siteProbeResult.message }}</span>
+            </div>
+          </template>
         </a-form-item>
 
         <a-form-item class="provider-field" field="identity.remark" label="备注">
@@ -145,57 +155,6 @@ function protocolLabel(protocol: ProviderProtocol) {
             allow-clear
           />
         </a-form-item>
-
-        <div
-          class="provider-site-detection"
-          :class="{
-            loading: probingSite,
-            ready: siteProbeResult?.ok,
-            warning: protocolDetectionResult && !protocolDetectionResult.detectedProtocol,
-          }"
-        >
-          <span class="provider-site-detection-mark"><IconCloud /></span>
-          <div class="provider-site-detection-copy">
-            <strong>{{ detectedName }}</strong>
-            <span>{{ detectionLabel }}</span>
-          </div>
-          <span v-if="detectionIsCurrent && siteProbeResult?.message" class="provider-site-detection-message">{{ siteProbeResult.message }}</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="provider-form-block">
-      <header class="provider-form-block-header">
-        <span class="provider-form-block-icon provider-form-block-icon-neutral"><IconLink /></span>
-        <div><strong>备用地址</strong></div>
-        <span class="provider-form-block-meta">仅维护</span>
-        <a-button type="text" size="small" @click="addBackupUrl">
-          <template #icon><IconPlus /></template>
-          添加地址
-        </a-button>
-      </header>
-      <div class="provider-form-block-body">
-        <div v-if="draft.identity.backupUrls.length" class="provider-backup-url-list">
-          <div
-            v-for="(_, index) in draft.identity.backupUrls"
-            :key="`backup-url-${index}`"
-            class="provider-backup-url-row"
-          >
-            <span class="provider-backup-url-index">{{ index + 1 }}</span>
-            <a-input
-              v-model="draft.identity.backupUrls[index]"
-              :placeholder="`https://backup-${index + 1}.example.com`"
-              allow-clear
-            />
-            <a-button type="text" status="danger" aria-label="删除备用地址" @click="removeBackupUrl(index)">
-              <template #icon><IconDelete /></template>
-            </a-button>
-          </div>
-        </div>
-        <button v-else type="button" class="provider-backup-empty" @click="addBackupUrl">
-          <IconPlus />
-          <span><strong>添加备用地址</strong></span>
-        </button>
       </div>
     </section>
   </div>

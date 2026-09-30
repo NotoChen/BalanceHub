@@ -45,7 +45,6 @@
 }
 
 :root.theme-dark .panel-title,
-:root.theme-dark .provider-card-title,
 :root.theme-dark .provider-card-api-remark,
 :root.theme-dark .provider-card-api-endpoint-value,
 :root.theme-dark .provider-card-user-name,
@@ -53,7 +52,6 @@
   color: #f2f3f5;
 }
 
-:root.theme-dark .provider-card-type,
 :root.theme-dark .provider-card-api-key-value,
 :root.theme-dark .provider-card-api-key-name,
 :root.theme-dark .provider-card-api-key-count,
@@ -62,10 +60,7 @@
 :root.theme-dark .provider-card-user-meta,
 :root.theme-dark .provider-card-balance span,
 :root.theme-dark .provider-card-progress-row > span,
-:root.theme-dark .provider-card-unlimited,
 :root.theme-dark .provider-card-section-heading,
-:root.theme-dark .provider-card-model,
-:root.theme-dark .provider-card-model-more,
 :root.theme-dark .provider-card-model-empty,
 :root.theme-dark .provider-card-auth-summary strong,
 :root.theme-dark .provider-liveness-summary strong,
@@ -103,19 +98,13 @@
   border-color: var(--glass-border);
 }
 
-:root.theme-dark .provider-card {
-  --provider-card-surface: var(--glass-card);
-  border-color: var(--glass-border);
-  background: var(--provider-card-surface);
-}
-
 :root.theme-dark .provider-card-placeholder {
   border-color: #2f56a6;
   background: rgba(64, 128, 255, 0.12);
 }
 
 :root.theme-dark .provider-card-status {
-  color: color-mix(in srgb, var(--provider-card-state) 68%, #f2f3f5);
+  color: color-mix(in srgb, var(--workspace-card-state) 68%, #f2f3f5);
 }
 
 :root.theme-dark .provider-card-cli-panel-header strong,
@@ -143,14 +132,8 @@
   color: #94bfff;
 }
 
-:root.theme-dark .provider-card-model,
-:root.theme-dark .provider-card-model-more {
-  border-color: var(--glass-border);
-  background: rgba(255, 255, 255, 0.04);
-}
-
 :root.theme-dark .provider-card-empty {
-  --provider-card-state: #a9aeb8;
+  --workspace-card-state: #a9aeb8;
 }
 
 :root.theme-dark .provider-card .provider-quota-progress .arco-progress-line {
@@ -193,11 +176,6 @@
 
 :root.theme-dark .settings-section-expanded {
   background: rgba(36, 38, 47, 0.82);
-}
-
-:root.theme-dark .provider-logo {
-  background: rgba(39, 42, 51, 0.42);
-  box-shadow: inset 0 0 0 1px var(--glass-border);
 }
 
 :root.theme-dark .liveness-record {
@@ -289,14 +267,6 @@
   color: #c9cdd4;
 }
 
-:root.theme-dark .agent-prompt-toolbar strong {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .agent-prompt-preview ol {
-  color: #c9cdd4;
-}
-
 :root.theme-dark .empty-state {
   border-color: var(--glass-border);
   color: #a9aeb8;
@@ -345,11 +315,6 @@
   color: #f2f3f5;
 }
 
-:root.theme-dark .notification-channel {
-  border-color: var(--glass-border);
-  background: var(--glass-card-muted);
-}
-
 :root.theme-dark .settings-body,
 :root.theme-dark .arco-drawer,
 :root.theme-dark .arco-drawer-body,
@@ -374,8 +339,8 @@
 }
 
 :root.theme-dark .provider-card-disabled {
-  --provider-card-surface: var(--glass-card-muted);
-  --provider-card-state: #5f6470;
+  --workspace-card-surface: var(--glass-card-muted);
+  --workspace-card-state: #5f6470;
   border-color: var(--glass-border);
 }
 
@@ -384,10 +349,10 @@
   border-color: var(--glass-border);
 }
 
-:root.theme-dark .provider-card-disabled .provider-logo,
-:root.theme-dark .provider-card-disabled .provider-card-title,
+:root.theme-dark .provider-card-disabled .workspace-card-logo,
+:root.theme-dark .provider-card-disabled .workspace-card-title,
 :root.theme-dark .provider-card-disabled .provider-card-api-remark,
-:root.theme-dark .provider-card-disabled .provider-card-type,
+:root.theme-dark .provider-card-disabled .workspace-card-subtitle,
 :root.theme-dark .provider-card-disabled .provider-card-api-endpoint-value,
 :root.theme-dark .provider-card-disabled .provider-card-api-endpoint-row,
 :root.theme-dark .provider-card-disabled .provider-card-api-key-name,
@@ -402,7 +367,7 @@
 :root.theme-dark .provider-card-disabled .provider-card-model,
 :root.theme-dark .provider-card-disabled .provider-card-model-more,
 :root.theme-dark .provider-card-disabled .provider-card-auth-summary,
-:root.theme-dark .provider-card-disabled .provider-card-quick-actions,
+:root.theme-dark .provider-card-disabled .workspace-card-quick-actions,
 :root.theme-dark .provider-card-disabled .provider-card-unlimited {
   color: #6b7280;
 }

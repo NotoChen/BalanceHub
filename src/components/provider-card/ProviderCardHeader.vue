@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CardIconButton from "../workspace-card/CardIconButton.vue";
 import { computed } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { ExternalLink } from "@lucide/vue";
@@ -6,6 +7,7 @@ import { openProviderSite } from "../../api/provider-site";
 import { IconCopy } from "@arco-design/web-vue/es/icon";
 import AgentCliIcon from "../AgentCliIcon.vue";
 import ProviderApiKeySwitcher from "./ProviderApiKeySwitcher.vue";
+import WorkspaceCardHeader from "../workspace-card/WorkspaceCardHeader.vue";
 import { useCliRuntimeStore } from "../../stores/cli-runtime";
 import type { AgentCliKind, Provider, ProviderApiKeyOption } from "../../stores/providers";
 import { agentCliLabel } from "../../utils/cli-environment";
@@ -120,8 +122,9 @@ async function openSite() {
 </script>
 
 <template>
-<header class="provider-card-header">
-  <dl v-if="isApiKeyAuth" class="provider-card-api-summary" aria-label="API Key 信息">
+<WorkspaceCardHeader :title="providerHeaderTitle">
+  <template v-if="isApiKeyAuth" #default>
+  <dl class="provider-card-api-summary" aria-label="API Key 信息">
     <div class="provider-card-api-heading">
       <div v-if="apiKeyRemark" class="provider-card-api-remark" :title="apiKeyRemark">
         {{ apiKeyRemark }}
@@ -141,16 +144,15 @@ async function openSite() {
         :title="provider.identity.baseUrl"
       >
         <span class="provider-card-api-endpoint-text">{{ providerUrlDisplay }}</span>
-        <button
+        <CardIconButton
           v-if="interactive"
-          type="button"
-          class="provider-card-icon-action provider-card-open-site"
+          tone="link"
           title="打开中转站"
           aria-label="打开中转站"
           @click.stop="openSite"
           @pointerdown.stop
           @keydown.enter.stop
-        ><ExternalLink :size="15" :stroke-width="1.8" /></button>
+        ><ExternalLink :size="15" :stroke-width="1.8" /></CardIconButton>
       </div>
       <div v-else class="provider-card-api-value-muted">未配置</div>
     </div>
@@ -192,36 +194,32 @@ async function openSite() {
         </span>
     </div>
   </dl>
-  <div v-else class="provider-card-brand">
-    <div class="provider-logo provider-card-logo">
+  </template>
+  <template #icon>
       <img
         :src="providerLogoSrc(provider)"
         :alt="providerHeaderTitle"
         draggable="false"
         @error="handleProviderLogoError"
       />
-    </div>
-    <div class="provider-card-brand-copy">
-      <div class="provider-card-title-row">
-        <h3 class="provider-card-title" :title="providerHeaderTitle">
-          {{ providerHeaderTitle }}
-        </h3>
-        <button
+  </template>
+  <template #title-actions>
+        <CardIconButton
           v-if="interactive && provider.identity.baseUrl.trim()"
-          type="button"
-          class="provider-card-icon-action provider-card-open-site"
+          tone="link"
           title="打开中转站"
           aria-label="打开中转站"
           @click.stop="openSite"
           @pointerdown.stop
           @keydown.enter.stop
-        ><ExternalLink :size="15" :stroke-width="1.8" /></button>
-      </div>
-      <span class="provider-card-type">
+        ><ExternalLink :size="15" :stroke-width="1.8" /></CardIconButton>
+  </template>
+  <template #subtitle>
+      <span class="workspace-card-subtitle">
         {{ providerHeaderSubtitle }}
       </span>
-    </div>
-  </div>
+  </template>
+  <template #meta>
   <div class="provider-card-header-meta">
     <div
       v-if="activeCliSignals.length > 0"
@@ -258,5 +256,6 @@ async function openSite() {
       <span>{{ providerStatusLabel() }}</span>
     </div>
   </div>
-</header>
+  </template>
+</WorkspaceCardHeader>
 </template>

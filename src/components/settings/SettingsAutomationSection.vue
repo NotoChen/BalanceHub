@@ -1,31 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import { IconCalendarClock, IconRefresh } from "@arco-design/web-vue/es/icon";
-import { durationUnitOptions, type DurationUnit } from "../../utils/duration";
+import DurationInput from "../DurationInput.vue";
+import SettingsLivenessSection from "./SettingsLivenessSection.vue";
 import type { AppSettings } from "../../stores/providers";
 
-const props = defineProps<{
+defineProps<{
   settings: AppSettings;
-  expanded?: boolean;
-  globalRefreshAmount: number;
-  globalRefreshUnit: DurationUnit;
+  livenessModelOptions: string[];
+  selectedLivenessModelProviders: { id: string; name: string }[];
 }>();
-
-const emit = defineEmits<{
-  toggle: [];
-  "update:globalRefreshAmount": [value: number | undefined];
-  "update:globalRefreshUnit": [unit: DurationUnit];
-}>();
-
-const globalRefreshAmountModel = computed({
-  get: () => props.globalRefreshAmount,
-  set: (value: number | undefined) => emit("update:globalRefreshAmount", value),
-});
-
-const globalRefreshUnitModel = computed({
-  get: () => props.globalRefreshUnit,
-  set: (value: DurationUnit) => emit("update:globalRefreshUnit", value),
-});
 </script>
 
 <template>
@@ -36,38 +19,19 @@ const globalRefreshUnitModel = computed({
         <div>
           <strong>额度刷新</strong>
         </div>
-        <span class="settings-card-state" :class="{ active: settings.autoRefreshEnabled }">
-          {{ settings.autoRefreshEnabled ? "运行中" : "已关闭" }}
-        </span>
+        <a-switch v-model="settings.autoRefreshEnabled" aria-label="自动刷新额度" />
       </header>
 
       <div class="settings-setting-list">
-        <div class="settings-setting-row settings-automation-toggle-row">
-          <div class="settings-setting-copy">
-            <strong>自动刷新</strong>
-          </div>
-          <a-switch v-model="settings.autoRefreshEnabled" />
-        </div>
         <div
-          class="settings-setting-row settings-automation-value-row"
+          class="settings-setting-row settings-setting-row-field"
           :class="{ disabled: !settings.autoRefreshEnabled }"
         >
           <div class="settings-setting-copy">
             <strong>刷新间隔</strong>
+            <span>中转站可单独设置间隔，最短 30 秒。</span>
           </div>
-          <div class="settings-duration-control">
-            <a-input-number
-              v-model="globalRefreshAmountModel"
-              :min="1"
-              :step="1"
-              :disabled="!settings.autoRefreshEnabled"
-            />
-            <a-select
-              v-model="globalRefreshUnitModel"
-              :options="durationUnitOptions"
-              :disabled="!settings.autoRefreshEnabled"
-            />
-          </div>
+          <DurationInput v-model="settings.refreshInterval" :min="30" :disabled="!settings.autoRefreshEnabled" label="刷新间隔" />
         </div>
       </div>
     </section>
@@ -78,20 +42,12 @@ const globalRefreshUnitModel = computed({
         <div>
           <strong>每日签到</strong>
         </div>
-        <span class="settings-card-state" :class="{ active: settings.autoCheckInEnabled }">
-          {{ settings.autoCheckInEnabled ? settings.checkInTime : "已关闭" }}
-        </span>
+        <a-switch v-model="settings.autoCheckInEnabled" aria-label="每日自动签到" />
       </header>
 
       <div class="settings-setting-list">
-        <div class="settings-setting-row settings-automation-toggle-row">
-          <div class="settings-setting-copy">
-            <strong>自动签到</strong>
-          </div>
-          <a-switch v-model="settings.autoCheckInEnabled" />
-        </div>
         <div
-          class="settings-setting-row settings-automation-value-row"
+          class="settings-setting-row settings-setting-row-field"
           :class="{ disabled: !settings.autoCheckInEnabled }"
         >
           <div class="settings-setting-copy">
@@ -108,5 +64,10 @@ const globalRefreshUnitModel = computed({
         </div>
       </div>
     </section>
+    <SettingsLivenessSection
+      :settings="settings"
+      :liveness-model-options="livenessModelOptions"
+      :selected-liveness-model-providers="selectedLivenessModelProviders"
+    />
   </div>
 </template>

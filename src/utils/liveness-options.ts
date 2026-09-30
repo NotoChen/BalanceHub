@@ -14,7 +14,7 @@ export const livenessIntervalModeOptions: SelectOption<LivenessIntervalMode>[] =
 ];
 
 export const livenessPromptModeOptions: SelectOption<LivenessPromptMode>[] = [
-  { label: "固定话术", value: "fixed" },
-  { label: "话术库随机", value: "random" },
-  { label: "话术库轮询", value: "roundRobin" },
+  { label: "固定提示词", value: "fixed" },
+  { label: "随机抽取模板", value: "random" },
+  { label: "依次使用模板", value: "roundRobin" },
 ];

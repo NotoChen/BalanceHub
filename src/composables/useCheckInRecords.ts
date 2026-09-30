@@ -1,6 +1,7 @@
 import { computed, ref, watch, type Ref } from "vue";
 import type { Provider, ProviderCheckInRecordsResult } from "../stores/providers";
-import { pruneLruEntries, setLruEntry, touchLruEntry } from "../utils/lru-map";
+import { pruneLruEntries, setLruEntry, touchLruEntry } from "../utils/lru-map.ts";
+import { useLatestRequest } from "./useLatestRequest.ts";
 
 const CHECK_IN_RECORDS_CACHE_CAPACITY = 48;
 
@@ -18,11 +19,9 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
   const checkInRecordsVisible = ref(false);
   const checkInRecordsProviderId = ref<string | null>(null);
   const checkInRecordsMonth = ref(currentMonthValue());
-  const checkInRecordsLoading = ref(false);
-  const checkInRecordsError = ref("");
+  const request = useLatestRequest({ timeoutMessage: "读取签到记录超时，请重试" });
   const cacheRevision = ref(0);
   const checkInRecordsCache = new Map<string, ProviderCheckInRecordsResult>();
-  let requestSequence = 0;
 
   const checkInRecordsProvider = computed(() =>
     options.providers.value.find(
@@ -43,9 +42,9 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
   });
 
   function openCheckInRecords(provider: Provider) {
+    checkInRecordsVisible.value = false;
     checkInRecordsProviderId.value = provider.identity.id;
     checkInRecordsMonth.value = currentMonthValue();
-    checkInRecordsError.value = "";
     checkInRecordsVisible.value = true;
     void loadCheckInRecords();
   }
@@ -59,28 +58,17 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
 
     const key = checkInRecordsCacheKey(providerId, month);
     if (!loadOptions.force && touchLruEntry(checkInRecordsCache, key) !== undefined) {
+      request.invalidate();
       cacheRevision.value += 1;
       return;
     }
 
-    const requestId = ++requestSequence;
-    checkInRecordsLoading.value = true;
-    checkInRecordsError.value = "";
-    try {
-      const result = await options.loadRecords(providerId, month);
+    await request.run(() => options.loadRecords(providerId, month), (result) => {
       if (options.providers.value.some((provider) => provider.identity.id === providerId)) {
         setLruEntry(checkInRecordsCache, key, result, CHECK_IN_RECORDS_CACHE_CAPACITY);
         cacheRevision.value += 1;
       }
-    } catch (error) {
-      if (requestId === requestSequence) {
-        checkInRecordsError.value = error instanceof Error ? error.message : String(error);
-      }
-    } finally {
-      if (requestId === requestSequence) {
-        checkInRecordsLoading.value = false;
-      }
-    }
+    });
   }
 
   watch(
@@ -99,22 +87,25 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
         checkInRecordsProviderId.value &&
         !providerIds.has(checkInRecordsProviderId.value)
       ) {
-        requestSequence += 1;
         checkInRecordsVisible.value = false;
         checkInRecordsProviderId.value = null;
-        checkInRecordsLoading.value = false;
-        checkInRecordsError.value = "";
       }
     },
     { deep: false },
   );
 
+  watch([checkInRecordsVisible, checkInRecordsProviderId], request.invalidate, { flush: "sync" });
+  watch(checkInRecordsMonth, () => {
+    request.invalidate();
+    if (checkInRecordsVisible.value) void loadCheckInRecords();
+  }, { flush: "sync" });
+
   return {
     checkInRecordsVisible,
     checkInRecordsProviderId,
     checkInRecordsMonth,
-    checkInRecordsLoading,
-    checkInRecordsError,
+    checkInRecordsLoading: request.loading,
+    checkInRecordsError: request.error,
     checkInRecordsProvider,
     checkInRecordsResult,
     openCheckInRecords,

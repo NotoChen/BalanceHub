@@ -1,11 +1,12 @@
-.cli-session-detail-modal .arco-modal-body {
+.surface-modal.cli-session-detail-modal .arco-modal-body {
   padding: 0;
+  overflow: hidden;
 }
 
 .cli-session-detail-shell {
   display: flex;
   min-height: min(620px, calc(100dvh - 150px));
-  max-height: min(780px, calc(100dvh - 104px));
+  max-height: min(780px, calc(100dvh - 112px));
   flex-direction: column;
   overflow: hidden;
   background: #fbfbfc;
@@ -20,11 +21,9 @@
 }
 
 .cli-session-detail-meta {
-  display: flex;
+  display: grid;
   min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
+  gap: 8px;
   border-bottom: 1px solid #eceef1;
   background: #fff;
   padding: 11px 22px;
@@ -52,42 +51,53 @@
   font-weight: 650;
 }
 
-.cli-session-detail-path {
-  max-width: 360px;
-  overflow: hidden;
-  color: #98a2b3;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.cli-session-detail-locations {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
 }
 
+.cli-session-detail-path,
 .cli-session-detail-id {
   display: inline-flex;
   min-width: 0;
-  max-width: 280px;
+  max-width: 100%;
   align-items: center;
   gap: 7px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #98a2b3;
+  color: var(--surface-muted);
   cursor: pointer;
-  padding: 5px 7px;
+  padding: 3px 0;
+  font: inherit;
+  font-size: 11px;
   transition: background 0.18s ease, color 0.18s ease;
 }
 
+.cli-session-detail-path { flex: 1 1 260px; }
+.cli-session-detail-id { flex: 0 1 auto; }
+.cli-session-detail-locations svg,
+.cli-session-detail-id > span { flex: 0 0 auto; }
+
+.cli-session-detail-path:hover,
+.cli-session-detail-path:focus-visible,
 .cli-session-detail-id:hover,
 .cli-session-detail-id:focus-visible {
-  background: #f2f4f7;
-  color: #165dff;
-  outline: none;
+  color: var(--surface-accent);
 }
 
-.cli-session-detail-id span {
+.cli-session-detail-path:focus-visible,
+.cli-session-detail-id:focus-visible { outline: 2px solid var(--surface-accent); outline-offset: 2px; }
+
+.cli-session-detail-path > span,
+.cli-session-detail-id > code {
   min-width: 0;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -95,7 +105,7 @@
 .cli-session-detail-searchbar {
   display: grid;
   min-height: 48px;
-  grid-template-columns: minmax(220px, 380px) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
   align-items: center;
   gap: 9px;
   border-bottom: 1px solid #eceef1;
@@ -109,6 +119,7 @@
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+  white-space: nowrap;
 }
 
 .cli-session-detail-truncated {
@@ -162,6 +173,7 @@
   min-width: 0;
   min-height: 28px;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -189,22 +201,21 @@
 }
 
 .cli-session-message-header > span:not(.cli-session-message-avatar) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   color: #98a2b3;
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cli-session-message-actions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  opacity: 0;
-  transition: opacity 0.18s ease;
-}
-
-.cli-session-message:hover .cli-session-message-actions,
-.cli-session-message:focus-within .cli-session-message-actions {
-  opacity: 1;
 }
 
 .cli-session-message-actions time,
@@ -212,6 +223,7 @@
   color: #98a2b3;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .cli-session-message-actions button,
@@ -398,6 +410,7 @@
 
 .cli-session-activity-item {
   min-width: 0;
+  scroll-margin: 16px 0;
   background: #fff;
   padding: 10px 12px 12px;
 }
@@ -481,6 +494,7 @@
   display: flex;
   min-height: 58px;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
   border-top: 1px solid #eceef1;
@@ -489,8 +503,16 @@
 }
 
 .cli-session-detail-footer > span {
+  min-width: 0;
+  flex: 1 1 220px;
   color: #98a2b3;
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.cli-session-detail-modal .cli-session-detail-shell :is(button, summary):focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 2px;
 }
 
 :root.theme-dark .cli-session-detail-modal .arco-modal-content,
@@ -587,15 +609,6 @@
 }
 
 @media (max-width: 720px) {
-  .cli-session-detail-meta {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .cli-session-detail-id {
-    max-width: 100%;
-  }
-
   .cli-session-detail-searchbar {
     grid-template-columns: minmax(0, 1fr) auto auto;
     padding-inline: 14px;
@@ -610,7 +623,19 @@
     width: 100%;
   }
 
-  .cli-session-message-actions {
-    opacity: 1;
+}
+
+@media (max-width: 620px) {
+  .cli-session-detail-meta { padding-inline: 14px; }
+  .cli-session-detail-searchbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "search actions" "count count";
+  }
+  .cli-session-detail-searchbar > .arco-input-wrapper { grid-area: search; }
+  .cli-session-detail-searchbar > .arco-btn-group { grid-area: actions; }
+  .cli-session-detail-search-count {
+    grid-area: count;
+    justify-self: start;
+    text-align: left;
   }
 }

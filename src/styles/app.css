@@ -1,6 +1,9 @@
 @import "./modules/foundation.css";
 @import "./modules/topbar.css";
+@import "./modules/card-actions.css";
+@import "./modules/workspace-card.css";
 @import "./modules/provider-layout.css";
+@import "./modules/provider-filters.css";
 @import "./modules/provider-card/base.css";
 @import "./modules/provider-card/actions.css";
 @import "./modules/provider-liveness.css";
@@ -9,7 +12,6 @@
 @import "./modules/workspace-picker.css";
 @import "./modules/cli-session-detail.css";
 @import "./modules/temporary-cli-preview.css";
-@import "./modules/cli-config-preview.css";
 @import "./modules/cli-config-key-picker.css";
 @import "./modules/agent-settings.css";
 @import "./modules/agent-environment.css";
@@ -24,6 +26,7 @@
 @import "./modules/settings/provider-editor-refinements.css";
 @import "./modules/api-key-manager.css";
 @import "./modules/theme-dark/base.css";
+@import "./modules/workspace-card-dark.css";
 @import "./modules/theme-dark/provider-cards.css";
 @import "./modules/theme-dark/editors.css";
 @import "./modules/theme-dark/workspaces.css";
@@ -52,3 +55,7 @@
 @import "./modules/surfaces/dark-refinements.css";
 @import "./modules/surfaces/settings-final.css";
 @import "./modules/surfaces/provider-final.css";
+@import "./modules/surfaces/provider-auth.css";
+@import "./modules/agent-workspace.css";
+@import "./modules/agent-sessions.css";
+@import "./modules/product-redesign.css";

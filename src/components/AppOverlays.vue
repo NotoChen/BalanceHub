@@ -35,17 +35,21 @@ defineProps<{
   importingAppData: boolean;
   availableModelsProvider: Provider | null;
   availableModelsLoading: boolean;
+  availableModelsError: string;
   usageProvider: Provider | null;
   usageLoading: boolean;
+  usageError: string;
   usageSummary: ProviderUsageSummary | null;
   requestLogsProvider: Provider | null;
   requestLogsLoading: boolean;
+  requestLogsError: string;
   requestLogsResult: ProviderRequestLogsResult | null;
   requestLogsKeyword: string;
   requestLogsPage: number;
   requestLogsPageSize: number;
   passwordChangeProvider: Provider | null;
   passwordChangeLoading: boolean;
+  passwordChangeError: string;
   livenessDetailsProvider: Provider | null;
   cliRuntimeLoading: boolean;
   cliRuntime: CliRuntimeSnapshot;
@@ -99,7 +103,7 @@ const emit = defineEmits<{
   completeOnboarding: [];
   refreshAvailableModels: [];
   copyAvailableModel: [model: string];
-  copyAllAvailableModels: [];
+  copyAvailableModels: [models: string[]];
   refreshUsageSummary: [];
   searchRequestLogs: [keyword: string];
   loadRequestLogs: [];
@@ -195,6 +199,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     v-model:period="usagePeriod"
     :provider="usageProvider"
     :loading="usageLoading"
+    :error="usageError"
     :summary="usageSummary"
     @refresh="emit('refreshUsageSummary')"
   />
@@ -203,15 +208,17 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     v-model:visible="availableModelsVisible"
     :provider="availableModelsProvider"
     :loading="availableModelsLoading"
+    :error="availableModelsError"
     @refresh="emit('refreshAvailableModels')"
     @copy="emit('copyAvailableModel', $event)"
-    @copy-all="emit('copyAllAvailableModels')"
+    @copy-all="emit('copyAvailableModels', $event)"
   />
 
   <RequestLogsModal
     v-model:visible="requestLogsVisible"
     :provider="requestLogsProvider"
     :loading="requestLogsLoading"
+    :error="requestLogsError"
     :result="requestLogsResult"
     :keyword="requestLogsKeyword"
     :page="requestLogsPage"
@@ -226,6 +233,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     v-model:visible="passwordChangeVisible"
     :provider="passwordChangeProvider"
     :loading="passwordChangeLoading"
+    :error="passwordChangeError"
     @submit="(originalPassword, password) => emit('submitPasswordChange', originalPassword, password)"
   />
 

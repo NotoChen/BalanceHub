@@ -339,8 +339,9 @@ fn launch_snapshots_and_hooks_share_the_reducer_projection() {
     let repository = AgentRuntimeRepository::new(&root).unwrap();
     let instance = TemporaryCliInstance {
         id: "instance-1".to_string(),
-        provider_id: "provider-1".to_string(),
-        provider_name: "Provider".to_string(),
+        native_session: None,
+        provider_id: Some("provider-1".to_string()),
+        provider_name: Some("Provider".to_string()),
         session_title: "Title".to_string(),
         account_label: "Account".to_string(),
         api_key_local_id: Some("key-1".to_string()),

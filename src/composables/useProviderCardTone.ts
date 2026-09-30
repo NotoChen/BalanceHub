@@ -1,10 +1,9 @@
 import { computed, type Ref } from "vue";
 import type { Provider } from "../stores/providers";
 import {
-  providerHasNoAvailableBalance,
+  providerCardStatusTone,
   type ProviderCardTone,
-} from "../utils/provider-display";
-import { providerNeedsCheckIn } from "../utils/provider-actions";
+} from "../utils/provider-display.ts";
 
 interface UseProviderCardToneOptions {
   providers: Ref<Provider[]>;
@@ -39,30 +38,9 @@ export function useProviderCardTone(options: UseProviderCardToneOptions) {
     return "";
   }
 
-  function providerIsPendingSync(provider: Provider) {
-    return provider.runtime.status === "warning" && !provider.automation.lastSyncedAt;
-  }
-
   function computeProviderCardTone(provider: Provider): ProviderCardTone {
-    if (!provider.runtime.enabled) {
-      return "disabled";
-    }
-    if (providerIntermediateLabel(provider)) {
-      return "syncing";
-    }
-    if (providerIsPendingSync(provider)) {
-      return "pending";
-    }
-    if (provider.runtime.status === "error") {
-      return "error";
-    }
-    if (providerNeedsCheckIn(provider)) {
-      return "warning";
-    }
-    if (providerHasNoAvailableBalance(provider)) {
-      return "empty";
-    }
-    return "ok";
+    const status = providerCardStatusTone(provider);
+    return status !== "disabled" && providerIntermediateLabel(provider) ? "syncing" : status;
   }
 
   const providerToneMap = computed(() => {

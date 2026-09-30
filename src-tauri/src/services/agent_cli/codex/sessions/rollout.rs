@@ -23,8 +23,7 @@ pub(super) fn index_rollout(
     known_fingerprint: Option<&str>,
     is_current: &dyn Fn() -> bool,
 ) -> Result<SessionIndexLoadResult, String> {
-    let (fingerprint, source_bytes) =
-        session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
+    let (fingerprint, source_bytes) = session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
     if known_fingerprint == Some(fingerprint.as_str()) {
         return Ok(SessionIndexLoadResult::Unchanged {
             fingerprint,
@@ -35,68 +34,73 @@ pub(super) fn index_rollout(
     let mut primary = Vec::new();
     let mut fallback = Vec::new();
     let mut has_primary = false;
-    scan_json_records_background(path, "索引 Codex 会话正文", is_current, |sequence, line| {
-        let possible_primary = contains_bytes(line, b"event_msg")
-            && (contains_bytes(line, b"user_message")
-                || contains_bytes(line, b"agent_message"));
-        let possible_fallback = contains_bytes(line, b"response_item")
-            && contains_bytes(line, b"message");
-        if !possible_primary && !possible_fallback {
-            return false;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
-            return false;
-        };
-        match value.get("type").and_then(Value::as_str) {
-            Some("event_msg") => {
-                let Some(payload) = value.get("payload") else {
-                    return false;
-                };
-                let role = match payload.get("type").and_then(Value::as_str) {
-                    Some("user_message") => CliSessionMessageRole::User,
-                    Some("agent_message") => CliSessionMessageRole::Assistant,
-                    _ => return false,
-                };
-                let Some(content) = payload
-                    .get("message")
-                    .or_else(|| payload.get("text"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|content| !content.is_empty())
-                else {
-                    return false;
-                };
-                has_primary = true;
-                primary.push(SessionIndexMessage {
-                    id: format!("codex-{sequence}"),
-                    role,
-                    content: content.to_string(),
-                });
+    scan_json_records_background(
+        path,
+        "索引 Codex 会话正文",
+        is_current,
+        |sequence, line| {
+            let possible_primary = contains_bytes(line, b"event_msg")
+                && (contains_bytes(line, b"user_message")
+                    || contains_bytes(line, b"agent_message"));
+            let possible_fallback =
+                contains_bytes(line, b"response_item") && contains_bytes(line, b"message");
+            if !possible_primary && !possible_fallback {
+                return false;
             }
-            Some("response_item") => {
-                let Some(payload) = value.get("payload") else {
-                    return false;
-                };
-                if payload.get("type").and_then(Value::as_str) != Some("message") {
-                    return false;
-                }
-                let role = match payload.get("role").and_then(Value::as_str) {
-                    Some("user") => CliSessionMessageRole::User,
-                    Some("assistant") => CliSessionMessageRole::Assistant,
-                    _ => return false,
-                };
-                if let Some(content) = response_message_text(payload) {
-                    fallback.push(SessionIndexMessage {
+            let Ok(value) = serde_json::from_slice::<Value>(line) else {
+                return false;
+            };
+            match value.get("type").and_then(Value::as_str) {
+                Some("event_msg") => {
+                    let Some(payload) = value.get("payload") else {
+                        return false;
+                    };
+                    let role = match payload.get("type").and_then(Value::as_str) {
+                        Some("user_message") => CliSessionMessageRole::User,
+                        Some("agent_message") => CliSessionMessageRole::Assistant,
+                        _ => return false,
+                    };
+                    let Some(content) = payload
+                        .get("message")
+                        .or_else(|| payload.get("text"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|content| !content.is_empty())
+                    else {
+                        return false;
+                    };
+                    has_primary = true;
+                    primary.push(SessionIndexMessage {
                         id: format!("codex-{sequence}"),
                         role,
-                        content,
+                        content: content.to_string(),
                     });
                 }
+                Some("response_item") => {
+                    let Some(payload) = value.get("payload") else {
+                        return false;
+                    };
+                    if payload.get("type").and_then(Value::as_str) != Some("message") {
+                        return false;
+                    }
+                    let role = match payload.get("role").and_then(Value::as_str) {
+                        Some("user") => CliSessionMessageRole::User,
+                        Some("assistant") => CliSessionMessageRole::Assistant,
+                        _ => return false,
+                    };
+                    if let Some(content) = response_message_text(payload) {
+                        fallback.push(SessionIndexMessage {
+                            id: format!("codex-{sequence}"),
+                            role,
+                            content,
+                        });
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-        false
-    })?;
+            false
+        },
+    )?;
     Ok(SessionIndexLoadResult::Updated {
         fingerprint,
         source_bytes,

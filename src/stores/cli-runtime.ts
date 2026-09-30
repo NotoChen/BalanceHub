@@ -3,35 +3,35 @@ import {
   clearCliSessionIndex as clearCliSessionIndexCommand,
   activateAgentRuntime as activateAgentRuntimeCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
+  getCachedCliTools,
   getAgentRuntimeSnapshot as getAgentRuntimeSnapshotCommand,
   getCliSessionIndexStatus as getCliSessionIndexStatusCommand,
-  getCliSessionDetail as getCliSessionDetailCommand,
   getTemporaryCliInstance as getTemporaryCliInstanceCommand,
   launchTemporaryCli as launchTemporaryCliCommand,
   previewCliConfig as previewCliConfigCommand,
   previewTemporaryCliLaunch as previewTemporaryCliLaunchCommand,
   probeCliTools as probeCliToolsCommand,
   probeTerminals as probeTerminalsCommand,
-  searchCliSessions as searchCliSessionsCommand,
-  switchCliConfig as switchCliConfigCommand,
 } from "../api/app";
 import { useWorkspaceStore } from "./workspaces";
+import { useSettingsStore } from "./settings";
+import type { AgentConfigurationEdit } from "./agent-configuration-types";
 import { acceptsAgentRuntimeSnapshot } from "../utils/agent-runtime";
+import { withTimeout } from "../utils/promise-timeout";
 import type {
   AgentCliKind,
   AgentRuntimeSnapshot,
-  CliConfigFile,
-  CliConfigPreview,
   CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
-  CliSessionDetail,
   CliSessionIndexStatus,
-  CliSessionSearchResponse,
+  CliToolProbeResult,
   TemporaryCliLaunchInput,
   TemporaryCliLaunchPreview,
   TemporaryCliLaunchResult,
   TerminalEnvironmentProbeResult,
 } from "./provider-types";
+
+const pendingProbes = new WeakMap<object, { key: string; requestId: number; promise: Promise<CliEnvironmentProbeResult> }>();
 
 export const useCliRuntimeStore = defineStore("cliRuntime", {
   state: () => ({
@@ -45,29 +45,45 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
     cliEnvironmentRequestId: 0,
     terminalEnvironmentProbe: null as TerminalEnvironmentProbeResult | null,
     terminalEnvironmentLoading: false,
+    terminalEnvironmentRequestId: 0,
   }),
   actions: {
     resetRuntime() {
       this.cliRuntime = emptyCliRuntimeSnapshot();
       this.agentRuntimeSnapshot = emptyAgentRuntimeSnapshot();
     },
-    async probeCliTools(deep = false) {
+    acceptCliToolProbe(tool: CliToolProbeResult) {
+      if (this.cliEnvironmentLoading) return;
+      const tools = [...(this.cliEnvironmentProbe?.tools ?? [])];
+      const index = tools.findIndex((candidate) => candidate.kind === tool.kind);
+      if (index < 0) tools.push(tool); else tools[index] = tool;
+      this.cliEnvironmentProbe = { tools };
+    },
+    probeCliTools(deep = false): Promise<CliEnvironmentProbeResult> {
+      const key = JSON.stringify([deep, useSettingsStore().settings.agentCliPaths]);
+      const pending = pendingProbes.get(this);
+      if (pending?.key === key && pending.requestId === this.cliEnvironmentRequestId) return pending.promise;
       const requestId = ++this.cliEnvironmentRequestId;
-      this.cliEnvironmentLoading = true;
-      try {
-        const result = await probeCliToolsCommand(deep);
-        // A late result may belong to a cancelled or superseded probe. It may
-        // still be returned to its caller, but must not replace the shared
-        // probe snapshot used by other settings controls.
-        if (this.cliEnvironmentRequestId === requestId) {
-          this.cliEnvironmentProbe = result;
+      this.cliEnvironmentLoading = deep || !this.cliEnvironmentProbe;
+      const promise = (async () => {
+        try {
+          if (!deep && !this.cliEnvironmentProbe) {
+            const cached = await withTimeout(getCachedCliTools(), 5_000, "读取 CLI 摘要超时").catch(() => null);
+            if (cached && requestId === this.cliEnvironmentRequestId && !this.cliEnvironmentProbe) {
+              this.cliEnvironmentProbe = cached;
+              this.cliEnvironmentLoading = false;
+            }
+          }
+          const result = await withTimeout(probeCliToolsCommand(deep), deep ? 60_000 : 30_000, "检测 Agent CLI 超时");
+          if (this.cliEnvironmentRequestId === requestId) this.cliEnvironmentProbe = result;
+          return result;
+        } finally {
+          if (this.cliEnvironmentRequestId === requestId) this.cliEnvironmentLoading = false;
+          if (pendingProbes.get(this)?.requestId === requestId) pendingProbes.delete(this);
         }
-        return result;
-      } finally {
-        if (this.cliEnvironmentRequestId === requestId) {
-          this.cliEnvironmentLoading = false;
-        }
-      }
+      })();
+      pendingProbes.set(this, { key, requestId, promise });
+      return promise;
     },
     cancelCliToolsProbe(requestId?: number) {
       if (requestId !== undefined && this.cliEnvironmentRequestId !== requestId) {
@@ -78,14 +94,21 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
       return true;
     },
     async probeTerminals() {
+      const requestId = ++this.terminalEnvironmentRequestId;
       this.terminalEnvironmentLoading = true;
       try {
         const result = await probeTerminalsCommand();
-        this.terminalEnvironmentProbe = result;
+        if (requestId === this.terminalEnvironmentRequestId) this.terminalEnvironmentProbe = result;
         return result;
       } finally {
-        this.terminalEnvironmentLoading = false;
+        if (requestId === this.terminalEnvironmentRequestId) this.terminalEnvironmentLoading = false;
       }
+    },
+    cancelTerminalsProbe(requestId?: number) {
+      if (requestId !== undefined && requestId !== this.terminalEnvironmentRequestId) return false;
+      this.terminalEnvironmentRequestId += 1;
+      this.terminalEnvironmentLoading = false;
+      return true;
     },
     async launch(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchResult> {
       const result = await launchTemporaryCliCommand(input);
@@ -95,26 +118,11 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
     async previewLaunch(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchPreview> {
       return previewTemporaryCliLaunchCommand(input);
     },
-    async searchSessions(
-      cliKind: AgentCliKind,
-      workdir: string,
-      query: string,
-      forceRefresh = false,
-    ): Promise<CliSessionSearchResponse> {
-      return searchCliSessionsCommand(cliKind, workdir, query, 50, forceRefresh);
-    },
     async getSessionIndexStatus(): Promise<CliSessionIndexStatus> {
       return getCliSessionIndexStatusCommand();
     },
     async clearSessionIndex(): Promise<void> {
       return clearCliSessionIndexCommand();
-    },
-    async getSessionDetail(
-      cliKind: AgentCliKind,
-      workdir: string,
-      sessionId: string,
-    ): Promise<CliSessionDetail> {
-      return getCliSessionDetailCommand(cliKind, workdir, sessionId);
     },
     acceptAgentRuntimeSnapshot(snapshot: AgentRuntimeSnapshot) {
       if (!acceptsAgentRuntimeSnapshot(this.agentRuntimeSnapshot, snapshot)) {
@@ -152,28 +160,13 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
       id: string,
       cliKind: AgentCliKind,
       apiKeyLocalId: string,
-    ): Promise<CliConfigPreview> {
+    ): Promise<AgentConfigurationEdit> {
       return previewCliConfigCommand(id, cliKind, apiKeyLocalId);
-    },
-    async switchConfig(
-      id: string,
-      cliKind: AgentCliKind,
-      apiKeyLocalId: string,
-      revision: string,
-      files: CliConfigFile[],
-    ) {
-      return switchCliConfigCommand(
-        id,
-        cliKind,
-        apiKeyLocalId,
-        revision,
-        files,
-      );
     },
     async refresh(): Promise<CliRuntimeSnapshot> {
       this.cliRuntimeLoading = true;
       try {
-        this.cliRuntime = await getCliRuntimeSnapshotCommand();
+        this.cliRuntime = await withTimeout(getCliRuntimeSnapshotCommand(), 15_000, "读取 CLI 配置状态超时");
         return this.cliRuntime;
       } finally {
         this.cliRuntimeLoading = false;

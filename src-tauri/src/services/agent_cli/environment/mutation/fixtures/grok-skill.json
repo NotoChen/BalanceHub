@@ -1,0 +1,1 @@
+{"mechanism":"grok-skill-disabled-toml","revision":1,"config":"fixture_unknown = \"preserve\"\n[skills]\ndisabled = [\"untouched\"]\n","checks":["disable","enable","idempotent","unknown_siblings","native_inspect","payload_not_executed","user_scope","workspace_scope"]}

@@ -1,0 +1,109 @@
+/* Provider and Agent cards use the same action palette and button geometry. */
+:root {
+  --card-action-default: #86909c;
+  --card-action-disabled: #c9cdd4;
+  --card-action-copy: #5f7894;
+  --card-action-data: #3f78c5;
+  --card-action-site: #a87322;
+  --card-action-configuration: #218a68;
+  --card-action-integration: #c86b2b;
+  --card-action-launch: #165dff;
+  --card-action-success: #168a65;
+  --card-action-edit: #64748b;
+  --card-action-warning: #a87322;
+  --card-action-danger: #c7535d;
+  --card-action-link: #25869b;
+  --card-action-hover-mix: 11%;
+  --card-icon-models: #7c5cff;
+  --card-icon-key: #00a870;
+  --card-icon-automation: #d99000;
+}
+
+:root.theme-dark {
+  --card-action-default: #a9aeb8;
+  --card-action-disabled: #5f6470;
+  --card-action-copy: #9bb0c8;
+  --card-action-data: #82b4f4;
+  --card-action-site: #d9ad69;
+  --card-action-configuration: #78d0ae;
+  --card-action-integration: #f0a06a;
+  --card-action-launch: #94bfff;
+  --card-action-success: #69d3ab;
+  --card-action-edit: #a9b5c5;
+  --card-action-warning: #f0c078;
+  --card-action-danger: #ff8b94;
+  --card-action-link: #75cbdc;
+  --card-action-hover-mix: 16%;
+  --card-icon-models: #b5a7ff;
+  --card-icon-key: #55d6a5;
+  --card-icon-automation: #f2c14e;
+}
+
+.card-icon-action {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--card-action-color, var(--card-action-default));
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card-icon-action svg {
+  width: 15px;
+  height: 15px;
+}
+
+.card-icon-action .brand-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.card-icon-action:is(:hover, :focus-visible):not(:disabled) {
+  background: color-mix(in srgb, currentColor var(--card-action-hover-mix), transparent);
+}
+
+.card-icon-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.card-icon-action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.card-icon-action:disabled {
+  background: transparent;
+  color: var(--card-action-disabled);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.card-action-copy { --card-action-color: var(--card-action-copy); }
+.card-action-data,
+.card-action-refresh { --card-action-color: var(--card-action-data); }
+.card-action-site { --card-action-color: var(--card-action-site); }
+.card-action-configuration { --card-action-color: var(--card-action-configuration); }
+.card-action-integration { --card-action-color: var(--card-action-integration); }
+.card-action-launch { --card-action-color: var(--card-action-launch); }
+.card-action-edit { --card-action-color: var(--card-action-edit); }
+.card-action-warning { --card-action-color: var(--card-action-warning); }
+.card-action-success { --card-action-color: var(--card-action-success); }
+.card-action-danger { --card-action-color: var(--card-action-danger); }
+.card-action-link { --card-action-color: var(--card-action-link); }
+.card-action-models { --card-action-color: var(--card-icon-models); }
+.card-action-key { --card-action-color: var(--card-icon-key); }
+.card-action-automation { --card-action-color: var(--card-icon-automation); }
+
+@media (prefers-reduced-motion: reduce) {
+  .card-icon-action { transition: none; }
+  .card-icon-action:active:not(:disabled) { transform: none; }
+}

@@ -1,16 +1,15 @@
 //! Schema-specific managed Hook adapters for Claude Code, Gemini CLI and Grok Build.
 
-use super::{codex::MUTATION_LOCK, common};
+mod configuration;
+
+use super::common;
 use crate::models::{
     AgentCliKind, AgentHookChange, AgentHookChangeKind, AgentHookHealthState, AgentHookInspection,
     AgentHookMutation, AgentHookOwnedResource, AgentHookOwnership, AgentHookPlan, AgentHookTrust,
     AgentRuntimeScope,
 };
 use serde_json::{json, Map, Value};
-use std::{
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::path::{Path, PathBuf};
 
 const CLAUDE_EVENTS: &[&str] = &[
     "SessionStart",
@@ -439,9 +438,14 @@ impl GenericHookService {
                     event_name: definition.event_name.clone(),
                     structural_identity: definition.identity.clone(),
                     fingerprint: definition.fingerprint(),
-                    kind: if mutation == AgentHookMutation::Disable {
+                    kind: if mutation == AgentHookMutation::Disable
+                        && matches!(self.agent, GenericAgent::Gemini)
+                    {
                         AgentHookChangeKind::Keep
-                    } else if mutation == AgentHookMutation::Remove {
+                    } else if matches!(
+                        mutation,
+                        AgentHookMutation::Remove | AgentHookMutation::Disable
+                    ) {
                         if present.is_some()
                             && resources
                                 .iter()
@@ -473,19 +477,54 @@ impl GenericHookService {
             _ => 0,
         };
         let changed = structural_changes + state_change;
+        let (content_changes, preview_error) = if conflict {
+            (Vec::new(), None)
+        } else {
+            match self.prepare_configuration(
+                mutation,
+                &config,
+                manifest.as_ref(),
+                &definitions,
+                structural_changes > 0,
+            ) {
+                Ok(prepared) => {
+                    let mut contents = prepared.content_changes(
+                        &self.config_path,
+                        config
+                            .snapshot
+                            .as_ref()
+                            .map(|snapshot| snapshot.text.as_str()),
+                    );
+                    common::append_state_change(
+                        &mut contents,
+                        inspection.installed,
+                        inspection.enabled,
+                        mutation,
+                    );
+                    (contents, None)
+                }
+                Err(error) => (Vec::new(), Some(error)),
+            }
+        };
+        let has_content_changes = !content_changes.is_empty();
         AgentHookPlan {
             agent_kind: self.agent.kind(),
             mutation,
             runtime_scope: AgentRuntimeScope::Native,
             config_path: self.config_path.to_string_lossy().into_owned(),
             expected_revision: inspection.revision,
-            supported: true,
+            supported: preview_error.is_none(),
             conflict,
             changes,
-            summary: if conflict {
+            content_changes,
+            summary: if let Some(error) = preview_error {
+                error
+            } else if conflict {
                 "检测到配置或所有权冲突，未生成可应用变更".to_string()
-            } else if changed == 0 {
+            } else if changed == 0 && !has_content_changes {
                 format!("无需{action}，当前状态已满足请求")
+            } else if changed == 0 {
+                format!("确认后将{action} {} 会话接入", self.agent.label())
             } else {
                 format!(
                     "确认后将{action} {changed} 个 {} Hook 节点",
@@ -504,10 +543,21 @@ impl GenericHookService {
         {
             return Err("Hook 计划存在冲突或不受支持，未修改配置".to_string());
         }
-        let _guard = MUTATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let parent = self.config_path.parent().ok_or("Hook 配置目录无效")?;
+        let config_root = if self.agent.standalone() {
+            parent.parent().ok_or("Hook 配置根目录无效")?
+        } else {
+            parent
+        };
+        super::locking::with_locked_sources(
+            &self.config_path,
+            &self.manifest_path,
+            config_root,
+            || self.apply_locked(plan),
+        )
+    }
+
+    fn apply_locked(&self, plan: AgentHookPlan) -> Result<AgentHookInspection, String> {
         let current = self.inspect();
         if current.revision != plan.expected_revision {
             return Err(format!(
@@ -516,122 +566,108 @@ impl GenericHookService {
             ));
         }
         let current_plan = self.plan(plan.mutation);
-        if current_plan.conflict
+        if !current_plan.supported
+            || current_plan.conflict
             || current_plan.expected_revision != plan.expected_revision
             || current_plan.changes != plan.changes
+            || current_plan.content_changes != plan.content_changes
         {
             return Err("Hook 配置或所有权已变化，请重新生成计划后再试".to_string());
         }
         let config = common::read_json(&self.config_path, self.agent.label());
-        if matches!(
-            config.status,
-            common::ConfigStatus::Unsupported | common::ConfigStatus::Unsafe
-        ) {
-            return Err(config
-                .diagnostic
-                .unwrap_or_else(|| "Hook 配置格式不受支持".to_string()));
-        }
-        let mut value = config
-            .snapshot
-            .map(|snapshot| snapshot.value)
-            .unwrap_or_else(|| json!({}));
         let definitions = self.definitions();
-        let gemini_was_disabled = matches!(self.agent, GenericAgent::Gemini)
-            && is_definitions_disabled(&value, &definitions);
+        let manifest = common::read_manifest(&self.manifest_path)?;
+        let prepared = self.prepare_configuration(
+            plan.mutation,
+            &config,
+            manifest.as_ref(),
+            &definitions,
+            current_plan
+                .changes
+                .iter()
+                .any(|change| change.kind != AgentHookChangeKind::Keep),
+        )?;
+        prepared.verify_preview(
+            &self.config_path,
+            config
+                .snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.text.as_str()),
+            &plan.content_changes,
+        )?;
         match plan.mutation {
             AgentHookMutation::Install | AgentHookMutation::Enable => {
                 common::ensure_managed_parent(&self.manifest_path)?;
-                if self.agent.standalone() {
-                    value = standalone_document(&definitions);
-                } else {
-                    for definition in &definitions {
-                        add_nested_definition(&mut value, definition, self.agent)?;
-                    }
-                    if matches!(self.agent, GenericAgent::Gemini) {
-                        remove_disabled(&mut value, &definitions);
-                    }
-                }
-                let installed_at = common::read_manifest(&self.manifest_path)
-                    .ok()
-                    .flatten()
+                let installed_at = manifest
+                    .as_ref()
                     .map(|manifest| manifest.installed_at)
                     .unwrap_or_else(common::now_millis);
-                let ownership = ownership_for(self, &definitions, installed_at, true, &value);
-                if config.status == common::ConfigStatus::Missing
-                    || gemini_was_disabled
-                    || current_plan
-                        .changes
-                        .iter()
-                        .any(|change| change.kind != AgentHookChangeKind::Keep)
-                {
-                    if self.agent.standalone() {
-                        ensure_owned_leaf_parent(&self.config_path)?;
-                    } else {
-                        common::ensure_parent(&self.config_path)?;
-                    }
-                    common::write_atomic(
-                        &self.config_path,
-                        &common::encode_json(&value, self.agent.label())?,
-                    )?;
-                }
+                let ownership =
+                    ownership_for(self, &definitions, installed_at, true, &prepared.value);
+                self.commit_configuration(&prepared)?;
                 common::write_manifest(&self.manifest_path, &ownership)?;
             }
             AgentHookMutation::Disable => {
-                let mut ownership = common::read_manifest(&self.manifest_path)?
-                    .ok_or_else(|| "缺少 Hook ownership manifest，未修改任何配置".to_string())?;
-                if self.agent.standalone() {
-                    if config.status == common::ConfigStatus::Present {
-                        common::ensure_parent(&self.config_path)?;
-                        std::fs::remove_file(&self.config_path)
-                            .map_err(|error| format!("删除 Grok Build Hook 文件失败: {error}"))?;
-                    }
-                } else if config.status == common::ConfigStatus::Present
-                    && matches!(self.agent, GenericAgent::Gemini)
-                {
-                    if add_disabled(&mut value, &definitions)? {
-                        common::write_atomic(
-                            &self.config_path,
-                            &common::encode_json(&value, self.agent.label())?,
-                        )?;
-                    }
-                } else if config.status == common::ConfigStatus::Present
-                    && remove_nested_definitions(&mut value, &definitions)?
-                {
-                    common::write_atomic(
-                        &self.config_path,
-                        &common::encode_json(&value, self.agent.label())?,
-                    )?;
-                }
+                let mut ownership =
+                    manifest.ok_or("缺少 Hook ownership manifest，未修改任何配置")?;
+                self.commit_configuration(&prepared)?;
                 ownership.enabled = false;
                 common::write_manifest(&self.manifest_path, &ownership)?;
             }
             AgentHookMutation::Remove => {
-                let ownership = common::read_manifest(&self.manifest_path)?
-                    .ok_or_else(|| "缺少 Hook ownership manifest，未删除任何配置".to_string())?;
-                if self.agent.standalone() {
-                    if config.status == common::ConfigStatus::Present {
-                        common::ensure_parent(&self.config_path)?;
-                        std::fs::remove_file(&self.config_path)
-                            .map_err(|error| format!("删除 Grok Build Hook 文件失败: {error}"))?;
-                    }
-                } else {
-                    let mut changed = remove_nested_definitions(&mut value, &definitions)?;
-                    if matches!(self.agent, GenericAgent::Gemini) {
-                        changed |= remove_disabled(&mut value, &definitions);
-                    }
-                    if changed && config.status == common::ConfigStatus::Present {
-                        common::write_atomic(
-                            &self.config_path,
-                            &common::encode_json(&value, self.agent.label())?,
-                        )?;
-                    }
-                }
-                let _ = ownership;
+                manifest.ok_or("缺少 Hook ownership manifest，未删除任何配置")?;
+                self.commit_configuration(&prepared)?;
                 common::remove_manifest(&self.manifest_path)?;
             }
         }
         Ok(self.inspect())
     }
+}
+
+pub(super) fn owned_resources_changed(
+    agent: GenericAgent,
+    before: &Value,
+    after: &Value,
+    ownership: &AgentHookOwnership,
+) -> bool {
+    let before = find_resources(before, agent);
+    let after = find_resources(after, agent);
+    ownership.resources.iter().any(|owned| {
+        let matches = |found: &FoundResource| {
+            found.event_name == owned.event_name
+                && found.identity == owned.structural_identity
+                && found.fingerprint == owned.content_fingerprint
+        };
+        before.iter().filter(|resource| matches(resource)).count() == 1
+            && after.iter().filter(|resource| matches(resource)).count() != 1
+    })
+}
+
+pub(super) fn owned_resource_selected(
+    agent: GenericAgent,
+    document: &Value,
+    event: &str,
+    group: &Value,
+    ownership: &AgentHookOwnership,
+) -> bool {
+    if group.get("hooks").and_then(Value::as_array).map(Vec::len) != Some(1) {
+        return false;
+    }
+    let fingerprint = group_fingerprint(group);
+    let found = find_resources(document, agent);
+    ownership.resources.iter().any(|owned| {
+        owned.event_name == event
+            && owned.content_fingerprint == fingerprint
+            && found
+                .iter()
+                .filter(|resource| {
+                    resource.event_name == owned.event_name
+                        && resource.identity == owned.structural_identity
+                        && resource.fingerprint == owned.content_fingerprint
+                })
+                .count()
+                == 1
+    })
 }
 
 fn helper_command(executable: &Path, spool_root: &Path, agent: &str, identity: &str) -> String {
@@ -983,17 +1019,16 @@ fn quote_windows(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::models::{AgentHookHealthState, AgentHookMutation, AgentHookTrust};
-    use std::{
-        env, fs,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::fs;
 
     fn fixture(agent: GenericAgent) -> (PathBuf, GenericHookService) {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        let root = tempfile::Builder::new()
+            .prefix(&format!("balancehub-managed-{}-", agent.key()))
+            .tempdir()
             .unwrap()
-            .as_nanos();
-        let root = env::temp_dir().join(format!("balancehub-managed-{}-{nonce}", agent.key()));
+            .keep()
+            .canonicalize()
+            .unwrap();
         let config = match agent {
             GenericAgent::ClaudeCode => root.join(".claude/settings.json"),
             GenericAgent::Gemini => root.join(".gemini/settings.json"),
@@ -1225,7 +1260,8 @@ mod tests {
         let error = service
             .apply(service.plan(AgentHookMutation::Install))
             .unwrap_err();
-        assert!(error.contains("符号链接"));
+        assert!(error.contains("路径不可安全访问"));
+        assert_eq!(fs::read_dir(&redirected).unwrap().count(), 0);
         assert!(!redirected.join("balancehub-runtime.json").exists());
         fs::remove_dir_all(root).unwrap();
     }

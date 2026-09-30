@@ -40,34 +40,23 @@ test("CLI default configuration remains editable for the currently bound API Key
   assert.doesNotMatch(picker, /:disabled="isCurrentAgentKey\(option\)"/);
   assert.match(
     runtime,
-    /await previewProviderCliConfig\(provider, cliKind, option\);\s*if \(cliConfigPreviewVisible\.value\) \{\s*cliConfigKeyPickerVisible\.value = false;/s,
+    /cliConfigKeyPickerVisible\.value = false;\s*await previewProviderCliConfig\(provider, cliKind, option\);/s,
   );
   assert.match(runtime, /cliConfigRequestRevision \+= 1;/);
-  assert.match(
-    runtime,
-    /options\.previewConfig\(provider\.identity\.id, cliKind, apiKey\.localId\.trim\(\)\)/,
-  );
   assert.doesNotMatch(runtime, /已在使用这把 API Key/);
 });
 
-test("CLI preview and switch preserve the selected stable API Key identity", () => {
+test("CLI preview preserves stable Key selection and uses the shared configuration editor", () => {
   const runtime = source("../src/composables/useCliRuntime.ts");
   const api = source("../src/api/app.ts");
 
-  assert.match(
-    runtime,
-    /options\.switchConfig\(\s*preview\.providerId,\s*preview\.cliKind,\s*preview\.apiKeyLocalId,/s,
-  );
-  assert.match(
-    runtime,
-    /if \(requestRevision === cliConfigRequestRevision\) \{\s*store\.cliRuntime = runtime;/s,
-  );
+  assert.match(runtime, /cliConfigurationEditor\.open\(/);
+  assert.doesNotMatch(runtime, /options\.switchConfig|preview\.originalFiles|preview\.files/);
   assert.match(
     api,
-    /invoke<CliConfigPreview>\("preview_cli_config", \{ id, cliKind, apiKeyLocalId \}\)/,
+    /invoke<AgentConfigurationEdit>\("preview_cli_config", \{ id, cliKind, apiKeyLocalId \}\)/,
   );
-  assert.match(api, /invoke<CliRuntimeSnapshot>\("switch_cli_config", \{/);
-  assert.match(api, /apiKeyLocalId,/);
+  assert.doesNotMatch(api, /switch_cli_config/);
 });
 
 test("the key manager exposes card-default and Agent-specific bindings", () => {

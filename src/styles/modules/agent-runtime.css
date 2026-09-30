@@ -61,7 +61,7 @@
 
 .temporary-cli-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 336px), 336px));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--workspace-card-width)), var(--workspace-card-width)));
   align-items: start;
   justify-content: start;
   gap: 12px;
@@ -69,7 +69,7 @@
 
 .temporary-cli-instance {
   display: grid;
-  width: min(100%, 336px);
+  width: min(100%, var(--workspace-card-width));
   height: 300px;
   min-width: 0;
   box-sizing: border-box;

@@ -28,7 +28,9 @@ use crate::models::{
 use crate::network;
 use crate::services::agent_cli::{
     self,
-    contracts::{EnvironmentPatch, TemporaryLaunchPlan, TemporaryLaunchRequest},
+    contracts::{
+        EnvironmentPatch, TemporaryLaunchConfiguration, TemporaryLaunchPlan, TemporaryLaunchRequest,
+    },
 };
 #[cfg(not(target_os = "windows"))]
 use crate::util::unix_millis as now_millis;
@@ -71,6 +73,151 @@ fn api_key_runtime_account_label_uses_the_selected_local_remark() {
     assert_eq!(provider_account_label(&provider, ""), "API Key");
 }
 
+#[test]
+fn native_and_provider_plans_share_exact_resume_arguments_for_all_agents() {
+    for cli_kind in [
+        AgentCliKind::Codex,
+        AgentCliKind::ClaudeCode,
+        AgentCliKind::Gemini,
+        AgentCliKind::Grok,
+    ] {
+        let adapter = agent_cli::definition(cli_kind).temporary_launch().unwrap();
+        let native = adapter
+            .build_plan(TemporaryLaunchRequest {
+                configuration: TemporaryLaunchConfiguration::Native,
+                model: "must-not-override-native-model",
+                session_name: "unused",
+                resume_id: "session-123",
+                session_mode: TemporaryCliSessionMode::History,
+                auxiliary_file_path: None,
+            })
+            .unwrap();
+        let expected = if cli_kind == AgentCliKind::Codex {
+            vec!["resume", "session-123"]
+        } else {
+            vec!["--resume", "session-123"]
+        };
+        assert_eq!(native.args, expected);
+        assert_eq!(native.environment.set_values().count(), 0);
+        assert_eq!(native.environment.removed_names().count(), 0);
+        assert!(native.auxiliary_file_content.is_none());
+        let path = preview_cli_auxiliary_path(adapter.auxiliary_file_name());
+        let provider = adapter
+            .build_plan(TemporaryLaunchRequest {
+                configuration: TemporaryLaunchConfiguration::Provider {
+                    provider_name: "Fixture",
+                    api_key: "sk-fixture",
+                    base_url: "https://fixture.invalid",
+                },
+                model: "",
+                session_name: "",
+                resume_id: "session-123",
+                session_mode: TemporaryCliSessionMode::History,
+                auxiliary_file_path: path.as_deref(),
+            })
+            .unwrap();
+        assert!(provider.args.ends_with(&native.args));
+    }
+}
+
+#[test]
+fn resume_id_cannot_be_reinterpreted_as_a_cli_option() {
+    assert!(resolve_resume_id(TemporaryCliSessionMode::History, "--last").is_err());
+    assert!(resolve_resume_id(TemporaryCliSessionMode::History, "").is_err());
+    assert_eq!(
+        resolve_resume_id(TemporaryCliSessionMode::History, "session-123").unwrap(),
+        "session-123"
+    );
+}
+
+#[test]
+fn direct_launch_rejects_raw_history_ids_before_preparing_any_files() {
+    let settings = AppSettings::default();
+    let provider = Provider::from_input(ProviderInput::default(), "synthetic-provider".to_owned());
+    let cli = agent_cli::AgentCliExecutable {
+        path: "/synthetic/missing-cli".to_owned(),
+        version: "fixture".to_owned(),
+    };
+    for cli_kind in [
+        AgentCliKind::Codex,
+        AgentCliKind::ClaudeCode,
+        AgentCliKind::Gemini,
+        AgentCliKind::Grok,
+    ] {
+        let error = super::launch(
+            &settings,
+            &provider,
+            &cli,
+            cli_kind,
+            Path::new("/synthetic/missing-workspace"),
+            super::LaunchOptions {
+                api_key_override: "",
+                model_override: "",
+                session_name_override: "",
+                session_title: "",
+                resume_id: "unverified-native-id",
+                session_mode: TemporaryCliSessionMode::History,
+                api_key_label: "",
+                api_key_local_id: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "历史会话需通过已选择的原生会话引用继续，请重新选择会话"
+        );
+    }
+    assert!(super::ensure_new_session_launch(TemporaryCliSessionMode::New).is_ok());
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn exact_native_resume_does_not_call_a_shell_alias_or_function() {
+    let invocation = super::shell_runtime::script::unix_cli_invocation(
+        "codex",
+        "/verified/bin/codex",
+        &["resume".to_owned(), "session-123".to_owned()],
+        false,
+    );
+    assert_eq!(invocation, "'/verified/bin/codex' 'resume' 'session-123'");
+}
+
+#[test]
+fn exact_windows_resume_keeps_the_verified_executable_selection() {
+    let plan = TemporaryLaunchPlan {
+        args: vec!["resume".to_owned(), "session-123".to_owned()],
+        environment: EnvironmentPatch::default(),
+        auxiliary_file_content: None,
+    };
+    let mut shell = ShellEnvironmentSnapshot::default();
+    shell
+        .aliases
+        .insert("codex".to_owned(), "another-profile".to_owned());
+    let settings = AppSettings {
+        proxy_mode: ProxyMode::NoProxy,
+        ..AppSettings::default()
+    };
+    let proxy = network::resolve_global_proxy(&settings).environment();
+    let payload = windows_launch_payload(WindowsLaunchPayloadInput {
+        cli_path: "C:\\verified\\codex.cmd",
+        cli_command_name: "codex",
+        plan: &plan,
+        proxy_environment: &proxy,
+        shell_snapshot: &shell,
+        prefer_shell_cli: false,
+    });
+    assert_eq!(payload["preferShellCli"], false);
+    assert_eq!(payload["cliPath"], "C:\\verified\\codex.cmd");
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("$BH_Launch.preferShellCli -and"));
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("$BH_Arguments = @($BH_Launch.args"));
+    assert_eq!(
+        WINDOWS_LAUNCH_PAYLOAD_COMMAND
+            .matches("@BH_Arguments")
+            .count(),
+        2
+    );
+}
+
 fn launch_plan(cli_kind: AgentCliKind, request: TemporaryLaunchRequest<'_>) -> TemporaryLaunchPlan {
     let adapter = agent_cli::definition(cli_kind)
         .temporary_launch()
@@ -102,9 +249,11 @@ fn cli_args(
     launch_plan(
         cli_kind,
         TemporaryLaunchRequest {
-            provider_name,
-            api_key: "sk-test",
-            base_url,
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name,
+                api_key: "sk-test",
+                base_url,
+            },
             model,
             session_name,
             resume_id: "",
@@ -127,9 +276,11 @@ fn cli_args_with_resume(
     launch_plan(
         cli_kind,
         TemporaryLaunchRequest {
-            provider_name,
-            api_key: "sk-test",
-            base_url,
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name,
+                api_key: "sk-test",
+                base_url,
+            },
             model,
             session_name,
             resume_id,
@@ -156,9 +307,11 @@ fn cli_settings_content(
     let path = preview_cli_auxiliary_path(adapter.auxiliary_file_name());
     adapter
         .build_plan(TemporaryLaunchRequest {
-            provider_name: "Relay",
-            api_key,
-            base_url,
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: "Relay",
+                api_key,
+                base_url,
+            },
             model: "",
             session_name: "",
             resume_id: "",
@@ -360,9 +513,11 @@ fn launch_preview_command_redacts_codex_credentials() {
         .temporary_launch()
         .unwrap()
         .build_plan(TemporaryLaunchRequest {
-            provider_name: "Relay",
-            api_key: "***",
-            base_url: "https://relay.example.com/v1",
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: "Relay",
+                api_key: "***",
+                base_url: "https://relay.example.com/v1",
+            },
             model: "gpt-5.5",
             session_name: "",
             resume_id: "",
@@ -451,9 +606,11 @@ fn grok_launch_plan_flows_through_the_agent_registry() {
     let plan = launch_plan(
         AgentCliKind::Grok,
         TemporaryLaunchRequest {
-            provider_name: "Relay Site",
-            api_key: "xai-test",
-            base_url: "https://relay.example.com/v1",
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: "Relay Site",
+                api_key: "xai-test",
+                base_url: "https://relay.example.com/v1",
+            },
             model: "grok-code-fast-1",
             session_name: "ignored title",
             resume_id: "019c-grok-session",
@@ -624,7 +781,7 @@ fn claude_args_include_name_only_for_new_sessions() {
 #[test]
 fn temporary_script_path_sanitizes_provider_id() {
     let provider = provider_with_liveness_model("");
-    let path = temporary_script_path(&provider, AgentCliKind::Codex);
+    let path = temporary_script_path(Some(&provider), AgentCliKind::Codex);
     let text = path.to_string_lossy();
 
     assert!(text.contains("balancehub-temporary-cli-provider_test-"));
@@ -724,9 +881,11 @@ fi
     let plan = launch_plan(
         AgentCliKind::Codex,
         TemporaryLaunchRequest {
-            provider_name: &provider.identity.name,
-            api_key: "sk-test",
-            base_url: &base_url,
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: &provider.identity.name,
+                api_key: "sk-test",
+                base_url: &base_url,
+            },
             model: "gpt-5.5",
             session_name: "",
             resume_id: "",
@@ -743,6 +902,7 @@ fi
         auxiliary_file_path: None,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
+        prefer_shell_cli: true,
     })
     .unwrap();
     let status = Command::new("/bin/sh")
@@ -796,9 +956,11 @@ fn generated_launch_script_can_be_sourced_by_zsh() {
     let plan = launch_plan(
         AgentCliKind::Codex,
         TemporaryLaunchRequest {
-            provider_name: &provider.identity.name,
-            api_key: "sk-test",
-            base_url: &base_url,
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: &provider.identity.name,
+                api_key: "sk-test",
+                base_url: &base_url,
+            },
             model: "gpt-5.5",
             session_name: "",
             resume_id: "",
@@ -815,6 +977,7 @@ fn generated_launch_script_can_be_sourced_by_zsh() {
         auxiliary_file_path: None,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
+        prefer_shell_cli: true,
     })
     .unwrap();
 
@@ -900,9 +1063,11 @@ cat "$settings_path"
     let plan = launch_plan(
         AgentCliKind::ClaudeCode,
         TemporaryLaunchRequest {
-            provider_name: &provider.identity.name,
-            api_key: "sk-test",
-            base_url: &base_url,
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: &provider.identity.name,
+                api_key: "sk-test",
+                base_url: &base_url,
+            },
             model: "claude-sonnet-4-5",
             session_name: "Release smoke test",
             resume_id: "",
@@ -919,6 +1084,7 @@ cat "$settings_path"
         auxiliary_file_path: Some(&auxiliary_file_path),
         status_path: &status_path,
         proxy_environment: &proxy_environment,
+        prefer_shell_cli: true,
     })
     .unwrap();
     let status = Command::new("/bin/sh")
@@ -978,6 +1144,7 @@ fn unix_cli_invocation_prefers_login_shell_aliases_and_functions() {
         "codex",
         "/opt/codex/bin/codex",
         &["--model".to_string(), "gpt-5.5".to_string()],
+        true,
     );
 
     assert!(invocation.contains("alias codex"));
@@ -1028,6 +1195,7 @@ fn windows_launch_payload_preserves_cli_arguments_and_credentials() {
         cli_command_name: "codex",
         plan: &plan,
         proxy_environment: &proxy_environment,
+        prefer_shell_cli: true,
         shell_snapshot: &shell_snapshot,
     });
 
@@ -1081,9 +1249,11 @@ fn windows_gemini_launch_payload_isolates_google_authentication() {
         .temporary_launch()
         .unwrap()
         .build_plan(TemporaryLaunchRequest {
-            provider_name: "Relay",
-            api_key: "gemini-secret",
-            base_url: "https://relay.example.com/gemini",
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: "Relay",
+                api_key: "gemini-secret",
+                base_url: "https://relay.example.com/gemini",
+            },
             model: "gemini-2.5-pro",
             session_name: "",
             resume_id: "",
@@ -1096,6 +1266,7 @@ fn windows_gemini_launch_payload_isolates_google_authentication() {
         cli_command_name: "gemini",
         plan: &plan,
         proxy_environment: &proxy_environment,
+        prefer_shell_cli: true,
         shell_snapshot: &shell_snapshot,
     });
 
@@ -1125,9 +1296,9 @@ fn windows_gemini_launch_payload_isolates_google_authentication() {
 
 #[test]
 fn windows_launch_commands_avoid_batch_command_string_quoting() {
-    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("[string]$launch.cliPath"));
-    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("[string]$launch.cliCommandName"));
-    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("$launch.args"));
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("[string]$BH_Launch.cliPath"));
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("[string]$BH_Launch.cliCommandName"));
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("$BH_Launch.args"));
     assert!(!WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("cmd /c"));
     assert_eq!(
         WINDOWS_POWERSHELL_SCRIPT_COMMAND,

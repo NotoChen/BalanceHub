@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import CodeEditor from "./CodeEditor.vue";
+import { codeFormatForPath } from "../utils/code-editor-config";
 import { computed, onBeforeUnmount, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import {
   IconCheck,
   IconClockCircle,
   IconClose,
-  IconCloud,
   IconCommand,
   IconCopy,
   IconFolder,
@@ -138,10 +139,6 @@ onBeforeUnmount(() => {
 
       <section class="temporary-cli-preview-details" aria-label="启动配置">
         <div class="temporary-cli-preview-detail-item">
-          <span><icon-cloud aria-hidden="true" />中转站</span>
-          <strong :title="preview.providerName">{{ preview.providerName }}</strong>
-        </div>
-        <div class="temporary-cli-preview-detail-item">
           <span><icon-command aria-hidden="true" />模型</span>
           <strong :title="preview.model || undefined">{{ preview.model || "由 CLI 或历史会话决定" }}</strong>
         </div>
@@ -209,7 +206,7 @@ onBeforeUnmount(() => {
           <span><icon-link aria-hidden="true" />{{ cliLabel }} 临时配置</span>
           <small v-if="preview.settingsPath" :title="preview.settingsPath">{{ preview.settingsPath }}</small>
         </summary>
-        <pre>{{ preview.settingsContent }}</pre>
+        <CodeEditor :model-value="preview.settingsContent" :format="codeFormatForPath(preview.settingsPath)" readonly />
       </details>
 
       <footer class="temporary-cli-preview-actions">

@@ -226,5 +226,6 @@ pub struct AgentHookPlan {
     pub supported: bool,
     pub conflict: bool,
     pub changes: Vec<AgentHookChange>,
+    pub content_changes: Vec<super::AgentAssetPlanChange>,
     pub summary: String,
 }

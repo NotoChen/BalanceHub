@@ -1,20 +1,26 @@
 use super::super::config_support::{
-    cli_target_for_key, config_error, config_revision, ensure_revision, env_value, file_content,
-    latest_modified_at, match_provider_key, read_optional_cli_config, read_stable_optional,
-    restore_config_file, rewrite_env_values, rewrite_json_string_fields, validate_file_set,
-    write_config_text,
+    cli_target_for_key, config_error, env_value, latest_modified_at, match_provider_key,
+    read_stable_optional, rewrite_env_values,
 };
+use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use crate::{
-    models::{AgentCliKind, CliConfigFile, CliConfigPreview, CliConfigSnapshot, Provider},
+    models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::{configured_path, user_home},
 };
 use serde_json::Value as JsonValue;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(super) fn config_dir() -> Option<PathBuf> {
+    configured_config_dir().or_else(|| user_home().map(|home| home.join(".gemini")))
+}
+
+pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
+    configured_config_dir().unwrap_or_else(|| home.join(".gemini"))
+}
+
+fn configured_config_dir() -> Option<PathBuf> {
     configured_path("BALANCEHUB_GEMINI_CONFIG_DIR")
         .or_else(|| configured_path("GEMINI_CLI_HOME").map(|home| home.join(".gemini")))
-        .or_else(|| user_home().map(|home| home.join(".gemini")))
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {
@@ -70,111 +76,44 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
     }
 }
 
-pub(super) fn preview(
+pub(super) fn candidates(
     cli_kind: AgentCliKind,
     provider: &Provider,
     api_key_local_id: &str,
-) -> Result<CliConfigPreview, String> {
+) -> Result<Vec<ProviderConfigurationCandidate>, String> {
     let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let settings_path = config_dir.join("settings.json");
-    let env_path = config_dir.join(".env");
-    let settings_text = read_optional_cli_config(&settings_path)?;
-    let env_text = read_optional_cli_config(&env_path)?;
-    let settings_source = if settings_text.trim().is_empty() {
-        "{}\n"
-    } else {
-        &settings_text
-    };
+    let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let settings_path = root.join("settings.json");
+    let env_path = root.join(".env");
+    let settings = read_stable_optional(&settings_path)?.map(|value| value.text);
+    let env = read_stable_optional(&env_path)?.map(|value| value.text);
+    let settings_source = settings
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or("{}\n");
     let next_settings = rewrite_gemini_settings(settings_source)?;
-    let next_env = rewrite_gemini_env(&env_text, &target.base_url, &target.api_key)?;
-    Ok(CliConfigPreview {
-        provider_id: provider.identity.id.clone(),
-        provider_name: provider.display_label(),
-        api_key_local_id: target.api_key_local_id,
-        api_key_label: target.api_key_label,
-        cli_kind,
-        revision: config_revision(&[
-            &settings_text,
-            &env_text,
-            &target.base_url,
-            &target.api_key,
-        ]),
-        original_files: vec![
-            config_file(&settings_path, settings_text),
-            config_file(&env_path, env_text),
-        ],
-        files: vec![
-            config_file(&settings_path, next_settings),
-            config_file(&env_path, next_env),
-        ],
-    })
-}
-
-pub(super) fn switch(
-    cli_kind: AgentCliKind,
-    provider: &Provider,
-    api_key_local_id: &str,
-    expected_revision: Option<&str>,
-    files: &[CliConfigFile],
-) -> Result<(), String> {
-    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let settings_path = config_dir.join("settings.json");
-    let env_path = config_dir.join(".env");
-    let settings = read_stable_optional(&settings_path)?;
-    let env = read_stable_optional(&env_path)?;
-    let settings_text = settings
-        .as_ref()
-        .map(|file| file.text.as_str())
-        .unwrap_or("");
-    let env_text = env.as_ref().map(|file| file.text.as_str()).unwrap_or("");
-    validate_file_set(files, &[&settings_path, &env_path])?;
-    ensure_revision(
-        expected_revision,
-        config_revision(&[
-            settings_text,
-            env_text,
-            &target.base_url,
-            &target.api_key,
-        ]),
+    let next_env = rewrite_gemini_env(
+        env.as_deref().unwrap_or(""),
+        &target.base_url,
+        &target.api_key,
     )?;
-    let edited_settings = file_content(files, &settings_path)?;
-    let edited_env = file_content(files, &env_path)?;
-    let settings_json = serde_json::from_str::<JsonValue>(edited_settings)
-        .map_err(|_| "Gemini CLI 配置文件格式无效".to_string())?;
-    if !settings_json.is_object() {
-        return Err("Gemini CLI 配置文件格式无效".to_string());
-    }
-
-    write_config_text(&settings_path, edited_settings, "Gemini CLI 配置")?;
-    if let Err(err) = write_config_text(&env_path, edited_env, "Gemini CLI 环境配置") {
-        let rollback_error = restore_config_file(
-            &settings_path,
-            settings.as_ref().map(|file| file.text.as_str()),
-            "Gemini CLI 配置回滚",
-        )
-        .err();
-        return Err(match rollback_error {
-            Some(rollback) => format!("{err}；{rollback}"),
-            None => err,
-        });
-    }
-    Ok(())
+    Ok(vec![
+        ProviderConfigurationCandidate {
+            path: settings_path,
+            before: settings,
+            after: next_settings,
+        },
+        ProviderConfigurationCandidate {
+            path: env_path,
+            before: env,
+            after: next_env,
+        },
+    ])
 }
 
-fn config_file(path: &std::path::Path, content: String) -> CliConfigFile {
-    CliConfigFile {
-        file_path: path.to_string_lossy().into_owned(),
-        content,
-    }
-}
-
-fn parse_gemini_config(
-    settings: &str,
-    env: &str,
-) -> Result<Option<(String, String)>, ()> {
-    let settings = serde_json::from_str::<JsonValue>(settings).map_err(|_| ())?;
+fn parse_gemini_config(settings: &str, env: &str) -> Result<Option<(String, String)>, ()> {
+    let settings = crate::services::agent_cli::config_support::parse_jsonc_document(settings)
+        .map_err(|_| ())?;
     if !settings.is_object() {
         return Err(());
     }
@@ -195,12 +134,25 @@ fn parse_gemini_config(
 }
 
 fn rewrite_gemini_settings(settings: &str) -> Result<String, String> {
-    rewrite_json_string_fields(
-        settings,
-        &["security", "auth"],
-        &[("selectedType", "gemini-api-key")],
-    )
-    .map_err(|err| format!("生成 Gemini CLI 配置失败: {err}"))
+    let mut value = crate::services::agent_cli::config_support::parse_jsonc_document(settings)?;
+    let invalid = || "Gemini security.auth 必须是对象".to_owned();
+    let root = value.as_object_mut().ok_or_else(invalid)?;
+    let security = root
+        .entry("security")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(invalid)?;
+    let auth = security
+        .entry("auth")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(invalid)?;
+    auth.insert(
+        "selectedType".to_owned(),
+        JsonValue::String("gemini-api-key".to_owned()),
+    );
+    crate::services::agent_cli::config_support::rewrite_json_document(settings, &value, true)
+        .map_err(|_| "生成 Gemini CLI 配置失败".to_owned())
 }
 
 fn rewrite_gemini_env(source: &str, base_url: &str, api_key: &str) -> Result<String, String> {
@@ -317,8 +269,7 @@ mod tests {
     #[test]
     fn env_rewrite_adds_only_missing_assignments() {
         let rewritten =
-            rewrite_gemini_env("KEEP_ME=yes", "https://new.example.com/gemini", "new-key")
-                .unwrap();
+            rewrite_gemini_env("KEEP_ME=yes", "https://new.example.com/gemini", "new-key").unwrap();
 
         assert_eq!(
             rewritten,

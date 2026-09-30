@@ -104,11 +104,9 @@
 .credential-completion-panel {
   display: grid;
   gap: 12px;
-  margin: 0 0 18px;
-  padding: 14px;
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  background: var(--glass-card-muted);
+  margin: 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--glass-border);
 }
 
 .credential-completion-header {
@@ -116,20 +114,24 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+  flex-wrap: wrap;
 }
+
+.credential-completion-header > div { flex: 1 1 280px; }
+.credential-completion-header > .arco-btn { flex: 0 0 auto; }
 
 .credential-completion-header h3 {
   margin: 0 0 4px;
   font-size: 14px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--surface-ink);
 }
 
 .credential-completion-header p {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .credential-completion-tags {
@@ -200,84 +202,6 @@
 .credential-step-error strong,
 .credential-step-failed strong {
   color: #d25f00;
-}
-
-.agent-prompt-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  background: var(--glass-card-muted);
-  padding: 10px;
-}
-
-.agent-prompt-toolbar > div:first-child {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.agent-prompt-toolbar strong {
-  color: #1d2129;
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.agent-prompt-toolbar span {
-  overflow: hidden;
-  color: #86909c;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-prompt-actions {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.agent-prompt-advanced {
-  display: grid;
-  gap: 10px;
-  border-left: 2px solid #4080ff;
-  padding-left: 10px;
-}
-
-.agent-prompt-preview {
-  display: grid;
-  gap: 8px;
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  background: var(--glass-card-muted);
-  padding: 10px;
-}
-
-.agent-prompt-preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.agent-prompt-preview-header span {
-  color: #86909c;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.agent-prompt-preview ol {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding-left: 18px;
-  color: #4e5969;
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .model-support-tags {

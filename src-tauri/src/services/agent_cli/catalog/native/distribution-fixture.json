@@ -1,0 +1,6 @@
+{
+  "revision": 1,
+  "matrix": "create-update-import-drift-v1",
+  "categories": ["skill", "mcp"],
+  "assertions": ["native-entry-present", "full-definition-match", "stable-global-id", "explicit-association", "preserve-unrelated-fields", "reject-stale-plan", "private-secrets", "same-source-composition"]
+}

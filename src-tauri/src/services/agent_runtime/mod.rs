@@ -13,6 +13,8 @@ mod reducer;
 pub mod repository;
 pub mod service;
 
+pub(crate) use launcher::runtime_id_for_instance;
+
 #[cfg(test)]
 mod hook_tests;
 #[cfg(test)]

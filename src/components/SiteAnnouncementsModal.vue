@@ -54,7 +54,6 @@ function protocolLabel(protocol: SiteAnnouncement["providerProtocol"]) {
       <div class="surface-modal-title site-announcements-title">
         <span class="surface-modal-title-icon"><Megaphone :size="18" :stroke-width="1.8" /></span>
         <span class="surface-modal-title-copy">
-          <span>来自已启用中转站</span>
           <strong>站点公告</strong>
         </span>
         <span class="surface-modal-title-meta" :class="{ ready: announcements.length > 0 }">
@@ -66,8 +65,7 @@ function protocolLabel(protocol: SiteAnnouncement["providerProtocol"]) {
     <div class="site-announcements-content">
       <header class="site-announcements-toolbar">
         <div>
-          <strong>{{ announcements.length }}</strong>
-          <span>条站点公告</span>
+          <span>来自已启用的中转站</span>
           <i v-if="errors.length > 0">{{ errors.length }} 个站点读取失败</i>
         </div>
         <div class="site-announcements-toolbar-actions">
@@ -91,7 +89,7 @@ function protocolLabel(protocol: SiteAnnouncement["providerProtocol"]) {
           <a-button
             class="site-announcements-mark-read"
             size="small"
-            :disabled="loading || unreadCount === 0"
+            :disabled="unreadCount === 0"
             @click="emit('markAllRead')"
           >
             <template #icon><CheckCheck :size="15" :stroke-width="1.9" /></template>
@@ -173,7 +171,7 @@ function protocolLabel(protocol: SiteAnnouncement["providerProtocol"]) {
       </div>
 
       <a-empty
-        v-else
+        v-else-if="!fatalError && errors.length === 0"
         description="当前没有可展示的站点公告"
       />
 

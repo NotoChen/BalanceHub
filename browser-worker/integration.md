@@ -1,7 +1,7 @@
 # Browser-assisted check-in integration
 
-This work is isolated in `feat/cloudflare-checkin`. The user declined creating a
-Trellis task. Agent asset management is outside this change.
+This work is isolated in `feat/cloudflare-checkin`.
+Agent asset management is outside this change.
 
 ## Accepted scope
 

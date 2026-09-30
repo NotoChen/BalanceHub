@@ -35,7 +35,10 @@ use crate::{
 use std::{
     env, fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
+
+static SCRIPT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(in crate::services::temporary_cli) fn cleanup_launch_files(
     script: &Path,
@@ -64,16 +67,19 @@ pub(in crate::services::temporary_cli) fn effective_model(
 }
 
 pub(in crate::services::temporary_cli) fn temporary_script_path(
-    provider: &Provider,
+    provider: Option<&Provider>,
     cli_kind: AgentCliKind,
 ) -> PathBuf {
     let kind = agent_cli::definition(cli_kind).executable;
     env::temp_dir()
         .join(format!(
-            "balancehub-temporary-cli-{}-{}-{}",
-            sanitize_path_part(&provider.identity.id),
+            "balancehub-temporary-cli-{}-{}-{}-{}",
+            provider
+                .map(|provider| sanitize_path_part(&provider.identity.id))
+                .unwrap_or_else(|| "native".to_owned()),
             std::process::id(),
-            now_millis()
+            now_millis(),
+            SCRIPT_SEQUENCE.fetch_add(1, Ordering::Relaxed),
         ))
         .join(temporary_script_file_name(kind))
 }
@@ -162,6 +168,9 @@ pub(in crate::services::temporary_cli) struct LaunchScriptInput<'a> {
     pub(in crate::services::temporary_cli) auxiliary_file_path: Option<&'a Path>,
     pub(in crate::services::temporary_cli) status_path: &'a Path,
     pub(in crate::services::temporary_cli) proxy_environment: &'a ProxyEnvironment,
+    /// History source validation binds a specific executable. A shell alias or
+    /// function must not redirect that resume into another native data root.
+    pub(in crate::services::temporary_cli) prefer_shell_cli: bool,
 }
 
 pub(super) fn write_auxiliary_file(

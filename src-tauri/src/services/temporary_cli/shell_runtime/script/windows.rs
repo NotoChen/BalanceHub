@@ -32,6 +32,7 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
         plan: input.plan,
         proxy_environment: input.proxy_environment,
         shell_snapshot: &shell_snapshot,
+        prefer_shell_cli: input.prefer_shell_cli,
     });
     let mut launch_payload = launch_payload;
     if let Some(instance_id) = runtime_instance_id_from_status_path(input.status_path) {
@@ -77,20 +78,20 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
 
 pub(in crate::services::temporary_cli) const WINDOWS_LAUNCH_PAYLOAD_COMMAND: &str = concat!(
     "$ErrorActionPreference = 'Stop'; ",
-    "$launch = Get-Content -Raw -LiteralPath $env:BH_LAUNCH_FILE | ConvertFrom-Json; ",
-    "foreach ($name in @($launch.removeEnv)) { ",
-    "Remove-Item -LiteralPath ('Env:' + [string]$name) -ErrorAction SilentlyContinue }; ",
-    "foreach ($entry in @($launch.setEnv.PSObject.Properties)) { ",
-    "Set-Item -LiteralPath ('Env:' + $entry.Name) -Value ([string]$entry.Value) }; ",
+    "$BH_Launch = Get-Content -Raw -LiteralPath $env:BH_LAUNCH_FILE | ConvertFrom-Json; ",
+    "foreach ($BH_Name in @($BH_Launch.removeEnv)) { ",
+    "Remove-Item -LiteralPath ('Env:' + [string]$BH_Name) -ErrorAction SilentlyContinue }; ",
+    "foreach ($BH_Entry in @($BH_Launch.setEnv.PSObject.Properties)) { ",
+    "Set-Item -LiteralPath ('Env:' + $BH_Entry.Name) -Value ([string]$BH_Entry.Value) }; ",
     // The payload is executed with -NoProfile; restore registered Agent CLI names
     // so a user's profile wrapper does not silently disappear on Windows.
-    "if ($null -ne $launch.functions) { foreach ($entry in @($launch.functions.PSObject.Properties)) { ",
-    "Set-Item -LiteralPath ('Function:\\' + [string]$entry.Name) -Value ([scriptblock]::Create([string]$entry.Value)) -Force } }; ",
-    "if ($null -ne $launch.aliases) { foreach ($entry in @($launch.aliases.PSObject.Properties)) { ",
-    "Set-Alias -Name ([string]$entry.Name) -Value ([string]$entry.Value) -Scope Local -Force } }; ",
-    "$commandInfo = Get-Command -Name ([string]$launch.cliCommandName) -ErrorAction SilentlyContinue | Select-Object -First 1; ",
-    "$arguments = @($launch.args | ForEach-Object { [string]$_ }); ",
-    "if ($null -ne $commandInfo -and @('Alias', 'Function', 'Filter') -contains [string]$commandInfo.CommandType) { & ([string]$launch.cliCommandName) @arguments } else { & ([string]$launch.cliPath) @arguments }; ",
+    "if ($null -ne $BH_Launch.functions) { foreach ($BH_Entry in @($BH_Launch.functions.PSObject.Properties)) { ",
+    "Set-Item -LiteralPath ('Function:\\' + [string]$BH_Entry.Name) -Value ([scriptblock]::Create([string]$BH_Entry.Value)) -Force } }; ",
+    "if ($null -ne $BH_Launch.aliases) { foreach ($BH_Entry in @($BH_Launch.aliases.PSObject.Properties)) { ",
+    "Set-Alias -Name ([string]$BH_Entry.Name) -Value ([string]$BH_Entry.Value) -Scope Local -Force } }; ",
+    "$BH_CommandInfo = Get-Command -Name ([string]$BH_Launch.cliCommandName) -ErrorAction SilentlyContinue | Select-Object -First 1; ",
+    "$BH_Arguments = @($BH_Launch.args | ForEach-Object { [string]$_ }); ",
+    "if ($BH_Launch.preferShellCli -and $null -ne $BH_CommandInfo -and @('Alias', 'Function', 'Filter') -contains [string]$BH_CommandInfo.CommandType) { & ([string]$BH_Launch.cliCommandName) @BH_Arguments } else { & ([string]$BH_Launch.cliPath) @BH_Arguments }; ",
     "if ($null -eq $LASTEXITCODE) { exit 0 } else { exit $LASTEXITCODE }"
 );
 
@@ -100,6 +101,7 @@ pub(in crate::services::temporary_cli) struct WindowsLaunchPayloadInput<'a> {
     pub(in crate::services::temporary_cli) plan: &'a TemporaryLaunchPlan,
     pub(in crate::services::temporary_cli) proxy_environment: &'a ProxyEnvironment,
     pub(in crate::services::temporary_cli) shell_snapshot: &'a ShellEnvironmentSnapshot,
+    pub(in crate::services::temporary_cli) prefer_shell_cli: bool,
 }
 
 pub(in crate::services::temporary_cli) fn windows_launch_payload(
@@ -111,6 +113,7 @@ pub(in crate::services::temporary_cli) fn windows_launch_payload(
         plan,
         proxy_environment,
         shell_snapshot,
+        prefer_shell_cli,
     } = input;
     let mut remove_env = proxy_environment
         .removed_names()
@@ -141,6 +144,7 @@ pub(in crate::services::temporary_cli) fn windows_launch_payload(
     serde_json::json!({
         "cliPath": cli_path,
         "cliCommandName": cli_command_name,
+        "preferShellCli": prefer_shell_cli,
         "args": plan.args,
         "removeEnv": remove_env,
         "setEnv": set_env,

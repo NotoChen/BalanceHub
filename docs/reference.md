@@ -9,6 +9,8 @@ page_class: document-page
 
 本文承接 README 中不适合展开的细节，集中说明 BalanceHub 的功能边界、技术框架、架构分层和目录结构。
 
+Agent 工作台相关条目描述当前仓库源码，操作步骤见 [Agent 工作台](agent-workbench.html)；发布安装包的能力以对应版本的更新记录为准。
+
 ## 功能清单
 
 | 功能 | 定义 | 实现位置 | 说明 |
@@ -28,7 +30,14 @@ page_class: document-page
 | 修改密码 | 在支持的账号协议上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/adapters/new_api/account.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 仅在协议、站点能力和认证信息满足要求时展示操作入口。 |
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
 | CLI 测活 | 使用已注册的 Agent CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness.rs`、`src-tauri/src/services/agent_cli/<agent>/liveness.rs` | 当前内置 Codex CLI、Claude Code、Gemini CLI、Grok Build；测活会消耗真实额度，首次开启自动测活前会要求确认。 |
-| CLI 候选扫描 | 扫描本机已注册 Agent CLI 的可执行文件。 | `src-tauri/src/services/agent_cli/discovery.rs`、`src/components/settings/SettingsAgentEnvironmentCenter.vue` | 扫描 PATH、常见安装目录和 Node 包管理器路径；不扫描 Codex Desktop App 内置二进制。 |
+| CLI 候选扫描 | 扫描本机已注册 Agent CLI 的可执行文件。 | `src-tauri/src/services/agent_cli/discovery.rs`、`src/components/agent-workspace/AgentInstallationModal.vue` | 在 Agent 卡片“版本与路径”中查看候选、按需深度扫描并采用路径；不扫描 Codex Desktop App 内置二进制。 |
+| Agent 工作台 | 在主面板切换中转站和 Agent 视角，按总览、Skill、MCP、插件、Hook、运行中进入管理。 | `src/components/agent-workspace/AgentDashboard.vue`、`src/stores/agent-workspace.ts` | Agent 卡片展示原生图标、名称、版本、资源和活动会话数量；卡片筛选复用同一全局资产列表。 |
+| 全局资产与绑定 | 按逻辑资产汇总各 Agent 的原生绑定、配置来源、变体和差异。 | `src-tauri/src/services/agent_cli/catalog/`、`src/components/agent-workspace/AgentCatalogPanel.vue` | 同名不直接视为同一资产；待确认的对应关系由用户关联，保留不同配置变体。 |
+| 共享定义与应用 | 新建或收录 Skill / MCP / Hook 共享定义，保存版本后选择目标并预览、确认应用。 | `src-tauri/src/commands/agent_catalog.rs`、`src/components/agent-workspace/AgentCatalogDefinitionModal.vue`、`src/components/agent-workspace/AgentCatalogPlanModal.vue` | 保存共享库与写入原生配置是独立动作；后台逐目标展示执行和验证结果。Hook 保留各 Agent 的原生变体，插件不作为跨生态安装分发包。 |
+| 统一 Hook 管理 | 管理已有用户规则及所支持范围的新建、编辑、启停、恢复和移除。 | `src-tauri/src/services/agent_cli/catalog/`、`src/components/agent-workspace/AgentCatalogPanel.vue` | 来源、父插件关系和原生策略分别表达；BalanceHub 会话状态接入只是可选辅助项，不限制通用规则管理。 |
+| CLI 版本与升级 | 检查本机已有安装的版本，预览后沿用原渠道和目录升级；未安装时打开官方安装说明。 | `src-tauri/src/services/agent_cli/lifecycle/`、`src/components/agent-workspace/AgentInstallationModal.vue` | 确认后进入后台任务；可用动作受来源、平台和依赖约束，改用新路径时需显式采用已验证的启动路径。 |
+| 版本与路径 | 从 Agent 卡片版本号或安装状态查看本机已有安装、启动路径、版本更新、深度扫描和就地诊断；会话 Hook 操作位于 Hook 分类。 | `src/components/agent-workspace/AgentInstallationModal.vue`、`src/composables/useAgentHookConsole.ts` | 原生生态没有开关、来源不明或条件不足时保留具体原因，不显示虚假的成功状态。 |
+| 原生配置管理 | 从四个 Agent 的卡片文件名直接编辑或预览已有配置，显示实际路径和加载说明；定位和系统打开位于文件编辑器中。 | `src-tauri/src/services/agent_cli/configuration/`、`src/components/agent-workspace/AgentConfigurationEditorModal.vue` | 普通配置不依赖中转站或 CLI 安装，使用完整原文编辑。关闭后在内存中保留未保存草稿，重新打开同一文件可继续；切换文件先处理当前草稿。确认计划后后台写入，冲突和部分结果按文件展示。中转站默认 CLI 配置切换复用此流程，需要创建文件时在保存预览中明确展示。 |
 | 临时 CLI 启动 | 使用当前中转站临时启动已注册的 Agent CLI。 | `src-tauri/src/services/temporary_cli/`、`src-tauri/src/services/agent_cli/<agent>/launch.rs`、`src/components/AgentRuntimeModal.vue` | 覆盖 API Key、Base URL、模型和当前中转站的有效代理；工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
 | 统一代理 | 为业务请求、Webhook、updater、测活 CLI 和临时 CLI 解析同一套代理语义。 | `src-tauri/src/network/` | 支持无代理、自定义 HTTP/SOCKS 代理及系统手工 HTTP/HTTPS/SOCKS 配置；PAC/WPAD 或无法静态读取的桌面配置保留运行环境，不虚构已解析结果。 |
 | CC Switch 导入 | 将当前中转站配置通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/commands/app.rs`、`src-tauri/src/platform/cc_switch.rs` | 支持 Codex CLI、Claude Code、OpenCode、OpenClaw、Hermes 目标；macOS 优先定位 CC Switch bundle，其他情况交给安全的系统处理器。 |
@@ -75,6 +84,8 @@ Vue 3 UI
             -> adapters/sub2_api
             -> adapters/api
           -> services/agent_cli 注册 Agent 能力 Adapter
+            -> catalog 汇总全局资产与共享定义分发
+            -> lifecycle 规划与执行 已有 CLI 升级
             -> services/liveness 执行 CLI 测活
             -> services/temporary_cli 启动临时 CLI
           -> services/notifications 发送通知
@@ -94,6 +105,7 @@ Vue 3 UI
 │   ├── index.html                    # 项目主页
 │   ├── getting-started.md            # 快速开始
 │   ├── provider-config.md            # 中转站配置说明
+│   ├── agent-workbench.md            # Agent 工作台与共享资产说明
 │   ├── liveness.md                   # Agent CLI 测活说明
 │   ├── release.md                    # 发布包和自动更新说明
 │   ├── faq.md                        # 常见问题
@@ -111,7 +123,8 @@ Vue 3 UI
 │   ├── main.ts                       # 前端入口
 │   ├── api/                          # Tauri invoke 封装
 │   ├── components/                   # 页面、抽屉、弹窗、卡片和设置组件
-│   │   └── provider-card/             # 卡片头部、主体、操作区和弹出菜单
+│   │   ├── provider-card/            # 中转站卡片头部、主体、操作区和弹出菜单
+│   │   └── agent-workspace/          # Agent 卡片、全局资产、版本、路径与诊断入口
 │   ├── composables/                  # 前端状态编排和业务动作
 │   ├── stores/                       # Pinia store、类型和默认值
 │   ├── styles/                       # 全局样式和业务模块样式
@@ -144,6 +157,8 @@ Vue 3 UI
 - BalanceHub 只考虑桌面 App，不提供 Web 自部署版本。
 - 当前支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 作为 NewAPI 方言兼容，不在 UI 上作为独立类型展示。
 - 通用 API 只提供 API Key、模型识别和 CLI 相关能力，不虚构账号、签到或站点密钥管理能力。
-- 操作能力以 Rust 为唯一真源，前端只消费 `contracts.rs` 返回的 actions，不维护同源业务判断。
+- 操作能力以 Rust 为唯一真源，前端只消费后端返回的 actions，不维护同源业务判断。
+- Skill / MCP / Hook 共享定义只有显式应用后才写入所选 Agent；Hook 保留各 Agent 的原生事件与规则，插件与扩展保持原生生态归属。
+- Agent 资产操作和 已有 CLI 升级按平台、版本、来源与实际条件开放；界面给出的不可用原因不应被理解为所有渠道均已支持。
 - 仓库只接受 Issue，不接受 Pull Request。
 - 不提交本地配置、导出的中转站配置、Cookie、访问令牌、API Key、updater 私钥或真实账号数据。

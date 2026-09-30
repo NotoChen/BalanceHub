@@ -1,4 +1,4 @@
-import { computed, onUnmounted, ref, type Ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { useAgentHookStore } from "../stores/agent-hooks";
 import { agentHookTargetKey, type AgentHookTargetKey } from "../utils/agent-runtime";
@@ -13,9 +13,10 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
+export function useAgentHookConsole() {
   const store = useAgentHookStore();
   const rowBusy = ref<Record<string, boolean>>({});
+  const applyingTargets = ref<Record<string, boolean>>({});
   const rowErrors = ref<Record<string, string | null>>({});
   const planningTarget = ref<string | null>(null);
   const planVisible = ref(false);
@@ -38,7 +39,7 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
   }
 
   function isRowBusy(targetKey: AgentHookTargetKey) {
-    return Boolean(rowBusy.value[targetKey] || planningTarget.value === targetKey);
+    return Boolean(applyingTargets.value[targetKey] || rowBusy.value[targetKey] || planningTarget.value === targetKey);
   }
 
   function rowError(targetKey: AgentHookTargetKey) {
@@ -51,6 +52,8 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
     scope: AgentRuntimeScope = { kind: "native" },
   ) {
     const key = agentHookTargetKey(agentKind, scope);
+    // A pre-commit read must not invalidate the apply response or release its row.
+    if (applyingTargets.value[key]) return inspectionFor(agentKind, scope);
     const current = (rowGeneration.value[key] ?? 0) + 1;
     rowGeneration.value[key] = current;
     rowErrors.value[key] = null;
@@ -63,19 +66,6 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
     } finally {
       if (rowGeneration.value[key] === current) rowBusy.value[key] = false;
     }
-  }
-
-  async function inspectAll() {
-    const unique = [...new Set(agentKinds.value)];
-    let cursor = 0;
-    const worker = async () => {
-      while (!disposed.value) {
-        const index = cursor++;
-        if (index >= unique.length) return;
-        await inspect(unique[index]);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(3, unique.length) }, () => worker()));
   }
 
   async function requestPlan(
@@ -110,6 +100,7 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
 
   function closePlan() {
     planRequestId += 1;
+    planningTarget.value = null;
     planVisible.value = false;
     pendingPlan.value = null;
   }
@@ -118,11 +109,13 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
     const plan = pendingPlan.value;
     if (!plan || !canApplyPlan.value) return;
     const key = planTargetKey(plan);
+    if (applyingTargets.value[key]) return;
     const current = (rowGeneration.value[key] ?? 0) + 1;
     rowGeneration.value[key] = current;
     planVisible.value = false;
     pendingPlan.value = null;
     rowBusy.value[key] = true;
+    applyingTargets.value[key] = true;
     rowErrors.value[key] = null;
     try {
       await store.apply(plan.agentKind, plan);
@@ -134,8 +127,15 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
       }
     } finally {
       if (rowGeneration.value[key] === current) {
+        const applyError = rowErrors.value[key];
+        applyingTargets.value[key] = false;
         rowBusy.value[key] = false;
-        if (!disposed.value) await inspect(plan.agentKind, "health", plan.runtimeScope);
+        if (!disposed.value) {
+          const checking = inspect(plan.agentKind, "health", plan.runtimeScope);
+          const checkGeneration = rowGeneration.value[key];
+          await checking;
+          if (applyError && !disposed.value && rowGeneration.value[key] === checkGeneration) rowErrors.value[key] = applyError;
+        }
       }
     }
   }
@@ -145,6 +145,7 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
     disposed.value = true;
     rowGeneration.value = {};
     rowBusy.value = {};
+    applyingTargets.value = {};
     planningTarget.value = null;
     planVisible.value = false;
     pendingPlan.value = null;
@@ -164,7 +165,6 @@ export function useAgentHookConsole(agentKinds: Ref<AgentCliKind[]>) {
     isRowBusy,
     rowError,
     inspect,
-    inspectAll,
     requestPlan,
     closePlan,
     confirmPlan,

@@ -3,13 +3,10 @@
 //! The adapter is split by responsibility so inspection, planning, mutation,
 //! ownership persistence and command formatting remain independently auditable.
 
-use std::{
-    env,
-    path::PathBuf,
-    sync::{Mutex, OnceLock},
-};
+use std::{env, path::PathBuf};
 
 mod apply;
+mod configuration;
 mod format;
 mod helper;
 mod inspect;
@@ -48,8 +45,6 @@ pub(super) struct HookDefinition {
     pub(super) handler: serde_json::Value,
 }
 
-pub(crate) static MUTATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
 impl CodexHookService {
     pub fn from_app(app: &tauri::AppHandle) -> Result<Self, String> {
         use tauri::Manager;
@@ -85,6 +80,57 @@ impl CodexHookService {
 
 pub fn helper_from_process_args() -> Option<i32> {
     helper::run()
+}
+
+pub(super) fn owned_resources_changed(
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+    ownership: &crate::models::AgentHookOwnership,
+) -> bool {
+    let before = format::find_resources(before);
+    let after = format::find_resources(after);
+    ownership.resources.iter().any(|owned| {
+        let matches = |found: &FoundResource| {
+            found.event_name == owned.event_name
+                && found.structural_identity == owned.structural_identity
+                && found.fingerprint == owned.content_fingerprint
+        };
+        before.iter().filter(|resource| matches(resource)).count() == 1
+            && after.iter().filter(|resource| matches(resource)).count() != 1
+    })
+}
+
+pub(super) fn owned_resource_selected(
+    document: &serde_json::Value,
+    event: &str,
+    group: &serde_json::Value,
+    ownership: &crate::models::AgentHookOwnership,
+) -> bool {
+    // The dedicated integration always owns one handler per complete group.
+    // Selecting an unrelated sibling cannot transfer another handler's receipt.
+    if group
+        .get("hooks")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        != Some(1)
+    {
+        return false;
+    }
+    let fingerprint = format::fingerprint(group);
+    let found = format::find_resources(document);
+    ownership.resources.iter().any(|owned| {
+        owned.event_name == event
+            && owned.content_fingerprint == fingerprint
+            && found
+                .iter()
+                .filter(|resource| {
+                    resource.event_name == owned.event_name
+                        && resource.structural_identity == owned.structural_identity
+                        && resource.fingerprint == owned.content_fingerprint
+                })
+                .count()
+                == 1
+    })
 }
 
 #[cfg(test)]

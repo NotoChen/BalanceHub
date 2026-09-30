@@ -29,8 +29,12 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
         .unwrap_or_default();
     let script_path = shell_quote(&input.script.to_string_lossy());
     let login_shell_bootstrap = login_shell_bootstrap(input.script);
-    let cli_invocation =
-        unix_cli_invocation(input.cli_command_name, input.cli_path, &input.plan.args);
+    let cli_invocation = unix_cli_invocation(
+        input.cli_command_name,
+        input.cli_path,
+        &input.plan.args,
+        input.prefer_shell_cli,
+    );
     let proxy_block = unix_proxy_block(input.proxy_environment);
     let runtime_instance_id_block = runtime_instance_id_from_status_path(input.status_path)
         .map(|id| format!("export BALANCEHUB_CLI_INSTANCE_ID={}\n", shell_quote(&id)))
@@ -184,12 +188,16 @@ pub(in crate::services::temporary_cli) fn unix_cli_invocation(
     command_name: &str,
     cli_path: &str,
     args: &[String],
+    prefer_shell_cli: bool,
 ) -> String {
     let args = args
         .iter()
         .map(|arg| shell_quote(arg))
         .collect::<Vec<_>>()
         .join(" ");
+    if !prefer_shell_cli {
+        return format!("{} {args}", shell_quote(cli_path));
+    }
     format!(
         "bh_use_shell_cli=0\nif alias {command_name} >/dev/null 2>&1; then\n  bh_use_shell_cli=1\nelif command -v typeset >/dev/null 2>&1 && typeset -f {command_name} >/dev/null 2>&1; then\n  bh_use_shell_cli=1\nfi\nif [ \"$bh_use_shell_cli\" -eq 1 ]; then\n  {command_name} {args}\nelse\n  {cli_path} {args}\nfi",
         command_name = command_name,

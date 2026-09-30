@@ -5,7 +5,7 @@
 
 .request-logs-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 104px auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
   align-items: center;
   gap: 10px;
 }
@@ -13,6 +13,9 @@
 .request-logs-page-size {
   width: 104px;
 }
+
+.request-logs-filter-summary { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; color: var(--surface-muted); font-size: 12px; }
+.request-logs-filter-summary > span { min-width: 0; overflow-wrap: anywhere; }
 
 .request-logs-stats {
   display: grid;
@@ -43,6 +46,8 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .request-logs-stat-cost strong {
@@ -72,11 +77,11 @@
 }
 
 .request-logs-table-usage {
-  min-width: 0;
+  min-width: 920px;
 }
 
 .request-logs-table-simple {
-  min-width: 0;
+  min-width: 480px;
 }
 
 .request-logs-table th,
@@ -177,6 +182,9 @@
 .request-log-detail-button:hover > span {
   text-decoration: underline;
 }
+
+.request-log-detail-button:focus-visible { outline: 2px solid var(--surface-accent); outline-offset: 3px; border-radius: 3px; }
+.request-logs-table .request-log-number { text-align: right; font-variant-numeric: tabular-nums; }
 
 .request-log-detail-button > span {
   display: block;
@@ -323,7 +331,7 @@
 
 .request-log-detail-row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr) auto;
   gap: 10px;
   min-width: 0;
 }
@@ -340,6 +348,10 @@
   font-weight: 500;
   overflow-wrap: anywhere;
 }
+
+.request-log-detail-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.request-log-raw-data summary { cursor: pointer; color: var(--surface-muted); font-size: 12px; line-height: 1.7; }
+.request-log-raw-data[open] pre { margin-top: 10px; }
 
 .password-change-form {
   display: grid;
@@ -365,8 +377,12 @@
 
 @media (max-width: 760px) {
   .request-logs-toolbar {
-    grid-template-columns: minmax(0, 1fr) 104px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .request-logs-toolbar > .arco-input-wrapper { grid-column: 1 / -1; }
+  .request-logs-pagination { flex-wrap: wrap; }
+  .request-logs-pagination > div { margin-left: auto; }
 
   .request-logs-toolbar .arco-btn {
     width: 100%;

@@ -12,7 +12,6 @@ import {
 import {
   type AgentCliKind,
   type CliSessionIndexState,
-  type CliSessionSearchResult,
   type Provider,
   type ProviderApiKeyOption,
   type TemporaryCliSessionMode,
@@ -20,6 +19,7 @@ import {
   type Workspace,
   type WorkspaceDirectoryListing,
 } from "../stores/providers";
+import type { AgentSessionRoleFilter, AgentSessionRow } from "../stores/agent-session-types";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import type { SelectOption } from "../utils/liveness-options";
 import { agentCliLabel, agentCliTool } from "../utils/cli-environment";
@@ -62,7 +62,12 @@ const props = defineProps<{
   forgettingPath: string | null;
   error: string;
   historyQuery: string;
-  historyResults: CliSessionSearchResult[];
+  historyResults: AgentSessionRow[];
+  historyRoleFilter: AgentSessionRoleFilter;
+  historyTotal: number | null;
+  historyHasMore: boolean;
+  historyLoadingMore: boolean;
+  selectedSessionRef: string;
   historyLoading: boolean;
   historyError: string;
   historyIndexState: CliSessionIndexState;
@@ -81,10 +86,13 @@ const emit = defineEmits<{
   "update:selectedResumeId": [id: string];
   "update:terminalKind": [kind: TemporaryCliTerminalKind];
   "update:historyQuery": [query: string];
+  "update:historyRoleFilter": [role: AgentSessionRoleFilter];
   browse: [path?: string];
   launch: [path?: string];
   forget: [path: string];
-  "view-session": [session: CliSessionSearchResult["session"]];
+  "view-session": [row: AgentSessionRow];
+  "view-parent-session": [sessionRef: string];
+  "load-more-sessions": [];
   "refresh-sessions": [path?: string];
 }>();
 
@@ -116,7 +124,7 @@ const launchLocked = computed(
 const cliLabel = computed(() => agentCliLabel(store.cliEnvironmentProbe, props.cliKind));
 const selectedCliTool = computed(() => agentCliTool(store.cliEnvironmentProbe, props.cliKind));
 const supportsModelSelection = computed(
-  () => selectedCliTool.value?.capabilities.modelSelection ?? false,
+  () => props.sessionMode === "new" && Boolean(selectedCliTool.value?.capabilities.modelSelection),
 );
 const supportsSessionHistory = computed(
   () =>
@@ -131,9 +139,6 @@ const sessionNamingHint = computed(() => {
 });
 const preferredModel = computed(() => props.provider?.cli.preferredModel?.trim() || "");
 const fixedModel = computed(() => (props.sessionMode === "new" ? preferredModel.value : ""));
-const modelPlaceholder = computed(() =>
-  props.sessionMode === "new" ? "选择或输入模型（可选）" : "不指定则沿用原会话模型",
-);
 const historyQueryModel = computed({
   get: () => props.historyQuery,
   set: (value: string) => emit("update:historyQuery", value),
@@ -345,7 +350,7 @@ function handleVisibleChange(visible: boolean) {
               allow-clear
               allow-create
               :disabled="launchLocked"
-              :placeholder="modelPlaceholder"
+              placeholder="选择或输入模型（可选）"
             >
               <a-option v-for="model in modelOptions" :key="model" :value="model">
                 {{ model }}
@@ -383,6 +388,11 @@ function handleVisibleChange(visible: boolean) {
             v-if="supportsSessionHistory && sessionMode !== 'new'"
             v-model:query="historyQueryModel"
             :results="historyResults"
+            :role-filter="historyRoleFilter"
+            :total="historyTotal"
+            :has-more="historyHasMore"
+            :loading-more="historyLoadingMore"
+            :selected-session-ref="selectedSessionRef"
             :loading="historyLoading"
             :error="historyError"
             :index-state="historyIndexState"
@@ -392,6 +402,9 @@ function handleVisibleChange(visible: boolean) {
             :workdir="directory?.currentPath || ''"
             :disabled="launchLocked"
             @view-session="emit('view-session', $event)"
+            @view-parent="emit('view-parent-session', $event)"
+            @load-more="emit('load-more-sessions')"
+            @update:role-filter="emit('update:historyRoleFilter', $event)"
             @refresh="emit('refresh-sessions', $event)"
           />
         </section>

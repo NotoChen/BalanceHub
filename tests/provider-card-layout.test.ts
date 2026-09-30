@@ -10,10 +10,15 @@ const headerPath = fileURLToPath(
 const stylePath = fileURLToPath(
   new URL("../src/styles/modules/provider-card/base.css", import.meta.url),
 );
+const sharedCardStylePath = fileURLToPath(
+  new URL("../src/styles/modules/workspace-card.css", import.meta.url),
+);
 
 test("API Key cards keep a fixed height without exposing a duplicate default-key row", () => {
   const header = readFileSync(headerPath, "utf8");
   const styles = readFileSync(stylePath, "utf8");
+  const card = readFileSync(new URL("../src/components/ProviderCard.vue", import.meta.url), "utf8");
+  const sharedCard = readFileSync(new URL("../src/components/workspace-card/WorkspaceCard.vue", import.meta.url), "utf8");
 
   assert.doesNotMatch(header, /<dt>默认 Key<\/dt>/);
   assert.match(header, /v-if="apiKeyRemark" class="provider-card-api-remark"/);
@@ -31,10 +36,9 @@ test("API Key cards keep a fixed height without exposing a duplicate default-key
   assert.doesNotMatch(header, /apiKeyCount\.value} 把/);
   assert.match(styles, /\.provider-card-api-key-row\s*\{[^}]*overflow:\s*visible;/s);
   assert.match(styles, /\.provider-card-api-key-value\s*\{[^}]*overflow:\s*hidden;/s);
-  assert.match(
-    styles,
-    /\.provider-card-standard\s*\{[^}]*height:\s*312px;/s,
-  );
+  assert.match(card, /:fixed-height="!showLivenessTimeline"/);
+  assert.match(sharedCard, /'workspace-card-standard': fixedHeight/);
+  assert.match(readFileSync(sharedCardStylePath, "utf8"), /\.workspace-card-standard\s*\{[^}]*height:\s*312px;/s);
   assert.doesNotMatch(styles, /\.provider-card-api-remark-empty/);
 });
 

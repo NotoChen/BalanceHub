@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, watch } from "vue";
+import CardIconButton from "../workspace-card/CardIconButton.vue";
+import WorkspaceCardActionGroup from "../workspace-card/WorkspaceCardActionGroup.vue";
+import ProviderCardMenuPopover from "./ProviderCardMenuPopover.vue";
 import {
   IconApps,
   IconBarChart,
@@ -20,10 +23,7 @@ import AgentCliIcon from "../AgentCliIcon.vue";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import { useCliRuntimeStore } from "../../stores/cli-runtime";
 import type { AgentCliKind, Provider } from "../../stores/providers";
-import {
-  agentCliLabel,
-  availableCliKinds,
-} from "../../utils/cli-environment";
+import { agentCliLabel, availableCliKinds } from "../../utils/cli-environment";
 import {
   supportsAccountManagement,
   supportsCheckIn,
@@ -70,53 +70,68 @@ const emit = defineEmits<{
   launchTemporaryCli: [provider: Provider];
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
-  copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
+  copySecret: [
+    provider: Provider,
+    field: "apiKey" | "accessToken" | "sessionCookie",
+  ];
   interaction: [active: boolean];
 }>();
 
 const store = useCliRuntimeStore();
+const menuInteractions = reactive({
+  copy: false,
+  data: false,
+  site: false,
+  cli: false,
+  ccSwitch: false,
+});
 const temporaryCliKinds = computed(() =>
   availableCliKinds(store.cliEnvironmentProbe, "temporaryLaunch"),
 );
-const configurableCliKinds = computed(() =>
+const switchableCliKinds = computed(() =>
   availableCliKinds(store.cliEnvironmentProbe, "defaultConfig"),
 );
-const cliSwitchVisible = ref(false);
-const copyMenuVisible = ref(false);
-const dataMenuVisible = ref(false);
-const siteMenuVisible = ref(false);
-const ccSwitchMenuVisible = ref(false);
 const canSwitchCliConfig = computed(() =>
   Boolean(
     props.provider.identity.baseUrl.trim() &&
-      hasUsableProviderApiKey(props.provider.auth.apiKey, props.provider.auth.apiKeyOptions),
+    hasUsableProviderApiKey(
+      props.provider.auth.apiKey,
+      props.provider.auth.apiKeyOptions,
+    ),
   ),
 );
 const canLaunchTemporaryCli = computed(() =>
   Boolean(
     temporaryCliKinds.value.length > 0 &&
-      props.provider.identity.baseUrl.trim() &&
-      hasUsableProviderApiKey(props.provider.auth.apiKey, props.provider.auth.apiKeyOptions),
+    props.provider.identity.baseUrl.trim() &&
+    hasUsableProviderApiKey(
+      props.provider.auth.apiKey,
+      props.provider.auth.apiKeyOptions,
+    ),
   ),
 );
-const switchableCliKinds = computed(() => configurableCliKinds.value);
 const hasCopyActions = computed(() =>
   Boolean(
     props.provider.identity.baseUrl.trim() ||
-      props.provider.auth.apiKey.trim() ||
-      props.provider.auth.accessToken.trim() ||
-      props.provider.auth.sessionCookie.trim() ||
-      (props.provider.runtime.enabled && supportsInvitation(props.provider)),
+    props.provider.auth.apiKey.trim() ||
+    (props.provider.auth.mode !== "apiKey" &&
+      (props.provider.auth.accessToken.trim() ||
+        props.provider.auth.sessionCookie.trim())) ||
+    (props.provider.runtime.enabled && supportsInvitation(props.provider)),
   ),
 );
 const canViewAvailableModels = computed(() =>
   Boolean(
     props.provider.auth.apiKey.trim() ||
-      (props.provider.capabilities.availableModels || []).length > 0,
+    (props.provider.capabilities.availableModels || []).length > 0,
   ),
 );
-const canAddCcSwitchConfig = computed(() => canBuildCcSwitchDeeplink(props.provider));
-const accountManagementAvailable = computed(() => supportsAccountManagement(props.provider));
+const canAddCcSwitchConfig = computed(() =>
+  canBuildCcSwitchDeeplink(props.provider),
+);
+const accountManagementAvailable = computed(() =>
+  supportsAccountManagement(props.provider),
+);
 const canViewUsage = computed(
   () => props.provider.runtime.enabled && accountManagementAvailable.value,
 );
@@ -124,12 +139,15 @@ const canViewRequestLogs = computed(
   () => props.provider.runtime.enabled && accountManagementAvailable.value,
 );
 const canViewLiveness = computed(
-  () => props.provider.liveness.enabled || props.provider.liveness.records.length > 0,
+  () =>
+    props.provider.liveness.enabled ||
+    props.provider.liveness.records.length > 0,
 );
 const canViewCheckInRecords = computed(
   () =>
     props.provider.auth.mode !== "apiKey" &&
-    (supportsCheckIn(props.provider) || props.provider.automation.checkInRecords.length > 0),
+    (supportsCheckIn(props.provider) ||
+      props.provider.automation.checkInRecords.length > 0),
 );
 const hasDataActions = computed(
   () =>
@@ -144,13 +162,14 @@ const canProbeSite = computed(
 const canChangePassword = computed(() => accountManagementAvailable.value);
 const hasManagedApiKeys = computed(() =>
   Boolean(
-    props.provider.auth.apiKey.trim()
-      || props.provider.auth.apiKeyOptions.length > 0,
+    props.provider.auth.apiKey.trim() ||
+    props.provider.auth.apiKeyOptions.length > 0,
   ),
 );
-const showSiteApiKeyManagement = computed(() =>
-  props.provider.auth.mode !== "apiKey"
-    && (props.provider.actions.apiKeyManagement || hasManagedApiKeys.value),
+const showSiteApiKeyManagement = computed(
+  () =>
+    props.provider.auth.mode !== "apiKey" &&
+    (props.provider.actions.apiKeyManagement || hasManagedApiKeys.value),
 );
 const hasSiteActions = computed(
   () =>
@@ -172,13 +191,14 @@ const hasSecondaryActions = computed(
     canLaunchTemporaryCli.value,
 );
 watch(
-  [copyMenuVisible, dataMenuVisible, siteMenuVisible, cliSwitchVisible, ccSwitchMenuVisible],
-  (visibleMenus) => emit("interaction", visibleMenus.some(Boolean)),
+  () => Object.values(menuInteractions).some(Boolean),
+  (active) => emit("interaction", active),
   { immediate: true },
 );
 
+onBeforeUnmount(() => emit("interaction", false));
+
 function switchCliConfig(cliKind: AgentCliKind) {
-  cliSwitchVisible.value = false;
   if (!props.cliConfigSwitching) {
     emit("switchCliConfig", props.provider, cliKind);
   }
@@ -186,18 +206,25 @@ function switchCliConfig(cliKind: AgentCliKind) {
 
 function defaultCliKeyLabel(cliKind: AgentCliKind) {
   const snapshot = store.cliRuntime.configs.find(
-    (item) => item.cliKind === cliKind && item.providerId === props.provider.identity.id,
+    (item) =>
+      item.cliKind === cliKind &&
+      item.providerId === props.provider.identity.id,
   );
   if (!snapshot) return "切换到此中转站";
   const localId = snapshot.apiKeyLocalId?.trim() || "";
   const option = localId
-    ? props.provider.auth.apiKeyOptions.find((item) => item.localId.trim() === localId)
+    ? props.provider.auth.apiKeyOptions.find(
+        (item) => item.localId.trim() === localId,
+      )
     : providerDefaultApiKeyOption(props.provider);
-  return option ? `当前绑定：${providerApiKeyDisplayName(option)}` : "当前使用本卡片调用 Key";
+  return option
+    ? `当前绑定：${providerApiKeyDisplayName(option)}`
+    : "当前使用本卡片调用 Key";
 }
 
-function openDataAction(action: "usage" | "requestLogs" | "liveness" | "checkInRecords") {
-  dataMenuVisible.value = false;
+function openDataAction(
+  action: "usage" | "requestLogs" | "liveness" | "checkInRecords",
+) {
   if (action === "usage") {
     emit("openUsage", props.provider);
   } else if (action === "requestLogs") {
@@ -209,10 +236,7 @@ function openDataAction(action: "usage" | "requestLogs" | "liveness" | "checkInR
   }
 }
 
-function openSiteAction(
-  action: "probe" | "keys" | "models" | "password",
-) {
-  siteMenuVisible.value = false;
+function openSiteAction(action: "probe" | "keys" | "models" | "password") {
   if (action === "probe") {
     if (!props.provider.runtime.enabled || props.probingCapabilities) {
       return;
@@ -228,7 +252,6 @@ function openSiteAction(
 }
 
 function addCcSwitchConfig(target: CcSwitchAppTarget) {
-  ccSwitchMenuVisible.value = false;
   emit("addCcSwitchConfig", props.provider, target);
 }
 
@@ -239,60 +262,48 @@ function launchTemporaryCli() {
 }
 
 function copyProviderUrl() {
-  copyMenuVisible.value = false;
   emit("copyUrl", props.provider);
 }
 
 function copyProviderInvite() {
-  copyMenuVisible.value = false;
   emit("copyInvite", props.provider);
 }
 
 function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
-  copyMenuVisible.value = false;
   emit("copySecret", props.provider, field);
 }
-
 </script>
 
 <template>
-<span
-  v-if="hasSecondaryActions"
-  class="provider-card-action-divider"
-  aria-hidden="true"
-></span>
-
-<div
-  v-if="hasSecondaryActions"
-  class="provider-card-action-group provider-card-secondary-actions"
-  aria-label="中转站功能"
->
-<a-popover
-  v-if="hasCopyActions"
-  v-model:popup-visible="copyMenuVisible"
-  trigger="click"
-  position="rt"
-  content-class="provider-card-action-popover"
->
-  <button
-    type="button"
-    class="provider-card-icon-action provider-card-copy-action"
-    title="复制中转站信息"
-    aria-label="复制中转站信息"
-    @click.stop
-    @pointerdown.stop
+  <WorkspaceCardActionGroup
+    v-if="hasSecondaryActions"
+    label="中转站功能"
+    divided
   >
-    <icon-copy />
-  </button>
-  <template #content>
-    <div class="provider-card-action-panel provider-card-copy-panel" @click.stop @pointerdown.stop>
+    <ProviderCardMenuPopover
+      v-if="hasCopyActions"
+      tone="copy"
+      label="复制中转站信息"
+      @interaction="menuInteractions.copy = $event"
+    >
+      <template #icon><icon-copy /></template>
       <div class="provider-card-action-panel-title">复制</div>
       <div class="provider-card-action-list">
-        <button v-if="provider.identity.baseUrl.trim()" type="button" @click="copyProviderUrl">
-          <icon-link class="provider-card-action-icon provider-card-action-icon-url" />
+        <button
+          role="menuitem"
+          tabindex="-1"
+          v-if="provider.identity.baseUrl.trim()"
+          type="button"
+          @click="copyProviderUrl"
+        >
+          <icon-link
+            class="provider-card-action-icon provider-card-action-icon-url"
+          />
           <span>中转站 URL</span>
         </button>
         <button
+          role="menuitem"
+          tabindex="-1"
           v-if="provider.auth.apiKey.trim()"
           type="button"
           @click="copyProviderSecret('apiKey')"
@@ -301,7 +312,11 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <span>API Key</span>
         </button>
         <button
-          v-if="provider.auth.mode !== 'apiKey' && provider.auth.accessToken.trim()"
+          role="menuitem"
+          tabindex="-1"
+          v-if="
+            provider.auth.mode !== 'apiKey' && provider.auth.accessToken.trim()
+          "
           type="button"
           @click="copyProviderSecret('accessToken')"
         >
@@ -309,7 +324,12 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <span>访问令牌</span>
         </button>
         <button
-          v-if="provider.auth.mode !== 'apiKey' && provider.auth.sessionCookie.trim()"
+          role="menuitem"
+          tabindex="-1"
+          v-if="
+            provider.auth.mode !== 'apiKey' &&
+            provider.auth.sessionCookie.trim()
+          "
           type="button"
           @click="copyProviderSecret('sessionCookie')"
         >
@@ -317,82 +337,92 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <span>Cookie</span>
         </button>
         <button
+          role="menuitem"
+          tabindex="-1"
           v-if="provider.runtime.enabled && supportsInvitation(provider)"
           type="button"
           @click="copyProviderInvite"
         >
-          <icon-link class="provider-card-action-icon provider-card-action-icon-invite" />
+          <icon-link
+            class="provider-card-action-icon provider-card-action-icon-invite"
+          />
           <span>邀请链接</span>
         </button>
       </div>
-    </div>
-  </template>
-</a-popover>
+    </ProviderCardMenuPopover>
 
-<a-popover
-  v-if="hasDataActions"
-  v-model:popup-visible="dataMenuVisible"
-  trigger="click"
-  position="rt"
-  content-class="provider-card-action-popover"
->
-  <button
-    type="button"
-    class="provider-card-icon-action provider-card-data-action"
-    title="查看中转站数据"
-    aria-label="查看中转站数据"
-    @click.stop
-    @pointerdown.stop
-  >
-    <icon-bar-chart />
-  </button>
-  <template #content>
-    <div class="provider-card-action-panel" @click.stop @pointerdown.stop>
+    <ProviderCardMenuPopover
+      v-if="hasDataActions"
+      tone="data"
+      label="查看中转站数据"
+      @interaction="menuInteractions.data = $event"
+    >
+      <template #icon><icon-bar-chart /></template>
       <div class="provider-card-action-panel-title">数据</div>
       <div class="provider-card-action-list">
-        <button v-if="canViewUsage" type="button" @click="openDataAction('usage')">
-          <icon-bar-chart class="provider-card-action-icon provider-card-action-icon-usage" />
+        <button
+          role="menuitem"
+          tabindex="-1"
+          v-if="canViewUsage"
+          type="button"
+          @click="openDataAction('usage')"
+        >
+          <icon-bar-chart
+            class="provider-card-action-icon provider-card-action-icon-usage"
+          />
           <span>用量趋势</span>
         </button>
-        <button v-if="canViewRequestLogs" type="button" @click="openDataAction('requestLogs')">
-          <icon-file class="provider-card-action-icon provider-card-action-icon-logs" />
+        <button
+          role="menuitem"
+          tabindex="-1"
+          v-if="canViewRequestLogs"
+          type="button"
+          @click="openDataAction('requestLogs')"
+        >
+          <icon-file
+            class="provider-card-action-icon provider-card-action-icon-logs"
+          />
           <span>请求日志</span>
         </button>
-        <button v-if="canViewLiveness" type="button" @click="openDataAction('liveness')">
-          <icon-thunderbolt class="provider-card-action-icon provider-card-action-icon-liveness" />
+        <button
+          role="menuitem"
+          tabindex="-1"
+          v-if="canViewLiveness"
+          type="button"
+          @click="openDataAction('liveness')"
+        >
+          <icon-thunderbolt
+            class="provider-card-action-icon provider-card-action-icon-liveness"
+          />
           <span>测活明细</span>
         </button>
-        <button v-if="canViewCheckInRecords" type="button" @click="openDataAction('checkInRecords')">
-          <icon-calendar class="provider-card-action-icon provider-card-action-icon-checkin-records" />
+        <button
+          role="menuitem"
+          tabindex="-1"
+          v-if="canViewCheckInRecords"
+          type="button"
+          @click="openDataAction('checkInRecords')"
+        >
+          <icon-calendar
+            class="provider-card-action-icon provider-card-action-icon-checkin-records"
+          />
           <span>签到记录</span>
         </button>
       </div>
-    </div>
-  </template>
-</a-popover>
+    </ProviderCardMenuPopover>
 
-<a-popover
-  v-if="hasSiteActions"
-  v-model:popup-visible="siteMenuVisible"
-  trigger="click"
-  position="rt"
-  content-class="provider-card-action-popover"
->
-  <button
-    type="button"
-    class="provider-card-icon-action provider-card-site-action"
-    title="管理中转站能力"
-    aria-label="管理中转站能力"
-    @click.stop
-    @pointerdown.stop
-  >
-    <icon-settings />
-  </button>
-  <template #content>
-    <div class="provider-card-action-panel" @click.stop @pointerdown.stop>
+    <ProviderCardMenuPopover
+      v-if="hasSiteActions"
+      tone="site"
+      label="管理中转站能力"
+      @interaction="menuInteractions.site = $event"
+    >
+      <template #icon><icon-settings /></template>
       <div class="provider-card-action-panel-title">站点</div>
       <div class="provider-card-action-list">
         <button
+          role="menuitem"
+          tabindex="-1"
           v-if="canProbeSite"
           type="button"
           :disabled="probingCapabilities"
@@ -402,68 +432,74 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
             v-if="probingCapabilities"
             class="provider-card-action-icon provider-card-action-icon-probe"
           />
-          <icon-sync v-else class="provider-card-action-icon provider-card-action-icon-probe" />
+          <icon-sync
+            v-else
+            class="provider-card-action-icon provider-card-action-icon-probe"
+          />
           <span>{{ probingCapabilities ? "探测中" : "探测站点能力" }}</span>
         </button>
         <button
+          role="menuitem"
+          tabindex="-1"
           v-if="showSiteApiKeyManagement"
           type="button"
           @click="openSiteAction('keys')"
         >
-          <ProviderAuthIcon mode="apiKey" class="provider-card-action-icon provider-card-action-icon-keys" />
+          <ProviderAuthIcon
+            mode="apiKey"
+            class="provider-card-action-icon provider-card-action-icon-keys"
+          />
           <span>API Key 管理</span>
         </button>
         <button
+          role="menuitem"
+          tabindex="-1"
           v-if="canViewAvailableModels"
           type="button"
           @click="openSiteAction('models')"
         >
-          <icon-apps class="provider-card-action-icon provider-card-action-icon-models" />
+          <icon-apps
+            class="provider-card-action-icon provider-card-action-icon-models"
+          />
           <span>可用模型</span>
         </button>
         <button
+          role="menuitem"
+          tabindex="-1"
           v-if="canChangePassword"
           type="button"
           @click="openSiteAction('password')"
         >
-          <icon-lock class="provider-card-action-icon provider-card-action-icon-password" />
+          <icon-lock
+            class="provider-card-action-icon provider-card-action-icon-password"
+          />
           <span>修改密码</span>
         </button>
       </div>
-    </div>
-  </template>
-</a-popover>
+    </ProviderCardMenuPopover>
 
-<a-popover
-  v-if="showCliConfigAction"
-  v-model:popup-visible="cliSwitchVisible"
-  trigger="click"
-  position="rt"
-  content-class="provider-card-action-popover"
->
-  <button
-    type="button"
-    class="provider-card-icon-action provider-card-cli-config-action"
-    :disabled="cliConfigSwitching || !canSwitchCliConfig"
-    title="预览并切换默认 CLI 配置"
-    aria-label="预览并切换默认 CLI 配置"
-    @click.stop
-    @pointerdown.stop
-  >
-    <icon-loading
-      v-if="switchingCliKind"
-      class="provider-card-action-icon provider-card-action-icon-switch"
-    />
-    <GitCompareArrows v-else :size="16" :stroke-width="1.8" />
-  </button>
-  <template #content>
-    <div class="provider-card-cli-panel" @click.stop @pointerdown.stop>
+    <ProviderCardMenuPopover
+      v-if="showCliConfigAction"
+      tone="configuration"
+      label="预览并切换默认 CLI 配置"
+      panel-class="provider-card-cli-panel"
+      :disabled="cliConfigSwitching || !canSwitchCliConfig"
+      @interaction="menuInteractions.cli = $event"
+    >
+      <template #icon
+        ><icon-loading
+          v-if="switchingCliKind"
+          class="provider-card-action-icon provider-card-action-icon-switch" />
+        <GitCompareArrows v-else :size="16" :stroke-width="1.8"
+      /></template>
       <header class="provider-card-cli-panel-header">
         <strong>配置</strong>
       </header>
       <div class="provider-card-action-panel-section-title">默认 CLI</div>
       <div class="provider-card-cli-config-list">
         <button
+          role="menuitem"
+          tabindex="-1"
           v-for="cliKind in switchableCliKinds"
           :key="cliKind"
           type="button"
@@ -472,44 +508,40 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
         >
           <AgentCliIcon :kind="cliKind" :size="16" />
           <span>
-            <strong>{{ agentCliLabel(store.cliEnvironmentProbe, cliKind) }}</strong>
+            <strong>{{
+              agentCliLabel(store.cliEnvironmentProbe, cliKind)
+            }}</strong>
             <small>{{ defaultCliKeyLabel(cliKind) }}</small>
           </span>
           <icon-loading
             v-if="switchingCliKind === cliKind"
             class="provider-card-action-icon provider-card-action-icon-switch"
           />
-          <icon-swap v-else class="provider-card-action-icon provider-card-action-icon-switch" />
+          <icon-swap
+            v-else
+            class="provider-card-action-icon provider-card-action-icon-switch"
+          />
         </button>
       </div>
-    </div>
-  </template>
-</a-popover>
+    </ProviderCardMenuPopover>
 
-<a-popover
-  v-if="canAddCcSwitchConfig"
-  v-model:popup-visible="ccSwitchMenuVisible"
-  trigger="click"
-  position="rt"
-  content-class="provider-card-action-popover"
->
-  <button
-    type="button"
-    class="provider-card-icon-action provider-card-ccswitch-action"
-    title="添加到 CC Switch"
-    aria-label="添加到 CC Switch"
-    @click.stop
-    @pointerdown.stop
-  >
-    <img :src="ccSwitchLogo" alt="" aria-hidden="true" />
-  </button>
-  <template #content>
-    <div class="provider-card-cli-panel" @click.stop @pointerdown.stop>
+    <ProviderCardMenuPopover
+      v-if="canAddCcSwitchConfig"
+      tone="integration"
+      label="添加到 CC Switch"
+      panel-class="provider-card-cli-panel"
+      @interaction="menuInteractions.ccSwitch = $event"
+    >
+      <template #icon
+        ><img :src="ccSwitchLogo" alt="" aria-hidden="true"
+      /></template>
       <header class="provider-card-cli-panel-header">
         <strong>添加到 CC Switch</strong>
       </header>
       <div class="provider-card-cli-config-list">
         <button
+          role="menuitem"
+          tabindex="-1"
           v-for="target in ccSwitchTargets"
           :key="target"
           type="button"
@@ -521,23 +553,21 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
             <strong>导入到 {{ ccSwitchTargetLabels[target] }}</strong>
             <small>仅绑定 URL 与 API Key</small>
           </span>
-          <icon-link class="provider-card-action-icon provider-card-action-icon-link" />
+          <icon-link
+            class="provider-card-action-icon provider-card-action-icon-link"
+          />
         </button>
       </div>
-    </div>
-  </template>
-</a-popover>
-
-<button
-  v-if="canLaunchTemporaryCli"
-  type="button"
-  class="provider-card-icon-action provider-card-launch-action"
-  title="启动临时 CLI"
-  aria-label="启动临时 CLI"
-  @click="launchTemporaryCli"
-  @pointerdown.stop
->
-  <Bot :size="16" :stroke-width="1.8" />
-</button>
-</div>
+    </ProviderCardMenuPopover>
+    <CardIconButton
+      v-if="canLaunchTemporaryCli"
+      tone="launch"
+      title="启动临时 CLI"
+      aria-label="启动临时 CLI"
+      @click="launchTemporaryCli"
+      @pointerdown.stop
+    >
+      <Bot :size="16" :stroke-width="1.8" />
+    </CardIconButton>
+  </WorkspaceCardActionGroup>
 </template>

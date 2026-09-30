@@ -1,7 +1,8 @@
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type { ProviderModelSyncResult, Provider } from "../stores/providers";
 import { copyText } from "./useClipboard";
+import { useLatestRequest } from "./useLatestRequest";
 
 interface UseAvailableModelsOptions {
   providers: { value: Provider[] };
@@ -11,11 +12,14 @@ interface UseAvailableModelsOptions {
 export function useAvailableModels(options: UseAvailableModelsOptions) {
   const availableModelsVisible = ref(false);
   const availableModelsProviderId = ref<string | null>(null);
-  const availableModelsLoading = ref(false);
+  const request = useLatestRequest({ timeoutMessage: "获取模型列表超时，请重试" });
 
   const availableModelsProvider = computed(() =>
     options.providers.value.find((provider) => provider.identity.id === availableModelsProviderId.value) ?? null,
   );
+
+  watch([availableModelsVisible, () => availableModelsProvider.value?.identity.id],
+    request.invalidate, { flush: "sync" });
 
   function openAvailableModels(provider: Provider) {
     availableModelsProviderId.value = provider.identity.id;
@@ -28,23 +32,17 @@ export function useAvailableModels(options: UseAvailableModelsOptions) {
 
   async function refreshAvailableModels() {
     const provider = availableModelsProvider.value;
-    if (!provider) {
+    if (!availableModelsVisible.value || !provider || request.loading.value) {
       return;
     }
     if (!provider.auth.apiKey.trim()) {
-      Message.warning("获取模型列表需要 API Key");
+      request.error.value = "请先在中转站认证配置中填写 API Key";
       return;
     }
 
-    availableModelsLoading.value = true;
-    try {
-      const result = await options.syncModels(provider.identity.id);
+    await request.run(() => options.syncModels(provider.identity.id), (result) => {
       Message.success(result.message || `已获取 ${result.models.length} 个模型`);
-    } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      availableModelsLoading.value = false;
-    }
+    });
   }
 
   async function copyAvailableModel(model: string) {
@@ -60,8 +58,7 @@ export function useAvailableModels(options: UseAvailableModelsOptions) {
     }
   }
 
-  async function copyAllAvailableModels() {
-    const models = availableModelsProvider.value?.capabilities.availableModels ?? [];
+  async function copyAvailableModels(models: string[]) {
     const value = models.map((model) => model.trim()).filter(Boolean).join("\n");
     if (!value) {
       Message.warning("暂无可复制的模型");
@@ -69,7 +66,7 @@ export function useAvailableModels(options: UseAvailableModelsOptions) {
     }
     try {
       await copyText(value);
-      Message.success("已复制全部模型");
+      Message.success(`已复制 ${models.length} 个模型名称`);
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
     }
@@ -78,10 +75,11 @@ export function useAvailableModels(options: UseAvailableModelsOptions) {
   return {
     availableModelsVisible,
     availableModelsProvider,
-    availableModelsLoading,
+    availableModelsLoading: request.loading,
+    availableModelsError: request.error,
     openAvailableModels,
     refreshAvailableModels,
     copyAvailableModel,
-    copyAllAvailableModels,
+    copyAvailableModels,
   };
 }

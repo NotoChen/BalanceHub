@@ -8,15 +8,18 @@ import {
   IconSettings,
 } from "@arco-design/web-vue/es/icon";
 import AgentCliIcon from "../../AgentCliIcon.vue";
-import AgentVersionStatus from "./AgentVersionStatus.vue";
+import { agentCliVersionLabel } from "../../../utils/cli-environment";
 import type {
   AgentHookActionKind,
   AgentHookHealthState,
   AgentHookInspection,
+  AgentCliDescriptor,
   AgentInstallation,
 } from "../../../stores/provider-types";
+import { formatAgentAssetDiagnostics } from "../../../utils/agent-environment-diagnostics";
 
 const props = defineProps<{
+  agent: AgentCliDescriptor;
   installations: AgentInstallation[];
   inspection: AgentHookInspection | null;
   busy: boolean;
@@ -31,6 +34,7 @@ const emit = defineEmits<{
 }>();
 
 const primary = computed(() => props.installations[0]);
+const primaryDiagnostics = computed(() => formatAgentAssetDiagnostics(primary.value?.diagnostics ?? []));
 const actionMap = computed(() => new Map((props.inspection?.actions ?? []).map((item) => [item.action, item])));
 const hookStateLabels: Record<AgentHookHealthState, string> = {
   not_installed: "未安装",
@@ -75,18 +79,20 @@ function titleFor(action: AgentHookActionKind) {
 <template>
   <article class="agent-environment-row" :class="{ 'is-unavailable': !isAvailable }">
     <div class="agent-row-identity">
-      <AgentCliIcon :kind="primary.agentKind" :size="28" :label="primary.label" :decorative="false" />
+      <AgentCliIcon :kind="agent.kind" :size="28" :label="agent.label" :decorative="false" />
       <div class="agent-row-identity-copy">
-        <strong>{{ primary.label }}</strong>
-        <span :title="primary.executablePath || ''">
-          {{ installations.length > 1 ? `${installations.length} 个安装实例` : primary.executablePath || "未找到可执行文件" }}
+        <strong>{{ agent.label }}</strong>
+        <span :title="primary?.executablePath || ''">
+          {{ installations.length > 1 ? `${installations.length} 个安装实例` : primary?.executablePath || "未找到可执行文件" }}
         </span>
       </div>
     </div>
 
     <div class="agent-row-version">
-      <AgentVersionStatus :installation="primary" :checking="false" />
-      <span v-if="primary.diagnostic" class="agent-row-diagnostic" :title="primary.diagnostic">{{ primary.diagnostic }}</span>
+      <span v-if="primary" class="agent-version-installed">{{ primary.availability === 'unavailable' ? '安装不可用' : agentCliVersionLabel(primary.installedVersion ?? '') || '版本未读取' }}</span>
+      <span v-if="primaryDiagnostics.length" class="agent-row-diagnostic" :title="primaryDiagnostics.join('\n')">
+        {{ primaryDiagnostics[0] }}
+      </span>
     </div>
 
     <div class="agent-row-hook">
@@ -129,7 +135,7 @@ function titleFor(action: AgentHookActionKind) {
       >
         <template #icon><IconRefresh /></template>
       </a-button>
-      <a-button type="text" size="small" title="查看 Agent 详情" aria-label="查看 Agent 详情" @click="emit('detail', primary.id)">
+      <a-button v-if="primary" type="text" size="small" title="查看 Agent 详情" aria-label="查看 Agent 详情" @click="emit('detail', primary.id)">
         详情
       </a-button>
       <a-dropdown v-if="hasSecondaryActions" trigger="click">
@@ -149,6 +155,7 @@ function titleFor(action: AgentHookActionKind) {
         </template>
       </a-dropdown>
     </div>
+    <p v-if="inspection?.configPath" class="agent-row-hook-path" :title="inspection.configPath">{{ inspection.configPath }}</p>
     <p v-if="error" class="agent-row-error">{{ error }}</p>
   </article>
 </template>

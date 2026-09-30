@@ -1,41 +1,14 @@
 use super::{
-    clean_text, first_non_empty, is_empty_shell, load_session_summaries, normalize_timestamp,
-    read_json_lines_limited, scan_json_lines_matching, scan_json_records_background,
-    timestamp_from_value, SearchAccumulator, SearchQuery,
+    clean_text, first_non_empty, normalize_timestamp, read_json_lines_limited,
+    scan_json_lines_matching, scan_json_records_background, timestamp_from_value,
+    SearchAccumulator, SearchQuery,
 };
 use crate::models::{AgentCliKind, CliSessionSummary};
-use crate::services::agent_cli::contracts::{SessionAdapter, SessionContentSearchRequest};
+use crate::services::agent_cli::contracts::SessionContentSearchRequest;
 use std::{
     fs,
-    path::Path,
     sync::atomic::{AtomicUsize, Ordering},
 };
-
-static SUMMARY_LIST_CALLS: AtomicUsize = AtomicUsize::new(0);
-static SUMMARY_CACHE_TEST_ADAPTER: SessionAdapter =
-    SessionAdapter::new(cached_summary_lister, None, None, None, None);
-
-fn cached_summary_lister(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-) -> Result<Vec<CliSessionSummary>, String> {
-    SUMMARY_LIST_CALLS.fetch_add(1, Ordering::Relaxed);
-    Ok(vec![CliSessionSummary {
-        id: "cached-session".to_string(),
-        title: "缓存测试".to_string(),
-        preview: Some("摘要".to_string()),
-        model: None,
-        models: Vec::new(),
-        cli_kind,
-        created_at: None,
-        updated_at: None,
-        workdir: workdir.to_string_lossy().to_string(),
-        cli_version: None,
-        archived: false,
-        can_resume: true,
-        metadata_source: "test".to_string(),
-    }])
-}
 
 #[test]
 fn text_is_compacted_and_bounded() {
@@ -67,7 +40,7 @@ fn timestamps_accept_seconds_milliseconds_and_rfc3339() {
 }
 
 #[test]
-fn empty_shell_sessions_are_filtered_without_touching_source_data() {
+fn native_identity_does_not_depend_on_a_display_title() {
     let empty = CliSessionSummary {
         id: "empty".to_string(),
         title: "未命名会话".to_string(),
@@ -88,46 +61,20 @@ fn empty_shell_sessions_are_filtered_without_touching_source_data() {
         title: "BalanceHub".to_string(),
         ..empty.clone()
     };
-    assert!(is_empty_shell(&empty));
-    assert!(!is_empty_shell(&named));
-}
-
-#[test]
-fn session_summary_cache_avoids_repeated_source_scans_until_forced() {
-    let workdir = std::env::temp_dir().join(format!(
-        "balancehub-session-summary-cache-{}-{}",
-        std::process::id(),
-        SUMMARY_LIST_CALLS.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = fs::remove_dir_all(&workdir);
-    fs::create_dir_all(&workdir).unwrap();
-    let before = SUMMARY_LIST_CALLS.load(Ordering::Relaxed);
-
-    load_session_summaries(
-        &SUMMARY_CACHE_TEST_ADAPTER,
-        AgentCliKind::Codex,
-        &workdir,
-        false,
-    )
-    .unwrap();
-    load_session_summaries(
-        &SUMMARY_CACHE_TEST_ADAPTER,
-        AgentCliKind::Codex,
-        &workdir,
-        false,
-    )
-    .unwrap();
-    assert_eq!(SUMMARY_LIST_CALLS.load(Ordering::Relaxed), before + 1);
-
-    load_session_summaries(
-        &SUMMARY_CACHE_TEST_ADAPTER,
-        AgentCliKind::Codex,
-        &workdir,
-        true,
-    )
-    .unwrap();
-    assert_eq!(SUMMARY_LIST_CALLS.load(Ordering::Relaxed), before + 2);
-    fs::remove_dir_all(workdir).unwrap();
+    let records = [empty, named]
+        .into_iter()
+        .map(|summary| {
+            let mut record = crate::services::agent_cli::contracts::SessionHistoryRecord::identity(
+                summary.cli_kind,
+                summary.id.clone(),
+                std::path::Path::new(&summary.workdir),
+                std::path::PathBuf::new(),
+            );
+            record.summary = summary;
+            record
+        })
+        .collect();
+    assert_eq!(super::normalize_records(records).len(), 2);
 }
 
 #[test]

@@ -5,6 +5,7 @@ import { PROVIDER_CREDENTIALS_CONTEXT } from "../composables/useProviderCredenti
 import { LOGIN_ACCOUNTS_CONTEXT } from "../composables/useLoginAccounts";
 import { readProviderCredential } from "../api/login-accounts";
 import CredentialSecret from "./CredentialSecret.vue";
+import ContextDetails from "./ContextDetails.vue";
 import { formatProviderSyncTime } from "../utils/provider-display";
 const credentials = inject(PROVIDER_CREDENTIALS_CONTEXT);
 const accounts = inject(LOGIN_ACCOUNTS_CONTEXT);
@@ -36,13 +37,12 @@ function manageAccount() {
           <div><dt>凭据最近更新</dt><dd>{{ time(details.updatedAt) }}</dd></div>
           <div><dt>上次同步成功</dt><dd>{{ formatProviderSyncTime(details.verifiedAt) || '尚无记录' }}</dd></div>
         </dl>
-        <div class="provider-validation-scope"><strong>本次验证范围</strong><p>{{ details.validationScope }}</p><p>结果仅覆盖本次站点请求；其他已保存凭据和平台登录状态仍需分别确认。</p></div>
+        <p class="provider-credentials-note">验证范围：{{ details.validationScope }}</p>
         <a-alert v-if="details.error && !credentials.error.value" type="warning">{{ details.error }}</a-alert>
         <div class="provider-credentials-actions">
           <a-button type="primary" :disabled="!details.canValidate || Boolean(credentials.pending.value)" :loading="credentials.pending.value === 'validate'" @click="credentials.validate">{{ details.validationLabel }}</a-button>
           <a-button v-if="details.canLogin" :disabled="Boolean(credentials.pending.value)" @click="credentials.login">重新登录 / 授权</a-button>
         </div>
-        <p class="provider-credentials-note">以下是此站点实际保存的凭据。站点 JWT 不等于 Linux DO / GitHub 的 OAuth Token；平台 Cookie 在登录账号中管理。</p>
         <div class="provider-credential-entries">
           <a-empty v-if="!details.entries.length" description="此站点没有保存的凭据" />
           <section v-for="entry in details.entries" :key="entry.kind" class="provider-credential-entry">
@@ -52,6 +52,10 @@ function manageAccount() {
             <a-button v-if="entry.clearLabel" type="text" status="danger" size="mini" :disabled="Boolean(credentials.pending.value)" @click="credentials.clear(entry.kind)">{{ entry.clearLabel }}</a-button>
           </section>
         </div>
+        <ContextDetails label="凭据与验证说明">
+          <p>验证结果仅覆盖本次站点请求；其他凭据和平台登录状态需分别确认。</p>
+          <p>这里列出站点保存的凭据。站点 JWT 与 Linux DO / GitHub 的 OAuth Token 用途不同；平台 Cookie 可在“管理登录账号”中查看。</p>
+        </ContextDetails>
       </template>
     </div>
   </a-modal>
@@ -67,8 +71,6 @@ function manageAccount() {
 .provider-credentials-facts dd { margin: 0; overflow-wrap: anywhere; }
 .provider-credentials-actions { display: flex; gap: 10px; }
 .provider-credentials-note { margin: 0; font-size: 12px; line-height: 1.7; color: var(--color-text-3); }
-.provider-validation-scope { display: grid; gap: 6px; padding: 12px; border-radius: 7px; background: var(--color-fill-1); font-size: 12px; }
-.provider-validation-scope p { margin: 0; color: var(--color-text-2); line-height: 1.7; }
 .provider-credential-entries { display: grid; gap: 12px; max-height: 47vh; overflow-y: auto; padding-right: 5px; }
 .provider-credential-entry { border: 1px solid var(--color-border-2); border-radius: 8px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
 .provider-credential-entry header { display: flex; justify-content: space-between; align-items: center; gap: 14px; font-size: 13px; }

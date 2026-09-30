@@ -1,0 +1,1 @@
+{"mechanism":"codex-plugin-enabled-toml","revision":1,"config":"[plugins.\"fixture@local\"]\nenabled = true\n","checks":["disable","enable","idempotent","unknown_siblings","native_config_parse","payload_not_executed","native_plugin_list","native_child_visibility"]}

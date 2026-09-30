@@ -32,6 +32,7 @@ import {
   type AppData,
 } from "../api/app";
 import { providerToInput } from "../utils/provider-input";
+import { withTimeout } from "../utils/promise-timeout";
 import {
   mergeProvidersByRevision,
   pruneProviderTombstones,
@@ -62,6 +63,7 @@ export const useProviderStore = defineStore("providers", {
     providers: [] as Provider[],
     providerProtocols: [] as ProviderProtocolDescriptor[],
     providerSnapshotRevision: 0,
+    providerOrderRequestId: 0,
     providerTombstones: {} as ProviderRevisionTombstones,
   }),
   getters: {},
@@ -116,19 +118,15 @@ export const useProviderStore = defineStore("providers", {
       this.providers = [...ordered, ...providers.values()];
     },
     async initialize() {
-      if (this.initialized || this.loading) {
+      if ((this.initialized && !this.loadError) || this.loading) {
         return;
       }
 
       this.loading = true;
       try {
-        const data = await loadAppData();
+        const data = await withTimeout(loadAppData(), 15_000, "读取本地配置超时，请重试");
         this.hydrateAppData(data);
-        try {
-          await useCliRuntimeStore().refresh();
-        } catch {
-          useCliRuntimeStore().resetRuntime();
-        }
+        void useCliRuntimeStore().refresh().catch(() => {});
       } catch (error) {
         this.providers = [];
         this.providerSnapshotRevision = 0;
@@ -143,7 +141,8 @@ export const useProviderStore = defineStore("providers", {
       const result = await saveProviderCommand(input, options);
       if (result.saved && result.provider) {
         this.upsertProvider(result.provider);
-        await useCliRuntimeStore().refresh().catch(() => {});
+        // Runtime discovery is independent of persistence and must not delay its acknowledgement.
+        void useCliRuntimeStore().refresh().catch(() => {});
       }
       return result;
     },
@@ -158,7 +157,9 @@ export const useProviderStore = defineStore("providers", {
       await useCliRuntimeStore().refresh().catch(() => {});
     },
     async reorderProviders(ids: string[]) {
-      this.applyProviderOrder(await reorderProvidersCommand(ids));
+      const requestId = ++this.providerOrderRequestId;
+      const order = await withTimeout(reorderProvidersCommand(ids), 15_000, "保存中转站排序超时，请重试");
+      if (requestId === this.providerOrderRequestId) this.applyProviderOrder(order);
     },
     async toggleProvider(id: string, enabled: boolean) {
       const provider = this.providers.find((item) => item.identity.id === id);
@@ -181,7 +182,7 @@ export const useProviderStore = defineStore("providers", {
           this.providerReloadPending = true;
         }
       }
-      await useCliRuntimeStore().refresh().catch(() => {});
+      void useCliRuntimeStore().refresh().catch(() => {});
       return result.transfer;
     },
     async reload() {

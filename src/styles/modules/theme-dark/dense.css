@@ -57,138 +57,11 @@
   color: #83d8b1;
 }
 
-:root.theme-dark .settings-workspace,
-:root.theme-dark .provider-editor-studio,
-:root.theme-dark .provider-editor-stage {
-  background: #1d222b;
-}
-
-:root.theme-dark .settings-nav {
-  border-color: #2e3948;
-  background: #111a27;
-}
-
-:root.theme-dark .settings-nav-intro span,
-:root.theme-dark .settings-panel-kicker,
-:root.theme-dark .provider-editor-main-kicker {
-  color: #8ea3bc;
-}
-
-:root.theme-dark .settings-nav-intro strong {
-  color: #f1f5f9;
-}
-
-:root.theme-dark .settings-nav-intro small,
-:root.theme-dark .settings-nav-copy small {
-  color: #94a7bd;
-}
-
-:root.theme-dark .settings-nav-item {
-  color: #bac8d8;
-}
-
-:root.theme-dark .settings-nav-item:hover,
-:root.theme-dark .settings-nav-item:focus-visible {
-  border-color: rgba(137, 177, 238, 0.2);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-:root.theme-dark .settings-nav-item.active {
-  border-color: rgba(127, 171, 244, 0.34);
-  background: #315fae;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
-}
-
-:root.theme-dark .settings-nav-item.active::before {
-  background: #a8cbff;
-}
-
-:root.theme-dark .settings-nav-icon {
-  border-color: rgba(193, 211, 236, 0.16);
-  background: rgba(255, 255, 255, 0.05);
-  color: #aebed1;
-}
-
-:root.theme-dark .settings-nav-item.active .settings-nav-icon {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.14);
-  color: #ffffff;
-}
-
-:root.theme-dark .settings-nav-item.active .settings-nav-copy small,
-:root.theme-dark .settings-nav-item.active .settings-nav-index {
-  color: #d9e8ff;
-}
-
-:root.theme-dark .settings-nav-index {
-  color: #6f849d;
-}
-
-:root.theme-dark .settings-nav-footnote {
-  border-top-color: rgba(197, 214, 235, 0.14);
-  color: #9aabc0;
-}
-
-:root.theme-dark .settings-nav-footnote b {
-  color: #d6e3f1;
-}
-
-:root.theme-dark .settings-panel,
-:root.theme-dark .provider-editor-canvas {
-  background: #1d222b;
-}
-
-:root.theme-dark .settings-panel-header,
-:root.theme-dark .provider-editor-canvas-header,
-:root.theme-dark .settings-panel-footer,
-:root.theme-dark .provider-editor-main-footer {
-  border-color: #303a49;
-  background: #1d222b;
-}
-
-:root.theme-dark .settings-panel-header h2,
-:root.theme-dark .provider-editor-canvas-header h2 {
-  color: #f0f4f8;
-}
-
-:root.theme-dark .settings-panel-header p,
-:root.theme-dark .provider-editor-canvas-header p,
-:root.theme-dark .settings-panel-footer > span,
 :root.theme-dark .provider-editor-footer-status {
   color: #919eae;
 }
 
-:root.theme-dark .settings-panel-mark,
-:root.theme-dark .provider-editor-canvas-mark {
-  border-color: #3e5f93;
-  background: #1e3152;
-  color: #9fc3ff;
-}
-
-:root.theme-dark .settings-panel-status-item {
-  border-color: #3a4554;
-  background: #232b35;
-}
-
-:root.theme-dark .settings-panel-status-item b {
-  color: #c2cedb;
-}
-
-:root.theme-dark .settings-panel-status-item small {
-  color: #8d9bac;
-}
-
-:root.theme-dark .settings-panel-status-item.active {
-  border-color: #31654f;
-  background: #1e3a30;
-}
-
-:root.theme-dark .settings-panel-status-item.active b {
-  color: #83d8b1;
-}
-
 :root.theme-dark .settings-card,
-:root.theme-dark .notification-channel,
 :root.theme-dark .provider-editor-context-card {
   border-color: #3a4554;
   background: #252c35;
@@ -201,18 +74,12 @@
 }
 
 :root.theme-dark .settings-card-header > div > strong,
-:root.theme-dark .settings-setting-copy > strong,
 :root.theme-dark .provider-editor-context-card > header > span {
   color: #e9eef4;
 }
 
-:root.theme-dark .settings-card-header > div > span,
-:root.theme-dark .settings-setting-copy > span {
+:root.theme-dark .settings-card-header > div > span {
   color: #929eae;
-}
-
-:root.theme-dark .settings-setting-row {
-  border-top-color: #35404e;
 }
 
 :root.theme-dark .settings-card-icon {
@@ -267,64 +134,9 @@
   background: #202731;
 }
 
-:root.theme-dark .settings-cli-runtime-card > .cli-manager,
-:root.theme-dark .settings-cli-terminal-settings,
-:root.theme-dark .settings-liveness-config {
-  border-color: #3a4554;
-  background: #252c35;
-}
-
-:root.theme-dark .settings-liveness-config {
-  border-top-color: #35404e;
-  background: #202731;
-}
-
-:root.theme-dark .notification-channel-system-note {
-  background: #2b333e;
-  color: #a6b2c0;
-}
-
-:root.theme-dark .provider-editor-stepbar,
 :root.theme-dark .provider-editor-context {
   border-color: #303a49;
   background: #171d26;
-}
-
-:root.theme-dark .provider-editor-step-tab {
-  border-color: transparent;
-  background: #202731;
-}
-
-:root.theme-dark .provider-editor-step-tab:hover,
-:root.theme-dark .provider-editor-step-tab:focus-visible {
-  border-color: #5e7eaf;
-  background: #27313e;
-}
-
-:root.theme-dark .provider-editor-step-tab.active {
-  border-color: #6f95d4;
-  background: #263a5c;
-  box-shadow: inset 0 0 0 1px rgba(126, 169, 243, 0.08);
-}
-
-:root.theme-dark .provider-editor-step-tab-copy strong {
-  color: #e9eef4;
-}
-
-:root.theme-dark .provider-editor-step-tab-copy small {
-  color: #929eae;
-}
-
-:root.theme-dark .provider-editor-step-tab-index {
-  border-color: #3e4958;
-  background: #252d37;
-  color: #acb7c5;
-}
-
-:root.theme-dark .provider-editor-step-tab.active .provider-editor-step-tab-index {
-  border-color: #5d8fe9;
-  background: #356fe0;
-  color: #ffffff;
 }
 
 :root.theme-dark .provider-editor-context-card > header,
@@ -374,17 +186,6 @@
 :root.theme-dark .provider-credential-active-panel {
   border-color: #49628b;
   background: #232f44;
-}
-
-:root.theme-dark .provider-auth-mode-option,
-:root.theme-dark .provider-credentials-secondary {
-  border-color: #3a4554;
-  background: #252c35;
-}
-
-:root.theme-dark .provider-auth-mode-option.active {
-  border-color: #6f95d4;
-  background: #263a5c;
 }
 
 :root.theme-dark .surface-modal .arco-form-item-label > label {

@@ -1,11 +1,10 @@
 use super::super::config_support::{
-    cli_target_for_key, config_error, config_revision, ensure_revision, file_content,
-    latest_modified_at, match_provider_key, normalize_endpoint, read_optional_cli_config,
-    read_stable_optional,
-    restore_config_file, rewrite_json_string_fields, validate_file_set, write_config_text,
+    cli_target_for_key, config_error, latest_modified_at, match_provider_key, normalize_endpoint,
+    read_stable_optional, rewrite_json_string_fields,
 };
+use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use crate::{
-    models::{AgentCliKind, CliConfigFile, CliConfigPreview, CliConfigSnapshot, Provider},
+    models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::{configured_path, user_home},
 };
 use chrono::{SecondsFormat, Utc};
@@ -16,9 +15,15 @@ use toml_edit::{value as toml_value, Document as TomlDocument, Item, Table};
 const API_KEY_SCOPE: &str = "xai::api_key";
 
 pub(super) fn config_dir() -> Option<PathBuf> {
-    configured_path("BALANCEHUB_GROK_HOME")
-        .or_else(|| configured_path("GROK_HOME"))
-        .or_else(|| user_home().map(|home| home.join(".grok")))
+    configured_config_dir().or_else(|| user_home().map(|home| home.join(".grok")))
+}
+
+pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
+    configured_config_dir().unwrap_or_else(|| home.join(".grok"))
+}
+
+fn configured_config_dir() -> Option<PathBuf> {
+    configured_path("BALANCEHUB_GROK_HOME").or_else(|| configured_path("GROK_HOME"))
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {
@@ -73,107 +78,44 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
     }
 }
 
-pub(super) fn preview(
+pub(super) fn candidates(
     cli_kind: AgentCliKind,
     provider: &Provider,
     api_key_local_id: &str,
-) -> Result<CliConfigPreview, String> {
+) -> Result<Vec<ProviderConfigurationCandidate>, String> {
     let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let config_path = config_dir.join("config.toml");
-    let auth_path = config_dir.join("auth.json");
-    let config_text = read_optional_cli_config(&config_path)?;
-    let auth_text = read_optional_cli_config(&auth_path)?;
-    let (next_config, next_auth) =
-        rewrite_grok_config(&config_text, &auth_text, &target.base_url, &target.api_key)?;
-
-    Ok(CliConfigPreview {
-        provider_id: provider.identity.id.clone(),
-        provider_name: provider.display_label(),
-        api_key_local_id: target.api_key_local_id,
-        api_key_label: target.api_key_label,
-        cli_kind,
-        revision: config_revision(&[
-            &config_text,
-            &auth_text,
-            &target.base_url,
-            &target.api_key,
-        ]),
-        original_files: vec![
-            config_file(&config_path, config_text),
-            config_file(&auth_path, auth_text),
-        ],
-        files: vec![
-            config_file(&config_path, next_config),
-            config_file(&auth_path, next_auth),
-        ],
-    })
-}
-
-pub(super) fn switch(
-    cli_kind: AgentCliKind,
-    provider: &Provider,
-    api_key_local_id: &str,
-    expected_revision: Option<&str>,
-    files: &[CliConfigFile],
-) -> Result<(), String> {
-    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let config_path = config_dir.join("config.toml");
-    let auth_path = config_dir.join("auth.json");
-    let config = read_stable_optional(&config_path)?;
-    let auth = read_stable_optional(&auth_path)?;
-    let config_text = config
-        .as_ref()
-        .map(|file| file.text.as_str())
-        .unwrap_or_default();
-    let auth_text = auth
-        .as_ref()
-        .map(|file| file.text.as_str())
-        .unwrap_or_default();
-    validate_file_set(files, &[&config_path, &auth_path])?;
-    ensure_revision(
-        expected_revision,
-        config_revision(&[
-            config_text,
-            auth_text,
-            &target.base_url,
-            &target.api_key,
-        ]),
+    let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let config_path = root.join("config.toml");
+    let auth_path = root.join("auth.json");
+    let config = read_stable_optional(&config_path)?.map(|value| value.text);
+    let auth = read_stable_optional(&auth_path)?.map(|value| value.text);
+    let (next_config, next_auth) = rewrite_grok_config(
+        config.as_deref().unwrap_or(""),
+        auth.as_deref().unwrap_or(""),
+        &target.base_url,
+        &target.api_key,
     )?;
-    let edited_config = file_content(files, &config_path)?;
-    let edited_auth = file_content(files, &auth_path)?;
-    parse_grok_config(edited_config, edited_auth)
-        .ok()
-        .flatten()
-        .ok_or_else(|| "Grok Build 配置必须包含有效的模型地址和 API Key 认证记录".to_string())?;
-
-    write_config_text(&config_path, edited_config, "Grok Build 配置")?;
-    if let Err(err) = write_config_text(&auth_path, edited_auth, "Grok Build 认证") {
-        let rollback_error = restore_config_file(
-            &config_path,
-            config.as_ref().map(|file| file.text.as_str()),
-            "Grok Build 配置回滚",
-        )
-        .err();
-        return Err(match rollback_error {
-            Some(rollback) => format!("{err}；{rollback}"),
-            None => err,
-        });
-    }
-    Ok(())
-}
-
-fn config_file(path: &Path, content: String) -> CliConfigFile {
-    CliConfigFile {
-        file_path: path.to_string_lossy().into_owned(),
-        content,
-    }
+    Ok(vec![
+        ProviderConfigurationCandidate {
+            path: config_path,
+            before: config,
+            after: next_config,
+        },
+        ProviderConfigurationCandidate {
+            path: auth_path,
+            before: auth,
+            after: next_auth,
+        },
+    ])
 }
 
 fn parse_grok_config(config: &str, auth: &str) -> Result<Option<(String, String)>, ()> {
     let config = config.parse::<toml::Value>().map_err(|_| ())?;
-    let auth = serde_json::from_str::<JsonValue>(auth).map_err(|_| ())?;
+    let auth = crate::services::agent_cli::environment::config_document::parse(
+        auth.as_bytes(),
+        crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
+    )
+    .ok_or(())?;
     if !auth.is_object() {
         return Err(());
     }
@@ -219,9 +161,16 @@ fn rewrite_grok_config(
         .ok_or_else(|| "Grok Build 配置中的 endpoints 必须是对象".to_string())?;
     endpoints.insert("models_base_url", toml_value(base_url.trim()));
 
+    Ok((document.to_string(), merge_auth_key(auth, api_key)?))
+}
+
+fn merge_auth_key(auth: &str, api_key: &str) -> Result<String, String> {
     let auth_source = if auth.trim().is_empty() { "{}\n" } else { auth };
-    let auth_value = serde_json::from_str::<JsonValue>(auth_source)
-        .map_err(|_| "Grok Build 认证文件格式无效".to_string())?;
+    let auth_value = crate::services::agent_cli::environment::config_document::parse(
+        auth_source.as_bytes(),
+        crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
+    )
+    .ok_or_else(|| "Grok Build 认证文件格式无效".to_string())?;
     let root = auth_value
         .as_object()
         .ok_or_else(|| "Grok Build 认证文件格式无效".to_string())?;
@@ -270,10 +219,10 @@ fn rewrite_grok_config(
             .ok_or_else(|| "Grok Build 认证文件缺少 API Key 记录".to_string())?,
     )?;
 
-    Ok((document.to_string(), rewritten_auth))
+    Ok(rewritten_auth)
 }
 
-fn validate_api_key_record(value: &JsonValue) -> Result<(), String> {
+pub(super) fn validate_api_key_record(value: &JsonValue) -> Result<(), String> {
     let record = value
         .as_object()
         .ok_or_else(|| "Grok Build API Key 认证记录格式无效".to_string())?;
@@ -347,13 +296,8 @@ screen_mode = "minimal"
 }
 "#;
 
-        let (config, auth) = rewrite_grok_config(
-            config,
-            auth,
-            "https://relay.example.com/v1",
-            "new-key",
-        )
-        .unwrap();
+        let (config, auth) =
+            rewrite_grok_config(config, auth, "https://relay.example.com/v1", "new-key").unwrap();
 
         assert!(config.contains("installer = \"internal\""));
         assert!(config.contains("screen_mode = \"minimal\""));

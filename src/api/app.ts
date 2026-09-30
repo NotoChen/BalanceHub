@@ -1,12 +1,9 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
+import type { AgentConfigurationEdit } from "../stores/agent-configuration-types";
 import type {
   AppSettings,
-  CliConfigPreview,
-  CliConfigFile,
   CliRuntimeSnapshot,
-  CliSessionDetail,
   CliSessionIndexStatus,
-  CliSessionSearchResponse,
   CliEnvironmentProbeResult,
   TerminalEnvironmentProbeResult,
   ProviderModelSyncResult,
@@ -37,9 +34,15 @@ import type {
   Workspace,
   WorkspaceDirectoryListing,
   AgentEnvironmentInventory,
-  AgentVersionCheckResult,
   AgentAssetReadResult,
+  AgentAssetReadRequest,
+  AgentAssetOpenRequest,
   AgentAssetOpenTarget,
+  AgentAssetAccessRisk,
+  AgentAssetPlanRequest,
+  AgentAssetApplyRequest,
+  AgentAssetPlan,
+  AgentAssetOperation,
   AgentHookInspection,
   AgentHookMutation,
   AgentHookPlan,
@@ -200,6 +203,10 @@ export function probeCliTools(deep = false) {
   return invoke<CliEnvironmentProbeResult>("probe_cli_tools", { deep });
 }
 
+export function getCachedCliTools() {
+  return invoke<CliEnvironmentProbeResult | null>("get_cached_cli_tools");
+}
+
 export function probeTerminals() {
   return invoke<TerminalEnvironmentProbeResult>("probe_terminals");
 }
@@ -210,29 +217,68 @@ export function getAgentEnvironmentInventory(workspace?: string) {
   });
 }
 
-export function checkAgentLatestVersions(workspace?: string) {
-  return invoke<AgentVersionCheckResult>("check_agent_latest_versions", {
-    workspace: workspace || null,
-  });
+export interface AgentEnvironmentAccessInput {
+  accessId: string;
+  environmentId: string;
+  workspace?: string;
 }
 
-export function readAgentEnvironmentAsset(assetId: string, workspace?: string) {
+export function readAgentEnvironmentAsset(assetId: string, access: AgentEnvironmentAccessInput) {
   return invoke<AgentAssetReadResult>("read_agent_environment_asset", {
-    assetId,
-    workspace: workspace || null,
+    request: { targetId: assetId, ...access, workspace: access.workspace || null } satisfies AgentAssetReadRequest,
   });
 }
 
 export function openAgentEnvironmentAsset(
   assetId: string,
-  workspace?: string,
+  access: AgentEnvironmentAccessInput,
   target: AgentAssetOpenTarget = "asset",
+  acceptedRisks: AgentAssetAccessRisk[] = [],
 ) {
   return invoke<void>("open_agent_environment_asset", {
-    assetId,
-    workspace: workspace || null,
-    target,
+    request: { targetId: assetId, ...access, workspace: access.workspace || null, target, acceptedRisks } satisfies AgentAssetOpenRequest,
   });
+}
+
+export function readAgentEnvironmentSource(sourceId: string, access: AgentEnvironmentAccessInput) {
+  return invoke<AgentAssetReadResult>("read_agent_environment_source", {
+    request: { targetId: sourceId, ...access, workspace: access.workspace || null } satisfies AgentAssetReadRequest,
+  });
+}
+
+export function openAgentEnvironmentSource(
+  sourceId: string,
+  access: AgentEnvironmentAccessInput,
+  target: AgentAssetOpenTarget = "asset",
+  acceptedRisks: AgentAssetAccessRisk[] = [],
+) {
+  return invoke<void>("open_agent_environment_source", {
+    request: { targetId: sourceId, ...access, workspace: access.workspace || null, target, acceptedRisks } satisfies AgentAssetOpenRequest,
+  });
+}
+
+export function planAgentAsset(request: AgentAssetPlanRequest, requestId: string, agentKind: AgentCliKind) {
+  return invoke<AgentAssetPlan>("plan_agent_asset", { request, requestId, agentKind });
+}
+
+export function applyAgentAsset(request: AgentAssetApplyRequest) {
+  return invoke<AgentAssetOperation>("apply_agent_asset", { request });
+}
+
+export function getAgentAssetOperation(operationId: string) {
+  return invoke<AgentAssetOperation>("get_agent_asset_operation", { operationId });
+}
+
+export function cancelAgentAssetOperation(operationId: string) {
+  return invoke<AgentAssetOperation>("cancel_agent_asset_operation", { operationId });
+}
+
+export function listAgentAssetOperations() {
+  return invoke<AgentAssetOperation[]>("list_agent_asset_operations");
+}
+
+export function verifyAgentAssetOperation(operationId: string) {
+  return invoke<AgentAssetOperation>("verify_agent_asset_operation", { operationId });
 }
 
 export function inspectAgentHook(agentKind: AgentCliKind) {
@@ -271,40 +317,12 @@ export function previewTemporaryCliLaunch(input: TemporaryCliLaunchInput) {
   return invoke<TemporaryCliLaunchPreview>("preview_temporary_cli_launch", { input });
 }
 
-export function searchCliSessions(
-  cliKind: AgentCliKind,
-  workdir: string,
-  query: string,
-  limit = 50,
-  forceRefresh = false,
-) {
-  return invoke<CliSessionSearchResponse>("search_cli_sessions", {
-    cliKind,
-    workdir,
-    query,
-    limit,
-    forceRefresh,
-  });
-}
-
 export function getCliSessionIndexStatus() {
   return invoke<CliSessionIndexStatus>("get_cli_session_index_status");
 }
 
 export function clearCliSessionIndex() {
   return invoke<void>("clear_cli_session_index");
-}
-
-export function getCliSessionDetail(
-  cliKind: AgentCliKind,
-  workdir: string,
-  sessionId: string,
-) {
-  return invoke<CliSessionDetail>("get_cli_session_detail", {
-    cliKind,
-    workdir,
-    sessionId,
-  });
 }
 
 export function getCliRuntimeSnapshot() {
@@ -332,23 +350,7 @@ export function forgetWorkspace(path: string) {
 }
 
 export function previewCliConfig(id: string, cliKind: AgentCliKind, apiKeyLocalId: string) {
-  return invoke<CliConfigPreview>("preview_cli_config", { id, cliKind, apiKeyLocalId });
-}
-
-export function switchCliConfig(
-  id: string,
-  cliKind: AgentCliKind,
-  apiKeyLocalId: string,
-  revision: string,
-  files: CliConfigFile[],
-) {
-  return invoke<CliRuntimeSnapshot>("switch_cli_config", {
-    id,
-    cliKind,
-    apiKeyLocalId,
-    revision,
-    files,
-  });
+  return invoke<AgentConfigurationEdit>("preview_cli_config", { id, cliKind, apiKeyLocalId });
 }
 
 export function syncAvailableModels(id: string) {

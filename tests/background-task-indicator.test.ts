@@ -7,6 +7,7 @@ import { createSSRApp, defineComponent, h, type Component } from "vue";
 import { compileScript, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import ts from "typescript";
+import type { BackgroundTask } from "../src/composables/useBackgroundTaskCenter.ts";
 
 const componentPath = fileURLToPath(
   new URL("../src/components/BackgroundTaskIndicator.vue", import.meta.url),
@@ -20,14 +21,15 @@ test("background task entry keeps its identity icon and uses color flow for acti
   const styles = readFileSync(stylePath, "utf8");
 
   assert.match(component, /useId/);
-  assert.match(component, /:color="activeCount > 0 \? `url\(#\$\{gradientId\}\)`/);
   assert.doesNotMatch(component, /LoaderCircle/);
   assert.doesNotMatch(component, /topbar-action-spin/);
   assert.match(styles, /@keyframes background-task-gradient-flow/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
-test("completed login results render their account and credential destinations", async () => {
+let indicator: Component | undefined;
+function loadIndicator(): Component {
+  if (indicator) return indicator;
   const { descriptor } = parse(readFileSync(componentPath, "utf8"), { filename: componentPath });
   const compiled = compileScript(descriptor, { id: "background-task-result-test", inlineTemplate: true });
   const output = ts.transpileModule(compiled.content, {
@@ -36,18 +38,44 @@ test("completed login results render their account and credential destinations",
   const exports: { default?: Component } = {};
   new Function("require", "exports", output)(createRequire(import.meta.url), exports);
   assert.ok(exports.default);
-  const recentTasks = ["查看登录账号", "查看站点凭据"].map((label, index) => ({
-    id: `completed-${index}`, kind: "providerLogin", title: "登录已完成", detail: "结果已保存",
-    status: "success", progress: null, startedAt: 1, finishedAt: 2, source: "manual",
-    actions: [{ label, run: () => {} }],
-  }));
-  const app = createSSRApp(exports.default, { tasks: [], recentTasks, activeCount: 0 });
+  indicator = exports.default;
+  return indicator;
+}
+
+function task(id: string, status: BackgroundTask["status"]): BackgroundTask {
+  return { id, kind: "cliLaunch", title: id, detail: "隔离任务", status, progress: null, startedAt: 1, source: "manual" };
+}
+
+async function renderIndicator(tasks: BackgroundTask[], recentTasks: BackgroundTask[] = [], onClearRecent?: () => void) {
+  const app = createSSRApp(loadIndicator(), { tasks, recentTasks, activeCount: tasks.length, onClearRecent });
   app.component("a-popover", defineComponent({
-    setup(_props, { slots }) { return () => h("div", [slots.default?.(), slots.content?.()]); },
+    emits: ["update:popupVisible", "popupVisibleChange"],
+    setup(_props, { slots, emit }) {
+      emit("update:popupVisible", false);
+      emit("popupVisibleChange", false);
+      return () => h("div", [slots.default?.(), slots.content?.()]);
+    },
   }));
   app.component("a-progress", defineComponent({ render: () => h("div") }));
-  const rendered = await renderToString(app);
+  return renderToString(app);
+}
+
+test("completed login results render their account and credential destinations", async () => {
+  const recentTasks = ["查看登录账号", "查看站点凭据"].map((label, index) => ({
+    ...task(`completed-${index}`, "success"), kind: "providerLogin" as const, title: "登录已完成", detail: "结果已保存", finishedAt: 2,
+    actions: [{ label, run: () => {} }],
+  }));
+  const rendered = await renderIndicator([], recentTasks);
   assert.match(rendered, /<button\b[^>]*>查看登录账号<\/button>/);
   assert.match(rendered, /<button\b[^>]*>查看站点凭据<\/button>/);
   assert.doesNotMatch(rendered, /显示登录窗口/);
+});
+
+test("closing the task popup retains all recent results until the user clears them", async () => {
+  const recentTasks = Array.from({ length: 12 }, (_, index) => ({ ...task(`recent-result-${index}`, "success"), finishedAt: 2 }));
+  let cleared = 0;
+  const rendered = await renderIndicator([], recentTasks, () => { cleared++; });
+  for (const item of recentTasks) assert.ok(rendered.includes(item.title));
+  assert.equal(cleared, 0);
+  assert.match(rendered, /清空记录/);
 });

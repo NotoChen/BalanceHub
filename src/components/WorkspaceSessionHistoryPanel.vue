@@ -1,180 +1,37 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Message } from "@arco-design/web-vue";
-import {
-  IconCopy,
-  IconRefresh,
-  IconSearch,
-} from "@arco-design/web-vue/es/icon";
-import type {
-  CliSessionIndexState,
-  CliSessionSearchResult,
-  CliSessionSummary,
-} from "../stores/providers";
-import { copyText } from "../composables/useClipboard";
+import { IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
+import type { CliSessionIndexState } from "../stores/providers";
+import type { AgentSessionRoleFilter, AgentSessionRow } from "../stores/agent-session-types";
+import { useCliRuntimeStore } from "../stores/cli-runtime";
+import AgentSessionList from "./agent-workspace/AgentSessionList.vue";
 
 const props = defineProps<{
-  query: string;
-  results: CliSessionSearchResult[];
-  loading: boolean;
-  error: string;
-  indexState: CliSessionIndexState;
-  indexMessage: string;
-  selectedResumeId: string;
-  selectedSessionTitle: string;
-  workdir: string;
-  disabled: boolean;
+  query: string; results: AgentSessionRow[]; loading: boolean; loadingMore: boolean; error: string;
+  indexState: CliSessionIndexState; indexMessage: string; roleFilter: AgentSessionRoleFilter;
+  selectedResumeId: string; selectedSessionRef: string; selectedSessionTitle: string;
+  workdir: string; disabled: boolean; total: number | null; hasMore: boolean;
 }>();
-
 const emit = defineEmits<{
-  "update:query": [query: string];
-  refresh: [workdir: string];
-  "view-session": [session: CliSessionSummary];
+  "update:query": [query: string]; "update:roleFilter": [role: AgentSessionRoleFilter];
+  refresh: [workdir: string]; "load-more": []; "view-session": [row: AgentSessionRow]; "view-parent": [sessionRef: string];
 }>();
-
-const queryModel = computed({
-  get: () => props.query,
-  set: (value: string) => emit("update:query", value),
-});
-const selectedSession = computed(
-  () => props.results.find((result) => result.session.id === props.selectedResumeId)?.session ?? null,
-);
-
-function sessionModelLabel(session: CliSessionSummary) {
-  if (session.models.length > 1) {
-    return `多模型（最近：${session.model || session.models[session.models.length - 1]}）`;
-  }
-  return session.model || "未记录模型";
-}
-
-function sessionTime(value: string | null) {
-  if (!value) return "时间未知";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-async function copySessionId(id: string) {
-  const value = id.trim();
-  if (!value) return;
-  try {
-    await copyText(value);
-    Message.success("已复制 Resume ID");
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : String(error));
-  }
-}
-
+const store = useCliRuntimeStore();
+const queryModel = computed({ get: () => props.query, set: (value: string) => emit("update:query", value) });
+const roleModel = computed({ get: () => props.roleFilter, set: (value: AgentSessionRoleFilter) => emit("update:roleFilter", value) });
+const selectedSession = computed(() => props.results.find((row) => row.sessionRef === props.selectedSessionRef)?.session ?? null);
 </script>
 
 <template>
   <div class="workspace-session-history">
-    <div class="workspace-session-history-toolbar">
-      <div>
-        <strong>历史会话</strong>
-        <span>搜索后先查看详情，再决定是否恢复</span>
-      </div>
-      <a-tooltip content="刷新历史会话">
-        <a-button
-          shape="circle"
-          size="mini"
-          :loading="loading"
-          :disabled="disabled || !workdir"
-          aria-label="刷新历史会话"
-          @click="emit('refresh', workdir)"
-        >
-          <template #icon><icon-refresh /></template>
-        </a-button>
-      </a-tooltip>
-    </div>
-
-    <a-input
-      v-model="queryModel"
-      class="workspace-session-search"
-      size="small"
-      allow-clear
-      :disabled="disabled || !workdir"
-      placeholder="搜索标题、Resume ID、模型、目录或对话内容"
-      aria-label="搜索历史会话"
-    >
-      <template #prefix><icon-search /></template>
-    </a-input>
-
-    <div
-      v-if="indexMessage"
-      class="workspace-session-index-state"
-      :class="`is-${indexState}`"
-      role="status"
-    >
-      <span v-if="indexState === 'building'" class="workspace-session-index-pulse" />
-      <span>{{ indexMessage }}</span>
-    </div>
-
-    <a-alert v-if="error" type="warning" show-icon>
-      <template #title>历史索引暂不可用</template>
-      <template #default>{{ error }}。请检查 CLI 状态目录后重试。</template>
-    </a-alert>
-
-    <a-spin :loading="loading" class="workspace-session-history-spin">
-      <div v-if="!loading && results.length === 0" class="workspace-session-empty">
-        <strong>{{ query.trim() ? "没有找到匹配的历史会话" : "当前工作空间没有可展示的历史会话" }}</strong>
-        <span>{{ query.trim() ? "可以尝试更短的关键字，或清空搜索查看最近会话。" : "请先在该工作空间创建一条有效会话。" }}</span>
-      </div>
-
-      <div v-else class="workspace-session-list">
-        <div
-          v-for="result in results"
-          :key="result.session.id"
-          class="workspace-session-item"
-          :class="{
-            selected: result.session.id === selectedResumeId,
-            disabled: !result.session.canResume,
-          }"
-        >
-          <button
-            type="button"
-            class="workspace-session-select"
-            :disabled="disabled"
-            :aria-pressed="result.session.id === selectedResumeId"
-            :title="`查看会话详情：${result.session.title}`"
-            @click="emit('view-session', result.session)"
-          >
-            <span class="workspace-session-item-main">
-              <strong>{{ result.session.title }}</strong>
-              <span class="workspace-session-meta">
-                <span>模型：{{ sessionModelLabel(result.session) }}</span>
-                <span>更新时间：{{ sessionTime(result.session.updatedAt) }}</span>
-              </span>
-            </span>
-            <span class="workspace-session-item-side">
-              <span class="workspace-session-id" :title="`Resume ID：${result.session.id}`">
-                {{ result.session.id }}
-              </span>
-              <span v-if="result.session.archived" class="workspace-session-archived">已归档</span>
-            </span>
-          </button>
-          <a-tooltip content="复制 Resume ID">
-            <a-button
-              class="workspace-session-copy"
-              shape="circle"
-              size="mini"
-              :disabled="disabled || !result.session.id"
-              aria-label="复制 Resume ID"
-              @click.stop="copySessionId(result.session.id)"
-            >
-              <template #icon><icon-copy /></template>
-            </a-button>
-          </a-tooltip>
-        </div>
-      </div>
-    </a-spin>
-
-    <a-alert
-      v-if="selectedSession || selectedSessionTitle"
-      class="workspace-session-selected-note"
-      type="success"
-      show-icon
-    >
-      已选择：{{ selectedSession?.title || selectedSessionTitle }}。不选择模型时将沿用历史会话模型。
-    </a-alert>
+    <div class="workspace-session-history-toolbar"><strong>历史会话</strong><a-tooltip content="刷新历史会话"><a-button shape="circle" size="mini" :loading="loading" :disabled="disabled || !workdir" aria-label="刷新历史会话" @click="emit('refresh', workdir)"><template #icon><icon-refresh /></template></a-button></a-tooltip></div>
+    <div class="agent-session-filters workspace-session-filters"><a-select v-model="roleModel" aria-label="历史会话角色" :disabled="disabled"><a-option value="all">全部会话</a-option><a-option value="main">主会话</a-option><a-option value="subagent">子 Agent 会话</a-option></a-select><a-input v-model="queryModel" size="small" allow-clear :disabled="disabled || !workdir" placeholder="搜索标题、会话 ID 或正文" aria-label="搜索历史会话"><template #prefix><icon-search /></template></a-input></div>
+    <div v-if="indexMessage" class="workspace-session-index-state" :class="`is-${indexState}`" role="status"><span>{{ indexMessage }}</span></div>
+    <a-alert v-if="error" type="warning" show-icon><template #title>历史会话读取失败</template>{{ error }}</a-alert>
+    <p class="agent-session-result-summary" role="status">已显示 {{ results.length }} 条<span v-if="total !== null"> / 共 {{ total }} 条</span><span v-if="loading"> · 正在读取…</span></p>
+    <div v-if="!loading && !error && results.length === 0" class="workspace-session-empty"><strong>{{ query.trim() ? "本次没有读取到匹配会话" : "本次没有读取到可展示会话" }}</strong><span>可切换目录、会话角色或刷新后查看。</span></div>
+    <AgentSessionList :rows="results" :agents="store.cliRuntime.agents" :selected-session-ref="selectedSessionRef" :disabled="disabled" @detail="emit('view-session', $event)" @parent="emit('view-parent', $event)" />
+    <div v-if="hasMore" class="agent-session-pagination"><a-button size="small" :loading="loadingMore" :disabled="disabled || (loading && !loadingMore)" @click="emit('load-more')">继续加载</a-button></div>
+    <a-alert v-if="selectedSession || selectedSessionTitle" class="workspace-session-selected-note" type="success" show-icon>已选择：{{ selectedSession?.title || selectedSessionTitle }}。不选择模型时将沿用历史会话模型。</a-alert>
   </div>
 </template>

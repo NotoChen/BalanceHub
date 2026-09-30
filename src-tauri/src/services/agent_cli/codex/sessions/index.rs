@@ -13,7 +13,6 @@ use std::{
 
 const STATE_DB_PREFIX: &str = "state_";
 const SESSION_INDEX_FILE: &str = "session_index.jsonl";
-const MAX_ROLLOUT_FALLBACK_DIRECTORIES: usize = 2_000;
 
 pub(super) struct CodexSessionRecord {
     pub(super) summary: CliSessionSummary,
@@ -21,59 +20,64 @@ pub(super) struct CodexSessionRecord {
 }
 
 pub(super) fn state_databases(codex_home: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut databases = fs::read_dir(codex_home)
-        .map_err(|err| format!("读取 Codex 状态目录失败：{}：{err}", codex_home.display()))?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| {
-                        name.starts_with(STATE_DB_PREFIX) && name.ends_with(".sqlite")
-                    })
-        })
-        .collect::<Vec<_>>();
+    let mut databases = Vec::new();
+    let entries =
+        fs::read_dir(codex_home).map_err(|error| format!("读取 Codex 状态目录失败：{error}"))?;
+    for entry in entries {
+        crate::services::cli_sessions::workbench::check_read_budget()?;
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !entry
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_file()
+        {
+            continue;
+        }
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(STATE_DB_PREFIX) && name.ends_with(".sqlite"))
+        {
+            databases.push(path);
+        }
+    }
     databases.sort_by(|left, right| right.cmp(left));
     Ok(databases)
 }
 
-pub(super) fn read_session_titles(
-    codex_home: &Path,
-) -> Result<HashMap<String, String>, String> {
+pub(super) fn read_session_titles(codex_home: &Path) -> Result<HashMap<String, String>, String> {
     let path = codex_home.join(SESSION_INDEX_FILE);
     if !path.is_file() {
         return Ok(HashMap::new());
     }
 
-    let file = fs::File::open(&path)
-        .map_err(|err| format!("打开 Codex 会话命名索引失败：{}：{err}", path.display()))?;
     let mut titles = HashMap::new();
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        let Some(id) = value
-            .get("id")
-            .or_else(|| value.get("session_id"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|id| !id.is_empty())
-        else {
-            continue;
-        };
-        let Some(title) = value
-            .get("thread_name")
-            .or_else(|| value.get("name"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-        else {
-            continue;
-        };
-        titles.insert(id.to_string(), title.to_string());
-    }
+    crate::services::cli_sessions::scan_json_records(
+        &path,
+        "读取 Codex 会话命名索引",
+        &|| true,
+        |_sequence, line| {
+            let Ok(value) = serde_json::from_slice::<Value>(line) else {
+                return false;
+            };
+            if let (Some(id), Some(title)) = (
+                value
+                    .get("id")
+                    .or_else(|| value.get("session_id"))
+                    .and_then(Value::as_str),
+                value
+                    .get("thread_name")
+                    .or_else(|| value.get("name"))
+                    .and_then(Value::as_str),
+            ) {
+                if !id.trim().is_empty() && !title.trim().is_empty() {
+                    titles.insert(id.trim().into(), title.trim().into());
+                }
+            }
+            false
+        },
+    )?;
     Ok(titles)
 }
 
@@ -83,7 +87,7 @@ pub(super) fn read_session_title(
     max_bytes: usize,
 ) -> Option<String> {
     let path = codex_home.join(SESSION_INDEX_FILE);
-    let file = fs::File::open(path).ok()?;
+    let file = crate::services::cli_sessions::workbench::open_session_file(path).ok()?;
     let mut consumed = 0usize;
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         consumed = consumed.saturating_add(line.len());
@@ -115,56 +119,85 @@ pub(super) fn read_session_title(
     None
 }
 
-pub(super) fn read_database(
+/// Streams all selected native workspace rows from one open database. SQL has
+/// no history-count LIMIT; request cancellation interrupts both SQLite and rows.
+pub(super) fn read_database_history(
     cli_kind: AgentCliKind,
     path: &Path,
-    workdir: &str,
-    canonical_workdir: &str,
-    limit: usize,
-) -> Result<Vec<CliSessionSummary>, String> {
+    workdirs: &[PathBuf],
+    budget: &crate::services::agent_cli::contracts::SessionReadBudget,
+    mut observe: impl FnMut(CodexSessionRecord, Option<String>, Option<String>),
+) -> Result<(), String> {
     let connection = open_database(path)?;
-    let columns = thread_columns(&connection)?;
-    if !columns.contains("id") || !columns.contains("cwd") {
-        return Err(format!(
-            "Codex 状态数据库缺少 threads 会话索引：{}",
-            path.display()
-        ));
-    }
-
-    let optional = |name: &str| optional_column(&columns, name);
-    let created_column = timestamp_column(&columns, "created_at_ms", "created_at");
-    let updated_column = timestamp_column(&columns, "updated_at_ms", "updated_at");
-    let order_column = ["updated_at_ms", "updated_at", "created_at_ms", "created_at"]
-        .into_iter()
-        .find(|column| columns.contains(*column))
-        .unwrap_or("rowid");
-    let sql = format!(
-        "SELECT id, cwd, {name}, {title}, {preview}, {first_user_message}, {model}, {created}, {updated}, {archived}, {cli_version} FROM threads WHERE cwd = ?1 OR cwd = ?2 ORDER BY {order_column} DESC LIMIT ?3",
-        name = optional("name"),
-        title = optional("title"),
-        preview = optional("preview"),
-        first_user_message = optional("first_user_message"),
-        model = optional("model"),
-        created = created_column,
-        updated = updated_column,
-        archived = optional("archived"),
-        cli_version = optional("cli_version"),
-    );
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|err| format!("读取 Codex 会话索引失败：{err}"))?;
-    let rows = statement
-        .query_map((workdir, canonical_workdir, limit as i64), |row| {
-            row_to_summary(
-                row,
-                cli_kind,
-                created_column == "created_at_ms",
-                updated_column == "updated_at_ms",
-            )
-        })
-        .map_err(|err| format!("查询 Codex 历史会话失败：{err}"))?;
-    rows.map(|row| row.map_err(|err| format!("解析 Codex 历史会话失败：{err}")))
-        .collect()
+    let interrupt = connection.get_interrupt_handle();
+    let (stop, receiver) = std::sync::mpsc::channel::<()>();
+    let watched = budget.clone();
+    let watcher = std::thread::spawn(move || {
+        while receiver.recv_timeout(std::time::Duration::from_millis(20))
+            == Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        {
+            if watched.check().is_err() {
+                interrupt.interrupt();
+                break;
+            }
+        }
+    });
+    let result = (|| {
+        let columns = thread_columns(&connection)?;
+        if !columns.contains("id") || !columns.contains("cwd") {
+            return Err("Codex 数据库缺少原生 threads 索引".into());
+        }
+        let optional = |name: &str| optional_column(&columns, name);
+        let created = timestamp_column(&columns, "created_at_ms", "created_at");
+        let updated = timestamp_column(&columns, "updated_at_ms", "updated_at");
+        let mut paths = Vec::new();
+        for workdir in workdirs {
+            paths.push(workdir.to_string_lossy().to_string());
+            if let Ok(canonical) = workdir.canonicalize() {
+                paths.push(canonical.to_string_lossy().to_string());
+            }
+        }
+        paths.sort();
+        paths.dedup();
+        // Batch parameters avoid SQLite's variable limit without changing the
+        // requested directory set or re-opening its state database per project.
+        for paths in paths.chunks(200) {
+            budget.check()?;
+            let placeholders = vec!["?"; paths.len()].join(",");
+            let sql = format!("SELECT id, cwd, {name}, {title}, {preview}, {first_user_message}, {model}, {created}, {updated}, {archived}, {cli_version}, {rollout_path}, {source}, {parent_thread_id} FROM threads WHERE cwd IN ({placeholders}) ORDER BY {updated} DESC, id ASC", name=optional("name"), title=optional("title"), preview=optional("preview"), first_user_message=optional("first_user_message"), model=optional("model"), archived=optional("archived"), cli_version=optional("cli_version"), rollout_path=optional("rollout_path"), source=optional("source"), parent_thread_id=optional("parent_thread_id"));
+            let mut statement = connection
+                .prepare(&sql)
+                .map_err(|error| error.to_string())?;
+            let mut rows = statement
+                .query(rusqlite::params_from_iter(paths))
+                .map_err(|error| error.to_string())?;
+            while let Some(row) = rows.next().map_err(|error| error.to_string())? {
+                budget.check()?;
+                let record = CodexSessionRecord {
+                    summary: row_to_summary(
+                        row,
+                        cli_kind,
+                        created == "created_at_ms",
+                        updated == "updated_at_ms",
+                    )
+                    .map_err(|error| error.to_string())?,
+                    rollout_path: row
+                        .get::<_, Option<String>>(11)
+                        .map_err(|error| error.to_string())?
+                        .unwrap_or_default(),
+                };
+                observe(
+                    record,
+                    row.get(12).map_err(|error| error.to_string())?,
+                    row.get(13).map_err(|error| error.to_string())?,
+                );
+            }
+        }
+        Ok(())
+    })();
+    let _ = stop.send(());
+    let _ = watcher.join();
+    result
 }
 
 pub(super) fn read_database_session(
@@ -197,49 +230,27 @@ pub(super) fn read_database_session(
         rollout_path = optional("rollout_path"),
     );
     connection
-        .query_row(
-            &sql,
-            (session_id, workdir, canonical_workdir),
-            |row| {
-                Ok(CodexSessionRecord {
-                    summary: row_to_summary(
-                        row,
-                        cli_kind,
-                        created_column == "created_at_ms",
-                        updated_column == "updated_at_ms",
-                    )?,
-                    rollout_path: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
-                })
-            },
-        )
+        .query_row(&sql, (session_id, workdir, canonical_workdir), |row| {
+            Ok(CodexSessionRecord {
+                summary: row_to_summary(
+                    row,
+                    cli_kind,
+                    created_column == "created_at_ms",
+                    updated_column == "updated_at_ms",
+                )?,
+                rollout_path: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+            })
+        })
         .optional()
         .map_err(|err| format!("查询 Codex 会话详情失败：{err}"))
-}
-
-pub(super) fn resolve_rollout_path(codex_home: &Path, indexed_path: &str) -> Option<PathBuf> {
-    let indexed = PathBuf::from(indexed_path.trim());
-    if indexed.is_file() {
-        return Some(indexed);
-    }
-    let file_name = indexed.file_name()?;
-    for root in [
-        codex_home.join("archived_sessions"),
-        codex_home.join("sessions"),
-    ] {
-        let direct = root.join(file_name);
-        if direct.is_file() {
-            return Some(direct);
-        }
-        if let Some(found) = find_rollout_by_name(&root, file_name) {
-            return Some(found);
-        }
-    }
-    None
 }
 
 fn open_database(path: &Path) -> Result<Connection, String> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|err| format!("打开 Codex 状态数据库失败：{}：{err}", path.display()))?;
+    connection
+        .busy_timeout(std::time::Duration::from_millis(100))
+        .map_err(|error| error.to_string())?;
     connection
         .pragma_update(None, "query_only", true)
         .map_err(|err| format!("设置 Codex 状态数据库只读模式失败：{err}"))?;
@@ -278,42 +289,6 @@ fn timestamp_column<'a>(
     } else {
         "NULL"
     }
-}
-
-fn find_rollout_by_name(root: &Path, file_name: &std::ffi::OsStr) -> Option<PathBuf> {
-    if !root.is_dir() {
-        return None;
-    }
-    let mut directories = vec![root.to_path_buf()];
-    let mut scanned = 0usize;
-    while let Some(directory) = directories.pop() {
-        if scanned >= MAX_ROLLOUT_FALLBACK_DIRECTORIES {
-            break;
-        }
-        scanned += 1;
-        let Ok(entries) = fs::read_dir(directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Ok(file_type) = entry.file_type() else {
-                continue;
-            };
-            if file_type.is_symlink() {
-                continue;
-            }
-            let path = entry.path();
-            if file_type.is_file() && path.file_name() == Some(file_name) {
-                return Some(path);
-            }
-            if file_type.is_dir()
-                && directories.len().saturating_add(scanned)
-                    < MAX_ROLLOUT_FALLBACK_DIRECTORIES
-            {
-                directories.push(path);
-            }
-        }
-    }
-    None
 }
 
 fn row_to_summary(

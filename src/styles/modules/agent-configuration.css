@@ -1,0 +1,43 @@
+.agent-configuration-editor-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+.agent-configuration-editor-body { padding: 8px 4px 4px; }
+.agent-configuration-file-tabs { display: flex; min-width: 0; overflow-x: auto; gap: 6px; padding: 2px; }
+.agent-configuration-file-tabs button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid var(--surface-line); border-radius: 6px; background: var(--surface-panel); color: var(--surface-ink-soft); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.agent-configuration-file-tabs button.active { border-color: var(--surface-accent); background: var(--surface-accent-soft); color: var(--surface-accent); }
+.agent-configuration-file-tabs button:focus-visible { outline: 2px solid var(--surface-accent); outline-offset: 1px; }
+.agent-configuration-plan-change {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 8px;
+  background: var(--color-bg-2);
+}
+.agent-configuration-document > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.agent-configuration-document > header > span { font-size: 12px; color: var(--color-text-3); }
+.agent-configuration-document > header > code,
+.agent-configuration-plan-change > code { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
+.agent-configuration-path { min-width: 0; color: var(--color-text-3); font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
+.agent-configuration-file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.agent-configuration-file-actions .card-icon-action { display: inline-flex; width: auto; height: 28px; flex-basis: auto; align-items: center; gap: 5px; padding: 0 6px; font: inherit; font-size: 12px; }
+.agent-configuration-file-actions .card-icon-action > span { color: var(--color-text-2); }
+.agent-configuration-draft-notice { display: grid; gap: 10px; border-left: 3px solid var(--surface-warning); padding: 12px 14px; background: var(--surface-panel-soft); }
+.agent-configuration-draft-notice > p { margin: 0; color: var(--surface-ink); font-size: 13px; line-height: 1.6; }
+.agent-configuration-diagnostics,
+.agent-configuration-reload-hints { margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.7; color: var(--color-text-2); }
+.agent-configuration-diagnostic-error { color: rgb(var(--danger-6)); }
+.agent-configuration-diagnostic-warning { color: rgb(var(--warning-6)); }
+.agent-configuration-document,
+.agent-configuration-plan { display: flex; min-width: 0; flex-direction: column; gap: 10px; }
+.agent-configuration-editor-footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 6px; }

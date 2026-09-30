@@ -1,0 +1,1 @@
+{"mechanism":"grok-plugin-enabled-toml","revision":1,"config":"fixture_unknown = \"preserve\"\n[plugins]\nenabled = [\"fixture-plugin\"]\ndisabled = [\"untouched\"]\n","manifest":{"name":"fixture-plugin","version":"1.0.0","description":"isolated fixture"},"checks":["disable","enable","idempotent","unknown_siblings","native_inspect","payload_not_executed"]}

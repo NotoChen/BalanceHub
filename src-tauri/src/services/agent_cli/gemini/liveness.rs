@@ -80,16 +80,19 @@ pub(super) fn parse_output(response_output: &str, _stdout: &str) -> ParsedLivene
         .chars()
         .take(240)
         .collect::<String>();
-    let error = response.is_empty().then(|| {
-        value.get("error").and_then(|error| {
-            error.as_str().map(str::to_string).or_else(|| {
-                error
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
+    let error = response
+        .is_empty()
+        .then(|| {
+            value.get("error").and_then(|error| {
+                error.as_str().map(str::to_string).or_else(|| {
+                    error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
             })
         })
-    }).flatten();
+        .flatten();
 
     let mut usage = ParsedTokenUsage::default();
     if let Some(models) = value
@@ -105,7 +108,10 @@ pub(super) fn parse_output(response_output: &str, _stdout: &str) -> ParsedLivene
                 &mut usage.input_tokens,
                 extract_u64(tokens, "input").or_else(|| extract_u64(tokens, "prompt")),
             );
-            add_optional(&mut usage.cached_input_tokens, extract_u64(tokens, "cached"));
+            add_optional(
+                &mut usage.cached_input_tokens,
+                extract_u64(tokens, "cached"),
+            );
             add_optional(&mut usage.output_tokens, extract_u64(tokens, "candidates"));
             add_optional(
                 &mut usage.reasoning_output_tokens,

@@ -1,9 +1,6 @@
-use super::{preview_config, snapshot, switch_config};
+use super::snapshot;
 use crate::{
-    models::{
-        AgentCliKind, AppData, CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult,
-        CliRuntimeSnapshot, Provider,
-    },
+    models::{AppData, CliEnvironmentProbeResult, CliRuntimeSnapshot},
     services::agent_cli,
     state::AppState,
 };
@@ -23,41 +20,27 @@ impl<'a> CliRuntimeService<'a> {
         snapshot(&data.providers)
     }
 
-    pub(crate) fn preview_config(
-        &self,
-        provider_id: &str,
-        cli_kind: AgentCliKind,
-        api_key_local_id: &str,
-    ) -> Result<CliConfigPreview, String> {
-        let data = self.data();
-        preview_config(
-            find_provider(&data, provider_id)?,
-            cli_kind,
-            api_key_local_id,
-        )
-    }
-
-    pub(crate) fn switch_config(
-        &self,
-        provider_id: &str,
-        cli_kind: AgentCliKind,
-        api_key_local_id: &str,
-        revision: &str,
-        files: &[CliConfigFile],
-    ) -> Result<CliRuntimeSnapshot, String> {
-        let data = self.data();
-        switch_config(
-            find_provider(&data, provider_id)?,
-            cli_kind,
-            api_key_local_id,
-            Some(revision),
-            files,
-        )?;
-        Ok(snapshot(&data.providers))
-    }
-
     pub(crate) fn probe_tools(&self, deep: bool) -> CliEnvironmentProbeResult {
-        agent_cli::probe_all(&self.data().settings, deep)
+        let result = agent_cli::probe_all(&self.data().settings, deep);
+        if let Ok(root) = self.app.path().app_data_dir() {
+            static SNAPSHOT_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let _guard = SNAPSHOT_WRITE
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let _ = agent_cli::cache::write(&root.join("agent-cli-probe.json"), &result);
+        }
+        result
+    }
+
+    pub(crate) fn cached_tools(&self) -> Option<CliEnvironmentProbeResult> {
+        agent_cli::cache::read(
+            &self
+                .app
+                .path()
+                .app_data_dir()
+                .ok()?
+                .join("agent-cli-probe.json"),
+        )
     }
 
     fn data(&self) -> AppData {
@@ -68,11 +51,4 @@ impl<'a> CliRuntimeService<'a> {
             .unwrap_or_else(|error| error.into_inner())
             .clone()
     }
-}
-
-fn find_provider<'a>(data: &'a AppData, id: &str) -> Result<&'a Provider, String> {
-    data.providers
-        .iter()
-        .find(|provider| provider.identity.id == id)
-        .ok_or_else(|| "中转站不存在".to_string())
 }

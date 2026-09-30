@@ -1,10 +1,9 @@
-#[derive(Debug)]
-struct EnvAssignment {
-    key: String,
-    value_start: usize,
-    value_end: usize,
-    value: String,
-    quote: Option<u8>,
+pub(crate) struct EnvAssignment {
+    pub(crate) key: String,
+    pub(crate) value_start: usize,
+    pub(crate) value_end: usize,
+    pub(crate) value: String,
+    pub(crate) quote: Option<u8>,
 }
 
 pub(crate) fn env_value(source: &str, key: &str) -> Option<String> {
@@ -71,7 +70,7 @@ pub(crate) fn rewrite_env_values(source: &str, fields: &[(&str, &str)]) -> Resul
     Ok(output)
 }
 
-fn assignments(source: &str) -> Vec<EnvAssignment> {
+pub(crate) fn assignments(source: &str) -> Vec<EnvAssignment> {
     let mut output = Vec::new();
     let mut line_start = 0;
     for line in source.split_inclusive('\n') {
@@ -174,7 +173,7 @@ fn decode_env_value(raw: &str, quote: Option<u8>) -> String {
     }
 }
 
-fn encode_env_value(value: &str, preferred_quote: Option<u8>) -> Result<String, String> {
+pub(crate) fn encode_env_value(value: &str, preferred_quote: Option<u8>) -> Result<String, String> {
     if preferred_quote.is_none() && is_plain_env_value(value) {
         return Ok(value.to_string());
     }

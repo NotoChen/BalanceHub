@@ -1,5 +1,5 @@
-import { computed, ref } from "vue";
-import { Message } from "@arco-design/web-vue";
+import { computed, ref, watch } from "vue";
+import { useLatestRequest } from "./useLatestRequest.ts";
 import type {
   Provider,
   ProviderRequestLogsQuery,
@@ -14,7 +14,7 @@ interface UseRequestLogsOptions {
 export function useRequestLogs(options: UseRequestLogsOptions) {
   const requestLogsVisible = ref(false);
   const requestLogsProviderId = ref<string | null>(null);
-  const requestLogsLoading = ref(false);
+  const request = useLatestRequest({ timeoutMessage: "读取请求日志超时，请重试" });
   const requestLogsKeyword = ref("");
   const requestLogsPage = ref(0);
   const requestLogsPageSize = ref(20);
@@ -23,6 +23,13 @@ export function useRequestLogs(options: UseRequestLogsOptions) {
   const requestLogsProvider = computed(() =>
     options.providers.value.find((provider) => provider.identity.id === requestLogsProviderId.value) ?? null,
   );
+  let resultQuery = "";
+
+  watch([requestLogsVisible, () => requestLogsProvider.value?.identity.id], () => {
+    request.invalidate();
+    requestLogsResult.value = null;
+    resultQuery = "";
+  }, { flush: "sync" });
 
   function requestLogsQuery(): ProviderRequestLogsQuery {
     return {
@@ -33,18 +40,17 @@ export function useRequestLogs(options: UseRequestLogsOptions) {
   }
 
   async function loadRequestLogs() {
-    if (!requestLogsProvider.value) {
+    const providerId = requestLogsProvider.value?.identity.id;
+    if (!requestLogsVisible.value || !providerId) {
       return;
     }
-
-    requestLogsLoading.value = true;
-    try {
-      requestLogsResult.value = await options.loadLogs(requestLogsProvider.value.identity.id, requestLogsQuery());
-    } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      requestLogsLoading.value = false;
-    }
+    const query = requestLogsQuery();
+    const queryKey = JSON.stringify([providerId, query]);
+    if (queryKey !== resultQuery) requestLogsResult.value = null;
+    await request.run(() => options.loadLogs(providerId, query), (result) => {
+      requestLogsResult.value = result;
+      resultQuery = queryKey;
+    });
   }
 
   function openRequestLogs(provider: Provider) {
@@ -76,7 +82,8 @@ export function useRequestLogs(options: UseRequestLogsOptions) {
   return {
     requestLogsVisible,
     requestLogsProvider,
-    requestLogsLoading,
+    requestLogsLoading: request.loading,
+    requestLogsError: request.error,
     requestLogsKeyword,
     requestLogsPage,
     requestLogsPageSize,

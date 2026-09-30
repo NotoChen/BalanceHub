@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import {
   IconCloud,
   IconExperiment,
@@ -13,6 +13,7 @@ import type {
   AppSettings,
   Provider,
   ProviderApiKeyOption,
+  ProviderConnectionTestResult,
   ProviderInput,
   ProviderProtocol,
   ProviderProtocolDescriptor,
@@ -56,6 +57,9 @@ const props = defineProps<{
   siteNameSourceBaseUrl: string;
   settings: AppSettings;
   testingConnection: boolean;
+  connectionTestResult: ProviderConnectionTestResult | null;
+  saving: boolean;
+  saveError: string;
   startingBrowserLogin: boolean;
   credentialAssistantState: CredentialCompletionState;
   credentialAssistantSteps: CredentialCompletionStep[];
@@ -94,16 +98,16 @@ const emit = defineEmits<{
 }>();
 
 const formScroll = ref<HTMLElement | null>(null);
-
 function scrollToInitialSection() {
   const container = formScroll.value;
   if (!container) return;
   container.scrollTop = 0;
-  if (props.initialSection !== "basics") {
-    container.querySelector<HTMLElement>(`[data-provider-section="${props.initialSection}"]`)
-      ?.scrollIntoView({ block: "start" });
-  }
+  if (props.initialSection === "basics") return;
+  const target = container.querySelector<HTMLElement>(`[data-provider-section="${props.initialSection}"]`);
+  if (target) container.scrollTop = target.offsetTop - 18;
 }
+
+watch(() => props.editorSession, scrollToInitialSection, { flush: "post" });
 </script>
 
 <template>
@@ -127,10 +131,11 @@ function scrollToInitialSection() {
 
     <div class="provider-editor-layout">
       <div ref="formScroll" class="provider-editor-scroll">
-        <a-form :key="editorSession" :model="draft" layout="vertical" class="provider-editor-form">
+        <a-form :key="editorSession" :model="draft" :disabled="saving" layout="vertical" class="provider-editor-form">
           <ProviderEditorBasicsSection
             data-provider-section="basics"
             :draft="draft"
+            :disabled="saving"
             :provider-protocols="providerProtocols"
             :site-probe-result="siteProbeResult"
             :protocol-detection-result="protocolDetectionResult"
@@ -143,6 +148,7 @@ function scrollToInitialSection() {
           <div data-provider-section="credentials" class="provider-editor-credentials">
             <ProviderEditorCredentialsSection
               :starting-browser-login="startingBrowserLogin"
+              :disabled="saving"
               @login-and-import="emit('login-and-import')"
               :draft="draft"
               :provider-protocols="providerProtocols"
@@ -176,32 +182,52 @@ function scrollToInitialSection() {
               @set-default-managed-api-key="emit('set-default-managed-api-key', $event)"
               @copy-managed-api-key="emit('copy-managed-api-key', $event)"
               @delete-managed-api-key="emit('delete-managed-api-key', $event)"
-            />
-            <ProviderCredentialAssistant
-              :draft="draft"
-              :provider-protocols="providerProtocols"
-              :state="credentialAssistantState"
-              :steps="credentialAssistantSteps"
-              :message="credentialAssistantMessage"
-              :busy="credentialAssistantBusy"
-              :can-run="canRunCredentialAssistant"
-              :saved="credentialAssistantSaved"
-              @run="emit('run-credential-assistant')"
-            />
+            >
+              <template #assistant>
+                <ProviderCredentialAssistant
+                  :draft="draft"
+                  :provider-protocols="providerProtocols"
+                  :state="credentialAssistantState"
+                  :steps="credentialAssistantSteps"
+                  :message="credentialAssistantMessage"
+                  :busy="credentialAssistantBusy"
+                  :can-run="canRunCredentialAssistant"
+                  :saved="credentialAssistantSaved"
+                  @run="emit('run-credential-assistant')"
+                />
+              </template>
+            </ProviderEditorCredentialsSection>
           </div>
-          <ProviderEditorAdvancedSection
-            data-provider-section="advanced"
-            :draft="draft"
-            :settings="settings"
-            :available-models="availableModels"
-          />
+          <section data-provider-section="advanced" class="provider-editor-policy-section" aria-labelledby="provider-editor-policy-title">
+            <header class="provider-editor-policy-heading">
+              <h2 id="provider-editor-policy-title">运行策略</h2>
+            </header>
+            <ProviderEditorAdvancedSection
+              :draft="draft"
+              :settings="settings"
+              :available-models="availableModels"
+            />
+          </section>
         </a-form>
+      </div>
+      <div v-if="saveError || connectionTestResult" class="provider-editor-feedback" aria-live="polite">
+        <a-alert v-if="saveError" type="error" show-icon>{{ saveError }}</a-alert>
+        <a-alert v-else-if="connectionTestResult" :type="connectionTestResult.ok ? 'success' : 'error'" show-icon>
+          <strong>{{ connectionTestResult.ok ? '连接测试通过' : '连接测试未通过' }}</strong>
+          <span v-if="connectionTestResult.message"> · {{ connectionTestResult.message }}</span>
+          <details v-if="connectionTestResult.steps.length" class="provider-test-steps">
+            <summary>查看测试过程</summary>
+            <div v-for="(step, index) in connectionTestResult.steps" :key="index" :class="{ 'is-error': !step.ok }">
+              <strong>{{ step.name }}</strong><span>{{ step.message }}</span>
+            </div>
+          </details>
+        </a-alert>
       </div>
       <footer class="provider-editor-footer">
         <a-tooltip content="测试当前认证方式">
           <a-button
             :loading="testingConnection"
-            :disabled="!draft.identity.baseUrl"
+            :disabled="!draft.identity.baseUrl.trim() || saving || credentialAssistantBusy || startingBrowserLogin"
             @click="emit('test-connection')"
           >
             <template #icon><IconExperiment /></template>
@@ -209,10 +235,11 @@ function scrollToInitialSection() {
           </a-button>
         </a-tooltip>
         <span class="provider-editor-footer-spacer" />
-        <a-button @click="emit('update:visible', false)">取消</a-button>
+        <a-button @click="emit('update:visible', false)">{{ saving ? '关闭' : '取消' }}</a-button>
         <a-button
           type="primary"
-          :disabled="!draft.identity.baseUrl"
+          :loading="saving"
+          :disabled="!draft.identity.baseUrl.trim() || credentialAssistantBusy || startingBrowserLogin"
           @click="emit('save')"
         >
           <template #icon><IconSave /></template>

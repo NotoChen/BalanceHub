@@ -13,12 +13,11 @@ use crate::{
     },
     util::unix_millis as now_millis,
 };
-use process::wait_with_output_timeout;
 use prompt::{effective_cli_kind, effective_model, effective_timeout, select_prompt};
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     time::{Duration, Instant},
 };
 
@@ -163,15 +162,13 @@ impl LivenessRunner {
         command.args(&plan.args);
         let proxy = network::resolve_proxy(settings, provider);
         network::apply_proxy_env(&mut command, &proxy);
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        process::configure_process_group(&mut command);
 
         let started_at = Instant::now();
-        let child = match command.spawn() {
-            Ok(child) => child,
+        let outcome = match process::run_command_with_output_timeout(
+            &mut command,
+            Duration::from_secs(context.timeout_seconds),
+        ) {
+            Ok(outcome) => outcome,
             Err(err) => {
                 cleanup_liveness_home(&isolated_home);
                 return failure_record(
@@ -183,7 +180,6 @@ impl LivenessRunner {
                 );
             }
         };
-        let outcome = wait_with_output_timeout(child, Duration::from_secs(context.timeout_seconds));
         let latency_ms = started_at.elapsed().as_millis();
         let response_output = read_response_output(&plan.response_source, &outcome.stdout);
         cleanup_liveness_home(&isolated_home);

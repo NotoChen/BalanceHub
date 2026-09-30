@@ -1,0 +1,1 @@
+{"mechanism":"codex-skill-enabled-toml","revision":1,"config":"[skills.bundled]\nenabled = false\n[[skills.config]]\npath = \"__SKILL_PATH__\"\nenabled = true\n","checks":["disable","enable","idempotent","unknown_siblings","native_skill_list","payload_not_executed","user_scope","workspace_scope"]}

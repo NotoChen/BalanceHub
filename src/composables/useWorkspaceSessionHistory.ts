@@ -1,17 +1,8 @@
-import { getCurrentInstance, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type {
-  AgentCliKind,
-  CliSessionDetail,
-  CliSessionIndexState,
-  CliSessionSearchResponse,
-  CliSessionSearchResult,
-  CliSessionSummary,
-  TemporaryCliSessionMode,
-  WorkspaceDirectoryListing,
-} from "../stores/providers";
-
-const SESSION_SEARCH_DEBOUNCE_MS = 280;
+import { computed, ref, watch, type Ref } from "vue";
+import type { AgentSessionQueryApi } from "../api/agent-sessions.ts";
+import type { AgentSessionRow } from "../stores/agent-session-types.ts";
+import type { AgentCliKind, CliSessionIndexState, TemporaryCliSessionMode, WorkspaceDirectoryListing } from "../stores/provider-types.ts";
+import { useAgentSessions } from "./useAgentSessions.ts";
 
 interface UseWorkspaceSessionHistoryOptions {
   visible: Ref<boolean>;
@@ -19,258 +10,100 @@ interface UseWorkspaceSessionHistoryOptions {
   sessionMode: Ref<TemporaryCliSessionMode>;
   selectedModel: Ref<string>;
   directory: Ref<WorkspaceDirectoryListing | null>;
-  searchSessions: (
-    cliKind: AgentCliKind,
-    workdir: string,
-    query: string,
-    forceRefresh?: boolean,
-  ) => Promise<CliSessionSearchResponse>;
-  getSessionDetail: (
-    cliKind: AgentCliKind,
-    workdir: string,
-    sessionId: string,
-  ) => Promise<CliSessionDetail>;
+  sessionApi?: AgentSessionQueryApi;
 }
 
+/** The temporary CLI picker shares the workbench query and detail lifetimes. */
 export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOptions) {
   const workspaceSessionQuery = ref("");
-  const workspaceSessionResults = ref<CliSessionSearchResult[]>([]);
-  const workspaceSessionsLoading = ref(false);
-  const workspaceSessionsError = ref("");
-  const workspaceSessionIndexState = ref<CliSessionIndexState>("ready");
-  const workspaceSessionIndexMessage = ref("");
+  const active = computed(() => options.visible.value && options.sessionMode.value === "history" && Boolean(options.directory.value?.currentPath));
+  const explicitWorkdir = computed(() => options.directory.value?.currentPath || null);
+  const agentKinds = computed(() => [options.cliKind.value]);
+  const sessions = useAgentSessions({ active, agentKinds, query: workspaceSessionQuery, explicitWorkdir, autoLoad: false, api: options.sessionApi });
   const workspaceSelectedResumeId = ref("");
+  const workspaceSelectedSessionRef = ref("");
   const workspaceSelectedSessionTitle = ref("");
-  const workspaceSessionDetailVisible = ref(false);
-  const workspaceSessionDetailLoading = ref(false);
-  const workspaceSessionDetailError = ref("");
-  const workspaceSessionDetail = ref<CliSessionDetail | null>(null);
-  let sessionsRequestId = 0;
-  let detailRequestId = 0;
-  let searchTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
-  let indexUpdatedUnlisten: UnlistenFn | null = null;
-  let disposed = false;
+  const workspaceSessionIndexState = computed<CliSessionIndexState>(() => {
+    const states = sessions.sourceStates.value;
+    if (states.some((state) => state.indexState === "fallback")) return "fallback";
+    return states.length && states.every((state) => state.indexState === "disabled") ? "disabled" : "ready";
+  });
+  const workspaceSessionIndexMessage = computed(() => {
+    const messages = sessions.sourceStates.value.flatMap((state) => state.message ? [state.message] : []);
+    if (sessions.incomplete.value) messages.unshift("部分来源读取受限，已保留可读会话");
+    if (sessions.cancelled.value) messages.push("本次查询已取消");
+    return [...new Set(messages)].join("；");
+  });
+  const workspaceSessionsError = computed(() => sessions.scopeError.value || sessions.error.value);
 
-  async function loadWorkspaceSessions(workdir?: string, forceRefresh = false) {
-    clearSearchTimer();
-    const path = (workdir || options.directory.value?.currentPath || "").trim();
-    const query = workspaceSessionQuery.value.trim();
-    const cliKind = options.cliKind.value;
-    const requestId = ++sessionsRequestId;
-    workspaceSessionsError.value = "";
-    workspaceSessionResults.value = [];
-    if (!path || !options.visible.value || options.sessionMode.value === "new") {
-      workspaceSessionsLoading.value = false;
-      return;
-    }
-    workspaceSessionsLoading.value = true;
-    try {
-      const response = await options.searchSessions(cliKind, path, query, forceRefresh);
-      if (
-        requestId !== sessionsRequestId
-        || !options.visible.value
-        || options.directory.value?.currentPath !== path
-        || options.cliKind.value !== cliKind
-        || workspaceSessionQuery.value.trim() !== query
-      ) {
-        return;
-      }
-      workspaceSessionResults.value = response.results;
-      workspaceSessionIndexState.value = response.indexState;
-      workspaceSessionIndexMessage.value = response.indexMessage || "";
-      if (
-        !query
-        && workspaceSelectedResumeId.value
-        && !response.results.some((result) => result.session.id === workspaceSelectedResumeId.value)
-      ) {
-        clearWorkspaceSessionSelection();
-      }
-    } catch (error) {
-      if (requestId === sessionsRequestId) {
-        workspaceSessionsError.value = errorMessage(error);
-      }
-    } finally {
-      if (requestId === sessionsRequestId) {
-        workspaceSessionsLoading.value = false;
-      }
-    }
+  async function loadWorkspaceSessions(workdir?: string) {
+    if (workdir && workdir.trim() !== options.directory.value?.currentPath) return;
+    await sessions.load();
   }
-
   function refreshWorkspaceSessions(workdir?: string) {
-    return loadWorkspaceSessions(workdir, true);
+    if (workdir && workdir.trim() !== options.directory.value?.currentPath) return;
+    return sessions.refresh();
   }
-
-  function scheduleWorkspaceSessionSearch() {
-    clearSearchTimer();
-    sessionsRequestId += 1;
-    workspaceSessionsError.value = "";
-    workspaceSessionIndexMessage.value = "";
-    workspaceSessionIndexState.value = "ready";
-    workspaceSessionResults.value = [];
-    if (
-      !options.visible.value
-      || options.sessionMode.value === "new"
-      || !options.directory.value?.currentPath
-    ) {
-      workspaceSessionsLoading.value = false;
-      return;
-    }
-    workspaceSessionsLoading.value = true;
-    searchTimer = globalThis.setTimeout(() => {
-      searchTimer = null;
-      void loadWorkspaceSessions();
-    }, SESSION_SEARCH_DEBOUNCE_MS);
-  }
-
-  async function openWorkspaceSessionDetail(session: CliSessionSummary) {
-    const path = options.directory.value?.currentPath?.trim() || "";
-    if (!path) return;
-    const cliKind = options.cliKind.value;
-    const requestId = ++detailRequestId;
-    workspaceSessionDetailVisible.value = true;
-    workspaceSessionDetailLoading.value = true;
-    workspaceSessionDetailError.value = "";
-    workspaceSessionDetail.value = null;
-    try {
-      const detail = await options.getSessionDetail(cliKind, path, session.id);
-      if (
-        requestId !== detailRequestId
-        || !workspaceSessionDetailVisible.value
-        || options.directory.value?.currentPath !== path
-        || options.cliKind.value !== cliKind
-      ) {
-        return;
-      }
-      workspaceSessionDetail.value = detail;
-    } catch (error) {
-      if (requestId === detailRequestId) {
-        workspaceSessionDetailError.value = errorMessage(error);
-      }
-    } finally {
-      if (requestId === detailRequestId) {
-        workspaceSessionDetailLoading.value = false;
-      }
-    }
-  }
-
-  function closeWorkspaceSessionDetail() {
-    detailRequestId += 1;
-    workspaceSessionDetailVisible.value = false;
-    workspaceSessionDetailLoading.value = false;
-    workspaceSessionDetailError.value = "";
-    workspaceSessionDetail.value = null;
-  }
-
-  function selectWorkspaceSession(session: CliSessionSummary) {
-    if (!session.canResume) return;
-    workspaceSelectedResumeId.value = session.id;
-    workspaceSelectedSessionTitle.value = session.title;
+  function openWorkspaceSessionDetail(row: AgentSessionRow) { return sessions.openDetail(row.sessionRef); }
+  function selectWorkspaceSession(row: AgentSessionRow) {
+    if (!row.session.canResume) return;
+    workspaceSelectedResumeId.value = row.session.id;
+    workspaceSelectedSessionRef.value = row.sessionRef;
+    workspaceSelectedSessionTitle.value = row.session.title;
     options.sessionMode.value = "history";
-    // 空值表示不向官方 CLI 注入模型，让它按会话自己的元数据恢复。
     options.selectedModel.value = "";
   }
-
   function selectWorkspaceSessionFromDetail() {
-    const session = workspaceSessionDetail.value?.session;
-    if (!session) return;
-    selectWorkspaceSession(session);
-    closeWorkspaceSessionDetail();
+    if (!sessions.detailRow.value) return;
+    selectWorkspaceSession(sessions.detailRow.value);
+    sessions.closeDetail();
   }
-
-  function resetWorkspaceSessions() {
-    invalidateWorkspaceSessionRequests();
-    closeWorkspaceSessionDetail();
-    workspaceSessionQuery.value = "";
-    workspaceSessionResults.value = [];
-    workspaceSessionsError.value = "";
-    workspaceSelectedResumeId.value = "";
-    workspaceSelectedSessionTitle.value = "";
-  }
-
   function clearWorkspaceSessionSelection() {
     workspaceSelectedResumeId.value = "";
+    workspaceSelectedSessionRef.value = "";
     workspaceSelectedSessionTitle.value = "";
   }
-
-  function invalidateWorkspaceSessionRequests() {
-    clearSearchTimer();
-    sessionsRequestId += 1;
-    workspaceSessionsLoading.value = false;
+  function resetWorkspaceSessions() {
+    sessions.invalidate();
+    workspaceSessionQuery.value = "";
+    clearWorkspaceSessionSelection();
   }
-
-  function clearSearchTimer() {
-    if (searchTimer !== null) {
-      globalThis.clearTimeout(searchTimer);
-      searchTimer = null;
-    }
-  }
-
-  watch(workspaceSessionQuery, scheduleWorkspaceSessionSearch);
-  watch(workspaceSessionDetailVisible, (visible) => {
-    if (visible) return;
-    detailRequestId += 1;
-    workspaceSessionDetailLoading.value = false;
-    workspaceSessionDetailError.value = "";
-    workspaceSessionDetail.value = null;
-  });
-
-  if (getCurrentInstance()) {
-    onMounted(async () => {
-      disposed = false;
-      try {
-        const unlisten = await listen<string>("cli-session-index-updated", (event) => {
-          if (
-            event.payload === options.cliKind.value
-            && options.visible.value
-            && options.sessionMode.value === "history"
-            && options.directory.value?.currentPath
-          ) {
-            void loadWorkspaceSessions();
-          }
-        });
-        if (disposed) {
-          unlisten();
-          return;
-        }
-        indexUpdatedUnlisten = unlisten;
-      } catch {
-        // Vite/browser preview does not expose the Tauri event bus.
-      }
-    });
-
-    onUnmounted(() => {
-      disposed = true;
-      clearSearchTimer();
-      indexUpdatedUnlisten?.();
-      indexUpdatedUnlisten = null;
-    });
-  }
+  function invalidateWorkspaceSessionRequests() { sessions.invalidateList(); sessions.closeDetail(); }
+  watch(() => [options.cliKind.value, explicitWorkdir.value] as const, clearWorkspaceSessionSelection, { flush: "sync" });
+  watch(() => sessions.scope.value?.revision, (revision, previous) => {
+    if (previous && revision !== previous) clearWorkspaceSessionSelection();
+  }, { flush: "sync" });
 
   return {
     workspaceSessionQuery,
-    workspaceSessionResults,
-    workspaceSessionsLoading,
+    workspaceSessionResults: sessions.rows,
+    workspaceSessionsLoading: sessions.busy,
+    workspaceSessionsLoadingMore: sessions.loadingMore,
     workspaceSessionsError,
     workspaceSessionIndexState,
     workspaceSessionIndexMessage,
+    workspaceSessionRoleFilter: sessions.roleFilter,
+    workspaceSessionTotal: sessions.total,
+    workspaceSessionHasMore: sessions.hasMore,
     workspaceSelectedResumeId,
+    workspaceSelectedSessionRef,
+    workspaceSessionScopeRevision: computed(() => sessions.scope.value?.revision ?? ""),
     workspaceSelectedSessionTitle,
-    workspaceSessionDetailVisible,
-    workspaceSessionDetailLoading,
-    workspaceSessionDetailError,
-    workspaceSessionDetail,
+    workspaceSessionDetailVisible: sessions.detailVisible,
+    workspaceSessionDetailLoading: sessions.detailLoading,
+    workspaceSessionDetailError: sessions.detailError,
+    workspaceSessionDetail: sessions.detail,
+    workspaceSessionDetailRow: sessions.detailRow,
     loadWorkspaceSessions,
     refreshWorkspaceSessions,
+    loadMoreWorkspaceSessions: sessions.loadMore,
     openWorkspaceSessionDetail,
-    closeWorkspaceSessionDetail,
+    openWorkspaceSessionParent: sessions.openDetail,
+    closeWorkspaceSessionDetail: sessions.closeDetail,
     selectWorkspaceSession,
     selectWorkspaceSessionFromDetail,
     resetWorkspaceSessions,
     clearWorkspaceSessionSelection,
     invalidateWorkspaceSessionRequests,
   };
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

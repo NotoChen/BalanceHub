@@ -3,23 +3,6 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-.settings-workspace-v3 .settings-automation-value-row {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-}
-
-.settings-workspace-v3 .settings-automation-value-row > .settings-duration-control,
-.settings-workspace-v3 .settings-automation-value-row > .arco-picker {
-  width: 100%;
-  max-width: none;
-  justify-self: stretch;
-}
-
-.settings-workspace-v3 .settings-automation-toggle-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
 .settings-workspace-v3 .settings-liveness-timing-grid {
   grid-template-columns: repeat(3, minmax(130px, 1fr));
 }

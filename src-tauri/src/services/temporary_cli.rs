@@ -1,4 +1,5 @@
 mod orchestrator;
+mod prepared;
 mod shell_runtime;
 mod terminal;
 #[cfg(test)]
@@ -11,22 +12,22 @@ use crate::{
     },
     network,
     services::{
-        agent_cli::{self, contracts::TemporaryLaunchRequest},
+        agent_cli::{
+            self,
+            contracts::{TemporaryLaunchConfiguration, TemporaryLaunchRequest},
+        },
         cli_runtime,
     },
 };
 use shell_runtime::{
     environment,
-    script::{
-        cleanup_launch_files, effective_model, format_cli_command, preview_cli_auxiliary_path,
-        temporary_cli_auxiliary_path, temporary_script_path, write_launch_script,
-        LaunchScriptInput,
-    },
+    script::{effective_model, format_cli_command, preview_cli_auxiliary_path},
 };
-use std::{fs, path::Path};
-use terminal::{activate_terminal_target, open_script_in_terminal};
+use std::path::Path;
+use terminal::activate_terminal_target;
 
-pub(crate) use orchestrator::TemporaryCliLaunchService;
+pub(crate) use orchestrator::{launch_identity, ResumeCompletion, TemporaryCliLaunchService};
+pub(crate) use prepared::{prepare_launch, CliLaunchRequest, CliLaunchTarget};
 pub use shell_runtime::script::cleanup_stale;
 pub use terminal::{probe_available_terminals, probe_terminal};
 
@@ -94,9 +95,11 @@ pub fn preview(
     let proxy_environment = network::resolve_proxy(settings, provider).environment();
     let auxiliary_file_path = preview_cli_auxiliary_path(launch_adapter.auxiliary_file_name());
     let plan = launch_adapter.build_plan(TemporaryLaunchRequest {
-        provider_name: &provider.identity.name,
-        api_key: "***",
-        base_url: &base_url,
+        configuration: TemporaryLaunchConfiguration::Provider {
+            provider_name: &provider.identity.name,
+            api_key: "***",
+            base_url: &base_url,
+        },
         model: &model,
         session_name: &session_name,
         resume_id: &resume_id,
@@ -150,106 +153,29 @@ pub fn launch(
     workdir: &Path,
     options: LaunchOptions<'_>,
 ) -> Result<TemporaryCliInstance, String> {
-    ensure_temporary_launch_supported(cli_kind)?;
-    validate_launch_options(cli_kind, &options)?;
-    if !workdir.is_dir() {
-        return Err("工作目录不存在".to_string());
-    }
-    let api_key = if options.api_key_override.trim().is_empty() {
-        provider.auth.api_key.trim().to_string()
-    } else {
-        options.api_key_override.trim().to_string()
-    };
-    validate_full_api_key(&api_key)?;
-    if provider.identity.base_url.trim().is_empty() {
-        return Err("缺少中转站地址，无法启动临时 CLI".to_string());
-    }
-    let resume_id = resolve_resume_id(options.session_mode, options.resume_id)?;
-
-    let model = resolve_launch_model(
+    ensure_new_session_launch(options.session_mode)?;
+    let outcome = prepare_launch(CliLaunchRequest {
         settings,
-        provider,
-        options.model_override,
-        options.session_mode,
-    );
-    let session_name = resolve_session_name(
-        cli_kind,
-        options.session_mode,
-        options.session_name_override,
-    )?;
-    let base_url = agent_cli::provider_base_url(cli_kind, provider);
-    let proxy = network::resolve_proxy(settings, provider);
-    let proxy_environment = proxy.environment();
-
-    let script = temporary_script_path(provider, cli_kind);
-    let definition = agent_cli::definition(cli_kind);
-    let launch_adapter = definition
-        .temporary_launch()
-        .ok_or_else(|| format!("{} 当前不支持临时启动", definition.label))?;
-    let auxiliary_file_path =
-        temporary_cli_auxiliary_path(&script, launch_adapter.auxiliary_file_name());
-    let plan = launch_adapter.build_plan(TemporaryLaunchRequest {
-        provider_name: &provider.identity.name,
-        api_key: &api_key,
-        base_url: &base_url,
-        model: &model,
-        session_name: &session_name,
-        resume_id: &resume_id,
-        session_mode: options.session_mode,
-        auxiliary_file_path: auxiliary_file_path.as_deref(),
-    })?;
-    let session_title = runtime_session_title(&options, &session_name);
-    let account_label = provider_account_label(provider, options.api_key_label);
-    let registered = cli_runtime::register_instance(
-        provider,
+        target: CliLaunchTarget::Provider(provider),
+        cli,
         cli_kind,
         workdir,
-        settings.temporary_cli_terminal_kind,
-        &session_title,
-        &account_label,
-        options.api_key_local_id,
-    )?;
-    if let Some(parent) = script.parent() {
-        if let Err(err) = fs::create_dir_all(parent) {
-            cli_runtime::mark_instance_exited(&registered.status_path, None);
-            return Err(format!(
-                "创建临时 CLI 启动目录失败({}): {err}",
-                parent.display()
-            ));
-        }
+        options,
+        native_session: None,
+        source_environment: None,
+    })?
+    .dispatch();
+    match outcome.uncertainty {
+        Some(error) => Err(error),
+        None => Ok(outcome.instance),
     }
+}
 
-    let launch_script = LaunchScriptInput {
-        script: &script,
-        cli_path: &cli.path,
-        cli_command_name: definition.executable,
-        workdir,
-        plan: &plan,
-        auxiliary_file_path: auxiliary_file_path.as_deref(),
-        status_path: &registered.status_path,
-        proxy_environment: &proxy_environment,
-    };
-    if let Err(err) = write_launch_script(&launch_script) {
-        cli_runtime::mark_instance_exited(&registered.status_path, None);
-        cleanup_launch_files(&script, launch_adapter.auxiliary_file_name());
-        return Err(err);
+fn ensure_new_session_launch(mode: TemporaryCliSessionMode) -> Result<(), String> {
+    if mode == TemporaryCliSessionMode::History {
+        return Err("历史会话需通过已选择的原生会话引用继续，请重新选择会话".to_owned());
     }
-
-    let terminal_launch = match open_script_in_terminal(settings, &script, workdir) {
-        Ok(terminal_launch) => terminal_launch,
-        Err(err) => {
-            cli_runtime::mark_instance_exited(&registered.status_path, None);
-            cleanup_launch_files(&script, launch_adapter.auxiliary_file_name());
-            return Err(err);
-        }
-    };
-
-    Ok(cli_runtime::record_terminal_launch(
-        &registered.instance.id,
-        terminal_launch.terminal_kind,
-        terminal_launch.locator,
-    )
-    .unwrap_or(registered.instance))
+    Ok(())
 }
 
 fn validate_full_api_key(api_key: &str) -> Result<(), String> {
@@ -275,8 +201,8 @@ fn resolve_resume_id(
     if id.is_empty() {
         return Err("请选择一个历史会话后再启动".to_string());
     }
-    if id.chars().any(char::is_control) {
-        return Err("历史会话 ID 不能包含换行或控制字符".to_string());
+    if id.starts_with('-') || id.chars().any(char::is_control) {
+        return Err("历史会话 ID 不能是命令选项或包含控制字符".to_string());
     }
     Ok(id.to_string())
 }

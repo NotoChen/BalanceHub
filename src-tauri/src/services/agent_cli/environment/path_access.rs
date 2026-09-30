@@ -1,226 +1,268 @@
-use super::inventory::{
-    asset_stable_id, declaration_paths, native_environment, normalize_optional_workspace,
-    path_has_symlink_component, system_time_millis,
+//! Opaque access orchestration. This module never authorizes a caller pathname.
+
+use super::{
+    access_registry::{
+        AgentAssetAccessAnchor, AgentAssetAccessRegistry, AgentAssetAccessRequest,
+        AgentAssetAccessTargetKind,
+    },
+    preview::{render_preview, AgentPreviewMetadataReason, AgentPreviewOutput},
+    snapshot::system_time_millis,
+    verified_path::{
+        reopen_verified_path, VerifiedPathAnchor, VerifiedPathError, VerifiedPathGuard,
+    },
 };
-use crate::{
-    limits,
-    models::{AgentAssetOpenTarget, AgentAssetReadResult},
-    services::{agent_cli::definitions, cli_paths::user_home},
+use crate::models::{
+    AgentAssetAccessError, AgentAssetAccessErrorKind, AgentAssetAccessRisk, AgentAssetActionKind,
+    AgentAssetOpenTarget, AgentAssetReadDiagnostic, AgentAssetReadResult, AgentAssetSourceKind,
 };
-use std::{
-    fs::{self, File},
-    io::Read,
-    path::{Path, PathBuf},
-};
-
-const MAX_PREVIEW_BYTES: usize = 128 * 1024;
-
-#[derive(Debug)]
-pub(super) struct ResolvedAsset {
-    pub(super) path: PathBuf,
-    pub(super) sensitive: bool,
-    pub(super) is_directory: bool,
-}
-
-fn resolve_asset(asset_id: &str, workspace: Option<&Path>) -> Result<ResolvedAsset, String> {
-    let home = user_home().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let workspace = normalize_optional_workspace(workspace)?;
-    resolve_asset_in(asset_id, &home, workspace.as_deref())
-}
-
-pub(super) fn resolve_asset_in(
-    asset_id: &str,
-    home: &Path,
-    workspace: Option<&Path>,
-) -> Result<ResolvedAsset, String> {
-    let environment = native_environment();
-    for registered in definitions() {
-        for declaration in registered.environment().discover(home, workspace) {
-            for resolved in declaration_paths(&declaration) {
-                if asset_stable_id(&environment, registered.kind, &declaration, &resolved.path)
-                    != asset_id
-                {
-                    continue;
-                }
-                return Ok(ResolvedAsset {
-                    path: resolved.path,
-                    sensitive: declaration.sensitive,
-                    is_directory: resolved.is_directory,
-                });
-            }
-        }
-    }
-    Err("资产标识无效或已过期，请重新扫描 Agent 环境".to_string())
-}
-
-pub(crate) fn open_asset_path(
-    asset_id: &str,
-    workspace: Option<&Path>,
-    target: AgentAssetOpenTarget,
-) -> Result<PathBuf, String> {
-    let resolved = resolve_asset(asset_id, workspace)?;
-    match target {
-        AgentAssetOpenTarget::Asset => {
-            validate_resolved_path(&resolved.path, resolved.is_directory)?;
-            Ok(resolved.path)
-        }
-        AgentAssetOpenTarget::ParentDirectory => {
-            let parent = resolved
-                .path
-                .parent()
-                .map(Path::to_path_buf)
-                .ok_or_else(|| "该资产没有可打开的上级目录".to_string())?;
-            validate_resolved_path(&parent, true)?;
-            Ok(parent)
-        }
-    }
-}
+use std::{path::Path, sync::Arc};
 
 pub(crate) fn read_asset(
-    asset_id: &str,
-    workspace: Option<&Path>,
-) -> Result<AgentAssetReadResult, String> {
-    let resolved = resolve_asset(asset_id, workspace)?;
-    validate_resolved_path(&resolved.path, resolved.is_directory)?;
-    read_resolved_asset(asset_id, resolved)
+    registry: &AgentAssetAccessRegistry,
+    request: AgentAssetAccessRequest<'_>,
+) -> Result<AgentAssetReadResult, AgentAssetAccessError> {
+    require_target_kind(request, AgentAssetAccessTargetKind::Asset)?;
+    read_target(registry, request)
 }
 
-pub(super) fn read_resolved_asset(
-    asset_id: &str,
-    resolved: ResolvedAsset,
-) -> Result<AgentAssetReadResult, String> {
-    let path = resolved.path;
-    let metadata =
-        fs::symlink_metadata(&path).map_err(|err| format!("读取资产元数据失败: {err}"))?;
-    if metadata.file_type().is_symlink() || resolved.is_directory {
-        return Ok(AgentAssetReadResult {
-            stable_id: asset_id.to_string(),
-            path: path.display().to_string(),
-            content: None,
-            size_bytes: metadata.len(),
-            modified_at: metadata
-                .modified()
-                .ok()
-                .and_then(system_time_millis)
-                .map(|v| v.to_string()),
-            truncated: false,
-            metadata_only: true,
-            diagnostic: Some("目录或符号链接仅提供元数据".to_string()),
-        });
-    }
-    if metadata.len() > limits::MAX_CLI_CONFIG_FILE_BYTES as u64 {
-        return Err("配置文件超过允许读取大小".to_string());
-    }
-    let metadata_only = resolved.sensitive || is_secret_path(&path);
-    if metadata_only {
-        return Ok(AgentAssetReadResult {
-            stable_id: asset_id.to_string(),
-            path: path.display().to_string(),
-            content: None,
-            size_bytes: metadata.len(),
-            modified_at: metadata
-                .modified()
-                .ok()
-                .and_then(system_time_millis)
-                .map(|v| v.to_string()),
-            truncated: false,
-            metadata_only: true,
-            diagnostic: Some("敏感凭据文件仅提供元数据".to_string()),
-        });
-    }
-    let (text, truncated) = read_preview_limited(&path)?;
-    Ok(AgentAssetReadResult {
-        stable_id: asset_id.to_string(),
-        path: path.display().to_string(),
-        content: Some(redact_preview(&text)),
-        size_bytes: metadata.len(),
-        modified_at: metadata
-            .modified()
-            .ok()
-            .and_then(system_time_millis)
-            .map(|v| v.to_string()),
-        truncated,
-        metadata_only: false,
-        diagnostic: None,
-    })
+pub(crate) fn read_source(
+    registry: &AgentAssetAccessRegistry,
+    request: AgentAssetAccessRequest<'_>,
+) -> Result<AgentAssetReadResult, AgentAssetAccessError> {
+    require_target_kind(request, AgentAssetAccessTargetKind::Source)?;
+    read_target(registry, request)
 }
 
-fn read_preview_limited(path: &Path) -> Result<(String, bool), String> {
-    let file = File::open(path)
-        .map_err(|error| format!("读取 Agent 配置预览失败({}): {error}", path.display()))?;
-    let mut bytes = Vec::with_capacity(MAX_PREVIEW_BYTES.min(64 * 1024));
-    file.take(MAX_PREVIEW_BYTES.saturating_add(1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("读取 Agent 配置预览失败({}): {error}", path.display()))?;
-    let truncated = bytes.len() > MAX_PREVIEW_BYTES;
-    if truncated {
-        bytes.truncate(MAX_PREVIEW_BYTES);
-        while let Err(error) = std::str::from_utf8(&bytes) {
-            if error.error_len().is_some() {
-                return Err(format!(
-                    "读取 Agent 配置预览失败({})：文件不是有效 UTF-8",
-                    path.display()
-                ));
-            }
-            bytes.truncate(error.valid_up_to());
-        }
-    }
-    let text = String::from_utf8(bytes).map_err(|error| {
-        format!(
-            "读取 Agent 配置预览失败({})：文件不是有效 UTF-8：{error}",
-            path.display()
-        )
-    })?;
-    Ok((text, truncated))
+pub(crate) fn open_asset<F>(
+    registry: &AgentAssetAccessRegistry,
+    request: AgentAssetAccessRequest<'_>,
+    target: AgentAssetOpenTarget,
+    accepted_risks: &[AgentAssetAccessRisk],
+    opener: F,
+) -> Result<(), AgentAssetAccessError>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    require_target_kind(request, AgentAssetAccessTargetKind::Asset)?;
+    open_target(registry, request, target, accepted_risks, opener)
 }
 
-pub(super) fn validate_resolved_path(path: &Path, is_directory: bool) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(path).map_err(|err| format!("资产不存在: {err}"))?;
-    if metadata.file_type().is_symlink() || path_has_symlink_component(path) {
-        return Err("出于安全原因不支持打开符号链接资产".to_string());
-    }
-    if is_directory != metadata.is_dir() {
-        return Err("资产类型已发生变化，请重新扫描 Agent 环境".to_string());
+pub(crate) fn open_source<F>(
+    registry: &AgentAssetAccessRegistry,
+    request: AgentAssetAccessRequest<'_>,
+    target: AgentAssetOpenTarget,
+    accepted_risks: &[AgentAssetAccessRisk],
+    opener: F,
+) -> Result<(), AgentAssetAccessError>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    require_target_kind(request, AgentAssetAccessTargetKind::Source)?;
+    open_target(registry, request, target, accepted_risks, opener)
+}
+
+fn require_target_kind(
+    request: AgentAssetAccessRequest<'_>,
+    expected: AgentAssetAccessTargetKind,
+) -> Result<(), AgentAssetAccessError> {
+    if request.target_kind != expected {
+        return Err(AgentAssetAccessError::new(
+            AgentAssetAccessErrorKind::TargetMismatch,
+        ));
     }
     Ok(())
 }
 
-fn is_secret_path(path: &Path) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    name == ".env"
-        || name.contains("auth")
-        || name.contains("credential")
-        || name.contains("secret")
+fn read_target(
+    registry: &AgentAssetAccessRegistry,
+    request: AgentAssetAccessRequest<'_>,
+) -> Result<AgentAssetReadResult, AgentAssetAccessError> {
+    // Cloning the immutable anchor keeps this operation alive if a new
+    // generation is published after command admission.
+    let anchor = registry.resolve(request)?;
+    anchor.require_action(AgentAssetActionKind::Preview)?;
+    let guard = reopen_verified_path(&anchor.verified).map_err(access_error)?;
+    let metadata = guard.metadata().map_err(access_error)?;
+    let modified_at = metadata
+        .modified()
+        .ok()
+        .and_then(system_time_millis)
+        .map(|value| value.to_string());
+    let preview = if anchor.verified.source_kind() == AgentAssetSourceKind::Directory {
+        guard.revalidate().map_err(access_error)?;
+        None
+    } else {
+        Some(match read_authorized_bytes(&anchor, &guard) {
+            Ok(_) if anchor.invalid_document => {
+                AgentPreviewOutput::metadata(AgentPreviewMetadataReason::InvalidDocument)
+            }
+            Ok(bytes) => render_preview(anchor.policy, &bytes),
+            Err(error) if error.kind == AgentAssetAccessErrorKind::AccessUnavailable => {
+                AgentPreviewOutput::metadata(AgentPreviewMetadataReason::ReadLimit)
+            }
+            Err(error) => return Err(error),
+        })
+    };
+    let (content, truncated, diagnostics) = match preview {
+        None => (
+            None,
+            false,
+            vec![AgentAssetReadDiagnostic::DirectoryMetadataOnly],
+        ),
+        Some(preview) => {
+            let diagnostic = match preview.metadata_reason {
+                Some(AgentPreviewMetadataReason::UnsupportedSchema) if anchor.sensitive => {
+                    Some(AgentAssetReadDiagnostic::SensitiveFileMetadataOnly)
+                }
+                Some(AgentPreviewMetadataReason::UnsupportedSchema) => {
+                    Some(AgentAssetReadDiagnostic::UnsupportedSchemaMetadataOnly)
+                }
+                Some(AgentPreviewMetadataReason::InvalidDocument) => {
+                    Some(AgentAssetReadDiagnostic::InvalidDocumentMetadataOnly)
+                }
+                Some(AgentPreviewMetadataReason::ReadLimit) => {
+                    Some(AgentAssetReadDiagnostic::ReadLimitMetadataOnly)
+                }
+                None if preview.redacted => Some(AgentAssetReadDiagnostic::SensitiveValuesRedacted),
+                None => None,
+            };
+            (
+                preview.content,
+                preview.truncated,
+                diagnostic.into_iter().collect(),
+            )
+        }
+    };
+    // Redaction operates on owned, verified bytes; no raw fragment can escape
+    // a read/revalidation failure. Directory metadata remains handle-bound too.
+    guard.revalidate().map_err(access_error)?;
+    Ok(AgentAssetReadResult {
+        stable_id: request.target_id.to_string(),
+        access_id: anchor.access_id.clone(),
+        source_revision: anchor.verified.revision().clone(),
+        path: guard.display_path().to_string_lossy().into_owned(),
+        metadata_only: content.is_none(),
+        content,
+        size_bytes: metadata.len(),
+        modified_at,
+        truncated,
+        diagnostics,
+    })
 }
 
-pub(super) fn redact_preview(text: &str) -> String {
-    text.lines()
-        .map(|line| {
-            let lower = line.to_ascii_lowercase();
-            let sensitive = [
-                "api_key",
-                "apikey",
-                "token",
-                "cookie",
-                "password",
-                "secret",
-                "authorization",
-            ]
-            .iter()
-            .any(|key| lower.contains(key));
-            if !sensitive {
-                return line.to_string();
-            }
-            if let Some(index) = line.find(':').or_else(|| line.find('=')) {
-                format!("{} <已隐藏>", &line[..=index])
-            } else {
-                "<已隐藏敏感配置行>".to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+fn open_target<F>(
+    registry: &AgentAssetAccessRegistry,
+    request: AgentAssetAccessRequest<'_>,
+    target: AgentAssetOpenTarget,
+    accepted_risks: &[AgentAssetAccessRisk],
+    opener: F,
+) -> Result<(), AgentAssetAccessError>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    let anchor = registry.resolve(request)?;
+    let action_kind = match target {
+        AgentAssetOpenTarget::Asset => AgentAssetActionKind::Open,
+        AgentAssetOpenTarget::Reveal => AgentAssetActionKind::Reveal,
+    };
+    let action = anchor.require_action(action_kind)?;
+    // Exact risk-set acknowledgement is required on every click. Duplicates,
+    // missing risks, or extra stale risks do not count as confirmation.
+    if !action.confirmation_required {
+        return Err(AgentAssetAccessError::new(
+            AgentAssetAccessErrorKind::ConfirmationRequired,
+        ));
+    }
+    acknowledge_risks(&action.risks, accepted_risks)?;
+    with_verified_external_path(&anchor, |_, path| opener(path))
 }
+
+pub(crate) fn acknowledge_risks(
+    risks: &[AgentAssetAccessRisk],
+    accepted_risks: &[AgentAssetAccessRisk],
+) -> Result<(), AgentAssetAccessError> {
+    if accepted_risks.len() != risks.len()
+        || accepted_risks
+            .iter()
+            .enumerate()
+            .any(|(index, risk)| !risks.contains(risk) || accepted_risks[..index].contains(risk))
+    {
+        return Err(AgentAssetAccessError::new(
+            AgentAssetAccessErrorKind::ConfirmationRequired,
+        ));
+    }
+    Ok(())
+}
+
+fn with_verified_external_path<F>(
+    anchor: &Arc<AgentAssetAccessAnchor>,
+    opener: F,
+) -> Result<(), AgentAssetAccessError>
+where
+    F: FnOnce(&VerifiedPathGuard, &Path) -> Result<(), String>,
+{
+    open_verified_source(&anchor.verified, anchor.max_read_bytes, opener)
+}
+
+pub(crate) fn open_verified_source<F>(
+    anchor: &VerifiedPathAnchor,
+    max_read_bytes: usize,
+    opener: F,
+) -> Result<(), AgentAssetAccessError>
+where
+    F: FnOnce(&VerifiedPathGuard, &Path) -> Result<(), String>,
+{
+    let guard = reopen_verified_path(anchor).map_err(access_error)?;
+    if anchor.source_kind() == AgentAssetSourceKind::File && max_read_bytes != 0 {
+        let bytes = guard
+            .read_file_bounded(max_read_bytes)
+            .map_err(access_error)?;
+        if !anchor.matches_bytes(&bytes) {
+            return Err(AgentAssetAccessError::new(
+                AgentAssetAccessErrorKind::SourceChanged,
+            ));
+        }
+    }
+    guard.revalidate().map_err(access_error)?;
+    // The external OS API still consumes a pathname asynchronously. These
+    // handles stay live through its return, but do not eliminate that risk.
+    // The command chooses real open/reveal APIs; it never receives a bare path.
+    opener(&guard, guard.display_path())
+        .map_err(|_| AgentAssetAccessError::new(AgentAssetAccessErrorKind::ExternalOpenFailed))
+}
+
+fn read_authorized_bytes(
+    anchor: &AgentAssetAccessAnchor,
+    guard: &VerifiedPathGuard,
+) -> Result<Vec<u8>, AgentAssetAccessError> {
+    let bytes = guard
+        .read_file_bounded(anchor.max_read_bytes)
+        .map_err(access_error)?;
+    if !anchor.verified.matches_bytes(&bytes) {
+        return Err(AgentAssetAccessError::new(
+            AgentAssetAccessErrorKind::SourceChanged,
+        ));
+    }
+    guard.revalidate().map_err(access_error)?;
+    Ok(bytes)
+}
+
+fn access_error(error: VerifiedPathError) -> AgentAssetAccessError {
+    let kind = match error {
+        VerifiedPathError::OutsideAllowedRoot => AgentAssetAccessErrorKind::OutsideAllowedRoot,
+        VerifiedPathError::SymlinkRejected => AgentAssetAccessErrorKind::SymlinkRejected,
+        VerifiedPathError::RootChanged => AgentAssetAccessErrorKind::RootChanged,
+        VerifiedPathError::SourceChanged | VerifiedPathError::TypeMismatch { .. } => {
+            AgentAssetAccessErrorKind::SourceChanged
+        }
+        VerifiedPathError::TooLarge => AgentAssetAccessErrorKind::AccessUnavailable,
+        VerifiedPathError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            AgentAssetAccessErrorKind::SourceChanged
+        }
+        VerifiedPathError::Io(_) => AgentAssetAccessErrorKind::ReadFailed,
+    };
+    AgentAssetAccessError::new(kind)
+}
+
+#[cfg(test)]
+mod tests;

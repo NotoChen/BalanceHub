@@ -1,21 +1,7 @@
 /* Final provider editor constraints. */
-.provider-editor-modal-v3 .provider-auth-mode-grid {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-}
 
 .provider-editor-modal-v3 .provider-form-block-header .provider-inline-icon-button {
   margin-left: 4px;
-}
-
-.provider-editor-modal-v3 .provider-policy-page {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (max-width: 760px) {
-  .provider-editor-modal-v3 .provider-auth-mode-grid,
-  .provider-editor-modal-v3 .provider-policy-page {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Credential progression: one compact chain, with manual fields behind each stage. */
@@ -30,7 +16,7 @@
 .provider-credential-chain-order {
   margin-left: auto;
   color: #8792a0;
-  font-size: 9px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -81,7 +67,7 @@
 .provider-credential-stage-main strong {
   overflow: hidden;
   color: #475569;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -120,7 +106,7 @@
 
 .provider-credential-stage-status {
   color: #8792a0;
-  font-size: 9px;
+  font-size: 11px;
   white-space: nowrap;
 }
 

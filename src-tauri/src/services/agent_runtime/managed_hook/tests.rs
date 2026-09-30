@@ -19,7 +19,10 @@ fn temp_root(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let path = env::temp_dir().join(format!("balancehub-managed-codex-{label}-{nonce}"));
+    let path = env::temp_dir()
+        .canonicalize()
+        .unwrap()
+        .join(format!("balancehub-managed-codex-{label}-{nonce}"));
     fs::create_dir_all(path.join(".codex")).unwrap();
     fs::create_dir_all(path.join("app")).unwrap();
     path
@@ -54,6 +57,98 @@ fn install_preserves_unknown_fields_and_is_idempotent() {
         .all(|change| change.kind == AgentHookChangeKind::Keep));
     service.apply(second_plan).unwrap();
     assert!(service.inspect().enabled);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn installed_codex_groups_have_native_regex_and_exact_ownership_fingerprints() {
+    let root = temp_root("native-matchers");
+    let service = service(&root);
+    let config_path = root.join(".codex/hooks.json");
+    fs::write(&config_path, b"{}\n").unwrap();
+    fs::write(root.join("app/balancehub"), b"helper").unwrap();
+    let plan = service.plan(AgentHookMutation::Install);
+    assert!(plan.supported);
+    assert!(!plan.conflict);
+    assert_eq!(plan.changes.len(), 5);
+    assert!(plan
+        .changes
+        .iter()
+        .all(|change| change.kind == AgentHookChangeKind::Add));
+    let installed = service.apply(plan.clone()).unwrap();
+    assert!(installed.enabled);
+    assert_eq!(installed.state, AgentHookHealthState::InstalledUnverified);
+    let ownership = installed.ownership.unwrap();
+    assert_eq!(ownership.resources.len(), 5);
+    let document: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    let hooks = document["hooks"].as_object().unwrap();
+    let expected_events = [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+        "Interrupt",
+        "SessionEnd",
+    ];
+    assert_eq!(hooks.len(), expected_events.len());
+    for event in expected_events {
+        let groups = hooks[event].as_array().unwrap();
+        assert_eq!(groups.len(), 1, "{event}");
+        let group = &groups[0];
+        let matcher = group["matcher"].as_str().unwrap();
+        assert_eq!(matcher, ".*");
+        let regex = regex::Regex::new(matcher).expect("Codex Hook matcher must be valid regex");
+        for input in ["", "startup", "resume", "compact"] {
+            assert!(regex.is_match(input), "{event}: {input}");
+        }
+        let handlers = group["hooks"].as_array().unwrap();
+        assert_eq!(handlers.len(), 1);
+        assert_eq!(handlers[0]["type"], "command");
+        let identity = format!("balancehub:codex:{}:v1", event.to_ascii_lowercase());
+        assert!(handlers[0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("--balancehub-hook-node={identity}")));
+        let planned = plan
+            .changes
+            .iter()
+            .filter(|change| change.event_name == event)
+            .collect::<Vec<_>>();
+        assert_eq!(planned.len(), 1);
+        let owned = ownership
+            .resources
+            .iter()
+            .filter(|resource| resource.event_name == event)
+            .collect::<Vec<_>>();
+        assert_eq!(owned.len(), 1);
+        let fingerprint = super::format::fingerprint(group);
+        assert_eq!(planned[0].structural_identity, identity);
+        assert_eq!(owned[0].structural_identity, identity);
+        assert_eq!(planned[0].fingerprint, fingerprint);
+        assert_eq!(owned[0].content_fingerprint, fingerprint);
+        assert!(super::owned_resource_selected(
+            &document, event, group, &ownership
+        ));
+        let mut altered = group.clone();
+        altered["matcher"] = "*".into();
+        assert!(regex::Regex::new(altered["matcher"].as_str().unwrap()).is_err());
+        assert_ne!(super::format::fingerprint(&altered), fingerprint);
+        assert!(!super::owned_resource_selected(
+            &document, event, &altered, &ownership
+        ));
+    }
+    let repeated = service.plan(AgentHookMutation::Install);
+    assert_eq!(repeated.changes.len(), 5);
+    assert!(repeated
+        .changes
+        .iter()
+        .all(|change| change.kind == AgentHookChangeKind::Keep));
+    let removed = service
+        .apply(service.plan(AgentHookMutation::Remove))
+        .unwrap();
+    assert_eq!(removed.state, AgentHookHealthState::NotInstalled);
+    assert!(removed.ownership.is_none());
+    let remaining: Value = serde_json::from_slice(&fs::read(config_path).unwrap()).unwrap();
+    assert!(super::format::find_resources(&remaining).is_empty());
     fs::remove_dir_all(root).unwrap();
 }
 

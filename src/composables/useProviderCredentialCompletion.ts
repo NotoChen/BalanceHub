@@ -1,4 +1,5 @@
 import { watch } from "vue";
+import { withTimeout } from "../utils/promise-timeout";
 import { Message } from "@arco-design/web-vue";
 import type {
   ProviderInput,
@@ -123,6 +124,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
         resetCredentialAssistant();
       }
     },
+    { flush: "sync" },
   );
 
   watch(
@@ -183,8 +185,8 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     options.siteProbeResult.value = null;
     try {
       if (shouldDetect) {
-        const detection = await options.detectProviderProtocol(initialInput);
-        if (!requestContextIsCurrent(initialContext)) {
+        const detection = await withTimeout(options.detectProviderProtocol(initialInput), 30_000, "识别中转站类型超时，请手动选择类型或重试");
+        if (revision !== siteProbeRevision || !requestContextIsCurrent(initialContext)) {
           return null;
         }
 
@@ -221,8 +223,8 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
 
       const probeInput = snapshotInput();
       const probeContext = captureRequestContext(probeInput);
-      const result = await options.probeProviderSite(probeInput);
-      if (!requestContextIsCurrent(probeContext)) {
+      const result = await withTimeout(options.probeProviderSite(probeInput), 30_000, "读取站点信息超时，请重试");
+      if (revision !== siteProbeRevision || !requestContextIsCurrent(probeContext)) {
         return null;
       }
       applySiteResult(result, probingBaseUrl);

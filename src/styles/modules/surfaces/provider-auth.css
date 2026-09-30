@@ -1,0 +1,114 @@
+.provider-auth-mode-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 8px;
+}
+
+.provider-auth-mode-option {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 30px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--surface-line-strong);
+  border-radius: 8px;
+  background: var(--surface-panel);
+  padding: 10px 12px;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.provider-auth-mode-option:hover {
+  border-color: var(--surface-accent);
+  background: var(--surface-panel-soft);
+}
+
+.provider-auth-mode-option.active {
+  border-color: var(--surface-accent);
+  background: var(--surface-accent-soft);
+}
+
+.provider-auth-mode-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--surface-panel-soft);
+}
+
+.provider-auth-mode-copy {
+  min-width: 0;
+}
+
+.provider-auth-mode-copy strong {
+  color: var(--surface-ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provider-auth-mode-check {
+  color: var(--surface-accent);
+  font-size: 16px;
+}
+
+.provider-browser-login {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+  padding: 14px;
+}
+
+.provider-browser-login-icon {
+  justify-self: center;
+  color: var(--surface-accent);
+  font-size: 22px;
+}
+
+.provider-browser-login-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.provider-browser-login-copy strong {
+  color: var(--surface-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.provider-browser-login-copy span {
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.provider-browser-login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+@media (max-width: 760px) {
+  .provider-browser-login {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .provider-browser-login-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .provider-auth-mode-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,5 +1,5 @@
-import { ref } from "vue";
-import { Message } from "@arco-design/web-vue";
+import { ref, watch } from "vue";
+import { useLatestRequest } from "./useLatestRequest.ts";
 import type { Provider, ProviderUsageSummary } from "../stores/providers";
 import type { UsagePeriod } from "../utils/usage-trend";
 
@@ -10,9 +10,20 @@ interface UseUsageSummaryOptions {
 export function useUsageSummary(options: UseUsageSummaryOptions) {
   const usageVisible = ref(false);
   const usageProvider = ref<Provider | null>(null);
-  const usageLoading = ref(false);
+  const request = useLatestRequest({ timeoutMessage: "读取用量趋势超时，请重试" });
   const usageSummary = ref<ProviderUsageSummary | null>(null);
   const usagePeriod = ref<UsagePeriod>("24h");
+
+  watch([usageVisible, () => usageProvider.value?.identity.id], () => {
+    request.invalidate();
+    usageSummary.value = null;
+  }, { flush: "sync" });
+
+  watch(usagePeriod, () => {
+    request.invalidate();
+    usageSummary.value = null;
+    if (usageVisible.value) void refreshUsageSummary();
+  }, { flush: "sync" });
 
   function openUsage(provider: Provider) {
     usageProvider.value = provider;
@@ -22,21 +33,19 @@ export function useUsageSummary(options: UseUsageSummaryOptions) {
   }
 
   async function refreshUsageSummary() {
-    if (!usageProvider.value) return;
-    usageLoading.value = true;
-    try {
-      usageSummary.value = await options.loadUsage(usageProvider.value.identity.id, usagePeriod.value);
-    } catch (error) {
-      Message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      usageLoading.value = false;
-    }
+    const providerId = usageProvider.value?.identity.id;
+    if (!usageVisible.value || !providerId) return;
+    const period = usagePeriod.value;
+    await request.run(() => options.loadUsage(providerId, period), (summary) => {
+      usageSummary.value = summary;
+    });
   }
 
   return {
     usageVisible,
     usageProvider,
-    usageLoading,
+    usageLoading: request.loading,
+    usageError: request.error,
     usageSummary,
     usagePeriod,
     openUsage,

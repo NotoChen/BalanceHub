@@ -20,6 +20,8 @@ pub struct AgentRuntimeLaunchSnapshot {
     pub exit_code: Option<i32>,
     pub provider_id: Option<String>,
     pub provider_name: Option<String>,
+    #[serde(default)]
+    pub native_session: Option<crate::models::AgentSessionLaunchIdentity>,
     pub account_label: Option<String>,
     #[serde(default)]
     pub api_key_local_id: Option<String>,
@@ -225,6 +227,7 @@ fn new_session(runtime_id: String, event: &AgentRuntimeEvent) -> AgentRuntimeSes
         origin: event.origin,
         agent_kind: event.agent_kind,
         agent_session_id: event.agent_session_id.clone(),
+        native_session: None,
         balancehub_instance_id: event.balancehub_instance_id.clone(),
         provider: None,
         workdir: None,
@@ -370,6 +373,12 @@ fn apply_launch_snapshot(
         session.started_at = Some(session.started_at.unwrap_or(started_at).min(started_at));
     }
     session.state = match snapshot.status {
+        AgentRuntimeState::Unknown
+            if snapshot.native_session.is_some()
+                && session.state == AgentRuntimeState::Starting =>
+        {
+            AgentRuntimeState::Unknown
+        }
         AgentRuntimeState::Ended => AgentRuntimeState::Ended,
         AgentRuntimeState::Busy if session.state != AgentRuntimeState::Ended => {
             AgentRuntimeState::Busy
@@ -389,6 +398,9 @@ fn apply_launch_snapshot(
     };
     if let Some(pid) = snapshot.pid {
         session.process = Some(AgentRuntimeProcessEvidence { pid, observed_at });
+    }
+    if let Some(identity) = &snapshot.native_session {
+        session.native_session = Some(identity.clone());
     }
     if let Some(provider_id) = snapshot.provider_id.as_deref() {
         session.provider = Some(AgentRuntimeProviderRef {

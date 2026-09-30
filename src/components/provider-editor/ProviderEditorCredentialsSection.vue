@@ -16,12 +16,14 @@ import { credentialFieldHasValue, missingCredentialRequirements } from "../../co
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import ProviderCredentialFields from "./ProviderCredentialFields.vue";
 import ProviderApiKeyVault from "./ProviderApiKeyVault.vue";
+import RadioChoiceGroup from "../RadioChoiceGroup.vue";
 
 const loginAccounts = inject(LOGIN_ACCOUNTS_CONTEXT);
 const providerCredentials = inject(PROVIDER_CREDENTIALS_CONTEXT);
 
 const props = defineProps<{
   draft: ProviderInput;
+  disabled?: boolean;
   startingBrowserLogin: boolean;
   providerProtocols: ProviderProtocolDescriptor[];
   apiKeyOptions: ProviderInput["auth"]["apiKeyOptions"];
@@ -65,6 +67,11 @@ const currentProtocol = computed(() =>
 );
 
 const visibleAuthModes = computed(() => currentProtocol.value?.authModes ?? []);
+const authChoices = computed(() => visibleAuthModes.value.map((mode) => ({
+  value: mode.mode,
+  label: mode.label,
+  description: mode.description,
+})));
 
 const currentAuthMode = computed(() =>
   visibleAuthModes.value.find((mode) => mode.mode === props.draft.auth.mode),
@@ -198,75 +205,74 @@ function activeLabel() {
 
 <template>
   <div class="provider-form-page provider-credentials-page">
-    <div class="provider-login-management">
-      <a-button size="small" @click="loginAccounts?.open(draft.auth.browserBinding?.accountId ?? undefined)">登录账号管理</a-button>
-      <a-button v-if="draft.id" size="small" @click="providerCredentials?.open(draft.id)">凭据详情</a-button>
-    </div>
-    <section v-if="showAuthModePicker" class="provider-form-block provider-auth-picker-block">
+    <section class="provider-form-block provider-credential-active-panel">
       <header class="provider-form-block-header">
         <span class="provider-form-block-icon"><IconLock /></span>
-        <div><strong>认证方式</strong></div>
-        <a-button v-if="currentProtocol?.browserLoginSupported" type="primary" size="small"
-          class="provider-browser-login-button" :loading="startingBrowserLogin" :disabled="!draft.identity.baseUrl.trim()"
-          @click="emit('login-and-import')">
-          <template #icon><IconUser /></template>登录并导入
-        </a-button>
-      </header>
-      <div class="provider-form-block-body">
-        <p v-if="currentProtocol?.browserLoginSupported" class="provider-credential-inline-note">
-          先选择登录账号，再打开站点。Linux DO、GitHub 的多个账号可独立保存和复用。
-        </p>
-        <div class="provider-auth-mode-grid" role="radiogroup" aria-label="认证方式">
-          <button
-            v-for="mode in visibleAuthModes"
-            :key="mode.mode"
-            type="button"
-            class="provider-auth-mode-option"
-            :class="[`is-${mode.mode}`, { active: draft.auth.mode === mode.mode }]"
-            :aria-checked="draft.auth.mode === mode.mode"
-            :title="mode.description"
-            role="radio"
-            @click="selectMode(mode.mode)"
-          >
-            <span class="provider-auth-mode-icon">
-              <ProviderAuthIcon :mode="mode.mode" :size="20" :decorative="true" />
-            </span>
-            <span class="provider-auth-mode-copy"><strong>{{ mode.label }}</strong></span>
-            <IconCheckCircle v-if="draft.auth.mode === mode.mode" class="provider-auth-mode-check" />
-          </button>
+        <div>
+          <strong>{{ showAuthModePicker ? '连接认证' : activeLabel() }}</strong>
+          <small>{{ currentAuthMode?.description }}</small>
         </div>
-      </div>
-    </section>
-
-    <section v-if="showActiveCredentialFields" class="provider-form-block provider-credential-active-panel">
-      <header class="provider-form-block-header provider-credential-active-heading">
-        <span class="provider-form-block-icon provider-form-block-icon-auth">
-          <ProviderAuthIcon :mode="draft.auth.mode" :protocol="draft.identity.protocol" :size="18" :decorative="true" />
-        </span>
-        <div><strong>{{ activeLabel() }}</strong></div>
-        <span class="provider-form-block-required">当前使用</span>
+        <div v-if="draft.id && providerCredentials" class="provider-credential-tools">
+          <a-button type="text" size="small" @click="providerCredentials.open(draft.id)">凭据详情</a-button>
+        </div>
       </header>
-      <div class="provider-form-block-body provider-field-grid">
-        <p v-if="draft.auth.newApiSession && draft.auth.mode === 'session'" class="provider-credential-inline-note provider-field-wide">
-          <IconCheckCircle /> 已登录 {{ draft.auth.loginUsername || draft.auth.apiUser }}，会话自动续期。JWT 和 Cookie 可在“凭据详情”中查看和管理。
-        </p>
-        <ProviderCredentialFields v-else
-          :fields="activeFields"
-          :required-fields="currentAuthMode?.requiredFields ?? []"
-          :draft="draft"
-          @copy-api-key="emit('copy-api-key')"
-          @update-field="updateField"
-        />
-        <p v-if="currentAuthMode?.note && !(draft.auth.newApiSession && draft.auth.mode === 'session')" class="provider-credential-inline-note provider-field-wide">
-          {{ currentAuthMode.note }}
-        </p>
+      <div v-if="showAuthModePicker || showActiveCredentialFields || currentProtocol?.browserLoginSupported" class="provider-form-block-body provider-primary-credentials">
+        <RadioChoiceGroup
+          v-if="showAuthModePicker"
+          :model-value="draft.auth.mode"
+          :options="authChoices"
+          :disabled="disabled"
+          label="认证方式"
+          class="provider-auth-mode-grid"
+          option-class="provider-auth-mode-option"
+          @update:model-value="selectMode"
+        >
+          <template #default="{ option, selected }">
+            <span class="provider-auth-mode-icon">
+              <ProviderAuthIcon :mode="option.value" :size="20" :decorative="true" />
+            </span>
+            <span class="provider-auth-mode-copy"><strong>{{ option.label }}</strong></span>
+            <IconCheckCircle v-if="selected" class="provider-auth-mode-check" />
+          </template>
+        </RadioChoiceGroup>
+        <div v-if="currentProtocol?.browserLoginSupported" class="provider-browser-login">
+          <IconUser class="provider-browser-login-icon" />
+          <div class="provider-browser-login-copy">
+            <strong>在浏览器中登录</strong>
+            <span>完成站点登录后，自动导入认证凭据。</span>
+          </div>
+          <div class="provider-browser-login-actions">
+            <a-button v-if="loginAccounts" type="text" size="small" @click="loginAccounts.open(draft.auth.browserBinding?.accountId ?? undefined)">管理登录账号</a-button>
+            <a-button
+              :loading="startingBrowserLogin"
+              :disabled="disabled || !draft.identity.baseUrl.trim()"
+              @click="emit('login-and-import')"
+            >登录并导入</a-button>
+          </div>
+        </div>
+        <div v-if="showActiveCredentialFields" class="provider-field-grid">
+          <p v-if="draft.auth.newApiSession && draft.auth.mode === 'session'" class="provider-credential-inline-note provider-field-wide">
+            <IconCheckCircle /> 已登录 {{ draft.auth.loginUsername || draft.auth.apiUser }}，会话自动续期。JWT 和 Cookie 可在“凭据详情”中查看和管理。
+          </p>
+          <ProviderCredentialFields v-else
+            :fields="activeFields"
+            :required-fields="currentAuthMode?.requiredFields ?? []"
+            :draft="draft"
+            @copy-api-key="emit('copy-api-key')"
+            @update-field="updateField"
+          />
+          <p v-if="currentAuthMode?.note && !(draft.auth.newApiSession && draft.auth.mode === 'session')" class="provider-credential-inline-note provider-field-wide">
+            {{ currentAuthMode.note }}
+          </p>
+        </div>
+        <slot name="assistant" />
       </div>
     </section>
 
     <section v-if="secondaryModes.length > 0" class="provider-form-block provider-credential-chain">
       <header class="provider-form-block-header provider-credential-chain-heading">
         <span class="provider-form-block-icon provider-form-block-icon-neutral"><IconLock /></span>
-        <div><strong>后续凭据</strong></div>
+        <div><strong>补充凭据</strong><small>需要时展开查看或填写。</small></div>
         <span class="provider-credential-chain-order">{{ secondaryOrderText }}</span>
       </header>
       <div class="provider-credential-chain-list">
@@ -340,9 +346,3 @@ function activeLabel() {
     />
   </div>
 </template>
-
-<style scoped>
-.provider-login-management { display: flex; justify-content: flex-end; gap: 8px; }
-.provider-browser-login-button { margin-left: auto; }
-.provider-auth-picker-block .provider-credential-inline-note { margin: 0 0 12px; }
-</style>

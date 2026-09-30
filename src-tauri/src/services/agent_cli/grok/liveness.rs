@@ -73,14 +73,13 @@ pub(super) fn parse_output(response_output: &str, _stdout: &str) -> ParsedLivene
         };
     };
 
-    let error = (value.get("type").and_then(Value::as_str) == Some("error"))
-        .then(|| {
-            value
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("Grok Build 测活失败")
-                .to_string()
-        });
+    let error = (value.get("type").and_then(Value::as_str) == Some("error")).then(|| {
+        value
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Grok Build 测活失败")
+            .to_string()
+    });
     let response = value
         .get("text")
         .and_then(Value::as_str)
@@ -134,8 +133,14 @@ mod tests {
         })
         .unwrap();
 
-        assert!(plan.args.windows(2).any(|args| args == ["--cwd", "/tmp/balancehub-grok-liveness"]));
-        assert!(plan.args.windows(2).any(|args| args == ["--permission-mode", "plan"]));
+        assert!(plan
+            .args
+            .windows(2)
+            .any(|args| args == ["--cwd", "/tmp/balancehub-grok-liveness"]));
+        assert!(plan
+            .args
+            .windows(2)
+            .any(|args| args == ["--permission-mode", "plan"]));
         assert!(plan.args.windows(2).any(|args| args == ["--tools", ""]));
         assert!(plan
             .environment
@@ -173,10 +178,7 @@ mod tests {
 
     #[test]
     fn error_object_does_not_become_a_successful_response() {
-        let parsed = parse_output(
-            r#"{"type":"error","message":"invalid api key"}"#,
-            "",
-        );
+        let parsed = parse_output(r#"{"type":"error","message":"invalid api key"}"#, "");
 
         assert!(parsed.response.is_empty());
         assert_eq!(parsed.error.as_deref(), Some("invalid api key"));

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, useId, watch } from "vue";
+import { computed, ref, useId } from "vue";
 import { Activity, CalendarCheck2, CheckCircle2, CircleAlert, CloudDownload, Megaphone, RefreshCw, Search, Terminal, LogIn } from "@lucide/vue";
 import type { BackgroundTask, BackgroundTaskKind } from "../composables/useBackgroundTaskCenter";
 
@@ -16,12 +16,21 @@ const emit = defineEmits<{
 }>();
 
 const popupVisible = ref(false);
-
-watch(popupVisible, (visible, previous) => {
-  if (!visible && previous && props.recentTasks.length > 0) {
-    emit("clearRecent");
+const taskCounts = computed(() => {
+  const counts = { running: 0, waiting: 0, unconfirmed: 0 };
+  for (const task of props.tasks) {
+    if (task.status === "running" || task.status === "waiting" || task.status === "unconfirmed") {
+      counts[task.status] += 1;
+    }
   }
+  return counts;
 });
+const hasRunningTasks = computed(() => taskCounts.value.running > 0);
+const taskSummary = computed(() => [
+  taskCounts.value.running > 0 ? `${taskCounts.value.running} 项进行中` : "",
+  taskCounts.value.waiting > 0 ? `${taskCounts.value.waiting} 项待处理` : "",
+  taskCounts.value.unconfirmed > 0 ? `${taskCounts.value.unconfirmed} 项待确认` : "",
+].filter(Boolean).join(" · "));
 
 function iconFor(kind: BackgroundTaskKind) {
   switch (kind) {
@@ -86,19 +95,19 @@ function openResult(run: () => void) {
     <button
       type="button"
       class="topbar-task-button"
-      :class="{ 'has-active': activeCount > 0 }"
-      :title="activeCount > 0 ? `${activeCount} 项后台任务正在执行` : recentTasks.length > 0 ? `${recentTasks.length} 项任务结果待查看` : '后台任务'"
-      :aria-busy="activeCount > 0"
+      :class="{ 'has-active': hasRunningTasks }"
+      :title="activeCount > 0 ? taskSummary : recentTasks.length > 0 ? `${recentTasks.length} 项最近任务` : '后台任务'"
+      :aria-busy="hasRunningTasks"
       aria-label="查看后台任务"
     >
       <Activity
         class="topbar-task-icon"
-        :color="activeCount > 0 ? `url(#${gradientId})` : undefined"
+        :color="hasRunningTasks ? `url(#${gradientId})` : undefined"
         :size="18"
         :stroke-width="1.9"
         aria-hidden="true"
       >
-        <defs v-if="activeCount > 0">
+        <defs v-if="hasRunningTasks">
           <linearGradient
             :id="gradientId"
             gradientUnits="userSpaceOnUse"
@@ -129,7 +138,7 @@ function openResult(run: () => void) {
         <header class="background-task-panel-header">
           <div class="background-task-heading">
             <strong>后台任务</strong>
-            <span>{{ activeCount > 0 ? `${activeCount} 项正在执行` : recentTasks.length > 0 ? `${recentTasks.length} 项结果待查看` : "当前没有运行中的任务" }}</span>
+            <span>{{ activeCount > 0 ? taskSummary : recentTasks.length > 0 ? `${recentTasks.length} 项最近任务` : "当前没有运行中的任务" }}</span>
           </div>
           <div class="background-task-header-actions">
             <button
@@ -138,13 +147,13 @@ function openResult(run: () => void) {
               class="background-task-clear"
               @click.stop="emit('clearRecent')"
             >
-              清空已完成
+              清空记录
             </button>
-            <span class="background-task-panel-pulse" :class="{ active: activeCount > 0 }" aria-hidden="true" />
+            <span class="background-task-panel-pulse" :class="{ active: hasRunningTasks }" aria-hidden="true" />
           </div>
         </header>
 
-        <div v-if="tasks.length > 0" class="background-task-list" aria-label="正在执行">
+        <div v-if="tasks.length > 0" class="background-task-list" aria-label="当前任务">
           <article v-for="task in tasks" :key="task.id" class="background-task-row" :class="`is-${task.status}`">
             <span class="background-task-row-icon">
               <component :is="iconFor(task.kind)" :size="16" :stroke-width="1.9" />
@@ -168,9 +177,9 @@ function openResult(run: () => void) {
         </div>
 
         <div v-if="recentTasks.length > 0" class="background-task-recent">
-          <div class="background-task-section-title">待查看结果</div>
+          <div class="background-task-section-title">最近完成</div>
           <article
-            v-for="task in recentTasks.slice(0, 5)"
+            v-for="task in recentTasks"
             :key="`${task.id}-${task.finishedAt}`"
             class="background-task-row"
             :class="`is-${task.status}`"

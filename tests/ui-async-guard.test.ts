@@ -10,18 +10,11 @@ const sourceExtensions = new Set([".ts", ".tsx", ".vue"]);
 
 test("async stale-result guards do not compare nested ref values by object identity", () => {
   const findings: string[] = [];
-  const directComparison = /\.value\.[A-Za-z_$][A-Za-z0-9_$]*\s*(?:===|!==)\s*([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
-  const reverseComparison = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:===|!==)\s*[A-Za-z_$][A-Za-z0-9_$]*\.value\.[A-Za-z_$][A-Za-z0-9_$]*/g;
-  const scalarKeywords = new Set(["null", "undefined", "true", "false"]);
 
   for (const path of sourceFiles(sourceRoot)) {
     const text = readFileSync(path, "utf8");
-    for (const pattern of [directComparison, reverseComparison]) {
-      pattern.lastIndex = 0;
-      for (const match of text.matchAll(pattern)) {
-        if (scalarKeywords.has(match[1])) continue;
-        findings.push(finding(path, text, match.index ?? 0, match[0]));
-      }
+    for (const match of nestedRefIdentityComparisons(text)) {
+      findings.push(finding(path, text, match.index ?? 0, match[0]));
     }
   }
 
@@ -31,6 +24,60 @@ test("async stale-result guards do not compare nested ref values by object ident
     `不要比较 Vue ref 内嵌值与局部对象身份，请改用 request ID/revision：\n${findings.join("\n")}`,
   );
 });
+
+test("the identity guard accepts complete length member comparisons and scalar sentinels", () => {
+  for (const expression of [
+    "preview.value.targets.length === selected.value.length",
+    "selected.value.length !== preview.value.targets.length",
+    "pending.value.items.length === expectedCount",
+    "expectedCount !== pending.value.items.length",
+    "pending.value.length === maximum",
+    "pending.value.context === null",
+    "undefined !== pending.value.context",
+    "pending.value.available === false",
+    "true !== pending.value.available",
+  ]) {
+    assert.deepEqual(nestedRefIdentityComparisons(expression), [], expression);
+  }
+});
+
+test("the identity guard still rejects raw objects in both directions even when a local is named length", () => {
+  for (const expression of [
+    "pending.value.context === context",
+    "pending.value.context !== context",
+    "context === pending.value.context",
+    "context !== pending.value.context",
+    "pending.value.context === length",
+    "length !== pending.value.context",
+    "pending.value.context === captured.length",
+    "captured.length !== pending.value.context",
+    "pending.value.request.context === context",
+    "context !== pending.value.request.context",
+    "pending.value.context === captured.context",
+    "captured.context !== pending.value.context",
+    "pending.value.lengthContext === context",
+    "pending.value.context === captured.value.context",
+  ]) {
+    const matches = nestedRefIdentityComparisons(`if (${expression}) return;`);
+    assert.equal(matches.length, 1, expression);
+    assert.equal(matches[0][0], expression);
+    assert.equal(matches[0].index, 4);
+  }
+});
+
+function nestedRefIdentityComparisons(text: string) {
+  const identifier = "[A-Za-z_$][A-Za-z0-9_$]*";
+  const member = `${identifier}(?:\\.${identifier})*`;
+  // Match complete operands; a suffix such as targets.length is not a local named length.
+  const comparison = new RegExp(`(?<![A-Za-z0-9_$.])(${member})\\s*(?:===|!==)\\s*(${member})(?![A-Za-z0-9_$.])`, "g");
+  const nestedRef = new RegExp(`\\.value\\.${identifier}`);
+  const scalarKeywords = new Set(["null", "undefined", "true", "false"]);
+  // A length on the other operand must not exempt a ref's nested object comparison.
+  const nestedObject = (operand: string) => nestedRef.test(operand) && !operand.endsWith(".length");
+  return [...text.matchAll(comparison)].filter((match) =>
+    (nestedObject(match[1]) || nestedObject(match[2])) && !scalarKeywords.has(match[1]) && !scalarKeywords.has(match[2]),
+  );
+}
 
 test("only explicitly documented critical transactions may lock a modal", () => {
   const findings: string[] = [];

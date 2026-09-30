@@ -1,37 +1,51 @@
+//! Derived native-session full-text index. Database gates are keyed by the
+//! actual Agent library; transcript scanning never holds any database gate.
+use super::SessionContentSearchCollector;
 use crate::{
-    app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT},
     models::{
-        AgentCliKind, AppSettings, CliSessionIndexAgentStats, CliSessionIndexState,
-        CliSessionIndexStatus, CliSessionMessageRole, CliSessionSearchResult, CliSessionSummary,
+        AgentCliKind, AppSettings, CliSessionIndexAgentStats, CliSessionIndexStatus,
+        CliSessionMessageRole, CliSessionSummary,
     },
-    services::agent_cli::contracts::{SessionAdapter, SessionIndexLoadResult, SessionIndexMessage},
+    services::agent_cli::contracts::{
+        SessionContentSearchRequest, SessionContentSearchResult, SessionHistoryAdapter,
+        SessionHistoryRecord, SessionIndexLoadResult, SessionIndexMessage, SessionReadBudget,
+    },
     util::unix_millis,
 };
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap, HashMap},
     fs,
-    hash::{DefaultHasher, Hash, Hasher},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc, Mutex, OnceLock, RwLock,
+        Arc, Mutex, OnceLock,
     },
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::{SearchAccumulator, SearchQuery, SessionContentSearchCollector};
-
 pub(crate) const SESSION_INDEX_UPDATED_EVENT: &str = "cli-session-index-updated";
-const INDEX_TASK_KIND: &str = "sessionIndex";
-const INDEX_SCHEMA_VERSION: i64 = 3;
+const INDEX_SCHEMA_VERSION: i64 = 4;
 const MESSAGE_CHUNK_CHARS: usize = 32 * 1024;
 const MESSAGE_CHUNK_OVERLAP_CHARS: usize = 96;
-const READY_REFRESH_COOLDOWN: Duration = Duration::from_secs(60);
-const FAILED_REFRESH_COOLDOWN: Duration = Duration::from_secs(5 * 60);
-const MAINTENANCE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_CAPACITY_EVICTION_BATCH: usize = 16;
+const INDEX_SQL_BUSY_STEP: Duration = Duration::from_millis(25);
+
+#[derive(Clone, Copy)]
+struct IndexBudget<'a> {
+    read: &'a SessionReadBudget,
+    invalidated: &'a Arc<AtomicBool>,
+}
+impl IndexBudget<'_> {
+    fn check(self) -> Result<(), String> {
+        self.read.check()?;
+        if self.invalidated.load(Ordering::Acquire) {
+            return Err("会话索引设置已变化，当前读取已取消".into());
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionIndexConfig {
@@ -39,101 +53,179 @@ pub(crate) struct SessionIndexConfig {
     pub directory: PathBuf,
     pub max_size_bytes: u64,
 }
-
-#[derive(Debug, Clone)]
-pub(crate) struct IndexedSearchOutcome {
-    pub results: Vec<CliSessionSearchResult>,
-    pub state: CliSessionIndexState,
-    pub message: Option<String>,
-}
-
-#[derive(Clone)]
-pub(crate) struct BuildRequest {
-    pub cli_kind: AgentCliKind,
-    pub workdir: PathBuf,
-    pub sessions: Vec<CliSessionSummary>,
-    pub adapter: &'static SessionAdapter,
-    pub config: SessionIndexConfig,
-    pub reset_database: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuildScheduleState {
-    Scheduled,
-    Active,
-    CoolingDown,
-    Skipped,
-}
-
-struct QueuedBuild {
-    app: AppHandle,
-    key: String,
-    input_fingerprint: u64,
-    request: BuildRequest,
+struct ActiveIndex {
+    directory: PathBuf,
     cancelled: Arc<AtomicBool>,
 }
-
-enum MaintenanceKind {
-    Clear,
-    EnforceCapacity,
-}
-
-struct QueuedMaintenance {
-    app: Option<AppHandle>,
-    key: String,
-    config: SessionIndexConfig,
-    kind: MaintenanceKind,
-    completion: Option<mpsc::Sender<Result<(), String>>>,
-}
-
-enum QueueItem {
-    Build(QueuedBuild),
-    Maintenance(QueuedMaintenance),
-}
-
-struct RunningTask {
-    key: String,
-    directory: PathBuf,
-    is_build: bool,
-    cancelled: Option<Arc<AtomicBool>>,
-}
-
-struct BuildAttempt {
-    finished_at: Instant,
-    input_fingerprint: u64,
-    cooldown: Duration,
-}
-
-struct BuildStats {
-    updated: usize,
-    failed: usize,
-}
-
-enum BuildOutcome {
-    Completed(BuildStats),
-    Cancelled,
-}
-
 #[derive(Default)]
-struct BuildRegistry {
-    queue: VecDeque<QueueItem>,
-    queued_builds: HashSet<String>,
-    queued_maintenance: HashSet<String>,
-    running: Option<RunningTask>,
-    worker_active: bool,
-    last_attempts: HashMap<String, BuildAttempt>,
+struct IndexRegistry {
+    gates: HashMap<PathBuf, Arc<Mutex<()>>>,
+    active: HashMap<u64, ActiveIndex>,
+}
+fn registry() -> &'static Mutex<IndexRegistry> {
+    static REGISTRY: OnceLock<Mutex<IndexRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(IndexRegistry::default()))
+}
+fn database_gate(path: &Path) -> Arc<Mutex<()>> {
+    registry()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .gates
+        .entry(path.to_path_buf())
+        .or_default()
+        .clone()
+}
+fn cancel_directory(directory: &Path) {
+    for active in registry()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .active
+        .values()
+    {
+        if active.directory == directory {
+            active.cancelled.store(true, Ordering::Release);
+        }
+    }
 }
 
-fn build_registry() -> &'static Mutex<BuildRegistry> {
-    static REGISTRY: OnceLock<Mutex<BuildRegistry>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(BuildRegistry::default()))
+pub(crate) struct HistoryIndex {
+    config: SessionIndexConfig,
+    path: PathBuf,
+    token: u64,
+    cancelled: Arc<AtomicBool>,
 }
-
-fn index_file_gate() -> &'static RwLock<()> {
-    static GATE: OnceLock<RwLock<()>> = OnceLock::new();
-    GATE.get_or_init(|| RwLock::new(()))
+impl HistoryIndex {
+    pub(crate) fn new(config: &SessionIndexConfig, kind: AgentCliKind, source_id: &str) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let token = NEXT.fetch_add(1, Ordering::Relaxed);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        registry()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .active
+            .insert(
+                token,
+                ActiveIndex {
+                    directory: config.directory.clone(),
+                    cancelled: cancelled.clone(),
+                },
+            );
+        Self {
+            config: config.clone(),
+            path: source_database_path(config, kind, source_id),
+            token,
+            cancelled,
+        }
+    }
+    fn check(&self, budget: &SessionReadBudget) -> Result<(), String> {
+        IndexBudget {
+            read: budget,
+            invalidated: &self.cancelled,
+        }
+        .check()
+    }
+    fn connection<T>(
+        &self,
+        budget: &SessionReadBudget,
+        apply: impl FnOnce(&mut Connection) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let gate = database_gate(&self.path);
+        let _guard = loop {
+            self.check(budget)?;
+            match gate.try_lock() {
+                Ok(guard) => break guard,
+                Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(Duration::from_millis(5))
+                }
+            }
+        };
+        self.check(budget)?;
+        let context = IndexBudget {
+            read: budget,
+            invalidated: &self.cancelled,
+        };
+        let mut connection = open_connection_with_budget(&self.path, true, Some(context))?;
+        let result = apply(&mut connection);
+        context.check()?;
+        result
+    }
+    pub(crate) fn search(
+        &self,
+        workspace: &str,
+        record: &SessionHistoryRecord,
+        adapter: &SessionHistoryAdapter,
+        request: &SessionContentSearchRequest,
+        budget: &SessionReadBudget,
+    ) -> Result<SessionContentSearchResult, String> {
+        let known: Option<String> = self.connection(budget, |connection| {
+            connection
+                .query_row(
+                    "SELECT fingerprint FROM sessions WHERE workspace=?1 AND session_id=?2",
+                    params![workspace, record.record_key],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())
+        })?;
+        // Validate the native fingerprint on every query. The adapter skips
+        // unchanged bodies, including Grok's updates/chat-history pair.
+        let loaded = (adapter.index)(record, known.as_deref(), &|| self.check(budget).is_ok())?;
+        self.check(budget)?;
+        match loaded {
+            SessionIndexLoadResult::Unchanged { .. } => self.connection(budget, |connection| {
+                search_indexed_messages(connection, workspace, &record.record_key, request)
+            }),
+            SessionIndexLoadResult::Updated {
+                fingerprint,
+                source_bytes,
+                messages,
+            } => {
+                let mut matched = SessionContentSearchCollector::new(request);
+                for message in &messages {
+                    if matches!(
+                        message.role,
+                        CliSessionMessageRole::User | CliSessionMessageRole::Assistant
+                    ) {
+                        matched.observe(&message.content);
+                    }
+                }
+                let result = matched.finish();
+                let mut summary = record.summary.clone();
+                summary.id.clone_from(&record.record_key);
+                self.connection(budget, |connection| {
+                    replace_session(
+                        connection,
+                        workspace,
+                        &summary,
+                        &fingerprint,
+                        source_bytes,
+                        messages,
+                    )
+                })?;
+                Ok(result)
+            }
+        }
+    }
+    pub(crate) fn finish(&self, budget: &SessionReadBudget) -> Result<(), String> {
+        enforce_capacity(
+            &self.config,
+            IndexBudget {
+                read: budget,
+                invalidated: &self.cancelled,
+            },
+        )
+    }
 }
-
+impl Drop for HistoryIndex {
+    fn drop(&mut self) {
+        registry()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .active
+            .remove(&self.token);
+    }
+}
 pub(crate) fn config(
     app: &AppHandle,
     settings: &AppSettings,
@@ -155,729 +247,359 @@ pub(crate) fn config(
     })
 }
 
-pub(crate) fn search(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    sessions: &[CliSessionSummary],
-    query: &SearchQuery,
-    limit: usize,
-    config: &SessionIndexConfig,
-) -> Result<IndexedSearchOutcome, String> {
-    if !config.enabled {
-        return Ok(IndexedSearchOutcome {
-            results: summary_search(sessions, query, limit),
-            state: CliSessionIndexState::Disabled,
-            message: Some("会话索引已在设置中关闭".to_string()),
-        });
-    }
-    let _file_guard = index_file_gate()
-        .read()
-        .unwrap_or_else(|error| error.into_inner());
-    let path = database_path(config, cli_kind);
-    if !path.is_file() {
-        return Ok(IndexedSearchOutcome {
-            results: summary_search(sessions, query, limit),
-            state: CliSessionIndexState::Building,
-            message: Some("正在后台建立会话索引；已有摘要仍可立即查看".to_string()),
-        });
-    }
-    let connection = open_connection(&path, false)?;
-    let workspace = workspace_key(workdir);
-    let indexed_ids = indexed_session_ids(&connection, &workspace)?;
-    let mut indexed_content = if query.is_empty() {
-        HashMap::new()
-    } else {
-        search_indexed_workspace(&connection, &workspace, &query.content_request())?
-    };
-    let mut results = Vec::new();
-    for session in sessions {
-        let mut matched = SearchAccumulator::new(query);
-        observe_summary(&mut matched, session);
-        if !matched.complete() && indexed_ids.contains(&session.id) {
-            if let Some(content) = indexed_content.remove(&session.id) {
-                matched.merge_content(content);
-            }
-        }
-        if matched.complete() {
-            results.push(CliSessionSearchResult {
-                session: session.clone(),
-            });
-            if results.len() >= limit {
-                break;
-            }
-        }
-    }
-
-    let fully_indexed = sessions
-        .iter()
-        .all(|session| indexed_ids.contains(&session.id));
-    Ok(IndexedSearchOutcome {
-        results,
-        state: if fully_indexed {
-            CliSessionIndexState::Ready
-        } else {
-            CliSessionIndexState::Building
-        },
-        message: (!fully_indexed)
-            .then(|| "索引正在增量更新，结果会在后台完成后自动刷新".to_string()),
-    })
-}
-
-fn summary_search(
-    sessions: &[CliSessionSummary],
-    query: &SearchQuery,
-    limit: usize,
-) -> Vec<CliSessionSearchResult> {
-    let mut results = Vec::new();
-    for session in sessions {
-        let mut matched = SearchAccumulator::new(query);
-        observe_summary(&mut matched, session);
-        if matched.complete() {
-            results.push(CliSessionSearchResult {
-                session: session.clone(),
-            });
-            if results.len() >= limit {
-                break;
-            }
-        }
-    }
-    results
-}
-
-pub(crate) fn schedule_build(app: AppHandle, request: BuildRequest) -> BuildScheduleState {
-    if !request.config.enabled || !request.adapter.supports_index() {
-        return BuildScheduleState::Skipped;
-    }
-    let key = build_key(
-        request.cli_kind,
-        &request.workdir,
-        &request.config.directory,
-    );
-    let input_fingerprint = build_input_fingerprint(&request.sessions);
-    let mut start_worker = false;
-    {
-        let mut registry = build_registry()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if registry.queued_builds.contains(&key)
-            || registry
-                .running
-                .as_ref()
-                .is_some_and(|running| running.key == key)
-        {
-            return BuildScheduleState::Active;
-        }
-        if registry.last_attempts.get(&key).is_some_and(|attempt| {
-            attempt.input_fingerprint == input_fingerprint
-                && attempt.finished_at.elapsed() < attempt.cooldown
-        }) {
-            return BuildScheduleState::CoolingDown;
-        }
-        let cancelled = Arc::new(AtomicBool::new(false));
-        registry.queue.push_back(QueueItem::Build(QueuedBuild {
-            app,
-            key: key.clone(),
-            input_fingerprint,
-            request,
-            cancelled,
-        }));
-        registry.queued_builds.insert(key);
-        if !registry.worker_active {
-            registry.worker_active = true;
-            start_worker = true;
-        }
-    }
-    if start_worker {
-        start_queue_worker();
-    }
-    BuildScheduleState::Scheduled
-}
-
-fn start_queue_worker() {
-    tauri::async_runtime::spawn(async {
-        run_queue_worker().await;
-    });
-}
-
-async fn run_queue_worker() {
-    loop {
-        let item = {
-            let mut registry = build_registry()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            let Some(item) = registry.queue.pop_front() else {
-                registry.worker_active = false;
-                return;
-            };
-            item
-        };
-        match item {
-            QueueItem::Build(item) => run_build_item(item).await,
-            QueueItem::Maintenance(item) => run_maintenance_item(item).await,
-        }
-    }
-}
-
-async fn run_build_item(item: QueuedBuild) {
-    let QueuedBuild {
-        app,
-        key,
-        input_fingerprint,
-        request,
-        cancelled,
-    } = item;
-    {
-        let mut registry = build_registry()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        registry.queued_builds.remove(&key);
-        registry.running = Some(RunningTask {
-            key: key.clone(),
-            directory: request.config.directory.clone(),
-            is_build: true,
-            cancelled: Some(cancelled.clone()),
-        });
-    }
-
-    let cli_kind = request.cli_kind;
-    let task_id = format!("session-index-{}", cli_kind.key());
-    let started_at = unix_millis() as u64;
-    emit_task(
-        &app,
-        &task_id,
-        "running",
-        format!("准备索引 {} 个会话", request.sessions.len()),
-        Some(0.0),
-        started_at,
-        None,
-    );
-    let task_app = app.clone();
-    let task_request = request;
-    let task_id_for_build = task_id.clone();
-    let task_cancelled = cancelled.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        build(
-            &task_app,
-            &task_id_for_build,
-            started_at,
-            &task_request,
-            &task_cancelled,
-        )
-    })
-    .await
-    .map_err(|error| format!("会话索引任务异常: {error}"))
-    .and_then(|result| result);
-
-    match result {
-        Ok(BuildOutcome::Cancelled) => {
-            emit_task(
-                &app,
-                &task_id,
-                "success",
-                "会话索引任务已取消",
-                None,
-                started_at,
-                None,
-            );
-        }
-        Ok(BuildOutcome::Completed(stats)) => {
-            let cooldown = if stats.failed > 0 {
-                FAILED_REFRESH_COOLDOWN
-            } else {
-                READY_REFRESH_COOLDOWN
-            };
-            build_registry()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .last_attempts
-                .insert(
-                    key.clone(),
-                    BuildAttempt {
-                        finished_at: Instant::now(),
-                        input_fingerprint,
-                        cooldown,
-                    },
-                );
-            let detail = if stats.failed > 0 {
-                format!(
-                    "已更新 {} 个会话，跳过 {} 个暂不可读会话；稍后自动重试",
-                    stats.updated, stats.failed
-                )
-            } else if stats.updated > 0 {
-                format!("已更新 {} 个会话索引", stats.updated)
-            } else {
-                "会话索引已是最新".to_string()
-            };
-            emit_task(
-                &app,
-                &task_id,
-                "success",
-                detail,
-                Some(1.0),
-                started_at,
-                None,
-            );
-            if stats.updated > 0 {
-                let _ = app.emit(SESSION_INDEX_UPDATED_EVENT, cli_kind.key());
-            }
-        }
-        Err(error) => {
-            build_registry()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .last_attempts
-                .insert(
-                    key.clone(),
-                    BuildAttempt {
-                        finished_at: Instant::now(),
-                        input_fingerprint,
-                        cooldown: FAILED_REFRESH_COOLDOWN,
-                    },
-                );
-            emit_task(
-                &app,
-                &task_id,
-                "failed",
-                "会话索引更新失败",
-                None,
-                started_at,
-                Some(error),
-            );
-        }
-    }
-    let mut registry = build_registry()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    if registry
-        .running
-        .as_ref()
-        .is_some_and(|running| running.key == key)
-    {
-        registry.running = None;
-    }
-}
-
-async fn run_maintenance_item(item: QueuedMaintenance) {
-    let QueuedMaintenance {
-        app,
-        key,
-        config,
-        kind,
-        completion,
-    } = item;
-    let app_for_event = app.clone();
-    let directory = config.directory.clone();
-    let started_at = unix_millis() as u64;
-    if let Some(app) = app_for_event.as_ref() {
-        emit_task(
-            app,
-            &format!("session-index-maintenance-{}", stable_path_hash(&directory)),
-            "running",
-            match kind {
-                MaintenanceKind::Clear => "正在清理旧的会话索引",
-                MaintenanceKind::EnforceCapacity => "正在按容量上限整理会话索引",
-            },
-            None,
-            started_at,
-            None,
-        );
-    }
-    {
-        let mut registry = build_registry()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        registry.queued_maintenance.remove(&key);
-        registry.running = Some(RunningTask {
-            key: key.clone(),
-            directory: config.directory.clone(),
-            is_build: false,
-            cancelled: None,
-        });
-    }
-    let result = tauri::async_runtime::spawn_blocking(move || match kind {
-        MaintenanceKind::Clear => {
-            let _file_guard = index_file_gate()
-                .write()
-                .unwrap_or_else(|error| error.into_inner());
-            clear_files(&config)
-        }
-        MaintenanceKind::EnforceCapacity => {
-            let _file_guard = index_file_gate()
-                .read()
-                .unwrap_or_else(|error| error.into_inner());
-            enforce_capacity(&config)
-        }
-    })
-    .await
-    .map_err(|error| format!("会话索引维护任务异常: {error}"))
-    .and_then(|result| result);
-    if let Some(sender) = completion {
-        let _ = sender.send(result.clone());
-    }
-    if let Some(app) = app_for_event {
-        let task_id = format!("session-index-maintenance-{}", stable_path_hash(&directory));
-        match result {
-            Ok(()) => emit_task(
-                &app,
-                &task_id,
-                "success",
-                "会话索引维护完成",
-                Some(1.0),
-                started_at,
-                None,
-            ),
-            Err(error) => emit_task(
-                &app,
-                &task_id,
-                "failed",
-                "会话索引维护失败",
-                None,
-                started_at,
-                Some(error),
-            ),
-        }
-    }
-    let mut registry = build_registry()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    if registry
-        .running
-        .as_ref()
-        .is_some_and(|running| running.key == key)
-    {
-        registry.running = None;
-    }
-}
-
 pub(crate) fn status(
     config: &SessionIndexConfig,
     max_size_mib: u64,
 ) -> Result<CliSessionIndexStatus, String> {
-    let _file_guard = index_file_gate()
-        .read()
-        .unwrap_or_else(|error| error.into_inner());
+    let files = database_files(config);
     let mut agents = Vec::new();
-    let mut size_bytes = 0u64;
     for &cli_kind in AgentCliKind::ALL {
-        let path = database_path(config, cli_kind);
-        let size = database_disk_size(&path);
-        size_bytes = size_bytes.saturating_add(size);
-        let (session_count, updated_at) = if path.is_file() {
-            match open_connection(&path, false) {
-                Ok(connection) => {
-                    let count = connection
-                        .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
-                            row.get::<_, i64>(0)
-                        })
-                        .unwrap_or_default()
-                        .max(0) as usize;
-                    let timestamp = connection
-                        .query_row("SELECT MAX(indexed_at) FROM sessions", [], |row| {
-                            row.get::<_, Option<String>>(0)
-                        })
-                        .unwrap_or(None);
-                    (count, timestamp)
+        let mut size_bytes = 0;
+        let mut session_count = 0;
+        let mut updated_at: Option<String> = None;
+        for path in files.iter().filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(cli_kind.key()))
+        }) {
+            size_bytes += database_disk_size(path);
+            let gate = database_gate(path);
+            let Ok(_guard) = gate.try_lock() else {
+                continue;
+            };
+            if let Ok(connection) = open_connection(path, false) {
+                session_count += connection
+                    .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .unwrap_or_default()
+                    .max(0) as usize;
+                if let Ok(Some(timestamp)) =
+                    connection.query_row("SELECT MAX(indexed_at) FROM sessions", [], |row| {
+                        row.get::<_, Option<String>>(0)
+                    })
+                {
+                    if updated_at
+                        .as_ref()
+                        .is_none_or(|current| current < &timestamp)
+                    {
+                        updated_at = Some(timestamp);
+                    }
                 }
-                Err(_) => (0, None),
             }
-        } else {
-            (0, None)
-        };
+        }
         agents.push(CliSessionIndexAgentStats {
             cli_kind,
-            size_bytes: size,
+            size_bytes,
             session_count,
             updated_at,
         });
     }
-    let registry = build_registry()
+    let building = registry()
         .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let building = registry
-        .running
-        .as_ref()
-        .is_some_and(|running| running.is_build)
-        || !registry.queued_builds.is_empty();
+        .unwrap_or_else(|error| error.into_inner())
+        .active
+        .values()
+        .any(|active| {
+            active.directory == config.directory && !active.cancelled.load(Ordering::Acquire)
+        });
     Ok(CliSessionIndexStatus {
         enabled: config.enabled,
         directory: config.directory.to_string_lossy().to_string(),
         max_size_mib,
-        size_bytes,
+        size_bytes: agents.iter().map(|agent| agent.size_bytes).sum(),
         building,
         agents,
     })
 }
 
 pub(crate) fn clear(config: &SessionIndexConfig) -> Result<(), String> {
-    let (sender, receiver) = mpsc::channel();
-    enqueue_clear(None, config.clone(), Some(sender));
-    receiver
-        .recv_timeout(MAINTENANCE_WAIT_TIMEOUT)
-        .map_err(|_| "会话索引仍在停止，请稍后再试".to_string())?
-}
-
-fn enqueue_clear(
-    app: Option<AppHandle>,
-    config: SessionIndexConfig,
-    completion: Option<mpsc::Sender<Result<(), String>>>,
-) {
-    let key = unique_maintenance_key("clear", &config.directory);
-    let mut start_worker = false;
-    {
-        let mut registry = build_registry()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        cancel_directory_locked(&mut registry, &config.directory);
-        registry.queued_maintenance.insert(key.clone());
-        registry
-            .queue
-            .push_front(QueueItem::Maintenance(QueuedMaintenance {
-                app,
-                key,
-                config,
-                kind: MaintenanceKind::Clear,
-                completion,
-            }));
-        if !registry.worker_active {
-            registry.worker_active = true;
-            start_worker = true;
-        }
+    cancel_directory(&config.directory);
+    for path in database_files(config) {
+        let gate = database_gate(&path);
+        let _guard = gate.lock().unwrap_or_else(|error| error.into_inner());
+        remove_database_files(&path)?;
     }
-    if start_worker {
-        start_queue_worker();
-    }
+    Ok(())
 }
-
 pub(crate) fn reconfigure(app: &AppHandle, previous: &AppSettings, current: &AppSettings) {
-    let Ok(previous_config) = config(app, previous) else {
+    let (Ok(old), Ok(new)) = (config(app, previous), config(app, current)) else {
         return;
     };
-    let Ok(current_config) = config(app, current) else {
+    if previous.session_index_enabled == current.session_index_enabled
+        && old.directory == new.directory
+        && old.max_size_bytes == new.max_size_bytes
+    {
         return;
+    }
+    cancel_directory(&old.directory);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let result = if old.directory != new.directory || !new.enabled {
+            clear(&old)
+        } else {
+            let budget = SessionReadBudget::new(
+                Instant::now() + Duration::from_secs(30),
+                Arc::new(AtomicBool::new(false)),
+                u64::MAX,
+            );
+            enforce_capacity(
+                &new,
+                IndexBudget {
+                    read: &budget,
+                    invalidated: &budget.cancelled,
+                },
+            )
+        };
+        if let Err(error) = result {
+            eprintln!("会话派生索引维护未完成：{error}");
+        }
+        let _ = app.emit(SESSION_INDEX_UPDATED_EVENT, ());
+    });
+}
+fn source_database_path(config: &SessionIndexConfig, kind: AgentCliKind, source: &str) -> PathBuf {
+    config.directory.join(format!(
+        "{}-{}.sqlite3",
+        kind.key(),
+        super::workbench::hash(&[source])
+    ))
+}
+#[cfg(test)]
+fn database_path(config: &SessionIndexConfig, kind: AgentCliKind) -> PathBuf {
+    source_database_path(config, kind, "test-source")
+}
+#[cfg(test)]
+fn workspace_key(path: &Path) -> String {
+    path.to_string_lossy().to_string()
+}
+fn database_files(config: &SessionIndexConfig) -> Vec<PathBuf> {
+    database_files_with_budget(config, None).unwrap_or_default()
+}
+fn database_files_with_budget(
+    config: &SessionIndexConfig,
+    budget: Option<IndexBudget<'_>>,
+) -> Result<Vec<PathBuf>, String> {
+    if let Some(budget) = budget {
+        budget.check()?;
+    }
+    let Ok(entries) = fs::read_dir(&config.directory) else {
+        return Ok(Vec::new());
     };
-    if previous_config.directory != current_config.directory {
-        enqueue_clear(Some(app.clone()), previous_config.clone(), None);
-    }
-    if previous_config.directory == current_config.directory
-        && current_config.enabled
-        && previous_config.max_size_bytes != current_config.max_size_bytes
-    {
-        enqueue_capacity_maintenance(Some(app.clone()), current_config.clone());
-    }
-    if previous_config.enabled && !current_config.enabled {
-        cancel_directory(&current_config.directory);
-    }
-}
-
-fn enqueue_capacity_maintenance(app: Option<AppHandle>, config: SessionIndexConfig) {
-    let key = maintenance_key("capacity", &config.directory);
-    let mut start_worker = false;
-    {
-        let mut registry = build_registry()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if !registry.queued_maintenance.insert(key.clone()) {
-            return;
+    let mut files = Vec::new();
+    for entry in entries {
+        if let Some(budget) = budget {
+            budget.check()?;
         }
-        registry
-            .queue
-            .push_back(QueueItem::Maintenance(QueuedMaintenance {
-                app,
-                key,
-                config,
-                kind: MaintenanceKind::EnforceCapacity,
-                completion: None,
-            }));
-        if !registry.worker_active {
-            registry.worker_active = true;
-            start_worker = true;
+        let Ok(entry) = entry else {
+            continue;
+        };
+        if !entry.file_type().is_ok_and(|ty| ty.is_file()) {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "sqlite3")
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    AgentCliKind::ALL.iter().any(|kind| {
+                        name == format!("{}.sqlite3", kind.key())
+                            || name.starts_with(&format!("{}-", kind.key()))
+                    })
+                })
+        {
+            files.push(path);
         }
     }
-    if start_worker {
-        start_queue_worker();
+    Ok(files)
+}
+fn database_disk_size(path: &Path) -> u64 {
+    [
+        path.to_path_buf(),
+        PathBuf::from(format!("{}-wal", path.display())),
+        PathBuf::from(format!("{}-shm", path.display())),
+    ]
+    .iter()
+    .map(|file| {
+        fs::metadata(file)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    })
+    .sum()
+}
+#[cfg(test)]
+fn total_disk_size(config: &SessionIndexConfig) -> u64 {
+    total_disk_size_with_budget(config, None).unwrap_or_default()
+}
+fn total_disk_size_with_budget(
+    config: &SessionIndexConfig,
+    budget: Option<IndexBudget<'_>>,
+) -> Result<u64, String> {
+    let mut total = 0u64;
+    for path in database_files_with_budget(config, budget)? {
+        if let Some(budget) = budget {
+            budget.check()?;
+        }
+        total = total.saturating_add(database_disk_size(&path));
     }
+    Ok(total)
 }
-
-fn cancel_directory(directory: &Path) {
-    let mut registry = build_registry()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    cancel_directory_locked(&mut registry, directory);
+fn remove_database_files(path: &Path) -> Result<(), String> {
+    remove_database_files_with_budget(path, None)
 }
-
-fn cancel_directory_locked(registry: &mut BuildRegistry, directory: &Path) {
-    let mut retained = VecDeque::with_capacity(registry.queue.len());
-    while let Some(item) = registry.queue.pop_front() {
-        match item {
-            QueueItem::Build(build) if build.request.config.directory == directory => {
-                build.cancelled.store(true, Ordering::Relaxed);
-                registry.queued_builds.remove(&build.key);
-            }
-            other => retained.push_back(other),
+fn remove_database_files_with_budget(
+    path: &Path,
+    budget: Option<IndexBudget<'_>>,
+) -> Result<(), String> {
+    for file in [
+        path.to_path_buf(),
+        PathBuf::from(format!("{}-wal", path.display())),
+        PathBuf::from(format!("{}-shm", path.display())),
+    ] {
+        if let Some(budget) = budget {
+            budget.check()?;
+        }
+        match fs::remove_file(file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
         }
     }
-    registry.queue = retained;
-    if let Some(running) = registry.running.as_ref() {
-        if running.directory == directory {
-            if let Some(cancelled) = &running.cancelled {
-                cancelled.store(true, Ordering::Relaxed);
-            }
-        }
-    }
+    Ok(())
 }
-
-fn clear_files(config: &SessionIndexConfig) -> Result<(), String> {
-    if !config.directory.exists() {
+// Capacity is shared by all libraries, not multiplied by installation or root.
+// Maintenance keeps one request budget across all libraries. Select a global
+// oldest-first batch, then delete each library's batch in one transaction and
+// compact it at most once. A later request can continue interrupted upkeep.
+fn enforce_capacity(config: &SessionIndexConfig, budget: IndexBudget<'_>) -> Result<(), String> {
+    budget.check()?;
+    let total = total_disk_size_with_budget(config, Some(budget))?;
+    if config.max_size_bytes == 0 || total <= config.max_size_bytes {
         return Ok(());
     }
-    for &cli_kind in AgentCliKind::ALL {
-        let path = database_path(config, cli_kind);
-        for candidate in [
-            path.clone(),
-            path.with_extension("sqlite3-wal"),
-            path.with_extension("sqlite3-shm"),
-        ] {
-            if candidate.is_file() {
-                fs::remove_file(&candidate).map_err(|error| {
-                    format!("清理会话索引失败({}): {error}", candidate.display())
-                })?;
-            }
+    let maintenance = database_gate(&config.directory);
+    let _maintenance = match maintenance.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            return Err("其他查询正在维护会话索引容量，可稍后刷新；已读会话仍保留".into());
         }
-    }
-    let _ = fs::remove_dir(&config.directory);
-    Ok(())
-}
-
-fn clear_database_files(config: &SessionIndexConfig, cli_kind: AgentCliKind) -> Result<(), String> {
-    let path = database_path(config, cli_kind);
-    for candidate in [
-        path.clone(),
-        path.with_extension("sqlite3-wal"),
-        path.with_extension("sqlite3-shm"),
-    ] {
-        if candidate.is_file() {
-            fs::remove_file(&candidate)
-                .map_err(|error| format!("重建会话索引失败({}): {error}", candidate.display()))?;
-        }
-    }
-    Ok(())
-}
-
-fn build(
-    app: &AppHandle,
-    task_id: &str,
-    started_at: u64,
-    request: &BuildRequest,
-    cancelled: &AtomicBool,
-) -> Result<BuildOutcome, String> {
-    if request.reset_database {
-        let _file_guard = index_file_gate()
-            .write()
-            .unwrap_or_else(|error| error.into_inner());
-        build_inner(app, task_id, started_at, request, cancelled)
-    } else {
-        let _file_guard = index_file_gate()
-            .read()
-            .unwrap_or_else(|error| error.into_inner());
-        build_inner(app, task_id, started_at, request, cancelled)
-    }
-}
-
-fn build_inner(
-    app: &AppHandle,
-    task_id: &str,
-    started_at: u64,
-    request: &BuildRequest,
-    cancelled: &AtomicBool,
-) -> Result<BuildOutcome, String> {
-    if cancelled.load(Ordering::Relaxed) {
-        return Ok(BuildOutcome::Cancelled);
-    }
-    if request.reset_database {
-        clear_database_files(&request.config, request.cli_kind)?;
-    }
-    fs::create_dir_all(&request.config.directory).map_err(|error| {
-        format!(
-            "创建会话索引目录失败({}): {error}",
-            request.config.directory.display()
-        )
-    })?;
-    let path = database_path(&request.config, request.cli_kind);
-    let mut connection = open_connection(&path, true)?;
-    let workspace = workspace_key(&request.workdir);
-    let active_ids = request
-        .sessions
-        .iter()
-        .map(|session| session.id.clone())
-        .collect::<HashSet<_>>();
-    let existing = existing_fingerprints(&connection, &workspace)?;
-    let total = request.sessions.len().max(1);
-    let mut updated = 0usize;
-    let mut failed = 0usize;
-    for (position, session) in request.sessions.iter().enumerate() {
-        if cancelled.load(Ordering::Relaxed) {
-            return Ok(BuildOutcome::Cancelled);
-        }
-        let known = existing.get(&session.id).map(String::as_str);
-        match request.adapter.index(
-            request.cli_kind,
-            &request.workdir,
-            &session.id,
-            known,
-            &|| !cancelled.load(Ordering::Relaxed),
-        ) {
-            Ok(SessionIndexLoadResult::Unchanged { .. }) => {
-                touch_session(&connection, &workspace, session)?;
-            }
-            Ok(SessionIndexLoadResult::Updated {
-                fingerprint,
-                source_bytes,
-                messages,
-            }) => {
-                replace_session(
-                    &mut connection,
-                    &workspace,
-                    session,
-                    &fingerprint,
-                    source_bytes,
-                    messages,
+    };
+    let mut candidates = BinaryHeap::new();
+    let mut sizes = HashMap::new();
+    let mut indexed_totals = HashMap::new();
+    let mut reclaimed = 0u64;
+    for path in database_files_with_budget(config, Some(budget))? {
+        budget.check()?;
+        let gate = database_gate(&path);
+        let Ok(_guard) = gate.try_lock() else {
+            continue;
+        };
+        let size = database_disk_size(&path);
+        let connection = open_connection_with_budget(&path, false, Some(budget))?;
+        let mut indexed_total = 0u64;
+        {
+            let mut statement = connection
+                .prepare("SELECT workspace, session_id, last_used_at, indexed_bytes FROM sessions")
+                .map_err(|error| error.to_string())?;
+            let mut rows = statement.query([]).map_err(|error| error.to_string())?;
+            while let Some(row) = rows.next().map_err(|error| error.to_string())? {
+                budget.check()?;
+                let workspace = row.get::<_, String>(0).map_err(|error| error.to_string())?;
+                let session = row.get::<_, String>(1).map_err(|error| error.to_string())?;
+                let time = row.get::<_, i64>(2).map_err(|error| error.to_string())?;
+                let bytes = row
+                    .get::<_, i64>(3)
+                    .map_err(|error| error.to_string())?
+                    .max(1) as u64;
+                budget.read.record(
+                    workspace
+                        .len()
+                        .saturating_add(session.len())
+                        .saturating_add(path.as_os_str().len())
+                        .saturating_add(std::mem::size_of::<(i64, u64)>()),
                 )?;
-                updated = updated.saturating_add(1);
-            }
-            Err(error) if cancelled.load(Ordering::Relaxed) || is_cancelled_error(&error) => {
-                return Ok(BuildOutcome::Cancelled);
-            }
-            Err(_) => {
-                failed = failed.saturating_add(1);
-                continue;
+                indexed_total = indexed_total.saturating_add(bytes);
+                candidates.push(Reverse((time, path.clone(), workspace, session, bytes)));
             }
         }
-        if position % 3 == 0 || position + 1 == request.sessions.len() {
-            emit_task(
-                app,
-                task_id,
-                "running",
-                format!(
-                    "已处理 {} / {} 个会话",
-                    position + 1,
-                    request.sessions.len()
-                ),
-                Some((position + 1) as f32 / total as f32),
-                started_at,
-                None,
+        budget.check()?;
+        drop(connection);
+        if indexed_total == 0 {
+            // A previous bounded pass may have committed deletion before its
+            // compaction budget ended. Empty derived libraries need no VACUUM.
+            remove_database_files_with_budget(&path, Some(budget))?;
+            reclaimed = reclaimed.saturating_add(size);
+        } else {
+            sizes.insert(path.clone(), size);
+            indexed_totals.insert(path, indexed_total);
+        }
+    }
+    let mut needed = total
+        .saturating_sub(reclaimed)
+        .saturating_sub(config.max_size_bytes);
+    let mut batches = BTreeMap::<PathBuf, Vec<(String, String)>>::new();
+    while needed > 0 {
+        budget.check()?;
+        let Some(Reverse((_, path, workspace, session, bytes))) = candidates.pop() else {
+            break;
+        };
+        // indexed_bytes estimates each record's share of its library. Actual
+        // post-compaction size is checked below; underestimation is reported
+        // as deferred maintenance, never as an unlimited extra VACUUM loop.
+        let estimated = (u128::from(sizes[&path]) * u128::from(bytes)
+            / u128::from(indexed_totals[&path]))
+        .max(1)
+        .min(u128::from(u64::MAX)) as u64;
+        needed = needed.saturating_sub(estimated);
+        batches.entry(path).or_default().push((workspace, session));
+    }
+    for (path, sessions) in batches {
+        budget.check()?;
+        let gate = database_gate(&path);
+        let Ok(_guard) = gate.try_lock() else {
+            continue;
+        };
+        if !path.exists() {
+            continue;
+        }
+        let mut connection = open_connection_with_budget(&path, false, Some(budget))?;
+        delete_session_batch(&mut connection, &sessions, budget)?;
+        budget.check()?;
+        let remaining = connection
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|error| error.to_string())?;
+        if remaining == 0 {
+            drop(connection);
+            remove_database_files_with_budget(&path, Some(budget))?;
+        } else {
+            budget.check()?;
+            let compacted = connection.execute_batch(
+                "PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);",
             );
-            std::thread::yield_now();
+            budget.check()?;
+            compacted.map_err(|error| format!("压缩会话索引失败：{error}"))?;
         }
     }
-    if cancelled.load(Ordering::Relaxed) {
-        return Ok(BuildOutcome::Cancelled);
+    budget.check()?;
+    if total_disk_size_with_budget(config, Some(budget))? > config.max_size_bytes {
+        return Err("会话索引容量维护尚未完成，后续查询将继续处理；已读会话仍保留".into());
     }
-    remove_missing_sessions(&connection, &workspace, &active_ids)?;
-    enforce_capacity(&request.config)?;
-    Ok(BuildOutcome::Completed(BuildStats { updated, failed }))
+    Ok(())
 }
-
 fn open_connection(path: &Path, create: bool) -> Result<Connection, String> {
+    open_connection_with_budget(path, create, None)
+}
+fn open_connection_with_budget(
+    path: &Path,
+    create: bool,
+    budget: Option<IndexBudget<'_>>,
+) -> Result<Connection, String> {
+    if let Some(budget) = budget {
+        budget.check()?;
+    }
     if create {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
@@ -893,8 +615,24 @@ fn open_connection(path: &Path, create: bool) -> Result<Connection, String> {
         };
     let mut connection = Connection::open_with_flags(path, flags)
         .map_err(|error| format!("打开会话索引失败({}): {error}", path.display()))?;
+    if let Some(budget) = budget {
+        budget.check()?;
+        let read = budget.read.clone();
+        let invalidated = budget.invalidated.clone();
+        connection.progress_handler(
+            512,
+            Some(move || read.check().is_err() || invalidated.load(Ordering::Acquire)),
+        );
+    }
     connection
-        .busy_timeout(std::time::Duration::from_millis(750))
+        .busy_timeout(budget.map_or(Duration::from_millis(750), |budget| {
+            INDEX_SQL_BUSY_STEP.min(
+                budget
+                    .read
+                    .deadline
+                    .saturating_duration_since(Instant::now()),
+            )
+        }))
         .map_err(|error| format!("配置会话索引超时失败: {error}"))?;
     connection
         .execute_batch(
@@ -906,6 +644,9 @@ fn open_connection(path: &Path, create: bool) -> Result<Connection, String> {
         .map_err(|error| format!("初始化会话索引连接失败: {error}"))?;
     if create {
         ensure_schema(&mut connection)?;
+    }
+    if let Some(budget) = budget {
+        budget.check()?;
     }
     Ok(connection)
 }
@@ -1055,6 +796,13 @@ fn replace_session(
         )
         .map_err(|error| format!("写入会话索引摘要失败: {error}"))?;
     for message in messages {
+        super::workbench::check_read_budget()?;
+        if !matches!(
+            message.role,
+            CliSessionMessageRole::User | CliSessionMessageRole::Assistant
+        ) {
+            continue;
+        }
         for (chunk_index, content) in chunk_message(&message.content).into_iter().enumerate() {
             transaction
                 .execute(
@@ -1084,321 +832,72 @@ fn replace_session(
         .map_err(|error| format!("提交会话索引失败: {error}"))
 }
 
-fn search_indexed_workspace(
-    connection: &Connection,
-    workspace: &str,
-    request: &crate::services::agent_cli::contracts::SessionContentSearchRequest,
-) -> Result<
-    HashMap<String, crate::services::agent_cli::contracts::SessionContentSearchResult>,
-    String,
-> {
-    let mut collectors = HashMap::<String, SessionContentSearchCollector<'_>>::new();
-    for term in &request.terms {
-        let rows = if term.value.chars().count() >= 3 {
-            let query = format!("\"{}\"", term.value.replace('"', "\"\""));
-            let mut statement = connection
-                .prepare(
-                    "SELECT session_id, content
-                     FROM (
-                         SELECT m.session_id, m.content,
-                                ROW_NUMBER() OVER (
-                                    PARTITION BY m.session_id ORDER BY m.row_id
-                                ) AS result_rank
-                         FROM message_fts f
-                         JOIN messages m ON m.row_id=f.rowid
-                         WHERE m.workspace=?1 AND message_fts MATCH ?2
-                     )
-                     WHERE result_rank = 1",
-                )
-                .map_err(|error| format!("准备工作区会话全文检索失败: {error}"))?;
-            let rows = statement
-                .query_map(params![workspace, query], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })
-                .map_err(|error| format!("检索工作区会话全文失败: {error}"))?
-                .filter_map(Result::ok)
-                .collect::<Vec<_>>();
-            rows
-        } else {
-            let mut statement = connection
-                .prepare(
-                    "SELECT session_id, content
-                     FROM (
-                         SELECT m.session_id, m.content,
-                                ROW_NUMBER() OVER (
-                                    PARTITION BY m.session_id ORDER BY m.row_id
-                                ) AS result_rank
-                         FROM messages m
-                         WHERE m.workspace=?1 AND instr(lower(m.content), ?2) > 0
-                     )
-                     WHERE result_rank = 1",
-                )
-                .map_err(|error| format!("准备工作区短词检索失败: {error}"))?;
-            let rows = statement
-                .query_map(params![workspace, term.value], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })
-                .map_err(|error| format!("检索工作区短词内容失败: {error}"))?
-                .filter_map(Result::ok)
-                .collect::<Vec<_>>();
-            rows
-        };
-        for (session_id, content) in rows {
-            collectors
-                .entry(session_id)
-                .or_insert_with(|| SessionContentSearchCollector::new(request))
-                .observe(&content);
-        }
-    }
-    Ok(collectors
-        .into_iter()
-        .map(|(session_id, collector)| (session_id, collector.finish()))
-        .collect())
-}
-
-#[cfg(test)]
 fn search_indexed_messages(
     connection: &Connection,
     workspace: &str,
     session_id: &str,
-    request: &crate::services::agent_cli::contracts::SessionContentSearchRequest,
-) -> Result<crate::services::agent_cli::contracts::SessionContentSearchResult, String> {
-    Ok(search_indexed_workspace(connection, workspace, request)?
-        .remove(session_id)
-        .unwrap_or_default())
-}
-
-fn observe_summary(accumulator: &mut SearchAccumulator<'_>, session: &CliSessionSummary) {
-    accumulator.observe(&session.title);
-    accumulator.observe(&session.id);
-    if let Some(preview) = session.preview.as_deref() {
-        accumulator.observe(preview);
-    }
-    if let Some(model) = session.model.as_deref() {
-        accumulator.observe(model);
-    }
-    for model in &session.models {
-        accumulator.observe(model);
-    }
-    accumulator.observe(&session.workdir);
-}
-
-fn existing_fingerprints(
-    connection: &Connection,
-    workspace: &str,
-) -> Result<HashMap<String, String>, String> {
-    let mut statement = connection
-        .prepare("SELECT session_id, fingerprint FROM sessions WHERE workspace=?1")
-        .map_err(|error| format!("准备读取索引指纹失败: {error}"))?;
-    let rows = statement
-        .query_map([workspace], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|error| format!("读取索引指纹失败: {error}"))?;
-    Ok(rows.filter_map(Result::ok).collect())
-}
-
-fn indexed_session_ids(
-    connection: &Connection,
-    workspace: &str,
-) -> Result<HashSet<String>, String> {
-    Ok(existing_fingerprints(connection, workspace)?
-        .into_keys()
-        .collect())
-}
-
-fn touch_session(
-    connection: &Connection,
-    workspace: &str,
-    session: &CliSessionSummary,
-) -> Result<(), String> {
-    connection
-        .execute(
-            "UPDATE sessions SET last_used_at=?1, title=?2, preview=?3, model=?4,
-             models_json=?5, updated_at=?6 WHERE workspace=?7 AND session_id=?8",
-            params![
-                unix_millis() as i64,
-                session.title,
-                session.preview,
-                session.model,
-                serde_json::to_string(&session.models).unwrap_or_else(|_| "[]".to_string()),
-                session.updated_at,
-                workspace,
-                session.id,
-            ],
-        )
-        .map_err(|error| format!("更新会话索引摘要失败: {error}"))?;
-    Ok(())
-}
-
-fn remove_missing_sessions(
-    connection: &Connection,
-    workspace: &str,
-    active_ids: &HashSet<String>,
-) -> Result<(), String> {
-    let existing = indexed_session_ids(connection, workspace)?;
-    for session_id in existing.difference(active_ids) {
-        delete_session(connection, workspace, session_id)?;
-    }
-    Ok(())
-}
-
-fn delete_session(
-    connection: &Connection,
-    workspace: &str,
-    session_id: &str,
-) -> Result<(), String> {
-    let row_ids = {
-        let mut statement = connection
-            .prepare("SELECT row_id FROM messages WHERE workspace=?1 AND session_id=?2")
-            .map_err(|error| format!("读取待删除会话索引失败: {error}"))?;
-        let rows = statement
-            .query_map(params![workspace, session_id], |row| row.get::<_, i64>(0))
-            .map_err(|error| format!("查询待删除会话索引失败: {error}"))?
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>();
-        rows
-    };
-    for row_id in row_ids {
-        connection
-            .execute("DELETE FROM message_fts WHERE rowid=?1", [row_id])
-            .map_err(|error| format!("删除全文索引记录失败: {error}"))?;
-    }
-    connection
-        .execute(
-            "DELETE FROM messages WHERE workspace=?1 AND session_id=?2",
-            params![workspace, session_id],
-        )
-        .map_err(|error| format!("删除会话索引消息失败: {error}"))?;
-    connection
-        .execute(
-            "DELETE FROM sessions WHERE workspace=?1 AND session_id=?2",
-            params![workspace, session_id],
-        )
-        .map_err(|error| format!("删除会话索引摘要失败: {error}"))?;
-    Ok(())
-}
-
-fn enforce_capacity(config: &SessionIndexConfig) -> Result<(), String> {
-    if config.max_size_bytes == 0 {
-        return Ok(());
-    }
-    let mut measured_total = total_disk_size(config);
-    if measured_total <= config.max_size_bytes {
-        return Ok(());
-    }
-    let target = config.max_size_bytes;
-    let mut candidates = Vec::new();
-    for &cli_kind in AgentCliKind::ALL {
-        let path = database_path(config, cli_kind);
-        if !path.is_file() {
-            continue;
-        }
-        let connection = open_connection(&path, false)?;
-        let mut statement = connection
-            .prepare(
-                "SELECT workspace, session_id, last_used_at
-                 FROM sessions ORDER BY last_used_at ASC",
-            )
-            .map_err(|error| format!("准备索引淘汰查询失败: {error}"))?;
-        candidates.extend(
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        cli_kind,
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                    ))
-                })
-                .map_err(|error| format!("读取索引淘汰候选失败: {error}"))?
-                .filter_map(Result::ok),
-        );
-    }
-    candidates.sort_by_key(|candidate| candidate.3);
-    let mut next_candidate = 0usize;
-    let mut batch_size = 1usize;
-    while measured_total > target && next_candidate < candidates.len() {
-        let previous_total = measured_total;
-        let batch_start = next_candidate;
-        let batch_end = next_candidate
-            .saturating_add(batch_size)
-            .min(candidates.len());
-        let mut touched = HashSet::new();
-        let mut connections = HashMap::new();
-        while next_candidate < batch_end {
-            let (cli_kind, workspace, session_id, _) = &candidates[next_candidate];
-            if !connections.contains_key(cli_kind) {
-                connections.insert(
-                    *cli_kind,
-                    open_connection(&database_path(config, *cli_kind), false)?,
-                );
-            }
-            let connection = connections
-                .get(cli_kind)
-                .ok_or_else(|| "会话索引容量整理连接丢失".to_string())?;
-            delete_session(connection, workspace, session_id)?;
-            touched.insert(*cli_kind);
-            next_candidate += 1;
-        }
-        drop(connections);
-        compact_databases(config, &touched)?;
-        measured_total = total_disk_size(config);
-        let deleted_count = next_candidate.saturating_sub(batch_start);
-        let measured_freed = previous_total.saturating_sub(measured_total);
-        batch_size = if measured_freed == 0 || deleted_count == 0 {
-            1
+    request: &SessionContentSearchRequest,
+) -> Result<SessionContentSearchResult, String> {
+    let mut collector = SessionContentSearchCollector::new(request);
+    for term in &request.terms {
+        super::workbench::check_read_budget()?;
+        let content = if term.value.chars().count() >= 3 {
+            let query = format!("\"{}\"", term.value.replace('"', "\"\""));
+            connection.query_row("SELECT m.content FROM message_fts f JOIN messages m ON m.row_id=f.rowid WHERE m.workspace=?1 AND m.session_id=?2 AND message_fts MATCH ?3 LIMIT 1", params![workspace, session_id, query], |row| row.get::<_, String>(0)).optional()
         } else {
-            let average_freed = measured_freed / deleted_count as u64;
-            let remaining = measured_total.saturating_sub(target);
-            remaining
-                .saturating_add(average_freed.saturating_sub(1))
-                .checked_div(average_freed.max(1))
-                .unwrap_or(1)
-                .clamp(1, MAX_CAPACITY_EVICTION_BATCH as u64) as usize
-        };
+            connection.query_row("SELECT content FROM messages WHERE workspace=?1 AND session_id=?2 AND instr(lower(content), ?3)>0 LIMIT 1", params![workspace, session_id, term.value], |row| row.get::<_, String>(0)).optional()
+        }.map_err(|error| format!("检索原生会话索引失败：{error}"))?;
+        if let Some(content) = content {
+            collector.observe(&content);
+        }
     }
-
-    if measured_total > config.max_size_bytes {
-        remove_empty_databases(config)?;
-    }
-    Ok(())
+    Ok(collector.finish())
 }
 
-fn compact_databases(
-    config: &SessionIndexConfig,
-    cli_kinds: &HashSet<AgentCliKind>,
+fn delete_session_batch(
+    connection: &mut Connection,
+    sessions: &[(String, String)],
+    budget: IndexBudget<'_>,
 ) -> Result<(), String> {
-    for &cli_kind in cli_kinds {
-        let path = database_path(config, cli_kind);
-        if path.is_file() {
-            let connection = open_connection(&path, false)?;
-            connection
-                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")
-                .map_err(|error| format!("压缩会话索引失败({}): {error}", path.display()))?;
+    budget.check()?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch(
+            "CREATE TEMP TABLE capacity_evictions (
+             workspace TEXT NOT NULL, session_id TEXT NOT NULL,
+             PRIMARY KEY(workspace, session_id)
+         ) WITHOUT ROWID;",
+        )
+        .map_err(|error| error.to_string())?;
+    {
+        let mut insert = transaction
+            .prepare("INSERT INTO capacity_evictions VALUES (?1, ?2)")
+            .map_err(|error| error.to_string())?;
+        for (workspace, session_id) in sessions {
+            budget.check()?;
+            insert
+                .execute(params![workspace, session_id])
+                .map_err(|error| error.to_string())?;
         }
     }
-    Ok(())
-}
-
-fn remove_empty_databases(config: &SessionIndexConfig) -> Result<(), String> {
-    for &cli_kind in AgentCliKind::ALL {
-        let path = database_path(config, cli_kind);
-        if !path.is_file() {
-            continue;
-        }
-        let connection = open_connection(&path, false)?;
-        let session_count = connection
-            .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .map_err(|error| format!("读取空会话索引失败({}): {error}", path.display()))?;
-        drop(connection);
-        if session_count == 0 {
-            clear_database_files(config, cli_kind)?;
-        }
-    }
-    Ok(())
+    transaction
+        .execute_batch(
+            "DELETE FROM message_fts WHERE rowid IN (
+             SELECT m.row_id FROM messages m JOIN capacity_evictions e
+             ON m.workspace=e.workspace AND m.session_id=e.session_id
+         );
+         DELETE FROM messages WHERE (workspace, session_id) IN (
+             SELECT workspace, session_id FROM capacity_evictions
+         );
+         DELETE FROM sessions WHERE (workspace, session_id) IN (
+             SELECT workspace, session_id FROM capacity_evictions
+         );",
+        )
+        .map_err(|error| format!("批量删除会话索引失败：{error}"))?;
+    budget.check()?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 fn chunk_message(content: &str) -> Vec<&str> {
@@ -1435,119 +934,12 @@ fn chunk_message(content: &str) -> Vec<&str> {
     chunks
 }
 
-fn workspace_key(path: &Path) -> String {
-    let mut value = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .replace('\\', "/");
-    if cfg!(any(target_os = "windows", target_os = "macos")) {
-        value.make_ascii_lowercase();
-    }
-    value
-}
-
-fn build_key(cli_kind: AgentCliKind, workdir: &Path, directory: &Path) -> String {
-    format!(
-        "{}:{}:{}",
-        cli_kind.key(),
-        stable_path_hash(directory),
-        workspace_key(workdir)
-    )
-}
-
-fn build_input_fingerprint(sessions: &[CliSessionSummary]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for session in sessions {
-        session.id.hash(&mut hasher);
-        session.updated_at.hash(&mut hasher);
-        session.title.hash(&mut hasher);
-        session.preview.hash(&mut hasher);
-        session.model.hash(&mut hasher);
-    }
-    hasher.finish()
-}
-
-fn maintenance_key(kind: &str, directory: &Path) -> String {
-    format!("{kind}:{}", stable_path_hash(directory))
-}
-
-fn unique_maintenance_key(kind: &str, directory: &Path) -> String {
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-    format!(
-        "{}:{}",
-        maintenance_key(kind, directory),
-        SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    )
-}
-
-fn stable_path_hash(path: &Path) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    workspace_key(path).hash(&mut hasher);
-    hasher.finish()
-}
-
-fn is_cancelled_error(error: &str) -> bool {
-    error.contains("会话检索已被新的搜索替换")
-}
-
-fn database_path(config: &SessionIndexConfig, cli_kind: AgentCliKind) -> PathBuf {
-    config.directory.join(format!("{}.sqlite3", cli_kind.key()))
-}
-
-fn database_disk_size(path: &Path) -> u64 {
-    [
-        path.to_path_buf(),
-        path.with_extension("sqlite3-wal"),
-        path.with_extension("sqlite3-shm"),
-    ]
-    .into_iter()
-    .filter_map(|candidate| candidate.metadata().ok().map(|metadata| metadata.len()))
-    .sum()
-}
-
-fn total_disk_size(config: &SessionIndexConfig) -> u64 {
-    AgentCliKind::ALL
-        .iter()
-        .map(|&cli_kind| database_disk_size(&database_path(config, cli_kind)))
-        .sum()
-}
-
 fn role_key(role: CliSessionMessageRole) -> &'static str {
     match role {
         CliSessionMessageRole::User => "user",
         CliSessionMessageRole::Assistant => "assistant",
         CliSessionMessageRole::Tool => "tool",
     }
-}
-
-fn emit_task(
-    app: &AppHandle,
-    task_id: &str,
-    status: &str,
-    detail: impl Into<String>,
-    progress: Option<f32>,
-    started_at: u64,
-    error: Option<String>,
-) {
-    let _ = app.emit(
-        BACKGROUND_TASK_EVENT,
-        BackgroundTaskEvent {
-            can_show_window: None,
-            login_account_id: None,
-            provider_id: None,
-            can_cancel: None,
-            task_id: task_id.to_string(),
-            kind: INDEX_TASK_KIND.to_string(),
-            status: status.to_string(),
-            title: "更新会话索引".to_string(),
-            detail: detail.into(),
-            progress,
-            started_at,
-            finished_at: (status != "running").then(|| unix_millis() as u64),
-            error,
-        },
-    );
 }
 
 #[cfg(test)]
@@ -1578,6 +970,14 @@ mod tests {
             can_resume: true,
             metadata_source: "test".to_string(),
         }
+    }
+
+    fn read_budget(max_bytes: u64) -> SessionReadBudget {
+        SessionReadBudget::new(
+            Instant::now() + Duration::from_secs(30),
+            Arc::new(AtomicBool::new(false)),
+            max_bytes,
+        )
     }
 
     #[test]
@@ -1679,7 +1079,9 @@ mod tests {
             )
             .unwrap();
         }
-        enforce_capacity(&config).unwrap();
+        HistoryIndex::new(&config, AgentCliKind::Codex, "test-source")
+            .finish(&read_budget(u64::MAX))
+            .unwrap();
         let remaining = AgentCliKind::ALL
             .iter()
             .filter_map(|&kind| {
@@ -1743,7 +1145,9 @@ mod tests {
             .unwrap();
         config.max_size_bytes = total_before.saturating_sub(largest_database / 3);
 
-        enforce_capacity(&config).unwrap();
+        HistoryIndex::new(&config, AgentCliKind::Codex, "test-source")
+            .finish(&read_budget(u64::MAX))
+            .unwrap();
 
         let remaining = AgentCliKind::ALL
             .iter()
@@ -1766,30 +1170,122 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_a_directory_marks_its_running_build_only() {
-        let target = test_root("cancel-target");
-        let other = test_root("cancel-other");
-        let target_cancelled = Arc::new(AtomicBool::new(false));
-        let mut registry = BuildRegistry {
-            running: Some(RunningTask {
-                key: "target".to_string(),
-                directory: target.clone(),
-                is_build: true,
-                cancelled: Some(target_cancelled.clone()),
-            }),
-            ..BuildRegistry::default()
+    fn capacity_maintenance_obeys_row_budget_before_deleting_existing_indexes() {
+        let root = test_root("bounded-capacity");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let config = SessionIndexConfig {
+            enabled: true,
+            directory: root.clone(),
+            max_size_bytes: 1,
         };
-        cancel_directory_locked(&mut registry, &target);
-        assert!(target_cancelled.load(Ordering::Relaxed));
+        let database = database_path(&config, AgentCliKind::Codex);
+        let mut connection = open_connection(&database, true).unwrap();
+        for index in 0..8 {
+            replace_session(
+                &mut connection,
+                "native-workspace",
+                &summary(&format!("session-{index}"), &root),
+                "fingerprint",
+                128,
+                vec![SessionIndexMessage {
+                    id: "message".into(),
+                    role: CliSessionMessageRole::User,
+                    content: "derived content".repeat(100),
+                }],
+            )
+            .unwrap();
+        }
+        drop(connection);
+        let index = HistoryIndex::new(&config, AgentCliKind::Codex, "test-source");
+        let budget = read_budget(1);
+        let started = Instant::now();
+        assert!(index.finish(&budget).unwrap_err().contains("字节预算"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let connection = open_connection(&database, false).unwrap();
+        let remaining: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            remaining, 8,
+            "an interrupted enumeration must not start eviction"
+        );
+        drop(connection);
+        // Cancellation released every gate; a later independent pass can finish.
+        index.finish(&read_budget(u64::MAX)).unwrap();
+        assert!(database_files(&config).is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
 
-        let other_cancelled = Arc::new(AtomicBool::new(false));
-        registry.running = Some(RunningTask {
-            key: "other".to_string(),
-            directory: other,
-            is_build: true,
-            cancelled: Some(other_cancelled.clone()),
+    #[test]
+    fn sqlite_progress_interrupts_long_statements_on_cancel_or_index_invalidation() {
+        let root = test_root("sql-progress");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        for invalidate_settings in [false, true] {
+            let budget = read_budget(u64::MAX);
+            let invalidated = Arc::new(AtomicBool::new(false));
+            let connection = open_connection_with_budget(
+                &root.join("codex.sqlite3"),
+                true,
+                Some(IndexBudget {
+                    read: &budget,
+                    invalidated: &invalidated,
+                }),
+            )
+            .unwrap();
+            let cancelled = if invalidate_settings {
+                invalidated
+            } else {
+                budget.cancelled.clone()
+            };
+            let started = Instant::now();
+            let result = std::thread::scope(|threads| {
+                threads.spawn(move || {
+                    std::thread::sleep(Duration::from_millis(10));
+                    cancelled.store(true, Ordering::Release);
+                });
+                connection.query_row(
+                    "WITH RECURSIVE work(value) AS (
+                         SELECT 1 UNION ALL SELECT value + 1 FROM work WHERE value < 1000000000
+                     ) SELECT SUM(value) FROM work",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+            });
+            assert!(
+                matches!(result, Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::OperationInterrupted)
+            );
+            assert!(started.elapsed() < Duration::from_secs(2));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn index_connection_lock_wait_stops_when_the_request_is_cancelled() {
+        let root = test_root("cancel-lock-wait");
+        let config = SessionIndexConfig {
+            enabled: true,
+            directory: root,
+            max_size_bytes: u64::MAX,
+        };
+        let index = HistoryIndex::new(&config, AgentCliKind::Codex, "test-source");
+        let gate = database_gate(&index.path);
+        let _held = gate.lock().unwrap();
+        let budget = read_budget(u64::MAX);
+        let cancelled = budget.cancelled.clone();
+        let started = Instant::now();
+        let result = std::thread::scope(|threads| {
+            threads.spawn(move || {
+                std::thread::sleep(Duration::from_millis(10));
+                cancelled.store(true, Ordering::Release);
+            });
+            index.connection(&budget, |_| -> Result<(), String> {
+                panic!("cancelled work must not open the held database");
+            })
         });
-        cancel_directory_locked(&mut registry, &target);
-        assert!(!other_cancelled.load(Ordering::Relaxed));
+        assert!(result.unwrap_err().contains("已取消"));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

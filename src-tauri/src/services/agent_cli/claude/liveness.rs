@@ -36,7 +36,11 @@ pub(super) fn build_plan(request: LivenessRequest<'_>) -> Result<LivenessPlan, S
     );
     environment.set(
         "CLAUDE_CONFIG_DIR",
-        request.isolated_home.join(".claude").to_string_lossy().to_string(),
+        request
+            .isolated_home
+            .join(".claude")
+            .to_string_lossy()
+            .to_string(),
     );
 
     let mut args = vec![

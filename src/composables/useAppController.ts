@@ -1,8 +1,9 @@
-import { computed, reactive, watch } from "vue";
+import { computed, onMounted, reactive, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { Message } from "@arco-design/web-vue";
 import { useProviderStore, type Provider } from "../stores/providers";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
+import { useAgentConfigurationStore } from "../stores/agent-configuration";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspaceStore } from "../stores/workspaces";
 import { useApiKeyManager } from "./useApiKeyManager";
@@ -16,6 +17,7 @@ import { useBackgroundTaskCenter } from "./useBackgroundTaskCenter";
 import { useBrowserRuntime } from "./useBrowserRuntime";
 import { useLoginAccounts } from "./useLoginAccounts";
 import { useProviderCredentials } from "./useProviderCredentials";
+import { useAgentBackgroundTasks } from "./useAgentBackgroundTasks";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
@@ -39,6 +41,8 @@ export function useAppController() {
   const settingsStore = useSettingsStore();
   const workspaceStore = useWorkspaceStore();
   const cliRuntimeStore = useCliRuntimeStore();
+  const configurationTasks = useAgentConfigurationStore();
+  onMounted(() => { void configurationTasks.recover(); });
   const {
     initialized,
     loadError,
@@ -65,19 +69,16 @@ export function useAppController() {
     settings,
     initialSettings: settingsStore.settings,
     saveSettings: (value) => settingsStore.save(value),
-    probeCliTools: (deep) => cliRuntimeStore.probeCliTools(deep),
   });
 
-  const { sendTestNotification } = useSystemNotification(settingsController.settingsForm);
+  const systemNotification = useSystemNotification(settingsController.settingsForm);
   const { appVersion } = useAppVersion();
   const appUpdater = useAppUpdater();
 
   const appDataTransfer = useAppDataTransfer({
     exportAppData: (path) => providerStore.exportAppData(path),
-    importAppData: (path) => providerStore.importAppData(path),
-    afterImport: () => {
-      settingsController.syncFromSettings();
-    },
+    importAppData: (path) => settingsController.replaceSettings(() => providerStore.importAppData(path)),
+    beforeTransfer: settingsController.flushSettingsSave,
   });
 
   const browserRuntime = useBrowserRuntime();
@@ -189,8 +190,6 @@ export function useAppController() {
     activateAgentRuntime: (runtimeId) => cliRuntimeStore.activateAgentRuntime(runtimeId),
     previewConfig: (providerId, cliKind, apiKeyLocalId) =>
       cliRuntimeStore.previewConfig(providerId, cliKind, apiKeyLocalId),
-    switchConfig: (providerId, cliKind, apiKeyLocalId, revision, files) =>
-      cliRuntimeStore.switchConfig(providerId, cliKind, apiKeyLocalId, revision, files),
   });
 
   async function removeProvider(provider: Provider) {
@@ -238,8 +237,7 @@ export function useAppController() {
     providers,
     settings,
     settingsForm: settingsController.settingsForm,
-    saveSettings: (value) => settingsStore.save(value),
-    syncFromSettings: settingsController.syncFromSettings,
+    flushSettingsSave: settingsController.flushSettingsSave,
     importAppData: appDataTransfer.importAppData,
     openAddProvider: providerEditor.openAddProvider,
     openSettings: () => {
@@ -261,10 +259,6 @@ export function useAppController() {
     launch: (input) => cliRuntimeStore.launch(input),
     preview: (input) => cliRuntimeStore.previewLaunch(input),
     getInstance: (instanceId) => cliRuntimeStore.getInstance(instanceId),
-    searchSessions: (cliKind, workdir, query, forceRefresh) =>
-      cliRuntimeStore.searchSessions(cliKind, workdir, query, forceRefresh),
-    getSessionDetail: (cliKind, workdir, sessionId) =>
-      cliRuntimeStore.getSessionDetail(cliKind, workdir, sessionId),
   });
 
   const providerActions = useProviderActions({
@@ -311,24 +305,16 @@ export function useAppController() {
     settings,
     settingsForm: settingsController.settingsForm,
     settingsDrawerVisible: settingsController.settingsDrawerVisible,
-    usageVisible: usage.usageVisible,
-    usageProvider: usage.usageProvider,
-    usagePeriod: usage.usagePeriod,
-    checkInRecordsVisible: checkInRecords.checkInRecordsVisible,
-    checkInRecordsProviderId: checkInRecords.checkInRecordsProviderId,
-    checkInRecordsMonth: checkInRecords.checkInRecordsMonth,
     initialize: () => providerStore.initialize(),
     syncFromSettings: settingsController.syncFromSettings,
     setupThemeListener: settingsController.setupThemeListener,
     cleanupThemeListener: settingsController.cleanupThemeListener,
     syncLaunchAtLogin: settingsController.syncLaunchAtLogin,
-    autoProbeCliTools: settingsController.autoProbeCliTools,
+    autoProbeCliTools: () => cliRuntimeStore.probeCliTools(false).catch(() => {}),
     reloadProviders: () => providerStore.reloadProviders().catch(() => {}),
     applyTheme: settingsController.applyTheme,
-    resetSettingsDraft: settingsController.resetDraftOnClose,
+    flushSettingsSave: settingsController.flushSettingsSave,
     resetProviderPointerDrag: workspace.resetProviderPointerDrag,
-    refreshUsageSummary: usage.refreshUsageSummary,
-    loadCheckInRecords: checkInRecords.loadCheckInRecords,
   });
 
   async function refreshAllProviders() {
@@ -350,6 +336,7 @@ export function useAppController() {
   const globalCheckInInProgress = checkIn.globalCheckInInProgress;
 
   const backgroundTaskCenter = useBackgroundTaskCenter({
+    agentTasks: useAgentBackgroundTasks(),
     providers,
     openLoginAccount: loginAccounts.open,
     openProviderCredentials: providerCredentials.open,
@@ -393,9 +380,10 @@ export function useAppController() {
     cliRuntimeLoading,
     refreshInProgress,
     startWindowDrag,
+    retryLoadAppData: () => providerStore.initialize(),
     ...settingsController,
     ...onboarding,
-    sendTestNotification,
+    ...systemNotification,
     appVersion,
     ...appUpdater,
     ...appDataTransfer,

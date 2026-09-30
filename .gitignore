@@ -35,9 +35,7 @@ docs/changelog.md
 docs/.jekyll-cache/
 
 # Editor directories and files
-# Trellis uses .claude/ for project-scoped workflow hooks and skills. Keep
-# machine-local Claude permissions out of the repository, but share the
-# generated project integration with the other supported coding agents.
+# Keep machine-local Claude permissions out of the repository.
 .claude/settings.local.json
 .vscode/
 .idea
@@ -47,7 +45,3 @@ docs/.jekyll-cache/
 *.njsproj
 *.sln
 *.sw?
-
-# Trellis keeps its local-only identity and runtime files in .trellis/.gitignore.
-# Specs, task artifacts, workflow files, and journals are project records and
-# remain visible to Git so future coding sessions can recover the context.

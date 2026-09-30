@@ -4,7 +4,7 @@
 //! bounded JSON reads, revision checks, manifest persistence and event proof.
 
 use super::codex::ownership;
-use crate::models::{AgentCliKind, AgentHookOwnership};
+use crate::models::{AgentAssetPlanChange, AgentCliKind, AgentHookMutation, AgentHookOwnership};
 use crate::services::agent_runtime::{
     hook::NormalizedHookEvent,
     repository::{MAX_RUNTIME_PROJECTION_BYTES, RUNTIME_REPOSITORY_SCHEMA_VERSION},
@@ -24,6 +24,7 @@ pub(crate) use ownership::{
 pub(crate) struct JsonSnapshot {
     pub(crate) value: Value,
     pub(crate) revision: String,
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +90,7 @@ pub(crate) fn read_json(path: &Path, label: &str) -> JsonRead {
             snapshot: Some(JsonSnapshot {
                 value: Value::Object(object),
                 revision: revision_for_bytes(&bytes),
+                text: String::from_utf8_lossy(&bytes).into_owned(),
             }),
             diagnostic: None,
         },
@@ -112,6 +114,78 @@ pub(crate) fn encode_json(value: &Value, label: &str) -> Result<Vec<u8>, String>
             bytes
         })
         .map_err(|error| format!("写入 {label} Hook 配置失败: {error}"))
+}
+
+/// Prepared by the native adapter and reused for both preview and commit.
+pub(super) struct PreparedHookConfiguration {
+    pub(super) value: Value,
+    pub(super) after: Option<String>,
+    pub(super) write: bool,
+}
+
+impl PreparedHookConfiguration {
+    pub(super) fn verify_preview(
+        &self,
+        path: &Path,
+        before: Option<&str>,
+        approved: &[AgentAssetPlanChange],
+    ) -> Result<(), String> {
+        let actual = self.content_changes(path, before);
+        if !actual
+            .iter()
+            .eq(approved.iter().filter(|change| change.path.is_some()))
+        {
+            return Err("Hook 配置已变化，请重新预览内容差异".to_owned());
+        }
+        Ok(())
+    }
+
+    pub(super) fn content_changes(
+        &self,
+        path: &Path,
+        before: Option<&str>,
+    ) -> Vec<AgentAssetPlanChange> {
+        if !self.write || before == self.after.as_deref() {
+            return Vec::new();
+        }
+        vec![AgentAssetPlanChange {
+            label: "Hook 配置".to_owned(),
+            path: Some(path.to_string_lossy().into_owned()),
+            before: before.map(str::to_owned),
+            after: self.after.clone(),
+        }]
+    }
+}
+
+pub(super) fn append_state_change(
+    changes: &mut Vec<AgentAssetPlanChange>,
+    installed: bool,
+    enabled: bool,
+    mutation: AgentHookMutation,
+) {
+    if !installed && mutation == AgentHookMutation::Disable {
+        return;
+    }
+    let before = if !installed {
+        "未安装"
+    } else if enabled {
+        "已启用"
+    } else {
+        "已停用"
+    };
+    let after = match mutation {
+        AgentHookMutation::Install | AgentHookMutation::Enable => "已启用",
+        AgentHookMutation::Disable => "已停用",
+        AgentHookMutation::Remove => "未安装",
+    };
+    if before != after {
+        changes.push(AgentAssetPlanChange {
+            label: "会话接入状态".to_owned(),
+            path: None,
+            before: Some(before.to_owned()),
+            after: Some(after.to_owned()),
+        });
+    }
 }
 
 pub(crate) fn read_manifest(path: &Path) -> Result<Option<AgentHookOwnership>, String> {

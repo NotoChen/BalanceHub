@@ -23,6 +23,9 @@ import {
   providerApiKeyOptionMatches,
 } from "../utils/provider-api-key-options.ts";
 import { providerDisplayLabel } from "../utils/provider-display.ts";
+import type { AgentSessionResumeRequest } from "../stores/agent-session-types.ts";
+
+type SessionResumeInput = Omit<AgentSessionResumeRequest, "requestId">;
 
 interface UseWorkspaceLaunchFlowOptions {
   visible: Ref<boolean>;
@@ -41,11 +44,14 @@ interface UseWorkspaceLaunchFlowOptions {
   sessionName: Ref<string>;
   canNameSession: Ref<boolean>;
   selectedResumeId: Ref<string>;
+  selectedSessionRef: Ref<string>;
+  sessionScopeRevision: Ref<string>;
   selectedSessionTitle: Ref<string>;
   error: Ref<string>;
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
   preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
   getInstance: (instanceId: string) => Promise<TemporaryCliInstance | null>;
+  resume: (input: SessionResumeInput) => Promise<unknown>;
   notify?: Partial<LaunchNotifications>;
 }
 
@@ -57,8 +63,8 @@ interface LaunchNotifications {
 
 type WorkspaceLaunchState =
   | { phase: "idle" }
-  | { phase: "previewing"; input: TemporaryCliLaunchInput }
-  | { phase: "confirming"; input: TemporaryCliLaunchInput; preview: TemporaryCliLaunchPreview };
+  | { phase: "previewing"; input: TemporaryCliLaunchInput; resume: SessionResumeInput | null }
+  | { phase: "confirming"; input: TemporaryCliLaunchInput; resume: SessionResumeInput | null; preview: TemporaryCliLaunchPreview };
 
 export interface TemporaryCliLaunchTask {
   id: string;
@@ -125,10 +131,8 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       return failLaunchInput("所选 API Key 未读取到完整值，请在 API Key 管理中补全或改选其他 Key");
     }
     const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
-    const model = options.cliTool.value?.capabilities.modelSelection
-      ? options.sessionMode.value === "new"
-        ? (options.selectedModel.value.trim() || provider.cli.preferredModel.trim())
-        : options.selectedModel.value.trim()
+    const model = options.cliTool.value?.capabilities.modelSelection && options.sessionMode.value === "new"
+      ? (options.selectedModel.value.trim() || provider.cli.preferredModel.trim())
       : "";
     const sessionName = options.canNameSession.value ? options.sessionName.value.trim() : "";
     const cliPath = options.cliTool.value?.path.trim() || "";
@@ -169,8 +173,25 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     const input = buildLaunchInput(path);
     if (!input) return;
 
+    let resume: SessionResumeInput | null = null;
+    if (input.sessionMode === "history") {
+      const sessionRef = options.selectedSessionRef.value;
+      const scopeRevision = options.sessionScopeRevision.value;
+      if (!sessionRef || !scopeRevision) {
+        failLaunchInput("历史会话来源已失效，请刷新后重新选择");
+        return;
+      }
+      resume = {
+        sessionRef,
+        scopeRevision,
+        cliPath: input.cliPath,
+        terminalKind: input.terminalKind,
+        intent: { kind: "provider", providerId: input.providerId, apiKeyLocalId: input.apiKeyLocalId || null },
+      };
+    }
+
     const requestId = ++previewRequestId;
-    workspaceLaunchState.value = { phase: "previewing", input };
+    workspaceLaunchState.value = { phase: "previewing", input, resume };
     options.error.value = "";
     try {
       const preview = await withTimeout(
@@ -187,6 +208,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       workspaceLaunchState.value = {
         phase: "confirming",
         input: { ...input, cliPath: preview.cliPath },
+        resume: resume ? { ...resume, cliPath: preview.cliPath } : null,
         preview,
       };
     } catch (error) {
@@ -204,7 +226,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
   function confirmWorkspaceLaunch() {
     if (workspaceLaunchState.value.phase !== "confirming") return;
 
-    const input = workspaceLaunchState.value.input;
+    const { input, resume } = workspaceLaunchState.value;
     const provider = options.provider.value;
     if (!provider) {
       workspaceLaunchState.value = { phase: "idle" };
@@ -214,6 +236,12 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     options.error.value = "";
     workspaceLaunchState.value = { phase: "idle" };
     options.visible.value = false;
+    if (resume) {
+      // The persistent resume store owns reservations and background tasks for
+      // both history entry points. No legacy launch task is created here.
+      void options.resume(resume);
+      return;
+    }
     const task = beginLaunchTask(cliLabel, providerDisplayLabel(provider));
     void launchInBackground(task.id, input, cliLabel);
   }

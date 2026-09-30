@@ -1,8 +1,0 @@
-{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"父任务最终集成检查和质量门要求"}
-{"file":".trellis/spec/frontend/state-management.md","reason":"检查持久状态真源、request ID、revision 和异步状态释放"}
-{"file":".trellis/spec/frontend/component-guidelines.md","reason":"检查工作区与组件职责没有回流到核心入口"}
-{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/architecture-risk-audit.md","reason":"核对禁止模式、性能隐私风险和跨平台矩阵"}
-{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/roadmap-dependency-audit.md","reason":"核对每个交付的独立验收和依赖闭包"}
-{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/availability-navigation-ux-review.md","reason":"核对入口语义、导航状态恢复和响应式验收"}
-{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/temporary-cli-hook-convergence.md","reason":"核对运行时统一、Hook 不接管配置、离线事件和旧域删除边界"}
-{"file":".trellis/tasks/09-04-product-evolution-roadmap/research/agent-assets-versioning-audit.md","reason":"核对 Agent 环境只读盘点、配置浏览、版本来源和受控写入范围"}

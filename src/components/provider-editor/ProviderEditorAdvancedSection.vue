@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
+import { IconDelete, IconPlus } from "@arco-design/web-vue/es/icon";
 import type { SelectOptionData } from "@arco-design/web-vue";
 import type {
   AppSettings,
@@ -9,22 +10,19 @@ import type {
 } from "../../stores/providers";
 import { useCliRuntimeStore } from "../../stores/cli-runtime";
 import {
+  agentCliLabel,
   availableCliOptions,
   registeredCliTools,
 } from "../../utils/cli-environment";
-import {
-  durationUnitOptions,
-  durationValueToSeconds,
-  secondsToDurationValue,
-  type DurationUnit,
-} from "../../utils/duration";
+import { formatDuration } from "../../utils/duration";
+import DurationInput from "../DurationInput.vue";
 import { MIN_LIVENESS_INTERVAL_SECONDS } from "../../utils/liveness-defaults";
+import { providerProxyModeOptions, proxyModeOptions } from "../../utils/proxy-options";
 import {
   livenessIntervalModeOptions,
   livenessPromptModeOptions,
-  providerProxyModeOptions,
   type SelectOption,
-} from "./options";
+} from "../../utils/liveness-options";
 import ProviderEditorCheckInSection from "./ProviderEditorCheckInSection.vue";
 
 type LivenessMode = "global" | "custom" | "disabled";
@@ -44,11 +42,6 @@ const agentEndpointOptions = computed(() =>
   })),
 );
 
-const refreshUnit = ref<DurationUnit>("minute");
-const fixedLivenessUnit = ref<DurationUnit>("minute");
-const randomMinLivenessUnit = ref<DurationUnit>("minute");
-const randomMaxLivenessUnit = ref<DurationUnit>("minute");
-
 const notificationModeOptions: SelectOption<ProviderNotificationMode>[] = [
   { label: "跟随全局", value: "inherit" },
   { label: "自定义渠道", value: "custom" },
@@ -63,16 +56,49 @@ const livenessModeOptions: SelectOption<LivenessMode>[] = [
 
 const notificationChannelOptions = computed(() =>
   props.settings.notificationChannels.map((channel) => ({
-    label: channel.name || channel.id,
+    label: `${channel.name || channel.id}${channel.enabled ? "" : "（已停用）"}`,
     value: channel.id,
   })),
 );
 
-const modelOptions = computed(() => {
-  const values = [...props.availableModels, props.draft.cli.preferredModel]
+const globalLivenessSummary = computed(() => {
+  const settings = props.settings;
+  if (!settings.livenessEnabled) return "全局自动测活已关闭";
+  const interval = settings.livenessIntervalMode === "fixed"
+    ? `每 ${formatDuration(settings.livenessInterval)}`
+    : `随机间隔 ${formatDuration(settings.livenessRandomMinInterval)} 至 ${formatDuration(settings.livenessRandomMaxInterval)}`;
+  return [
+    "全局已开启",
+    agentCliLabel(store.cliEnvironmentProbe, settings.livenessCliKind),
+    settings.livenessModel.trim() || "未指定模型",
+    interval,
+  ].join(" · ");
+});
+
+const globalProxyLabel = computed(() =>
+  proxyModeOptions.find((option) => option.value === props.settings.proxyMode)?.label || "未设置",
+);
+
+const globalNotificationSummary = computed(() => {
+  if (!props.settings.notificationEnabled) return "全局通知已关闭";
+  const names = props.settings.notificationChannels
+    .filter((channel) => channel.enabled)
+    .map((channel) => channel.name || channel.id);
+  return names.length ? `全局已启用渠道：${names.join("、")}` : "全局通知已开启，尚未启用渠道";
+});
+
+function modelChoices(selectedModel: string) {
+  const values = [...props.availableModels, selectedModel || ""]
     .map((model) => model.trim())
     .filter(Boolean);
   return [...new Set(values)].map((model) => ({ label: model, value: model }));
+}
+
+const modelOptions = computed(() => modelChoices(props.draft.cli.preferredModel));
+const livenessModelOptions = computed(() => modelChoices(props.draft.liveness.model));
+const livenessModelValue = computed({
+  get: () => props.draft.liveness.model,
+  set: (value: string | undefined) => { props.draft.liveness.model = value || ""; },
 });
 
 function filterModelOption(inputValue: string, option: SelectOptionData) {
@@ -100,13 +126,6 @@ const refreshInheritsGlobal = computed({
   },
 });
 
-const refreshAmount = computed({
-  get: () => secondsToDurationValue(props.draft.automation.refreshInterval, refreshUnit.value),
-  set: (value: number | undefined) => {
-    props.draft.automation.refreshInterval = durationValueToSeconds(value, refreshUnit.value);
-  },
-});
-
 const livenessMode = computed<LivenessMode>({
   get: () => {
     if (props.draft.liveness.useGlobal) return "global";
@@ -125,49 +144,30 @@ const livenessCliKindModel = computed({
   },
 });
 
-const fixedLivenessAmount = computed({
-  get: () => secondsToDurationValue(props.draft.liveness.interval, fixedLivenessUnit.value),
-  set: (value: number | undefined) => {
-    props.draft.liveness.interval = Math.max(
-      MIN_LIVENESS_INTERVAL_SECONDS,
-      durationValueToSeconds(value, fixedLivenessUnit.value),
-    );
-  },
-});
-
-const randomMinLivenessAmount = computed({
-  get: () =>
-    secondsToDurationValue(props.draft.liveness.randomMinInterval, randomMinLivenessUnit.value),
-  set: (value: number | undefined) => {
-    props.draft.liveness.randomMinInterval = Math.max(
-      MIN_LIVENESS_INTERVAL_SECONDS,
-      durationValueToSeconds(value, randomMinLivenessUnit.value),
-    );
-    if (props.draft.liveness.randomMaxInterval < props.draft.liveness.randomMinInterval) {
-      props.draft.liveness.randomMaxInterval = props.draft.liveness.randomMinInterval;
-    }
-  },
-});
-
-const randomMaxLivenessAmount = computed({
-  get: () =>
-    secondsToDurationValue(props.draft.liveness.randomMaxInterval, randomMaxLivenessUnit.value),
-  set: (value: number | undefined) => {
-    props.draft.liveness.randomMaxInterval = Math.max(
-      props.draft.liveness.randomMinInterval,
-      durationValueToSeconds(value, randomMaxLivenessUnit.value),
-    );
-  },
-});
-
-function minLivenessAmount(unit: DurationUnit) {
-  if (unit === "second") return MIN_LIVENESS_INTERVAL_SECONDS;
-  return 1;
+function updateRandomMinimum(seconds: number) {
+  props.draft.liveness.randomMinInterval = seconds;
+  props.draft.liveness.randomMaxInterval = Math.max(seconds, props.draft.liveness.randomMaxInterval);
 }
 </script>
 
 <template>
   <div class="provider-editor-policies">
+    <section class="provider-form-section">
+      <h3 class="provider-form-section-title">
+        备用地址
+        <a-button type="text" size="small" @click="draft.identity.backupUrls.push('')">
+          <template #icon><IconPlus /></template>添加地址
+        </a-button>
+      </h3>
+      <div v-if="draft.identity.backupUrls.length" class="provider-backup-url-list">
+        <div v-for="(_, index) in draft.identity.backupUrls" :key="index" class="provider-backup-url-row">
+          <span class="provider-backup-url-index">{{ index + 1 }}</span>
+          <a-input v-model="draft.identity.backupUrls[index]" :aria-label="`备用地址 ${index + 1}`" placeholder="https://backup.example.com" allow-clear />
+          <a-button type="text" status="danger" :aria-label="`删除备用地址 ${index + 1}`" @click="draft.identity.backupUrls.splice(index, 1)"><template #icon><IconDelete /></template></a-button>
+        </div>
+      </div>
+      <p v-else class="provider-empty-note">尚未添加备用地址</p>
+    </section>
     <ProviderEditorCheckInSection :draft="draft" :settings="settings" />
 
     <section class="provider-form-section">
@@ -176,64 +176,68 @@ function minLivenessAmount(unit: DurationUnit) {
         <a-form-item class="provider-field" label="刷新间隔">
           <div class="provider-setting-controls">
             <a-checkbox v-model="refreshInheritsGlobal">跟随全局</a-checkbox>
-            <div v-if="!refreshInheritsGlobal" class="duration-control">
-              <a-input-number v-model="refreshAmount" :min="1" :step="1" />
-              <a-select v-model="refreshUnit" :options="durationUnitOptions" />
-            </div>
+            <span v-if="refreshInheritsGlobal" class="provider-inherited-value">{{ formatDuration(settings.refreshInterval) }}</span>
+            <DurationInput v-if="!refreshInheritsGlobal" v-model="draft.automation.refreshInterval" :min="30" label="刷新间隔" />
           </div>
+          <template v-if="!settings.autoRefreshEnabled" #extra>全局自动刷新已关闭</template>
         </a-form-item>
         <a-form-item class="provider-field" label="自动测活">
           <a-select v-model="livenessMode" :options="livenessModeOptions" />
-          <template #extra>使用真实 CLI 请求检查可用性，会消耗少量额度。</template>
-        </a-form-item>
-        <template v-if="livenessMode === 'custom'">
-          <a-form-item class="provider-field" label="执行 Agent">
-            <a-select
-              v-model="livenessCliKindModel"
-              :options="cliOptions"
-              :loading="store.cliEnvironmentLoading && !store.cliEnvironmentProbe"
-              placeholder="未检测到可用 Agent"
-            />
-          </a-form-item>
-          <a-form-item class="provider-field" label="测活模型">
-            <a-input v-model="draft.liveness.model" placeholder="留空跟随全局" allow-clear />
-          </a-form-item>
-          <a-form-item class="provider-field" label="超时秒数">
-            <a-input-number v-model="draft.liveness.timeout" :min="5" :max="600" :step="5" />
-          </a-form-item>
-          <a-form-item class="provider-field" label="周期策略">
-            <a-select v-model="draft.liveness.intervalMode" :options="livenessIntervalModeOptions" />
-          </a-form-item>
-          <a-form-item v-if="draft.liveness.intervalMode === 'fixed'" class="provider-field" label="执行周期">
-            <div class="duration-control">
-              <a-input-number v-model="fixedLivenessAmount" :min="minLivenessAmount(fixedLivenessUnit)" :step="1" />
-              <a-select v-model="fixedLivenessUnit" :options="durationUnitOptions" />
-            </div>
-          </a-form-item>
-          <template v-else>
-            <a-form-item class="provider-field" label="最小周期">
-              <div class="duration-control">
-                <a-input-number v-model="randomMinLivenessAmount" :min="minLivenessAmount(randomMinLivenessUnit)" :step="1" />
-                <a-select v-model="randomMinLivenessUnit" :options="durationUnitOptions" />
-              </div>
-            </a-form-item>
-            <a-form-item class="provider-field" label="最大周期">
-              <div class="duration-control">
-                <a-input-number v-model="randomMaxLivenessAmount" :min="minLivenessAmount(randomMaxLivenessUnit)" :step="1" />
-                <a-select v-model="randomMaxLivenessUnit" :options="durationUnitOptions" />
-              </div>
-            </a-form-item>
+          <template #extra>
+            <p v-if="livenessMode === 'global'" class="provider-setting-summary">{{ globalLivenessSummary }}</p>
+            <span v-if="livenessMode !== 'disabled'">使用真实 CLI 请求检查可用性，会消耗少量额度。</span>
           </template>
-          <a-form-item class="provider-field" label="话术策略">
-            <a-select v-model="draft.liveness.promptMode" :options="livenessPromptModeOptions" />
-          </a-form-item>
-          <a-form-item v-if="draft.liveness.promptMode === 'fixed'" class="provider-field" label="固定话术">
-            <a-textarea
-              v-model="draft.liveness.fixedPrompt"
-              :auto-size="{ minRows: 2, maxRows: 4 }"
-              placeholder="留空使用全局固定话术"
-            />
-          </a-form-item>
+        </a-form-item>
+        <div v-if="livenessMode === 'custom'" class="provider-liveness-fields">
+          <div class="provider-field-grid">
+            <a-form-item class="provider-field" label="执行 Agent">
+              <a-select
+                v-model="livenessCliKindModel"
+                :options="cliOptions"
+                :loading="store.cliEnvironmentLoading && !store.cliEnvironmentProbe"
+                placeholder="未检测到可用 Agent"
+              />
+            </a-form-item>
+            <a-form-item class="provider-field" label="测活模型">
+              <a-select
+                v-model="livenessModelValue"
+                :options="livenessModelOptions"
+                :filter-option="filterModelOption"
+                allow-search
+                allow-create
+                allow-clear
+                placeholder="选择或输入模型，留空跟随全局"
+              />
+              <template v-if="!draft.liveness.model" #extra>全局模型：{{ settings.livenessModel || '未设置' }}</template>
+            </a-form-item>
+            <a-form-item class="provider-field" label="周期策略">
+              <a-select v-model="draft.liveness.intervalMode" :options="livenessIntervalModeOptions" />
+            </a-form-item>
+            <a-form-item class="provider-field" label="超时（秒）">
+              <a-input-number v-model="draft.liveness.timeout" :min="5" :max="600" :step="5" />
+            </a-form-item>
+            <a-form-item v-if="draft.liveness.intervalMode === 'fixed'" class="provider-field provider-field-wide" label="执行周期">
+              <DurationInput v-model="draft.liveness.interval" :min="MIN_LIVENESS_INTERVAL_SECONDS" label="执行周期" />
+            </a-form-item>
+            <template v-else>
+              <a-form-item class="provider-field" label="最短周期">
+                <DurationInput :model-value="draft.liveness.randomMinInterval" :min="MIN_LIVENESS_INTERVAL_SECONDS" label="最短周期" @update:model-value="updateRandomMinimum" />
+              </a-form-item>
+              <a-form-item class="provider-field" label="最长周期">
+                <DurationInput v-model="draft.liveness.randomMaxInterval" :min="Math.max(MIN_LIVENESS_INTERVAL_SECONDS, draft.liveness.randomMinInterval)" label="最长周期" />
+              </a-form-item>
+            </template>
+            <a-form-item class="provider-field provider-field-wide" label="话术策略">
+              <a-select v-model="draft.liveness.promptMode" :options="livenessPromptModeOptions" />
+            </a-form-item>
+            <a-form-item v-if="draft.liveness.promptMode === 'fixed'" class="provider-field provider-field-wide" label="固定话术">
+              <a-textarea
+                v-model="draft.liveness.fixedPrompt"
+                :auto-size="{ minRows: 2, maxRows: 4 }"
+                placeholder="留空使用全局固定话术"
+              />
+            </a-form-item>
+          </div>
           <details v-if="agentEndpointOptions.length" class="provider-form-disclosure">
             <summary>按 Agent 指定地址（可选）</summary>
             <div class="provider-form-section-body">
@@ -242,7 +246,7 @@ function minLivenessAmount(unit: DurationUnit) {
               </a-form-item>
             </div>
           </details>
-        </template>
+        </div>
       </div>
     </section>
 
@@ -251,12 +255,15 @@ function minLivenessAmount(unit: DurationUnit) {
       <div class="provider-form-section-body">
         <a-form-item class="provider-field" label="网络代理">
           <a-select v-model="draft.proxy.mode" :options="providerProxyModeOptions" />
+          <template v-if="draft.proxy.mode === 'inherit'" #extra>全局设置：{{ globalProxyLabel }}</template>
         </a-form-item>
         <a-form-item v-if="draft.proxy.mode === 'custom'" class="provider-field" label="代理地址">
           <a-input v-model="draft.proxy.url" placeholder="http://127.0.0.1:7890" allow-clear />
         </a-form-item>
         <a-form-item class="provider-field" label="通知策略">
           <a-select v-model="notificationModeModel" :options="notificationModeOptions" />
+          <template v-if="draft.notification.mode === 'inherit'" #extra>{{ globalNotificationSummary }}</template>
+          <template v-else-if="draft.notification.mode === 'custom' && !settings.notificationEnabled" #extra>全局通知已关闭</template>
         </a-form-item>
         <a-form-item v-if="draft.notification.mode === 'custom'" class="provider-field" label="通知渠道">
           <a-select
@@ -264,8 +271,13 @@ function minLivenessAmount(unit: DurationUnit) {
             :options="notificationChannelOptions"
             multiple
             allow-clear
+            :disabled="notificationChannelOptions.length === 0"
             placeholder="选择该中转站使用的通知渠道"
           />
+          <template v-if="!notificationChannelOptions.length || !draft.notification.channelIds.length" #extra>
+            <span v-if="!notificationChannelOptions.length">尚未添加渠道，请先在「设置 → 通知」中添加。</span>
+            <span v-else>尚未选择通知渠道。</span>
+          </template>
         </a-form-item>
       </div>
     </section>

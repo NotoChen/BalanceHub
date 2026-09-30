@@ -1,0 +1,209 @@
+/* Product surface v4: one visual language for the desktop workspace. */
+:root {
+  --product-canvas: #f4f6f8;
+  --product-panel: #ffffff;
+  --product-panel-muted: #f8fafc;
+  --product-line: #dfe5ec;
+  --product-line-strong: #c7d0dc;
+  --product-ink: #172033;
+  --product-ink-soft: #425066;
+  --product-muted: #758196;
+  --product-accent: #3b6ff5;
+  --product-accent-soft: #edf3ff;
+  --product-shadow: 0 8px 24px rgba(30, 48, 78, 0.07);
+  --product-shadow-hover: 0 14px 32px rgba(30, 48, 78, 0.12);
+  --surface-canvas: var(--product-canvas);
+  --surface-panel: var(--product-panel);
+  --surface-panel-soft: var(--product-panel-muted);
+  --surface-line: var(--product-line);
+  --surface-line-strong: var(--product-line-strong);
+  --surface-ink: var(--product-ink);
+  --surface-ink-soft: var(--product-ink-soft);
+  --surface-muted: var(--product-muted);
+  --surface-accent: var(--product-accent);
+  --surface-accent-soft: var(--product-accent-soft);
+  --glass-canvas: var(--product-canvas);
+  --glass-topbar: var(--product-panel);
+  --glass-panel: var(--product-panel);
+  --glass-card: var(--product-panel);
+  --glass-card-muted: var(--product-panel-muted);
+  --glass-border: var(--product-line);
+  --glass-border-strong: var(--product-line-strong);
+  --glass-shadow: var(--product-shadow);
+  --workspace-card-radius: 10px;
+  --workspace-card-padding: 16px;
+}
+
+:root.theme-dark {
+  --product-canvas: #111722;
+  --product-panel: #192231;
+  --product-panel-muted: #151e2b;
+  --product-line: #2b394b;
+  --product-line-strong: #3a4b62;
+  --product-ink: #f1f5fa;
+  --product-ink-soft: #c2cedd;
+  --product-muted: #8999ad;
+  --product-accent: #78a1ff;
+  --product-accent-soft: rgba(86, 132, 255, 0.16);
+  --product-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  --product-shadow-hover: 0 16px 36px rgba(0, 0, 0, 0.34);
+}
+
+body,
+#app,
+.app-shell {
+  background: var(--product-canvas);
+  color: var(--product-ink);
+}
+
+.workspace-card:not(.provider-card) {
+  border: 1px solid var(--product-line);
+  border-radius: var(--workspace-card-radius);
+  background: var(--product-panel);
+  box-shadow: var(--product-shadow);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.workspace-card:not(.provider-card):hover,
+.workspace-card:not(.provider-card):focus-within {
+  border-color: color-mix(in srgb, var(--workspace-card-state) 38%, var(--product-line));
+  box-shadow: var(--product-shadow-hover);
+  transform: translateY(-1px);
+}
+
+.agent-dashboard-navigation {
+  align-items: center;
+  border-bottom: 1px solid var(--product-line);
+  padding: 0 0 8px;
+}
+
+.agent-dashboard-navigation nav {
+  gap: 4px;
+  align-items: center;
+}
+
+.agent-dashboard-navigation nav button {
+  min-height: 34px;
+  border-radius: 7px;
+  padding: 7px 11px;
+  color: var(--product-muted);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.agent-dashboard-navigation nav button::after {
+  display: none;
+}
+
+.agent-dashboard-navigation nav button:hover {
+  background: var(--product-panel-muted);
+  color: var(--product-ink-soft);
+}
+
+.agent-dashboard-navigation nav button.active {
+  background: var(--product-accent-soft);
+  color: var(--product-accent);
+}
+
+.agent-workspace-context {
+  padding-bottom: 0;
+}
+
+.agent-overview-toolbar {
+  min-height: 38px;
+  margin-bottom: 16px;
+}
+
+.agent-overview-toolbar p {
+  color: var(--product-ink-soft);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.agent-overview-card {
+  --workspace-card-padding: 15px 16px;
+}
+
+.agent-card-statistics {
+  border-bottom-color: var(--product-line);
+  padding: 4px 0 9px;
+}
+
+.agent-card-statistic {
+  border-radius: 7px;
+  padding: 5px 2px;
+}
+
+.agent-card-statistic:hover,
+.agent-card-configuration .workspace-card-chip.agent-card-file:hover:not(:disabled) {
+  background: var(--product-panel-muted);
+}
+
+.agent-catalog-toolbar {
+  margin-bottom: 16px;
+}
+
+.agent-catalog-card {
+  border-radius: 9px;
+  box-shadow: 0 3px 12px rgba(30, 48, 78, 0.05);
+}
+
+.agent-catalog-card:hover,
+.agent-catalog-card:focus-within {
+  box-shadow: var(--product-shadow-hover);
+}
+
+.agent-session-row.workspace-card {
+  box-shadow: 0 3px 12px rgba(30, 48, 78, 0.05);
+}
+
+.surface-modal .arco-modal-content,
+.surface-modal .arco-modal-header {
+  border-color: var(--product-line);
+  background: var(--product-panel);
+}
+
+.surface-modal .arco-modal-content {
+  border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(30, 48, 78, 0.2);
+}
+
+.surface-modal .arco-modal-header {
+  min-height: 64px;
+  padding-inline: 22px 58px;
+}
+
+.settings-card,
+.provider-form-block {
+  border-color: var(--product-line);
+  border-radius: 10px;
+  background: var(--product-panel);
+  box-shadow: 0 3px 12px rgba(30, 48, 78, 0.04);
+}
+
+.settings-card-header,
+.provider-form-block-header {
+  border-color: var(--product-line);
+  background: var(--product-panel-muted);
+}
+
+.arco-btn {
+  border-radius: 7px;
+}
+
+.arco-input-wrapper,
+.arco-select-view,
+.arco-textarea-wrapper,
+.arco-input-number {
+  border-radius: 7px;
+}
+
+@media (max-width: 760px) {
+  .agent-dashboard-navigation { align-items: stretch; }
+  .agent-dashboard-navigation nav { overflow-x: auto; flex-wrap: nowrap; }
+  .agent-workspace-context { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-card,
+  .agent-dashboard-navigation nav button { transition: none; }
+}

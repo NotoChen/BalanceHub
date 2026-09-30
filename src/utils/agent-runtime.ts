@@ -54,6 +54,11 @@ export function activeAgentRuntimeSessions(snapshot: AgentRuntimeSnapshot) {
     .sort((left, right) => runtimeSortTimestamp(right) - runtimeSortTimestamp(left));
 }
 
+/** Unknown records stay visible but never inflate confirmed activity counts. */
+export function isConfirmedAgentRuntimeSession(session: AgentRuntimeSession) {
+  return session.state !== "unknown" && session.state !== "ended";
+}
+
 export function acceptsAgentRuntimeSnapshot(
   current: AgentRuntimeSnapshot,
   incoming: AgentRuntimeSnapshot,

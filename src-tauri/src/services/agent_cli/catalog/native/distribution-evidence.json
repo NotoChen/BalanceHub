@@ -1,0 +1,243 @@
+{
+  "revision": 1,
+  "cells": [
+    {
+      "adapter": "claude",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "2.1.270 (Claude Code)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative"
+      ]
+    },
+    {
+      "adapter": "claude",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "2.1.270 (Claude Code)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative"
+      ]
+    },
+    {
+      "adapter": "codex",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "codex-cli 0.154.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "codex",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "codex-cli 0.154.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "userShared",
+        "workspaceNative",
+        "workspaceShared"
+      ]
+    },
+    {
+      "adapter": "gemini",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "0.59.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative"
+      ]
+    },
+    {
+      "adapter": "gemini",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "0.59.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative"
+      ]
+    },
+    {
+      "adapter": "grok",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "grok 1.0.24 (68e414c661e3)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative"
+      ]
+    },
+    {
+      "adapter": "grok",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "grok 1.0.24 (68e414c661e3)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative"
+      ]
+    },
+    {
+      "adapter": "claude",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "2.1.273 (Claude Code)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "local",
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "claude",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "2.1.273 (Claude Code)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "gemini",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "0.60.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "gemini",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "0.60.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "userShared",
+        "workspaceNative",
+        "workspaceShared"
+      ]
+    },
+    {
+      "adapter": "grok",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "grok 1.0.30 (04b7ffed98c6)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "grok",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "grok 1.0.30 (04b7ffed98c6)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "userShared",
+        "workspaceNative",
+        "workspaceShared"
+      ]
+    },
+    {
+      "adapter": "claude",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "2.1.275 (Claude Code)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "local",
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "claude",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "2.1.275 (Claude Code)",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "codex",
+      "category": "mcp",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "codex-cli 0.155.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "workspaceNative"
+      ]
+    },
+    {
+      "adapter": "codex",
+      "category": "skill",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "version": "codex-cli 0.155.0",
+      "fixtureDigest": "a0f6f791c22b279abdf70a14f15e5c9207fa789ea8ef3d852f77a28e841fcefa",
+      "verified": true,
+      "destinationRoles": [
+        "userNative",
+        "userShared",
+        "workspaceNative",
+        "workspaceShared"
+      ]
+    }
+  ]
+}

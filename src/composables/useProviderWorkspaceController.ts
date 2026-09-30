@@ -4,7 +4,7 @@ import type { AppSettings, Provider } from "../stores/providers";
 import { providerNeedsCheckIn } from "../utils/provider-actions";
 import { providerLivenessEnabled } from "../utils/provider-liveness";
 import { useProviderCardTone } from "./useProviderCardTone";
-import { useProviderDragSort } from "./useProviderDragSort";
+import { useCardDragSort } from "./useCardDragSort";
 
 interface UseProviderWorkspaceControllerOptions {
   providers: Ref<Provider[]>;
@@ -27,15 +27,18 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
     return providerLivenessEnabled(provider, options.settings.value);
   }
 
-  const dragSort = useProviderDragSort({
-    providers: options.providers,
+  const dragSort = useCardDragSort({
+    items: options.providers,
+    getId: (provider) => provider.identity.id,
+    gridSelector: ".overview-provider-grid",
+    dataId: "providerId",
     dragGroup: (provider) => (showProviderLivenessTimeline(provider) ? "liveness" : "regular"),
     reorder: options.reorderProviders,
     onError: (error) => Message.error(error instanceof Error ? error.message : String(error)),
   });
 
-  const livenessProviders = computed(() => dragSort.orderedProviderGroups.value.get("liveness") ?? []);
-  const regularProviders = computed(() => dragSort.orderedProviderGroups.value.get("regular") ?? []);
+  const livenessProviders = computed(() => dragSort.orderedGroups.value.get("liveness") ?? []);
+  const regularProviders = computed(() => dragSort.orderedGroups.value.get("regular") ?? []);
 
   const cardTone = useProviderCardTone({
     providers: options.providers,
@@ -56,8 +59,8 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
   }
 
   async function handleProviderCardClick(provider: Provider) {
-    if (dragSort.providerCardClickSuppressed.value) {
-      dragSort.providerCardClickSuppressed.value = false;
+    if (dragSort.clickSuppressed.value) {
+      dragSort.clickSuppressed.value = false;
       return;
     }
 
@@ -71,7 +74,12 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
   }
 
   return {
-    ...dragSort,
+    providerDrag: computed(() => ({ providerId: dragSort.state.id, dragging: dragSort.state.dragging })),
+    dragOverProviderId: dragSort.overId,
+    draggedProvider: dragSort.draggedItem,
+    handleProviderPointerDown: dragSort.handlePointerDown,
+    providerDragStyle: dragSort.dragStyle,
+    resetProviderPointerDrag: dragSort.reset,
     ...cardTone,
     livenessProviders,
     regularProviders,

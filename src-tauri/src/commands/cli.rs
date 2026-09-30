@@ -1,11 +1,10 @@
 use crate::{
     models::{
-        AgentAssetOpenTarget, AgentAssetReadResult, AgentCliKind, AgentEnvironmentInventory,
-        AgentHookInspection, AgentHookMutation, AgentHookPlan, AgentVersionCheckResult,
-        CliConfigFile, CliConfigPreview, CliEnvironmentProbeResult, CliRuntimeSnapshot,
-        CliSessionDetail, CliSessionIndexStatus, CliSessionSearchResponse, TemporaryCliInstance,
-        TemporaryCliLaunchInput, TemporaryCliLaunchPreview, TemporaryCliLaunchResult,
-        TerminalEnvironmentProbeResult, Workspace, WorkspaceDirectoryListing,
+        AgentCliKind, AgentConfigurationEdit, AgentConfigurationError, AgentConfigurationErrorKind,
+        AgentHookInspection, AgentHookMutation, AgentHookPlan, CliEnvironmentProbeResult,
+        CliRuntimeSnapshot, CliSessionIndexStatus, TemporaryCliInstance, TemporaryCliLaunchInput,
+        TemporaryCliLaunchPreview, TemporaryCliLaunchResult, TerminalEnvironmentProbeResult,
+        Workspace, WorkspaceDirectoryListing,
     },
     services::{
         self,
@@ -14,12 +13,7 @@ use crate::{
     },
     state::AppState,
 };
-use std::{
-    sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
-};
-use tauri::{AppHandle, Manager};
-use tauri_plugin_opener::OpenerExt;
+use tauri::{AppHandle, Manager, Window};
 
 use super::run_blocking;
 
@@ -45,63 +39,6 @@ pub(crate) async fn preview_temporary_cli_launch(
         services::temporary_cli::TemporaryCliLaunchService::new(&app).preview(input)
     })
     .await
-}
-
-const SESSION_SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
-const SESSION_DETAIL_TIMEOUT: Duration = Duration::from_secs(20);
-static SESSION_SEARCH_GENERATION: AtomicU64 = AtomicU64::new(0);
-
-#[tauri::command]
-pub(crate) async fn search_cli_sessions(
-    app: AppHandle,
-    cli_kind: AgentCliKind,
-    workdir: String,
-    query: String,
-    limit: Option<usize>,
-    force_refresh: Option<bool>,
-) -> Result<CliSessionSearchResponse, String> {
-    let generation = SESSION_SEARCH_GENERATION
-        .fetch_add(1, Ordering::Relaxed)
-        .wrapping_add(1);
-    let settings = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|error| error.into_inner())
-        .settings
-        .clone();
-    let task_app = app.clone();
-    let task = move || {
-        services::cli_sessions::search(
-            &task_app,
-            &settings,
-            cli_kind,
-            std::path::Path::new(&workdir),
-            services::cli_sessions::SearchOptions {
-                query: &query,
-                limit: limit.unwrap_or(50),
-                force_refresh: force_refresh.unwrap_or(false),
-            },
-            || SESSION_SEARCH_GENERATION.load(Ordering::Relaxed) == generation,
-        )
-    };
-    match tokio::time::timeout(
-        SESSION_SEARCH_TIMEOUT,
-        run_blocking("检索 CLI 历史会话", task),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            let _ = SESSION_SEARCH_GENERATION.compare_exchange(
-                generation,
-                generation.wrapping_add(1),
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            );
-            Err("检索 CLI 历史会话超时，请缩小搜索范围后重试".to_string())
-        }
-    }
 }
 
 #[tauri::command]
@@ -136,25 +73,6 @@ pub(crate) async fn clear_cli_session_index(app: AppHandle) -> Result<(), String
         services::cli_sessions::clear_index(&config)
     })
     .await
-}
-
-#[tauri::command]
-pub(crate) async fn get_cli_session_detail(
-    cli_kind: AgentCliKind,
-    workdir: String,
-    session_id: String,
-) -> Result<CliSessionDetail, String> {
-    match tokio::time::timeout(
-        SESSION_DETAIL_TIMEOUT,
-        run_blocking("读取 CLI 会话详情", move || {
-            services::cli_sessions::detail(cli_kind, std::path::Path::new(&workdir), &session_id)
-        }),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => Err("读取 CLI 会话详情超时，请稍后重试".to_string()),
-    }
 }
 
 #[tauri::command]
@@ -234,37 +152,41 @@ pub(crate) async fn browse_workspace_directories(
 #[tauri::command]
 pub(crate) async fn preview_cli_config(
     app: AppHandle,
+    window: Window,
     id: String,
     cli_kind: AgentCliKind,
     api_key_local_id: String,
-) -> Result<CliConfigPreview, String> {
-    run_blocking("读取 CLI 配置预览", move || {
-        services::cli_runtime::CliRuntimeService::new(&app).preview_config(
-            &id,
+) -> Result<AgentConfigurationEdit, AgentConfigurationError> {
+    let (actor, service) = super::agent_configuration::actor_and_service(&app, &window)?;
+    let data = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    let provider = data
+        .providers
+        .into_iter()
+        .find(|provider| provider.identity.id == id)
+        .ok_or_else(|| AgentConfigurationError::new(AgentConfigurationErrorKind::InvalidRequest))?;
+    super::agent_configuration::run_configuration(move || {
+        service.begin_provider_edit(
+            &actor,
+            &provider,
             cli_kind,
             &api_key_local_id,
+            &data.settings,
         )
     })
     .await
 }
 
 #[tauri::command]
-pub(crate) async fn switch_cli_config(
+pub(crate) async fn get_cached_cli_tools(
     app: AppHandle,
-    id: String,
-    cli_kind: AgentCliKind,
-    api_key_local_id: String,
-    revision: String,
-    files: Vec<CliConfigFile>,
-) -> Result<CliRuntimeSnapshot, String> {
-    run_blocking("切换 CLI 配置", move || {
-        services::cli_runtime::CliRuntimeService::new(&app).switch_config(
-            &id,
-            cli_kind,
-            &api_key_local_id,
-            &revision,
-            &files,
-        )
+) -> Result<Option<CliEnvironmentProbeResult>, String> {
+    run_blocking("读取 CLI 摘要", move || {
+        Ok(services::cli_runtime::CliRuntimeService::new(&app).cached_tools())
     })
     .await
 }
@@ -276,89 +198,6 @@ pub(crate) async fn probe_cli_tools(
 ) -> Result<CliEnvironmentProbeResult, String> {
     run_blocking("探测 CLI", move || {
         Ok(services::cli_runtime::CliRuntimeService::new(&app).probe_tools(deep))
-    })
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn get_agent_environment_inventory(
-    app: AppHandle,
-    workspace: Option<String>,
-) -> Result<AgentEnvironmentInventory, String> {
-    let settings = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|error| error.into_inner())
-        .settings
-        .clone();
-    run_blocking("盘点 Agent 环境", move || {
-        let workspace_path = workspace.as_deref().map(std::path::Path::new);
-        if workspace_path.is_some_and(|path| !path.is_absolute()) {
-            return Err("工作区路径必须是绝对路径".to_string());
-        }
-        services::agent_cli::environment_inventory(&settings, workspace_path)
-    })
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn check_agent_latest_versions(
-    app: AppHandle,
-    workspace: Option<String>,
-) -> Result<AgentVersionCheckResult, String> {
-    let settings = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|error| error.into_inner())
-        .settings
-        .clone();
-    let inventory = run_blocking("盘点 Agent 版本", {
-        let settings = settings.clone();
-        move || {
-            let workspace_path = workspace.as_deref().map(std::path::Path::new);
-            if workspace_path.is_some_and(|path| !path.is_absolute()) {
-                return Err("工作区路径必须是绝对路径".to_string());
-            }
-            services::agent_cli::environment_inventory(&settings, workspace_path)
-        }
-    })
-    .await?;
-    services::agent_cli::environment::check_latest_versions(&settings, inventory).await
-}
-
-#[tauri::command]
-pub(crate) async fn read_agent_environment_asset(
-    asset_id: String,
-    workspace: Option<String>,
-) -> Result<AgentAssetReadResult, String> {
-    run_blocking("读取 Agent 资产预览", move || {
-        let workspace_path = workspace.as_deref().map(std::path::Path::new);
-        if workspace_path.is_some_and(|path| !path.is_absolute()) {
-            return Err("工作区路径必须是绝对路径".to_string());
-        }
-        services::agent_cli::read_environment_asset(&asset_id, workspace_path)
-    })
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn open_agent_environment_asset(
-    app: AppHandle,
-    asset_id: String,
-    workspace: Option<String>,
-    target: AgentAssetOpenTarget,
-) -> Result<(), String> {
-    run_blocking("打开 Agent 资产", move || {
-        let workspace_path = workspace.as_deref().map(std::path::Path::new);
-        if workspace_path.is_some_and(|path| !path.is_absolute()) {
-            return Err("工作区路径必须是绝对路径".to_string());
-        }
-        let path = services::agent_cli::environment_asset_path(&asset_id, workspace_path, target)?;
-        app.opener()
-            .open_path(path.to_string_lossy(), None::<&str>)
-            .map_err(|error| format!("无法打开 Agent 资产: {error}"))
     })
     .await
 }
@@ -554,6 +393,7 @@ mod tests {
                 kind: AgentHookChangeKind::Add,
             }],
             summary: "安装".to_string(),
+            content_changes: Vec::new(),
         }
     }
 

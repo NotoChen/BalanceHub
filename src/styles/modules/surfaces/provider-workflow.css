@@ -1,143 +1,11 @@
-/* Provider editor: horizontal tasks and one wide editing canvas. */
-.provider-editor-studio {
-  display: flex;
-  height: min(670px, calc(100dvh - 104px));
-  min-height: 520px;
-  flex-direction: column;
-  background: #f6f7f9;
-}
-
-.provider-editor-rail {
-  display: block;
-  flex: 0 0 auto;
-  border-right: 0;
-  border-bottom: 1px solid #dfe4eb;
-  background: #eef1f5;
-  padding: 10px 20px;
-}
-
-.provider-editor-stepbar-v3 {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-  max-width: 780px;
-  margin: 0 auto;
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab {
-  min-height: 40px;
-  grid-template-columns: 28px minmax(0, 1fr) 16px;
-  gap: 8px;
-  border-color: transparent;
-  border-radius: 7px;
-  color: #536172;
-  padding: 6px 9px;
-  transition: background 160ms var(--surface-ease), border-color 160ms var(--surface-ease), color 160ms var(--surface-ease);
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab:hover,
-.provider-editor-stepbar-v3 .provider-editor-step-tab:focus-visible {
-  border-color: #d5dce5;
-  background: #e4e8ee;
-  color: #263241;
-  transform: none;
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab.active {
-  border-color: #bfd1ee;
-  background: #dce8fa;
-  color: #174f9d;
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab-icon {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: 6px;
-  background: #e1e6ed;
-  color: #687689;
-  font-size: 14px;
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab.active .provider-editor-step-tab-icon {
-  background: #c8daf6;
-  color: #174f9d;
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab-copy strong {
-  color: inherit;
-  font-size: 12px;
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab-copy small {
-  color: #8792a0;
-  font-size: 9px;
-}
-
-.provider-editor-stepbar-v3 .provider-editor-step-tab.active .provider-editor-step-tab-copy small {
-  color: #58749a;
-}
-
-.provider-editor-step-tab-complete {
-  color: #4c8b78;
-  font-size: 14px;
-}
-
-.provider-editor-main {
-  flex: 1;
-  background: #f6f7f9;
-}
-
-.provider-editor-workflow-header {
-  min-height: 60px;
-  padding: 13px 24px;
-}
-
-.provider-editor-main-kicker {
-  color: #718096;
-  font-family: inherit;
-  text-transform: none;
-}
-
-.provider-editor-workflow-header h2 {
-  font-size: 20px;
-  letter-spacing: 0;
-}
-
-.provider-editor-workflow-status {
-  border-radius: 6px;
-}
-
-.provider-editor-stage {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.provider-editor-canvas {
-  background: #f6f7f9;
-}
-
-.provider-editor-main-scroll {
-  padding: 18px 24px 24px;
-}
-
-.provider-editor-main-scroll > .arco-form {
-  max-width: 840px;
-  margin: 0 auto;
-}
-
-.provider-editor-main-footer {
-  min-height: 56px;
-  padding: 10px 24px;
-}
+/* Provider connection fields and the continuous editing form. */
 
 .provider-form-page {
   display: grid;
   gap: 12px;
 }
 
-.provider-form-block,
-.provider-policy-block {
+.provider-form-block {
   overflow: hidden;
   border: 1px solid #dde3ea;
   border-radius: 8px;
@@ -148,8 +16,7 @@
   border-color: #cddbf0;
 }
 
-.provider-form-block-header,
-.provider-policy-header {
+.provider-form-block-header {
   display: flex;
   min-height: 50px;
   align-items: center;
@@ -158,25 +25,22 @@
   padding: 10px 14px;
 }
 
-.provider-form-block-header > div,
-.provider-policy-header > div {
+.provider-form-block-header > div {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.provider-form-block-header strong,
-.provider-policy-header strong {
+.provider-form-block-header strong {
   color: #273444;
   font-size: 13px;
   font-weight: 700;
 }
 
-.provider-form-block-header small,
-.provider-policy-header small {
-  color: #7c8796;
-  font-size: 10px;
-  line-height: 1.4;
+.provider-form-block-header small {
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .provider-form-block-icon {
@@ -205,7 +69,6 @@
   background: #edf0f4;
 }
 
-.provider-form-block-required,
 .provider-form-block-meta {
   flex: 0 0 auto;
   margin-left: auto;
@@ -217,13 +80,7 @@
   padding: 4px 6px;
 }
 
-.provider-form-block-required {
-  background: #fff3dd;
-  color: #986419;
-}
-
-.provider-form-block-body,
-.provider-policy-body {
+.provider-form-block-body {
   padding: 14px;
 }
 
@@ -264,6 +121,13 @@
   padding-top: 4px;
 }
 
+.provider-protocol-hint {
+  margin: 7px 0 0;
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .provider-model-field {
   max-width: 620px;
 }
@@ -288,301 +152,89 @@
   font-size: 9px;
 }
 
-.provider-backup-empty {
-  display: flex;
-  width: 100%;
-  min-height: 66px;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  border: 1px dashed #cbd4df;
-  border-radius: 6px;
-  background: #fafbfc;
-  color: #637186;
-  cursor: pointer;
-}
-
-.provider-backup-empty > svg {
-  font-size: 16px;
-}
-
-.provider-backup-empty > span {
-  display: grid;
-  gap: 1px;
-  text-align: left;
-}
-
-.provider-backup-empty strong { color: #475569; font-size: 11px; }
-.provider-backup-empty small { color: #8792a0; font-size: 9px; }
-
-.provider-auth-mode-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.provider-auth-mode-option {
-  min-height: 46px;
-  grid-template-columns: 30px minmax(0, 1fr) 16px;
-  border-color: #dfe4eb;
-  border-radius: 7px;
-  background: #ffffff;
-  padding: 8px 9px;
-}
-
-.provider-auth-mode-option:hover,
-.provider-auth-mode-option:focus-visible {
-  border-color: #aebed2;
-  background: #f8fafc;
-  outline: none;
-}
-
-.provider-auth-mode-option.active {
-  border-color: #9db8e2;
-  background: #eef4fd;
-  box-shadow: inset 0 0 0 1px #d0def3;
-}
-
-.provider-auth-mode-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
-  background: #f0f2f5;
-}
-
-.provider-auth-mode-copy strong {
-  color: #344255;
-  font-size: 12px;
-}
-
-.provider-auth-mode-copy {
-  display: flex;
-  align-items: center;
-}
-
-.provider-auth-mode-copy small {
-  color: #7c8796;
-  font-size: 9px;
-}
-
-.provider-auth-mode-check {
-  color: #285da8;
-  font-size: 14px;
-}
-
-.provider-auth-picker-note {
-  margin: 8px 0 0;
-  color: #8792a0;
-  font-size: 9px;
-}
-
 .provider-credential-active-panel {
   border-color: #cddbf0;
   background: #ffffff;
   padding: 0;
 }
 
-.provider-credential-active-heading {
-  margin: 0;
-  border-bottom: 1px solid #e6eaf0;
-  padding: 10px 14px;
-}
-
-.provider-credentials-secondary {
-  padding: 0;
-}
-
-.provider-credentials-secondary > summary {
-  min-height: 48px;
-  border: 0;
-  border-radius: 0;
-  background: #ffffff;
-  padding: 9px 14px;
-}
-
-.provider-credentials-secondary-title {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.provider-credentials-secondary-title > svg {
-  color: #718096;
-  font-size: 15px;
-}
-
-.provider-credentials-secondary-title > span {
-  display: grid;
-  gap: 1px;
-}
-
-.provider-credentials-secondary-title strong { color: #475569; font-size: 12px; }
-.provider-credentials-secondary-title small { color: #8792a0; font-size: 9px; }
-.provider-credentials-secondary-count { color: #718096; font-size: 9px; }
-
-.provider-credentials-secondary-content {
-  margin: 0;
-  border-top: 1px solid #e6eaf0;
-  border-radius: 0;
-  background: #f8f9fb;
-  padding: 14px;
-}
-
-.provider-policy-page {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-}
-
-.provider-policy-block {
-  min-width: 0;
-}
-
-.provider-liveness-policy {
-  grid-column: 1 / -1;
-}
-
-.provider-policy-rows {
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.provider-policy-row {
-  display: grid;
-  min-height: 52px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 16px;
-  border-bottom: 1px solid #e6eaf0;
-  padding: 9px 0;
-}
-
-.provider-policy-row:last-child {
-  border-bottom: 0;
-}
-
-.provider-policy-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.provider-policy-copy strong { color: #475569; font-size: 11px; }
-.provider-policy-copy small { color: #8792a0; font-size: 9px; }
-
-.provider-policy-control {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.provider-policy-info {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  place-items: center;
-  border-radius: 5px;
-  color: #7b8796;
-  cursor: help;
-  font-size: 14px;
-}
-
-.provider-policy-info:hover,
-.provider-policy-info:focus-visible {
-  background: #eef1f5;
-  color: #285da8;
-  outline: none;
-}
-
-.provider-inherit-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #66758a;
-  font-size: 9px;
-}
-
-.provider-option-segment {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  border-radius: 7px;
-  background: #eef1f5;
-  padding: 3px;
-}
-
-.provider-option-segment > button {
-  min-height: 30px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: #677589;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.provider-option-segment > button:hover,
-.provider-option-segment > button:focus-visible {
-  color: #285da8;
-  outline: none;
-}
-
-.provider-option-segment > button.active {
-  border-color: #d3dce8;
-  background: #ffffff;
-  color: #285da8;
-  box-shadow: 0 1px 2px rgba(40, 58, 82, 0.08);
-}
-
-.provider-policy-reveal {
-  margin-top: 12px;
-  border-top: 1px solid #e6eaf0;
-  padding-top: 12px;
-}
-
-.provider-liveness-fields {
-  display: grid;
-  gap: 10px;
-}
-
-.provider-liveness-fields .provider-field-grid {
-  gap: 0 10px;
-}
-
-/* The original access and credential sections now share one scrolling editor. */
+/* Identity, credentials and policies share a single scrolling form. */
 .provider-editor-layout {
   display: flex;
-  height: min(670px, calc(100dvh - 104px));
+  width: 100%;
+  min-width: 0;
   min-height: 0;
+  flex: 1;
   flex-direction: column;
-  background: #f6f7f9;
+  background: var(--surface-canvas);
 }
 
 .provider-editor-scroll {
+  position: relative;
   min-height: 0;
   flex: 1;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 18px 24px 24px;
+  padding: 28px clamp(24px, 4vw, 48px) 36px;
 }
+
+.provider-editor-feedback {
+  flex: 0 0 auto;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 24px;
+  background: var(--surface-panel);
+  overflow-wrap: anywhere;
+}
+
+.provider-test-steps { margin-top: 6px; font-size: 12px; }
+.provider-test-steps summary { width: fit-content; cursor: pointer; }
+.provider-test-steps > div { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: 12px; margin-top: 6px; }
+.provider-test-steps .is-error { color: rgb(var(--red-6)); }
 
 .provider-editor-form {
   display: grid;
-  gap: 16px;
-  max-width: 840px;
+  width: min(100%, 900px);
+  gap: 24px;
   margin: 0 auto;
+}
+
+.provider-editor-form > [data-provider-section="credentials"],
+.provider-editor-policy-section {
+  border-top: 1px solid var(--surface-line);
+  padding-top: 24px;
+}
+
+.provider-editor-form .provider-form-block-header {
+  min-height: 56px;
+  padding-inline: 16px;
+}
+
+.provider-editor-form .provider-form-block-body {
+  padding: 18px 16px 20px;
+}
+
+.provider-editor-policy-heading {
+  margin-bottom: 22px;
+}
+
+.provider-editor-policy-heading h2 {
+  margin: 0;
+  color: var(--surface-ink);
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .provider-editor-footer {
   display: flex;
-  min-height: 56px;
+  min-height: 64px;
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid var(--color-border-2);
-  background: var(--color-bg-2);
-  padding: 10px 24px;
+  border-top: 1px solid var(--surface-line);
+  background: var(--surface-panel);
+  padding: 12px clamp(24px, 4vw, 48px);
 }
 
 .provider-editor-policies {
@@ -595,6 +247,10 @@
 }
 
 .provider-form-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin: 0 0 6px;
   border-bottom: 1px solid var(--color-border-2);
   padding: 12px 0 10px;
@@ -602,6 +258,26 @@
   font-size: 13px;
   font-weight: 650;
 }
+
+.provider-basics-page .provider-form-block-body,
+.provider-primary-credentials {
+  display: grid;
+  gap: 16px;
+}
+
+.provider-primary-credentials .provider-field-grid { row-gap: 12px; }
+.provider-primary-credentials .provider-credential-inline-note { margin: 0; }
+
+.provider-form-block-header > .provider-credential-tools {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.provider-empty-note { margin: 10px 0 0; color: var(--surface-muted); font-size: 12px; }
 
 .provider-form-section-body {
   min-width: 0;
@@ -673,6 +349,51 @@
   width: 150px;
 }
 
+.provider-inherited-value {
+  min-width: 0;
+  color: var(--color-text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.provider-setting-summary {
+  margin: 0 0 3px;
+  color: var(--color-text-2);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.provider-liveness-fields {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  margin: 4px 0 8px 154px;
+}
+
+.provider-liveness-fields .provider-field-grid {
+  gap: 14px 16px;
+}
+
+.provider-liveness-fields .provider-field {
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+}
+
+.provider-liveness-fields .provider-field > .arco-form-item-label-col,
+.provider-liveness-fields .provider-field > .arco-form-item-wrapper-col {
+  width: 100%;
+  max-width: none;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.provider-liveness-fields .duration-control {
+  width: 100%;
+  max-width: 300px;
+}
+
 .provider-form-disclosure {
   margin-top: 8px;
   border-top: 1px solid var(--color-border-2);
@@ -692,14 +413,18 @@
   outline-offset: 2px;
 }
 
-:root.theme-dark .provider-editor-layout {
-  background: #151d28;
+@media (max-width: 760px) {
+  .provider-editor-scroll {
+    padding-inline: 16px;
+  }
+
+  .provider-editor-footer {
+    padding-inline: 16px;
+  }
 }
 
 @media (max-width: 640px) {
-  .provider-editor-scroll {
-    padding: 14px;
-  }
+  .provider-liveness-fields { margin-left: 0; }
 
   .provider-editor-policies .provider-field {
     flex-direction: column;
@@ -717,7 +442,4 @@
     width: 100%;
   }
 
-  .provider-editor-footer {
-    padding: 10px 16px;
-  }
 }

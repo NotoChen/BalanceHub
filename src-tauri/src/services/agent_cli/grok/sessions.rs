@@ -1,16 +1,16 @@
 use crate::{
     limits,
-    models::{
-        AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary,
+    models::{AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary},
+    services::cli_sessions::workbench::{
+        read_session_metadata_text_file_limited,
+        read_session_text_file_limited as read_text_file_limited,
     },
     services::cli_sessions::{
         clean_text, combine_content_search_results, compact_json, first_non_empty,
-        normalize_timestamp, read_json_lines_limited, scan_json_lines_matching,
-        scan_json_records, scan_json_records_background, session_index_source_fingerprint,
-        session_sort_key, timestamp_from_unix, SessionContentSearchCollector,
-        SessionMessageCollector,
+        normalize_timestamp, read_json_lines_limited, scan_json_lines_matching, scan_json_records,
+        scan_json_records_background, session_index_source_fingerprint, timestamp_from_unix,
+        SessionContentSearchCollector, SessionMessageCollector,
     },
-    util::read_text_file_limited,
 };
 use serde_json::Value;
 use std::{
@@ -26,169 +26,14 @@ use super::super::contracts::{
     SessionReadLimits,
 };
 
-const MAX_SCAN_DIRECTORIES: usize = 10_000;
-const MAX_SUMMARY_FILES: usize = 2_000;
 const MAX_SUMMARY_FILE_BYTES: usize = 256 * 1024;
 const INDEX_PARSER_VERSION: u32 = 1;
 const METADATA_PARSER_VERSION: u32 = 1;
 const MAX_METADATA_WORKSPACE_ROOTS: usize = 64;
 const MAX_CWD_MARKER_BYTES: u64 = 4 * 1024;
 
-pub(super) fn list(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-) -> Result<Vec<CliSessionSummary>, String> {
-    let grok_home = super::config::config_dir()
-        .ok_or_else(|| "无法定位用户目录，无法读取 Grok Build 历史会话".to_string())?;
-    list_from_home(cli_kind, &grok_home, workdir)
-}
-
-pub(super) fn detail(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    session_id: &str,
-    limits: SessionReadLimits,
-) -> Result<CliSessionDetail, String> {
-    let grok_home = super::config::config_dir()
-        .ok_or_else(|| "无法定位用户目录，无法读取 Grok Build 历史会话".to_string())?;
-    let sessions_root = grok_home.join("sessions");
-    for summary_path in collect_summary_files(&sessions_root)? {
-        let Some(summary) = parse_summary(cli_kind, &summary_path, workdir)? else {
-            continue;
-        };
-        if summary.id != session_id {
-            continue;
-        }
-        let session_dir = summary_path
-            .parent()
-            .ok_or_else(|| "Grok Build 会话目录无效".to_string())?;
-        let updates_path = session_dir.join("updates.jsonl");
-        let chat_history_path = session_dir.join("chat_history.jsonl");
-        let (messages, truncated, omitted_message_count, source) =
-            if updates_path.is_file() {
-                let (messages, truncated, omitted) =
-                    parse_updates(&updates_path, limits)?;
-                if messages.is_empty() && chat_history_path.is_file() {
-                    let (messages, truncated, omitted) =
-                        parse_chat_history(&chat_history_path, limits)?;
-                    (messages, truncated, omitted, "grokChatHistory")
-                } else {
-                    (messages, truncated, omitted, "grokUpdates")
-                }
-            } else if chat_history_path.is_file() {
-                let (messages, truncated, omitted) =
-                    parse_chat_history(&chat_history_path, limits)?;
-                (messages, truncated, omitted, "grokChatHistory")
-            } else {
-                return Err("Grok Build 会话摘要存在，但正文文件已不可用".to_string());
-            };
-        return Ok(CliSessionDetail {
-            session: summary,
-            messages,
-            truncated,
-            omitted_message_count,
-            content_source: source.to_string(),
-        });
-    }
-    Err("未找到指定的 Grok Build 会话".to_string())
-}
-
-pub(super) fn search(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    session_id: &str,
-    request: &SessionContentSearchRequest,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionContentSearchResult, String> {
-    let grok_home = super::config::config_dir()
-        .ok_or_else(|| "无法定位用户目录，无法读取 Grok Build 历史会话".to_string())?;
-    let sessions_root = grok_home.join("sessions");
-    for summary_path in collect_summary_files(&sessions_root)? {
-        let Some(summary) = parse_summary(cli_kind, &summary_path, workdir)? else {
-            continue;
-        };
-        if summary.id != session_id {
-            continue;
-        }
-        let session_dir = summary_path
-            .parent()
-            .ok_or_else(|| "Grok Build 会话目录无效".to_string())?;
-        let updates_path = session_dir.join("updates.jsonl");
-        let chat_history_path = session_dir.join("chat_history.jsonl");
-        if !updates_path.is_file() && !chat_history_path.is_file() {
-            return Err("Grok Build 会话摘要存在，但正文文件已不可用".to_string());
-        }
-        let result = if updates_path.is_file() {
-            search_updates(&updates_path, request, is_current)?
-        } else {
-            SessionContentSearchResult::default()
-        };
-        if result.has_content || !chat_history_path.is_file() {
-            return Ok(result);
-        }
-        return search_chat_history(&chat_history_path, request, is_current);
-    }
-    Err("未找到指定的 Grok Build 会话".to_string())
-}
-
-pub(super) fn index(
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    session_id: &str,
-    known_fingerprint: Option<&str>,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
-    let grok_home = super::config::config_dir()
-        .ok_or_else(|| "无法定位用户目录，无法读取 Grok Build 历史会话".to_string())?;
-    let sessions_root = grok_home.join("sessions");
-    for summary_path in collect_summary_files(&sessions_root)? {
-        let Some(summary) = parse_summary(cli_kind, &summary_path, workdir)? else {
-            continue;
-        };
-        if summary.id != session_id {
-            continue;
-        }
-        let session_dir = summary_path
-            .parent()
-            .ok_or_else(|| "Grok Build 会话目录无效".to_string())?;
-        let updates_path = session_dir.join("updates.jsonl");
-        let chat_history_path = session_dir.join("chat_history.jsonl");
-        if !updates_path.is_file() && !chat_history_path.is_file() {
-            return Err("Grok Build 会话摘要存在，但正文文件已不可用".to_string());
-        }
-        let mut source_bytes = 0u64;
-        let mut fingerprint_parts = Vec::new();
-        for path in [&updates_path, &chat_history_path] {
-            if !path.is_file() {
-                continue;
-            }
-            let (part, bytes) = session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
-            fingerprint_parts.push(part);
-            source_bytes = source_bytes.saturating_add(bytes);
-        }
-        let fingerprint = fingerprint_parts.join("|");
-        if known_fingerprint == Some(fingerprint.as_str()) {
-            return Ok(SessionIndexLoadResult::Unchanged {
-                fingerprint,
-                source_bytes,
-            });
-        }
-        let mut messages = if updates_path.is_file() {
-            index_updates(&updates_path, is_current)?
-        } else {
-            Vec::new()
-        };
-        if messages.is_empty() && chat_history_path.is_file() {
-            messages = index_chat_history(&chat_history_path, is_current)?;
-        }
-        return Ok(SessionIndexLoadResult::Updated {
-            fingerprint,
-            source_bytes,
-            messages,
-        });
-    }
-    Err("未找到指定的 Grok Build 会话".to_string())
-}
+mod history;
+pub(super) use history::HISTORY;
 
 /// Reads the bounded Grok summary for one exact workspace and session. The
 /// only fallback inspects direct workspace `.cwd` markers for long path names;
@@ -228,17 +73,19 @@ fn metadata_lookup_from_home(
         };
         if path_has_symlink_component(&canonical_root, hint)?
             || !canonical_hint.starts_with(&canonical_root)
-            || canonical_hint.file_name().is_none_or(|name| name != "summary.json")
+            || canonical_hint
+                .file_name()
+                .is_none_or(|name| name != "summary.json")
         {
             return Err(SessionMetadataLookupError::InvalidSource);
         }
         candidates.push(canonical_hint);
     }
     if candidates.is_empty() {
-        for workspace_root in exact_workspace_roots(&canonical_root, workdir, &request.budget)? {
-            let candidate = workspace_root
-                .join(request.session_id)
-                .join("summary.json");
+        for workspace_root in
+            exact_workspace_roots(&canonical_root, workdir, &request.budget, None)?
+        {
+            let candidate = workspace_root.join(request.session_id).join("summary.json");
             if let Some(candidate) = contained_regular_file(&canonical_root, &candidate)? {
                 candidates.push(candidate);
             }
@@ -267,7 +114,8 @@ fn metadata_lookup_from_home(
         request.budget.check(length)?;
         let summary = parse_summary(request.cli_kind, &path, workdir)
             .map_err(SessionMetadataLookupError::Parse)?;
-        let Some(summary) = summary.filter(|summary| summary.id == request.session_id) else {
+        let Some((summary, _)) = summary.filter(|(summary, _)| summary.id == request.session_id)
+        else {
             continue;
         };
         let revision = metadata_revision(&path, &summary);
@@ -301,15 +149,16 @@ fn is_safe_session_id(session_id: &str) -> bool {
     !session_id.is_empty()
         && session_id != "."
         && session_id != ".."
-        && !session_id.chars().any(|character| {
-            matches!(character, '/' | '\\' | ':' | '\0') || character.is_control()
-        })
+        && !session_id
+            .chars()
+            .any(|character| matches!(character, '/' | '\\' | ':' | '\0') || character.is_control())
 }
 
 fn exact_workspace_roots(
     sessions_root: &Path,
     workdir: &Path,
     budget: &super::super::contracts::SessionMetadataLookupBudget,
+    known_markers: Option<&[(PathBuf, String)]>,
 ) -> Result<Vec<PathBuf>, SessionMetadataLookupError> {
     let mut roots = BTreeSet::new();
     for path in [Some(workdir.to_path_buf()), workdir.canonicalize().ok()]
@@ -322,39 +171,61 @@ fn exact_workspace_roots(
         }
     }
 
-    let entries = fs::read_dir(sessions_root)
-        .map_err(|error| SessionMetadataLookupError::Io(error.to_string()))?;
-    let mut checked = 0usize;
-    for entry in entries.flatten() {
-        if checked >= MAX_METADATA_WORKSPACE_ROOTS {
-            break;
-        }
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if !file_type.is_dir() || file_type.is_symlink() {
-            continue;
-        }
-        checked += 1;
-        let directory = entry.path();
-        let marker = directory.join(".cwd");
-        let Ok(metadata) = fs::symlink_metadata(&marker) else {
-            continue;
-        };
-        if !metadata.file_type().is_file() || metadata.len() > MAX_CWD_MARKER_BYTES {
-            continue;
-        }
-        budget.check(usize::try_from(metadata.len()).unwrap_or(usize::MAX))?;
-        let Ok(value) = fs::read_to_string(&marker) else {
-            continue;
-        };
-        if path_key(Path::new(value.trim())) == path_key(workdir) {
-            if let Some(directory) = contained_directory(sessions_root, &directory)? {
+    let local_markers;
+    let markers = if let Some(markers) = known_markers {
+        markers
+    } else {
+        local_markers =
+            workspace_markers(sessions_root, budget, Some(MAX_METADATA_WORKSPACE_ROOTS))?;
+        &local_markers
+    };
+    for (directory, marker) in markers {
+        budget.check(0)?;
+        if path_key(Path::new(marker)) == path_key(workdir) {
+            if let Some(directory) = contained_directory(sessions_root, directory)? {
                 roots.insert(directory);
             }
         }
     }
     Ok(roots.into_iter().collect())
+}
+
+fn workspace_markers(
+    sessions_root: &Path,
+    budget: &super::super::contracts::SessionMetadataLookupBudget,
+    max_directories: Option<usize>,
+) -> Result<Vec<(PathBuf, String)>, SessionMetadataLookupError> {
+    let mut result = Vec::new();
+    let entries = fs::read_dir(sessions_root)
+        .map_err(|error| SessionMetadataLookupError::Io(error.to_string()))?;
+    for (checked, entry) in entries.enumerate() {
+        budget.check(0)?;
+        if max_directories.is_some_and(|limit| checked >= limit) {
+            break;
+        }
+        let entry = entry.map_err(|error| SessionMetadataLookupError::Io(error.to_string()))?;
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let directory = entry.path();
+        let marker = directory.join(".cwd");
+        let metadata = match fs::symlink_metadata(&marker) {
+            Ok(value) => value,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(SessionMetadataLookupError::Io(error.to_string())),
+        };
+        if !metadata.is_file() || metadata.len() > MAX_CWD_MARKER_BYTES {
+            continue;
+        }
+        let value = read_session_metadata_text_file_limited(
+            &marker,
+            MAX_CWD_MARKER_BYTES as usize,
+            "读取 Grok 项目目录标记",
+        )
+        .map_err(SessionMetadataLookupError::Io)?;
+        result.push((directory, value.trim().to_string()));
+    }
+    Ok(result)
 }
 
 fn contained_directory(
@@ -451,49 +322,53 @@ fn index_updates(
 ) -> Result<Vec<SessionIndexMessage>, String> {
     let mut messages = Vec::new();
     let mut current: Option<(CliSessionMessageRole, String, usize)> = None;
-    scan_json_records_background(path, "索引 Grok Build 会话正文", is_current, |line_index, line| {
-        if !(line.windows(18).any(|window| window == b"user_message_chunk")
-            || line
-                .windows(19)
-                .any(|window| window == b"agent_message_chunk"))
-        {
-            return false;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
-            return false;
-        };
-        let Some(update) = value
-            .get("params")
-            .and_then(|params| params.get("update"))
-        else {
-            return false;
-        };
-        let role = match update.get("sessionUpdate").and_then(Value::as_str) {
-            Some("user_message_chunk") => CliSessionMessageRole::User,
-            Some("agent_message_chunk") => CliSessionMessageRole::Assistant,
-            _ => return false,
-        };
-        let Some(content) = update.get("content").and_then(content_text) else {
-            return false;
-        };
-        if current
-            .as_ref()
-            .is_some_and(|(current_role, _, _)| *current_role != role)
-        {
-            if let Some((pending_role, pending_content, pending_line)) = current.take() {
-                if !pending_content.trim().is_empty() {
-                    messages.push(SessionIndexMessage {
-                        id: format!("grok-{pending_line}"),
-                        role: pending_role,
-                        content: pending_content,
-                    });
+    scan_json_records_background(
+        path,
+        "索引 Grok Build 会话正文",
+        is_current,
+        |line_index, line| {
+            if !(line
+                .windows(18)
+                .any(|window| window == b"user_message_chunk")
+                || line
+                    .windows(19)
+                    .any(|window| window == b"agent_message_chunk"))
+            {
+                return false;
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(line) else {
+                return false;
+            };
+            let Some(update) = value.get("params").and_then(|params| params.get("update")) else {
+                return false;
+            };
+            let role = match update.get("sessionUpdate").and_then(Value::as_str) {
+                Some("user_message_chunk") => CliSessionMessageRole::User,
+                Some("agent_message_chunk") => CliSessionMessageRole::Assistant,
+                _ => return false,
+            };
+            let Some(content) = update.get("content").and_then(content_text) else {
+                return false;
+            };
+            if current
+                .as_ref()
+                .is_some_and(|(current_role, _, _)| *current_role != role)
+            {
+                if let Some((pending_role, pending_content, pending_line)) = current.take() {
+                    if !pending_content.trim().is_empty() {
+                        messages.push(SessionIndexMessage {
+                            id: format!("grok-{pending_line}"),
+                            role: pending_role,
+                            content: pending_content,
+                        });
+                    }
                 }
             }
-        }
-        let pending = current.get_or_insert_with(|| (role, String::new(), line_index));
-        pending.1.push_str(&content);
-        false
-    })?;
+            let pending = current.get_or_insert_with(|| (role, String::new(), line_index));
+            pending.1.push_str(&content);
+            false
+        },
+    )?;
     if let Some((role, content, line_index)) = current {
         if !content.trim().is_empty() {
             messages.push(SessionIndexMessage {
@@ -511,31 +386,38 @@ fn index_chat_history(
     is_current: &dyn Fn() -> bool,
 ) -> Result<Vec<SessionIndexMessage>, String> {
     let mut messages = Vec::new();
-    scan_json_records_background(path, "索引 Grok Build 会话正文", is_current, |line_index, line| {
-        if !(line.windows(4).any(|window| window.eq_ignore_ascii_case(b"user"))
-            || line
-                .windows(9)
-                .any(|window| window.eq_ignore_ascii_case(b"assistant")))
-        {
-            return false;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
-            return false;
-        };
-        let role = match value.get("type").and_then(Value::as_str) {
-            Some("user") => CliSessionMessageRole::User,
-            Some("assistant") => CliSessionMessageRole::Assistant,
-            _ => return false,
-        };
-        if let Some(content) = value.get("content").and_then(content_text) {
-            messages.push(SessionIndexMessage {
-                id: format!("grok-{line_index}"),
-                role,
-                content,
-            });
-        }
-        false
-    })?;
+    scan_json_records_background(
+        path,
+        "索引 Grok Build 会话正文",
+        is_current,
+        |line_index, line| {
+            if !(line
+                .windows(4)
+                .any(|window| window.eq_ignore_ascii_case(b"user"))
+                || line
+                    .windows(9)
+                    .any(|window| window.eq_ignore_ascii_case(b"assistant")))
+            {
+                return false;
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(line) else {
+                return false;
+            };
+            let role = match value.get("type").and_then(Value::as_str) {
+                Some("user") => CliSessionMessageRole::User,
+                Some("assistant") => CliSessionMessageRole::Assistant,
+                _ => return false,
+            };
+            if let Some(content) = value.get("content").and_then(content_text) {
+                messages.push(SessionIndexMessage {
+                    id: format!("grok-{line_index}"),
+                    role,
+                    content,
+                });
+            }
+            false
+        },
+    )?;
     Ok(messages)
 }
 
@@ -553,10 +435,7 @@ fn search_updates(
             let Ok(value) = serde_json::from_slice::<Value>(line) else {
                 return false;
             };
-            let Some(update) = value
-                .get("params")
-                .and_then(|params| params.get("update"))
-            else {
+            let Some(update) = value.get("params").and_then(|params| params.get("update")) else {
                 return false;
             };
             state.observe(line_index, update);
@@ -638,9 +517,8 @@ impl<'a> GrokUpdateSearchState<'a> {
                         .unwrap_or(remainder.len());
                     let addition = &remainder[..split_at];
                     if let Some(current) = self.current.as_mut() {
-                        current.char_count = current
-                            .char_count
-                            .saturating_add(addition.chars().count());
+                        current.char_count =
+                            current.char_count.saturating_add(addition.chars().count());
                         current.content.push_str(addition);
                     }
                     remainder = &remainder[split_at..];
@@ -717,10 +595,7 @@ fn parse_updates(
         "读取 Grok Build 会话正文",
         |_line_index, value| {
             let timestamp = timestamp_from_unix(value.get("timestamp").and_then(Value::as_i64));
-            let Some(update) = value
-                .get("params")
-                .and_then(|params| params.get("update"))
-            else {
+            let Some(update) = value.get("params").and_then(|params| params.get("update")) else {
                 return;
             };
             let update_type = update.get("sessionUpdate").and_then(Value::as_str);
@@ -737,9 +612,10 @@ fn parse_updates(
                         CliSessionMessageRole::Assistant
                     };
                     if let Some(content) = update.get("content").and_then(content_text) {
-                        if let Some(previous) = pending.last_mut().filter(|message| {
-                            message.role == role && message.tool_name.is_none()
-                        }) {
+                        if let Some(previous) = pending
+                            .last_mut()
+                            .filter(|message| message.role == role && message.tool_name.is_none())
+                        {
                             previous.content.push_str(&content);
                             if previous.timestamp.is_none() {
                                 previous.timestamp = timestamp;
@@ -915,96 +791,11 @@ fn content_part_is_hidden(value: &Value) -> bool {
         .any(|hidden| kind.contains(hidden))
 }
 
-fn list_from_home(
-    cli_kind: AgentCliKind,
-    grok_home: &Path,
-    workdir: &Path,
-) -> Result<Vec<CliSessionSummary>, String> {
-    let sessions_root = grok_home.join("sessions");
-    if !sessions_root.is_dir() {
-        return Ok(Vec::new());
-    }
-    let files = collect_summary_files(&sessions_root)?;
-    let mut sessions = Vec::<CliSessionSummary>::new();
-    let mut indexes = HashMap::<String, usize>::new();
-    let mut failed_files = 0usize;
-    let mut last_error = None;
-    for path in &files {
-        match parse_summary(cli_kind, path, workdir) {
-            Ok(Some(session)) => {
-                if let Some(index) = indexes.get(&session.id).copied() {
-                    if session_sort_key(session.updated_at.as_deref())
-                        > session_sort_key(sessions[index].updated_at.as_deref())
-                    {
-                        sessions[index] = session;
-                    }
-                } else {
-                    indexes.insert(session.id.clone(), sessions.len());
-                    sessions.push(session);
-                }
-            }
-            Ok(None) => {}
-            Err(error) => {
-                failed_files += 1;
-                last_error = Some(error);
-            }
-        }
-    }
-    if !files.is_empty() && sessions.is_empty() && failed_files == files.len() {
-        return Err(last_error.unwrap_or_else(|| "读取 Grok Build 历史会话失败".to_string()));
-    }
-    Ok(sessions)
-}
-
-fn collect_summary_files(root: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    let mut directories = vec![root.to_path_buf()];
-    let mut scanned = 0usize;
-    while let Some(directory) = directories.pop() {
-        if scanned >= MAX_SCAN_DIRECTORIES || files.len() >= MAX_SUMMARY_FILES {
-            break;
-        }
-        scanned += 1;
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(err) if directory == root => {
-                return Err(format!(
-                    "读取 Grok Build 会话目录失败：{}：{err}",
-                    directory.display()
-                ));
-            }
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let Ok(file_type) = entry.file_type() else {
-                continue;
-            };
-            if file_type.is_symlink() {
-                continue;
-            }
-            let path = entry.path();
-            if file_type.is_dir() {
-                if directories.len() + scanned < MAX_SCAN_DIRECTORIES {
-                    directories.push(path);
-                }
-            } else if file_type.is_file()
-                && path.file_name().is_some_and(|name| name == "summary.json")
-            {
-                files.push(path);
-                if files.len() >= MAX_SUMMARY_FILES {
-                    break;
-                }
-            }
-        }
-    }
-    Ok(files)
-}
-
 fn parse_summary(
     cli_kind: AgentCliKind,
     path: &Path,
     expected_workdir: &Path,
-) -> Result<Option<CliSessionSummary>, String> {
+) -> Result<Option<(CliSessionSummary, bool)>, String> {
     let text = read_text_file_limited(
         path,
         MAX_SUMMARY_FILE_BYTES.min(limits::MAX_CLI_CONFIG_FILE_BYTES),
@@ -1034,17 +825,15 @@ fn parse_summary(
     if path_key(Path::new(workdir)) != path_key(expected_workdir) {
         return Ok(None);
     }
-    if value.get("hidden").and_then(Value::as_bool) == Some(true)
-        || value
-            .get("session_kind")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .is_some_and(|kind| kind.starts_with("subagent"))
-    {
+    let is_subagent = value
+        .get("session_kind")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind.starts_with("subagent"));
+    if value.get("hidden").and_then(Value::as_bool) == Some(true) && !is_subagent {
         return Ok(None);
     }
-    let has_message_count = value.get("num_messages").is_some()
-        || value.get("num_chat_messages").is_some();
+    let has_message_count =
+        value.get("num_messages").is_some() || value.get("num_chat_messages").is_some();
     let num_messages = value
         .get("num_messages")
         .and_then(Value::as_u64)
@@ -1076,37 +865,35 @@ fn parse_summary(
         .filter(|summary| generated_title.as_deref() != Some(*summary))
         .and_then(|summary| clean_text(summary, 240))
         .or_else(|| last_turn_summary.and_then(|summary| clean_text(summary, 240)));
-    let model = string_field(&value, "current_model_id")
-        .and_then(|model| clean_text(model, 120));
+    let model = string_field(&value, "current_model_id").and_then(|model| clean_text(model, 120));
     let models = model
         .clone()
         .into_iter()
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let created_at = normalize_timestamp(
-        value
-            .get("created_at")
-            .and_then(Value::as_str),
-    );
+    let created_at = normalize_timestamp(value.get("created_at").and_then(Value::as_str));
     let updated_at = normalize_timestamp(value.get("last_active_at").and_then(Value::as_str))
         .or_else(|| normalize_timestamp(value.get("updated_at").and_then(Value::as_str)));
 
-    Ok(Some(CliSessionSummary {
-        id: id.to_string(),
-        title,
-        preview,
-        model,
-        models,
-        cli_kind,
-        created_at,
-        updated_at,
-        workdir: workdir.to_string(),
-        cli_version: None,
-        archived: false,
-        can_resume: true,
-        metadata_source: "grokSummary".to_string(),
-    }))
+    Ok(Some((
+        CliSessionSummary {
+            id: id.to_string(),
+            title,
+            preview,
+            model,
+            models,
+            cli_kind,
+            created_at,
+            updated_at,
+            workdir: workdir.to_string(),
+            cli_version: None,
+            archived: false,
+            can_resume: !is_subagent,
+            metadata_source: "grokSummary".to_string(),
+        },
+        is_subagent,
+    )))
 }
 
 fn string_field(value: &Value, field: &str) -> Option<String> {

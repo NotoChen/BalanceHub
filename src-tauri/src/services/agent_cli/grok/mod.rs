@@ -1,8 +1,20 @@
+mod asset_mutation;
+mod asset_preview;
 mod config;
+mod configuration;
+mod environment;
+mod hook_catalog;
 mod launch;
 mod liveness;
+mod native_context;
 mod sessions;
 
+pub(crate) use environment::{GrokHookPayload, GrokPluginPayload};
+
+use super::discovery::paths::{
+    fixed_home_candidates, AgentHomeCandidateScanRequest, AgentHomeCandidateScanResult,
+};
+use super::native_agent_kinds::grok::AGENT_KIND;
 use super::{
     contracts::{
         DefaultConfigAdapter, EndpointAdapter, EnvironmentAdapter, LivenessAdapter, SessionAdapter,
@@ -11,7 +23,6 @@ use super::{
     AgentCliDefinition,
 };
 use crate::models::AgentCliKind;
-use std::path::{Path, PathBuf};
 
 pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
     AgentCliDefinition {
@@ -20,7 +31,7 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
         executable: "grok",
         session_name_hint: "Grok Build 不支持启动前命名；启动后可在终端输入 /rename",
         additional_env_keys: &["GROK_CLI_PATH"],
-        home_candidates,
+        home_scan,
         invalid_path_reason: None,
         require_version_substring: Some("grok"),
         endpoint: EndpointAdapter::new(normalize_base_url),
@@ -34,10 +45,7 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
             launch::build_plan,
         )),
         sessions: Some(SessionAdapter::new(
-            sessions::list,
-            Some(sessions::search),
-            Some(sessions::detail),
-            Some(sessions::index),
+            sessions::HISTORY,
             Some(sessions::metadata_lookup),
         )),
         liveness: Some(LivenessAdapter::new(
@@ -46,187 +54,34 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
         )),
         default_config: Some(DefaultConfigAdapter::new(
             config::snapshot,
-            config::preview,
-            config::switch,
+            config::candidates,
         )),
-        environment: EnvironmentAdapter::new(discover_assets, "@xai-official/grok"),
+        configuration: configuration::adapter(),
+        environment: EnvironmentAdapter::with_pipeline(
+            environment::discover_contexts,
+            environment::discover_sources,
+            Some(environment::discover_follow_up_sources),
+            "@xai-official/grok",
+            environment::parse_assets,
+            environment::resolve_assets,
+            environment::assess_assets,
+        )
+        .with_workspace_trust_authority(
+            environment::discover_workspace_trust_sources,
+            environment::resolve_workspace_trust,
+        )
+        .with_definition_selector(environment::definition_suppressions)
+        .with_catalog_adapter(&super::catalog::native::GROK)
+        .with_hook_adapter(&hook_catalog::ADAPTER)
+        .with_source_preview(asset_preview::source_preview)
+        .with_asset_mutation(
+            asset_mutation::mechanisms,
+            asset_mutation::prepare,
+            asset_mutation::unavailable_reason,
+        )
+        .with_macos_vendor_signature("5Y6N3AJ54S", "xai-grok-pager"),
     }
 }
-
-fn discover_assets(
-    home: &Path,
-    workspace: Option<&Path>,
-) -> Vec<super::contracts::AgentAssetDeclaration> {
-    const TEMPLATES: &[super::environment::AssetTemplate] = &[
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Config,
-            native_id: "config",
-            label: "Grok Build 配置",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".grok/config.toml",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 20,
-            sensitive: true,
-            is_directory: false,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Config,
-            native_id: "auth",
-            label: "Grok Build 认证",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".grok/auth.json",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 20,
-            sensitive: true,
-            is_directory: false,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Skill,
-            native_id: "skills",
-            label: "Grok Build Skills",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".grok/skills",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 20,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Skill,
-            native_id: "agent-skills",
-            label: "Grok Build 共享 Skills",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".agents/skills",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 30,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Plugin,
-            native_id: "plugins",
-            label: "Grok Build Plugins",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".grok/plugins",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 20,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Mcp,
-            native_id: "mcp",
-            label: "Grok Build MCP",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".grok/config.toml",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 20,
-            sensitive: true,
-            is_directory: false,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Hook,
-            native_id: "hooks",
-            label: "Grok Build Hooks",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".grok/hooks",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 20,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::StatusUi,
-            native_id: "status-line",
-            label: "Grok Build Status UI",
-            root: super::environment::AssetRoot::User,
-            relative_path: ".grok/config.toml",
-            scope: crate::models::AgentAssetScope::User,
-            precedence: 20,
-            sensitive: false,
-            is_directory: false,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Skill,
-            native_id: "workspace-skills",
-            label: "Grok Build 工作区 Skills",
-            root: super::environment::AssetRoot::Workspace,
-            relative_path: ".agents/skills",
-            scope: crate::models::AgentAssetScope::Workspace,
-            precedence: 5,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Skill,
-            native_id: "workspace-grok-skills",
-            label: "Grok Build 工作区 Skills",
-            root: super::environment::AssetRoot::Workspace,
-            relative_path: ".grok/skills",
-            scope: crate::models::AgentAssetScope::Workspace,
-            precedence: 10,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Config,
-            native_id: "workspace-config",
-            label: "Grok Build 工作区配置",
-            root: super::environment::AssetRoot::Workspace,
-            relative_path: ".grok/config.toml",
-            scope: crate::models::AgentAssetScope::Workspace,
-            precedence: 10,
-            sensitive: true,
-            is_directory: false,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Plugin,
-            native_id: "workspace-plugins",
-            label: "Grok Build 工作区 Plugins",
-            root: super::environment::AssetRoot::Workspace,
-            relative_path: ".grok/plugins",
-            scope: crate::models::AgentAssetScope::Workspace,
-            precedence: 10,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Hook,
-            native_id: "workspace-hooks",
-            label: "Grok Build 工作区 Hooks",
-            root: super::environment::AssetRoot::Workspace,
-            relative_path: ".grok/hooks",
-            scope: crate::models::AgentAssetScope::Workspace,
-            precedence: 10,
-            sensitive: false,
-            is_directory: true,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::Mcp,
-            native_id: "workspace-mcp",
-            label: "Grok Build 工作区 MCP",
-            root: super::environment::AssetRoot::Workspace,
-            relative_path: ".grok/config.toml",
-            scope: crate::models::AgentAssetScope::Workspace,
-            precedence: 10,
-            sensitive: true,
-            is_directory: false,
-        },
-        super::environment::AssetTemplate {
-            category: crate::models::AgentAssetCategory::StatusUi,
-            native_id: "workspace-status-line",
-            label: "Grok Build 工作区 Status UI",
-            root: super::environment::AssetRoot::Workspace,
-            relative_path: ".grok/config.toml",
-            scope: crate::models::AgentAssetScope::Workspace,
-            precedence: 10,
-            sensitive: true,
-            is_directory: false,
-        },
-    ];
-    super::environment::from_templates(home, workspace, TEMPLATES)
-}
-
 fn normalize_base_url(base_url: &str) -> String {
     let normalized = base_url.trim().trim_end_matches('/');
     if normalized.is_empty() {
@@ -239,6 +94,10 @@ fn normalize_base_url(base_url: &str) -> String {
     }
 }
 
-fn home_candidates(home: &Path) -> Vec<PathBuf> {
-    vec![home.join(".grok/bin/grok"), home.join(".grok/bin/grok.exe")]
+fn home_scan(request: AgentHomeCandidateScanRequest) -> AgentHomeCandidateScanResult {
+    let candidates = [
+        request.home().join(".grok/bin/grok"),
+        request.home().join(".grok/bin/grok.exe"),
+    ];
+    fixed_home_candidates(request, candidates)
 }

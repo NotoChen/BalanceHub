@@ -8,7 +8,7 @@ import {
   type ProviderTurnstileMode,
 } from "../../stores/providers";
 import { useProviderCheckInPolicy } from "../../composables/useProviderCheckInPolicy";
-import type { SelectOption } from "./options";
+import type { SelectOption } from "../../utils/liveness-options";
 
 const props = defineProps<{ draft: ProviderInput; settings: AppSettings }>();
 const store = useProviderStore();
@@ -54,6 +54,7 @@ const turnstileOptions: SelectOption<ProviderTurnstileMode>[] = [
       <a-form-item class="provider-field" label="签到时间">
         <div class="provider-setting-controls">
           <a-checkbox v-model="checkInInheritsGlobal">跟随全局</a-checkbox>
+          <span v-if="checkInInheritsGlobal" class="provider-inherited-value">{{ settings.checkInTime ? `每天 ${settings.checkInTime}` : '全局时间未设置' }}</span>
           <a-time-picker
             v-if="!checkInInheritsGlobal"
             v-model="draft.automation.checkInTime"
@@ -63,6 +64,7 @@ const turnstileOptions: SelectOption<ProviderTurnstileMode>[] = [
             disable-confirm
           />
         </div>
+        <template v-if="!settings.autoCheckInEnabled" #extra>全局自动签到已关闭</template>
       </a-form-item>
       <a-form-item class="provider-field" label="站点防护">
         <a-checkbox v-model="draft.automation.autoShield">自动处理 WAF 与页面验证</a-checkbox>

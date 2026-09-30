@@ -126,7 +126,8 @@ fn cli_target_for_key_rejects_missing_or_unreadable_selected_keys() {
         .clone();
 
     let missing = cli_target_for_key(&provider, AgentCliKind::Codex, "does-not-exist")
-        .expect_err("unknown key should fail");
+        .err()
+        .expect("unknown key should fail");
     assert_eq!(missing, "所选 API Key 已不存在，请重新选择");
 
     let option = provider
@@ -138,7 +139,8 @@ fn cli_target_for_key_rejects_missing_or_unreadable_selected_keys() {
     option.key = "sk-****".to_string();
     option.key_available = false;
     let unreadable = cli_target_for_key(&provider, AgentCliKind::Codex, &second_local_id)
-        .expect_err("masked key should fail");
+        .err()
+        .expect("masked key should fail");
     assert_eq!(unreadable, "所选 API Key 未读取到完整值，无法切换 CLI 配置");
 }
 

@@ -4,8 +4,8 @@ mod config;
 use crate::{
     limits,
     models::{
-        AgentCliKind, CliRuntimeSnapshot, Provider, TemporaryCliInstance,
-        TemporaryCliInstanceStatus, TemporaryCliTerminalKind,
+        AgentCliKind, AgentSessionLaunchIdentity, CliRuntimeSnapshot, Provider,
+        TemporaryCliInstance, TemporaryCliInstanceStatus, TemporaryCliTerminalKind,
     },
     services::agent_cli,
     util::{read_text_file_limited, unix_millis},
@@ -18,7 +18,6 @@ use std::{
 };
 
 pub(crate) use app::CliRuntimeService;
-pub use config::{preview_config, switch_config};
 
 const RUNTIME_DIR_NAME: &str = "balancehub-cli-runtime-v1";
 const INSTANCES_DIR_NAME: &str = "instances";
@@ -39,6 +38,17 @@ pub struct RegisteredCliInstance {
     pub status_path: PathBuf,
 }
 
+pub(crate) struct CliInstanceRegistration<'a> {
+    pub provider: Option<&'a Provider>,
+    pub cli_kind: AgentCliKind,
+    pub workdir: &'a Path,
+    pub terminal_kind: TemporaryCliTerminalKind,
+    pub session_title: &'a str,
+    pub account_label: &'a str,
+    pub api_key_local_id: Option<&'a str>,
+    pub native_session: Option<&'a AgentSessionLaunchIdentity>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum CliTerminalLocator {
@@ -55,8 +65,9 @@ pub(crate) struct CliTerminalActivationTarget {
 #[serde(rename_all = "camelCase")]
 struct StoredInstanceMetadata {
     id: String,
-    provider_id: String,
-    provider_name: String,
+    provider_id: Option<String>,
+    provider_name: Option<String>,
+    native_session: Option<AgentSessionLaunchIdentity>,
     #[serde(default)]
     session_title: String,
     #[serde(default)]
@@ -135,14 +146,8 @@ pub(crate) fn instance_exists(id: &str) -> bool {
         && read_json::<StoredInstanceMetadata>(&metadata_path).is_ok()
 }
 
-pub fn register_instance(
-    provider: &Provider,
-    cli_kind: AgentCliKind,
-    workdir: &Path,
-    terminal_kind: TemporaryCliTerminalKind,
-    session_title: &str,
-    account_label: &str,
-    api_key_local_id: Option<&str>,
+pub(crate) fn register_instance(
+    registration: CliInstanceRegistration<'_>,
 ) -> Result<RegisteredCliInstance, String> {
     let started_at = unix_millis().to_string();
     let id = format!(
@@ -162,17 +167,21 @@ pub fn register_instance(
 
     let metadata = StoredInstanceMetadata {
         id: id.clone(),
-        provider_id: provider.identity.id.clone(),
-        provider_name: provider.display_label(),
-        session_title: session_title.trim().to_string(),
-        account_label: account_label.trim().to_string(),
-        api_key_local_id: api_key_local_id
+        provider_id: registration
+            .provider
+            .map(|provider| provider.identity.id.clone()),
+        provider_name: registration.provider.map(Provider::display_label),
+        native_session: registration.native_session.cloned(),
+        session_title: registration.session_title.trim().to_string(),
+        account_label: registration.account_label.trim().to_string(),
+        api_key_local_id: registration
+            .api_key_local_id
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .map(str::to_string),
-        cli_kind,
-        workdir: workdir.to_string_lossy().to_string(),
-        terminal_kind,
+        cli_kind: registration.cli_kind,
+        workdir: registration.workdir.to_string_lossy().to_string(),
+        terminal_kind: registration.terminal_kind,
         terminal_locator: None,
         started_at: started_at.clone(),
     };
@@ -256,6 +265,31 @@ fn validated_instance_dir(id: &str) -> Result<PathBuf, String> {
 }
 
 fn load_instances(include_exited: bool) -> Vec<TemporaryCliInstance> {
+    load_matching_instances(include_exited, |_| true)
+}
+
+/// Match the backend native identity before applying the public list cap.
+/// Other workspaces, titles and unbound external IDs cannot claim this source.
+pub(crate) fn session_instances(
+    cli_kind: AgentCliKind,
+    identity: &AgentSessionLaunchIdentity,
+) -> Vec<TemporaryCliInstance> {
+    load_matching_instances(false, |instance| {
+        instance.cli_kind == cli_kind
+            && instance.native_session.as_ref().is_some_and(|stored| {
+                stored.matches_source_session(
+                    &identity.runtime_scope,
+                    &identity.source_identity,
+                    &identity.native_session_id,
+                )
+            })
+    })
+}
+
+fn load_matching_instances(
+    include_exited: bool,
+    matches: impl Fn(&TemporaryCliInstance) -> bool,
+) -> Vec<TemporaryCliInstance> {
     let Ok(entries) = fs::read_dir(instances_dir()) else {
         return Vec::new();
     };
@@ -277,7 +311,7 @@ fn load_instances(include_exited: bool) -> Vec<TemporaryCliInstance> {
                     return None;
                 }
             }
-            Some(instance)
+            matches(&instance).then_some(instance)
         })
         .collect::<Vec<_>>();
 
@@ -316,7 +350,12 @@ fn reconcile_status(metadata: &StoredInstanceMetadata, status: &mut StoredInstan
     let now = unix_millis();
     let age = now.saturating_sub(numeric_timestamp(&metadata.started_at));
     let should_exit = match status.status {
-        TemporaryCliInstanceStatus::Starting => age >= STARTING_TIMEOUT_MILLIS,
+        // A terminal automation timeout does not prove the submitted script
+        // cannot run later. Resume operations expose Unknown after their
+        // deadline and keep checking this record without replaying the launch.
+        TemporaryCliInstanceStatus::Starting => {
+            metadata.native_session.is_none() && age >= STARTING_TIMEOUT_MILLIS
+        }
         TemporaryCliInstanceStatus::Running => match status.pid {
             Some(pid) => !process_is_alive(pid),
             None => age >= UNKNOWN_PID_TIMEOUT_MILLIS,
@@ -344,6 +383,7 @@ fn merge_instance(
         id: metadata.id,
         provider_id: metadata.provider_id,
         provider_name: metadata.provider_name,
+        native_session: metadata.native_session,
         session_title: metadata.session_title,
         account_label: metadata.account_label,
         api_key_local_id: metadata.api_key_local_id,
@@ -530,8 +570,9 @@ mod tests {
         let now = unix_millis();
         let metadata = StoredInstanceMetadata {
             id: id.clone(),
-            provider_id: "provider-test".to_string(),
-            provider_name: "Relay".to_string(),
+            native_session: None,
+            provider_id: Some("provider-test".to_string()),
+            provider_name: Some("Relay".to_string()),
             session_title: "继续测试会话".to_string(),
             account_label: "tester".to_string(),
             api_key_local_id: None,
@@ -581,15 +622,16 @@ mod tests {
                 INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
             ),
         );
-        let registered = register_instance(
-            &provider,
-            AgentCliKind::Codex,
-            Path::new("/workspace"),
-            TemporaryCliTerminalKind::Terminal,
-            "测试会话",
-            "tester",
-            Some("local-key-1"),
-        )
+        let registered = register_instance(CliInstanceRegistration {
+            provider: Some(&provider),
+            cli_kind: AgentCliKind::Codex,
+            workdir: Path::new("/workspace"),
+            terminal_kind: TemporaryCliTerminalKind::Terminal,
+            session_title: "测试会话",
+            account_label: "tester",
+            api_key_local_id: Some("local-key-1"),
+            native_session: None,
+        })
         .unwrap();
         let instance_dir = registered.status_path.parent().unwrap();
         let mode = fs::metadata(instance_dir).unwrap().permissions().mode() & 0o777;
@@ -607,15 +649,16 @@ mod tests {
                 INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
             ),
         );
-        let registered = register_instance(
-            &provider,
-            AgentCliKind::Codex,
-            Path::new("/workspace"),
-            TemporaryCliTerminalKind::Ghostty,
-            "会话",
-            "账号",
-            Some("local-key-1"),
-        )
+        let registered = register_instance(CliInstanceRegistration {
+            provider: Some(&provider),
+            cli_kind: AgentCliKind::Codex,
+            workdir: Path::new("/workspace"),
+            terminal_kind: TemporaryCliTerminalKind::Ghostty,
+            session_title: "会话",
+            account_label: "账号",
+            api_key_local_id: Some("local-key-1"),
+            native_session: None,
+        })
         .unwrap();
         assert_eq!(
             registered.instance.api_key_local_id.as_deref(),

@@ -26,7 +26,7 @@ pub struct AgentCliDescriptor {
     pub capabilities: AgentCliCapabilities,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliToolProbeResult {
     #[serde(flatten)]
@@ -37,7 +37,7 @@ pub struct CliToolProbeResult {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliEnvironmentProbeResult {
     pub tools: Vec<CliToolProbeResult>,

@@ -5,6 +5,7 @@ import type {
   AppSettings,
   Provider,
   ProviderApiKeyOption,
+  ProviderConnectionTestResult,
   ProviderInput,
   ProviderProtocol,
   ProviderProtocolDescriptor,
@@ -21,11 +22,15 @@ import type {
   ProviderEditorSection,
 } from "../composables/provider-editor-shared";
 import type { SettingsSaveState } from "../composables/useSettingsController";
-import type { DurationUnit } from "../utils/duration";
+import type { NotificationSendResult } from "../api/app";
 
 defineProps<{
   settings: AppSettings;
   settingsSaveState: SettingsSaveState;
+  settingsSaveError: string;
+  testingNotification: boolean;
+  notificationTestResult: NotificationSendResult | null;
+  notificationTestError: string;
   livenessModelOptions: string[];
   selectedLivenessModelProviders: { id: string; name: string }[];
   exportingAppData: boolean;
@@ -56,6 +61,9 @@ defineProps<{
   probingSite: boolean;
   siteNameSourceBaseUrl: string;
   testingConnection: boolean;
+  connectionTestResult: ProviderConnectionTestResult | null;
+  savingProvider: boolean;
+  providerSaveError: string;
   startingBrowserLogin: boolean;
   credentialAssistantState: CredentialCompletionState;
   credentialAssistantSteps: CredentialCompletionStep[];
@@ -66,6 +74,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  retrySettingsSave: [];
   testNotification: [];
   exportAppData: [];
   importAppData: [];
@@ -90,8 +99,6 @@ const emit = defineEmits<{
 }>();
 
 const settingsVisible = defineModel<boolean>("settingsVisible", { required: true });
-const globalRefreshAmount = defineModel<number>("globalRefreshAmount", { required: true });
-const globalRefreshUnit = defineModel<DurationUnit>("globalRefreshUnit", { required: true });
 const providerEditorVisible = defineModel<boolean>("providerEditorVisible", { required: true });
 const apiKeyCreateVisible = defineModel<boolean>("apiKeyCreateVisible", { required: true });
 const apiKeyCreateName = defineModel<string>("apiKeyCreateName", { required: true });
@@ -105,10 +112,13 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
 <template>
   <SettingsDrawer
     v-model:visible="settingsVisible"
-    v-model:global-refresh-amount="globalRefreshAmount"
-    v-model:global-refresh-unit="globalRefreshUnit"
     :settings="settings"
     :settings-save-state="settingsSaveState"
+    :settings-save-error="settingsSaveError"
+    :testing-notification="testingNotification"
+    :notification-test-result="notificationTestResult"
+    :notification-test-error="notificationTestError"
+    @retry-save="emit('retrySettingsSave')"
     :liveness-model-options="livenessModelOptions"
     :selected-liveness-model-providers="selectedLivenessModelProviders"
     :exporting-app-data="exportingAppData"
@@ -150,6 +160,9 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     :starting-browser-login="startingBrowserLogin"
     @login-and-import="emit('loginAndImport')"
     :testing-connection="testingConnection"
+    :connection-test-result="connectionTestResult"
+    :saving="savingProvider"
+    :save-error="providerSaveError"
     :credential-assistant-state="credentialAssistantState"
     :credential-assistant-steps="credentialAssistantSteps"
     :credential-assistant-message="credentialAssistantMessage"

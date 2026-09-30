@@ -3,6 +3,8 @@ import test from "node:test";
 
 import type { Provider, ProviderApiKeyOption } from "../src/stores/provider-types.ts";
 import {
+  availablePercent,
+  availablePercentLabel,
   providerApiKeyDisplayName,
   providerApiKeyCardName,
   providerApiKeySecondaryName,
@@ -43,6 +45,28 @@ function apiKeyOption(values: Partial<ProviderApiKeyOption> = {}) {
     ...values,
   } as ProviderApiKeyOption;
 }
+
+test("quota progress stays between zero and one while retaining the account balance", () => {
+  const value = provider("password");
+  value.quota = { available: -1, used: 10001, known: true, totalKnown: true } as Provider["quota"];
+  assert.equal(availablePercent(value), 0);
+  assert.equal(availablePercentLabel(value), "0.0%");
+  assert.equal(value.quota.available, -1);
+
+  value.quota.available = 120;
+  value.quota.used = -20;
+  assert.equal(availablePercent(value), 1);
+  assert.equal(availablePercentLabel(value), "100.0%");
+
+  value.quota.available = 25;
+  value.quota.used = 75;
+  assert.equal(availablePercent(value), 0.25);
+  value.quota.known = false;
+  assert.equal(availablePercentLabel(value), "未公开");
+  value.quota.known = true;
+  value.quota.unlimited = true;
+  assert.equal(availablePercentLabel(value), "∞");
+});
 
 test("account card title appends an optional provider remark", () => {
   assert.equal(providerCardTitle(provider("password", "Claude 主用")), "Relay Site · Claude 主用");

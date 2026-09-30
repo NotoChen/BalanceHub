@@ -15,6 +15,8 @@
   min-height: 160px;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 8px;
   color: #86909c;
 }
 
@@ -39,18 +41,7 @@
   font-size: 12px;
 }
 
-.available-models-summary strong {
-  color: #1d2129;
-  font-size: 16px;
-  font-weight: 650;
-}
-
-.available-models-render-limit {
-  margin: -4px 2px 0;
-  color: #86909c;
-  font-size: 12px;
-  line-height: 1.5;
-}
+.available-models-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--surface-muted); font-size: 12px; }
 
 .available-models-list {
   display: grid;
@@ -124,7 +115,6 @@
   background: var(--glass-card);
 }
 
-:root.theme-dark .available-models-summary strong,
 :root.theme-dark .available-model-item {
   color: #f2f3f5;
 }

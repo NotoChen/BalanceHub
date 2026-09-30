@@ -18,7 +18,6 @@ export function useProviderEditorState() {
   const editorInitialSection = ref<ProviderEditorSection>("basics");
   const editingProviderId = ref<string | null>(null);
   const completingCredentials = ref(false);
-  const testingConnection = ref(false);
   const probingSite = ref(false);
   const credentialCompletionMessage = ref("");
   const credentialCompletionSteps = ref<{ name: string; ok: boolean; message: string }[]>([]);
@@ -43,7 +42,6 @@ export function useProviderEditorState() {
 
   function resetDraft() {
     completingCredentials.value = false;
-    testingConnection.value = false;
     probingSite.value = false;
     Object.assign(draftProvider, emptyDraft());
     credentialCompletionMessage.value = "";
@@ -70,7 +68,6 @@ export function useProviderEditorState() {
     editorSession.value += 1;
     editorInitialSection.value = initialSection;
     completingCredentials.value = false;
-    testingConnection.value = false;
     probingSite.value = false;
     editingProviderId.value = provider.identity.id;
     Object.assign(draftProvider, providerToInput(provider));
@@ -109,7 +106,6 @@ export function useProviderEditorState() {
     editorInitialSection,
     editingProviderId,
     completingCredentials,
-    testingConnection,
     probingSite,
     credentialCompletionMessage,
     credentialCompletionSteps,

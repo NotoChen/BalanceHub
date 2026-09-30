@@ -5,6 +5,7 @@ import test from "node:test";
 import type { AgentRuntimeSession, AgentRuntimeSnapshot } from "../src/stores/provider-types.ts";
 import {
   activeAgentRuntimeSessions,
+  isConfirmedAgentRuntimeSession,
   acceptsAgentRuntimeSnapshot,
   runtimeOriginLabel,
   runtimeSessionTitle,
@@ -38,6 +39,12 @@ test("unified runtime labels preserve unknown evidence instead of inventing fact
   assert.equal(runtimeTerminalLabel(session.terminal?.kind), "终端未知");
   assert.equal(runtimeSessionTitle(session), "未命名会话");
   assert.equal(runtimeWorkdirName(session.workdir), "目录未知");
+  assert.equal(isConfirmedAgentRuntimeSession(session), false);
+  assert.equal(isConfirmedAgentRuntimeSession(sessionFixture("known", "busy", 1)), true);
+  assert.equal(isConfirmedAgentRuntimeSession(sessionFixture("ended", "ended", 1)), false);
+  const visible = activeAgentRuntimeSessions({ ...snapshotFixture(1), sessions: [session, sessionFixture("known", "busy", 1)] });
+  assert.equal(visible.length, 2, "unknown records remain visible for investigation");
+  assert.equal(visible.filter(isConfirmedAgentRuntimeSession).length, 1, "unknown records are not counted as confirmed activity");
 });
 
 test("runtime snapshots reject older revisions while accepting equal event delivery", () => {
@@ -83,6 +90,7 @@ function sessionFixture(
 ): AgentRuntimeSession {
   return {
     runtimeId,
+    nativeSession: null,
     runtimeScope: { kind: "native" },
     origin: "external_hook",
     agentKind: "codex",

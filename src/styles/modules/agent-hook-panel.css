@@ -1,0 +1,53 @@
+.agent-hook-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-hook-auxiliary {
+  min-height: 0;
+  max-height: 45%;
+  flex: 0 0 auto;
+  overflow: auto;
+}
+
+.agent-hook-auxiliary > .agent-integration-section {
+  margin-top: 12px;
+}
+
+.agent-hook-integration-content {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.agent-hook-integration {
+  margin-top: 8px;
+  border-top: 1px solid var(--surface-line);
+  padding-top: 16px;
+}
+
+.agent-hook-integration > summary {
+  color: var(--surface-ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.agent-hook-integration > summary > span {
+  margin-left: 10px;
+  color: var(--surface-muted);
+  font-size: 11px;
+}
+
+.agent-hook-integration > summary:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 4px;
+}
+
+.agent-hook-integration-content {
+  margin-top: 12px;
+}

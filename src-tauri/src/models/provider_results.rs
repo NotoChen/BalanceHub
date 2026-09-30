@@ -681,26 +681,6 @@ pub struct CliConfigSnapshot {
     pub error_message: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CliConfigFile {
-    pub file_path: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CliConfigPreview {
-    pub provider_id: String,
-    pub provider_name: String,
-    pub api_key_local_id: String,
-    pub api_key_label: String,
-    pub cli_kind: AgentCliKind,
-    pub revision: String,
-    pub original_files: Vec<CliConfigFile>,
-    pub files: Vec<CliConfigFile>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TemporaryCliInstanceStatus {
@@ -713,8 +693,11 @@ pub enum TemporaryCliInstanceStatus {
 #[serde(rename_all = "camelCase")]
 pub struct TemporaryCliInstance {
     pub id: String,
-    pub provider_id: String,
-    pub provider_name: String,
+    pub provider_id: Option<String>,
+    pub provider_name: Option<String>,
+    /// 已选历史会话的原生身份，在 Hook 上报前即用于关联和防止重复继续。
+    #[serde(default)]
+    pub native_session: Option<super::AgentSessionLaunchIdentity>,
     /// 启动时记录的会话标题快照，不依赖之后重新读取 CLI 历史索引。
     #[serde(default)]
     pub session_title: String,

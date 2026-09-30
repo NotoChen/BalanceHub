@@ -1,4 +1,0 @@
-{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"约束静态页面结构、文档质量和最小验证范围。"}
-{"file":".trellis/tasks/09-03-github-pages-redesign/research/pages-redesign-audit.md","reason":"提供 Pages 信息架构、视觉系统、Jekyll 路由和响应式验收依据。"}
-{"file":".trellis/tasks/09-03-github-pages-redesign/research/content-accuracy-audit.md","reason":"约束公开能力文案必须与当前源码一致。"}
-{"file":".trellis/tasks/09-03-github-pages-redesign/research/latest-feedback-design.md","reason":"提供最新视觉反馈的布局和更新日志投影实现依据。"}

@@ -148,7 +148,7 @@ fn group_identity(group: &Value) -> Option<String> {
 }
 
 pub(super) fn definition_group(definition: &HookDefinition) -> Value {
-    json!({"matcher":"*","hooks":[definition.handler.clone()]})
+    json!({"matcher":".*","hooks":[definition.handler.clone()]})
 }
 
 pub(super) fn definition_fingerprint(definition: &HookDefinition) -> String {

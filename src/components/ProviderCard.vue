@@ -8,6 +8,7 @@ import ProviderCardBody from "./provider-card/ProviderCardBody.vue";
 import ProviderCardActions from "./provider-card/ProviderCardActions.vue";
 import ProviderCheckInState from "./provider-card/ProviderCheckInState.vue";
 import ProviderCardCliOrbits from "./provider-card/ProviderCardCliOrbits.vue";
+import WorkspaceCard from "./workspace-card/WorkspaceCard.vue";
 import type { ProviderCardCliOrbitSpec } from "../utils/provider-card-cli-orbit";
 import { providerCardTitle } from "../utils/provider-display";
 
@@ -124,7 +125,7 @@ function handlePointerDown(event: PointerEvent) {
 }
 
 function handleEnter(event: KeyboardEvent) {
-  if (props.interactive) {
+  if (props.interactive && event.target === event.currentTarget) {
     emit("enter", props.provider, event);
   }
 }
@@ -135,7 +136,7 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
 </script>
 
 <template>
-  <article
+  <WorkspaceCard
     :data-provider-id="provider.identity.id"
     class="provider-card"
     :class="[
@@ -147,15 +148,14 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
         'provider-card-dragging': dragging,
         'provider-card-api-key': isApiKeyAuth,
         'provider-card-generic-api': isGenericApi,
-        'provider-card-standard': !showLivenessTimeline,
         'provider-card-has-cli-orbits': cliOrbits.length > 0,
-        'provider-card-interacting': interactionActive,
       },
     ]"
+    :fixed-height="!showLivenessTimeline"
+    :interacting="interactionActive"
     :role="interactive ? 'group' : undefined"
-    :aria-disabled="interactive ? !provider.runtime.enabled : undefined"
     :aria-hidden="ariaHidden || undefined"
-    :aria-label="interactive ? `${providerCardTitle(provider)} 中转站卡片` : undefined"
+    :aria-label="interactive ? `${providerCardTitle(provider)} 中转站卡片${provider.runtime.enabled ? '' : '，已停用'}` : undefined"
     :tabindex="interactive ? 0 : undefined"
     :title="title"
     :style="dragStyle"
@@ -164,34 +164,35 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
     @pointerdown="handlePointerDown"
     @keydown.enter="handleEnter"
   >
-    <ProviderCardCliOrbits :orbits="cliOrbits" />
-    <ProviderCardHeader
-      :provider="provider"
-      :tone="tone"
-      :title="title"
-      :interactive="interactive"
-      :active-cli-counts="activeCliCounts"
-      @open-cli-instances="forwardOpenCliInstances"
-      @copy-api-key="emit('copySecret', $event, 'apiKey')"
-      @manage-api-keys="emit('openApiKeyManager', $event)"
-      @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
-    />
-
-    <div class="provider-card-content">
-      <ProviderCardBody
+    <template #decoration>
+      <ProviderCardCliOrbits :orbits="cliOrbits" />
+    </template>
+    <template #header>
+      <ProviderCardHeader
         :provider="provider"
-        :show-liveness-timeline="showLivenessTimeline"
-      />
-      <ProviderCardActions
-        :provider="provider"
+        :tone="tone"
+        :title="title"
         :interactive="interactive"
-        :switching-cli-kind="switchingCliKind"
-        :cli-config-switching="cliConfigSwitching"
-        :probing-capabilities="probingCapabilities"
-        :checking-in="checkingIn"
-        v-on="actionListeners"
+        :active-cli-counts="activeCliCounts"
+        @open-cli-instances="forwardOpenCliInstances"
+        @copy-api-key="emit('copySecret', $event, 'apiKey')"
+        @manage-api-keys="emit('openApiKeyManager', $event)"
+        @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
       />
-      <ProviderCheckInState :provider-id="provider.identity.id" :interactive="interactive" />
-    </div>
-  </article>
+    </template>
+    <ProviderCardBody
+      :provider="provider"
+      :show-liveness-timeline="showLivenessTimeline"
+    />
+    <ProviderCardActions
+      :provider="provider"
+      :interactive="interactive"
+      :switching-cli-kind="switchingCliKind"
+      :cli-config-switching="cliConfigSwitching"
+      :probing-capabilities="probingCapabilities"
+      :checking-in="checkingIn"
+      v-on="actionListeners"
+    />
+    <ProviderCheckInState :provider-id="provider.identity.id" :interactive="interactive" />
+  </WorkspaceCard>
 </template>

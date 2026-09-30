@@ -4,7 +4,6 @@ import {
   forgetWorkspace as forgetWorkspaceCommand,
 } from "../api/app";
 import type {
-  TemporaryCliLaunchResult,
   TemporaryCliPreference,
   Workspace,
 } from "./provider-types";
@@ -19,13 +18,15 @@ export const useWorkspaceStore = defineStore("workspaces", {
       this.workspaces = workspaces;
       this.temporaryCliPreferences = preferences;
     },
-    recordLaunch(result: TemporaryCliLaunchResult) {
+    recordLaunch(result: { workspaces: Workspace[]; preference?: TemporaryCliPreference | null }) {
       this.workspaces = result.workspaces;
+      const preference = result.preference;
+      if (!preference) return;
       this.temporaryCliPreferences = [
         ...this.temporaryCliPreferences.filter(
-          (preference) => preference.providerId !== result.preference.providerId,
+          (item) => item.providerId !== preference.providerId,
         ),
-        result.preference,
+        preference,
       ];
     },
     removeProviderPreference(providerId: string) {

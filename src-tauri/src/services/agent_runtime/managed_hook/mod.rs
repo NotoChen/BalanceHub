@@ -3,11 +3,16 @@
 //! Command handlers call this registry once; Agent-specific schema and
 //! ownership behavior stays inside the selected adapter.
 
+mod catalog_link;
 mod codex;
 mod common;
 mod generic;
+mod locking;
 
 use crate::models::{AgentCliKind, AgentHookInspection, AgentHookMutation, AgentHookPlan};
+pub(crate) use catalog_link::{
+    configuration_ownership_guard, prepare_catalog_change, prepare_catalog_policy_change,
+};
 pub use codex::CodexHookService;
 use generic::{GenericAgent, GenericHookService};
 

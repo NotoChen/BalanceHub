@@ -4,11 +4,16 @@
 //! never matches concrete Agent kinds; a new built-in Agent adds one registry entry and its own
 //! adapter modules without editing launch, liveness, session or config orchestration.
 
+pub(crate) mod cache;
+pub(crate) mod catalog;
 pub(crate) mod config_support;
+pub(crate) mod configuration;
 pub(crate) mod contracts;
 mod discovery;
 pub(crate) mod environment;
+pub(crate) mod lifecycle;
 mod liveness_support;
+pub(crate) mod overview;
 
 use crate::models::{
     AgentCliCapabilities, AgentCliDescriptor, AgentCliKind, AppSettings, CliEnvironmentProbeResult,
@@ -18,15 +23,20 @@ use contracts::{
     DefaultConfigAdapter, EndpointAdapter, EnvironmentAdapter, LivenessAdapter, SessionAdapter,
     TemporaryLaunchAdapter,
 };
-use std::path::{Path, PathBuf};
+use discovery::paths::{AgentHomeCandidateScanRequest, AgentHomeCandidateScanResult};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
+#[derive(Clone, Copy)]
 pub(crate) struct AgentCliDefinition {
     pub kind: AgentCliKind,
     pub label: &'static str,
     pub executable: &'static str,
     pub session_name_hint: &'static str,
     pub additional_env_keys: &'static [&'static str],
-    pub home_candidates: fn(&Path) -> Vec<PathBuf>,
+    pub(in crate::services::agent_cli) home_scan:
+        fn(AgentHomeCandidateScanRequest) -> AgentHomeCandidateScanResult,
     pub invalid_path_reason: Option<fn(&Path) -> Option<&'static str>>,
     pub require_version_substring: Option<&'static str>,
     endpoint: EndpointAdapter,
@@ -35,6 +45,7 @@ pub(crate) struct AgentCliDefinition {
     liveness: Option<LivenessAdapter>,
     default_config: Option<DefaultConfigAdapter>,
     environment: EnvironmentAdapter,
+    configuration: configuration::contracts::AgentConfigurationAdapter,
 }
 
 impl AgentCliDefinition {
@@ -78,12 +89,16 @@ impl AgentCliDefinition {
         self.default_config.as_ref()
     }
 
+    pub(crate) fn configuration(&self) -> &configuration::contracts::AgentConfigurationAdapter {
+        &self.configuration
+    }
+
     pub(crate) fn environment(&self) -> &EnvironmentAdapter {
         &self.environment
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AgentCliExecutable {
     pub(crate) path: String,
     pub(crate) version: String,
@@ -97,8 +112,14 @@ macro_rules! register_agent_clis {
         $(,)?
     ) => {
         $(mod $module;)+
+        mod native_agent_kinds {
+            $(pub(super) mod $module {
+                pub(in crate::services::agent_cli) const AGENT_KIND: crate::models::AgentCliKind =
+                    crate::models::AgentCliKind::$variant;
+            })+
+        }
         const DEFINITIONS: &[AgentCliDefinition] = &[
-            $($module::definition(AgentCliKind::$variant)),+
+            $($module::definition(native_agent_kinds::$module::AGENT_KIND)),+
         ];
         #[cfg(test)]
         const AGENT_MODULE_NAMES: &[&str] = &[$(stringify!($module)),+];
@@ -161,6 +182,15 @@ pub(crate) fn find_at_path(kind: AgentCliKind, path: &str) -> Result<AgentCliExe
     discovery::find_cli_at_path(std::path::Path::new(path), definition(kind))
 }
 
+pub(in crate::services::agent_cli) fn discover_installations(
+    preferred_path: &str,
+    definition: &AgentCliDefinition,
+    include_shell: bool,
+    run: &mut environment::run::AgentInventoryRun,
+) -> Vec<crate::models::AgentInstallation> {
+    discovery::discover_installations(preferred_path, definition, include_shell, run)
+}
+
 fn find_with_preferred(
     kind: AgentCliKind,
     preferred_path: &str,
@@ -199,30 +229,13 @@ pub(crate) fn probe_all(settings: &AppSettings, include_shell: bool) -> CliEnvir
     CliEnvironmentProbeResult { tools }
 }
 
+pub(crate) fn initialize_discovery_cache(root: std::path::PathBuf) {
+    environment::releases::initialize(root.clone());
+    discovery::initialize_cache(root);
+}
+
 pub(crate) fn runtime_path_for(cli_path: &Path) -> Option<std::ffi::OsString> {
     discovery::runtime_path_for(cli_path)
-}
-
-pub(crate) fn environment_inventory(
-    settings: &AppSettings,
-    workspace: Option<&Path>,
-) -> Result<crate::models::AgentEnvironmentInventory, String> {
-    crate::services::agent_cli::environment::inventory(settings, workspace)
-}
-
-pub(crate) fn environment_asset_path(
-    asset_id: &str,
-    workspace: Option<&Path>,
-    target: crate::models::AgentAssetOpenTarget,
-) -> Result<PathBuf, String> {
-    crate::services::agent_cli::environment::open_asset_path(asset_id, workspace, target)
-}
-
-pub(crate) fn read_environment_asset(
-    asset_id: &str,
-    workspace: Option<&Path>,
-) -> Result<crate::models::AgentAssetReadResult, String> {
-    crate::services::agent_cli::environment::read_asset(asset_id, workspace)
 }
 
 pub(crate) fn provider_base_url(kind: AgentCliKind, provider: &Provider) -> String {
@@ -311,10 +324,9 @@ mod tests {
             collect_rust_sources(&directory, &mut sources);
             assert!(!sources.is_empty(), "missing Agent CLI module: {module}");
             for path in sources {
-                if path
-                    .components()
-                    .any(|component| component.as_os_str() == "tests.rs")
-                {
+                if path.components().any(|component| {
+                    component.as_os_str() == "tests.rs" || component.as_os_str() == "tests"
+                }) {
                     continue;
                 }
                 let source = std::fs::read_to_string(&path)
@@ -327,6 +339,19 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn asset_mechanisms_receive_their_kind_from_the_catalog() {
+        let mut record_count = 0;
+        for registered in definitions() {
+            let records = registered.environment().mechanism_records(registered.kind);
+            record_count += records.len();
+            assert!(records
+                .iter()
+                .all(|record| record.agent_kind == registered.kind));
+        }
+        assert!(record_count > 0);
     }
 
     #[test]

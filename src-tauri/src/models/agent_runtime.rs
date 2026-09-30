@@ -127,6 +127,10 @@ pub struct AgentRuntimeSession {
     pub origin: AgentRuntimeOrigin,
     pub agent_kind: AgentCliKind,
     pub agent_session_id: Option<String>,
+    /// Present only when a backend launch has proved the complete native
+    /// source identity. An external Hook ID alone cannot fill this field.
+    #[serde(default)]
+    pub native_session: Option<super::AgentSessionLaunchIdentity>,
     pub balancehub_instance_id: Option<String>,
     pub provider: Option<AgentRuntimeProviderRef>,
     pub workdir: Option<String>,

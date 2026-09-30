@@ -29,6 +29,13 @@ pub fn event_from_temporary_cli_with_api_key(
     api_key_local_id: Option<&str>,
 ) -> AgentRuntimeEvent {
     let status = match instance.status {
+        TemporaryCliInstanceStatus::Starting
+            if instance.native_session.is_some()
+                && parse_timestamp(&instance.started_at)
+                    .is_some_and(|started| observed_at.saturating_sub(started) >= 120_000) =>
+        {
+            AgentRuntimeState::Unknown
+        }
         TemporaryCliInstanceStatus::Starting => AgentRuntimeState::Starting,
         TemporaryCliInstanceStatus::Running => AgentRuntimeState::Idle,
         TemporaryCliInstanceStatus::Exited => AgentRuntimeState::Ended,
@@ -44,9 +51,10 @@ pub fn event_from_temporary_cli_with_api_key(
         pid: instance.pid,
         ended_at: instance.ended_at.as_deref().and_then(parse_timestamp),
         exit_code: instance.exit_code,
-        provider_id: Some(instance.provider_id.clone()),
-        provider_name: Some(instance.provider_name.clone()),
-        account_label: Some(instance.account_label.clone()),
+        provider_id: instance.provider_id.clone(),
+        provider_name: instance.provider_name.clone(),
+        native_session: instance.native_session.clone(),
+        account_label: non_empty(instance.account_label.clone()),
         api_key_local_id,
         workdir: Some(instance.workdir.clone()),
         terminal_kind: Some(instance.terminal_kind),
@@ -58,7 +66,10 @@ pub fn event_from_temporary_cli_with_api_key(
         event_id: launch_snapshot_event_id(&instance.id, &snapshot),
         runtime_id: Some(runtime_id_for_instance(&instance.id)),
         balancehub_instance_id: Some(instance.id.clone()),
-        agent_session_id: None,
+        agent_session_id: instance
+            .native_session
+            .as_ref()
+            .map(|identity| identity.native_session_id.clone()),
         runtime_scope: AgentRuntimeScope::Native,
         origin: AgentRuntimeOrigin::BalancehubLaunch,
         agent_kind: instance.cli_kind,

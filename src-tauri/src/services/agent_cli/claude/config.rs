@@ -1,19 +1,25 @@
 use super::super::config_support::{
-    cli_target_for_key, config_error, config_revision, ensure_revision, file_content,
-    latest_modified_at, match_provider_key, read_cli_config, read_stable_optional,
-    rewrite_json_string_fields, validate_file_set, write_config_text,
+    cli_target_for_key, config_error, latest_modified_at, match_provider_key, read_cli_config,
+    read_stable_optional, rewrite_json_string_fields,
 };
+use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use crate::{
-    models::{AgentCliKind, CliConfigFile, CliConfigPreview, CliConfigSnapshot, Provider},
+    models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::{configured_path, user_home},
 };
 use serde_json::Value as JsonValue;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(super) fn config_dir() -> Option<PathBuf> {
-    configured_path("BALANCEHUB_CLAUDE_CONFIG_DIR")
-        .or_else(|| configured_path("CLAUDE_CONFIG_DIR"))
-        .or_else(|| user_home().map(|home| home.join(".claude")))
+    configured_config_dir().or_else(|| user_home().map(|home| home.join(".claude")))
+}
+
+pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
+    configured_config_dir().unwrap_or_else(|| home.join(".claude"))
+}
+
+fn configured_config_dir() -> Option<PathBuf> {
+    configured_path("BALANCEHUB_CLAUDE_CONFIG_DIR").or_else(|| configured_path("CLAUDE_CONFIG_DIR"))
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {
@@ -23,9 +29,7 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
     let settings_path = config_dir.join("settings.json");
     let settings = match read_stable_optional(&settings_path) {
         Ok(value) => value,
-        Err(_) => {
-            return config_error(cli_kind, "读取 Claude Code 配置文件失败")
-        }
+        Err(_) => return config_error(cli_kind, "读取 Claude Code 配置文件失败"),
     };
     let modified_at = latest_modified_at([settings.as_ref()]);
     let Some(settings) = settings else {
@@ -65,59 +69,29 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
     }
 }
 
-pub(super) fn preview(
+pub(super) fn candidates(
     cli_kind: AgentCliKind,
     provider: &Provider,
     api_key_local_id: &str,
-) -> Result<CliConfigPreview, String> {
+) -> Result<Vec<ProviderConfigurationCandidate>, String> {
     let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let settings_path = config_dir.join("settings.json");
-    let settings_text = read_cli_config(&settings_path, "读取 Claude Code 配置文件")?;
-    let next_settings = rewrite_claude_config(&settings_text, &target.base_url, &target.api_key)?;
-    Ok(CliConfigPreview {
-        provider_id: provider.identity.id.clone(),
-        provider_name: provider.display_label(),
-        api_key_local_id: target.api_key_local_id,
-        api_key_label: target.api_key_label,
-        cli_kind,
-        revision: config_revision(&[&settings_text, &target.base_url, &target.api_key]),
-        original_files: vec![config_file(&settings_path, settings_text)],
-        files: vec![config_file(&settings_path, next_settings)],
-    })
-}
-
-pub(super) fn switch(
-    cli_kind: AgentCliKind,
-    provider: &Provider,
-    api_key_local_id: &str,
-    expected_revision: Option<&str>,
-    files: &[CliConfigFile],
-) -> Result<(), String> {
-    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let config_dir = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let settings_path = config_dir.join("settings.json");
-    let settings_text = read_cli_config(&settings_path, "读取 Claude Code 配置文件")?;
-    validate_file_set(files, &[&settings_path])?;
-    ensure_revision(
-        expected_revision,
-        config_revision(&[&settings_text, &target.base_url, &target.api_key]),
-    )?;
-    let edited_settings = file_content(files, &settings_path)?;
-    serde_json::from_str::<JsonValue>(edited_settings)
-        .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
-    write_config_text(&settings_path, edited_settings, "Claude Code 配置")
-}
-
-fn config_file(path: &std::path::Path, content: String) -> CliConfigFile {
-    CliConfigFile {
-        file_path: path.to_string_lossy().into_owned(),
-        content,
-    }
+    let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let path = root.join("settings.json");
+    let before = read_cli_config(&path, "读取 Claude Code 配置文件")?;
+    let after = rewrite_claude_config(&before, &target.base_url, &target.api_key)?;
+    Ok(vec![ProviderConfigurationCandidate {
+        path,
+        before: Some(before),
+        after,
+    }])
 }
 
 fn parse_claude_config(settings: &str) -> Result<Option<(String, String)>, ()> {
-    let settings = serde_json::from_str::<JsonValue>(settings).map_err(|_| ())?;
+    let settings = crate::services::agent_cli::environment::config_document::parse(
+        settings.as_bytes(),
+        crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
+    )
+    .ok_or(())?;
     let env = settings.get("env").and_then(JsonValue::as_object);
     let base_url = env
         .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
@@ -139,13 +113,12 @@ fn parse_claude_config(settings: &str) -> Result<Option<(String, String)>, ()> {
     })
 }
 
-fn rewrite_claude_config(
-    settings: &str,
-    base_url: &str,
-    api_key: &str,
-) -> Result<String, String> {
-    let parsed = serde_json::from_str::<JsonValue>(settings)
-        .map_err(|_| "Claude Code 配置文件格式无效".to_string())?;
+fn rewrite_claude_config(settings: &str, base_url: &str, api_key: &str) -> Result<String, String> {
+    let parsed = crate::services::agent_cli::environment::config_document::parse(
+        settings.as_bytes(),
+        crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
+    )
+    .ok_or_else(|| "Claude Code 配置文件格式无效".to_string())?;
     let root = parsed
         .as_object()
         .ok_or_else(|| "Claude Code 配置文件格式无效".to_string())?;

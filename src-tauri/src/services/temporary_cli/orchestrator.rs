@@ -1,4 +1,8 @@
-use super::{launch, preview, LaunchOptions};
+mod resume;
+
+pub(crate) use resume::{launch_identity, ResumeCompletion};
+
+use super::{ensure_new_session_launch, launch, preview, LaunchOptions};
 use crate::{
     models::{
         is_full_api_key_value, AgentCliKind, AppData, AppSettings, Provider,
@@ -39,6 +43,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
         &self,
         input: TemporaryCliLaunchInput,
     ) -> Result<TemporaryCliLaunchResult, String> {
+        ensure_new_session_launch(input.session_mode)?;
         let prepared = self.prepare(input)?;
         let instance = launch(
             &prepared.settings,

@@ -8,7 +8,7 @@ import LoginAccountsModal from "./components/LoginAccountsModal.vue";
 import LoginAccountPicker from "./components/LoginAccountPicker.vue";
 import ProviderCredentialsModal from "./components/ProviderCredentialsModal.vue";
 import CliConfigKeyPickerModal from "./components/CliConfigKeyPickerModal.vue";
-import CliConfigPreviewModal from "./components/CliConfigPreviewModal.vue";
+import AgentConfigurationEditorModal from "./components/agent-workspace/AgentConfigurationEditorModal.vue";
 import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
 import TemporaryCliLaunchPreviewModal from "./components/TemporaryCliLaunchPreviewModal.vue";
 import WorkspacePickerModal from "./components/WorkspacePickerModal.vue";
@@ -36,6 +36,8 @@ useWindowGridSnap();
         :regular-providers="app.regularProviders"
         :cli-runtime="app.cliRuntime"
         :agent-runtime-snapshot="app.agentRuntimeSnapshot"
+        :runtime-loading="app.cliInstancesRefreshing"
+        :activating-runtime-id="app.activatingCliInstanceId"
         :announcements-loaded="app.siteAnnouncementsLoaded"
         :announcements-loading="app.siteAnnouncementsLoading"
         :announcement-total-count="app.siteAnnouncements.length"
@@ -61,6 +63,7 @@ useWindowGridSnap();
         @start-drag="app.startWindowDrag"
         @add="app.openAddProvider"
         @import-data="app.importAppData"
+        @retry-load="app.retryLoadAppData"
         @check-for-update="app.checkForUpdate"
         @open-github="app.openProjectRepository"
         @refresh-all="app.refreshAllProviders"
@@ -89,6 +92,8 @@ useWindowGridSnap();
         @remove="app.removeProviderAction"
         @open-cli-instances="app.openCliInstances"
         @open-agent-cli-instances="app.openAgentCliInstances"
+        @refresh-runtime="app.refreshCliRuntime"
+        @activate-runtime="app.activateCliInstance"
         @open-site-announcements="app.openSiteAnnouncements"
         @clear-background-tasks="app.clearRecentBackgroundTasks"
         @switch-cli-config="app.switchProviderCliConfig"
@@ -104,6 +109,7 @@ useWindowGridSnap();
       v-model:session-mode="app.workspaceSessionMode"
       v-model:selected-resume-id="app.workspaceSelectedResumeId"
       v-model:history-query="app.workspaceSessionQuery"
+      v-model:history-role-filter="app.workspaceSessionRoleFilter"
       :can-name-session="app.workspaceCanNameSession"
       v-model:terminal-kind="app.workspaceTerminalKind"
       :provider="app.workspacePickerProvider"
@@ -120,6 +126,10 @@ useWindowGridSnap();
       :forgetting-path="app.workspaceForgettingPath"
       :error="app.workspaceBrowserError"
       :history-results="app.workspaceSessionResults"
+      :history-total="app.workspaceSessionTotal"
+      :history-has-more="app.workspaceSessionHasMore"
+      :history-loading-more="app.workspaceSessionsLoadingMore"
+      :selected-session-ref="app.workspaceSelectedSessionRef"
       :history-loading="app.workspaceSessionsLoading"
       :history-error="app.workspaceSessionsError"
       :history-index-state="app.workspaceSessionIndexState"
@@ -129,6 +139,8 @@ useWindowGridSnap();
       @launch="app.launchWorkspace"
       @forget="app.forgetWorkspace"
       @view-session="app.openWorkspaceSessionDetail"
+      @view-parent-session="app.openWorkspaceSessionParent"
+      @load-more-sessions="app.loadMoreWorkspaceSessions"
       @refresh-sessions="app.refreshWorkspaceSessions"
     />
 
@@ -137,8 +149,10 @@ useWindowGridSnap();
       :loading="app.workspaceSessionDetailLoading"
       :error="app.workspaceSessionDetailError"
       :detail="app.workspaceSessionDetail"
+      :session-row="app.workspaceSessionDetailRow"
       :selected-resume-id="app.workspaceSelectedResumeId"
       @select="app.selectWorkspaceSessionFromDetail"
+      @parent="app.openWorkspaceSessionParent"
     />
 
     <TemporaryCliLaunchPreviewModal
@@ -147,11 +161,7 @@ useWindowGridSnap();
       @confirm="app.confirmWorkspaceLaunch"
     />
 
-    <CliConfigPreviewModal
-      v-model:visible="app.cliConfigPreviewVisible"
-      :preview="app.cliConfigPreview"
-      @confirm="app.confirmCliConfigSwitch"
-    />
+    <AgentConfigurationEditorModal :model="app.cliConfigurationEditor" />
 
     <CliConfigKeyPickerModal
       v-model:visible="app.cliConfigKeyPickerVisible"
@@ -182,17 +192,21 @@ useWindowGridSnap();
       :importing-app-data="app.importingAppData"
       :available-models-provider="app.availableModelsProvider"
       :available-models-loading="app.availableModelsLoading"
+      :available-models-error="app.availableModelsError"
       :usage-provider="app.usageProvider"
       :usage-loading="app.usageLoading"
+      :usage-error="app.usageError"
       :usage-summary="app.usageSummary"
       :request-logs-provider="app.requestLogsProvider"
       :request-logs-loading="app.requestLogsLoading"
+      :request-logs-error="app.requestLogsError"
       :request-logs-result="app.requestLogsResult"
       :request-logs-keyword="app.requestLogsKeyword"
       :request-logs-page="app.requestLogsPage"
       :request-logs-page-size="app.requestLogsPageSize"
       :password-change-provider="app.passwordChangeProvider"
       :password-change-loading="app.passwordChangeLoading"
+      :password-change-error="app.passwordChangeError"
       :liveness-details-provider="app.livenessDetailsProvider"
       :cli-runtime-loading="app.cliInstancesRefreshing"
       :cli-runtime="app.cliRuntime"
@@ -243,7 +257,7 @@ useWindowGridSnap();
       @complete-onboarding="app.completeOnboarding"
       @refresh-available-models="app.refreshAvailableModels"
       @copy-available-model="app.copyAvailableModel"
-      @copy-all-available-models="app.copyAllAvailableModels"
+      @copy-available-models="app.copyAvailableModels"
       @refresh-usage-summary="app.refreshUsageSummary"
       @search-request-logs="app.searchRequestLogs"
       @load-request-logs="app.loadRequestLogs"
@@ -266,8 +280,6 @@ useWindowGridSnap();
 
     <AppDrawers
       v-model:settings-visible="app.settingsDrawerVisible"
-      v-model:global-refresh-amount="app.globalRefreshAmount"
-      v-model:global-refresh-unit="app.globalRefreshUnit"
       v-model:provider-editor-visible="app.drawerVisible"
       v-model:api-key-create-visible="app.apiKeyCreateVisible"
       v-model:api-key-create-name="app.apiKeyCreateName"
@@ -278,6 +290,11 @@ useWindowGridSnap();
       v-model:api-key-remark-value="app.apiKeyRemarkValue"
       :settings="app.settingsForm"
       :settings-save-state="app.settingsSaveState"
+      :settings-save-error="app.settingsSaveError"
+      :testing-notification="app.testingNotification"
+      :notification-test-result="app.notificationTestResult"
+      :notification-test-error="app.notificationTestError"
+      @retry-settings-save="app.flushSettingsSave"
       :liveness-model-options="app.livenessModelOptions"
       :selected-liveness-model-providers="app.selectedLivenessModelProviders"
       :exporting-app-data="app.exportingAppData"
@@ -301,6 +318,9 @@ useWindowGridSnap();
       :probing-site="app.probingSite"
       :site-name-source-base-url="app.siteNameSourceBaseUrl"
       :testing-connection="app.testingConnection"
+      :connection-test-result="app.connectionTestResult"
+      :saving-provider="app.savingProvider"
+      :provider-save-error="app.providerSaveError"
       :starting-browser-login="app.startingBrowserLogin"
       @login-and-import="app.loginAndImport"
       :credential-assistant-state="app.credentialAssistantState"

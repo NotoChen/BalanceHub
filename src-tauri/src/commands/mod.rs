@@ -1,3 +1,10 @@
+pub(crate) mod agent_assets;
+pub(crate) mod agent_catalog;
+pub(crate) mod agent_configuration;
+pub(crate) mod agent_lifecycle;
+pub(crate) mod agent_overview;
+pub(crate) mod agent_session_resume;
+pub(crate) mod agent_sessions;
 pub(crate) mod app;
 pub(crate) mod browser_runtime;
 pub(crate) mod cli;

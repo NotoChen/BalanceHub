@@ -1,20 +1,13 @@
 import { onMounted, onUnmounted, watch, type Ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { hostPlatform } from "../api/app";
-import type { AppSettings, Provider } from "../stores/providers";
-import type { UsagePeriod } from "../utils/usage-trend";
+import type { AppSettings } from "../stores/providers";
 
 interface UseAppLifecycleOptions {
   loadError: Ref<string | null>;
   settings: Ref<AppSettings>;
   settingsForm: AppSettings;
   settingsDrawerVisible: Ref<boolean>;
-  usageVisible: Ref<boolean>;
-  usageProvider: Ref<Provider | null>;
-  usagePeriod: Ref<UsagePeriod>;
-  checkInRecordsVisible: Ref<boolean>;
-  checkInRecordsProviderId: Ref<string | null>;
-  checkInRecordsMonth: Ref<string>;
   initialize: () => Promise<unknown>;
   syncFromSettings: (settings?: AppSettings) => void;
   setupThemeListener: () => void;
@@ -24,10 +17,8 @@ interface UseAppLifecycleOptions {
   /// 后端调度任务变更状态后会发出 `providers-changed` 事件，前端据此重新拉取内存状态。
   reloadProviders: () => Promise<unknown> | unknown;
   applyTheme: (themeMode: AppSettings["themeMode"]) => void;
-  resetSettingsDraft: () => void | Promise<unknown>;
+  flushSettingsSave: () => void | Promise<unknown>;
   resetProviderPointerDrag: (suppressClick: boolean, preserveDragOrder?: boolean) => void;
-  refreshUsageSummary: () => Promise<unknown> | unknown;
-  loadCheckInRecords: () => Promise<unknown> | unknown;
 }
 
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
@@ -108,19 +99,8 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
 
   watch(options.settingsDrawerVisible, (visible) => {
     if (!visible) {
-      void options.resetSettingsDraft();
+      void options.flushSettingsSave();
     }
   });
 
-  watch(options.usagePeriod, () => {
-    if (options.usageVisible.value && options.usageProvider.value) {
-      void options.refreshUsageSummary();
-    }
-  });
-
-  watch([options.checkInRecordsMonth, options.checkInRecordsVisible], () => {
-    if (options.checkInRecordsVisible.value && options.checkInRecordsProviderId.value) {
-      void options.loadCheckInRecords();
-    }
-  });
 }

@@ -20,12 +20,17 @@ use std::{
 pub(crate) struct ManifestFile {
     pub(crate) schema_version: u16,
     pub(crate) ownership: AgentHookOwnership,
+    /// Historical receipt retained after the user explicitly takes over a
+    /// callback through global Hook management; it no longer grants ownership.
+    #[serde(default)]
+    pub(crate) catalog_detached: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConfigSnapshot {
     pub(crate) value: Value,
     pub(crate) revision: String,
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +111,7 @@ pub(crate) fn read_config(path: &Path) -> ConfigRead {
         status: ConfigStatus::Present,
         snapshot: Some(ConfigSnapshot {
             revision: revision_for_bytes(&bytes),
+            text: String::from_utf8_lossy(&bytes).into_owned(),
             value,
         }),
         diagnostic: None,
@@ -123,6 +129,11 @@ pub(crate) fn read_manifest(path: &Path) -> Result<Option<AgentHookOwnership>, S
                 .map_err(|error| format!("ownership manifest 格式无效: {error}"))?;
             if manifest.schema_version != MANIFEST_SCHEMA_VERSION {
                 return Err("ownership manifest 版本不受支持".to_string());
+            }
+            if manifest.catalog_detached {
+                return Err(
+                    "会话接入已转由全局 Hook 管理，专用控制器不会覆盖或自动恢复这些规则".to_owned(),
+                );
             }
             Ok(Some(manifest.ownership))
         }
@@ -197,6 +208,7 @@ pub(crate) fn write_manifest(path: &Path, ownership: &AgentHookOwnership) -> Res
     let manifest = ManifestFile {
         schema_version: MANIFEST_SCHEMA_VERSION,
         ownership: ownership.clone(),
+        catalog_detached: false,
     };
     let bytes = serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?;
     write_atomic(path, &bytes)

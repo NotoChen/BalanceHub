@@ -75,7 +75,8 @@ test("preview timeout and failure release state without disabling editing", asyn
       await settle();
       pending.reject(new Error("fixture failure"));
     }
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    const deadline = Date.now() + 1000;
+    while (state.loading.value && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal(state.loading.value, false);
     assert.match(state.error.value, /可继续编辑/);
     pending.resolve(fixture("standard"));

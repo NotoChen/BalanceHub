@@ -8,7 +8,6 @@ import type {
 import {
   agentCliVersionLabel,
   agentCliPathsMatchSnapshot,
-  applyCliEnvironmentProbeResult,
   availableCliOptions,
   captureCliEnvironmentSettings,
   registeredCliTools,
@@ -19,6 +18,7 @@ test("Agent CLI version labels keep only the official version number", () => {
   assert.equal(agentCliVersionLabel("2.1.232 (Claude Code)"), "2.1.232");
   assert.equal(agentCliVersionLabel("0.55.1"), "0.55.1");
   assert.equal(agentCliVersionLabel("grok 1.0.3 (1a29d5bc12d4)"), "1.0.3");
+  assert.equal(agentCliVersionLabel("codex-cli 1.2.3-preview.20260915+build.7"), "1.2.3-preview.20260915+build.7");
 });
 
 const probe = {
@@ -145,23 +145,6 @@ test("registered Agent metadata does not disappear when a CLI is unavailable", (
     availableCliOptions(unavailableProbe).map((option) => option.value),
     ["claudeCode", "codex", "grok"],
   );
-});
-
-test("Agent CLI scan writes paths by kind without overwriting concurrent edits", () => {
-  const settings = {
-    agentCliPaths: {},
-    livenessCliKind: "codex",
-  } as AppSettings;
-  const expected = captureCliEnvironmentSettings(settings);
-  settings.agentCliPaths.claudeCode = "/custom/claude";
-
-  applyCliEnvironmentProbeResult(settings, probe, expected);
-
-  assert.equal(settings.agentCliPaths.codex, "/opt/tools/codex");
-  assert.equal(settings.agentCliPaths.gemini, "/opt/tools/gemini");
-  assert.equal(settings.agentCliPaths.grok, "/opt/tools/grok");
-  assert.equal(settings.agentCliPaths.claudeCode, "/custom/claude");
-  assert.equal(settings.livenessCliKind, "codex");
 });
 
 test("deep scan path adoption detects draft conflicts", () => {
