@@ -1,9 +1,10 @@
 #[cfg(target_os = "windows")]
 use super::paths::binary_names;
+#[cfg(unix)]
 use super::paths::{
-    legacy_runtime_path_snapshot_for_home, AgentHomeCandidateScanRequest,
-    AgentHomeCandidateScanResult, AgentHomeScanCompletion, RuntimePathSnapshot,
+    legacy_runtime_path_snapshot_for_home, AgentHomeCandidateScanResult, AgentHomeScanCompletion,
 };
+use super::paths::{AgentHomeCandidateScanRequest, RuntimePathSnapshot};
 use super::*;
 use crate::models::{
     AgentAssetDiagnostic, AgentAssetLimitKind, AgentAssetLimits, AgentCliKind,
@@ -11,6 +12,8 @@ use crate::models::{
 };
 use crate::services::agent_cli::definition;
 use crate::services::agent_cli::environment::run::{AgentInventoryRun, SystemMonotonicClock};
+#[cfg(unix)]
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
@@ -68,7 +71,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 use std::{
-    collections::BTreeSet,
     env,
     path::{Path, PathBuf},
 };

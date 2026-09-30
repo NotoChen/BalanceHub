@@ -79,6 +79,7 @@ fn comparison_of_native_sources_never_creates_a_missing_library() {
     assert_eq!(fs::read(right.join("scripts/run.sh")).unwrap(), b"two\n");
 }
 
+#[cfg(unix)]
 #[test]
 fn native_skill_comparison_includes_resources_permissions_and_all_source_metadata() {
     use std::os::unix::fs::PermissionsExt;

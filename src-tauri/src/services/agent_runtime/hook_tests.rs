@@ -261,6 +261,7 @@ fn concurrent_ingest_respects_file_limit_and_keeps_files_parseable() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn symlinked_spool_root_is_rejected() {
     let root = temp_root("symlink");

@@ -1,8 +1,8 @@
 //! Registry-owned native layouts. The catalog does not switch on Agent names.
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(super) mod evidence;
 pub(crate) mod hook_codec;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) mod hook_evidence;
 pub(crate) mod hooks;
 mod mcp;

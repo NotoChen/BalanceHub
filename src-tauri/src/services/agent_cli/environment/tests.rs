@@ -982,7 +982,6 @@ fn directory_handle_chain_prevents_ancestor_replacement_on_windows() {
     let fixture = test_root("directory-ancestor-share-delete");
     let parent = fixture.join("parent");
     let source = parent.join("source");
-    let replacement = fixture.join("replacement");
     fs::create_dir_all(&source).unwrap();
     fs::write(source.join("original-entry"), b"entry").unwrap();
     let fixture = fs::canonicalize(fixture).unwrap();

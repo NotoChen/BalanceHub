@@ -1,3 +1,4 @@
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn fixture_digest() -> String {
     super::super::digest(include_bytes!("hook-fixture.json"))
 }

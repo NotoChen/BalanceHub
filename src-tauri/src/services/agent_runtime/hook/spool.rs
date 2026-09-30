@@ -348,13 +348,13 @@ fn quarantine_file(path: &Path, quarantine: &Path) -> PathBuf {
     }
 }
 
-fn restrict_file_to_owner(file: &File) -> io::Result<()> {
+fn restrict_file_to_owner(_file: &File) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = file.metadata()?.permissions();
+        let mut permissions = _file.metadata()?.permissions();
         permissions.set_mode(0o600);
-        file.set_permissions(permissions)?;
+        _file.set_permissions(permissions)?;
     }
     Ok(())
 }

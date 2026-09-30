@@ -3,7 +3,9 @@ use crate::services::agent_cli::contracts::{
     AgentAssetAssessmentFailure, AgentAssetControlAuthority, AgentAssetEvidenceKind,
     AgentAssetTerminalCauseDraft,
 };
-use schema::feature::{HookFeatureLayer, POLICY_KEY};
+use schema::feature::POLICY_KEY;
+#[cfg(unix)]
+use schema::feature::HookFeatureLayer;
 
 fn feature<'a>(run: &'a Run, source_key: &str) -> &'a ParsedAgentAsset {
     let observations = run

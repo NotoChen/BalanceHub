@@ -33,8 +33,14 @@ impl CatalogService {
         let locks = self.native.domain_locks();
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut verified_native = false;
+        #[cfg(unix)]
         let mut replaced = BTreeSet::<usize>::new();
+        #[cfg(not(unix))]
+        let replaced = BTreeSet::<usize>::new();
+        #[cfg(unix)]
         let mut not_synced = BTreeSet::<usize>::new();
+        #[cfg(not(unix))]
+        let not_synced = BTreeSet::<usize>::new();
         let result = (|| {
             let _guard = locks
                 .acquire(
@@ -138,7 +144,10 @@ impl CatalogService {
                     checkpoint(library)?;
                 }
                 cell.phase(&indexes, AgentAssetOperationPhase::Applying);
+                #[cfg(unix)]
                 let mut completed_domains = BTreeMap::<String, Vec<u8>>::new();
+                #[cfg(not(unix))]
+                let completed_domains = BTreeMap::<String, Vec<u8>>::new();
                 for write in &fresh.writes {
                     before_deadline(deadline)?;
                     revalidate_reads(&fresh, &completed_domains).map_err(|error| error.message)?;
@@ -177,21 +186,23 @@ impl CatalogService {
                         cell.before_commit(&write.indexes)
                     })
                     .map_err(|error| error.message)?;
-                    match result {
-                        #[cfg(unix)]
-                        atomic::AtomicWriteResult::Unchanged => {}
-                        #[cfg(unix)]
-                        atomic::AtomicWriteResult::Replaced => replaced.extend(&write.indexes),
-                        #[cfg(unix)]
-                        atomic::AtomicWriteResult::ReplacedNotSynced => {
-                            replaced.extend(&write.indexes);
-                            not_synced.extend(&write.indexes);
+                    #[cfg(not(unix))]
+                    match result {}
+                    #[cfg(unix)]
+                    {
+                        match result {
+                            atomic::AtomicWriteResult::Unchanged => {}
+                            atomic::AtomicWriteResult::Replaced => replaced.extend(&write.indexes),
+                            atomic::AtomicWriteResult::ReplacedNotSynced => {
+                                replaced.extend(&write.indexes);
+                                not_synced.extend(&write.indexes);
+                            }
                         }
-                    }
-                    completed_domains.insert(write.file.domain(), write.bytes.clone());
-                    #[cfg(test)]
-                    if let Some(after_write) = self.after_hook_write.lock().unwrap().take() {
-                        after_write();
+                        completed_domains.insert(write.file.domain(), write.bytes.clone());
+                        #[cfg(test)]
+                        if let Some(after_write) = self.after_hook_write.lock().unwrap().take() {
+                            after_write();
+                        }
                     }
                 }
                 let library_only = indexes

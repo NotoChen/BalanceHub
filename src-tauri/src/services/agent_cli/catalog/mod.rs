@@ -50,7 +50,7 @@ use std::{
 };
 
 pub(crate) struct CatalogService {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     after_hook_write: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     repository: Repository,
     display_cache_root: Option<PathBuf>,
@@ -72,7 +72,7 @@ pub(crate) struct CatalogService {
 impl CatalogService {
     pub(crate) fn new(root: PathBuf, native: Arc<MutationService>) -> Self {
         Self {
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             after_hook_write: Mutex::new(None),
             repository: Repository::new(root),
             display_cache_root: None,

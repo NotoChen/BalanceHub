@@ -286,13 +286,13 @@ pub(crate) fn ensure_parent(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn restrict_file(file: &File) -> io::Result<()> {
+pub(crate) fn restrict_file(_file: &File) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = file.metadata()?.permissions();
+        let mut permissions = _file.metadata()?.permissions();
         permissions.set_mode(0o600);
-        file.set_permissions(permissions)?;
+        _file.set_permissions(permissions)?;
     }
     Ok(())
 }

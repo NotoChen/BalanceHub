@@ -193,6 +193,7 @@ fn detached_change(
 mod tests {
     use super::*;
     use crate::models::{AgentHookHealthState, AgentHookMutation};
+    #[cfg(unix)]
     use crate::services::agent_cli::environment::mutation::atomic;
     use crate::services::agent_runtime::managed_hook::CodexHookService;
     use serde_json::{json, Value};
@@ -239,6 +240,7 @@ mod tests {
         assert_eq!(fs::read(&service.manifest_path).unwrap(), manifest_before);
     }
 
+    #[cfg(unix)]
     #[test]
     fn exact_owned_rule_customization_detaches_auxiliary_controller_without_repair() {
         let (directory, service) = fixture();
@@ -313,6 +315,7 @@ mod tests {
         assert!(service.inspect().ownership.is_some());
     }
 
+    #[cfg(unix)]
     #[test]
     fn native_policy_on_exact_owned_rule_transfers_ownership_without_changing_hook_bytes() {
         let (directory, service) = fixture();
