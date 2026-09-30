@@ -11,6 +11,7 @@ use crate::{
 pub(super) enum HookReadGuard {
     File {
         file: GuardedFile,
+        #[cfg(unix)]
         root: std::path::PathBuf,
     },
     Directory(VerifiedPathAnchor),
@@ -78,6 +79,7 @@ impl HookReadGuard {
             GuardedFile::capture(source, &snapshot.source_anchors)
                 .map(|file| Self::File {
                     file,
+                    #[cfg(unix)]
                     root: std::path::PathBuf::from(&source.allowed_root),
                 })
                 .map_err(|_| "Hook 原生依赖无法安全准备".to_owned())
@@ -100,6 +102,7 @@ impl HookReadGuard {
         }
     }
 
+    #[cfg(unix)]
     pub fn domain(&self) -> Option<String> {
         match self {
             Self::File { file, .. } => Some(file.domain()),
@@ -138,6 +141,7 @@ impl HookReadGuard {
     /// Advance only missing file evidence along the parent's verified creation
     /// chain. Directory and readonly-reference dependencies keep their original
     /// evidence, and the file's source and lock domain remain unchanged.
+    #[cfg(unix)]
     pub fn reanchor_after_parent_creation(
         &mut self,
         ensured_parent: &std::path::Path,
@@ -152,6 +156,7 @@ impl HookReadGuard {
     /// The same physical file may have several observed source IDs. Once this
     /// transaction replaces it, every alias checks the committed bytes rather
     /// than comparing an obsolete inode/content snapshot or skipping the read.
+    #[cfg(unix)]
     pub fn revalidate_after_write(&self, expected: &[u8]) -> Result<(), String> {
         let Self::File { file, root } = self else {
             return self.revalidate();
