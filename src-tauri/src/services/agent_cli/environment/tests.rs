@@ -3066,17 +3066,24 @@ fn build_claude_inventory_at_root_with_workspace_and_adapter(
     let workspace = fs::canonicalize(workspace).unwrap();
     let workspace_input = workspace_input.unwrap_or_else(|| workspace.clone());
     let replace_bytes = |mut bytes: Vec<u8>, needle: &[u8], replacement: &[u8]| {
-        while let Some(index) = bytes
+        let mut cursor = 0;
+        while let Some(offset) = bytes[cursor..]
             .windows(needle.len())
             .position(|window| window == needle)
         {
+            let index = cursor + offset;
             bytes.splice(index..index + needle.len(), replacement.iter().copied());
+            cursor = index + replacement.len();
         }
         bytes
     };
     let expand = |bytes: Vec<u8>| {
         let bytes = if cfg!(windows) {
-            replace_bytes(bytes, b"/fixture", b"C:/fixture")
+            replace_bytes(
+                replace_bytes(bytes, b"/fixture", b"C:/fixture"),
+                b"/isolated",
+                b"C:/isolated",
+            )
         } else {
             bytes
         };
@@ -17209,9 +17216,21 @@ fn claude_passive_inventory_never_executes_or_leaks() {
         "source": "marketplace-source-secret"
     }));
     let missing_plugin_roots = [
-        PathBuf::from("/isolated/safe-plugin"),
-        PathBuf::from("/isolated/workspace-plugin"),
-        PathBuf::from("/isolated/managed-plugin"),
+        PathBuf::from(if cfg!(windows) {
+            "C:/isolated/safe-plugin"
+        } else {
+            "/isolated/safe-plugin"
+        }),
+        PathBuf::from(if cfg!(windows) {
+            "C:/isolated/workspace-plugin"
+        } else {
+            "/isolated/workspace-plugin"
+        }),
+        PathBuf::from(if cfg!(windows) {
+            "C:/isolated/managed-plugin"
+        } else {
+            "/isolated/managed-plugin"
+        }),
     ];
     let (root, _workspace, inventory, snapshot_state) =
         build_claude_inventory_at_root_with_workspace_and_adapter(

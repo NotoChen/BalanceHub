@@ -626,7 +626,9 @@ fn materialize_follow_up(
 
 fn safe_relative_path(path: &std::path::Path) -> bool {
     let raw = path.to_string_lossy();
-    if raw.len() >= 2 && raw.as_bytes()[0].is_ascii_alphabetic() && raw.as_bytes()[1] == b':' {
+    if raw.contains('\\')
+        || (raw.len() >= 2 && raw.as_bytes()[0].is_ascii_alphabetic() && raw.as_bytes()[1] == b':')
+    {
         return false;
     }
     let mut has_component = false;
