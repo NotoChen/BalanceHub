@@ -36,7 +36,7 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
-    "dompurify": "^3.4.15",
+    "dompurify": "^3.4.16",
     "marked": "^18.0.14",
     "pinia": "^3.0.4",
     "prettier": "^3.9.8",
