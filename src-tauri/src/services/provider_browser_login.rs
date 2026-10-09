@@ -1,7 +1,6 @@
-//! Serialized, cancellable browser jobs with an explicit durable account profile.
+//! Cancellable browser jobs with exclusive access to each durable account profile.
 mod account;
 mod check_in;
-mod profile;
 use crate::{
     adapters::browser::{BrowserSession, BrowserWindowControl},
     app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
@@ -10,13 +9,16 @@ use crate::{
         LoginAccount, LoginPlatform, Provider, ProviderInput,
     },
     network,
-    services::{browser_runtime, provider_service::ProviderService},
+    services::{
+        browser_profiles::{self, ProfileKey},
+        browser_runtime,
+        provider_service::ProviderService,
+    },
     state::AppState,
     util::unix_millis,
 };
 pub(crate) use account::start_account;
 pub(crate) use check_in::run as check_in;
-pub(crate) use profile::idle_slot;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -206,7 +208,7 @@ pub(crate) fn start(
             login_account_id: account.id.clone(),
             operation: "import".into(),
             phase: "queued".into(),
-            message: "等待登录窗口，前一个中转站完成后自动打开".into(),
+            message: "正在等待可用登录窗口，同一账号的任务依次处理".into(),
             started_at: unix_millis() as u64,
             finished_at: None,
             error: None,
@@ -233,7 +235,7 @@ pub(crate) fn start(
 }
 
 pub(crate) fn account_busy(id: &str) -> bool {
-    profile::busy(id)
+    browser_profiles::account_busy(id)
         || runs()
             .lock()
             .map(|runs| {
@@ -407,7 +409,7 @@ async fn run(
     let _slot = tokio::select! {
         biased;
         _ = cancelled.changed() => return Err("登录已取消".into()),
-        slot = profile::acquire(&account.id) => slot?,
+        slot = browser_profiles::acquire(ProfileKey::Account(account.id.clone())) => slot?,
     };
     if *cancelled.borrow() {
         return Err("登录已取消".into());

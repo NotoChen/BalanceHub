@@ -232,7 +232,7 @@ test("completed session tasks remain visible in the shared recent task center wi
     providers: ref([]), batchOperation: ref(null), batchOperationRunning: ref(false), batchOperationItems: ref([]), batchOperationError: ref(""), batchOperationCompleted: ref(false),
     openLoginAccount: () => {}, openProviderCredentials: () => {},
     refreshInProgress: ref(false), refreshingProviderIds: ref(new Set<string>()), checkInTasks: ref([]), checkInPending: ref([]),
-    resumeCheckInTask: async () => {}, cancelCheckInTask: async () => {}, browserRuntime: ref(null), cancelBrowserRuntime: async () => {},
+    resumeCheckInTask: async () => {}, cancelCheckInTask: async () => {}, showCheckInWindow: async () => {}, browserRuntime: ref(null), cancelBrowserRuntime: async () => {},
     checkingForUpdate: ref(false), updateCheckError: ref(""), installingUpdate: ref(false), updateDownloadProgress: ref(null), updateInstallStatus: ref(""), updateInstallError: ref(""),
     announcementsLoading: ref(false), announcementFatalError: ref(""), announcementErrors: ref([]), cliRuntimeLoading: ref(false), temporaryCliLaunchTasks: ref([]),
     probingCapabilitiesProviderId: ref(null), agentTasks: backgrounds.useAgentBackgroundTasks(),

@@ -1,27 +1,29 @@
 use crate::{
     adapters::protocol::{contracts::ProviderOperationOutcome, ProtocolAdapter},
+    contracts::{ProviderBatchProgressEvent, ProviderView},
     models::{
         AppData, AppSettings, AuthMode, Provider, ProviderBatchDetails, ProviderBatchOperation,
-        ProviderBatchProgressEvent, ProviderBatchProgressItem, ProviderBatchStatus,
-        ProviderProtocol, ProviderStatus, RefreshResult,
+        ProviderBatchProgressItem, ProviderBatchStatus, ProviderProtocol, ProviderStatus,
+        RefreshResult,
     },
     state::AppState,
 };
-use std::{collections::HashSet, sync::Arc};
+use futures_util::{stream, StreamExt};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use tauri::{ipc::Channel, Manager};
 
 use super::{MutationDecision, ProviderRequestContext, ProviderService};
 
-pub(super) struct RefreshedProvider {
-    pub(super) provider: Provider,
-    pub(super) request_context: ProviderRequestContext,
+struct RefreshedProvider {
+    provider: Provider,
+    request_context: ProviderRequestContext,
 }
 
 impl<'a> ProviderService<'a> {
     pub async fn refresh_all_with_progress(
         &self,
         channel: Channel<ProviderBatchProgressEvent>,
-    ) -> Result<RefreshResult, String> {
+    ) -> Result<(RefreshResult, Vec<ProviderBatchProgressItem>), String> {
         let state = self.app.state::<AppState>();
         let _gate = state.refresh_gate.lock().await;
         self.refresh_all_inner(channel).await
@@ -48,7 +50,7 @@ impl<'a> ProviderService<'a> {
     async fn refresh_all_inner(
         &self,
         progress: Channel<ProviderBatchProgressEvent>,
-    ) -> Result<RefreshResult, String> {
+    ) -> Result<(RefreshResult, Vec<ProviderBatchProgressItem>), String> {
         let data = self.snapshot_async().await?;
         let mut progress_items = data
             .providers
@@ -74,31 +76,21 @@ impl<'a> ProviderService<'a> {
             self.app.clone(),
             settings,
             data.providers,
-            |_| true,
             Some(progress.clone()),
         )
         .await?;
-        for result in &refreshed {
-            let item = refresh_progress_item(&result.provider);
+        for item in &refreshed {
             if let Some(slot) = progress_items
                 .iter_mut()
-                .find(|item| item.provider_id == result.provider.identity.id)
+                .find(|slot| slot.provider_id == item.provider_id)
             {
-                *slot = item;
+                *slot = item.clone();
             }
         }
         let refreshed_ids = refreshed
             .iter()
-            .map(|result| result.provider.identity.id.clone())
+            .map(|item| item.provider_id.clone())
             .collect::<Vec<_>>();
-        self.mutate_decided_async(move |data| {
-            Ok(if apply_refreshed(data, refreshed) {
-                MutationDecision::changed(())
-            } else {
-                MutationDecision::unchanged(())
-            })
-        })
-        .await?;
         let updated_providers = self.providers_by_ids_async(&refreshed_ids).await?;
         send_progress(
             Some(&progress),
@@ -107,7 +99,7 @@ impl<'a> ProviderService<'a> {
                 summary: crate::models::ProviderBatchSummary::from_items(&progress_items),
             },
         );
-        Ok(RefreshResult { updated_providers })
+        Ok((RefreshResult { updated_providers }, progress_items))
     }
 
     async fn refresh_by_ids_inner(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
@@ -117,26 +109,86 @@ impl<'a> ProviderService<'a> {
         let refreshed = refresh_providers_concurrently(
             self.app.clone(),
             settings,
-            data.providers,
-            |provider| id_set.contains(provider.identity.id.as_str()),
+            data.providers
+                .into_iter()
+                .filter(|provider| id_set.contains(provider.identity.id.as_str()))
+                .collect(),
             None,
         )
         .await?;
         let refreshed_ids = refreshed
             .iter()
-            .map(|result| result.provider.identity.id.clone())
+            .map(|item| item.provider_id.clone())
             .collect::<Vec<_>>();
-        self.mutate_decided_async(move |data| {
-            Ok(if apply_refreshed(data, refreshed) {
-                MutationDecision::changed(())
-            } else {
-                MutationDecision::unchanged(())
-            })
-        })
-        .await?;
         Ok(RefreshResult {
             updated_providers: self.providers_by_ids_async(&refreshed_ids).await?,
         })
+    }
+
+    async fn refresh_one(
+        &self,
+        settings: &AppSettings,
+        mut provider: Provider,
+    ) -> Result<(ProviderBatchProgressItem, Option<Provider>), String> {
+        let mut request_context = ProviderRequestContext::capture(&provider);
+        let attempt = async {
+            let preparation_error = match self.prepare_operation_auth(settings, &provider).await {
+                Ok((prepared, result)) => {
+                    provider = prepared;
+                    request_context = ProviderRequestContext::capture(&provider);
+                    result.err()
+                }
+                // Do not attach an old account's failure to a concurrently
+                // edited configuration when authentication rejects its context.
+                Err(message) => Some(message),
+            };
+            if let Some(message) = preparation_error {
+                provider.runtime.status = ProviderStatus::Error;
+                provider.runtime.error_message = Some(message);
+            } else {
+                let outcome = ProtocolAdapter.refresh_provider(settings, &provider).await;
+                outcome.apply_to(&mut provider);
+            }
+        };
+        // Individual HTTP requests already have deadlines. Also bound the
+        // complete authentication + refresh chain so one site cannot hang a batch.
+        if tokio::time::timeout(Duration::from_secs(120), attempt)
+            .await
+            .is_err()
+        {
+            provider.runtime.status = ProviderStatus::Error;
+            provider.runtime.error_message = Some("刷新超时，请稍后重试".to_string());
+        }
+        let id = provider.identity.id.clone();
+        let removed_item = ProviderBatchProgressItem::skipped(&provider, "中转站已移除");
+        let applied = self
+            .mutate_decided_async(move |data| {
+                Ok(
+                    if apply_refreshed(
+                        data,
+                        vec![RefreshedProvider {
+                            provider,
+                            request_context,
+                        }],
+                    ) {
+                        MutationDecision::changed(true)
+                    } else {
+                        MutationDecision::unchanged(false)
+                    },
+                )
+            })
+            .await?;
+        // Read after committing: transactions normalize data and assign the IPC
+        // revision. Publishing the request snapshot would bypass both safeguards.
+        let current = self.providers_by_ids_async(&[id]).await?.into_iter().next();
+        let item = match current.as_ref() {
+            Some(provider) if applied => refresh_progress_item(provider),
+            Some(provider) => {
+                ProviderBatchProgressItem::skipped(provider, "配置已变更，本次刷新结果已跳过")
+            }
+            None => removed_item,
+        };
+        Ok((item, current))
     }
 }
 
@@ -145,7 +197,7 @@ impl<'a> ProviderService<'a> {
 /// 只合并 [`apply_refresh_owned_fields`] 列出的「刷新拥有」字段，而非整体替换结构体：
 /// 刷新是后台常态操作，网络往返期间用户可能正在编辑凭据/名称/自动化配置并保存，
 /// 整体替换会把这些并发编辑静默回滚。期间被删除的中转站不会重新插入，新增的不受影响。
-pub(super) fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvider>) -> bool {
+fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvider>) -> bool {
     let mut changed = false;
     for refreshed in refreshed {
         let RefreshedProvider {
@@ -180,103 +232,65 @@ pub(super) fn apply_refresh_owned_fields(
     true
 }
 
-/// 并发刷新中转站：启用且满足条件的并发拉取，返回值只包含实际刷新过的中转站。
-/// 未刷新的不再原样返回 —— 它们没有新数据，参与合并只会用旧快照覆盖并发编辑。
-///
-/// 并发用信号量做滚动窗口（最多 6 个在飞），而非固定分批：分批会被批内最慢的
-/// 一个（最长 20s 超时）拖住整批，滚动窗口下一个完成立刻补位。
-pub(super) async fn refresh_providers_concurrently(
+/// 最多 6 个中转站滚动刷新；获得名额后才发送开始事件，每个结果独立落盘并推送。
+/// 等所有任务收口后才返回批次结果，单站失败不会丢掉已完成数据或遗留脱管任务。
+async fn refresh_providers_concurrently(
     app: tauri::AppHandle,
     settings: Arc<AppSettings>,
     providers: Vec<Provider>,
-    should_refresh: impl Fn(&Provider) -> bool,
     progress: Option<Channel<ProviderBatchProgressEvent>>,
-) -> Result<Vec<RefreshedProvider>, String> {
+) -> Result<Vec<ProviderBatchProgressItem>, String> {
     const MAX_CONCURRENT_REFRESH: usize = 6;
 
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_REFRESH));
-    let mut handles = Vec::new();
-    for provider in providers
-        .into_iter()
-        .filter(|provider| provider.runtime.enabled && should_refresh(provider))
-    {
-        let provider_for_progress = provider.clone();
-        send_progress(
-            progress.as_ref(),
-            ProviderBatchProgressEvent::ProviderStarted {
-                operation: ProviderBatchOperation::Refresh,
-                item: ProviderBatchProgressItem::new(
-                    &provider_for_progress,
-                    ProviderBatchStatus::Running,
-                    refresh_started_message(&provider_for_progress),
-                    None,
-                ),
-            },
-        );
+    let results = stream::iter(
+        providers
+            .into_iter()
+            .filter(|provider| provider.runtime.enabled),
+    )
+    .map(|provider| {
         let settings = Arc::clone(&settings);
-        let semaphore = Arc::clone(&semaphore);
         let app = app.clone();
         let progress = progress.clone();
-        handles.push(tauri::async_runtime::spawn(async move {
-            // 信号量只在本函数生命周期内使用、从不 close，acquire 不会失败。
-            let _permit = semaphore.acquire().await.expect("refresh semaphore closed");
-            let service = ProviderService::new(&app);
-            let prepared = service
-                .prepare_operation_auth(settings.as_ref(), &provider)
+        async move {
+            let mut item = ProviderBatchProgressItem::new(
+                &provider,
+                ProviderBatchStatus::Running,
+                refresh_started_message(&provider),
+                None,
+            );
+            send_progress(
+                progress.as_ref(),
+                ProviderBatchProgressEvent::ProviderStarted {
+                    operation: ProviderBatchOperation::Refresh,
+                    item: item.clone(),
+                },
+            );
+            let result = ProviderService::new(&app)
+                .refresh_one(&settings, provider)
                 .await;
-            let (mut refreshed, preparation_error) = match prepared {
-                Ok((prepared, result)) => (prepared, result.err()),
-                // Keep the original context on rejection; never attach an old
-                // failure to a concurrently edited account's latest snapshot.
-                Err(message) => (provider, Some(message)),
-            };
-            let request_context = ProviderRequestContext::capture(&refreshed);
-            if let Some(message) = preparation_error {
-                refreshed.runtime.status = ProviderStatus::Error;
-                refreshed.runtime.error_message = Some(message);
-            } else {
-                let outcome = ProtocolAdapter
-                    .refresh_provider(settings.as_ref(), &refreshed)
-                    .await;
-                outcome.apply_to(&mut refreshed);
-            }
-            let status = if matches!(refreshed.runtime.status, ProviderStatus::Error) {
-                ProviderBatchStatus::Failed
-            } else {
-                ProviderBatchStatus::Success
-            };
-            let message = refreshed.runtime.error_message.clone().unwrap_or_else(|| {
-                if matches!(status, ProviderBatchStatus::Success) {
-                    refresh_finished_message(&refreshed)
-                } else {
-                    "刷新失败".to_string()
+            let (item, provider, error) = match result {
+                Ok((item, provider)) => (item, provider, None),
+                Err(message) => {
+                    item.status = ProviderBatchStatus::Failed;
+                    item.message = message.clone();
+                    (item, None, Some(message))
                 }
-            });
+            };
             send_progress(
                 progress.as_ref(),
                 ProviderBatchProgressEvent::ProviderFinished {
                     operation: ProviderBatchOperation::Refresh,
-                    item: ProviderBatchProgressItem::new(
-                        &refreshed,
-                        status,
-                        message,
-                        Some(ProviderBatchDetails::from_provider(&refreshed, None)),
-                    ),
+                    item: item.clone(),
+                    provider: provider.map(|provider| Box::new(ProviderView::from(provider))),
                 },
             );
-            RefreshedProvider {
-                provider: refreshed,
-                request_context,
-            }
-        }));
-    }
-
-    let mut refreshed = Vec::with_capacity(handles.len());
-    for handle in handles {
-        refreshed.push(handle.await.map_err(|err| format!("刷新任务异常: {err}"))?);
-    }
-
-    Ok(refreshed)
+            error.map_or(Ok(item), Err)
+        }
+    })
+    .buffer_unordered(MAX_CONCURRENT_REFRESH)
+    .collect::<Vec<_>>()
+    .await;
+    results.into_iter().collect()
 }
 
 fn refresh_progress_item(provider: &Provider) -> ProviderBatchProgressItem {

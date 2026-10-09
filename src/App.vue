@@ -269,6 +269,7 @@ useWindowGridSnap();
       @load-check-in-records="app.loadCheckInRecords"
       @resume-check-in-task="app.resumeCheckInTask"
       @cancel-check-in-task="app.cancelCheckInTask"
+      @show-check-in-window="app.showCheckInWindow"
       @retry-capability-probe="app.retryCapabilityProbe"
       @dismiss-update="app.dismissUpdate"
       @cancel-update="app.cancelUpdate"

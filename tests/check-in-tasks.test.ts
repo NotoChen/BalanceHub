@@ -12,12 +12,12 @@ function deferred<T>() {
 function progress(revision: number, phase: CheckInTask["phase"] = "waitingHuman"): CheckInTask {
   const finished = ["completed", "failed", "cancelled", "unconfirmed"].includes(phase);
   return { runId: "run-1", providerId: "provider-1", providerName: "测试站点", batchId: null, source: "manual", revision, finished, phase,
-    message: "签到验证", canResume: !finished, canCancel: !finished, startedAt: 1, finishedAt: finished ? 2 : null };
+    message: "签到验证", canResume: !finished, canCancel: !finished, canShowWindow: false, startedAt: 1, finishedAt: finished ? 2 : null };
 }
 function api() {
   return { list: async () => [progress(1)], listen: async (_receive: (task: CheckInTask) => void) => () => {},
     submit: async (_id: string) => progress(1, "queued"), submitAll: async () => ({ batchId: "batch", tasks: [progress(1)], skipped: 0 }),
-    resume: async (_id: string) => progress(2, "queued"), cancel: async (_id: string) => {} };
+    resume: async (_id: string) => progress(2, "queued"), cancel: async (_id: string) => {}, showWindow: async (_id: string) => {} };
 }
 
 test("a delayed list cannot revive a completed check-in", async () => {
@@ -115,4 +115,42 @@ test("login, verification and browser preparation have distinct resume actions",
   assert.equal(checkInResumeLabel(progress(1, "waitingLogin")), "继续登录");
   assert.equal(checkInResumeLabel(progress(1, "waitingHuman")), "继续验证");
   assert.equal(checkInResumeLabel(progress(1, "waitingBrowser")), "准备浏览器");
+});
+
+test("showing a live verification window never restarts a batch or blocks other task actions", async () => {
+  const show = deferred<void>();
+  let receive!: (task: CheckInTask) => void;
+  let snapshot!: CheckInSnapshot;
+  let resumes = 0;
+  const live = { ...progress(2), source: "batch" as const, canResume: false, canShowWindow: true };
+  const tracker = createCheckInTracker({ ...api(), list: async () => [live],
+    listen: async (callback) => { receive = callback; return () => {}; },
+    resume: async () => { resumes++; return live; }, showWindow: () => show.promise,
+  }, (state) => { snapshot = state; });
+  await tracker.start();
+  const request = tracker.showWindow(live.runId);
+  assert.deepEqual(snapshot.pending, ["show:run-1"]);
+  await tracker.cancel("another-task");
+  assert.equal(resumes, 0);
+  receive(progress(5, "completed"));
+  show.reject(new Error("显示签到窗口超时"));
+  await request;
+  assert.deepEqual(snapshot.pending, []);
+  assert.equal(snapshot.items[0].phase, "completed");
+  assert.equal(snapshot.items[0].canShowWindow, false);
+  assert.match(snapshot.error, /超时/);
+  tracker.stop();
+});
+
+test("unmounting while a window action is pending discards its late failure", async () => {
+  const show = deferred<void>();
+  let updates = 0;
+  const tracker = createCheckInTracker({ ...api(), showWindow: () => show.promise }, () => { updates++; });
+  await tracker.start();
+  const pending = tracker.showWindow("run-1");
+  tracker.stop();
+  const before = updates;
+  show.reject(new Error("旧窗口已关闭"));
+  await pending;
+  assert.equal(updates, before);
 });

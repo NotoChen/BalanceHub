@@ -115,6 +115,7 @@ const emit = defineEmits<{
   loadCheckInRecords: [options?: { force?: boolean }];
   resumeCheckInTask: [task: CheckInTask];
   cancelCheckInTask: [task: CheckInTask];
+  showCheckInWindow: [task: CheckInTask];
   retryCapabilityProbe: [];
   dismissUpdate: [];
   cancelUpdate: [];
@@ -192,6 +193,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :completed="checkInBatchProgress.completed"
     @resume-check-in="emit('resumeCheckInTask', $event)"
     @cancel-check-in="emit('cancelCheckInTask', $event)"
+    @show-check-in-window="emit('showCheckInWindow', $event)"
   />
 
   <UsageTrendModal

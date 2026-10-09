@@ -248,7 +248,7 @@ impl ProviderService<'_> {
         if provider_browser_login::account_busy(&id) {
             return Err("请先结束该账号的登录任务".into());
         }
-        let _slot = provider_browser_login::idle_slot()?;
+        let _profile = crate::services::browser_profiles::idle_account(&id)?;
         let account = self.login_account(&id)?;
         let directory = login_profiles::directory(self.app, &id)?;
         let removed = directory.with_file_name(format!("removed-{id}-{}", unix_millis()));

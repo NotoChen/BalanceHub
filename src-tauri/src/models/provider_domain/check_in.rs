@@ -125,7 +125,7 @@ pub fn preview(provider: &Provider) -> ProviderCheckInPolicyPreview {
                         fresh_login_route(provider),
                         Ok(FreshLoginRoute::BrowserAccount(_))
                     ) {
-                        "使用绑定账号打开站点重新登录，完成后确认原账号；批量或定时签到会等待你继续登录，奖励以站点记录为准"
+                        "使用绑定账号重新登录，遇到人工验证时保留窗口，完成后自动确认原账号；定时任务需手动继续登录，奖励以站点记录为准"
                     } else {
                         "使用账号密码重新登录并确认原账号；奖励以站点记录为准"
                     }

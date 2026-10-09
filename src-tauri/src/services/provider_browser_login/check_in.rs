@@ -1,10 +1,11 @@
 //! Reauthentication remains part of the check-in task, never a detached import.
-use super::{profile, LoginCredentials};
+use super::LoginCredentials;
 use crate::{
     adapters::browser::BrowserSession,
     models::{AppSettings, CheckInError, CheckInPhase, Provider},
     network,
     services::{
+        browser_profiles::{self, ProfileKey},
         browser_runtime,
         check_in_tasks::CheckInContext,
         login_profiles,
@@ -28,13 +29,13 @@ pub(crate) async fn run(
 ) -> Result<Provider, CheckInError> {
     let service = ProviderService::new(app);
     let account = service.login_account(account_id)?;
-    // Scheduled and bulk work must not open interactive account windows.
-    // Resuming the same task explicitly grants the interactive step.
+    // Scheduled work leaves login to a user-triggered resume. Both a direct
+    // check-in and a user-triggered batch keep the window until completion.
     if !task.interactive {
         return Err(CheckInError::WaitingLogin);
     }
     task.queued_for_browser(app);
-    let _profile = profile::acquire(account_id).await?;
+    let _profile = browser_profiles::acquire(ProfileKey::Account(account_id.into())).await?;
     let account = service.check_login_account(&account)?;
     let runtime = browser_runtime::acquire(app)
         .await
@@ -77,6 +78,7 @@ pub(crate) async fn run(
         }),
     )
     .map_err(CheckInError::WaitingBrowser)?;
+    let window = task.attach_window(app, session.window_control())?;
     let outcome = session.request("login", json!({
         "url": provider.identity.base_url, "providerName": provider.display_label(),
         "profileDir": directory, "proxy": proxy.browser(&url)?, "executablePath": runtime.browser,
@@ -84,6 +86,7 @@ pub(crate) async fn run(
         "expectedUserId": expected_user, "requireFreshLogin": true, "timeoutMs": 600_000,
     })).await;
     session.close().await;
+    drop(window);
     let value = outcome.map_err(|error| login_error(error, submitted.load(Ordering::Relaxed)))?;
     let credentials =
         LoginCredentials::parse(value).map_err(|error| login_error(error.into(), true))?;
@@ -122,6 +125,15 @@ mod tests {
         assert!(matches!(
             login_error("登录窗口已关闭".into(), false),
             CheckInError::Failed(_)
+        ));
+        let cancelled = CheckInError::Cancelled("登录窗口已关闭".into());
+        assert!(matches!(
+            login_error(cancelled.clone(), false),
+            CheckInError::Cancelled(_)
+        ));
+        assert!(matches!(
+            login_error(cancelled, true),
+            CheckInError::Unconfirmed(_)
         ));
     }
 }

@@ -1,11 +1,12 @@
 use crate::{
     contracts::{
+        provider_views, ProviderBatchProgressEvent, ProviderBatchResultView,
         ProviderCapabilityProbeResultView, ProviderModelSyncResultView, ProviderSaveResultView,
         ProviderView, RefreshResultView,
     },
     models::{
         ProviderApiKeyEditorContext, ProviderApiKeyOption, ProviderApiKeyPatch,
-        ProviderBatchProgressEvent, ProviderCheckInRecordsResult, ProviderConnectionTestResult,
+        ProviderCheckInRecordsResult, ProviderConnectionTestResult,
         ProviderCredentialCompletionResult, ProviderInput, ProviderProtocolDetectionResult,
         ProviderRemovalResult, ProviderRequestLogsQuery, ProviderRequestLogsResult,
         ProviderSaveOptions, ProviderSiteProbeResult, ProviderUsageSummary,
@@ -406,12 +407,15 @@ pub(crate) async fn mark_site_announcement_read(
 pub(crate) async fn refresh_all_providers_with_progress(
     app: AppHandle,
     on_event: Channel<ProviderBatchProgressEvent>,
-) -> Result<RefreshResultView, String> {
-    let result = ProviderService::new(&app)
+) -> Result<ProviderBatchResultView, String> {
+    let (result, items) = ProviderService::new(&app)
         .refresh_all_with_progress(on_event)
         .await?;
     tray::refresh_from_state(&app);
-    Ok(result.into())
+    Ok(ProviderBatchResultView {
+        updated_providers: provider_views(result.updated_providers),
+        items,
+    })
 }
 
 #[tauri::command]
@@ -446,6 +450,11 @@ pub(crate) fn list_check_in_tasks(app: AppHandle) -> Vec<crate::models::CheckInT
 #[tauri::command]
 pub(crate) fn cancel_check_in_task(app: AppHandle, run_id: String) -> Result<(), String> {
     crate::services::check_in_tasks::cancel(&app, &run_id)
+}
+
+#[tauri::command]
+pub(crate) async fn show_check_in_window(run_id: String) -> Result<(), String> {
+    crate::services::check_in_tasks::show_window(&run_id).await
 }
 
 #[tauri::command]

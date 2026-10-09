@@ -175,6 +175,7 @@ pub(crate) fn run() {
             list_check_in_tasks,
             cancel_check_in_task,
             resume_check_in_task,
+            show_check_in_window,
             check_in_all_providers,
             start_provider_browser_login,
             list_provider_browser_logins,

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BrowserWorker, createWorkerRequestDispatcher } from "./worker.mjs";
-import { launchBrowser, WorkerError } from "./launch.mjs";
+import { launchBrowser, WorkerError, WorkerCancelled } from "./launch.mjs";
 
 test("window controls complete while login is waiting and business requests stay serial", async () => {
   let finishLogin;
@@ -38,6 +38,18 @@ test("a closed window returns a control error without failing the ongoing login"
   assert.equal(replies[0].ok, false);
   assert.match(replies[0].error, /已关闭/);
   assert.deepEqual(replies[1], { id: 8, ok: true, data: { saved: true } });
+});
+
+test("closing a verification sends a typed cancellation rather than a failed check-in", async () => {
+  const replies = [];
+  const dispatch = createWorkerRequestDispatcher({
+    verify: async () => { throw new WorkerCancelled("验证窗口已关闭，签到已取消"); },
+    navigate: async () => { throw new WorkerError("已关闭自动处理站点防护，验证已停止"); },
+  }, (reply) => replies.push(reply));
+  await dispatch(JSON.stringify({ id: 1, op: "verify" }));
+  await dispatch(JSON.stringify({ id: 2, op: "navigate" }));
+  assert.equal(replies[0].code, "cancelled");
+  assert.equal(replies[1].code, "failed", "a disabled feature is not a user-cancelled window");
 });
 
 test("showing a real browser restores its existing minimized window and does not reopen a closed page", {

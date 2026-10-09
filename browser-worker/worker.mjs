@@ -1,7 +1,7 @@
-import { launchBrowser, showBrowserWindow, bootstrapHtml, WorkerError, NeedsHuman } from "./launch.mjs";
+import { launchBrowser, showBrowserWindow, bootstrapHtml, WorkerError, NeedsHuman, WorkerCancelled } from "./launch.mjs";
 import { LoginBrowser } from "./login.mjs";
 import { AccountBrowser } from "./accounts.mjs";
-import { renderTurnstile, verificationFailure } from "./verification.mjs";
+import { pageNeedsVerification, renderTurnstile, verificationFailure } from "./verification.mjs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
@@ -96,7 +96,7 @@ export class BrowserWorker {
     this.context = await launchBrowser({ profileDir, executablePath, proxy, title: this.windowTitle }, this.emit);
     if (this.closing) {
       await this.context.close();
-      throw new WorkerError("签到验证已取消");
+      throw new WorkerCancelled("签到验证已取消");
     }
     // The configured account is authoritative; never inherit a previous login.
     await this.context.clearCookies({ name: "session" });
@@ -143,7 +143,7 @@ export class BrowserWorker {
 
   assertOrigin() {
     if (!this.page || this.page.isClosed() || this.closing) {
-      throw new WorkerError("验证窗口已关闭，签到已停止");
+      throw new WorkerCancelled("验证窗口已关闭，签到已取消");
     }
     sameOriginUrl(this.origin, this.page.url());
   }
@@ -154,7 +154,8 @@ export class BrowserWorker {
     try {
       await this.page.goto(url, { waitUntil: "domcontentloaded", timeout: REQUEST_TIMEOUT_MS });
     } catch (error) {
-      if (this.page.isClosed() || !String(error).includes("Timeout")) throw error;
+      if (this.page.isClosed() || this.closing) throw new WorkerCancelled("验证窗口已关闭，签到已取消");
+      if (!String(error).includes("Timeout")) throw error;
     }
     this.assertOrigin();
     await this.waitForClearance();
@@ -168,11 +169,7 @@ export class BrowserWorker {
       this.assertOrigin();
       let challenged;
       try {
-        challenged = await this.page.evaluate(() =>
-          Boolean(window._cf_chl_opt)
-          || Boolean(document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]'))
-          || ["Just a moment...", "正在验证…"].includes(window.__balancehubOriginalTitle ?? document.title),
-        );
+        challenged = await this.page.evaluate(pageNeedsVerification);
       } catch {
         await this.pause(500);
         continue;
@@ -201,7 +198,7 @@ export class BrowserWorker {
     try {
       await this.page.evaluate(renderTurnstile, { siteKey, providerName: this.providerName, siteHost: this.siteHost, windowTitle: this.windowTitle });
     } catch (error) {
-      if (this.page.isClosed() || this.closing) throw new WorkerError("验证窗口已关闭，签到已停止");
+      if (this.page.isClosed() || this.closing) throw new WorkerCancelled("验证窗口已关闭，签到已取消");
       throw new WorkerError(String(error).includes("verification_script_timeout")
         ? "验证码组件加载超时，请检查网络或代理后重试"
         : "验证码组件加载失败，请检查网络或站点配置后重试");
@@ -358,7 +355,7 @@ export function createWorkerRequestDispatcher(worker, emit) {
     } catch (error) { fail(reference, error); }
   };
   function fail(reference, error) {
-    emit({ ...reference, ok: false, code: error instanceof NeedsHuman ? "needsHuman" : "failed",
+    emit({ ...reference, ok: false, code: error instanceof NeedsHuman ? "needsHuman" : error instanceof WorkerCancelled ? "cancelled" : "failed",
       error: error instanceof WorkerError ? error.message
         : String(error).match(/net::ERR_[A-Z_]+/)?.[0]
           ? "浏览器连接失败：" + String(error).match(/net::ERR_[A-Z_]+/)[0]

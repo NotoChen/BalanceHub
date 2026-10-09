@@ -77,6 +77,12 @@ pub enum CheckInSource {
     Automatic,
 }
 
+impl CheckInSource {
+    pub(crate) fn allows_interaction(self) -> bool {
+        matches!(self, Self::Manual | Self::Batch)
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckInTask {
@@ -91,6 +97,7 @@ pub struct CheckInTask {
     pub finished: bool,
     pub can_resume: bool,
     pub can_cancel: bool,
+    pub can_show_window: bool,
     pub started_at: u64,
     pub finished_at: Option<u64>,
 }
@@ -109,6 +116,7 @@ pub(crate) enum CheckInError {
     WaitingHuman,
     WaitingLogin,
     WaitingBrowser(String),
+    Cancelled(String),
     Unconfirmed(String),
     Failed(String),
 }
@@ -130,9 +138,10 @@ impl std::fmt::Display for CheckInError {
         match self {
             Self::WaitingHuman => f.write_str(CheckInPhase::WaitingHuman.message()),
             Self::WaitingLogin => f.write_str(CheckInPhase::WaitingLogin.message()),
-            Self::WaitingBrowser(message) | Self::Unconfirmed(message) | Self::Failed(message) => {
-                f.write_str(message)
-            }
+            Self::WaitingBrowser(message)
+            | Self::Cancelled(message)
+            | Self::Unconfirmed(message)
+            | Self::Failed(message) => f.write_str(message),
         }
     }
 }

@@ -16,7 +16,7 @@ function task(values: Partial<CheckInTask> = {}): CheckInTask {
   return {
     runId: "run-1", providerId: "provider-1", providerName: "测试中转站",
     batchId: "batch-1", source: "batch", phase: "queued", message: "等待签到",
-    revision: 1, finished: false, canResume: false, canCancel: true,
+    revision: 1, finished: false, canResume: false, canCancel: true, canShowWindow: false,
     startedAt: 1000, finishedAt: null, ...values,
   };
 }
@@ -54,13 +54,15 @@ test("waiting for verification stays in progress and reopening does not enqueue 
   const queued = task();
   const controller = harness(async () => { calls++; return { batchId: "batch-1", tasks: [queued], skipped: 0 }; });
   await controller.open();
-  controller.snapshot.value = { items: [task({ revision: 2, phase: "waitingHuman", canResume: true })], pending: [], error: "" };
+  controller.snapshot.value = { items: [task({ revision: 2, phase: "waitingHuman", canResume: false, canShowWindow: true })], pending: [], error: "" };
   controller.visible.value = false;
   await controller.open();
   assert.equal(calls, 1);
   assert.equal(controller.progress.value.running, true);
   assert.equal(controller.progress.value.completed, false);
   assert.equal(controller.progress.value.tasks[0].phase, "waitingHuman");
+  assert.equal(controller.progress.value.tasks[0].canResume, false);
+  assert.equal(controller.progress.value.tasks[0].canShowWindow, true);
   controller.snapshot.value = { items: [task({ revision: 3, phase: "completed", finished: true, finishedAt: 2500, canCancel: false })], pending: [], error: "" };
   assert.equal(controller.progress.value.running, false);
   assert.equal(controller.progress.value.completed, true);

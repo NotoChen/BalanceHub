@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LoginBrowser } from "./login.mjs";
+import { WorkerCancelled } from "./launch.mjs";
 
 function response(path, data, { method = "GET", success = true, origin = "https://relay.test" } = {}) {
   return { url: () => origin + path, ok: () => true, headers: () => ({ "content-type": "application/json" }),
@@ -41,11 +42,62 @@ test("automatic platform selection never clicks a settings or identity-provider 
   }
 });
 
+function loginControls() {
+  const state = { challenge: false, visible: false, enabled: false, count: 1, clicks: 0, failClick: false, closed: false };
+  const browser = new LoginBrowser();
+  Object.assign(browser, { origin: "https://relay.test", basePath: "", requireFreshLogin: true,
+    profile: { expectedPlatform: "linuxDo" } });
+  const control = {
+    or: () => control, count: async () => state.count, isVisible: async () => state.visible, isEnabled: async () => state.enabled,
+    click: async () => { state.clicks++; if (state.failClick) throw new Error("navigation acknowledgement interrupted"); },
+  };
+  const page = { url: () => "https://relay.test/login", isClosed: () => state.closed,
+    evaluate: async () => state.challenge,
+    getByRole: (role, { name }) => {
+      assert.ok(["button", "link"].includes(role));
+      assert.ok(name.test("使用 LinuxDO 继续"));
+      assert.ok(name.test("使用 Linux DO 账户登录"));
+      assert.ok(!name.test("人工验证") && !name.test("使用 GitHub 继续"));
+      return control;
+    },
+  };
+  return { browser, page, state };
+}
+
+test("bound login keeps waiting for delayed controls and resumes automatically after human verification", async () => {
+  const { browser, page, state } = loginControls();
+  await browser.startBoundLogin(page);
+  state.visible = true;
+  await browser.startBoundLogin(page);
+  state.enabled = true;
+  state.challenge = true;
+  await browser.startBoundLogin(page);
+  assert.equal(state.clicks, 0);
+  state.challenge = false;
+  await browser.startBoundLogin(page);
+  await browser.startBoundLogin(page);
+  assert.equal(state.clicks, 1, "a completed verification continues exactly one login flow");
+});
+
+test("ambiguous controls, cancellation and possibly delivered clicks never cause automatic resubmission", async () => {
+  for (const reason of ["ambiguous", "cancelled", "closed", "uncertain"]) {
+    const { browser, page, state } = loginControls();
+    state.visible = true; state.enabled = true;
+    if (reason === "ambiguous") state.count = 2;
+    if (reason === "cancelled") browser.closing = true;
+    if (reason === "closed") state.closed = true;
+    if (reason === "uncertain") state.failClick = true;
+    await browser.startBoundLogin(page);
+    await browser.startBoundLogin(page);
+    assert.equal(state.clicks, reason === "uncertain" ? 1 : 0, reason);
+  }
+});
+
 const smoke = { skip: process.env.BALANCEHUB_BROWSER_SMOKE !== "1", timeout: 30_000 };
 
 async function fixture(mode, run) {
   const directory = await mkdtemp(join(tmpdir(), "balancehub-checkin-login-"));
-  const observed = { logins: 0, self: 0, oldCookieReachedLogin: false, phases: [] };
+  const observed = { logins: 0, self: 0, oldCookieReachedLogin: false, phases: [], verificationClicks: 0, openedAt: 0, loggedInAt: 0 };
   const id = mode === "wrong-user" ? 43 : 42;
   const user = { id, username: "fixture" };
   const server = createServer((request, reply) => {
@@ -55,6 +107,7 @@ async function fixture(mode, run) {
       reply.end(JSON.stringify({ success: true, data }));
     };
     if (path === "/login") {
+      observed.openedAt = Date.now();
       observed.oldCookieReachedLogin ||= (request.headers.cookie || "").includes("old-site-session");
       reply.setHeader("content-type", "text/html; charset=utf-8");
       if (mode === "refresh-only") return reply.end(`<script>
@@ -62,11 +115,23 @@ async function fixture(mode, run) {
           localStorage.setItem('user',JSON.stringify(r.data));fetch('/api/user/self');
         });</script>原有会话已恢复`);
       if (mode === "waiting") return reply.end("<p>请登录账号</p>");
-      return reply.end(`<button id="login">使用 Linux DO 继续</button><input type="checkbox" aria-label="人工验证">
-        <script>document.getElementById('login').onclick=()=>fetch('/api/oauth/linuxdo?code=fixture').then(r=>r.json()).then(r=>localStorage.setItem('user',JSON.stringify(r.data)));</script>`);
+      const control = mode === "link" ? '<a href="#" id="login">使用 LinuxDO 继续</a>' : '<button id="login">使用 LinuxDO 继续</button>';
+      return reply.end(`<div id="controls"></div><input type="checkbox" aria-label="人工验证" onchange="fetch('/unexpected-verification')">
+        <script>
+          function ready() {
+            delete window._cf_chl_opt;
+            document.getElementById('controls').innerHTML=${JSON.stringify(control)};
+            document.getElementById('login').onclick=(event)=>{
+              event.preventDefault();
+              fetch('/api/oauth/linuxdo?code=fixture').then(r=>r.json()).then(r=>localStorage.setItem('user',JSON.stringify(r.data)));
+            };
+          }
+          ${mode === "challenge" ? "window._cf_chl_opt = {};" : ""}
+          ${["delayed-control", "challenge"].includes(mode) ? "setTimeout(ready, 3_000);" : "ready();"}
+        </script>`);
     }
     if (path === "/api/oauth/linuxdo" || path === "/api/user/auth/refresh") {
-      if (path === "/api/oauth/linuxdo") observed.logins++;
+      if (path === "/api/oauth/linuxdo") { observed.logins++; observed.loggedInAt = Date.now(); }
       reply.setHeader("set-cookie", "session=fresh-site-session; Path=/; HttpOnly; SameSite=Lax");
       return json(user);
     }
@@ -74,6 +139,7 @@ async function fixture(mode, run) {
       observed.self++;
       return json(user);
     }
+    if (path === "/unexpected-verification") { observed.verificationClicks++; return reply.end(); }
     reply.writeHead(404).end();
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -105,8 +171,32 @@ test("a bound OAuth check-in clears the old relay cookie and proves a new same-u
     assert.equal(observed.logins, 1);
     assert.equal(observed.self, 1);
     assert.equal(observed.oldCookieReachedLogin, false);
-    assert.deepEqual(observed.phases, ["waitingLogin", "loggingIn", "verifyingResult"]);
+    assert.ok(observed.phases.includes("loggingIn"));
+    assert.equal(observed.phases.at(-1), "verifyingResult");
+    assert.equal(observed.verificationClicks, 0);
   });
+});
+
+for (const mode of ["delayed-control", "challenge", "link"]) {
+  test(`fresh login automatically continues with ${mode} without touching verification controls`, smoke, async () => {
+    await fixture(mode, async (browser, input, observed) => {
+      const result = await browser.run(input);
+      assert.equal(result.freshLogin, true);
+      assert.equal(observed.logins, 1);
+      assert.equal(observed.verificationClicks, 0);
+      if (mode !== "link") assert.ok(observed.loggedInAt - observed.openedAt >= 2_800);
+      if (mode === "challenge") assert.ok(observed.phases.includes("waitingHuman"));
+    });
+  });
+}
+
+test("independent relay windows can wait and complete concurrently", smoke, async () => {
+  await Promise.all(["delayed-control", "challenge"].map((mode) => fixture(mode, async (browser, input, observed) => {
+    const result = await browser.run(input);
+    assert.equal(result.user.id, "42");
+    assert.equal(observed.logins, 1);
+    assert.equal(observed.verificationClicks, 0);
+  })));
 });
 
 test("a restored session and refresh response time out without a fresh login proof", smoke, async () => {
@@ -128,7 +218,7 @@ test("browser check-in refuses a different relay user after OAuth", smoke, async
 test("closing a pending fresh-login window settles without submitting or returning credentials", smoke, async () => {
   await fixture("waiting", async (browser, input, observed) => {
     const running = browser.run(input);
-    const cancelled = assert.rejects(running, /已关闭|已取消|closed/);
+    const cancelled = assert.rejects(running, WorkerCancelled);
     for (let attempt = 0; !observed.phases.includes("waitingLogin"); attempt++) {
       if (attempt > 200) throw new Error("login window did not open");
       await Promise.race([new Promise((resolve) => setTimeout(resolve, 50)), running]);

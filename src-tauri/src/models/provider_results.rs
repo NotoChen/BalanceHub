@@ -516,32 +516,6 @@ impl ProviderBatchSummary {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "event", content = "data")]
-pub enum ProviderBatchProgressEvent {
-    #[serde(rename = "started")]
-    Started {
-        operation: ProviderBatchOperation,
-        total: usize,
-        items: Vec<ProviderBatchProgressItem>,
-    },
-    #[serde(rename = "providerStarted")]
-    ProviderStarted {
-        operation: ProviderBatchOperation,
-        item: ProviderBatchProgressItem,
-    },
-    #[serde(rename = "providerFinished")]
-    ProviderFinished {
-        operation: ProviderBatchOperation,
-        item: ProviderBatchProgressItem,
-    },
-    #[serde(rename = "completed")]
-    Completed {
-        operation: ProviderBatchOperation,
-        summary: ProviderBatchSummary,
-    },
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCheckInRecord {
@@ -848,20 +822,5 @@ mod tests {
         assert_eq!(refreshed[0].local_name, "我的备用 Key");
         assert_eq!(refreshed[0].key, "sk-stable-secret");
         assert!(refreshed[0].key_available);
-    }
-
-    #[test]
-    fn batch_progress_event_uses_frontend_event_names() {
-        let provider = Provider::from_input(ProviderInput::default(), "provider-1".to_string());
-        let event = ProviderBatchProgressEvent::Started {
-            operation: ProviderBatchOperation::Refresh,
-            total: 1,
-            items: vec![ProviderBatchProgressItem::pending(&provider)],
-        };
-        let value = serde_json::to_value(event).expect("batch event should serialize");
-        assert_eq!(value["event"], "started");
-        assert_eq!(value["data"]["operation"], "refresh");
-        assert_eq!(value["data"]["items"][0]["status"], "pending");
-        assert!(value["data"]["items"][0]["providerId"] == "provider-1");
     }
 }

@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, provide, shallowRef, watch, type ComputedRef, type InjectionKey } from "vue";
 import { Message } from "@arco-design/web-vue";
-import { checkInProvider, checkInAllProviders, cancelCheckInTask, listCheckInTasks, listenCheckInTasks, resumeCheckInTask, type CheckInTask } from "../api/checkin";
+import { checkInProvider, checkInAllProviders, cancelCheckInTask, listCheckInTasks, listenCheckInTasks, resumeCheckInTask, showCheckInWindow, type CheckInTask } from "../api/checkin";
 import type { Provider } from "../stores/providers";
 import { createCheckInTracker, type CheckInSnapshot } from "../utils/check-in-tasks";
 import type { BrowserRuntimeController } from "./useBrowserRuntime";
@@ -11,6 +11,7 @@ interface CheckInController {
   pending: ComputedRef<string[]>;
   resume: (task: CheckInTask) => Promise<void>;
   cancel: (task: CheckInTask) => Promise<void>;
+  showWindow: (task: CheckInTask) => Promise<void>;
 }
 export const CHECK_IN_CONTEXT: InjectionKey<CheckInController> = Symbol("check-in-tasks");
 
@@ -18,6 +19,7 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
   const state = shallowRef<CheckInSnapshot>({ items: [], pending: [], error: "" });
   const tracker = createCheckInTracker({ list: listCheckInTasks, listen: listenCheckInTasks,
     submit: checkInProvider, submitAll: checkInAllProviders, resume: resumeCheckInTask, cancel: cancelCheckInTask,
+    showWindow: showCheckInWindow,
   }, (snapshot) => { state.value = snapshot; });
   const tasks = computed(() => state.value.items);
   const pending = computed(() => state.value.pending);
@@ -37,6 +39,7 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
     await tracker.resume(task.runId);
   }
   async function cancel(task: CheckInTask) { await tracker.cancel(task.runId); }
+  async function showWindow(task: CheckInTask) { await tracker.showWindow(task.runId); }
 
   async function checkInProviderAction(provider: Provider) {
     const existing = tasks.value.find((task) => task.providerId === provider.identity.id && !task.finished);
@@ -72,8 +75,9 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
   watch(() => state.value.error, (error) => { if (error) Message.error(error); });
   onMounted(() => { void tracker.start(); window.addEventListener("focus", tracker.refresh); });
   onUnmounted(() => { tracker.stop(); window.removeEventListener("focus", tracker.refresh); });
-  provide(CHECK_IN_CONTEXT, { tasks, pending, resume, cancel });
+  provide(CHECK_IN_CONTEXT, { tasks, pending, resume, cancel, showWindow });
   return { checkInTasks: tasks, checkInPending: pending, resumeCheckInTask: resume, cancelCheckInTask: cancel,
+    showCheckInWindow: showWindow,
     checkInBatchVisible: batchProgress.visible, checkInBatchProgress: batchProgress.progress,
     checkingInProviderIds, globalCheckInInProgress, checkInProviderAction, checkInAllProvidersAction };
 }

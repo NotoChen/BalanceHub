@@ -83,7 +83,7 @@ function loginTask(runId: string, fields: Partial<ProviderBrowserLoginTask> = {}
 function checkInTask(fields: Partial<CheckInTask> = {}): CheckInTask {
   return { runId: "checkin-fixture", providerId: "fixture-provider", providerName: "隔离站点", batchId: null,
     source: "manual", phase: "waitingHuman", message: "等待验证", revision: 1, finished: false, canResume: true,
-    canCancel: true, startedAt: Date.now() - 1_000, finishedAt: null, ...fields };
+    canCancel: true, canShowWindow: false, startedAt: Date.now() - 1_000, finishedAt: null, ...fields };
 }
 function browserRuntime(fields: Partial<BrowserRuntimeStatus> = {}): BrowserRuntimeStatus {
   return { phase: "installing", message: "读取隔离组件", ready: false, installed: false, browser: null, systemBrowsers: [], selection: { mode: "managed" }, runtimeReady: false,
@@ -99,6 +99,7 @@ function fresh(t: TestContext) {
     batchOperation: ref(null), batchOperationRunning: ref(false), batchOperationItems: ref([]), batchOperationError: ref(""), batchOperationCompleted: ref(false),
     refreshInProgress: ref(false), refreshingProviderIds: ref(new Set<string>()), checkInTasks: ref([]), checkInPending: ref([]),
     resumeCheckInTask: async (task) => { controls.push("resume:" + task.runId); }, cancelCheckInTask: async (task) => { controls.push("cancel:" + task.runId); },
+    showCheckInWindow: async (task) => { controls.push("show:" + task.runId); },
     browserRuntime: ref(null), cancelBrowserRuntime: async () => { controls.push("cancel:browser"); },
     checkingForUpdate: ref(false), updateCheckError: ref(""), installingUpdate: ref(false), updateDownloadProgress: ref(null), updateInstallStatus: ref(""), updateInstallError: ref(""),
     announcementsLoading: ref(false), announcementFatalError: ref(""), announcementErrors: ref([]), cliRuntimeLoading: ref(false),
@@ -226,4 +227,18 @@ test("scheduler and vanished domain tasks are not automatically recorded as succ
   emit(event("scheduler-fixture", { kind: "autoRefresh", status: "failed", detail: "自动刷新失败", finishedAt: Date.now() })); await settle();
   assert.equal(center.activeTaskCount.value, 0);
   assert.deepEqual(center.recentTasks.value.map((task) => [task.id, task.status, task.detail]), [["scheduler-fixture", "failed", "自动刷新失败"]]);
+});
+
+test("check-in human waits show the existing window instead of offering another submission", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  context.options.checkInTasks.value = [checkInTask({ source: "batch", canResume: false, canShowWindow: true })];
+  await settle();
+  const live = center.activeTasks.value.find((task) => task.id === "checkin-fixture")!;
+  assert.equal(live.status, "waiting");
+  assert.deepEqual(live.actions?.map((item) => item.label), ["显示签到窗口", "取消"]);
+  action(live, "显示签到窗口").run();
+  assert.deepEqual(context.controls, ["show:checkin-fixture"]);
+  context.options.checkInPending.value = ["show:checkin-fixture"];
+  await settle();
+  assert.ok(center.activeTasks.value[0].actions?.every((item) => item.disabled));
 });

@@ -4,6 +4,7 @@ use crate::{
     adapters::protocol,
     models::{
         provider_domain, AppData, AppDataTransferResult, AppSettings, AuthMode, Provider,
+        ProviderBatchOperation, ProviderBatchProgressItem, ProviderBatchSummary,
         ProviderCapabilityProbeResult, ProviderModelSyncResult, ProviderProtocol,
         ProviderSaveResult, RefreshResult, TemporaryCliPreference, Workspace,
     },
@@ -301,6 +302,42 @@ impl From<RefreshResult> for RefreshResultView {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderBatchResultView {
+    pub updated_providers: Vec<ProviderView>,
+    pub items: Vec<ProviderBatchProgressItem>,
+}
+
+/// Progress carries the committed IPC view so cards can accept each provider's
+/// revision immediately, independently of the remaining batch.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "event", content = "data")]
+pub enum ProviderBatchProgressEvent {
+    #[serde(rename = "started")]
+    Started {
+        operation: ProviderBatchOperation,
+        total: usize,
+        items: Vec<ProviderBatchProgressItem>,
+    },
+    #[serde(rename = "providerStarted")]
+    ProviderStarted {
+        operation: ProviderBatchOperation,
+        item: ProviderBatchProgressItem,
+    },
+    #[serde(rename = "providerFinished")]
+    ProviderFinished {
+        operation: ProviderBatchOperation,
+        item: ProviderBatchProgressItem,
+        provider: Option<Box<ProviderView>>,
+    },
+    #[serde(rename = "completed")]
+    Completed {
+        operation: ProviderBatchOperation,
+        summary: ProviderBatchSummary,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderCapabilityProbeResultView {
     pub provider: ProviderView,
     pub message: String,
@@ -337,6 +374,45 @@ impl From<ProviderModelSyncResult> for ProviderModelSyncResultView {
 mod tests {
     use super::*;
     use crate::models::{AuthMode, ProviderInput, ProviderProtocol};
+
+    #[test]
+    fn batch_progress_events_use_frontend_names_and_revisioned_provider_views() {
+        let mut provider = Provider::from_input(ProviderInput::default(), "provider-1".to_string());
+        provider.revision = 9;
+        provider.quota.available = 42.0;
+        let pending = ProviderBatchProgressItem::pending(&provider);
+        let started = serde_json::to_value(ProviderBatchProgressEvent::Started {
+            operation: ProviderBatchOperation::Refresh,
+            total: 1,
+            items: vec![pending.clone()],
+        })
+        .unwrap();
+        assert_eq!(started["event"], "started");
+        assert_eq!(started["data"]["operation"], "refresh");
+        assert_eq!(started["data"]["items"][0]["status"], "pending");
+        assert_eq!(started["data"]["items"][0]["providerId"], "provider-1");
+
+        let view = ProviderView::from(provider);
+        let finished = serde_json::to_value(ProviderBatchProgressEvent::ProviderFinished {
+            operation: ProviderBatchOperation::Refresh,
+            item: pending.clone(),
+            provider: Some(Box::new(view.clone())),
+        })
+        .unwrap();
+        assert_eq!(finished["event"], "providerFinished");
+        assert_eq!(finished["data"]["provider"]["identity"]["id"], "provider-1");
+        assert_eq!(finished["data"]["provider"]["revision"], 9);
+        assert_eq!(finished["data"]["provider"]["quota"]["available"], 42.0);
+        assert!(finished["data"]["provider"]["actions"].is_object());
+
+        let result = serde_json::to_value(ProviderBatchResultView {
+            updated_providers: vec![view],
+            items: vec![pending],
+        })
+        .unwrap();
+        assert_eq!(result["updatedProviders"][0]["revision"], 9);
+        assert_eq!(result["items"][0]["providerId"], "provider-1");
+    }
 
     #[test]
     fn provider_view_adds_rust_owned_actions_without_changing_persisted_model() {

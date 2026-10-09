@@ -1,3 +1,15 @@
+// Read-only challenge detection shared by check-in and login. A widget stays
+// under the user's control; its fresh response is the only completion signal.
+export function pageNeedsVerification() {
+  const title = window.__balancehubOriginalTitle ?? document.title;
+  if (window._cf_chl_opt || document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')
+    || ["Just a moment...", "正在验证…"].includes(title)) return true;
+  const widget = document.querySelector('iframe[src*="challenges.cloudflare.com"], .cf-turnstile, .g-recaptcha, .h-captcha');
+  if (!widget || !widget.getClientRects().length) return false;
+  return ![...document.querySelectorAll('[name="cf-turnstile-response"], [name="g-recaptcha-response"], [name="h-captcha-response"]')]
+    .some((input) => typeof input.value === "string" && input.value.trim());
+}
+
 // This function runs in the page. Every callback belongs to one widget instance,
 // so a late callback from a previous verification cannot supply a new token.
 export async function renderTurnstile({ siteKey, providerName, siteHost, windowTitle }) {

@@ -24,6 +24,13 @@ function resume() {
   visible.value = false;
   void context?.resume(current);
 }
+
+function showWindow() {
+  const current = task.value;
+  if (!current || pending.value) return;
+  visible.value = false;
+  void context?.showWindow(current);
+}
 </script>
 
 <template>
@@ -37,6 +44,7 @@ function resume() {
         <strong>{{ task.canResume ? label : '签到进度' }}</strong>
         <p role="status">{{ task.message }}</p>
         <div class="provider-check-in-controls">
+          <a-button v-if="task.canShowWindow" size="small" type="primary" :disabled="pending" @click="showWindow">显示签到窗口</a-button>
           <a-button v-if="task.canResume" size="small" type="primary" :disabled="pending" @click="resume">{{ label }}</a-button>
           <a-button v-if="task.canCancel" size="small" :disabled="pending" @click="context?.cancel(task)">取消签到</a-button>
         </div>

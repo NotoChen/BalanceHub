@@ -15,6 +15,7 @@ export interface CheckInTask {
   finished: boolean;
   canResume: boolean;
   canCancel: boolean;
+  canShowWindow: boolean;
   startedAt: number;
   finishedAt: number | null;
 }
@@ -43,6 +44,10 @@ export function resumeCheckInTask(runId: string) {
 
 export function cancelCheckInTask(runId: string) {
   return withTimeout(invoke<void>("cancel_check_in_task", { runId }), 5_000, "取消请求超时，请查看后台任务状态");
+}
+
+export function showCheckInWindow(runId: string) {
+  return withTimeout(invoke<void>("show_check_in_window", { runId }), 6_000, "显示签到窗口超时，请稍后重试");
 }
 
 export function listenCheckInTasks(receive: (task: CheckInTask) => void) {

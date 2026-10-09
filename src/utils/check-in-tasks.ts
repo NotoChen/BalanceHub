@@ -19,6 +19,7 @@ interface CheckInApi {
   submitAll: () => Promise<CheckInBatch>;
   resume: (runId: string) => Promise<CheckInTask>;
   cancel: (runId: string) => Promise<void>;
+  showWindow: (runId: string) => Promise<void>;
 }
 
 export function createCheckInTracker(api: CheckInApi, changed: (snapshot: CheckInSnapshot) => void) {
@@ -97,5 +98,6 @@ export function createCheckInTracker(api: CheckInApi, changed: (snapshot: CheckI
     submitAll: () => action("batch", api.submitAll, (batch) => merge(batch.tasks)),
     resume: (runId: string) => action(`resume:${runId}`, () => api.resume(runId), (task) => merge([task])),
     cancel: (runId: string) => action(`cancel:${runId}`, () => api.cancel(runId), () => { void refresh(); }),
+    showWindow: (runId: string) => action(`show:${runId}`, () => api.showWindow(runId), () => {}),
   };
 }

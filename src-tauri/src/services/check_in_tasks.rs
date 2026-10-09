@@ -1,5 +1,8 @@
-//! All check-in entry points enqueue here. Waiting tasks own no browser or HTTP slot.
+//! All check-in entry points enqueue here. Active human waits keep their browser;
+//! suspended automatic tasks release it and remain resumable.
+mod window;
 use crate::{
+    adapters::browser::BrowserWindowControl,
     app_events::PROVIDERS_CHANGED_EVENT,
     models::{
         provider_domain, CheckInBatch, CheckInError, CheckInPhase, CheckInSource, CheckInTask,
@@ -28,6 +31,7 @@ const EVENT: &str = "balancehub://check-in-task";
 static REVISION: AtomicU64 = AtomicU64::new(0);
 static RUNS: OnceLock<Mutex<HashMap<String, Run>>> = OnceLock::new();
 pub(super) static HTTP_SLOTS: Semaphore = Semaphore::const_new(6);
+pub(crate) use window::show as show_window;
 
 struct Run {
     task: CheckInTask,
@@ -37,6 +41,7 @@ struct Run {
     executing: bool,
     context: ProviderRequestContext,
     automatic_attempt: u32,
+    window: Option<BrowserWindowControl>,
 }
 
 #[derive(Clone)]
@@ -51,7 +56,7 @@ impl CheckInContext {
             app,
             &self.run_id,
             CheckInPhase::Queued,
-            "正在排队等待浏览器窗口，前面的任务处理后自动继续".to_string(),
+            "正在等待可用签到窗口，同一登录账号的任务依次处理".to_string(),
             true,
         );
     }
@@ -60,7 +65,7 @@ impl CheckInContext {
         let message = if phase == CheckInPhase::WaitingHuman && self.interactive {
             "请在浏览器中完成验证，完成后自动继续"
         } else if phase == CheckInPhase::WaitingLogin && self.interactive {
-            "请在浏览器中使用绑定账号登录，完成后自动确认签到"
+            "正在使用绑定账号登录；如需补充登录信息，请在浏览器中完成"
         } else {
             phase.message()
         };
@@ -167,7 +172,15 @@ pub(crate) fn enqueue(
         if let Some(run) = runs.values().find(|run| {
             !run.task.finished && (run.task.provider_id == id || run.account_key == key)
         }) {
-            return Ok(run.task.clone());
+            let existing = run.task.clone();
+            drop(runs);
+            // A user-triggered batch also continues work previously suspended
+            // by the scheduler, without requiring a second click per station.
+            return if source.allows_interaction() && existing.can_resume {
+                resume(app, &existing.run_id)
+            } else {
+                Ok(existing)
+            };
         }
         if runs.len() >= 128 {
             let cutoff = unix_millis() as u64 - 15 * 60 * 1000;
@@ -193,6 +206,7 @@ pub(crate) fn enqueue(
             finished: false,
             can_resume: false,
             can_cancel: true,
+            can_show_window: false,
             started_at: unix_millis() as u64,
             finished_at: None,
         };
@@ -206,6 +220,7 @@ pub(crate) fn enqueue(
                 executing: true,
                 context: ProviderRequestContext::capture(&provider),
                 automatic_attempt,
+                window: None,
             },
         );
         task
@@ -215,7 +230,7 @@ pub(crate) fn enqueue(
         app.clone(),
         task.clone(),
         receiver,
-        source == CheckInSource::Manual,
+        source.allows_interaction(),
     );
     Ok(task)
 }
@@ -345,6 +360,9 @@ fn set_phase(task: &mut CheckInTask, phase: CheckInPhase, message: String, execu
     task.finished = phase.finished();
     task.can_resume = phase.waiting() && !executing;
     task.can_cancel = !task.finished && phase != CheckInPhase::Saving;
+    if task.finished || !executing || matches!(phase, CheckInPhase::Queued | CheckInPhase::Saving) {
+        task.can_show_window = false;
+    }
     task.revision = REVISION.fetch_add(1, Ordering::Relaxed) + 1;
     task.finished_at = task.finished.then(|| unix_millis() as u64);
 }
@@ -362,6 +380,10 @@ fn publish(app: &AppHandle, id: &str, phase: CheckInPhase, message: String, exec
         }
         run.executing = executing;
         set_phase(&mut run.task, phase, message, executing);
+        run.task.can_show_window = window::can_show(run);
+        if !executing {
+            run.window = None;
+        }
         run.task.clone()
     };
     let _ = app.emit(EVENT, task);
@@ -425,6 +447,7 @@ fn spawn(
                 CheckInPhase::WaitingLogin.message().to_string(),
             ),
             Err(CheckInError::WaitingBrowser(message)) => (CheckInPhase::WaitingBrowser, message),
+            Err(CheckInError::Cancelled(message)) => (CheckInPhase::Cancelled, message),
             Err(CheckInError::Unconfirmed(message)) => (CheckInPhase::Unconfirmed, message),
             Err(CheckInError::Failed(message)) => (CheckInPhase::Failed, message),
         };
@@ -513,13 +536,16 @@ mod tests {
             finished: false,
             can_resume: false,
             can_cancel: true,
+            can_show_window: false,
             started_at: 0,
             finished_at: None,
         };
         set_phase(&mut task, CheckInPhase::WaitingHuman, String::new(), true);
         assert!(!task.can_resume);
+        task.can_show_window = true;
         set_phase(&mut task, CheckInPhase::WaitingHuman, String::new(), false);
         assert!(task.can_resume && task.can_cancel && !task.finished);
+        assert!(!task.can_show_window);
         set_phase(&mut task, CheckInPhase::WaitingLogin, String::new(), true);
         assert!(!task.can_resume && task.can_cancel);
         set_phase(&mut task, CheckInPhase::WaitingLogin, String::new(), false);
@@ -527,10 +553,19 @@ mod tests {
         set_phase(&mut task, CheckInPhase::LoggingIn, String::new(), true);
         assert!(task.phase.may_have_submitted());
         assert!(!task.can_resume && task.can_cancel);
+        task.can_show_window = true;
         set_phase(&mut task, CheckInPhase::Saving, String::new(), true);
         assert!(!task.can_cancel && !task.finished);
+        assert!(!task.can_show_window);
         set_phase(&mut task, CheckInPhase::Completed, String::new(), false);
         assert!(task.finished && task.finished_at.is_some());
         assert!(!task.can_resume && !task.can_cancel);
+    }
+
+    #[test]
+    fn user_started_batches_keep_human_verification_interactive() {
+        assert!(CheckInSource::Manual.allows_interaction());
+        assert!(CheckInSource::Batch.allows_interaction());
+        assert!(!CheckInSource::Automatic.allows_interaction());
     }
 }

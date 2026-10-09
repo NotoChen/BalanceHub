@@ -1,5 +1,8 @@
 use super::{
-    browser_runtime, check_in_tasks::CheckInContext, provider_service::ProviderRequestContext,
+    browser_profiles::{self, ProfileKey},
+    browser_runtime,
+    check_in_tasks::CheckInContext,
+    provider_service::ProviderRequestContext,
 };
 use crate::{
     adapters::{
@@ -17,9 +20,6 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 use tauri::{AppHandle, Manager};
-use tokio::sync::Semaphore;
-
-static BROWSER_SLOT: Semaphore = Semaphore::const_new(1);
 
 pub(crate) async fn run(
     app: &AppHandle,
@@ -31,10 +31,8 @@ pub(crate) async fn run(
     // Queue time is not counted as browser execution time. The enclosing task
     // owns cancellation, including while this permit is pending.
     task.queued_for_browser(app);
-    let _slot = BROWSER_SLOT
-        .acquire()
-        .await
-        .map_err(|_| "浏览器队列不可用")?;
+    let _profile =
+        browser_profiles::acquire(ProfileKey::CheckIn(provider.identity.id.clone())).await?;
     let runtime = browser_runtime::acquire(app)
         .await
         .map_err(CheckInError::WaitingBrowser)?;
@@ -48,6 +46,7 @@ pub(crate) async fn run(
         }),
     )
     .map_err(CheckInError::WaitingBrowser)?;
+    let window = task.attach_window(app, session.window_control())?;
     let outcome = tokio::time::timeout(
         Duration::from_secs(480),
         execute(
@@ -67,6 +66,7 @@ pub(crate) async fn run(
         ))
     });
     session.close().await;
+    drop(window);
     // The task registry marks completion only after ProviderService persists.
     outcome
 }
@@ -89,7 +89,7 @@ async fn execute(
         let current = data
             .providers
             .iter()
-            .find(|item| context.matches(item))
+            .find(|item| context.matches_check_in(item))
             .filter(|item| item.runtime.enabled)
             .ok_or("账号配置已变更，已停止本次签到")?;
         if network::resolve_proxy(&data.settings, current).fingerprint() != proxy_key {

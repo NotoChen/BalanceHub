@@ -3,6 +3,7 @@ import { mkdir, chmod } from "node:fs/promises";
 
 export class WorkerError extends Error {}
 export class NeedsHuman extends WorkerError {}
+export class WorkerCancelled extends WorkerError {}
 
 export async function showBrowserWindow(context) {
   const page = context?.pages().filter((item) => !item.isClosed()).at(-1);

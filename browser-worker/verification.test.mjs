@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 import { BrowserWorker } from "./worker.mjs";
-import { NeedsHuman, browserLaunchFailure } from "./launch.mjs";
+import { NeedsHuman, WorkerCancelled, browserLaunchFailure } from "./launch.mjs";
 import { renderTurnstile, verificationFailure } from "./verification.mjs";
 
 const empty = () => ({ token: "", error: "", interactive: false, expired: false, timedOut: false, unsupported: false });
@@ -52,7 +52,7 @@ test("explicit verification errors fail promptly with their code instead of wait
 test("closing the verification window releases a pending human interaction", async () => {
   const fixture = workerWithStates([{ ...empty(), interactive: true }]);
   fixture.worker.pause = async () => { fixture.worker.closing = true; };
-  await assert.rejects(fixture.worker.verify({ siteKey: "fixture-key" }), /已关闭/);
+  await assert.rejects(fixture.worker.verify({ siteKey: "fixture-key" }), WorkerCancelled);
 });
 
 test("full page challenges stay passive after human handover", async (t) => {

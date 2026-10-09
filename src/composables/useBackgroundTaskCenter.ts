@@ -78,6 +78,7 @@ interface UseBackgroundTaskCenterOptions {
   checkInPending: Ref<string[]>;
   resumeCheckInTask: (task: CheckInTask) => Promise<void>;
   cancelCheckInTask: (task: CheckInTask) => Promise<void>;
+  showCheckInWindow: (task: CheckInTask) => Promise<void>;
   browserRuntime: Ref<BrowserRuntimeStatus | null>;
   cancelBrowserRuntime: () => Promise<void>;
   checkingForUpdate: Ref<boolean>;
@@ -133,10 +134,12 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   function checkInBackgroundTask(task: CheckInTask): BackgroundTask {
     const busy = options.checkInPending.value.some((key) => key.endsWith(`:${task.runId}`));
     const actions: NonNullable<BackgroundTask["actions"]> = [];
+    if (task.canShowWindow) actions.push({ label: "显示签到窗口", disabled: busy, run: () => { void options.showCheckInWindow(task); } });
     if (task.canResume) actions.push({ label: checkInResumeLabel(task), disabled: busy, run: () => { void options.resumeCheckInTask(task); } });
     if (task.canCancel) actions.push({ label: "取消", disabled: busy, run: () => { void options.cancelCheckInTask(task); } });
     const status: BackgroundTaskStatus = task.phase === "completed" ? "success" : task.phase === "failed" ? "failed"
-      : task.phase === "cancelled" ? "cancelled" : task.phase === "unconfirmed" ? "unconfirmed" : task.canResume ? "waiting" : "running";
+      : task.phase === "cancelled" ? "cancelled" : task.phase === "unconfirmed" ? "unconfirmed"
+      : task.canResume || ["waitingHuman", "waitingLogin", "waitingBrowser"].includes(task.phase) ? "waiting" : "running";
     return { id: task.runId, kind: task.source === "automatic" ? "autoCheckIn" : "checkIn", title: `签到 · ${task.providerName}`,
       detail: task.message, status, progress: null, startedAt: task.startedAt, finishedAt: task.finishedAt ?? undefined,
       source: task.source === "automatic" ? "automatic" : "manual", actions };

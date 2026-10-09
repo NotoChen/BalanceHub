@@ -42,6 +42,7 @@ const emit = defineEmits<{
   "update:visible": [visible: boolean];
   resumeCheckIn: [task: CheckInTask];
   cancelCheckIn: [task: CheckInTask];
+  showCheckInWindow: [task: CheckInTask];
 }>();
 
 type RowStatus = ProviderBatchStatus | "waiting" | "unconfirmed" | "cancelled";
@@ -82,9 +83,11 @@ const hasIssues = computed(() => Boolean(props.error) || failedCount.value > 0 |
 const progressStatus = computed(() => props.error || failedCount.value > 0 ? "danger"
   : props.completed && !unconfirmedCount.value && !cancelledCount.value ? "success" : "normal");
 const summaryTitle = computed(() => {
-  if (!isCheckIn.value) return props.running ? "后端正在逐站处理" : props.completed ? "批量操作已完成" : "批量操作尚未开始";
+  if (!isCheckIn.value) return props.running ? "正在逐站刷新" : props.error ? "刷新中断，请查看各站点结果" : props.completed ? "刷新已完成" : "正在准备刷新";
   if (props.submitting) return "正在创建签到任务";
-  if (waitingOnly.value) return "等待登录或验证，可在下方继续";
+  if (waitingOnly.value) return props.checkInTasks.some((task) => task.canShowWindow)
+    ? "请在已打开的窗口中完成登录或验证，完成后自动继续"
+    : "等待登录或验证，可在下方继续";
   if (props.running) return "正在逐站签到";
   if (props.error) return "签到任务提交失败";
   if (props.completed && !progressItems.value.length) return "当前没有需要签到的中转站";
@@ -146,8 +149,7 @@ function statusIcon(status: RowStatus) {
 }
 
 function taskActionPending(task: CheckInTask) {
-  return props.checkInPending.includes(`resume:${task.runId}`)
-    || props.checkInPending.includes(`cancel:${task.runId}`);
+  return props.checkInPending.some((key) => key.endsWith(`:${task.runId}`));
 }
 
 function quotaLabel(value: number, item: ProgressRow) {
@@ -259,7 +261,8 @@ function durationLabel() {
             <span v-if="item.details?.lastCheckedInAt" class="batch-operation-row-time">签到 {{ formatTime(item.details.lastCheckedInAt) }}</span>
           </div>
           <p v-if="item.message" class="batch-operation-row-message">{{ item.message }}</p>
-          <div v-if="item.task && (item.task.canResume || item.task.canCancel)" class="batch-operation-row-actions">
+          <div v-if="item.task && (item.task.canResume || item.task.canShowWindow || item.task.canCancel)" class="batch-operation-row-actions">
+            <a-button v-if="item.task.canShowWindow" size="small" type="primary" :disabled="taskActionPending(item.task)" @click="emit('showCheckInWindow', item.task)">显示签到窗口</a-button>
             <a-button v-if="item.task.canResume" size="small" type="primary" :disabled="taskActionPending(item.task)" @click="emit('resumeCheckIn', item.task)">{{ checkInResumeLabel(item.task) }}</a-button>
             <a-button v-if="item.task.canCancel" size="small" :disabled="taskActionPending(item.task)" @click="emit('cancelCheckIn', item.task)">取消</a-button>
           </div>

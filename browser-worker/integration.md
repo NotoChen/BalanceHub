@@ -10,7 +10,10 @@ outside this component's scope.
 - One Rust task registry owns manual, batch and scheduled check-in. Commands
   acknowledge immediately. Queuing, human assistance and component installation
   must not hold the normal request concurrency slot or lock the main UI.
-- Automatic attempts yield when human assistance is needed. Resuming creates a
+- Manual and user-triggered batch attempts keep the browser open while human
+  verification is pending and continue in the same task when it succeeds. The
+  card, batch progress and task center can bring the existing window forward.
+- Scheduled attempts yield when human assistance is needed. Resuming creates a
   fresh browser session, checks today's state again, and obtains a fresh token.
 - A final success event follows persistence. An uncertain submission is reported
   as unconfirmed and is not automatically submitted again.
@@ -32,8 +35,8 @@ outside this component's scope.
   user/machine registry scopes and registry views, as well as default directories;
   all platforms offer manual selection. Native Windows acceptance remains pending.
 - Never click CAPTCHA controls. Turnstile callbacks report interactive mode,
-  errors, expiry, timeout and unsupported browsers. Manual tasks keep the window;
-  automatic tasks yield for a later user-triggered attempt. Cloudflare's published
+  errors, expiry, timeout and unsupported browsers. Manual and batch tasks keep
+  the window; scheduled tasks yield for a later user-triggered attempt. Cloudflare's published
   lack of support for automation still applies; do not promise universal clearance.
 - Successful empty model lists replace cached models; failed fetches retain them.
 - AgentRouter uses its login-based NewAPI dialect. Reauthenticate with saved
@@ -92,12 +95,21 @@ cached credentials cannot skip a login that was intercepted by a page challenge.
 Bound-account reauthentication uses `provider_browser_login/check_in` inside the
 existing check-in task. It shares the exclusive account profile lease with login
 imports and account management, without holding the HTTP or global refresh gate.
-The worker clears relay credentials, optionally selects the known platform's login
-button, and requires a successful login response plus same-user readback. OAuth
+Independent verification profiles and login accounts share a maximum of three
+browser slots. Tasks using the same account profile queue before taking a slot;
+they do not block other accounts, and cancelling a queued task releases its lease.
+Clearing an idle account only locks that account, not all browser tasks.
+The worker clears relay credentials and waits for the bound platform's login
+button or link to become usable, including after a page challenge. It selects the
+entry at most once, never repeats a possibly delivered click, and requires a
+successful login response plus same-user readback. OAuth
 state, session refresh and localStorage cannot prove reauthentication. Rust checks
 the bound account generation, observed platform identity and current provider
 context before merging credentials, then uses the common check-in finalizer.
-Bulk and scheduled runs yield as `waitingLogin`; a manual resume opens the window.
+User-triggered bulk runs open the window directly, and also resume previously
+suspended scheduled tasks. Scheduled runs yield as `waitingLogin`; a manual resume
+opens the window. Unknown platform controls, expired identity-provider sessions
+and new authorization prompts stay available for the user to complete.
 Progress distinguishes waiting for login from actual login submission so cancellation
 after a possible submission remains unconfirmed instead of silently retrying.
 

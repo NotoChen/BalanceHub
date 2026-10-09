@@ -118,6 +118,15 @@ impl BrowserSession {
             if value.get("code").and_then(Value::as_str) == Some("needsHuman") {
                 return Err(CheckInError::WaitingHuman);
             }
+            if value.get("code").and_then(Value::as_str) == Some("cancelled") {
+                return Err(CheckInError::Cancelled(
+                    value
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("签到已取消")
+                        .to_string(),
+                ));
+            }
             return Err(value
                 .get("error")
                 .and_then(Value::as_str)

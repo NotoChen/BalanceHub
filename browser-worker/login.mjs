@@ -1,5 +1,6 @@
-import { bootstrapHtml, launchBrowser, WorkerError } from "./launch.mjs";
+import { bootstrapHtml, launchBrowser, WorkerError, WorkerCancelled } from "./launch.mjs";
 import { IdentityProfile, profileCookieKey } from "./accounts.mjs";
+import { pageNeedsVerification } from "./verification.mjs";
 
 const AUTH_COOKIES = new Set(["session", "new_api_refresh"]);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -11,7 +12,11 @@ export function loginUser(value) {
 
 function loginTitle({ title }) {
   if (window !== window.top) return;
-  const apply = () => { if (document.title !== title) document.title = title; };
+  const apply = () => {
+    if (document.title === title) return;
+    window.__balancehubOriginalTitle = document.title;
+    document.title = title;
+  };
   document.addEventListener("DOMContentLoaded", () => {
     apply();
     new MutationObserver(apply).observe(document, { subtree: true, childList: true, characterData: true });
@@ -40,6 +45,14 @@ export class LoginBrowser {
     this.freshUser = null;
     this.freshLoginSubmitted = false;
     this.requireFreshLogin = false;
+    this.boundLoginStarted = false;
+    this.lastPhase = null;
+  }
+
+  progress(phase) {
+    if (this.lastPhase === phase || this.closing || this.closed) return;
+    this.lastPhase = phase;
+    this.emit({ event: "progress", phase });
   }
 
   isTarget(url) {
@@ -135,26 +148,48 @@ export class LoginBrowser {
 
   assertOpen() {
     if (this.closing || this.closed || !this.context?.pages().some((page) => !page.isClosed())) {
-      throw new WorkerError(this.requireFreshLogin ? "重新登录窗口已关闭" : "登录窗口已关闭，导入已取消");
+      throw new WorkerCancelled(this.requireFreshLogin ? "重新登录窗口已关闭，签到已取消" : "登录窗口已关闭，导入已取消");
     }
   }
 
   async startBoundLogin(page) {
     const onLoginPage = () => this.isTarget(page.url())
       && [this.basePath + "/login", this.basePath + "/sign-in"].includes(new URL(page.url()).pathname.replace(/\/+$/, ""));
-    if (!this.requireFreshLogin || this.freshLoginSubmitted || !onLoginPage()) return;
+    if (!this.requireFreshLogin || this.boundLoginStarted || this.freshLoginSubmitted || !onLoginPage()) return;
     const platform = { linuxDo: "Linux\\s*DO", github: "GitHub" }[this.profile.expectedPlatform];
     if (!platform) return;
-    // Select only the named platform's login button on the target relay.
-    // Consent, account choice and anti-bot challenges remain user interactions.
-    const name = new RegExp(`^(?:(?:使用|通过|用)\\s*)?${platform}(?:\\s*(?:登录|登陆|继续|账号登录))?$|^(?:log\\s*in|sign\\s*in|continue)\\s+with\\s+${platform}$`, "i");
-    const button = page.getByRole("button", { name });
+    // Wait until the login page is usable, including after human verification.
+    // Only select the bound platform; never click generic buttons or checkboxes.
+    const name = new RegExp(`^(?:(?:使用|通过|用)\\s*)?${platform}(?:\\s*(?:账号|账户))?(?:\\s*(?:登录|登陆|继续))?$|^(?:log\\s*in|sign\\s*in|continue)\\s+with\\s+${platform}$`, "i");
+    const button = page.getByRole("button", { name }).or(page.getByRole("link", { name }));
     try {
-      await button.waitFor({ state: "visible", timeout: 2_000 });
-      if (onLoginPage() && await button.count() === 1 && await button.isEnabled()) {
-        await button.click({ timeout: 2_000 });
+      if (await page.evaluate(pageNeedsVerification)) return;
+      if (await button.count() === 1 && await button.isVisible() && await button.isEnabled()
+        && onLoginPage() && !this.boundLoginStarted && !this.freshLoginSubmitted && !this.closing && !page.isClosed()) {
+        // Once a click may have been delivered, do not submit it again even if
+        // navigation takes time or the click's acknowledgement is interrupted.
+        this.boundLoginStarted = true;
+        await button.click({ timeout: 2_000, noWaitAfter: true });
       }
     } catch { /* Unknown or unavailable login controls stay open for the user. */ }
+  }
+
+  async advanceBoundLogin() {
+    if (!this.requireFreshLogin || this.freshLoginSubmitted) return;
+    const pages = this.context.pages().filter((page) => !page.isClosed());
+    for (const page of pages.toReversed()) {
+      const challenged = await page.evaluate(pageNeedsVerification).catch(() => null);
+      if (challenged) {
+        const wasWaiting = this.lastPhase === "waitingHuman";
+        this.progress("waitingHuman");
+        if (!wasWaiting) await page.bringToFront().catch(() => {});
+        return;
+      }
+      if (challenged === null) continue; // Navigation is still settling.
+      await this.startBoundLogin(page);
+      if (this.freshLoginSubmitted) return;
+    }
+    this.progress("waitingLogin");
   }
 
   async run({ url, providerName, accountName, profileDir, proxy, executablePath, expectedPlatform, expectedIdentity,
@@ -176,7 +211,7 @@ export class LoginBrowser {
     this.context.on("close", () => { this.closed = true; });
     if (this.closing) {
       await this.context.close();
-      throw new WorkerError("登录已取消");
+      throw new WorkerCancelled("登录已取消");
     }
     await this.profile.restore(this.context);
     await this.clearBusinessCookies();
@@ -191,7 +226,12 @@ export class LoginBrowser {
       if (this.isAuth(request.url()) && !this.blockingNewAuth) { this.inFlightAuth.add(request); this.lastAuthActivity = Date.now(); }
       if (this.requireFreshLogin && !this.blockingNewAuth && this.loginMechanism(request.url(), request.method()) !== "unknown") {
         this.freshLoginSubmitted = true;
-        this.emit({ event: "progress", phase: "loggingIn" });
+        this.progress("loggingIn");
+      } else if (this.requireFreshLogin && this.isAuth(request.url())
+        && new URL(request.url()).pathname === this.basePath + "/api/oauth/state") {
+        // A user may choose the platform while the page is loading. Do not
+        // start a second OAuth flow alongside that explicit choice.
+        this.boundLoginStarted = true;
       }
     });
     const settled = (request) => {
@@ -212,15 +252,13 @@ export class LoginBrowser {
     });
     this.assertOpen();
     await page.bringToFront();
-    if (!this.requireFreshLogin || !this.freshLoginSubmitted) {
-      this.emit({ event: "progress", phase: this.requireFreshLogin ? "waitingLogin" : "waitingHuman" });
-    }
-    await this.startBoundLogin(page);
+    if (!this.requireFreshLogin) this.progress("waitingHuman");
     const deadline = Date.now() + Math.max(1_000, Math.min(timeoutMs, 600_000));
     let nextSnapshot = Date.now() + 5_000;
     while (Date.now() < deadline) {
       this.assertOpen();
       this.profile.assertIdentity();
+      await this.advanceBoundLogin();
       const cookies = await this.targetCookies();
       if (!this.requireFreshLogin && !this.user && cookies.some((cookie) => cookie.name === "session")) {
         for (const targetPage of this.context.pages().filter((item) => this.isTarget(item.url()))) {
@@ -245,7 +283,7 @@ export class LoginBrowser {
 
   async handoff() {
     if (this.requireFreshLogin && !this.freshUser) throw new WorkerError("未观察到本次重新登录，不能将旧会话记为签到");
-    if (this.requireFreshLogin) this.emit({ event: "progress", phase: "verifyingResult" });
+    if (this.requireFreshLogin) this.progress("verifyingResult");
     this.handingOff = true;
     // Stop new SPA refreshes, then drain the already submitted requests before
     // parking pages. Otherwise a server-side rotation could outlive our snapshot.

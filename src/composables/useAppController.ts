@@ -350,6 +350,7 @@ export function useAppController() {
     checkInPending: checkIn.checkInPending,
     resumeCheckInTask: checkIn.resumeCheckInTask,
     cancelCheckInTask: checkIn.cancelCheckInTask,
+    showCheckInWindow: checkIn.showCheckInWindow,
     browserRuntime: browserRuntime.state,
     cancelBrowserRuntime: browserRuntime.cancel,
     checkingForUpdate: appUpdater.checkingForUpdate,

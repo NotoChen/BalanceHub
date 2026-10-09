@@ -96,7 +96,7 @@ async fn run_account(
     let _slot = tokio::select! {
         biased;
         _ = cancelled.changed() => return Err("账号窗口已取消".into()),
-        slot = profile::acquire(&account.id) => slot?,
+        slot = browser_profiles::acquire(ProfileKey::Account(account.id.clone())) => slot?,
     };
     if *cancelled.borrow() {
         return Err("账号窗口已取消".into());
