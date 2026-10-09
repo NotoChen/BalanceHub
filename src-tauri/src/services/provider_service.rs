@@ -35,6 +35,7 @@ pub struct ProviderService<'a> {
 /// 网络返回后必须再次与最新存储状态比对；只按 provider id 或 URL 判断，会让旧账号的
 /// 身份、额度、签到、能力等结果写进用户刚切换的新账号。API Key 列表本身是派生元数据，
 /// 不参与上下文判断，避免一次纯列表刷新无意义地取消同账号请求。
+/// 浏览器绑定由签到额外校验；解绑登录环境不应丢弃既有站点会话的续期结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ProviderRequestContext {
     provider_id: String,
@@ -102,10 +103,13 @@ impl ProviderRequestContext {
             && self.access_token_expires_at == provider.auth.access_token_expires_at
             && self.new_api_session == provider.auth.new_api_session
             && self.credential_revision == provider.auth.credential_revision
-            && self.browser_binding == provider.auth.browser_binding
             && self.check_in_method == provider.automation.check_in_method
             && self.auto_shield == provider.automation.auto_shield
             && self.turnstile_mode == provider.automation.turnstile_mode
+    }
+
+    pub(super) fn matches_check_in(&self, provider: &Provider) -> bool {
+        self.matches(provider) && self.browser_binding == provider.auth.browser_binding
     }
 }
 
@@ -129,6 +133,28 @@ pub(super) fn find_provider(data: &AppData, id: &str) -> Result<Provider, String
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn browser_binding_changes_preserve_business_requests_but_invalidate_check_in() {
+        use crate::models::{BrowserLoginBinding, BrowserLoginMechanism, LoginPlatform};
+        let mut original = provider("fixture");
+        original.auth.browser_binding = Some(BrowserLoginBinding {
+            account_id: Some("account-a".into()),
+            platform: LoginPlatform::LinuxDo,
+            mechanism: BrowserLoginMechanism::Oauth,
+            imported_at: 1,
+        });
+        let context = super::ProviderRequestContext::capture(&original);
+        assert!(context.matches_check_in(&original));
+        for account_id in [None, Some("account-b".to_string())] {
+            let mut edited = original.clone();
+            edited.auth.browser_binding.as_mut().unwrap().account_id = account_id;
+            assert!(context.matches(&edited));
+            assert!(!context.matches_check_in(&edited));
+            edited.auth.session_cookie = "session=another-account".into();
+            assert!(!context.matches(&edited));
+        }
+    }
+
     #[test]
     fn check_in_policy_changes_invalidate_old_request_contexts() {
         let original = provider("fixture");

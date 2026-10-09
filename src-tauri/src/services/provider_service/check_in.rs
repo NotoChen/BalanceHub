@@ -233,7 +233,8 @@ impl<'a> ProviderService<'a> {
             let persisted = self
                 .mutate_decided_async(move |data| {
                     if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
-                        stored.identity.id == provider_id && mutation_context.matches(stored)
+                        stored.identity.id == provider_id
+                            && mutation_context.matches_check_in(stored)
                     }) {
                         if let Some(refreshed) = refreshed_provider {
                             let _ = apply_refresh_owned_fields(
@@ -285,7 +286,8 @@ impl<'a> ProviderService<'a> {
             let mutation_context_for_probe = mutation_context.clone();
             self.mutate_decided_async(move |data| {
                 if let Some(stored_provider) = data.providers.iter_mut().find(|stored| {
-                    stored.identity.id == provider_id && mutation_context_for_probe.matches(stored)
+                    stored.identity.id == provider_id
+                        && mutation_context_for_probe.matches_check_in(stored)
                 }) {
                     stored_provider.capabilities.check_in_known = true;
                     stored_provider.capabilities.check_in_supported = false;

@@ -401,6 +401,13 @@ mod tests {
         );
         assert!(reset_account(&mut data, "a", 0, true).is_err());
         let request = super::super::ProviderRequestContext::capture(&data.providers[0]);
+        let mut rotated = data.providers[0].clone();
+        rotated.auth.session_cookie = "session=rotated-a".into();
+        let credentials =
+            crate::adapters::protocol::contracts::ProviderCredentialPatch::from_authenticated(
+                &data.providers[0],
+                &rotated,
+            );
         reset_account(&mut data, "a", 1, true).unwrap();
         assert!(data.providers[0]
             .auth
@@ -415,6 +422,17 @@ mod tests {
             request.matches(&data.providers[0]),
             "detaching must allow an in-flight rotation to persist"
         );
+        assert!(!request.matches_check_in(&data.providers[0]));
+        assert!(credentials.apply(&mut data.providers[0]));
+        assert_eq!(data.providers[0].auth.session_cookie, "session=rotated-a");
+        assert!(data.providers[0]
+            .auth
+            .browser_binding
+            .as_ref()
+            .unwrap()
+            .account_id
+            .is_none());
+        assert_eq!(data.providers[1].auth, original_auth[1]);
     }
     #[test]
     fn known_identity_and_platform_mismatches_are_rejected() {

@@ -79,7 +79,7 @@ fn save_check_in_credentials(
     let index = data
         .providers
         .iter()
-        .position(|provider| provider.runtime.enabled && context.matches(provider))
+        .position(|provider| provider.runtime.enabled && context.matches_check_in(provider))
         .ok_or("账号配置已变更，本次登录结果未写入")?;
     let provider = &data.providers[index];
     if provider
@@ -450,6 +450,8 @@ mod tests {
             "platform-user",
             "cleared-account",
             "binding",
+            "detached-binding",
+            "removed-binding",
             "policy",
             "credential",
             "disabled",
@@ -471,6 +473,15 @@ mod tests {
                         .unwrap()
                         .account_id = Some("other-account".into())
                 }
+                "detached-binding" => {
+                    data.providers[0]
+                        .auth
+                        .browser_binding
+                        .as_mut()
+                        .unwrap()
+                        .account_id = None
+                }
+                "removed-binding" => data.providers[0].auth.browser_binding = None,
                 "policy" => {
                     data.providers[0].automation.check_in_method =
                         crate::models::ProviderCheckInMethod::Standard

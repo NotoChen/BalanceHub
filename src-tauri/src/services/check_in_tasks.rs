@@ -267,7 +267,7 @@ pub(crate) fn resume(app: &AppHandle, run_id: &str) -> Result<CheckInTask, Strin
         if !data
             .providers
             .iter()
-            .any(|provider| provider.runtime.enabled && run.context.matches(provider))
+            .any(|provider| provider.runtime.enabled && run.context.matches_check_in(provider))
         {
             return Err("账号配置已变更，请取消此任务后重新签到".to_string());
         }
@@ -327,7 +327,7 @@ pub(crate) fn cancel_outdated(app: &AppHandle) {
                 .filter(|run| {
                     !run.task.finished
                         && !providers.iter().any(|provider| {
-                            provider.runtime.enabled && run.context.matches(provider)
+                            provider.runtime.enabled && run.context.matches_check_in(provider)
                         })
                 })
                 .map(|run| run.task.run_id.clone())

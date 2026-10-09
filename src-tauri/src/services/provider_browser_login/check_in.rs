@@ -47,7 +47,7 @@ pub(crate) async fn run(
         let current = data
             .providers
             .iter()
-            .find(|item| item.runtime.enabled && context.matches(item))
+            .find(|item| item.runtime.enabled && context.matches_check_in(item))
             .ok_or("账号配置已变更，已停止本次重新登录")?;
         if network::resolve_proxy(&data.settings, current).fingerprint() != proxy.fingerprint() {
             return Err("代理配置已变更，请重新签到".to_string());
