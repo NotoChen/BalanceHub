@@ -200,7 +200,7 @@ impl AgentAssetAccessRegistry {
         };
         let sequence = self
             .sequence
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_add(1)
             })
             .map_err(|_| AgentAssetAccessError::new(AgentAssetAccessErrorKind::AccessExpired))?

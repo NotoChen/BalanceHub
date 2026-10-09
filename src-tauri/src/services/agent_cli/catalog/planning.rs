@@ -106,7 +106,7 @@ impl Drop for PreviewPermit {
 }
 
 pub(super) fn reserve(used: &Arc<AtomicUsize>, bytes: usize) -> Result<PreviewPermit, String> {
-    used.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+    used.try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
         current
             .checked_add(bytes)
             .filter(|next| *next <= PRIVATE_PREVIEW_LIMIT)

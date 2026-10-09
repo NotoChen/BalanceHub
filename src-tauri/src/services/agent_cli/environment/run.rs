@@ -44,7 +44,7 @@ impl ManualClock {
     pub(in crate::services::agent_cli) fn advance(&self, amount: Duration) {
         let nanos = amount.as_nanos().min(u64::MAX as u128) as u64;
         self.elapsed_nanos
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
                 |current| Some(current.saturating_add(nanos)),

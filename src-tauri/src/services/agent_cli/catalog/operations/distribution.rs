@@ -647,10 +647,10 @@ fn distribution_changes(
                         .and_then(|root| adapter.mcp_node(&root, context, scope, name).cloned())
                         .and_then(|value| adapter.decode(&value).ok())
                         .and_then(|value| serde_json::to_string_pretty(&value.as_input()).ok())
-                        .map(&bounded);
+                        .map(bounded);
                     let after = serde_json::to_string_pretty(&value.as_input())
                         .ok()
-                        .map(&bounded);
+                        .map(bounded);
                     (before, after)
                 }
                 DefinitionPayload::Skill(_)

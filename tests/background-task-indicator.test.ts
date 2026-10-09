@@ -8,6 +8,7 @@ import { compileScript, parse } from "vue/compiler-sfc";
 import { renderToString } from "vue/server-renderer";
 import ts from "typescript";
 import type { BackgroundTask } from "../src/composables/useBackgroundTaskCenter.ts";
+import * as progressDisplay from "../src/utils/progress-display.ts";
 
 const componentPath = fileURLToPath(
   new URL("../src/components/BackgroundTaskIndicator.vue", import.meta.url),
@@ -36,7 +37,11 @@ function loadIndicator(): Component {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const exports: { default?: Component } = {};
-  new Function("require", "exports", output)(createRequire(import.meta.url), exports);
+  const require = createRequire(import.meta.url);
+  new Function("require", "exports", output)((specifier: string) => {
+    if (specifier === "../utils/progress-display") return progressDisplay;
+    return require(specifier);
+  }, exports);
   assert.ok(exports.default);
   indicator = exports.default;
   return indicator;
@@ -78,4 +83,10 @@ test("closing the task popup retains all recent results until the user clears th
   for (const item of recentTasks) assert.ok(rendered.includes(item.title));
   assert.equal(cleared, 0);
   assert.match(rendered, /清空记录/);
+});
+
+test("running task progress renders at most two decimal places", async () => {
+  const rendered = await renderIndicator([{ ...task("download", "running"), progress: 0.123456789 }]);
+  assert.match(rendered, /12\.35%/);
+  assert.doesNotMatch(rendered, /12\.3456789/);
 });

@@ -474,7 +474,7 @@ impl ConfigurationService {
         }
         let publication = edit
             .latest_plan_generation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
                 generation.checked_add(1)
             })
             .map_err(|_| {
