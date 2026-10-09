@@ -5,19 +5,17 @@ use super::http::{
     ProviderTransport,
 };
 pub(crate) use super::http::{authenticate_password_provider, build_client};
-use super::keys::{
-    create_api_key, delete_api_key, fetch_api_key_options, probe_api_key_management,
-};
+use super::keys::{delete_api_key, fetch_api_key_options, probe_api_key_management};
 use super::response::{extract_string_field, parse_success_data, send_text};
 use super::site::fetch_site_metadata;
 pub use super::site::SiteMetadata;
 use crate::models::{
     provider_domain::check_in as check_in_policy, AppSettings, AuthMode, Provider,
-    ProviderApiKeyOption, ProviderCapabilities, ProviderCheckInMethod,
-    ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
-    ProviderCredentialCompletionResult, ProviderInput, ProviderQuotaDisplay,
-    ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
-    ProviderUsageSummary,
+    ProviderApiKeyEditorContext, ProviderApiKeyOption, ProviderApiKeyPatch, ProviderCapabilities,
+    ProviderCheckInMethod, ProviderCheckInRecordsResult, ProviderCheckInResult,
+    ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
+    ProviderQuotaDisplay, ProviderRequestLogsQuery, ProviderRequestLogsResult,
+    ProviderSiteProbeResult, ProviderUsageSummary,
 };
 use reqwest::Method;
 
@@ -110,25 +108,38 @@ impl NewApiAdapter {
         Ok((provider, options))
     }
 
+    pub(crate) async fn api_key_editor_context(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: Option<&str>,
+    ) -> Result<(Provider, ProviderApiKeyEditorContext), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        super::key_management::editor_context(&client, &authenticated, token_id).await
+    }
+
     pub(crate) async fn create_api_key(
         &self,
         settings: &AppSettings,
         provider: &Provider,
-        name: &str,
+        patch: &ProviderApiKeyPatch,
     ) -> Result<(Provider, ProviderApiKeyOption), String> {
         let client = build_client(settings, provider).await?;
         let authenticated = authenticated_provider(&client, provider).await?;
-        let (provider, option) = retry_with_access_token(
-            &client,
-            &authenticated,
-            create_managed_api_key(&client, &authenticated, name),
-            |candidate| {
-                let retry_client = client.clone();
-                async move { create_managed_api_key(&retry_client, &candidate, name).await }
-            },
-        )
-        .await?;
-        Ok((provider, option))
+        super::key_management::create(&client, &authenticated, patch).await
+    }
+
+    pub(crate) async fn update_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+        patch: &ProviderApiKeyPatch,
+    ) -> Result<(Provider, ProviderApiKeyOption), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        super::key_management::update(&client, &authenticated, token_id, patch).await
     }
 
     pub(crate) async fn generate_access_token(
@@ -316,7 +327,7 @@ impl NewApiAdapter {
         match crate::adapters::transport::build_client(settings, provider).await {
             Ok(client) => {
                 let mut refreshed = super::quota::refresh_provider(&client, provider).await;
-                if refreshed.auth.api_key.trim().is_empty() {
+                if !crate::models::provider_domain::model_list::action(&refreshed).can_sync {
                     return refreshed;
                 }
 
@@ -324,9 +335,12 @@ impl NewApiAdapter {
                     refreshed.runtime.status,
                     crate::models::ProviderStatus::Error
                 );
-                match crate::adapters::api::fetch_models(&client, &refreshed).await {
-                    Ok(models) => {
-                        refreshed.capabilities.available_models = models;
+                match crate::adapters::protocol::contracts::ConnectionCapability::fetch_available_models(
+                    self, &client, &refreshed,
+                ).await {
+                    Ok(operation) => {
+                        operation.apply_to(&mut refreshed);
+                        refreshed.capabilities.set_available_models(operation.value);
                         if quota_failed && matches!(provider.auth.mode, AuthMode::ApiKey) {
                             // API Key endpoints often expose /models but not account quota.
                             // A model refresh is still useful and should not leave the card
@@ -343,8 +357,9 @@ impl NewApiAdapter {
                                 Some(crate::util::unix_secs().to_string());
                         }
                     }
-                    Err(model_error) if matches!(provider.auth.mode, AuthMode::ApiKey) => {
-                        if quota_failed {
+                    Err(model_error) => {
+                        refreshed.capabilities.available_models_state.error = Some(model_error.clone());
+                        if matches!(provider.auth.mode, AuthMode::ApiKey) && quota_failed {
                             let quota_error = refreshed
                                 .runtime
                                 .error_message
@@ -352,13 +367,12 @@ impl NewApiAdapter {
                                 .unwrap_or_else(|| "额度刷新失败".to_string());
                             refreshed.runtime.error_message =
                                 Some(format!("{quota_error}；模型列表获取失败: {model_error}"));
-                        } else {
+                        } else if matches!(provider.auth.mode, AuthMode::ApiKey) {
                             refreshed.runtime.status = crate::models::ProviderStatus::Warning;
                             refreshed.runtime.error_message =
                                 Some(format!("额度已更新；模型列表获取失败: {model_error}"));
                         }
                     }
-                    Err(_) => {}
                 }
                 refreshed
             }
@@ -466,15 +480,6 @@ pub async fn list_api_keys(
     fetch_api_key_options(client, &base_url, &api_user, credential).await
 }
 
-pub async fn create_managed_api_key(
-    client: &ProviderTransport,
-    provider: &Provider,
-    name: &str,
-) -> Result<ProviderApiKeyOption, String> {
-    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
-    create_api_key(client, &base_url, &api_user, credential, name).await
-}
-
 pub async fn delete_managed_api_key(
     client: &ProviderTransport,
     provider: &Provider,
@@ -516,10 +521,9 @@ pub async fn probe_capabilities(
 
     if check_in_policy::effective_method(provider) == ProviderCheckInMethod::FreshLogin {
         capabilities.check_in_known = true;
-        capabilities.check_in_supported = !provider.auth.login_username.trim().is_empty()
-            && !provider.auth.login_password.trim().is_empty();
+        capabilities.check_in_supported = check_in_policy::validate_credentials(provider).is_ok();
         if capabilities.check_in_supported {
-            capabilities.check_in_auth_modes.push(AuthMode::Password);
+            capabilities.check_in_auth_modes.push(provider.auth.mode);
         }
     } else if check_in_policy::effective_method(provider) == ProviderCheckInMethod::SessionSignIn {
         capabilities.check_in_known = true;

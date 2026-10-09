@@ -62,7 +62,7 @@ export interface AgentSessionQuery {
   cursor: string | null;
 }
 
-export type AgentSessionSourceStatus = "complete" | "partial" | "unavailable" | "unsupported" | "cancelled";
+export type AgentSessionSourceStatus = "complete" | "indexing" | "partial" | "unavailable" | "unsupported" | "cancelled";
 
 export interface AgentSessionSourceState {
   sourceId: string;
@@ -101,6 +101,7 @@ export interface AgentSessionPage {
   items: AgentSessionRow[];
   parentUpdates: AgentSessionParentUpdate[];
   nextCursor: string | null;
+  scanPending: boolean;
   loadedCount: number;
   total: number | null;
   agentCounts: AgentSessionCount[];

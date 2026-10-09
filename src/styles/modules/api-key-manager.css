@@ -2,6 +2,137 @@
   overflow: hidden;
 }
 
+.api-key-settings-modal {
+  max-width: calc(100vw - 48px);
+}
+
+.api-key-settings-form,
+.api-key-settings-fields,
+.api-key-settings-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.api-key-settings-intro {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: 13px;
+}
+
+.api-key-settings-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.api-key-settings-fields:disabled {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.api-key-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.api-key-settings-field,
+.api-key-settings-box {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.api-key-settings-field > span,
+.api-key-settings-switch {
+  color: var(--color-text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.api-key-settings-box {
+  padding: 14px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 10px;
+  background: var(--color-fill-1);
+}
+
+.api-key-settings-switch,
+.api-key-settings-switch > span:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.api-key-settings-switch > span:last-child,
+.api-key-settings-switch small,
+.api-key-settings-hint {
+  color: var(--color-text-3);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.7;
+}
+
+.api-key-settings-status {
+  padding: 2px 0;
+}
+
+.api-key-settings-details {
+  border: 1px solid var(--color-border-2);
+  border-radius: 10px;
+}
+
+.api-key-settings-details > summary {
+  padding: 13px 16px;
+  color: var(--color-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.api-key-settings-details-body {
+  padding: 0 16px 16px;
+}
+
+.api-key-settings-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.api-key-settings-thirds {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.api-key-settings-form .arco-picker,
+.api-key-settings-form .arco-input-number {
+  width: 100%;
+}
+
+.api-key-settings-loading {
+  display: flex;
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--color-text-3);
+}
+
+.api-key-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+@media (max-width: 700px) {
+  .api-key-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .api-key-manager-header small {
   max-width: 46ch;
 }

@@ -25,6 +25,39 @@ pub fn effective_method(provider: &Provider) -> ProviderCheckInMethod {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreshLoginRoute<'a> {
+    Password,
+    BrowserAccount(&'a str),
+}
+
+fn has_password(provider: &Provider) -> bool {
+    provider.auth.mode == AuthMode::Password
+        && !provider.auth.login_username.trim().is_empty()
+        && !provider.auth.login_password.trim().is_empty()
+}
+
+/// Reauthentication needs a way to log in again, not just an existing session.
+pub fn fresh_login_route(provider: &Provider) -> Result<FreshLoginRoute<'_>, String> {
+    if has_password(provider) {
+        return Ok(FreshLoginRoute::Password);
+    }
+    if provider.auth.mode != AuthMode::ApiKey {
+        if let Some(account_id) = provider
+            .auth
+            .browser_binding
+            .as_ref()
+            .and_then(|binding| binding.account_id.as_deref())
+            .filter(|id| crate::models::valid_login_account_id(id))
+        {
+            if auth::has_api_user(provider) || !provider.identity.user_id.trim().is_empty() {
+                return Ok(FreshLoginRoute::BrowserAccount(account_id));
+            }
+        }
+    }
+    Err("重新登录签到需要账号密码，或先通过“登录并导入”绑定登录账号；仅有 Cookie / 访问令牌不能重新登录".into())
+}
+
 pub fn validate_credentials(provider: &Provider) -> Result<(), String> {
     if provider.identity.protocol != ProviderProtocol::NewApi {
         return Err("当前协议不支持账号签到".to_string());
@@ -32,13 +65,9 @@ pub fn validate_credentials(provider: &Provider) -> Result<(), String> {
     if provider.auth.mode == AuthMode::ApiKey {
         return Err("API Key 不支持账号签到，请切换账号认证方式".to_string());
     }
-    let has_password = provider.auth.mode == AuthMode::Password
-        && !provider.auth.login_username.trim().is_empty()
-        && !provider.auth.login_password.trim().is_empty();
+    let has_password = has_password(provider);
     match effective_method(provider) {
-        ProviderCheckInMethod::FreshLogin if !has_password => {
-            Err("重新登录签到需要选择账号密码认证，并填写用户名和密码".to_string())
-        }
+        ProviderCheckInMethod::FreshLogin => fresh_login_route(provider).map(|_| ()),
         ProviderCheckInMethod::SessionSignIn if !auth::has_session(provider) && !has_password => {
             Err("会话签到需要 session Cookie，或使用账号密码取得会话".to_string())
         }
@@ -92,7 +121,14 @@ pub fn preview(provider: &Provider) -> ProviderCheckInPolicyPreview {
             };
             let detail = match method {
                 ProviderCheckInMethod::FreshLogin => {
-                    "每次重新登录并确认账号状态；奖励是否到账以站点记录为准"
+                    if matches!(
+                        fresh_login_route(provider),
+                        Ok(FreshLoginRoute::BrowserAccount(_))
+                    ) {
+                        "使用绑定账号打开站点重新登录，完成后确认原账号；批量或定时签到会等待你继续登录，奖励以站点记录为准"
+                    } else {
+                        "使用账号密码重新登录并确认原账号；奖励以站点记录为准"
+                    }
                 }
                 ProviderCheckInMethod::SessionSignIn => {
                     "使用 session Cookie 提交签到，无需 API User ID"
@@ -147,5 +183,32 @@ mod tests {
             preset_for_url("https://api.agentrouter.org"),
             Some(ProviderCheckInMethod::FreshLogin)
         );
+    }
+
+    #[test]
+    fn browser_reauthentication_requires_a_bound_profile_and_original_site_user() {
+        use crate::models::{BrowserLoginBinding, BrowserLoginMechanism, LoginPlatform};
+        let mut provider = Provider::from_input(ProviderInput::default(), "fixture".into());
+        provider.automation.check_in_method = ProviderCheckInMethod::FreshLogin;
+        provider.auth.mode = AuthMode::Session;
+        provider.auth.browser_binding = Some(BrowserLoginBinding {
+            account_id: Some("fixture-account".into()),
+            platform: LoginPlatform::LinuxDo,
+            mechanism: BrowserLoginMechanism::Oauth,
+            imported_at: 1,
+        });
+        assert!(validate_credentials(&provider).is_err());
+        provider.identity.user_id = "42".into();
+        assert!(validate_credentials(&provider).is_ok());
+        provider.auth.mode = AuthMode::ApiKey;
+        assert!(validate_credentials(&provider).is_err());
+        provider.auth.mode = AuthMode::Password;
+        provider.auth.login_username = "fixture".into();
+        provider.auth.login_password = "fixture-password".into();
+        assert_eq!(fresh_login_route(&provider), Ok(FreshLoginRoute::Password));
+        provider.auth.mode = AuthMode::Session;
+        provider.auth.browser_binding.as_mut().unwrap().account_id =
+            Some("../other-profile".into());
+        assert!(validate_credentials(&provider).is_err());
     }
 }

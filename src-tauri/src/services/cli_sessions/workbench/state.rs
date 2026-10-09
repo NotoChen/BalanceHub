@@ -40,6 +40,7 @@ pub(super) struct Snapshot {
 #[derive(Clone, Default)]
 pub(super) struct QueryProgress {
     pub source_caches: HashMap<String, super::budget::HistoryReadCache>,
+    pub indexes: HashMap<String, Arc<crate::services::cli_sessions::index::HistoryIndex>>,
     pub matches: Arc<Mutex<HashMap<String, bool>>>,
     pub can_continue: bool,
     pub passes: u32,

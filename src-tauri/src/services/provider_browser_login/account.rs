@@ -96,7 +96,7 @@ async fn run_account(
     let _slot = tokio::select! {
         biased;
         _ = cancelled.changed() => return Err("账号窗口已取消".into()),
-        slot = SLOT.acquire() => slot.map_err(|_| "登录队列不可用")?,
+        slot = profile::acquire(&account.id) => slot?,
     };
     if *cancelled.borrow() {
         return Err("账号窗口已取消".into());

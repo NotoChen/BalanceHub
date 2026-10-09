@@ -37,6 +37,9 @@ export class LoginBrowser {
     this.authSequence = 0;
     this.lastAuthActivity = 0;
     this.blockingNewAuth = false;
+    this.freshUser = null;
+    this.freshLoginSubmitted = false;
+    this.requireFreshLogin = false;
   }
 
   isTarget(url) {
@@ -47,6 +50,16 @@ export class LoginBrowser {
     if (!this.isTarget(url)) return false;
     const path = new URL(url).pathname.slice(this.basePath.length);
     return path === "/api/user/login" || path.startsWith("/api/user/auth/") || path.startsWith("/api/oauth/");
+  }
+
+  loginMechanism(url, method) {
+    if (!this.isTarget(url)) return "unknown";
+    const path = new URL(url).pathname.slice(this.basePath.length);
+    if (method === "POST" && path === "/api/user/login") return "password";
+    // State, session refresh, binding and user/self are not a fresh login.
+    const callback = /^\/api\/oauth\/([^/]+)\/?$/.exec(path);
+    if (method === "GET" && callback && !["state", "bind", "unbind"].includes(callback[1])) return "oauth";
+    return "unknown";
   }
 
   async targetCookies() {
@@ -80,14 +93,17 @@ export class LoginBrowser {
     const payload = JSON.parse(body.toString("utf8"));
     if (payload.success !== true || !payload.data) return;
     const authPath = new URL(url).pathname.slice(this.basePath.length);
-    if (authPath.startsWith("/api/oauth/") && !authPath.includes("/state")) {
-      this.mechanism = "oauth";
+    const mechanism = this.loginMechanism(url, response.request().method());
+    const data = payload.data;
+    const user = loginUser(data.user || data);
+    if (mechanism !== "unknown" && user) {
+      this.freshUser = user;
+      this.mechanism = mechanism;
+    }
+    if (mechanism === "oauth") {
       if (/\/github(?:\/|$)/i.test(authPath)) this.authPlatform = "github";
       if (/\/linux_?do(?:\/|$)/i.test(authPath)) this.authPlatform = "linuxDo";
     }
-    else if (authPath === "/api/user/login") this.mechanism = "password";
-    const data = payload.data;
-    const user = loginUser(data.user || data);
     if (user) this.user = user;
     if (this.isAuth(url) && typeof data.access_token === "string" && data.access_token && data.session?.sid && user) {
       if (sequence < this.authSequence) return;
@@ -119,11 +135,30 @@ export class LoginBrowser {
 
   assertOpen() {
     if (this.closing || this.closed || !this.context?.pages().some((page) => !page.isClosed())) {
-      throw new WorkerError("登录窗口已关闭，导入已取消");
+      throw new WorkerError(this.requireFreshLogin ? "重新登录窗口已关闭" : "登录窗口已关闭，导入已取消");
     }
   }
 
-  async run({ url, providerName, accountName, profileDir, proxy, executablePath, expectedPlatform, expectedIdentity, loginPath = "/login", timeoutMs = 600_000 }) {
+  async startBoundLogin(page) {
+    const onLoginPage = () => this.isTarget(page.url())
+      && [this.basePath + "/login", this.basePath + "/sign-in"].includes(new URL(page.url()).pathname.replace(/\/+$/, ""));
+    if (!this.requireFreshLogin || this.freshLoginSubmitted || !onLoginPage()) return;
+    const platform = { linuxDo: "Linux\\s*DO", github: "GitHub" }[this.profile.expectedPlatform];
+    if (!platform) return;
+    // Select only the named platform's login button on the target relay.
+    // Consent, account choice and anti-bot challenges remain user interactions.
+    const name = new RegExp(`^(?:(?:使用|通过|用)\\s*)?${platform}(?:\\s*(?:登录|登陆|继续|账号登录))?$|^(?:log\\s*in|sign\\s*in|continue)\\s+with\\s+${platform}$`, "i");
+    const button = page.getByRole("button", { name });
+    try {
+      await button.waitFor({ state: "visible", timeout: 2_000 });
+      if (onLoginPage() && await button.count() === 1 && await button.isEnabled()) {
+        await button.click({ timeout: 2_000 });
+      }
+    } catch { /* Unknown or unavailable login controls stay open for the user. */ }
+  }
+
+  async run({ url, providerName, accountName, profileDir, proxy, executablePath, expectedPlatform, expectedIdentity,
+    expectedUserId = "", requireFreshLogin = false, loginPath = "/login", timeoutMs = 600_000 }) {
     const target = new URL(url);
     if (!["https:", "http:"].includes(target.protocol) || target.username || target.password || target.search || target.hash) {
       throw new WorkerError("中转站地址无效");
@@ -131,7 +166,10 @@ export class LoginBrowser {
     this.origin = target.origin;
     this.base = target.href.replace(/\/+$/, "");
     this.basePath = target.pathname.replace(/\/+$/, "");
-    this.title = `${providerName?.trim() || target.host}${accountName ? ` · ${accountName}` : ""} · 登录并导入 | BalanceHub`;
+    this.requireFreshLogin = requireFreshLogin === true;
+    this.expectedUserId = String(expectedUserId).trim();
+    if (this.requireFreshLogin && !this.expectedUserId) throw new WorkerError("缺少原站点账号，请先登录并导入再签到");
+    this.title = `${providerName?.trim() || target.host}${accountName ? ` · ${accountName}` : ""} · ${this.requireFreshLogin ? "重新登录签到" : "登录并导入"} | BalanceHub`;
     this.profile = new IdentityProfile(profileDir, expectedPlatform, expectedIdentity);
     this.context = await launchBrowser({ profileDir, executablePath, proxy, title: this.title,
       message: "正在打开站点登录页…", width: 520, height: 680 }, this.emit);
@@ -147,10 +185,14 @@ export class LoginBrowser {
     for (const page of this.context.pages()) {
       if (!page.url().startsWith("data:")) await page.goto("about:blank");
     }
-    const page = await this.parkedPage("请在站点页面登录，完成后自动导入。");
+    const page = await this.parkedPage(this.requireFreshLogin ? "正在打开站点，使用绑定账号重新登录后自动确认签到。" : "请在站点页面登录，完成后自动导入。");
     this.profile.attach(this.context);
     this.context.on("request", (request) => {
       if (this.isAuth(request.url()) && !this.blockingNewAuth) { this.inFlightAuth.add(request); this.lastAuthActivity = Date.now(); }
+      if (this.requireFreshLogin && !this.blockingNewAuth && this.loginMechanism(request.url(), request.method()) !== "unknown") {
+        this.freshLoginSubmitted = true;
+        this.emit({ event: "progress", phase: "loggingIn" });
+      }
     });
     const settled = (request) => {
       if (this.inFlightAuth.delete(request)) this.lastAuthActivity = Date.now();
@@ -170,13 +212,17 @@ export class LoginBrowser {
     });
     this.assertOpen();
     await page.bringToFront();
-    this.emit({ event: "progress", phase: "waitingHuman" });
+    if (!this.requireFreshLogin || !this.freshLoginSubmitted) {
+      this.emit({ event: "progress", phase: this.requireFreshLogin ? "waitingLogin" : "waitingHuman" });
+    }
+    await this.startBoundLogin(page);
     const deadline = Date.now() + Math.max(1_000, Math.min(timeoutMs, 600_000));
     let nextSnapshot = Date.now() + 5_000;
     while (Date.now() < deadline) {
       this.assertOpen();
+      this.profile.assertIdentity();
       const cookies = await this.targetCookies();
-      if (!this.user && cookies.some((cookie) => cookie.name === "session")) {
+      if (!this.requireFreshLogin && !this.user && cookies.some((cookie) => cookie.name === "session")) {
         for (const targetPage of this.context.pages().filter((item) => this.isTarget(item.url()))) {
           const user = await targetPage.evaluate(() => {
             try { return JSON.parse(localStorage.getItem("user")); } catch { return null; }
@@ -184,7 +230,7 @@ export class LoginBrowser {
           this.user = loginUser(user) || this.user;
         }
       }
-      if (this.user && (this.auth && cookies.some((cookie) => cookie.name === "new_api_refresh")
+      if (this.user && (!this.requireFreshLogin || this.freshUser) && (this.auth && cookies.some((cookie) => cookie.name === "new_api_refresh")
         || !this.auth && cookies.some((cookie) => cookie.name === "session"))) {
         return await this.handoff();
       }
@@ -194,10 +240,12 @@ export class LoginBrowser {
       }
       await pause(400);
     }
-    throw new WorkerError("登录等待超时，请重新点击登录并导入");
+    throw new WorkerError(this.requireFreshLogin ? "重新登录等待超时" : "登录等待超时，请重新点击登录并导入");
   }
 
   async handoff() {
+    if (this.requireFreshLogin && !this.freshUser) throw new WorkerError("未观察到本次重新登录，不能将旧会话记为签到");
+    if (this.requireFreshLogin) this.emit({ event: "progress", phase: "verifyingResult" });
     this.handingOff = true;
     // Stop new SPA refreshes, then drain the already submitted requests before
     // parking pages. Otherwise a server-side rotation could outlive our snapshot.
@@ -213,7 +261,7 @@ export class LoginBrowser {
     for (const page of this.context.pages()) {
       if (this.isTarget(page.url())) await page.goto("about:blank");
     }
-    const page = await this.parkedPage("登录成功，正在核对账号并导入…");
+    const page = await this.parkedPage(this.requireFreshLogin ? "重新登录已完成，正在核对原账号并确认签到…" : "登录成功，正在核对账号并导入…");
     const auth = this.auth;
     const user = this.user;
     const result = await page.evaluate(async ({ base, token, userId }) => {
@@ -225,6 +273,9 @@ export class LoginBrowser {
     }, { base: this.base, token: auth?.accessToken || "", userId: user.id });
     const verified = result?.success === true ? loginUser(result.data) : null;
     if (!verified || verified.id !== user.id) throw new WorkerError("未能确认目标站点账号，请重新登录导入");
+    if (this.requireFreshLogin && (verified.id !== this.freshUser.id || verified.id !== this.expectedUserId)) {
+      throw new WorkerError("重新登录的账号与原站点账号不一致，本次结果不会写入卡片");
+    }
     const cookies = await this.targetCookies();
     const refreshCookie = cookies.find((cookie) => cookie.name === "new_api_refresh")?.value || "";
     if (auth && !refreshCookie) throw new WorkerError("站点没有返回可续期的登录会话，请重新登录");
@@ -244,6 +295,7 @@ export class LoginBrowser {
       refreshCookie, sessionId: auth?.sessionId || "", user: verified,
       mechanism: platform !== "unknown" ? "oauth" : this.mechanism,
       platform: this.profile.platform, platformIdentity: this.profile.identity,
+      freshLogin: this.freshUser?.id === verified.id,
     };
   }
 

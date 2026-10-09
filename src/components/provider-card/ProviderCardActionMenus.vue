@@ -122,7 +122,7 @@ const hasCopyActions = computed(() =>
 );
 const canViewAvailableModels = computed(() =>
   Boolean(
-    props.provider.auth.apiKey.trim() ||
+    props.provider.actions.models.canSync ||
     (props.provider.capabilities.availableModels || []).length > 0,
   ),
 );

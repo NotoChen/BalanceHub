@@ -11,6 +11,8 @@ import type {
   Provider,
   ProviderProtocolDescriptor,
   ProviderApiKeyOption,
+  ProviderApiKeyPatch,
+  ProviderApiKeyEditorContext,
   ProviderCapabilityProbeResult,
   ProviderCheckInRecordsResult,
   ProviderCheckInPolicyPreview,
@@ -381,12 +383,24 @@ export function removeLocalProviderApiKey(id: string, localId: string) {
   return invoke<Provider>("remove_local_provider_api_key", { id, localId });
 }
 
-export function createProviderApiKey(id: string, name: string) {
-  return invoke<ProviderApiKeyOption[]>("create_provider_api_key", { id, name });
+export function createProviderApiKey(id: string, credentialRevision: number, patch: ProviderApiKeyPatch) {
+  return invoke<ProviderApiKeyOption[]>("create_provider_api_key", { id, credentialRevision, patch });
 }
 
-export function createProviderApiKeyForInput(input: ProviderInput, name: string) {
-  return invoke<ProviderApiKeyOption>("create_provider_api_key_for_input", { input, name });
+export function createProviderApiKeyForInput(input: ProviderInput, patch: ProviderApiKeyPatch) {
+  return invoke<ProviderApiKeyOption>("create_provider_api_key_for_input", { input, patch });
+}
+
+export function getProviderApiKeyEditorContext(id: string, tokenId: string | null = null) {
+  return invoke<ProviderApiKeyEditorContext>("get_provider_api_key_editor_context", { id, tokenId });
+}
+
+export function getProviderApiKeyEditorContextForInput(input: ProviderInput) {
+  return invoke<ProviderApiKeyEditorContext>("get_provider_api_key_editor_context_for_input", { input });
+}
+
+export function updateProviderApiKey(id: string, credentialRevision: number, tokenId: string, patch: ProviderApiKeyPatch) {
+  return invoke<ProviderApiKeyOption[]>("update_provider_api_key", { id, credentialRevision, tokenId, patch });
 }
 
 export function generateProviderAccessTokenForInput(input: ProviderInput) {

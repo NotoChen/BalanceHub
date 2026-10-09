@@ -14,7 +14,7 @@ import {
   providerAuthModeDescriptor,
   providerProtocolDescriptor,
 } from "../utils/provider-protocol";
-import { providerDisplayLabel } from "../utils/provider-display";
+import { providerDisplayLabel, providerModelScopeLabel } from "../utils/provider-display";
 
 type ProbeStepKey = "checkIn" | "apiKeys" | "invitation" | "models";
 type ProbeStepStatus = "running" | "supported" | "unsupported" | "skipped" | "error" | "pending";
@@ -45,10 +45,12 @@ const protocolDescriptor = computed(() =>
     ? providerProtocolDescriptor(props.providerProtocols, props.provider.identity.protocol)
     : undefined,
 );
-const partialError = computed(() => props.provider?.capabilities.errorMessage?.trim() || "");
-const scopedErrors = computed(() => parseScopedErrors(partialError.value));
+const capabilityError = computed(() => props.provider?.capabilities.errorMessage?.trim() || "");
+const modelError = computed(() => props.provider?.capabilities.availableModelsState.error || "");
+const partialError = computed(() => capabilityError.value || modelError.value);
+const scopedErrors = computed(() => parseScopedErrors(capabilityError.value));
 const unscopedPartialError = computed(() =>
-  partialError.value && scopedErrors.value.size === 0 ? partialError.value : "",
+  capabilityError.value && scopedErrors.value.size === 0 ? capabilityError.value : "",
 );
 const overallTone = computed(() => {
   if (props.running) return "running";
@@ -113,11 +115,11 @@ function stepStatus(key: ProbeStepKey): ProbeStepStatus {
       ? "supported"
       : "unsupported";
   }
-  return capabilities.availableModels.length > 0 ? "supported" : "unsupported";
+  return capabilities.availableModelsState.updatedAt ? "supported" : "unsupported";
 }
 
 function isSkipped(provider: Provider, key: ProbeStepKey) {
-  if (key === "models") return !provider.auth.apiKey.trim();
+  if (key === "models") return !provider.actions.models.canSync;
   return provider.auth.mode === "apiKey" || protocolDescriptor.value?.capabilities.account === false;
 }
 
@@ -137,7 +139,7 @@ function stepDetail(key: ProbeStepKey, status: ProbeStepStatus) {
   if (status === "error") return stepError(key) || props.error || "探测请求未完成";
   if (status === "pending") return "尚未开始";
   if (status === "skipped") {
-    if (key === "models") return "当前没有 API Key，未请求 OpenAI 兼容模型列表";
+    if (key === "models") return provider.actions.models.unavailableReason || "当前认证信息不支持读取模型";
     if (protocolDescriptor.value?.capabilities.account === false) {
       return "当前协议不提供账号级能力";
     }
@@ -163,11 +165,15 @@ function stepDetail(key: ProbeStepKey, status: ProbeStepStatus) {
       : "未读取到可用的邀请信息";
   }
   const count = capabilities.availableModels.length;
-  return count > 0 ? `已读取 ${count} 个可用模型` : "模型接口未返回可用模型";
+  if (capabilities.availableModelsState.fallbackReason) {
+    return `Key 接口失败，已读取 ${count} 个账号可用模型：${capabilities.availableModelsState.fallbackReason}`;
+  }
+  return count > 0 ? `已读取 ${count} 个${providerModelScopeLabel(capabilities.availableModelsState.scope)}` : "模型接口已正常响应，当前列表为空";
 }
 
 function stepError(key: ProbeStepKey) {
   if (props.error) return props.error;
+  if (key === "models") return modelError.value;
   if (unscopedPartialError.value) return unscopedPartialError.value;
   return scopedErrors.value.get(key) || "";
 }
@@ -178,7 +184,6 @@ function parseScopedErrors(message: string) {
     ["签到能力:", "checkIn"],
     ["密钥管理:", "apiKeys"],
     ["邀请链接:", "invitation"],
-    ["模型列表:", "models"],
   ];
   for (const part of message.split("；").map((item) => item.trim()).filter(Boolean)) {
     const matched = prefixes.find(([prefix]) => part.startsWith(prefix));
@@ -206,7 +211,7 @@ function invitationMethod() {
 }
 
 function modelMethod() {
-  return protocolDescriptor.value?.operationMethods.models || "OpenAI 兼容模型接口";
+  return providerModelScopeLabel(props.provider?.capabilities.availableModelsState.scope ?? props.provider?.actions.models.scope);
 }
 
 function formatTime(value: number | null) {

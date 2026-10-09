@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ProviderInput, ProviderProtocolDescriptor } from "../../stores/providers";
-import { canSkipAssistantAccessToken, missingCredentialRequirements } from "../../composables/provider-credential-rules";
+import { canSkipAssistantAccessToken, missingCredentialRequirements, needsCredentialCompletionForInput } from "../../composables/provider-credential-rules";
 import { fieldLabel } from "../../composables/provider-editor-shared";
 import {
   providerAuthModeDescriptor,
@@ -56,7 +56,7 @@ const descriptionText = computed(() => {
     return "已保存本次补全结果，可继续调整运行策略。";
   }
   if (props.state === "needApiKeySelection") {
-    return "已同步多个 API Key，请在凭据列表中选择本卡片用于默认请求的 Key。";
+    return "已同步多个 API Key，选择当前调用 Key 后会继续保存。";
   }
   if (props.state === "failed") {
     return props.message || "处理失败，请按失败步骤调整后重试。";
@@ -73,15 +73,18 @@ const descriptionText = computed(() => {
   if (missing.length > 0) {
     return `填写${missing.join("、")}后，可以自动补全配置。`;
   }
+  if (!needsCredentialCompletionForInput(props.draft, props.providerProtocols)) {
+    return "凭据已齐全，可直接保存。";
+  }
   if (currentProtocol.value && canSkipAssistantAccessToken(props.draft, currentProtocol.value)) {
-    return "登录会话已就绪，可直接同步账号信息和 API Key。";
+    return "登录会话已就绪，保存时会自动补全账号信息和 API Key。";
   }
   const targets = [];
   if (currentProtocol.value?.capabilities.accessToken
     && !canSkipAssistantAccessToken(props.draft, currentProtocol.value)) targets.push("访问令牌");
   if (currentProtocol.value?.capabilities.apiKeyManagement) targets.push("API Key");
   const targetText = targets.length > 0 ? `，并同步${targets.join("和")}` : "";
-  return `所需信息已填写，将${schema.description}${targetText}。`;
+  return `保存时会自动${schema.description}${targetText}，也可以现在补全。`;
 });
 
 const actionText = computed(() => {

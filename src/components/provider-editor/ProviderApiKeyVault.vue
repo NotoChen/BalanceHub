@@ -9,6 +9,7 @@ import {
   IconLock,
   IconPlus,
   IconRefresh,
+  IconSettings,
 } from "@arco-design/web-vue/es/icon";
 import type { ApiKeyManagerOperation } from "../../composables/useApiKeyManager";
 import type { Provider, ProviderApiKeyOption } from "../../stores/providers";
@@ -24,8 +25,6 @@ import {
 import AgentCliIcon from "../AgentCliIcon.vue";
 
 const props = defineProps<{
-  createVisible: boolean;
-  createName: string;
   addVisible: boolean;
   addRemark: string;
   addValue: string;
@@ -39,8 +38,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  "update:createVisible": [visible: boolean];
-  "update:createName": [name: string];
   "update:addVisible": [visible: boolean];
   "update:addRemark": [remark: string];
   "update:addValue": [value: string];
@@ -48,9 +45,9 @@ const emit = defineEmits<{
   "update:remarkValue": [remark: string];
   sync: [];
   "show-create": [];
+  "show-settings": [option: ProviderApiKeyOption];
   "show-add": [];
   "show-remark": [option: ProviderApiKeyOption];
-  create: [];
   "add-local": [];
   "save-remark": [];
   "set-default": [option: ProviderApiKeyOption];
@@ -70,7 +67,6 @@ const agentBindingCount = computed(() => {
 const operationLabel = computed(() => {
   const labels: Record<ApiKeyManagerOperation, string> = {
     sync: "正在同步站点 Key",
-    create: "正在创建站点 Key",
     add: "正在保存 API Key",
     remark: "正在保存备注",
     default: "正在切换当前调用 Key",
@@ -83,10 +79,6 @@ const currentCallDescription = computed(() =>
     ? "卡片刷新、模型请求和未单独指定 Key 的临时 CLI 会使用这一把。"
     : "请先从下方选择一把完整 Key，卡片才能确定默认请求凭据。",
 );
-const createNameModel = computed({
-  get: () => props.createName,
-  set: (value: string) => emit("update:createName", value),
-});
 const addRemarkModel = computed({
   get: () => props.addRemark,
   set: (value: string) => emit("update:addRemark", value),
@@ -170,7 +162,6 @@ function statusTone(option: ProviderApiKeyOption) {
 
 function quotaText(option: ProviderApiKeyOption) {
   if (option.unlimitedQuota) return "无限额度";
-  if (!option.usedQuotaRaw && !option.remainQuotaRaw) return "额度未公开";
   return `剩余 ${formatQuotaValue(option.remainQuota || 0, {
     quotaDisplayType: option.quotaDisplayType || "currency",
     currencySymbol: option.currencySymbol || "$",
@@ -182,10 +173,6 @@ function keyIdentity(option: ProviderApiKeyOption) {
   if (option.tokenId) parts.push(`站点 ID ${option.tokenId}`);
   if (option.userId) parts.push(`用户 ${option.userId}`);
   return parts.join(" · ");
-}
-
-function closeCreate() {
-  emit("update:createVisible", false);
 }
 
 function closeAdd() {
@@ -203,9 +190,10 @@ function closeRemark() {
       <span class="provider-form-block-icon provider-form-block-icon-auth"><IconLock /></span>
       <div>
         <strong>API Key</strong>
-        <small>这里的新增、备注、切换和删除会立即保存</small>
+        <small>Key 管理操作会立即保存</small>
       </div>
       <span class="provider-form-block-meta">{{ keys.length }} 把</span>
+      <slot name="header-actions" />
     </header>
 
     <div class="api-key-manager-body">
@@ -265,28 +253,6 @@ function closeRemark() {
           <a-button @click="closeAdd">取消</a-button>
           <a-button type="primary" :loading="operation === 'add'" :disabled="!addValueModel.trim()" @click="emit('add-local')">
             保存 API Key
-          </a-button>
-        </footer>
-      </section>
-
-      <section v-if="createVisible && remoteManaged" class="api-key-inline-editor">
-        <header>
-          <div>
-            <strong>创建站点 API Key</strong>
-            <small>创建成功后会同步保存到当前卡片</small>
-          </div>
-          <button type="button" aria-label="收起创建表单" @click="closeCreate">收起</button>
-        </header>
-        <div class="api-key-inline-fields api-key-inline-fields-single">
-          <label>
-            <span>站点 Key 名称</span>
-            <a-input v-model="createNameModel" allow-clear placeholder="例如：Claude Code、备用密钥" @press-enter="emit('create')" />
-          </label>
-        </div>
-        <footer>
-          <a-button @click="closeCreate">取消</a-button>
-          <a-button type="primary" :loading="operation === 'create'" :disabled="!createNameModel.trim()" @click="emit('create')">
-            创建 Key
           </a-button>
         </footer>
       </section>
@@ -404,10 +370,13 @@ function closeRemark() {
               <span>{{ quotaText(option) }}</span>
               <span v-if="option.group">分组 {{ option.group }}</span>
               <span v-if="option.modelLimitsEnabled">模型 {{ option.modelLimits.length }}</span>
-              <span v-if="option.allowIps.length">IP {{ option.allowIps.length }}</span>
+              <span v-if="option.allowIps.length || option.denyIps?.length">IP 限制 {{ option.allowIps.length + (option.denyIps?.length || 0) }}</span>
               <small v-if="keyIdentity(option)">{{ keyIdentity(option) }}</small>
             </div>
             <div class="api-key-actions">
+              <a-button v-if="remoteManaged && isRemoteKey(option)" size="small" type="text" :disabled="busy" @click="emit('show-settings', option)">
+                <template #icon><IconSettings /></template>编辑设置
+              </a-button>
               <a-button
                 v-if="!isDefault(option)"
                 size="small"

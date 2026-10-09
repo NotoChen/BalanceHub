@@ -8,3 +8,5 @@ pub mod capabilities;
 pub mod check_in;
 #[path = "provider_domain/liveness.rs"]
 pub mod liveness;
+#[path = "provider_domain/model_list.rs"]
+pub mod model_list;

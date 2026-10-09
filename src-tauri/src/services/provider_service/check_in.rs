@@ -3,9 +3,9 @@ use crate::{
     adapters::protocol::ProtocolAdapter,
     limits,
     models::{
-        check_in_message_indicates_disabled, provider_domain, CheckInError, CheckInPhase, Provider,
-        ProviderCheckInRecord, ProviderCheckInRecordsResult, ProviderCheckInResult,
-        ProviderQuotaDisplay, ProviderStatus,
+        check_in_message_indicates_disabled, provider_domain, AppSettings, CheckInError,
+        CheckInPhase, Provider, ProviderCheckInRecord, ProviderCheckInRecordsResult,
+        ProviderCheckInResult, ProviderQuotaDisplay, ProviderStatus,
     },
     util::unix_millis as current_timestamp_millis,
 };
@@ -59,54 +59,36 @@ impl<'a> ProviderService<'a> {
         id: String,
         task: &CheckInContext,
     ) -> Result<ProviderCheckInResult, CheckInError> {
-        let http_slot = HTTP_SLOTS.acquire().await.map_err(|_| "签到队列不可用")?;
         task.phase(self.app, CheckInPhase::Checking);
-        let state = self.app.state::<crate::state::AppState>();
-        let network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
-        // Login itself is the business action for these sites; do not perform
-        // an extra preflight password login that would already check in.
-        let provider = if provider_domain::check_in::effective_method(&provider)
+        provider_domain::check_in::validate_credentials(&provider)?;
+        let browser_account = if provider_domain::check_in::effective_method(&provider)
             == crate::models::ProviderCheckInMethod::FreshLogin
-            || (provider.auth.mode == crate::models::AuthMode::Password
-                && provider.auth.new_api_session.is_none())
         {
-            provider
+            match provider_domain::check_in::fresh_login_route(&provider)? {
+                provider_domain::check_in::FreshLoginRoute::BrowserAccount(id) => Some(id),
+                provider_domain::check_in::FreshLoginRoute::Password => None,
+            }
         } else {
-            self.prepare_operation_provider(&data.settings, &provider)
+            None
+        };
+        let (mut effective_provider, mut result) = if let Some(account_id) = browser_account {
+            let authenticated = crate::services::provider_browser_login::check_in(
+                self.app,
+                &data.settings,
+                &provider,
+                account_id,
+                task,
+            )
+            .await?;
+            (authenticated, ProviderCheckInResult::confirmed_login())
+        } else {
+            self.request_http_check_in(&data.settings, &provider, task)
                 .await?
         };
-        let request_context = ProviderRequestContext::capture(&provider);
-        task.authenticated(&provider);
-        let adapter = ProtocolAdapter;
-        task.phase(self.app, CheckInPhase::Requesting);
-        let operation = tokio::time::timeout(
-            Duration::from_secs(120),
-            adapter.check_in(&data.settings, &provider),
-        )
-        .await
-        .map_err(|_| {
-            CheckInError::Unconfirmed("签到请求超时；结果可能已提交，请查看站点记录".to_string())
-        })??;
-        let mut effective_provider = self
-            .persist_operation_credentials(&request_context, &operation.credentials)
-            .await
-            .map_err(|error| {
-                CheckInError::Unconfirmed(format!(
-                    "签到请求已返回，但本地会话保存失败：{error}；已停止自动重试"
-                ))
-            })?
-            .ok_or_else(|| {
-                CheckInError::Unconfirmed(
-                    "签到请求已完成，但本地配置已变更，本次结果未写入当前账号".to_string(),
-                )
-            })?;
-        drop(network_gate);
-        drop(http_slot);
         task.authenticated(&effective_provider);
-        let mut result = operation.value;
-        let browser_assisted = result.verification_required.is_some();
+        let browser_assisted = browser_account.is_some() || result.verification_required.is_some();
         if let Some(verification) = result.verification_required {
             let verification = crate::models::CheckInVerificationRequest {
                 kind: verification,
@@ -137,6 +119,79 @@ impl<'a> ProviderService<'a> {
             task.authenticated(&effective_provider);
             result = browser_operation.value;
         }
+        self.finish_check_in(
+            id,
+            &data.settings,
+            effective_provider,
+            result,
+            browser_assisted,
+            task,
+        )
+        .await
+    }
+
+    async fn request_http_check_in(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        task: &CheckInContext,
+    ) -> Result<(Provider, ProviderCheckInResult), CheckInError> {
+        let _http_slot = HTTP_SLOTS.acquire().await.map_err(|_| "签到队列不可用")?;
+        let state = self.app.state::<crate::state::AppState>();
+        let _network_gate = state.refresh_gate.lock().await;
+        let provider = self
+            .current_operation_provider(&ProviderRequestContext::capture(provider))
+            .await?
+            .filter(|provider| provider.runtime.enabled)
+            .ok_or("账号配置已变更，已停止本次签到")?;
+        // Login itself is the business action for these sites; do not perform
+        // an extra preflight password login that would already check in.
+        let provider = if provider_domain::check_in::effective_method(&provider)
+            == crate::models::ProviderCheckInMethod::FreshLogin
+            || (provider.auth.mode == crate::models::AuthMode::Password
+                && provider.auth.new_api_session.is_none())
+        {
+            provider
+        } else {
+            self.prepare_operation_provider(settings, &provider).await?
+        };
+        let request_context = ProviderRequestContext::capture(&provider);
+        task.authenticated(&provider);
+        let adapter = ProtocolAdapter;
+        task.phase(self.app, CheckInPhase::Requesting);
+        let operation = tokio::time::timeout(
+            Duration::from_secs(120),
+            adapter.check_in(settings, &provider),
+        )
+        .await
+        .map_err(|_| {
+            CheckInError::Unconfirmed("签到请求超时；结果可能已提交，请查看站点记录".to_string())
+        })??;
+        let effective_provider = self
+            .persist_operation_credentials(&request_context, &operation.credentials)
+            .await
+            .map_err(|error| {
+                CheckInError::Unconfirmed(format!(
+                    "签到请求已返回，但本地会话保存失败：{error}；已停止自动重试"
+                ))
+            })?
+            .ok_or_else(|| {
+                CheckInError::Unconfirmed(
+                    "签到请求已完成，但本地配置已变更，本次结果未写入当前账号".to_string(),
+                )
+            })?;
+        Ok((effective_provider, operation.value))
+    }
+
+    async fn finish_check_in(
+        &self,
+        id: String,
+        settings: &AppSettings,
+        effective_provider: Provider,
+        mut result: ProviderCheckInResult,
+        browser_assisted: bool,
+        task: &CheckInContext,
+    ) -> Result<ProviderCheckInResult, CheckInError> {
         if result.unconfirmed {
             return Err(CheckInError::Unconfirmed(result.message));
         }
@@ -144,9 +199,10 @@ impl<'a> ProviderService<'a> {
         // Browser requests already confirmed the result. A full HTTP refresh
         // would immediately re-enter the same wall and create unrelated traffic.
         let refreshed_provider = if result.ok && !browser_assisted {
+            let state = self.app.state::<crate::state::AppState>();
             let _network_gate = state.refresh_gate.lock().await;
-            let refresh_outcome = adapter
-                .refresh_provider(&data.settings, &effective_provider)
+            let refresh_outcome = ProtocolAdapter
+                .refresh_provider(settings, &effective_provider)
                 .await;
             let mut refreshed = effective_provider.clone();
             refresh_outcome.apply_to(&mut refreshed);

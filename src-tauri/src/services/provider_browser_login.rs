@@ -1,5 +1,7 @@
 //! Serialized, cancellable browser jobs with an explicit durable account profile.
 mod account;
+mod check_in;
+mod profile;
 use crate::{
     adapters::browser::{BrowserSession, BrowserWindowControl},
     app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
@@ -13,6 +15,8 @@ use crate::{
     util::unix_millis,
 };
 pub(crate) use account::start_account;
+pub(crate) use check_in::run as check_in;
+pub(crate) use profile::idle_slot;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -23,10 +27,9 @@ use std::{
     },
 };
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::watch;
 
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-static SLOT: Semaphore = Semaphore::const_new(1);
 static RUNS: OnceLock<Mutex<HashMap<String, LoginRun>>> = OnceLock::new();
 
 #[derive(Clone, Serialize)]
@@ -61,6 +64,28 @@ pub(crate) struct LoginCredentials {
     pub platform: LoginPlatform,
     #[serde(default)]
     pub platform_identity: Option<String>,
+    #[serde(default)]
+    pub fresh_login: bool,
+}
+
+impl LoginCredentials {
+    fn parse(value: serde_json::Value) -> Result<Self, String> {
+        let credentials: Self =
+            serde_json::from_value(value).map_err(|_| "登录响应不完整，请重新登录")?;
+        let has_session = if credentials.refresh_cookie.is_empty() {
+            !credentials.cookie_header.is_empty()
+        } else {
+            !credentials.access_token.is_empty()
+                && !credentials.session_id.is_empty()
+                && credentials
+                    .access_expires_at
+                    .is_some_and(|expiry| expiry > 0)
+        };
+        if credentials.user.id.trim().is_empty() || !has_session {
+            return Err("登录响应不完整，请重新登录".into());
+        }
+        Ok(credentials)
+    }
 }
 
 #[derive(Deserialize)]
@@ -208,18 +233,14 @@ pub(crate) fn start(
 }
 
 pub(crate) fn account_busy(id: &str) -> bool {
-    runs()
-        .lock()
-        .map(|runs| {
-            runs.values()
-                .any(|run| run.task.login_account_id == id && run.task.finished_at.is_none())
-        })
-        .unwrap_or(true)
-}
-
-pub(crate) fn idle_slot() -> Result<tokio::sync::SemaphorePermit<'static>, String> {
-    SLOT.try_acquire()
-        .map_err(|_| "浏览器任务正在进行，请结束后再清除登录环境".into())
+    profile::busy(id)
+        || runs()
+            .lock()
+            .map(|runs| {
+                runs.values()
+                    .any(|run| run.task.login_account_id == id && run.task.finished_at.is_none())
+            })
+            .unwrap_or(true)
 }
 
 pub(crate) fn cancel(run_id: &str) -> Result<(), String> {
@@ -386,7 +407,7 @@ async fn run(
     let _slot = tokio::select! {
         biased;
         _ = cancelled.changed() => return Err("登录已取消".into()),
-        slot = SLOT.acquire() => slot.map_err(|_| "登录队列不可用")?,
+        slot = profile::acquire(&account.id) => slot?,
     };
     if *cancelled.borrow() {
         return Err("登录已取消".into());
@@ -438,27 +459,14 @@ async fn run(
         })) => result.map_err(|error| error.to_string()),
     };
     let result = match result {
-        Ok(value) if begin_saving(app, run_id) => {
-            match serde_json::from_value::<LoginCredentials>(value) {
-                Ok(credentials)
-                    if !credentials.user.id.is_empty()
-                        && (if credentials.refresh_cookie.is_empty() {
-                            !credentials.cookie_header.is_empty()
-                        } else {
-                            !credentials.access_token.is_empty()
-                                && !credentials.session_id.is_empty()
-                                && credentials
-                                    .access_expires_at
-                                    .is_some_and(|expiry| expiry > 0)
-                        }) =>
-                {
-                    ProviderService::new(app)
-                        .import_browser_login(input, expected, credentials, account)
-                        .await
-                }
-                _ => Err("登录响应不完整，请重新登录导入".to_string()),
+        Ok(value) if begin_saving(app, run_id) => match LoginCredentials::parse(value) {
+            Ok(credentials) => {
+                ProviderService::new(app)
+                    .import_browser_login(input, expected, credentials, account)
+                    .await
             }
-        }
+            Err(message) => Err(message),
+        },
         Ok(_) => Err("登录已取消".to_string()),
         Err(message) => Err(message),
     };

@@ -1,6 +1,7 @@
 import { launchBrowser, showBrowserWindow, bootstrapHtml, WorkerError, NeedsHuman } from "./launch.mjs";
 import { LoginBrowser } from "./login.mjs";
 import { AccountBrowser } from "./accounts.mjs";
+import { renderTurnstile, verificationFailure } from "./verification.mjs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
@@ -65,6 +66,18 @@ export class BrowserWorker {
   async showWindow() {
     if (this.closing) throw new WorkerError("登录窗口已关闭");
     return showBrowserWindow(this.accountBrowser?.context || this.loginBrowser?.context || this.context);
+  }
+
+  async probe({ profileDir, executablePath }) {
+    if (this.context || this.closing) throw new WorkerError("浏览器检查已启动或已取消");
+    this.context = await launchBrowser({ profileDir, executablePath, proxy: { direct: true }, headless: true }, this.emit);
+    if (this.closing) {
+      await this.context.close();
+      throw new WorkerError("浏览器检查已取消");
+    }
+    const page = this.context.pages()[0] || await this.context.newPage();
+    await page.goto("about:blank", { timeout: 10_000 });
+    return { version: this.context.browser().version() };
   }
 
   async open({ url, providerName, profileDir, proxy, cookies = [], executablePath, interactive = false, autoShield = true }) {
@@ -151,7 +164,6 @@ export class BrowserWorker {
   async waitForClearance() {
     const started = Date.now();
     let announced = false;
-    let clicks = 0;
     while (Date.now() - started < VERIFY_TIMEOUT_MS) {
       this.assertOrigin();
       let challenged;
@@ -168,38 +180,14 @@ export class BrowserWorker {
       if (!challenged) return;
       if (!this.autoShield) throw new WorkerError("已关闭自动处理站点防护，验证已停止");
       if (!announced) {
-        this.emit({ event: "progress", phase: "verifying" });
+        this.emit({ event: "progress", phase: this.interactive ? "waitingHuman" : "verifying" });
+        if (this.interactive) await this.page.bringToFront();
         announced = true;
       }
-      if (clicks < 2 && Date.now() - started > (clicks + 1) * 4_000) {
-        if (await this.clickVerification()) clicks++;
-      }
-      if (Date.now() - started > 12_000 && announced !== "human") {
-        if (!this.interactive) throw new NeedsHuman("需要人工完成站点验证");
-        this.emit({ event: "progress", phase: "waitingHuman" });
-        await this.page.bringToFront();
-        announced = "human";
-      }
+      if (!this.interactive && Date.now() - started > 12_000) throw new NeedsHuman("需要人工完成站点验证");
       await this.pause(500);
     }
     throw new WorkerError("浏览器验证超时，请稍后重新签到");
-  }
-
-  async clickVerification() {
-    // Only the actual Cloudflare widget is eligible. Never click site buttons.
-    // Turnstile can put its iframe inside a closed shadow root. Frame ownership
-    // still provides the actual element without relying on page CSS traversal.
-    let box = null;
-    for (const frame of this.page.frames()) {
-      if (!frame.url().startsWith("https://challenges.cloudflare.com/")) continue;
-      const element = await frame.frameElement().catch(() => null);
-      box = await element?.boundingBox().catch(() => null);
-      await element?.dispose();
-      if (box) break;
-    }
-    if (!box || box.width < 40 || box.height < 25) return false;
-    await this.page.mouse.click(box.x + 28, box.y + Math.min(box.height / 2, 32));
-    return true;
   }
 
   async verify({ siteKey }) {
@@ -210,65 +198,29 @@ export class BrowserWorker {
     this.emit({ event: "progress", phase: "verifying" });
     // The page is a same-origin API document, with no site's check-in callback.
     // Rust remains the sole owner of the subsequent POST.
-    await this.page.evaluate(async ({ siteKey, providerName, siteHost, windowTitle }) => {
-      document.title = windowTitle;
-      document.documentElement.lang = "zh-CN";
-      document.body.replaceChildren();
-      document.body.style.cssText = "margin:0;font:14px/1.5 system-ui;background:#fafafa;color:#202124";
-      const panel = document.createElement("main");
-      panel.id = "balancehub-verification";
-      panel.style.cssText = "box-sizing:border-box;width:max-content;min-width:332px;max-width:420px;padding:16px;margin:0 auto";
-      const title = document.createElement("h1");
-      title.style.cssText = "margin:0 0 4px;font:600 14px/20px system-ui;overflow-wrap:anywhere";
-      title.textContent = `${providerName} · 签到验证`;
-      const site = document.createElement("p");
-      site.className = "verification-origin";
-      site.style.cssText = "margin:0 0 12px;font:12px/18px system-ui;color:#666;overflow-wrap:anywhere";
-      site.textContent = siteHost;
-      const hint = document.createElement("p");
-      hint.className = "verification-hint";
-      hint.style.cssText = "margin:10px 0 0;font:12px/18px system-ui;color:#666";
-      hint.textContent = "完成后自动继续签到，关闭窗口可取消。";
-      const container = document.createElement("div");
-      container.id = "balancehub-turnstile";
-      container.style.cssText = "min-width:300px;min-height:65px";
-      panel.append(title, site, container, hint);
-      document.body.append(panel);
-      window.__balancehubToken = "";
-      window.__balancehubVerifyError = "";
-      if (!window.turnstile) {
-        await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error("verification_script_timeout")), 20_000);
-          const script = document.createElement("script");
-          script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-          script.onload = () => { clearTimeout(timer); resolve(); };
-          script.onerror = () => { clearTimeout(timer); reject(new Error("verification_script_failed")); };
-          document.head.append(script);
-        });
-      }
-      window.turnstile.render(container, {
-        sitekey: siteKey,
-        callback: (token) => { window.__balancehubToken = token; },
-        "expired-callback": () => { window.__balancehubToken = ""; },
-        "error-callback": (code) => { window.__balancehubVerifyError = String(code); },
-      });
-    }, { siteKey, providerName: this.providerName, siteHost: this.siteHost, windowTitle: this.windowTitle });
+    try {
+      await this.page.evaluate(renderTurnstile, { siteKey, providerName: this.providerName, siteHost: this.siteHost, windowTitle: this.windowTitle });
+    } catch (error) {
+      if (this.page.isClosed() || this.closing) throw new WorkerError("验证窗口已关闭，签到已停止");
+      throw new WorkerError(String(error).includes("verification_script_timeout")
+        ? "验证码组件加载超时，请检查网络或代理后重试"
+        : "验证码组件加载失败，请检查网络或站点配置后重试");
+    }
     this.lastPanelSize = null;
     const started = Date.now();
-    let clicks = 0;
     let announced = false;
     while (Date.now() - started < VERIFY_TIMEOUT_MS) {
       this.assertOrigin();
       await this.fitVerificationWindow();
-      const token = await this.page.evaluate(() => window.__balancehubToken);
+      const state = await this.page.evaluate(() => window.__balancehubVerification);
+      const failure = verificationFailure(state);
+      if (failure) throw new WorkerError(failure);
+      const token = state.token;
       if (typeof token === "string" && token.length > 0) {
-        await this.page.evaluate(() => { window.__balancehubToken = ""; });
+        await this.page.evaluate(() => { window.__balancehubVerification.token = ""; });
         return { token };
       }
-      if (clicks < 2 && Date.now() - started > (clicks + 1) * 4_000) {
-        if (await this.clickVerification()) clicks++;
-      }
-      if (Date.now() - started > 12_000 && !announced) {
+      if (state.interactive && !announced) {
         if (!this.interactive) throw new NeedsHuman("需要人工完成 Turnstile 验证");
         this.emit({ event: "progress", phase: "waitingHuman" });
         await this.page.bringToFront();
@@ -420,7 +372,7 @@ export function createWorkerRequestDispatcher(worker, emit) {
       if (message.op === "showWindow" && Number.isSafeInteger(message.controlId) && message.controlId > 0) {
         return reply(message);
       }
-      if (message.controlId !== undefined || !["login", "account", "open", "navigate", "verify", "fetch", "cookies", "clearSession", "close"].includes(message.op)) {
+      if (message.controlId !== undefined || !["login", "account", "probe", "open", "navigate", "verify", "fetch", "cookies", "clearSession", "close"].includes(message.op)) {
         throw new WorkerError("不支持的浏览器操作");
       }
       // Business requests remain serial; window controls bypass a long login.

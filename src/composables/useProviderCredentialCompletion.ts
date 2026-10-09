@@ -78,6 +78,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
   const {
     completeCredentials,
     runCredentialAssistant,
+    prepareCredentialsForSave,
     resetCredentialAssistant,
     canRunCredentialAssistant,
     credentialAssistantBusy,
@@ -86,7 +87,6 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     credentialAssistantMessage,
     credentialAssistantChangedFields,
     credentialAssistantSaved,
-    selectCredentialApiKey,
   } = useProviderCredentialAssistant(options, requestGuard, probeSite);
 
   watch(
@@ -112,6 +112,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
         resetCredentialAssistant();
       }
     },
+    { flush: "sync" },
   );
 
   watch(
@@ -364,7 +365,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     options.protocolSelectionBaseUrl.value = baseUrl;
     options.siteProbeResult.value = null;
     options.siteNameSourceBaseUrl.value = "";
-    resetCredentialAssistant();
+    if (!credentialAssistantBusy.value) resetCredentialAssistant();
     return true;
   }
 
@@ -386,6 +387,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     ensureProtocolSelection,
     completeCredentials,
     runCredentialAssistant,
+    prepareCredentialsForSave,
     resetCredentialAssistant,
     canRunCredentialAssistant,
     credentialAssistantBusy,
@@ -394,6 +396,5 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     credentialAssistantMessage,
     credentialAssistantChangedFields,
     credentialAssistantSaved,
-    selectCredentialApiKey,
   };
 }

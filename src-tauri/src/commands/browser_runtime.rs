@@ -1,5 +1,5 @@
 use super::run_blocking;
-use crate::services::browser_runtime::{self, BrowserRuntimeStatus};
+use crate::services::browser_runtime::{self, BrowserInfo, BrowserRuntimeStatus, BrowserSelection};
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -16,9 +16,26 @@ pub(crate) async fn get_browser_runtime_status(
 #[tauri::command]
 pub(crate) fn install_browser_runtime(
     app: AppHandle,
-    include_browser: bool,
+    selection: BrowserSelection,
+    repair: bool,
 ) -> Result<BrowserRuntimeStatus, String> {
-    browser_runtime::start_install(&app, include_browser)
+    browser_runtime::start_install(&app, selection, repair)
+}
+
+#[tauri::command]
+pub(crate) fn select_browser_runtime_browser(
+    app: AppHandle,
+    selection: BrowserSelection,
+) -> Result<BrowserRuntimeStatus, String> {
+    browser_runtime::select_browser(&app, selection)
+}
+
+#[tauri::command]
+pub(crate) async fn inspect_browser_runtime_browser(path: String) -> Result<BrowserInfo, String> {
+    run_blocking("读取浏览器程序", move || {
+        browser_runtime::inspect_browser(std::path::Path::new(&path))
+    })
+    .await
 }
 
 #[tauri::command]

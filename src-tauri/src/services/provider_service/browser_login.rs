@@ -8,7 +8,7 @@ use crate::{
     util::unix_millis,
 };
 
-use super::{MutationDecision, ProviderService};
+use super::{MutationDecision, ProviderRequestContext, ProviderService};
 
 impl ProviderService<'_> {
     pub(in crate::services) async fn import_browser_login(
@@ -24,15 +24,26 @@ impl ProviderService<'_> {
         })
         .await
     }
+
+    pub(in crate::services) async fn save_check_in_login(
+        &self,
+        expected: Provider,
+        credentials: LoginCredentials,
+        account: LoginAccount,
+    ) -> Result<Provider, String> {
+        self.mutate_decided_async(move |data| {
+            save_check_in_credentials(data, &expected, credentials, &account)
+                .map(MutationDecision::changed)
+        })
+        .await
+    }
 }
 
-fn import_credentials(
-    data: &mut AppData,
-    input: ProviderInput,
-    expected: Option<&Provider>,
-    credentials: LoginCredentials,
+fn verify_login_account(
+    data: &AppData,
+    credentials: &LoginCredentials,
     account: &LoginAccount,
-) -> Result<Provider, String> {
+) -> Result<(), String> {
     let saved_account = data
         .login_accounts
         .iter()
@@ -42,7 +53,56 @@ fn import_credentials(
         saved_account,
         credentials.platform,
         credentials.platform_identity.as_deref(),
-    )?;
+    )
+}
+
+fn verify_site_user(provider: &Provider, credentials: &LoginCredentials) -> Result<(), String> {
+    for previous in [&provider.identity.user_id, &provider.auth.api_user] {
+        if !previous.trim().is_empty() && previous.trim() != credentials.user.id {
+            return Err("登录的账号与该中转站卡片不一致，请使用原账号，或新增中转站导入".into());
+        }
+    }
+    Ok(())
+}
+
+fn save_check_in_credentials(
+    data: &mut AppData,
+    expected: &Provider,
+    credentials: LoginCredentials,
+    account: &LoginAccount,
+) -> Result<Provider, String> {
+    if !credentials.fresh_login {
+        return Err("未确认本次重新登录，不能将已有登录状态记为签到".into());
+    }
+    verify_login_account(data, &credentials, account)?;
+    let context = ProviderRequestContext::capture(expected);
+    let index = data
+        .providers
+        .iter()
+        .position(|provider| provider.runtime.enabled && context.matches(provider))
+        .ok_or("账号配置已变更，本次登录结果未写入")?;
+    let provider = &data.providers[index];
+    if provider
+        .auth
+        .browser_binding
+        .as_ref()
+        .and_then(|binding| binding.account_id.as_deref())
+        != Some(account.id.as_str())
+    {
+        return Err("绑定的登录账号已变更，本次登录结果未写入".into());
+    }
+    verify_site_user(provider, &credentials)?;
+    apply_credentials(data, index, credentials, account)
+}
+
+fn import_credentials(
+    data: &mut AppData,
+    input: ProviderInput,
+    expected: Option<&Provider>,
+    credentials: LoginCredentials,
+    account: &LoginAccount,
+) -> Result<Provider, String> {
+    verify_login_account(data, &credentials, account)?;
     let endpoint = normalize_provider_endpoint(&input.identity.base_url);
     let target = if let Some(expected) = expected {
         let index = data
@@ -54,16 +114,7 @@ fn import_credentials(
         if login_configuration(stored)? != login_configuration(expected)? {
             return Err("中转站配置已更新，本次登录没有覆盖现有配置，请重试".to_string());
         }
-        let previous_user = if stored.identity.user_id.is_empty() {
-            &stored.auth.api_user
-        } else {
-            &stored.identity.user_id
-        };
-        if !previous_user.is_empty() && previous_user != &credentials.user.id {
-            return Err(
-                "登录的账号与该中转站卡片不一致，请使用原账号，或新增中转站导入".to_string(),
-            );
-        }
+        verify_site_user(stored, &credentials)?;
         Some(index)
     } else {
         data.providers.iter().position(|provider| {
@@ -95,6 +146,15 @@ fn import_credentials(
         ));
         data.providers.len() - 1
     };
+    apply_credentials(data, index, credentials, account)
+}
+
+fn apply_credentials(
+    data: &mut AppData,
+    index: usize,
+    credentials: LoginCredentials,
+    account: &LoginAccount,
+) -> Result<Provider, String> {
     let provider = &mut data.providers[index];
     let keep_login_check_in = provider.auth.mode == AuthMode::Password
         && !provider.auth.login_password.is_empty()
@@ -200,6 +260,7 @@ mod tests {
             mechanism: BrowserLoginMechanism::Unknown,
             platform: LoginPlatform::Unknown,
             platform_identity: None,
+            fresh_login: false,
         }
     }
 
@@ -319,5 +380,116 @@ mod tests {
         )
         .is_err());
         assert_eq!(data.providers.len(), 3);
+    }
+
+    fn check_in_fixture() -> (AppData, Provider, LoginAccount, LoginCredentials) {
+        let mut account = LoginAccount::new(
+            "fixture-account".into(),
+            "Fixture".into(),
+            LoginPlatform::LinuxDo,
+            1,
+        );
+        account.identity = Some("fixture-identity".into());
+        let mut input = ProviderInput::default();
+        input.identity.base_url = "https://agentrouter.org".into();
+        input.auth.mode = AuthMode::Session;
+        input.auth.source = AuthSource::Oauth;
+        input.auth.api_user = "42".into();
+        input.auth.session_cookie = "session=old-fixture".into();
+        input.auth.browser_binding = Some(BrowserLoginBinding {
+            account_id: Some(account.id.clone()),
+            platform: LoginPlatform::LinuxDo,
+            mechanism: BrowserLoginMechanism::Oauth,
+            imported_at: 1,
+        });
+        let mut provider = Provider::from_input(input, "fixture".into());
+        provider.identity.remark = "keep-card-preferences".into();
+        let mut login = credentials("42");
+        login.mechanism = BrowserLoginMechanism::Oauth;
+        login.platform = LoginPlatform::LinuxDo;
+        login.platform_identity = account.identity.clone();
+        login.fresh_login = true;
+        let data = AppData {
+            providers: vec![provider.clone()],
+            login_accounts: vec![account.clone()],
+            ..AppData::default()
+        };
+        (data, provider, account, login)
+    }
+
+    #[test]
+    fn check_in_login_updates_bound_credentials_without_applying_an_editor_draft() {
+        let (mut data, expected, account, login) = check_in_fixture();
+        data.providers[0].identity.remark = "edited-while-logging-in".into();
+        let provider = save_check_in_credentials(&mut data, &expected, login, &account).unwrap();
+        assert_eq!(data.providers.len(), 1);
+        assert_eq!(provider.identity.remark, "edited-while-logging-in");
+        assert_eq!(provider.auth.mode, AuthMode::Session);
+        assert_eq!(provider.auth.source, AuthSource::Oauth);
+        assert_eq!(provider.auth.session_cookie, "session=fixture");
+        assert_eq!(
+            provider.auth.credential_revision,
+            expected.auth.credential_revision + 1
+        );
+        assert_eq!(
+            provider.auth.browser_binding.unwrap().account_id.as_deref(),
+            Some(account.id.as_str())
+        );
+        assert!(data.login_accounts[0].last_used_at.is_some());
+        assert!(
+            provider.automation.last_checked_in_at.is_none(),
+            "the common check-in finalizer owns records"
+        );
+    }
+
+    #[test]
+    fn check_in_login_rejects_stale_configuration_unproven_login_and_changed_identity() {
+        for scenario in [
+            "no-login",
+            "site-user",
+            "platform-user",
+            "cleared-account",
+            "binding",
+            "policy",
+            "credential",
+            "disabled",
+            "deleted",
+        ] {
+            let (mut data, expected, account, mut login) = check_in_fixture();
+            match scenario {
+                "no-login" => login.fresh_login = false,
+                "site-user" => login.user.id = "43".into(),
+                "platform-user" => {
+                    login.platform_identity = Some("another-fixture-identity".into())
+                }
+                "cleared-account" => data.login_accounts[0].generation += 1,
+                "binding" => {
+                    data.providers[0]
+                        .auth
+                        .browser_binding
+                        .as_mut()
+                        .unwrap()
+                        .account_id = Some("other-account".into())
+                }
+                "policy" => {
+                    data.providers[0].automation.check_in_method =
+                        crate::models::ProviderCheckInMethod::Standard
+                }
+                "credential" => data.providers[0].auth.credential_revision += 1,
+                "disabled" => data.providers[0].runtime.enabled = false,
+                "deleted" => data.providers.clear(),
+                _ => unreachable!(),
+            }
+            let before = serde_json::to_value(&data).unwrap();
+            assert!(
+                save_check_in_credentials(&mut data, &expected, login, &account).is_err(),
+                "{scenario}"
+            );
+            assert_eq!(
+                serde_json::to_value(&data).unwrap(),
+                before,
+                "{scenario} must not write partial credentials"
+            );
+        }
     }
 }

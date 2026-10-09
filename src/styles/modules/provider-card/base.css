@@ -7,11 +7,6 @@
   --glass-border: #e5e6eb;
 }
 
-.provider-card.workspace-card-standard:has(.provider-check-in-state) {
-  height: auto;
-  max-height: none;
-}
-
 .provider-card {
   --workspace-card-padding: 14px;
   --workspace-card-icon-box-size: 32px;

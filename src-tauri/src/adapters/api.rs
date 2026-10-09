@@ -175,13 +175,20 @@ impl ApiAdapter {
                 next.quota.total_known = false;
                 next.quota.unlimited = false;
                 next.quota.scope = ProviderQuotaScope::Token;
-                next.capabilities.available_models = models;
+                next.capabilities
+                    .set_available_models(crate::models::ProviderModelList::new(
+                        models,
+                        crate::models::ProviderModelScope::ApiKey,
+                    ));
                 next.runtime.status = ProviderStatus::Ok;
                 next.runtime.error_message = None;
                 next.automation.last_synced_at = Some(crate::util::unix_secs().to_string());
                 next
             }
-            Err(message) => provider_with_error(&next, message),
+            Err(message) => {
+                next.capabilities.available_models_state.error = Some(message.clone());
+                provider_with_error(&next, message)
+            }
         }
     }
 }
@@ -205,6 +212,16 @@ pub(crate) async fn fetch_models(
     let status = response.status;
     let body = response.body;
     if !status.is_success() {
+        let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+        if payload.get("type").and_then(Value::as_str) == Some("unauthorized_client_error")
+            || payload.pointer("/error/type").and_then(Value::as_str)
+                == Some("unauthorized_client_error")
+        {
+            return Err(format!(
+                "站点拒绝此客户端访问模型接口（HTTP {}）",
+                status.as_u16()
+            ));
+        }
         let detail = body.chars().take(240).collect::<String>();
         return Err(format!("获取模型列表失败: HTTP {status} {detail}"));
     }
@@ -220,6 +237,10 @@ fn parse_models(body: &str) -> Result<Vec<String>, String> {
     {
         return Err("站点返回模型列表错误，已保留上次结果".to_string());
     }
+    parse_model_data(&value)
+}
+
+pub(super) fn parse_model_data(value: &Value) -> Result<Vec<String>, String> {
     let values = value
         .get("data")
         .and_then(Value::as_array)

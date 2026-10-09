@@ -239,6 +239,8 @@ impl Provider {
         if self.auth.api_key.trim().is_empty() {
             self.auth.api_key = key;
             self.auth.api_key_token_id.clear();
+            self.capabilities.clear_available_models();
+            self.auth.credential_revision += 1;
         }
         self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
         Ok(())
@@ -276,11 +278,12 @@ impl Provider {
         if !option.key_available || !is_full_api_key_value(&option.key) {
             return Err("该 API Key 未读取到完整值，无法设为当前调用 Key".to_string());
         }
+        if self.auth.api_key != option.key {
+            self.capabilities.clear_available_models();
+            self.auth.credential_revision += 1;
+        }
         self.auth.api_key = option.key;
         self.auth.api_key_token_id = option.token_id;
-        // Model discovery is refreshed explicitly by the model refresh action. Keep the
-        // last known list visible while switching keys so the card does not flash empty;
-        // the next refresh will replace it with the models available to the new key.
         self.automation.last_synced_at = None;
         self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
         Ok(())
@@ -311,7 +314,8 @@ impl Provider {
                 self.auth.api_key.clear();
                 self.auth.api_key_token_id.clear();
             }
-            self.capabilities.available_models.clear();
+            self.capabilities.clear_available_models();
+            self.auth.credential_revision += 1;
             self.automation.last_synced_at = None;
         }
         self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
@@ -332,8 +336,7 @@ impl Provider {
         } else {
             input.auth.mode
         };
-        let password_session_invalidated = matches!(self.auth.mode, AuthMode::Password)
-            && matches!(next_auth_mode, AuthMode::Password)
+        let password_session_invalidated = matches!(next_auth_mode, AuthMode::Password)
             && (self.auth.login_username != input.auth.login_username
                 || self.auth.login_password != input.auth.login_password
                 || self.identity.base_url.trim_end_matches('/')
@@ -373,11 +376,11 @@ impl Provider {
             input.auth.access_token_expires_at
         };
         // The backend owns rotating NewAPI credentials. Editing unrelated fields
-        // must not restore a stale session copied into a frontend draft.
+        // or selecting another auth mode must not restore a stale session from
+        // the draft or discard the current stored session.
         let next_new_api_session = if protocol_changed
             || base_url_changed
             || password_session_invalidated
-            || self.auth.mode != next_auth_mode
             || self.auth.session_cookie != next_session_cookie
             || self.auth.api_user != next_api_user
             || self.auth.login_username != input.auth.login_username
@@ -528,6 +531,10 @@ impl Provider {
         self.runtime.enabled = input.runtime.enabled;
     }
 }
+
+#[cfg(test)]
+#[path = "input/auth_mode_tests.rs"]
+mod auth_mode_tests;
 
 pub(crate) fn normalize_provider_auth(
     mut auth: ProviderAuth,

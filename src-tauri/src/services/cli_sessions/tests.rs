@@ -1,7 +1,7 @@
 use super::{
     clean_text, first_non_empty, normalize_timestamp, read_json_lines_limited,
-    scan_json_lines_matching, scan_json_records_background, timestamp_from_value,
-    SearchAccumulator, SearchQuery,
+    scan_json_lines_matching, scan_json_records, timestamp_from_value, SearchAccumulator,
+    SearchQuery,
 };
 use crate::models::{AgentCliKind, CliSessionSummary};
 use crate::services::agent_cli::contracts::SessionContentSearchRequest;
@@ -185,7 +185,7 @@ fn background_jsonl_scan_checks_cancellation_at_the_throttle_boundary() {
     let _ = fs::remove_file(&path);
     fs::write(&path, format!("{}\n", "x".repeat(3 * 1024 * 1024))).unwrap();
     let cancellation_checks = AtomicUsize::new(0);
-    let error = scan_json_records_background(
+    let error = scan_json_records(
         &path,
         "索引测试会话",
         &|| cancellation_checks.fetch_add(1, Ordering::Relaxed) == 0,

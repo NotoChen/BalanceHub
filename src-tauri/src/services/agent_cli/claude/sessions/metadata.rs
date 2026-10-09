@@ -209,10 +209,7 @@ fn read_candidate(
     })?;
     check(request, budget)?;
     match parsed {
-        Some(parsed) if parsed.read_limit_reason.is_none() => {
-            Ok(MetadataFile::Parsed(Box::new(parsed), metadata.len()))
-        }
-        Some(_) => Ok(MetadataFile::Pending(pending())),
+        Some(parsed) => Ok(MetadataFile::Parsed(Box::new(parsed), metadata.len())),
         None => Ok(MetadataFile::Missing),
     }
 }

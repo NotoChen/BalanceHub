@@ -174,7 +174,6 @@ fn add_record(
             let Some(ParsedClaudeTranscript {
                 summary,
                 native_origin_workdir,
-                read_limit_reason,
             }) = parse_transcript(kind, path)?
             else {
                 return Ok(None);
@@ -186,8 +185,8 @@ fn add_record(
                     locator: path.to_path_buf(),
                     role: AgentSessionRole::Main,
                     parent_native_id: None,
-                    resume_reason: read_limit_reason.clone(),
-                    content_unavailable_reason: read_limit_reason,
+                    resume_reason: None,
+                    content_unavailable_reason: None,
                 },
                 native_origin_workdir,
             )
@@ -298,13 +297,9 @@ fn search(
     }
     search_transcript(&record.locator, request, current)
 }
-fn index(
-    record: &SessionHistoryRecord,
-    known: Option<&str>,
-    current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
+fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
     if let Some(reason) = &record.content_unavailable_reason {
         return Err(reason.clone());
     }
-    index_transcript(&record.locator, known, current)
+    Ok(vec![index_source(&record.locator)])
 }

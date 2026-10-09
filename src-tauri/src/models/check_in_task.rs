@@ -14,7 +14,9 @@ pub enum CheckInPhase {
     Opening,
     Verifying,
     WaitingHuman,
+    WaitingLogin,
     WaitingBrowser,
+    LoggingIn,
     Requesting,
     VerifyingResult,
     Saving,
@@ -28,11 +30,13 @@ impl CheckInPhase {
     pub(crate) fn message(self) -> &'static str {
         match self {
             Self::Queued => "已加入签到队列",
-            Self::Checking => "正在读取今日签到状态",
-            Self::Opening => "正在打开签到验证窗口",
+            Self::Checking => "正在检查签到方式与账号状态",
+            Self::Opening => "正在打开签到窗口",
             Self::Verifying => "正在完成站点验证",
             Self::WaitingHuman => "需要人工验证，点击继续验证",
+            Self::WaitingLogin => "需要使用绑定账号重新登录，点击继续登录",
             Self::WaitingBrowser => "需要安装或修复浏览器签到组件",
+            Self::LoggingIn => "正在重新登录站点账号",
             Self::Requesting => "正在提交签到",
             Self::VerifyingResult => "正在向站点确认签到结果",
             Self::Saving => "正在保存签到记录",
@@ -51,13 +55,16 @@ impl CheckInPhase {
     }
 
     pub(crate) fn waiting(self) -> bool {
-        matches!(self, Self::WaitingHuman | Self::WaitingBrowser)
+        matches!(
+            self,
+            Self::WaitingHuman | Self::WaitingLogin | Self::WaitingBrowser
+        )
     }
 
     pub(crate) fn may_have_submitted(self) -> bool {
         matches!(
             self,
-            Self::Requesting | Self::VerifyingResult | Self::Saving
+            Self::Requesting | Self::LoggingIn | Self::VerifyingResult | Self::Saving
         )
     }
 }
@@ -100,6 +107,7 @@ pub struct CheckInBatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CheckInError {
     WaitingHuman,
+    WaitingLogin,
     WaitingBrowser(String),
     Unconfirmed(String),
     Failed(String),
@@ -121,6 +129,7 @@ impl std::fmt::Display for CheckInError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WaitingHuman => f.write_str(CheckInPhase::WaitingHuman.message()),
+            Self::WaitingLogin => f.write_str(CheckInPhase::WaitingLogin.message()),
             Self::WaitingBrowser(message) | Self::Unconfirmed(message) | Self::Failed(message) => {
                 f.write_str(message)
             }

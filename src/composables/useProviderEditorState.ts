@@ -28,6 +28,7 @@ export function useProviderEditorState() {
   const protocolSelectionSource = ref<ProtocolSelectionSource>("auto");
   const protocolSelectionBaseUrl = ref("");
   const draftProvider = reactive<ProviderInput>(emptyDraft());
+  let managedAuthSnapshot: Provider["auth"] | null = null;
   // 可用模型属于运行时能力数据，不写入 ProviderInput；仅作为编辑器的候选项。
   const availableModels = ref<string[]>([]);
   const siteNameSourceBaseUrl = ref("");
@@ -41,6 +42,7 @@ export function useProviderEditorState() {
   });
 
   function resetDraft() {
+    managedAuthSnapshot = null;
     completingCredentials.value = false;
     probingSite.value = false;
     Object.assign(draftProvider, emptyDraft());
@@ -71,6 +73,7 @@ export function useProviderEditorState() {
     probingSite.value = false;
     editingProviderId.value = provider.identity.id;
     Object.assign(draftProvider, providerToInput(provider));
+    managedAuthSnapshot = JSON.parse(JSON.stringify(provider.auth));
     availableModels.value = [...(provider.capabilities.availableModels || [])];
     credentialCompletionMessage.value = "";
     credentialCompletionSteps.value = [];
@@ -95,9 +98,24 @@ export function useProviderEditorState() {
 
   function syncManagedApiKeys(provider: Provider) {
     if (editingProviderId.value !== provider.identity.id) return;
+    // Keep rotations received during Key operations without overwriting fields
+    // the user has edited in the surrounding provider form.
+    const mergedAuth = Object.fromEntries(
+      Object.entries(provider.auth).filter(([field, value]) => {
+        if (field === "credentialRevision" || !managedAuthSnapshot) return false;
+        const key = field as keyof Provider["auth"];
+        const previous = JSON.stringify(managedAuthSnapshot[key]);
+        return JSON.stringify(draftProvider.auth[key]) === previous
+          && JSON.stringify(value) !== previous;
+      }),
+    );
+    Object.assign(draftProvider.auth, mergedAuth);
+    draftProvider.auth.credentialRevision = provider.auth.credentialRevision;
     draftProvider.auth.apiKey = provider.auth.apiKey;
     draftProvider.auth.apiKeyTokenId = provider.auth.apiKeyTokenId;
     setApiKeyOptions(provider.auth.apiKeyOptions || []);
+    managedAuthSnapshot = JSON.parse(JSON.stringify(provider.auth));
+    availableModels.value = [...provider.capabilities.availableModels];
   }
 
   return {

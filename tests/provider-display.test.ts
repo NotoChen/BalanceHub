@@ -10,9 +10,21 @@ import {
   providerApiKeySecondaryName,
   providerApiKeyRemark,
   providerCardTitle,
+  providerCardStatusTone,
+  providerModelScopeLabel,
   providerDefaultApiKeyOption,
   providerUsesApiKeyOption,
 } from "../src/utils/provider-display.ts";
+
+test("model source labels preserve account and Key scope and a model failure is visible", () => {
+  assert.equal(providerModelScopeLabel("account"), "账号可用模型");
+  assert.equal(providerModelScopeLabel("apiKey"), "Key 可用模型");
+  assert.equal(providerModelScopeLabel(null), "可用模型");
+  const value = provider("session");
+  value.runtime = { enabled: true, status: "warning", errorMessage: "模型列表获取失败" };
+  value.automation = { lastSyncedAt: "123" } as Provider["automation"];
+  assert.equal(providerCardStatusTone(value), "warning");
+});
 
 function provider(authMode: Provider["auth"]["mode"], remark = "") {
   const displayLabel = authMode === "apiKey"

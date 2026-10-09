@@ -33,7 +33,7 @@ export function sessionRow(id = "session-1", overrides: Partial<AgentSessionRow>
 export function sessionPage(items: AgentSessionRow[] = [], overrides: Partial<AgentSessionPage> = {}): AgentSessionPage {
   return {
     snapshotId: "snapshot:1", scopeRevision: "scope:recorded", items, parentUpdates: [], nextCursor: null,
-    loadedCount: items.length, total: items.length, agentCounts: [],
+    loadedCount: items.length, total: items.length, agentCounts: [], scanPending: false,
     sourceStates: [{ sourceId: "source:codex", workspaceId: "home", state: "complete", loadedCount: items.length, message: null, indexState: "ready" }],
     ...overrides,
   };

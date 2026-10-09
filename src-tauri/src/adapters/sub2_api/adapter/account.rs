@@ -2,15 +2,15 @@ use super::Sub2ApiAdapter;
 use crate::{
     adapters::{
         sub2_api::{
-            auth::request_account_json,
-            json::string_field,
-            keys::{api_key_from_value, fetch_api_keys},
-            response::normalize_base_url,
-            usage::urlencoding,
+            auth::request_account_json, json::string_field, keys::fetch_api_keys,
+            response::normalize_base_url, usage::urlencoding,
         },
         transport::{build_client, ProviderTransport},
     },
-    models::{AppSettings, AuthMode, Provider, ProviderApiKeyOption, ProviderCapabilities},
+    models::{
+        AppSettings, AuthMode, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption,
+        ProviderApiKeyPatch, ProviderCapabilities,
+    },
 };
 use reqwest::Method;
 use serde_json::json;
@@ -26,29 +26,35 @@ impl Sub2ApiAdapter {
         Ok((authenticated, options))
     }
 
+    pub(crate) async fn api_key_editor_context(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: Option<&str>,
+    ) -> Result<(Provider, ProviderApiKeyEditorContext), String> {
+        let client = build_client(settings, provider).await?;
+        crate::adapters::sub2_api::key_management::editor_context(&client, provider, token_id).await
+    }
+
     pub(crate) async fn create_api_key(
         &self,
         settings: &AppSettings,
         provider: &Provider,
-        name: &str,
+        patch: &ProviderApiKeyPatch,
     ) -> Result<(Provider, ProviderApiKeyOption), String> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err("请填写 API 密钥名称".to_string());
-        }
         let client = build_client(settings, provider).await?;
-        let (authenticated, data) = request_account_json(
-            &client,
-            provider,
-            Method::POST,
-            "/keys",
-            Some(json!({"name": name})),
-            "创建 API Key",
-        )
-        .await?;
-        let option = api_key_from_value(&data)
-            .ok_or_else(|| "创建成功但响应中没有返回 API Key".to_string())?;
-        Ok((authenticated, option))
+        crate::adapters::sub2_api::key_management::create(&client, provider, patch).await
+    }
+
+    pub(crate) async fn update_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+        patch: &ProviderApiKeyPatch,
+    ) -> Result<(Provider, ProviderApiKeyOption), String> {
+        let client = build_client(settings, provider).await?;
+        crate::adapters::sub2_api::key_management::update(&client, provider, token_id, patch).await
     }
 
     pub(crate) async fn generate_access_token(

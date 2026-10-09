@@ -1,4 +1,4 @@
-import type { BrowserRuntimeStatus } from "../api/browser-runtime";
+import type { BrowserRuntimeStatus, BrowserSelection } from "../api/browser-runtime";
 
 export interface BrowserRuntimeSnapshot {
   status: BrowserRuntimeStatus | null;
@@ -9,7 +9,8 @@ export interface BrowserRuntimeSnapshot {
 interface BrowserRuntimeApi {
   status: (force: boolean) => Promise<BrowserRuntimeStatus>;
   listen: (receive: (status: BrowserRuntimeStatus) => void) => Promise<() => void>;
-  install: (includeBrowser: boolean) => Promise<BrowserRuntimeStatus>;
+  install: (selection: BrowserSelection, repair: boolean) => Promise<BrowserRuntimeStatus>;
+  selectBrowser: (selection: BrowserSelection) => Promise<BrowserRuntimeStatus>;
   cancel: () => Promise<void>;
   uninstall: () => Promise<BrowserRuntimeStatus>;
 }
@@ -49,7 +50,8 @@ export function createBrowserRuntimeController(api: BrowserRuntimeApi, changed: 
   function stop() { active = false; sequence++; unlisten?.(); unlisten = undefined; }
   return { start, stop, refresh, setVisible,
     open: () => { setVisible(true); void refresh(); },
-    install: (includeBrowser: boolean) => run("install", () => api.install(includeBrowser)),
+    install: (selection: BrowserSelection, repair = false) => run("install", () => api.install(selection, repair)),
+    selectBrowser: (selection: BrowserSelection) => run("select", () => api.selectBrowser(selection)),
     cancel: () => run("cancel", api.cancel),
     uninstall: () => run("uninstall", api.uninstall),
   };

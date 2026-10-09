@@ -1,7 +1,58 @@
-import { h } from "vue";
-import { Button, Message, Modal } from "@arco-design/web-vue";
+import { h, ref } from "vue";
+import { Button, Modal } from "@arco-design/web-vue";
 import { IconLink, IconPlus } from "@arco-design/web-vue/es/icon";
 import type { ProviderDuplicateDecision } from "./provider-editor-shared";
+import type { ProviderApiKeyOption } from "../stores/providers";
+import { maskApiKey, providerApiKeyDisplayName } from "../utils/provider-display";
+import RadioChoiceGroup from "../components/RadioChoiceGroup.vue";
+
+export function chooseProviderApiKey(keys: ProviderApiKeyOption[], signal: AbortSignal) {
+  return new Promise<ProviderApiKeyOption | null>((resolve) => {
+    if (signal.aborted) { resolve(null); return; }
+    const selected = ref("");
+    let settled = false;
+    let modal: ReturnType<typeof Modal.open> | undefined;
+    const finish = (key: ProviderApiKeyOption | null, close = true) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", cancel);
+      resolve(key);
+      if (close) modal?.close();
+    };
+    const cancel = () => finish(null);
+    signal.addEventListener("abort", cancel, { once: true });
+    const choices = keys.map((key, index) => ({
+      value: String(index),
+      label: providerApiKeyDisplayName(key),
+      description: [key.group || key.groupId, maskApiKey(key.key)].filter(Boolean).join(" · "),
+    }));
+    modal = Modal.open({
+      title: "选择当前调用 API Key",
+      width: 560,
+      modalClass: ["surface-modal", "provider-key-selection-modal"],
+      footer: false,
+      content: () => h("div", { class: "provider-key-selection" }, [
+        h("p", "已读取多把 Key，请选择此中转站默认使用的一把。"),
+        h(RadioChoiceGroup, {
+          modelValue: selected.value,
+          options: choices,
+          label: "当前调用 API Key",
+          class: "provider-key-selection-options",
+          optionClass: "provider-key-selection-option",
+          "onUpdate:modelValue": (value: string) => { selected.value = value; },
+        }, { default: ({ option }: { option: typeof choices[number] }) => [
+          h("strong", option.label), h("small", option.description),
+        ] }),
+        h("div", { class: "provider-duplicate-actions" }, [
+          h(Button, { onClick: cancel }, { default: () => "取消" }),
+          h(Button, { type: "primary", disabled: selected.value === "", onClick: () => finish(keys[Number(selected.value)] ?? null) }, { default: () => "使用此 Key 并继续" }),
+        ]),
+      ]),
+      onCancel: () => finish(null, false),
+      onClose: () => finish(null, false),
+    });
+  });
+}
 
 export function chooseSameSiteApiKeyAction(existingName: string) {
   return new Promise<ProviderDuplicateDecision>((resolve) => {
@@ -62,71 +113,29 @@ export function confirmAction(
   content: string,
   okText: string,
   status: "normal" | "warning" | "danger" = "normal",
+  signal?: AbortSignal,
 ) {
   return new Promise<boolean>((resolve) => {
+    if (signal?.aborted) { resolve(false); return; }
     let settled = false;
-    Modal.confirm({
+    let modal: ReturnType<typeof Modal.confirm> | undefined;
+    const finish = (confirmed: boolean) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", cancel);
+      resolve(confirmed);
+    };
+    const cancel = () => { finish(false); modal?.close(); };
+    signal?.addEventListener("abort", cancel, { once: true });
+    modal = Modal.confirm({
       title,
       content,
       okText,
       cancelText: "取消",
       okButtonProps: status === "normal" ? undefined : { status },
-      onOk: () => {
-        settled = true;
-        resolve(true);
-      },
-      onCancel: () => {
-        settled = true;
-        resolve(false);
-      },
-      onClose: () => {
-        if (!settled) {
-          resolve(false);
-        }
-      },
-    });
-  });
-}
-
-export function promptApiKeyName() {
-  return new Promise<string | null>((resolve) => {
-    let value = "";
-    let settled = false;
-    Modal.confirm({
-      title: "创建 API 密钥",
-      okText: "创建",
-      cancelText: "取消",
-      content: () =>
-        h("div", { class: "api-key-create-form" }, [
-          h("label", { class: "api-key-create-label", for: "provider-editor-api-key-name" }, "密钥名称"),
-          h("input", {
-            id: "provider-editor-api-key-name",
-            class: "arco-input arco-input-size-medium",
-            placeholder: "例如：个人电脑、Claude Code、备用密钥",
-            autofocus: true,
-            onInput: (event: Event) => {
-              value = (event.target as HTMLInputElement).value;
-            },
-          }),
-        ]),
-      onBeforeOk: () => {
-        if (!value.trim()) {
-          Message.warning("请填写 API 密钥名称");
-          return false;
-        }
-        settled = true;
-        resolve(value.trim());
-        return true;
-      },
-      onCancel: () => {
-        settled = true;
-        resolve(null);
-      },
-      onClose: () => {
-        if (!settled) {
-          resolve(null);
-        }
-      },
+      onOk: () => finish(true),
+      onCancel: () => finish(false),
+      onClose: () => finish(false),
     });
   });
 }

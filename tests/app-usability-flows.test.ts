@@ -1,40 +1,24 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test, { type TestContext } from "node:test";
 import { effectScope, reactive, ref, type Ref } from "vue";
 import { createPinia } from "pinia";
-import { compileScript, parse } from "vue/compiler-sfc";
-import ts from "typescript";
 import { useLatestRequest } from "../src/composables/useLatestRequest.ts";
 import { withTimeout } from "../src/utils/promise-timeout.ts";
 import * as announcementDisplay from "../src/utils/site-announcements.ts";
 import * as providerRevision from "../src/utils/provider-revision.ts";
-import { providerToInput } from "../src/utils/provider-input.ts";
+import { emptyDraft, providerToInput } from "../src/utils/provider-input.ts";
+import { normalizeProviderBaseUrl } from "../src/composables/provider-editor-shared.ts";
 import * as providerDisplay from "../src/utils/provider-display.ts";
-import type { AppSettings, Provider, SiteAnnouncement, SiteAnnouncementsSnapshot } from "../src/stores/provider-types.ts";
+import * as providerProtocol from "../src/utils/provider-protocol.ts";
+import * as apiKeySettings from "../src/utils/provider-api-key-settings.ts";
+import * as apiKeyOptions from "../src/utils/provider-api-key-options.ts";
+import { keyEditorContext } from "./helpers/api-key-fixture.ts";
+import { loadSource } from "./helpers/load-source.ts";
+import type { AppSettings, AuthMode, Provider, ProviderAuthFieldDescriptor, ProviderAuthModeDescriptor, SiteAnnouncement, SiteAnnouncementsSnapshot } from "../src/stores/provider-types.ts";
 import type { AppDataTransferResult, NotificationSendResult } from "../src/api/app.ts";
 
 const require = createRequire(import.meta.url);
-
-// Execute the real source with native boundaries replaced in memory. No App,
-// notification, file dialog, native configuration or desktop automation is used.
-function loadSource<T>(path: string, bindings: Record<string, unknown>): T {
-  const source = readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8");
-  const code = path.endsWith(".vue")
-    ? compileScript(parse(source, { filename: path }).descriptor, { id: "settings-interaction-test" }).content
-    : source;
-  const output = ts.transpileModule(code, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const exports = {};
-  new Function("require", "exports", output)((specifier: string) => {
-    if (Object.hasOwn(bindings, specifier)) return bindings[specifier];
-    if (specifier === "vue" || specifier === "pinia") return require(specifier);
-    throw new Error(`Unmocked module: ${specifier}`);
-  }, exports);
-  return exports as T;
-}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -52,6 +36,231 @@ function messages() {
   const sent: string[] = [];
   return { sent, Message: { success: (value: string) => sent.push(value), error: (value: string) => sent.push(value), warning: (value: string) => sent.push(value) } };
 }
+
+test("authentication sections stay visible and retain credentials across supported modes", (t) => {
+  const component = loadSource<{ default: { setup: (props: object, context: object) => {
+    selectMode: (mode: AuthMode) => void;
+    updateField: (field: ProviderAuthFieldDescriptor, value: string) => void;
+    credentialSections: Ref<ProviderAuthModeDescriptor[]>;
+    sharedFields: Ref<ProviderAuthFieldDescriptor[]>;
+    currentAuthMode: Ref<ProviderAuthModeDescriptor | undefined>;
+    showAuthModePicker: Ref<boolean>;
+    showCredentialPanel: Ref<boolean>;
+  } } }>("components/provider-editor/ProviderEditorCredentialsSection.vue", {
+    vue: { ...require("vue"), inject: () => undefined, useId: () => "auth-fixture" },
+    "../../composables/useLoginAccounts": { LOGIN_ACCOUNTS_CONTEXT: Symbol("login") },
+    "../../composables/useProviderCredentials": { PROVIDER_CREDENTIALS_CONTEXT: Symbol("credentials") },
+    "@arco-design/web-vue/es/icon": {},
+    "../../utils/provider-protocol": providerProtocol,
+    "../ProviderAuthIcon.vue": {},
+    "./ProviderCredentialFields.vue": {},
+    "./ProviderApiKeyVault.vue": {},
+  }).default;
+  for (const protocol of ["newApi", "sub2Api", "api"] as const) {
+    const draft = reactive(emptyDraft());
+    draft.identity.protocol = protocol;
+    Object.assign(draft.auth, {
+      mode: protocol === "newApi" ? "session" : protocol === "sub2Api" ? "accessToken" : "apiKey",
+      sessionCookie: "session=fixture-cookie", apiUser: "42",
+      accessToken: "fixture-access-token", refreshToken: "fixture-refresh-token", accessTokenExpiresAt: 4102444800000,
+      loginUsername: "fixture-user", loginPassword: "fixture-password", apiKey: "sk-fixture-key",
+      newApiSession: protocol === "newApi" ? { accessToken: "fixture-session-token", accessExpiresAt: 4102444800, refreshCookie: "fixture-session-refresh", sessionId: "fixture-session" } : null,
+    });
+    const original = JSON.parse(JSON.stringify(draft.auth));
+    const modes: AuthMode[] = protocol === "newApi" ? ["password", "session", "accessToken", "apiKey"] : protocol === "sub2Api" ? ["password", "accessToken", "apiKey"] : ["apiKey"];
+    const fieldNames: Record<AuthMode, string[]> = {
+      password: protocol === "newApi" ? ["loginUsername", "loginPassword", "apiUser"] : ["loginUsername", "loginPassword"],
+      session: ["sessionCookie", "apiUser"],
+      accessToken: protocol === "newApi" ? ["accessToken", "apiUser"] : ["accessToken", "refreshToken"],
+      apiKey: ["apiKey"],
+    };
+    const required: Record<AuthMode, string[]> = {
+      password: ["loginUsername", "loginPassword"],
+      session: [],
+      accessToken: protocol === "newApi" ? ["accessToken", "apiUser"] : ["accessToken"],
+      apiKey: ["apiKey"],
+    };
+    const schemas = modes.map((mode): ProviderAuthModeDescriptor => ({
+      mode, label: mode, description: "", note: "", requiredFields: required[mode],
+      requiredAnyFields: mode === "session" ? ["sessionCookie", "newApiSession.refreshCookie"] : [], optionalFields: [],
+      fields: fieldNames[mode].map((field) => ({ field, label: field, placeholder: "", secret: false, wide: false, readonly: mode === "password" && field === "apiUser", showWhenEmpty: true })),
+    }));
+    const props = reactive({ draft, disabled: false, apiKeyOptions: [], apiKeyManagerProvider: null as Provider | null, providerProtocols: [{ kind: protocol, authModes: schemas, browserLoginSupported: protocol === "newApi" }] });
+    const { value: panel } = scoped(t, () => component.setup(props, { expose() {}, emit() {} }));
+    const expectedFields = [...new Set(schemas.flatMap((mode) => mode.fields.map((field) => field.field)))].sort();
+    for (const mode of [...modes, ...modes.toReversed()]) {
+      panel.selectMode(mode);
+      for (const field of ["loginUsername", "loginPassword", "accessToken", "sessionCookie"] as const) {
+        panel.updateField({ field, readonly: false } as ProviderAuthFieldDescriptor, original[field]);
+      }
+      assert.deepEqual(JSON.parse(JSON.stringify(draft.auth)), { ...original, mode }, `${protocol}: ${mode}`);
+      assert.deepEqual(panel.credentialSections.value.map((section) => section.mode), modes);
+      assert.deepEqual([
+        ...panel.credentialSections.value.flatMap((section) => section.fields.map((field) => field.field)),
+        ...panel.sharedFields.value.map((field) => field.field),
+      ].sort(), expectedFields, "every field is visible once, regardless of the selected mode");
+      assert.deepEqual(panel.currentAuthMode.value?.requiredFields, required[mode]);
+    }
+    assert.equal(panel.showAuthModePicker.value, protocol !== "api");
+    assert.deepEqual(panel.sharedFields.value.map((field) => field.field), protocol === "newApi" ? ["apiUser"] : []);
+    if (protocol === "newApi") assert.equal(panel.sharedFields.value[0]?.readonly, false);
+    draft.id = "fixture-provider";
+    props.apiKeyManagerProvider = { identity: { id: draft.id } } as Provider;
+    panel.selectMode("apiKey");
+    assert.deepEqual(panel.credentialSections.value.map((section) => section.mode), modes.filter((mode) => mode !== "apiKey"), "saved API Keys appear in the existing vault without hiding account credentials");
+    assert.equal(panel.showCredentialPanel.value, protocol !== "api", "Key-only providers do not gain an empty credential panel");
+    props.disabled = true;
+    panel.selectMode("password");
+    assert.equal(draft.auth.mode, "apiKey");
+  }
+});
+
+function setupKeyForm(t: TestContext, overrides: Record<string, unknown> = {}) {
+  let mounted: (() => void) | undefined;
+  const component = loadSource<{ default: { setup: (props: object, context: object) => {
+    draft: Ref<import("../src/stores/provider-types.ts").ProviderApiKeySettings | null>;
+    allowIps: Ref<string>;
+    loading: ReturnType<typeof useLatestRequest>;
+    saving: ReturnType<typeof useLatestRequest>;
+    error: Ref<string>;
+    save: () => Promise<void>;
+  } } }>("components/provider-editor/ProviderApiKeyEditorForm.vue", {
+    vue: { ...require("vue"), onMounted: (callback: () => void) => { mounted = callback; } },
+    "@arco-design/web-vue/es/icon": {},
+    "../../composables/useLatestRequest": { useLatestRequest },
+    "../../utils/provider-api-key-settings": apiKeySettings,
+  }).default;
+  const emitted: unknown[][] = [];
+  const props = { editing: true, isActive: () => true, loadContext: async () => keyEditorContext(), submit: async () => "saved", ...overrides };
+  const scope = scoped(t, () => component.setup(props, { expose() {}, emit: (...args: unknown[]) => emitted.push(args) }));
+  mounted?.();
+  return { ...scope, emitted };
+}
+
+test("API Key form can close during context loading and ignores its late result", async (t) => {
+  const pending = deferred<ReturnType<typeof keyEditorContext>>();
+  const form = setupKeyForm(t, { loadContext: () => pending.promise });
+  await settle();
+  assert.equal(form.value.loading.loading.value, true);
+  form.stop();
+  assert.equal(form.value.loading.loading.value, false);
+  pending.resolve(keyEditorContext());
+  await settle();
+  assert.equal(form.value.draft.value, null);
+  assert.deepEqual(form.emitted, []);
+});
+
+test("API Key form submits only changes and retains the draft after save failure", async (t) => {
+  const sent: unknown[] = [];
+  const form = setupKeyForm(t, { submit: async (patch: unknown, revision: number) => { sent.push(patch, revision); throw new Error("站点拒绝当前分组"); } });
+  await settle();
+  form.value.draft.value!.group = "group-b";
+  form.value.allowIps.value = "10.0.0.0/8\n";
+  await form.value.save();
+  assert.deepEqual(sent, [{ group: "group-b" }, 4]);
+  assert.equal(form.value.saving.loading.value, false);
+  assert.equal(form.value.draft.value!.group, "group-b");
+  assert.match(form.value.error.value, /当前分组/);
+});
+
+test("API Key save timeout releases the form and discards a late success", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pending = deferred<string>();
+  const form = setupKeyForm(t, { submit: () => pending.promise });
+  await settle();
+  form.value.draft.value!.name = "changed";
+  const saving = form.value.save();
+  await settle();
+  assert.equal(form.value.saving.loading.value, true);
+  t.mock.timers.tick(65_000);
+  await saving;
+  assert.equal(form.value.saving.loading.value, false);
+  assert.match(form.value.error.value, /同步站点 Key 确认/);
+  pending.resolve("late");
+  await settle();
+  assert.deepEqual(form.emitted, []);
+});
+
+test("API Key dialog cancellation settles immediately while its native request is pending", async () => {
+  let modal!: { onCancel: () => void; content: () => { props: { onSaved: (result: unknown) => void; isActive: () => boolean } } };
+  const { openApiKeyEditor } = loadSource<typeof import("../src/composables/provider-api-key-editor.ts")>("composables/provider-api-key-editor.ts", {
+    "@arco-design/web-vue": { Modal: { open: (options: typeof modal) => { modal = options; return { close() {} }; } } },
+    "../components/provider-editor/ProviderApiKeyEditorForm.vue": { default: { name: "KeyForm" } },
+  });
+  const pending = deferred<string>();
+  const editor = openApiKeyEditor({ editing: true, loadContext: async () => keyEditorContext(), submit: () => pending.promise });
+  const form = modal.content().props;
+  modal.onCancel();
+  assert.equal(await editor.result, null);
+  assert.equal(form.isActive(), false);
+  form.onSaved("late");
+  assert.equal(await editor.result, null);
+  pending.resolve("late");
+});
+
+test("API Key remote editor leaves the main vault available and closing it prevents stale feedback", async (t) => {
+  const feedback = messages();
+  const pending = deferred<null>();
+  let closed = false;
+  const { useApiKeyManager } = loadSource<typeof import("../src/composables/useApiKeyManager.ts")>("composables/useApiKeyManager.ts", {
+    "@arco-design/web-vue": feedback,
+    "../utils/provider-display": providerDisplay,
+    "../utils/provider-api-key-options": apiKeyOptions,
+    "./useClipboard": {},
+    "../utils/promise-timeout": { withTimeout },
+    "./provider-api-key-editor": { openApiKeyEditor: () => ({ result: pending.promise, close: () => { closed = true; pending.resolve(null); } }) },
+  });
+  const current = { ...provider("key-manager"), auth: { apiKey: "", apiKeyOptions: [] }, actions: { apiKeyManagement: true } } as Provider;
+  const { value: manager } = scoped(t, () => useApiKeyManager({ providers: ref([current]), getProvider: () => current } as Parameters<typeof useApiKeyManager>[0]));
+  manager.bindApiKeyManager(current);
+  manager.openApiKeyCreateEditor();
+  assert.equal(manager.apiKeyManagerOperation.value, null);
+  manager.closeApiKeyManager();
+  assert.equal(closed, true);
+  await settle();
+  assert.equal(manager.apiKeyManagerProvider.value, null);
+  assert.deepEqual(feedback.sent, []);
+});
+
+test("API Key updates merge current credentials and revision without overwriting provider draft edits", (t) => {
+  const { useProviderEditorState } = loadSource<typeof import("../src/composables/useProviderEditorState.ts")>("composables/useProviderEditorState.ts", {
+    "../utils/provider-input": { emptyDraft, providerToInput },
+    "../utils/provider-api-key-options": apiKeyOptions,
+    "./provider-editor-shared": { normalizeProviderBaseUrl },
+  });
+  const initial = emptyDraft();
+  const stored = {
+    ...initial,
+    identity: { ...initial.identity, id: "fixture", baseUrl: "https://relay.example.invalid" },
+    auth: { ...initial.auth, apiKey: "sk-first", accessToken: "fixture-old-token", loginPassword: "fixture-old-password", credentialRevision: 4 },
+    capabilities: { availableModels: ["first-key-model"] },
+  } as Provider;
+  const { value: editor } = scoped(t, useProviderEditorState);
+  editor.openEditProvider(stored);
+  editor.draftProvider.identity.name = "Unsaved station name";
+  editor.draftProvider.auth.loginPassword = "fixture-user-edited-password";
+  const refreshed = structuredClone(stored);
+  refreshed.auth.apiKey = "sk-second";
+  refreshed.auth.accessToken = "fixture-rotated-token";
+  refreshed.auth.loginPassword = "fixture-server-password";
+  refreshed.auth.credentialRevision = 5;
+  refreshed.capabilities.availableModels = [];
+  editor.syncManagedApiKeys(refreshed);
+  assert.equal(editor.draftProvider.identity.name, "Unsaved station name");
+  assert.equal(editor.draftProvider.auth.loginPassword, "fixture-user-edited-password");
+  assert.equal(editor.draftProvider.auth.accessToken, "fixture-rotated-token");
+  assert.equal(editor.draftProvider.auth.apiKey, "sk-second");
+  assert.equal(editor.draftProvider.auth.credentialRevision, 5);
+  assert.deepEqual(editor.availableModels.value, []);
+  refreshed.auth.accessToken = "fixture-next-token";
+  editor.syncManagedApiKeys(refreshed);
+  assert.equal(editor.draftProvider.auth.accessToken, "fixture-next-token");
+  assert.equal(editor.draftProvider.auth.loginPassword, "fixture-user-edited-password");
+  editor.openAddProvider();
+  editor.syncManagedApiKeys(refreshed);
+  assert.equal(editor.draftProvider.auth.apiKey, "");
+  assert.equal(editor.draftProvider.auth.credentialRevision, 0);
+});
 const provider = (id: string) => ({ identity: { id, protocol: "newApi", baseUrl: `https://${id}.example.invalid` }, auth: { mode: "password" }, runtime: { enabled: true } }) as Provider;
 
 test("password changes remain closable, reject repeat clicks and ignore completion from a previous dialog", async (t) => {
@@ -362,12 +571,14 @@ test("provider order times out, ignores late success, and allows an immediate re
 });
 
 test("large model lists expose every page and searching resets to the first matching page", async (t) => {
-  const component = loadSource<{ default: { setup: (props: object, context: object) => { keyword: Ref<string>; page: Ref<number>; displayedModels: Ref<string[]>; filteredModels: Ref<string[]> } } }>("components/AvailableModelsModal.vue", {
+  const component = loadSource<{ default: { setup: (props: object, context: object) => { keyword: Ref<string>; page: Ref<number>; displayedModels: Ref<string[]>; filteredModels: Ref<string[]>; canRefresh: Ref<boolean>; modalTitle: Ref<string> } } }>("components/AvailableModelsModal.vue", {
     "@arco-design/web-vue/es/icon": {}, "../utils/provider-display": providerDisplay,
   }).default;
   const names = Array.from({ length: 620 }, (_, index) => `model-${String(index).padStart(3, "0")}`);
-  const props = reactive({ visible: true, provider: { ...provider("a"), capabilities: { availableModels: names } }, loading: false, error: "" });
+  const props = reactive({ visible: true, provider: { ...modelProvider("a"), capabilities: { ...modelProvider("a").capabilities, availableModels: names } }, loading: false, error: "" });
   const { value: panel } = scoped(t, () => component.setup(props, { expose() {}, emit() {} }));
+  assert.equal(panel.canRefresh.value, true);
+  assert.match(panel.modalTitle.value, /账号可用模型/);
   assert.equal(panel.displayedModels.value.length, 100);
   panel.page.value = 7;
   assert.equal(panel.displayedModels.value.length, 20);
@@ -377,6 +588,136 @@ test("large model lists expose every page and searching resets to the first matc
   assert.equal(panel.page.value, 1);
   assert.equal(panel.filteredModels.value.length, 10);
   assert.deepEqual(panel.displayedModels.value, panel.filteredModels.value);
+});
+
+function modelProvider(id: string): Provider {
+  return {
+    ...provider(id),
+    displayLabel: `Fixture ${id}`,
+    auth: { mode: "session", apiKey: "", credentialRevision: 0 },
+    capabilities: { availableModels: [], availableModelsState: { scope: null, updatedAt: null, error: null } },
+    actions: { models: { canSync: true, scope: "account", unavailableReason: null } },
+  } as Provider;
+}
+
+function loadModelPanel(feedback: ReturnType<typeof messages>) {
+  return loadSource<typeof import("../src/composables/useAvailableModels.ts")>("composables/useAvailableModels.ts", {
+    "@arco-design/web-vue": feedback,
+    "./useLatestRequest": { useLatestRequest },
+    "./useClipboard": { copyText: async () => {} },
+  }).useAvailableModels;
+}
+
+test("account models load without a Key, remain closable and ignore a closed dialog's late result", async (t) => {
+  const feedback = messages();
+  const useAvailableModels = loadModelPanel(feedback);
+  const first = deferred<import("../src/stores/provider-types.ts").ProviderModelSyncResult>();
+  const second = deferred<import("../src/stores/provider-types.ts").ProviderModelSyncResult>();
+  const providers = ref([modelProvider("a"), modelProvider("b")]);
+  const calls: string[] = [];
+  const { value: panel } = scoped(t, () => useAvailableModels({ providers, syncModels: (id) => {
+    calls.push(id);
+    return calls.length === 1 ? first.promise : second.promise;
+  } }));
+  panel.openAvailableModels(providers.value[0]);
+  await settle();
+  assert.deepEqual(calls, ["a"]);
+  assert.equal(panel.availableModelsLoading.value, true);
+  panel.availableModelsVisible.value = false;
+  assert.equal(panel.availableModelsLoading.value, false);
+  panel.openAvailableModels(providers.value[1]);
+  await settle();
+  first.resolve({ provider: providers.value[0], models: ["old"], message: "obsolete" });
+  await settle();
+  assert.equal(panel.availableModelsProvider.value?.identity.id, "b");
+  assert.equal(panel.availableModelsLoading.value, true);
+  assert.deepEqual(feedback.sent, []);
+  second.reject(new Error("模型接口暂不可用"));
+  await settle();
+  assert.equal(panel.availableModelsLoading.value, false);
+  assert.equal(panel.availableModelsError.value, "模型接口暂不可用");
+  assert.equal(panel.availableModelsVisible.value, true);
+});
+
+test("a successful empty model list stays cached and the backend owns refresh availability", async (t) => {
+  const feedback = messages();
+  const useAvailableModels = loadModelPanel(feedback);
+  const value = modelProvider("a");
+  value.capabilities.availableModelsState = { scope: "account", updatedAt: "123", error: null };
+  let calls = 0;
+  const { value: panel } = scoped(t, () => useAvailableModels({ providers: ref([value]), syncModels: async () => {
+    calls += 1;
+    return { provider: value, models: [], message: "已获取 0 个模型" };
+  } }));
+  panel.openAvailableModels(value);
+  await settle();
+  assert.equal(calls, 0);
+  await panel.refreshAvailableModels();
+  assert.equal(calls, 1);
+  panel.availableModelsProvider.value!.actions.models.canSync = false;
+  panel.availableModelsProvider.value!.actions.models.unavailableReason = "请先登录账号";
+  await panel.refreshAvailableModels();
+  assert.equal(calls, 1);
+  assert.equal(panel.availableModelsError.value, "请先登录账号");
+});
+
+test("model request timeout releases busy state and late success cannot replace its error", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const feedback = messages();
+  const useAvailableModels = loadModelPanel(feedback);
+  const value = modelProvider("a");
+  const pending = deferred<import("../src/stores/provider-types.ts").ProviderModelSyncResult>();
+  const { value: panel } = scoped(t, () => useAvailableModels({ providers: ref([value]), syncModels: () => pending.promise }));
+  panel.openAvailableModels(value);
+  await settle();
+  t.mock.timers.tick(45_000);
+  await settle();
+  assert.equal(panel.availableModelsLoading.value, false);
+  assert.match(panel.availableModelsError.value, /超时/);
+  pending.resolve({ provider: value, models: ["late"], message: "obsolete" });
+  await settle();
+  assert.match(panel.availableModelsError.value, /超时/);
+  assert.deepEqual(feedback.sent, []);
+});
+
+test("changing account credentials invalidates pending model feedback", async (t) => {
+  const feedback = messages();
+  const useAvailableModels = loadModelPanel(feedback);
+  const providers = ref([modelProvider("a")]);
+  const pending = deferred<import("../src/stores/provider-types.ts").ProviderModelSyncResult>();
+  const { value: panel } = scoped(t, () => useAvailableModels({ providers, syncModels: () => pending.promise }));
+  panel.openAvailableModels(providers.value[0]);
+  await settle();
+  providers.value[0].auth.credentialRevision += 1;
+  assert.equal(panel.availableModelsLoading.value, false);
+  pending.reject(new Error("old credentials"));
+  await settle();
+  assert.equal(panel.availableModelsError.value, "");
+  assert.deepEqual(feedback.sent, []);
+});
+
+test("model probe failures stay in their own step and a successful empty list clears the warning", (t) => {
+  const component = loadSource<{ default: { setup: (props: object, context: object) => {
+    steps: Ref<Array<{ key: string; status: string; detail: string }>>;
+    overallTone: Ref<string>;
+  } } }>("components/CapabilityProbeModal.vue", {
+    "@arco-design/web-vue/es/icon": {},
+    "../utils/provider-display": providerDisplay,
+    "../utils/provider-protocol": providerProtocol,
+  }).default;
+  const value = modelProvider("a");
+  value.capabilities.availableModelsState = { scope: "account", updatedAt: "123", error: "HTTP 503" };
+  const props = reactive({ visible: true, provider: value, providerProtocols: [], running: false,
+    error: "", resultMessage: "", startedAt: 1, finishedAt: 2 });
+  const { value: panel } = scoped(t, () => component.setup(props, { expose() {}, emit() {} }));
+  assert.equal(panel.overallTone.value, "partial");
+  assert.equal(panel.steps.value.find((step) => step.key === "models")?.status, "error");
+  assert.ok(panel.steps.value.filter((step) => step.key !== "models").every((step) => step.status !== "error"));
+  props.provider.capabilities.availableModelsState.error = null;
+  assert.equal(panel.overallTone.value, "success");
+  const modelStep = panel.steps.value.find((step) => step.key === "models")!;
+  assert.equal(modelStep.status, "supported");
+  assert.match(modelStep.detail, /当前列表为空/);
 });
 
 test("reopening request logs clears an unsubmitted search and the previously selected record", async (t) => {

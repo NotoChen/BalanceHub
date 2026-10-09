@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { IconDownload, IconRight } from "@arco-design/web-vue/es/icon";
 import { parseReleaseNotes } from "../utils/release-notes";
+import { formatProgress } from "../utils/progress-display";
 
 const props = defineProps<{
   visible: boolean;
@@ -110,7 +111,7 @@ function handleVisibleChange(visible: boolean) {
       <div v-if="installing" class="app-update-progress" aria-live="polite">
         <div class="app-update-progress-label">
           <strong>{{ installStatus || "正在准备更新" }}</strong>
-          <span v-if="downloadProgress !== null">{{ downloadProgress }}%</span>
+          <span v-if="downloadProgress !== null">{{ formatProgress(progressPercent) }}</span>
         </div>
         <a-progress
           v-if="downloadProgress !== null"

@@ -8,8 +8,7 @@ use crate::{
     services::cli_sessions::{
         clean_text, combine_content_search_results, compact_json, first_non_empty,
         normalize_timestamp, read_json_lines_limited, scan_json_lines_matching, scan_json_records,
-        scan_json_records_background, session_index_source_fingerprint, timestamp_from_unix,
-        SessionContentSearchCollector, SessionMessageCollector,
+        timestamp_from_unix, SessionContentSearchCollector, SessionMessageCollector,
     },
 };
 use serde_json::Value;
@@ -20,10 +19,10 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
-    SessionIndexMessage, SessionMetadataCursor, SessionMetadataLookupError,
-    SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionMetadataSnapshot,
-    SessionReadLimits,
+    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexFormat,
+    SessionIndexMessage, SessionIndexMutation, SessionIndexSource, SessionMetadataCursor,
+    SessionMetadataLookupError, SessionMetadataLookupRequest, SessionMetadataLookupResult,
+    SessionMetadataSnapshot, SessionReadLimits,
 };
 
 const MAX_SUMMARY_FILE_BYTES: usize = 256 * 1024;
@@ -316,109 +315,71 @@ fn metadata_revision(path: &Path, summary: &CliSessionSummary) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn index_updates(
-    path: &Path,
-    is_current: &dyn Fn() -> bool,
-) -> Result<Vec<SessionIndexMessage>, String> {
-    let mut messages = Vec::new();
-    let mut current: Option<(CliSessionMessageRole, String, usize)> = None;
-    scan_json_records_background(
-        path,
-        "索引 Grok Build 会话正文",
-        is_current,
-        |line_index, line| {
-            if !(line
-                .windows(18)
-                .any(|window| window == b"user_message_chunk")
-                || line
-                    .windows(19)
-                    .any(|window| window == b"agent_message_chunk"))
-            {
-                return false;
-            }
-            let Ok(value) = serde_json::from_slice::<Value>(line) else {
-                return false;
-            };
-            let Some(update) = value.get("params").and_then(|params| params.get("update")) else {
-                return false;
-            };
-            let role = match update.get("sessionUpdate").and_then(Value::as_str) {
-                Some("user_message_chunk") => CliSessionMessageRole::User,
-                Some("agent_message_chunk") => CliSessionMessageRole::Assistant,
-                _ => return false,
-            };
-            let Some(content) = update.get("content").and_then(content_text) else {
-                return false;
-            };
-            if current
-                .as_ref()
-                .is_some_and(|(current_role, _, _)| *current_role != role)
-            {
-                if let Some((pending_role, pending_content, pending_line)) = current.take() {
-                    if !pending_content.trim().is_empty() {
-                        messages.push(SessionIndexMessage {
-                            id: format!("grok-{pending_line}"),
-                            role: pending_role,
-                            content: pending_content,
-                        });
-                    }
-                }
-            }
-            let pending = current.get_or_insert_with(|| (role, String::new(), line_index));
-            pending.1.push_str(&content);
-            false
-        },
-    )?;
-    if let Some((role, content, line_index)) = current {
-        if !content.trim().is_empty() {
-            messages.push(SessionIndexMessage {
-                id: format!("grok-{line_index}"),
-                role,
-                content,
-            });
-        }
-    }
-    Ok(messages)
-}
-
-fn index_chat_history(
-    path: &Path,
-    is_current: &dyn Fn() -> bool,
-) -> Result<Vec<SessionIndexMessage>, String> {
-    let mut messages = Vec::new();
-    scan_json_records_background(
-        path,
-        "索引 Grok Build 会话正文",
-        is_current,
-        |line_index, line| {
-            if !(line
-                .windows(4)
-                .any(|window| window.eq_ignore_ascii_case(b"user"))
-                || line
-                    .windows(9)
-                    .any(|window| window.eq_ignore_ascii_case(b"assistant")))
-            {
-                return false;
-            }
-            let Ok(value) = serde_json::from_slice::<Value>(line) else {
-                return false;
-            };
-            let role = match value.get("type").and_then(Value::as_str) {
-                Some("user") => CliSessionMessageRole::User,
-                Some("assistant") => CliSessionMessageRole::Assistant,
-                _ => return false,
-            };
-            if let Some(content) = value.get("content").and_then(content_text) {
-                messages.push(SessionIndexMessage {
-                    id: format!("grok-{line_index}"),
+fn index_update_record(
+    _path: &Path,
+    sequence: u64,
+    line: &[u8],
+    state: &mut Value,
+) -> Vec<SessionIndexMutation> {
+    let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        return Vec::new();
+    };
+    let Some(update) = value.get("params").and_then(|params| params.get("update")) else {
+        return Vec::new();
+    };
+    let (role, role_key) = match update.get("sessionUpdate").and_then(Value::as_str) {
+        Some("user_message_chunk") => (CliSessionMessageRole::User, "user"),
+        Some("agent_message_chunk") => (CliSessionMessageRole::Assistant, "assistant"),
+        _ => return Vec::new(),
+    };
+    let Some(content) = update.get("content").and_then(content_text) else {
+        return Vec::new();
+    };
+    if state.get("role").and_then(Value::as_str) == Some(role_key) {
+        if let Some(id) = state.get("id").and_then(Value::as_str) {
+            return vec![SessionIndexMutation::Append {
+                message: SessionIndexMessage {
+                    id: id.to_owned(),
                     role,
                     content,
-                });
-            }
-            false
+                },
+                priority: 1,
+            }];
+        }
+    }
+    let id = format!("grok-{sequence}");
+    *state = serde_json::json!({ "role": role_key, "id": id });
+    vec![SessionIndexMutation::Put {
+        message: SessionIndexMessage { id, role, content },
+        priority: 1,
+    }]
+}
+
+fn index_chat_record(
+    _path: &Path,
+    sequence: u64,
+    line: &[u8],
+    _state: &mut Value,
+) -> Vec<SessionIndexMutation> {
+    let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        return Vec::new();
+    };
+    let role = match value.get("type").and_then(Value::as_str) {
+        Some("user") => CliSessionMessageRole::User,
+        Some("assistant") => CliSessionMessageRole::Assistant,
+        _ => return Vec::new(),
+    };
+    let Some(content) = value.get("content").and_then(content_text) else {
+        return Vec::new();
+    };
+    vec![SessionIndexMutation::Put {
+        message: SessionIndexMessage {
+            id: format!("grok-{sequence}"),
+            role,
+            content,
         },
-    )?;
-    Ok(messages)
+        priority: 0,
+    }]
 }
 
 fn search_updates(

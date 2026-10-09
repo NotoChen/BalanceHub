@@ -18,14 +18,15 @@ export function useAvailableModels(options: UseAvailableModelsOptions) {
     options.providers.value.find((provider) => provider.identity.id === availableModelsProviderId.value) ?? null,
   );
 
-  watch([availableModelsVisible, () => availableModelsProvider.value?.identity.id],
+  watch([availableModelsVisible, () => availableModelsProvider.value?.identity.id,
+    () => availableModelsProvider.value?.auth.credentialRevision],
     request.invalidate, { flush: "sync" });
 
   function openAvailableModels(provider: Provider) {
     availableModelsProviderId.value = provider.identity.id;
     availableModelsVisible.value = true;
 
-    if (provider.auth.apiKey.trim() && (provider.capabilities.availableModels || []).length === 0) {
+    if (provider.actions.models.canSync && !provider.capabilities.availableModelsState.updatedAt) {
       void refreshAvailableModels();
     }
   }
@@ -35,8 +36,8 @@ export function useAvailableModels(options: UseAvailableModelsOptions) {
     if (!availableModelsVisible.value || !provider || request.loading.value) {
       return;
     }
-    if (!provider.auth.apiKey.trim()) {
-      request.error.value = "请先在中转站认证配置中填写 API Key";
+    if (!provider.actions.models.canSync) {
+      request.error.value = provider.actions.models.unavailableReason || "当前认证信息无法获取模型列表";
       return;
     }
 
@@ -76,7 +77,8 @@ export function useAvailableModels(options: UseAvailableModelsOptions) {
     availableModelsVisible,
     availableModelsProvider,
     availableModelsLoading: request.loading,
-    availableModelsError: request.error,
+    availableModelsError: computed(() => request.error.value
+      || (request.loading.value ? "" : availableModelsProvider.value?.capabilities.availableModelsState.error || "")),
     openAvailableModels,
     refreshAvailableModels,
     copyAvailableModel,

@@ -3,22 +3,25 @@ use crate::{models::CliSessionMessage, services::agent_cli::contracts::SessionRe
 mod index;
 mod io;
 mod metadata;
+mod record_stream;
 pub(crate) mod resume;
 mod search;
 #[cfg(test)]
 mod tests;
 pub(crate) mod workbench;
 
+#[cfg(test)]
+pub(crate) use index::test_support::read_indexed_messages;
 pub(crate) use index::{
     clear as clear_index, config as index_config, reconfigure as reconfigure_index,
     status as index_status,
 };
 pub(crate) use io::{
     compact_json, json_record_may_match, json_text, read_json_lines_limited,
-    read_json_lines_prefix, scan_json_lines_matching, scan_json_records,
-    scan_json_records_background, session_index_source_fingerprint,
+    scan_json_lines_matching, scan_json_records, session_index_source_fingerprint,
 };
 pub(crate) use metadata::read_session_header;
+pub(crate) use record_stream::read_json_messages_limited;
 pub(crate) use search::{
     combine_content_search_results, truncate_text, SearchAccumulator, SearchQuery,
     SessionContentSearchCollector,

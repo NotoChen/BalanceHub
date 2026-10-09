@@ -46,8 +46,6 @@ defineProps<{
   apiKeyRemoteManaged: boolean;
   apiKeyManagerProvider: Provider | null;
   apiKeyManagerOperation: ApiKeyManagerOperation | null;
-  apiKeyCreateVisible: boolean;
-  apiKeyCreateName: string;
   apiKeyAddVisible: boolean;
   apiKeyAddRemark: string;
   apiKeyAddValue: string;
@@ -81,10 +79,10 @@ const emit = defineEmits<{
   checkForUpdate: [];
   copyApiKey: [];
   syncRemoteApiKeys: [];
-  openApiKeyCreatePanel: [];
+  openApiKeyCreateEditor: [];
+  openApiKeySettingsEditor: [option: ProviderApiKeyOption];
   openApiKeyAddPanel: [];
   openApiKeyRemarkEditor: [option: ProviderApiKeyOption];
-  createManagedApiKey: [];
   addLocalApiKey: [];
   saveManagedApiKeyRemark: [];
   setDefaultManagedApiKey: [option: ProviderApiKeyOption];
@@ -100,8 +98,6 @@ const emit = defineEmits<{
 
 const settingsVisible = defineModel<boolean>("settingsVisible", { required: true });
 const providerEditorVisible = defineModel<boolean>("providerEditorVisible", { required: true });
-const apiKeyCreateVisible = defineModel<boolean>("apiKeyCreateVisible", { required: true });
-const apiKeyCreateName = defineModel<string>("apiKeyCreateName", { required: true });
 const apiKeyAddVisible = defineModel<boolean>("apiKeyAddVisible", { required: true });
 const apiKeyAddRemark = defineModel<string>("apiKeyAddRemark", { required: true });
 const apiKeyAddValue = defineModel<string>("apiKeyAddValue", { required: true });
@@ -142,8 +138,6 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     :api-key-remote-managed="apiKeyRemoteManaged"
     :api-key-manager-provider="apiKeyManagerProvider"
     :api-key-manager-operation="apiKeyManagerOperation"
-    :api-key-create-visible="apiKeyCreateVisible"
-    :api-key-create-name="apiKeyCreateName"
     :api-key-add-visible="apiKeyAddVisible"
     :api-key-add-remark="apiKeyAddRemark"
     :api-key-add-value="apiKeyAddValue"
@@ -170,18 +164,16 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     :can-run-credential-assistant="canRunCredentialAssistant"
     :credential-assistant-saved="credentialAssistantSaved"
     @copy-api-key="emit('copyApiKey')"
-    @update:api-key-create-visible="apiKeyCreateVisible = $event"
-    @update:api-key-create-name="apiKeyCreateName = $event"
     @update:api-key-add-visible="apiKeyAddVisible = $event"
     @update:api-key-add-remark="apiKeyAddRemark = $event"
     @update:api-key-add-value="apiKeyAddValue = $event"
     @update:api-key-remark-visible="apiKeyRemarkVisible = $event"
     @update:api-key-remark-value="apiKeyRemarkValue = $event"
     @sync-remote-api-keys="emit('syncRemoteApiKeys')"
-    @open-api-key-create-panel="emit('openApiKeyCreatePanel')"
+    @open-api-key-create-editor="emit('openApiKeyCreateEditor')"
+    @open-api-key-settings-editor="emit('openApiKeySettingsEditor', $event)"
     @open-api-key-add-panel="emit('openApiKeyAddPanel')"
     @open-api-key-remark-editor="emit('openApiKeyRemarkEditor', $event)"
-    @create-managed-api-key="emit('createManagedApiKey')"
     @add-local-api-key="emit('addLocalApiKey')"
     @save-managed-api-key-remark="emit('saveManagedApiKeyRemark')"
     @set-default-managed-api-key="emit('setDefaultManagedApiKey', $event)"

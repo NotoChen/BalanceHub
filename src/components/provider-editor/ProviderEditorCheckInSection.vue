@@ -67,8 +67,8 @@ const turnstileOptions: SelectOption<ProviderTurnstileMode>[] = [
         <template v-if="!settings.autoCheckInEnabled" #extra>全局自动签到已关闭</template>
       </a-form-item>
       <a-form-item class="provider-field" label="站点防护">
-        <a-checkbox v-model="draft.automation.autoShield">自动处理 WAF 与页面验证</a-checkbox>
-        <template #extra>遇到站点防护时尝试自动处理，必要时打开验证小窗。</template>
+        <a-checkbox v-model="draft.automation.autoShield">允许浏览器辅助处理站点防护</a-checkbox>
+        <template #extra>可自动完成的验证会继续执行，需要交互时提示手动完成。</template>
       </a-form-item>
       <a-form-item class="provider-field" label="Turnstile 签到验证">
         <a-select v-model="draft.automation.turnstileMode" :options="turnstileOptions" :disabled="policy?.configurable === false" />

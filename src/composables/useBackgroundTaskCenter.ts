@@ -14,6 +14,7 @@ import type {
 } from "../api/batch-operation";
 import { providerDisplayLabel } from "../utils/provider-display";
 import type { CheckInTask } from "../api/checkin";
+import { checkInResumeLabel } from "../utils/check-in-tasks";
 import type { BrowserRuntimeStatus } from "../api/browser-runtime";
 
 export type BackgroundTaskStatus = "running" | "waiting" | "success" | "failed" | "cancelled" | "unconfirmed";
@@ -132,7 +133,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   function checkInBackgroundTask(task: CheckInTask): BackgroundTask {
     const busy = options.checkInPending.value.some((key) => key.endsWith(`:${task.runId}`));
     const actions: NonNullable<BackgroundTask["actions"]> = [];
-    if (task.canResume) actions.push({ label: task.phase === "waitingBrowser" ? "安装 / 继续" : "继续验证", disabled: busy, run: () => { void options.resumeCheckInTask(task); } });
+    if (task.canResume) actions.push({ label: checkInResumeLabel(task), disabled: busy, run: () => { void options.resumeCheckInTask(task); } });
     if (task.canCancel) actions.push({ label: "取消", disabled: busy, run: () => { void options.cancelCheckInTask(task); } });
     const status: BackgroundTaskStatus = task.phase === "completed" ? "success" : task.phase === "failed" ? "failed"
       : task.phase === "cancelled" ? "cancelled" : task.phase === "unconfirmed" ? "unconfirmed" : task.canResume ? "waiting" : "running";
@@ -190,8 +191,8 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
 
     tasks.push(...options.checkInTasks.value.filter((task) => !task.finished).map(checkInBackgroundTask));
     const runtime = options.browserRuntime.value;
-    if (runtime?.phase === "installing") tasks.push({
-      id: "browser-runtime-install", kind: "update", title: "安装浏览器登录与验证组件", detail: runtime.message,
+    if (runtime && ["installing", "checking"].includes(runtime.phase)) tasks.push({
+      id: "browser-runtime-install", kind: "update", title: runtime.phase === "checking" ? "验证浏览器" : "安装浏览器辅助组件", detail: runtime.message,
       status: "running", progress: runtime.progress, startedAt: previousActive.get("browser-runtime-install")?.startedAt ?? now,
       source: "manual", actions: [{ label: "取消", run: () => { void options.cancelBrowserRuntime(); } }],
     });
@@ -498,8 +499,8 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     }
   }, { immediate: true });
   watch(options.browserRuntime, (runtime, previous) => {
-    if (!runtime || previous?.phase !== "installing" || runtime.phase === "installing") return;
-    rememberRecent({ id: "browser-runtime-install", kind: "update", title: "浏览器登录与验证组件", detail: runtime.message,
+    if (!runtime || !previous || !["installing", "checking"].includes(previous.phase) || ["installing", "checking"].includes(runtime.phase)) return;
+    rememberRecent({ id: "browser-runtime-install", kind: "update", title: previous.phase === "checking" ? "验证浏览器" : "浏览器辅助组件", detail: runtime.message,
       status: runtime.phase === "ready" ? "success" : runtime.phase === "cancelled" ? "cancelled" : "failed",
       progress: null, startedAt: previousActive.get("browser-runtime-install")?.startedAt ?? Date.now(), finishedAt: Date.now(), source: "manual" });
   });

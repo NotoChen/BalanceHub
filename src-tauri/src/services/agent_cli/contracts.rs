@@ -1646,11 +1646,8 @@ type SessionHistorySearcher = fn(
     &SessionContentSearchRequest,
     &dyn Fn() -> bool,
 ) -> Result<SessionContentSearchResult, String>;
-type SessionHistoryIndexReader = fn(
-    &SessionHistoryRecord,
-    Option<&str>,
-    &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String>;
+type SessionHistoryIndexReader =
+    fn(&SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct SessionHistoryAdapter {
@@ -1768,17 +1765,33 @@ pub(crate) struct SessionIndexMessage {
     pub content: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SessionIndexLoadResult {
-    Unchanged {
-        fingerprint: String,
-        source_bytes: u64,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionIndexFormat {
+    JsonLines,
+    JsonMessages,
+}
+
+/// Native adapters decode records; the shared index owns I/O, checkpoints and
+/// transactions. Decoder state must contain only small parsing metadata.
+pub(crate) struct SessionIndexSource {
+    pub path: PathBuf,
+    pub parser_version: u32,
+    pub format: SessionIndexFormat,
+    pub decode: fn(&Path, u64, &[u8], &mut serde_json::Value) -> Vec<SessionIndexMutation>,
+}
+
+pub(crate) enum SessionIndexMutation {
+    Put {
+        message: SessionIndexMessage,
+        priority: i64,
     },
-    Updated {
-        fingerprint: String,
-        source_bytes: u64,
-        messages: Vec<SessionIndexMessage>,
+    Append {
+        message: SessionIndexMessage,
+        priority: i64,
     },
+    Clear,
+    Rewind(String),
+    Remove(String),
 }
 
 #[derive(Clone, Copy)]

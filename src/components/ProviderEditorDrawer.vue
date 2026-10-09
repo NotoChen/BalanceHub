@@ -41,8 +41,6 @@ const props = defineProps<{
   apiKeyRemoteManaged: boolean;
   apiKeyManagerProvider: Provider | null;
   apiKeyManagerOperation: ApiKeyManagerOperation | null;
-  apiKeyCreateVisible: boolean;
-  apiKeyCreateName: string;
   apiKeyAddVisible: boolean;
   apiKeyAddRemark: string;
   apiKeyAddValue: string;
@@ -72,18 +70,16 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
   "copy-api-key": [];
-  "update:api-key-create-visible": [visible: boolean];
-  "update:api-key-create-name": [name: string];
   "update:api-key-add-visible": [visible: boolean];
   "update:api-key-add-remark": [remark: string];
   "update:api-key-add-value": [value: string];
   "update:api-key-remark-visible": [visible: boolean];
   "update:api-key-remark-value": [remark: string];
   "sync-remote-api-keys": [];
-  "open-api-key-create-panel": [];
+  "open-api-key-create-editor": [];
+  "open-api-key-settings-editor": [option: ProviderInput["auth"]["apiKeyOptions"][number]];
   "open-api-key-add-panel": [];
   "open-api-key-remark-editor": [option: ProviderApiKeyOption];
-  "create-managed-api-key": [];
   "add-local-api-key": [];
   "save-managed-api-key-remark": [];
   "set-default-managed-api-key": [option: ProviderApiKeyOption];
@@ -156,8 +152,6 @@ watch(() => props.editorSession, scrollToInitialSection, { flush: "post" });
               :api-key-remote-managed="apiKeyRemoteManaged"
               :api-key-manager-provider="apiKeyManagerProvider"
               :api-key-manager-operation="apiKeyManagerOperation"
-              :api-key-create-visible="apiKeyCreateVisible"
-              :api-key-create-name="apiKeyCreateName"
               :api-key-add-visible="apiKeyAddVisible"
               :api-key-add-remark="apiKeyAddRemark"
               :api-key-add-value="apiKeyAddValue"
@@ -165,18 +159,16 @@ watch(() => props.editorSession, scrollToInitialSection, { flush: "post" });
               :api-key-remark-value="apiKeyRemarkValue"
               :api-key-remark-target="apiKeyRemarkTarget"
               @copy-api-key="emit('copy-api-key')"
-              @update:api-key-create-visible="emit('update:api-key-create-visible', $event)"
-              @update:api-key-create-name="emit('update:api-key-create-name', $event)"
               @update:api-key-add-visible="emit('update:api-key-add-visible', $event)"
               @update:api-key-add-remark="emit('update:api-key-add-remark', $event)"
               @update:api-key-add-value="emit('update:api-key-add-value', $event)"
               @update:api-key-remark-visible="emit('update:api-key-remark-visible', $event)"
               @update:api-key-remark-value="emit('update:api-key-remark-value', $event)"
               @sync-remote-api-keys="emit('sync-remote-api-keys')"
-              @open-api-key-create-panel="emit('open-api-key-create-panel')"
+              @open-api-key-create-editor="emit('open-api-key-create-editor')"
+              @open-api-key-settings-editor="emit('open-api-key-settings-editor', $event)"
               @open-api-key-add-panel="emit('open-api-key-add-panel')"
               @open-api-key-remark-editor="emit('open-api-key-remark-editor', $event)"
-              @create-managed-api-key="emit('create-managed-api-key')"
               @add-local-api-key="emit('add-local-api-key')"
               @save-managed-api-key-remark="emit('save-managed-api-key-remark')"
               @set-default-managed-api-key="emit('set-default-managed-api-key', $event)"
@@ -243,7 +235,7 @@ watch(() => props.editorSession, scrollToInitialSection, { flush: "post" });
           @click="emit('save')"
         >
           <template #icon><IconSave /></template>
-          保存中转站
+          {{ saving ? (credentialAssistantBusy ? '正在补全凭据' : '正在保存') : '保存中转站' }}
         </a-button>
       </footer>
     </div>

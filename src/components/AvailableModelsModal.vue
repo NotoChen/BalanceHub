@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { IconCloud, IconCopy, IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider } from "../stores/providers";
-import { providerDisplayLabel } from "../utils/provider-display";
+import { providerDisplayLabel, providerModelScopeLabel } from "../utils/provider-display";
 
 const MODELS_PER_PAGE = 100;
 
@@ -29,9 +29,14 @@ watch(
   () => { keyword.value = ""; page.value = 1; },
 );
 
-const modalTitle = computed(() =>
-  props.provider ? `${providerDisplayLabel(props.provider)} · 可用模型` : "可用模型",
-);
+const modelScope = computed(() => props.provider?.capabilities.availableModelsState.scope
+  ?? props.provider?.actions.models.scope);
+const scopeHint = computed(() => modelScope.value === "account"
+  ? "账号模型包含多个可用分组；当前 Key 能调用的模型仍受其分组和模型限制约束。"
+  : "当前 API Key 的模型列表。模型是否可调用还取决于站点的实时服务状态。");
+const modalTitle = computed(() => props.provider
+  ? `${providerDisplayLabel(props.provider)} · ${providerModelScopeLabel(modelScope.value)}`
+  : "可用模型");
 
 const models = computed(() =>
   Array.from(
@@ -54,7 +59,7 @@ watch(keyword, () => { page.value = 1; });
 watch(() => filteredModels.value.length, (count) => { page.value = Math.min(page.value, Math.max(1, Math.ceil(count / MODELS_PER_PAGE))); });
 watch([page, keyword], () => { if (modelList.value) modelList.value.scrollTop = 0; }, { flush: "post" });
 
-const canRefresh = computed(() => Boolean(props.provider?.auth.apiKey.trim()));
+const canRefresh = computed(() => Boolean(props.provider?.actions.models.canSync));
 </script>
 
 <template>
@@ -70,16 +75,23 @@ const canRefresh = computed(() => Boolean(props.provider?.auth.apiKey.trim()));
       <div class="surface-modal-title available-models-title">
         <span class="surface-modal-title-icon"><icon-cloud /></span>
         <span class="surface-modal-title-copy">
-          <strong>{{ modalTitle }}</strong>
+          <strong :title="scopeHint">{{ modalTitle }}</strong>
         </span>
       </div>
     </template>
     <div class="available-models-panel">
+      <a-alert v-if="modelScope === 'account'" :type="provider?.capabilities.availableModelsState.fallbackReason ? 'warning' : 'info'" show-icon>
+        <template v-if="provider?.capabilities.availableModelsState.fallbackReason">
+          当前 Key 模型接口失败，已改用账号模型。{{ provider.capabilities.availableModelsState.fallbackReason }}
+        </template>
+        <template v-else>尚未配置可用的 API Key，当前显示账号模型。</template>
+        <div>{{ scopeHint }}</div>
+      </a-alert>
       <a-alert
-        v-if="provider && !provider.auth.apiKey.trim()"
+        v-if="provider && !canRefresh"
         type="warning"
       >
-        请先在中转站的认证凭据中填写 API Key，再获取可用模型。
+        {{ provider.actions.models.unavailableReason }}
       </a-alert>
 
       <div class="available-models-toolbar">
@@ -101,7 +113,7 @@ const canRefresh = computed(() => Boolean(props.provider?.auth.apiKey.trim()));
 
       <a-spin :loading="loading">
         <div v-if="models.length === 0" class="available-models-empty">
-          {{ loading ? '正在获取模型列表…' : error ? '模型列表未能加载' : '暂无可用模型' }}
+          {{ loading ? '正在获取模型列表…' : error ? '模型列表未能加载' : provider?.capabilities.availableModelsState.updatedAt ? '暂无可用模型' : '暂未获取模型列表' }}
         </div>
         <div v-else class="available-models-body">
           <div class="available-models-summary">

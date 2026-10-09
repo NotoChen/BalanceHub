@@ -272,18 +272,18 @@ fn search(
 ) -> Result<SessionContentSearchResult, String> {
     search_conversation(&record.locator, request, current)
 }
-fn index(
-    record: &SessionHistoryRecord,
-    known: Option<&str>,
-    current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
-    index_conversation(&record.locator, known, current)
+fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
+    if let Some(reason) = &record.content_unavailable_reason {
+        return Err(reason.clone());
+    }
+    Ok(vec![index_source(&record.locator)])
 }
 fn detail(
     record: &SessionHistoryRecord,
     limits: SessionReadLimits,
 ) -> Result<CliSessionDetail, String> {
-    let (conversation, source_truncated) = load_conversation_limited(&record.locator, limits)?;
+    let (conversation, source_truncated) =
+        load_conversation_limited(&record.locator, limits.max_file_bytes)?;
     let mut collector = SessionMessageCollector::new(limits);
     for (index, message) in conversation.messages.into_iter().enumerate() {
         let timestamp = normalize_timestamp(message.timestamp.as_deref());

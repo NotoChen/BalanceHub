@@ -38,7 +38,7 @@ export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOp
 
   async function loadWorkspaceSessions(workdir?: string) {
     if (workdir && workdir.trim() !== options.directory.value?.currentPath) return;
-    await sessions.load();
+    await sessions.ensureLoaded();
   }
   function refreshWorkspaceSessions(workdir?: string) {
     if (workdir && workdir.trim() !== options.directory.value?.currentPath) return;
@@ -68,7 +68,7 @@ export function useWorkspaceSessionHistory(options: UseWorkspaceSessionHistoryOp
     workspaceSessionQuery.value = "";
     clearWorkspaceSessionSelection();
   }
-  function invalidateWorkspaceSessionRequests() { sessions.invalidateList(); sessions.closeDetail(); }
+  function invalidateWorkspaceSessionRequests() { sessions.suspend(); }
   watch(() => [options.cliKind.value, explicitWorkdir.value] as const, clearWorkspaceSessionSelection, { flush: "sync" });
   watch(() => sessions.scope.value?.revision, (revision, previous) => {
     if (previous && revision !== previous) clearWorkspaceSessionSelection();

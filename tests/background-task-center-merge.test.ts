@@ -86,7 +86,7 @@ function checkInTask(fields: Partial<CheckInTask> = {}): CheckInTask {
     canCancel: true, startedAt: Date.now() - 1_000, finishedAt: null, ...fields };
 }
 function browserRuntime(fields: Partial<BrowserRuntimeStatus> = {}): BrowserRuntimeStatus {
-  return { phase: "installing", message: "读取隔离组件", ready: false, installed: false, browser: null, systemBrowser: null,
+  return { phase: "installing", message: "读取隔离组件", ready: false, installed: false, browser: null, systemBrowsers: [], selection: { mode: "managed" }, runtimeReady: false,
     expectedVersion: "fixture-version", installedVersion: null, progress: null, revision: 1, detectedAt: Date.now(),
     canInstall: false, canUninstall: false, runtimeDownloadBytes: 0, browserDownloadBytes: 0, ...fields };
 }
@@ -147,6 +147,28 @@ test("login recovery preserves waiting controls and cannot replace a newer termi
   emit(event("provider-login", { status: "success", providerId: "fixture-provider", loginAccountId: "fixture-account", finishedAt: Date.now(), canCancel: false, canShowWindow: false })); await settle();
   action(center.recentTasks.value.find((task) => task.id === "provider-login")!, "查看站点凭据").run();
   assert.deepEqual(context.opened, ["account:fixture-account", "provider:fixture-provider"]);
+});
+
+test("browser launch validation remains cancellable and records its actual terminal result", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  context.options.browserRuntime.value = browserRuntime({ phase: "checking", message: "正在验证浏览器启动" });
+  await settle();
+  assert.equal(center.activeTaskCount.value, 1);
+  assert.equal(center.activeTasks.value[0].title, "验证浏览器");
+  action(center.activeTasks.value[0], "取消").run();
+  assert.deepEqual(context.controls, ["cancel:browser"]);
+  assert.equal(center.activeTaskCount.value, 1, "cancel acknowledgement must not invent a completed operation");
+  context.options.browserRuntime.value = browserRuntime({ phase: "cancelled", message: "操作已取消，原有浏览器选择和组件保留", revision: 2 });
+  await settle();
+  assert.equal(center.activeTaskCount.value, 0);
+  assert.equal(center.recentTasks.value[0].status, "cancelled");
+  context.options.browserRuntime.value = browserRuntime({ phase: "checking", revision: 3 });
+  await settle();
+  context.options.browserRuntime.value = browserRuntime({ phase: "failed", message: "浏览器启动失败", revision: 4 });
+  await settle();
+  assert.equal(center.activeTaskCount.value, 0);
+  assert.equal(center.recentTasks.value[0].status, "failed");
+  assert.equal(center.recentTasks.value[0].detail, "浏览器启动失败");
 });
 
 test("Agent snapshots replace same-ID events and remain the terminal authority after late events", async (t) => {

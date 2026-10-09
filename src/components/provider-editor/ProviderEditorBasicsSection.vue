@@ -72,11 +72,7 @@ const detectionLabel = computed(() => {
 const protocolOptions = computed(() => props.providerProtocols.map((descriptor) => ({
   value: descriptor.kind,
   label: descriptor.label,
-  description: descriptor.description,
 })));
-const selectedProtocolDescription = computed(() =>
-  protocolOptions.value.find((option) => option.value === props.draft.identity.protocol)?.description,
-);
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
@@ -109,9 +105,6 @@ function protocolLabel(protocol: ProviderProtocol) {
               <strong>{{ option.label }}</strong>
             </template>
           </RadioChoiceGroup>
-          <p v-if="selectedProtocolDescription" class="provider-protocol-hint">
-            {{ selectedProtocolDescription }}
-          </p>
         </a-form-item>
         <a-form-item class="provider-field" field="identity.baseUrl" label="中转站地址" required>
           <a-input

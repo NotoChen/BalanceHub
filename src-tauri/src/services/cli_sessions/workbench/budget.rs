@@ -33,33 +33,6 @@ pub(crate) fn check_read_budget() -> Result<(), String> {
     })
 }
 
-const SESSION_FILE_READ_LIMIT_REASON: &str = "会话单文件超过读取上限";
-
-pub(crate) struct SessionFileReadLimit {
-    pub prefix_bytes: usize,
-    pub reason: String,
-}
-
-/// A full-file decoder cannot make progress on an input larger than a complete
-/// pass. Compare with the fixed pass limit, never its remaining byte allowance:
-/// otherwise a healthy later file would be misclassified after earlier reads.
-pub(crate) fn session_file_read_limit(path: &Path) -> Result<Option<SessionFileReadLimit>, String> {
-    check_read_budget()?;
-    let max_bytes =
-        ACTIVE_BUDGET.with(|active| active.borrow().as_ref().map(|budget| budget.max_bytes));
-    let Some(max_bytes) = max_bytes else {
-        return Ok(None);
-    };
-    verify_source_path(path).map_err(|error| error.to_string())?;
-    let file_bytes = path.metadata().map_err(|error| error.to_string())?.len();
-    Ok((file_bytes > max_bytes).then(|| SessionFileReadLimit {
-        prefix_bytes: (max_bytes / 4).min(64 * 1024) as usize,
-        reason: format!(
-            "{SESSION_FILE_READ_LIMIT_REASON}（{file_bytes} 字节，上限 {max_bytes} 字节），已跳过完整扫描"
-        ),
-    }))
-}
-
 pub(crate) struct BudgetFile {
     file: File,
     budget: Option<SessionReadBudget>,
@@ -108,9 +81,6 @@ pub(crate) fn read_session_text_file_limited(
     max_bytes: usize,
     context: &str,
 ) -> Result<String, String> {
-    if let Some(limit) = session_file_read_limit(path)? {
-        return Err(format!("{context}：{}", limit.reason));
-    }
     let file = open_session_file(path).map_err(|error| format!("{context}失败：{error}"))?;
     if file.metadata().map_err(|error| error.to_string())?.len() > max_bytes as u64 {
         return Err(format!("{context}超过读取上限"));
@@ -196,14 +166,9 @@ pub(crate) fn cached_history_record_facts(
     }
     let result = read();
     check_read_budget()?;
-    // Terminal oversized files without a provable native ID also need a cache
-    // entry. Re-reading their prefixes on every cursor would starve later files.
-    // Transient pass-budget errors remain retryable and are never cached.
-    if result.is_ok()
-        || result
-            .as_ref()
-            .is_err_and(|error| error.contains(SESSION_FILE_READ_LIMIT_REASON))
-    {
+    // Only successful metadata reads are reusable; cancelled or interrupted
+    // reads must be allowed to continue under the next request budget.
+    if result.is_ok() {
         cache
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -220,10 +185,7 @@ pub(crate) fn cached_history_record_facts(
 }
 
 fn history_cache_fingerprint(path: &Path) -> Result<String, String> {
-    let source_fingerprint = super::super::session_index_source_fingerprint(path, 1)?.0;
-    let read_limit =
-        ACTIVE_BUDGET.with(|active| active.borrow().as_ref().map(|budget| budget.max_bytes));
-    Ok(format!("{source_fingerprint}:read-limit={read_limit:?}"))
+    Ok(super::super::session_index_source_fingerprint(path, 1)?.0)
 }
 
 /// Only source/project metadata belongs here. Session bodies keep their normal
@@ -305,67 +267,87 @@ mod tests {
     };
 
     #[test]
-    fn full_file_limit_skips_oversized_jsonl_and_json_without_spending_the_pass() {
-        let root = std::env::temp_dir().join(format!(
-            "balancehub-full-file-read-limit-{}",
-            std::process::id()
-        ));
+    fn read_budgets_charge_consumed_bytes_instead_of_rejecting_the_source_size() {
+        let root =
+            std::env::temp_dir().join(format!("balancehub-read-budget-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let large = root.join("large.jsonl");
+        let path = root.join("large.jsonl");
+        let prefix = "{\"native\":true}\n";
         std::fs::write(
-            &large,
-            serde_json::json!({"padding":"x".repeat(2048)}).to_string(),
+            &path,
+            format!(
+                "{prefix}{}",
+                serde_json::json!({"padding":"x".repeat(2048)})
+            ),
         )
         .unwrap();
-        let healthy = root.join("healthy.jsonl");
-        std::fs::write(&healthy, "{\"native\":true}\n").unwrap();
-        let budget = SessionReadBudget::new(
-            Instant::now() + Duration::from_secs(5),
-            Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            128,
-        );
-        with_read_budget(&budget, || {
-            let error = crate::services::cli_sessions::scan_json_records(
-                &large,
-                "读取 JSONL",
-                &|| true,
-                |_, _| panic!("the oversized full scan must not decode a prefix"),
+        let fresh = |bytes| {
+            SessionReadBudget::new(
+                Instant::now() + Duration::from_secs(5),
+                Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                bytes,
             )
-            .unwrap_err();
-            assert!(error.contains(SESSION_FILE_READ_LIMIT_REASON));
-            assert!(
-                read_session_text_file_limited(&large, 4096, "读取完整 JSON")
-                    .unwrap_err()
-                    .contains(SESSION_FILE_READ_LIMIT_REASON)
-            );
-            assert_eq!(budget.bytes.load(Ordering::Relaxed), 0);
-            let mut observed = 0;
+        };
+        let prefix_budget = fresh(128);
+        let mut observed = 0;
+        with_read_budget(&prefix_budget, || {
+            crate::services::cli_sessions::read_json_lines_limited(
+                &path,
+                prefix.len() * 2,
+                "读取摘要窗口",
+                |_, _| observed += 1,
+            )
+            .unwrap();
+        });
+        assert_eq!(observed, 1);
+        assert_eq!(
+            prefix_budget.bytes.load(Ordering::Relaxed),
+            (prefix.len() * 2 + 1) as u64
+        );
+        let small = fresh(128);
+        let error = with_read_budget(&small, || {
             crate::services::cli_sessions::scan_json_records(
-                &healthy,
-                "读取健康文件",
+                &path,
+                "读取会话",
+                &|| true,
+                |_, _| false,
+            )
+        })
+        .unwrap_err();
+        assert!(error.contains("字节预算"));
+        assert!(small.bytes.load(Ordering::Relaxed) > 128);
+        let sufficient = fresh(4096);
+        observed = 0;
+        with_read_budget(&sufficient, || {
+            crate::services::cli_sessions::scan_json_records(
+                &path,
+                "读取会话",
                 &|| true,
                 |_, _| {
                     observed += 1;
                     false
                 },
             )
-            .unwrap();
-            assert_eq!(observed, 1);
-            assert!(budget.check().is_ok());
-        });
+        })
+        .unwrap();
+        assert_eq!(observed, 2);
+        assert_eq!(
+            sufficient.bytes.load(Ordering::Relaxed),
+            std::fs::metadata(&path).unwrap().len()
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn bounded_native_prefix_does_not_prefetch_or_reject_a_split_utf8_tail() {
+    fn bounded_summary_windows_ignore_split_utf8_and_keep_complete_records() {
         let path = std::env::temp_dir().join(format!(
             "balancehub-prefix-read-limit-{}.jsonl",
             std::process::id()
         ));
         let first = "{\"sessionId\":\"native-id\"}\n";
         std::fs::write(&path, format!("{first}{}", "会".repeat(1024))).unwrap();
-        let limit = first.len() + 1;
+        let limit = (first.len() + 1) * 2;
         let budget = SessionReadBudget::new(
             Instant::now() + Duration::from_secs(5),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -373,15 +355,15 @@ mod tests {
         );
         let mut values = Vec::new();
         with_read_budget(&budget, || {
-            crate::services::cli_sessions::read_json_lines_prefix(
+            crate::services::cli_sessions::read_json_lines_limited(
                 &path,
                 limit,
                 "读取前缀",
-                |value| values.push(value),
+                |_, value| values.push(value),
             )
             .unwrap();
         });
-        assert_eq!(budget.bytes.load(Ordering::Relaxed), limit as u64);
+        assert_eq!(budget.bytes.load(Ordering::Relaxed), limit as u64 + 1);
         assert_eq!(values.len(), 1);
         assert_eq!(values[0]["sessionId"], "native-id");
         std::fs::remove_file(path).unwrap();
@@ -433,9 +415,9 @@ mod tests {
         assert!(read(&fresh_budget(128), 4)
             .unwrap_err()
             .contains("读取上限"));
-        assert!(read(&fresh_budget(16), 64)
-            .unwrap_err()
-            .contains(SESSION_FILE_READ_LIMIT_REASON));
+        let cached_small_budget = fresh_budget(16);
+        assert_eq!(read(&cached_small_budget, 64).unwrap(), changed);
+        assert_eq!(cached_small_budget.bytes.load(Ordering::Relaxed), 0);
 
         let cancelled = fresh_budget(128);
         cancelled.cancelled.store(true, Ordering::Release);

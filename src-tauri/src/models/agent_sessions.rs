@@ -101,6 +101,7 @@ pub struct AgentSessionQuery {
 #[serde(rename_all = "camelCase")]
 pub enum AgentSessionSourceStatus {
     Complete,
+    Indexing,
     Partial,
     Unavailable,
     Unsupported,
@@ -156,6 +157,7 @@ pub struct AgentSessionPage {
     pub items: Vec<AgentSessionRow>,
     pub parent_updates: Vec<AgentSessionParentUpdate>,
     pub next_cursor: Option<String>,
+    pub scan_pending: bool,
     pub loaded_count: usize,
     pub total: Option<usize>,
     pub agent_counts: Vec<AgentSessionCount>,

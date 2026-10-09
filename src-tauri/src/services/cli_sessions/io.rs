@@ -3,16 +3,13 @@ use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::Path,
-    time::{Duration, UNIX_EPOCH},
+    time::UNIX_EPOCH,
 };
 
 use super::truncate_text;
 
 const MAX_SESSION_RECORD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_RETAINED_LINE_BUFFER_BYTES: usize = 1024 * 1024;
-const BACKGROUND_SCAN_PAUSE_BYTES: usize = 2 * 1024 * 1024;
-const BACKGROUND_SCAN_PAUSE: Duration = Duration::from_millis(1);
-
 pub(crate) fn session_index_source_fingerprint(
     path: &Path,
     parser_version: u32,
@@ -115,39 +112,8 @@ pub(crate) fn read_json_lines_limited(
     Ok(true)
 }
 
-pub(crate) fn read_json_lines_prefix(
-    path: &Path,
-    max_bytes: usize,
-    label: &str,
-    mut observe: impl FnMut(Value),
-) -> Result<(), String> {
-    let file = super::workbench::open_session_file(path)
-        .map_err(|error| format!("{label}失败：{error}"))?;
-    // Limit below BufReader so a small prefix cannot prefetch the whole pass.
-    // A final incomplete or split UTF-8 record is ignored without losing the
-    // complete native events that preceded it.
-    let mut reader = BufReader::new(file.take(max_bytes as u64));
-    let mut line = Vec::new();
-    loop {
-        super::workbench::check_read_budget()?;
-        line.clear();
-        if reader
-            .read_until(b'\n', &mut line)
-            .map_err(|error| error.to_string())?
-            == 0
-        {
-            break;
-        }
-        if let Ok(value) = serde_json::from_slice(&line) {
-            observe(value);
-        }
-    }
-    Ok(())
-}
-
-/// 顺序扫描完整 JSONL 会话文件，但任何时刻只保留一条记录。超过请求固定
-/// 单文件上限时明确跳过完整扫描；单条异常记录另有上限，避免损坏或恶意
-/// 状态文件迫使桌面进程分配无界内存。
+/// 顺序扫描 JSONL 会话文件，任何时刻只保留一条记录。请求预算控制
+/// 本轮工作量；单条异常记录另有上限，避免损坏数据造成无界内存占用。
 pub(crate) fn scan_json_lines_matching(
     path: &Path,
     label: &str,
@@ -169,37 +135,12 @@ pub(crate) fn scan_json_records(
     path: &Path,
     label: &str,
     is_current: &dyn Fn() -> bool,
-    observe: impl FnMut(usize, &[u8]) -> bool,
-) -> Result<(), String> {
-    scan_json_records_with_pacing(path, label, is_current, false, observe)
-}
-
-/// 后台索引使用轻量 I/O 节流，避免连续读取超大会话时长时间占满一个 CPU
-/// 核心或磁盘带宽。前台直接搜索继续使用 `scan_json_records`，不引入等待。
-pub(crate) fn scan_json_records_background(
-    path: &Path,
-    label: &str,
-    is_current: &dyn Fn() -> bool,
-    observe: impl FnMut(usize, &[u8]) -> bool,
-) -> Result<(), String> {
-    scan_json_records_with_pacing(path, label, is_current, true, observe)
-}
-
-fn scan_json_records_with_pacing(
-    path: &Path,
-    label: &str,
-    is_current: &dyn Fn() -> bool,
-    background: bool,
     mut observe: impl FnMut(usize, &[u8]) -> bool,
 ) -> Result<(), String> {
-    if let Some(limit) = super::workbench::session_file_read_limit(path)? {
-        return Err(format!("{label}：{}", limit.reason));
-    }
     let file = super::workbench::open_session_file(path)
         .map_err(|err| format!("{label}失败：{}：{err}", path.display()))?;
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
-    let mut pacer = ScanPacer::new(background);
     let mut sequence = 0usize;
     loop {
         if !is_current() {
@@ -214,10 +155,9 @@ fn scan_json_records_with_pacing(
         if bytes == 0 {
             break;
         }
-        pacer.record(bytes, is_current)?;
         if line.len() > MAX_SESSION_RECORD_BYTES {
             if !line.ends_with(b"\n") {
-                discard_until_newline(&mut reader, path, label, is_current, &mut pacer)?;
+                discard_until_newline(&mut reader, path, label, is_current)?;
             }
             release_large_byte_buffer(&mut line);
             sequence = sequence.saturating_add(1);
@@ -241,7 +181,6 @@ fn discard_until_newline(
     path: &Path,
     label: &str,
     is_current: &dyn Fn() -> bool,
-    pacer: &mut ScanPacer,
 ) -> Result<(), String> {
     loop {
         if !is_current() {
@@ -261,42 +200,10 @@ fn discard_until_newline(
         };
         if consumed > 0 {
             reader.consume(consumed);
-            pacer.record(consumed, is_current)?;
         }
         if reached_newline || eof {
             return Ok(());
         }
-    }
-}
-
-struct ScanPacer {
-    background: bool,
-    bytes_since_pause: usize,
-}
-
-impl ScanPacer {
-    fn new(background: bool) -> Self {
-        Self {
-            background,
-            bytes_since_pause: 0,
-        }
-    }
-
-    fn record(&mut self, bytes: usize, is_current: &dyn Fn() -> bool) -> Result<(), String> {
-        if !self.background {
-            return Ok(());
-        }
-        self.bytes_since_pause = self.bytes_since_pause.saturating_add(bytes);
-        let pause_count = self.bytes_since_pause / BACKGROUND_SCAN_PAUSE_BYTES;
-        if pause_count == 0 {
-            return Ok(());
-        }
-        if !is_current() {
-            return Err("会话检索已被新的搜索替换".to_string());
-        }
-        self.bytes_since_pause %= BACKGROUND_SCAN_PAUSE_BYTES;
-        std::thread::sleep(BACKGROUND_SCAN_PAUSE.saturating_mul(pause_count as u32));
-        Ok(())
     }
 }
 
@@ -409,6 +316,7 @@ mod tests {
     use crate::services::{
         agent_cli::contracts::SessionReadBudget, cli_sessions::workbench::with_read_budget,
     };
+    use std::time::Duration;
     use std::{
         cell::Cell,
         fs,

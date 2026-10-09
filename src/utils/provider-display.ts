@@ -3,6 +3,7 @@ import type {
   AuthMode,
   Provider,
   ProviderApiKeyOption,
+  ProviderModelScope,
   ProviderProtocol,
   ProviderQuotaDisplay,
 } from "../stores/providers";
@@ -22,6 +23,7 @@ export function providerCardStatusTone(provider: Provider): Exclude<ProviderCard
   if (!provider.runtime.enabled) return "disabled";
   if (provider.runtime.status === "warning" && !provider.automation.lastSyncedAt) return "pending";
   if (provider.runtime.status === "error") return "error";
+  if (provider.runtime.status === "warning" && provider.runtime.errorMessage) return "warning";
   if (providerNeedsCheckIn(provider)) return "warning";
   if (providerHasNoAvailableBalance(provider)) return "empty";
   return "ok";
@@ -33,6 +35,12 @@ const providerAuthModeLabels: Record<AuthMode, string> = {
   apiKey: "API Key",
   password: "账号密码",
 };
+
+export function providerModelScopeLabel(scope: ProviderModelScope | null | undefined): string {
+  if (scope === "account") return "账号可用模型";
+  if (scope === "apiKey") return "Key 可用模型";
+  return "可用模型";
+}
 
 export function providerAuthModeLabel(provider: Provider) {
   return provider.authModeLabel?.trim() || providerAuthModeLabels[provider.auth.mode];

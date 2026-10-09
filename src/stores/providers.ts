@@ -3,6 +3,9 @@ import {
   changeProviderPassword as changeProviderPasswordCommand,
   completeProviderCredentials as completeProviderCredentialsCommand,
   createProviderApiKey as createProviderApiKeyCommand,
+  updateProviderApiKey as updateProviderApiKeyCommand,
+  getProviderApiKeyEditorContext,
+  getProviderApiKeyEditorContextForInput,
   createProviderApiKeyForInput as createProviderApiKeyForInputCommand,
   deleteProviderApiKey as deleteProviderApiKeyCommand,
   detectProviderProtocol as detectProviderProtocolCommand,
@@ -44,6 +47,7 @@ import { useWorkspaceStore } from "./workspaces";
 import type {
   Provider,
   ProviderInput,
+  ProviderApiKeyPatch,
   ProviderProtocolDescriptor,
   ProviderSaveOptions,
   ProviderRequestLogsQuery,
@@ -287,13 +291,24 @@ export const useProviderStore = defineStore("providers", {
       this.upsertProvider(provider);
       return provider;
     },
-    async createApiKey(id: string, name: string) {
-      const options = await createProviderApiKeyCommand(id, name);
+    apiKeyEditorContext(id: string, tokenId: string | null = null) {
+      return getProviderApiKeyEditorContext(id, tokenId);
+    },
+    apiKeyEditorContextForInput(input: ProviderInput) {
+      return getProviderApiKeyEditorContextForInput(input);
+    },
+    async updateApiKey(id: string, credentialRevision: number, tokenId: string, patch: ProviderApiKeyPatch) {
+      const options = await updateProviderApiKeyCommand(id, credentialRevision, tokenId, patch);
       await this.reloadProvider(id).catch(() => {});
       return options;
     },
-    async createApiKeyForInput(input: ProviderInput, name: string) {
-      return createProviderApiKeyForInputCommand(input, name);
+    async createApiKey(id: string, credentialRevision: number, patch: ProviderApiKeyPatch) {
+      const options = await createProviderApiKeyCommand(id, credentialRevision, patch);
+      await this.reloadProvider(id).catch(() => {});
+      return options;
+    },
+    async createApiKeyForInput(input: ProviderInput, patch: ProviderApiKeyPatch) {
+      return createProviderApiKeyForInputCommand(input, patch);
     },
     async generateAccessTokenForInput(input: ProviderInput) {
       return generateProviderAccessTokenForInputCommand(input);

@@ -144,7 +144,9 @@ export function useAppController() {
     syncRemoteKeys: (providerId) => providerStore.listApiKeys(providerId),
     addLocalKey: (providerId, key, remark) =>
       providerStore.addLocalApiKey(providerId, key, remark),
-    createRemoteKey: (providerId, name) => providerStore.createApiKey(providerId, name),
+    createRemoteKey: (providerId, revision, patch) => providerStore.createApiKey(providerId, revision, patch),
+    updateRemoteKey: (providerId, revision, tokenId, patch) => providerStore.updateApiKey(providerId, revision, tokenId, patch),
+    getRemoteKeyEditorContext: (providerId, tokenId) => providerStore.apiKeyEditorContext(providerId, tokenId),
     setRemark: (providerId, localId, remark) =>
       providerStore.setLocalApiKeyRemark(providerId, localId, remark),
     setDefaultKey: (providerId, localId) => providerStore.setDefaultLocalApiKey(providerId, localId),
@@ -205,10 +207,7 @@ export function useAppController() {
   }
 
   async function selectManagedApiKey(option: Provider["auth"]["apiKeyOptions"][number]) {
-    const selected = await apiKeyManager.setDefaultManagedApiKey(option);
-    if (selected && providerEditor.credentialAssistantState.value === "needApiKeySelection") {
-      await providerEditor.selectCredentialApiKey(option);
-    }
+    await apiKeyManager.setDefaultManagedApiKey(option);
   }
 
   async function selectManagedApiKeyForCard(

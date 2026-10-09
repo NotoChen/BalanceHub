@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+#[path = "models/api_key_management.rs"]
+mod api_key_management;
+pub use api_key_management::*;
+
 #[path = "models/agent_asset_control.rs"]
 mod agent_asset_control;
 #[path = "models/agent_asset_provenance.rs"]

@@ -9,10 +9,7 @@ use crate::{
 };
 use tauri::Manager;
 
-use super::{
-    available_models::fetch_available_models, find_provider, MutationDecision,
-    ProviderRequestContext, ProviderService,
-};
+use super::{find_provider, MutationDecision, ProviderRequestContext, ProviderService};
 
 impl<'a> ProviderService<'a> {
     pub async fn detect_protocol(&self, input: ProviderInput) -> ProviderProtocolDetectionResult {
@@ -75,27 +72,41 @@ impl<'a> ProviderService<'a> {
             .await?;
         let effective_provider = persisted_provider
             .ok_or_else(|| "本地配置已变更，本次能力探测结果已忽略".to_string())?;
-        let operation_context = ProviderRequestContext::capture(&effective_provider);
+        let mut operation_context = ProviderRequestContext::capture(&effective_provider);
         let (mut capabilities, invite_link, error) = operation.value;
         // Only a successful model response (including []) replaces the snapshot.
         capabilities.available_models = effective_provider.capabilities.available_models.clone();
-        let models_result = if provider_domain::auth::has_api_key(&effective_provider) {
-            Some(fetch_available_models(&data.settings, &effective_provider).await)
+        capabilities.available_models_state = effective_provider
+            .capabilities
+            .available_models_state
+            .clone();
+        let models_result = if provider_domain::model_list::action(&effective_provider).can_sync {
+            Some(
+                ProtocolAdapter
+                    .fetch_available_models(&data.settings, &effective_provider)
+                    .await,
+            )
         } else {
             None
         };
-        let mut capability_errors = error.into_iter().collect::<Vec<_>>();
         let mut model_count = None;
         if let Some(result) = models_result {
             match result {
-                Ok(models) => {
-                    model_count = Some(models.len());
-                    capabilities.available_models = models;
+                Ok(operation) => {
+                    let persisted = self
+                        .persist_operation_credentials(&operation_context, &operation.credentials)
+                        .await?
+                        .ok_or_else(|| "本地配置已变更，本次模型结果已忽略".to_string())?;
+                    operation_context = ProviderRequestContext::capture(&persisted);
+                    model_count = Some(operation.value.models.len());
+                    capabilities.set_available_models(operation.value);
                 }
-                Err(err) => capability_errors.push(format!("模型列表: {err}")),
+                Err(err) => {
+                    capabilities.available_models_state.error = Some(err);
+                }
             }
         }
-        capabilities.error_message = join_capability_errors(capability_errors);
+        capabilities.error_message = error;
         let probed_at = current_timestamp_millis().to_string();
         let message = model_count
             .map(|count| format!("站点能力已探测，已获取 {count} 个模型"))
@@ -132,12 +143,30 @@ impl<'a> ProviderService<'a> {
     ) -> Result<ProviderModelSyncResult, String> {
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
-        let provider = self
-            .prepare_operation_provider(&data.settings, &provider)
-            .await?;
-        let request_context = ProviderRequestContext::capture(&provider);
-        let models = fetch_available_models(&data.settings, &provider).await?;
-        let stored_models = models.clone();
+        // Key discovery must not wait for, or depend on, account login.
+        // Persist any session rotation before account fallback, even when its
+        // model request subsequently fails or the frontend stops waiting.
+        let mut request_context = ProviderRequestContext::capture(&provider);
+        let fallback_context = &mut request_context;
+        let settings = &data.settings;
+        let models_result = ProtocolAdapter
+            .fetch_available_models_with_account_auth(settings, &provider, |candidate| async move {
+                let (prepared, authenticated) =
+                    self.prepare_operation_auth(settings, &candidate).await?;
+                *fallback_context = ProviderRequestContext::capture(&prepared);
+                authenticated?;
+                Ok(prepared)
+            })
+            .await;
+        if let Ok(operation) = &models_result {
+            let persisted = self
+                .persist_operation_credentials(&request_context, &operation.credentials)
+                .await?
+                .ok_or_else(|| "本地配置已变更，本次模型结果已忽略".to_string())?;
+            request_context = ProviderRequestContext::capture(&persisted);
+        }
+        let models_result = models_result.map(|operation| operation.value);
+        let stored_result = models_result.clone();
         let provider_id = id.clone();
         let mutation_context = request_context.clone();
         let updated = self
@@ -148,10 +177,24 @@ impl<'a> ProviderService<'a> {
                     .find(|stored| stored.identity.id == provider_id)
                 {
                     if mutation_context.matches(stored_provider) {
-                        if stored_provider.capabilities.available_models == stored_models {
-                            return Ok(MutationDecision::unchanged(true));
+                        match stored_result {
+                            Ok(models) => {
+                                stored_provider.capabilities.set_available_models(models);
+                            }
+                            Err(error) => {
+                                if stored_provider
+                                    .capabilities
+                                    .available_models_state
+                                    .error
+                                    .as_ref()
+                                    == Some(&error)
+                                {
+                                    return Ok(MutationDecision::unchanged(true));
+                                }
+                                stored_provider.capabilities.available_models_state.error =
+                                    Some(error);
+                            }
                         }
-                        stored_provider.capabilities.available_models = stored_models;
                         return Ok(MutationDecision::changed(true));
                     }
                 }
@@ -161,10 +204,20 @@ impl<'a> ProviderService<'a> {
         if !updated {
             return Err("本地配置已变更，本次模型列表结果已忽略".to_string());
         }
+        let result = models_result?;
+        let models = result.models;
         let updated_provider = find_provider(&self.snapshot_async().await?, &id)?;
         Ok(ProviderModelSyncResult {
             provider: updated_provider,
-            message: format!("已获取 {} 个模型", models.len()),
+            message: format!(
+                "已获取 {} 个{}模型",
+                models.len(),
+                if result.scope == crate::models::ProviderModelScope::Account {
+                    "账号可用"
+                } else {
+                    "Key 可用"
+                }
+            ),
             models,
         })
     }
@@ -243,34 +296,5 @@ impl<'a> ProviderService<'a> {
             return Err("本地配置已变更，本次邀请链接结果已忽略".to_string());
         }
         Ok(invite_link)
-    }
-}
-
-fn join_capability_errors(errors: Vec<String>) -> Option<String> {
-    let mut normalized = Vec::new();
-    for error in errors {
-        let error = error.trim().to_string();
-        if !error.is_empty() && !normalized.contains(&error) {
-            normalized.push(error);
-        }
-    }
-    (!normalized.is_empty()).then(|| normalized.join("；"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::join_capability_errors;
-
-    #[test]
-    fn capability_errors_are_deduplicated_and_joined() {
-        assert_eq!(
-            join_capability_errors(vec![
-                "密钥管理: 401".to_string(),
-                "".to_string(),
-                "密钥管理: 401".to_string(),
-                "模型列表: timeout".to_string(),
-            ]),
-            Some("密钥管理: 401；模型列表: timeout".to_string())
-        );
     }
 }

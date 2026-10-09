@@ -2,10 +2,12 @@
 import { computed, ref, toRef } from "vue";
 import { selectProviderModels } from "../utils/provider-models";
 import { useBoundedChipPreview } from "../composables/useBoundedChipPreview";
+import type { ProviderModelListState } from "../stores/provider-types";
 
 const props = withDefaults(
   defineProps<{
     models: string[] | null | undefined;
+    state: ProviderModelListState;
     rows?: 2 | 5;
     syncTime?: string;
   }>(),
@@ -61,8 +63,8 @@ const hiddenModelCount = computed(() =>
       >
         同步 {{ syncTime }}
       </span>
-      <span>{{
-        availableModelCount > 0 ? `${availableModelCount} 个` : "未同步"
+      <span :title="state.error || ''">{{
+        state.error ? "同步失败" : availableModelCount > 0 || state.updatedAt ? `${availableModelCount} 个` : "未同步"
       }}</span>
     </div>
 
@@ -93,7 +95,7 @@ const hiddenModelCount = computed(() =>
       class="provider-card-model-empty"
       :class="{ 'provider-card-model-empty-five-rows': rows === 5 }"
     >
-      暂未获取模型列表
+      {{ state.error ? '模型列表未能加载' : state.updatedAt ? '暂无可用模型' : '暂未获取模型列表' }}
     </span>
 
     <div

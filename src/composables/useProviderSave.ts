@@ -7,7 +7,7 @@ interface UseProviderSaveOptions {
   visible: Ref<boolean>;
   session: Ref<number>;
   input: () => ProviderInput;
-  prepare: () => Promise<void>;
+  prepare: (isCurrent: () => boolean) => Promise<boolean | void>;
   canSave: () => boolean;
   save: (input: ProviderInput, options: ProviderSaveOptions) => Promise<ProviderSaveResult>;
   resolveConflict: (conflict: ProviderSaveConflict) => Promise<ProviderDuplicateDecision>;
@@ -68,8 +68,8 @@ export function useProviderSave(options: UseProviderSaveOptions) {
     saving.value = true;
     error.value = "";
     try {
-      await options.prepare();
-      if (!current()) return;
+      const prepared = await options.prepare(current);
+      if (!current() || prepared === false) return;
       const provider = await saveDraft(current);
       if (provider && current()) {
         options.visible.value = false;

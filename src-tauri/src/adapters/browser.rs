@@ -46,7 +46,7 @@ impl BrowserSession {
         let mut child = Command::from(command)
             .kill_on_drop(true)
             .spawn()
-            .map_err(|_| "无法启动浏览器组件".to_string())?;
+            .map_err(|error| format!("无法启动浏览器辅助组件：{error}"))?;
         let input = child.stdin.take().ok_or("无法连接浏览器输入通道")?;
         let output = child.stdout.take().ok_or("无法连接浏览器输出通道")?;
         Ok(Self {

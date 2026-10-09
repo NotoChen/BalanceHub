@@ -8,8 +8,8 @@ export interface CheckInTask {
   providerName: string;
   batchId: string | null;
   source: "manual" | "batch" | "automatic";
-  phase: "queued" | "checking" | "opening" | "verifying" | "waitingHuman" | "waitingBrowser"
-    | "requesting" | "verifyingResult" | "saving" | "completed" | "failed" | "cancelled" | "unconfirmed";
+  phase: "queued" | "checking" | "opening" | "verifying" | "waitingHuman" | "waitingLogin" | "waitingBrowser"
+    | "loggingIn" | "requesting" | "verifyingResult" | "saving" | "completed" | "failed" | "cancelled" | "unconfirmed";
   message: string;
   revision: number;
   finished: boolean;

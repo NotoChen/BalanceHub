@@ -5,7 +5,7 @@ export const agentSessionRoleLabels: Record<AgentSessionRole, string> = {
   main: "主会话", subagent: "子会话", unknown: "角色未知",
 };
 export const agentSessionSourceLabels: Record<AgentSessionSourceStatus, string> = {
-  complete: "已读取", partial: "部分结果", unavailable: "来源不可读", unsupported: "暂不支持", cancelled: "查询已取消",
+  complete: "已读取", indexing: "正在读取", partial: "部分内容未读到", unavailable: "来源不可读", unsupported: "暂不支持", cancelled: "查询已取消",
 };
 export const agentSessionResumeLabels: Record<AgentSessionResumeState, string> = {
   queued: "等待启动", running: "正在继续", succeeded: "已启动", failed: "继续失败", cancelled: "已取消", uncertain: "结果待确认",

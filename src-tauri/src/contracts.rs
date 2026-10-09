@@ -35,10 +35,22 @@ pub struct ProviderActions {
     pub api_key_management: bool,
     pub invitation: bool,
     pub refresh_models_only: bool,
+    pub models: provider_domain::model_list::ProviderModelListAction,
 }
 
 impl From<Provider> for ProviderView {
-    fn from(provider: Provider) -> Self {
+    fn from(mut provider: Provider) -> Self {
+        if let Some(error) = provider.capabilities.available_models_state.error.as_ref() {
+            if provider.runtime.error_message.is_none() {
+                provider.runtime.error_message = Some(format!("模型列表获取失败: {error}"));
+                if !matches!(
+                    provider.runtime.status,
+                    crate::models::ProviderStatus::Error
+                ) {
+                    provider.runtime.status = crate::models::ProviderStatus::Warning;
+                }
+            }
+        }
         let revision = provider.revision;
         let display_label = provider.display_label();
         let protocol_definition = protocol::definition(provider.identity.protocol);
@@ -57,6 +69,7 @@ impl From<Provider> for ProviderView {
             ),
             invitation: provider_domain::capabilities::supports_invitation(&provider),
             refresh_models_only: !protocol_definition.capabilities().account,
+            models: provider_domain::model_list::action(&provider),
         };
         Self {
             provider,

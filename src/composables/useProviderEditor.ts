@@ -60,7 +60,11 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     visible: drawerVisible,
     session: editorSession,
     input: currentProviderInput,
-    prepare: () => credentialAssistant.ensureProtocolSelection(),
+    prepare: async (isCurrent) => {
+      await credentialAssistant.ensureProtocolSelection();
+      if (!isCurrent()) return false;
+      return credentialAssistant.prepareCredentialsForSave();
+    },
     canSave: () => !credentialAssistant.credentialAssistantBusy.value && !startingBrowserLogin.value,
     save: (input, saveOptions) => options.store.saveProvider(input, saveOptions),
     resolveConflict: (conflict) => resolveDuplicateConflict(conflict.kind, conflict.existingProviderName),
@@ -89,7 +93,8 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     detectProviderProtocol: (input) => options.store.detectProviderProtocol(input),
     probeProviderSite: (input) => options.store.probeProviderSite(input),
     completeProviderCredentials: (input) => options.store.completeProviderCredentials(input),
-    createApiKeyForInput: (input, name) => options.store.createApiKeyForInput(input, name),
+    createApiKeyForInput: (input, patch) => options.store.createApiKeyForInput(input, patch),
+    apiKeyEditorContextForInput: (input) => options.store.apiKeyEditorContextForInput(input),
     generateAccessTokenForInput: (input) => options.store.generateAccessTokenForInput(input),
     setApiKeyOptions,
     saveDraftAndFindProvider: saveFlow.saveDraft,

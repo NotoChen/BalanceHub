@@ -121,13 +121,6 @@
   padding-top: 4px;
 }
 
-.provider-protocol-hint {
-  margin: 7px 0 0;
-  color: var(--surface-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .provider-model-field {
   max-width: 620px;
 }

@@ -51,7 +51,7 @@ impl CheckInContext {
             app,
             &self.run_id,
             CheckInPhase::Queued,
-            "正在排队等待验证窗口，前面的中转站处理后自动继续".to_string(),
+            "正在排队等待浏览器窗口，前面的任务处理后自动继续".to_string(),
             true,
         );
     }
@@ -59,6 +59,8 @@ impl CheckInContext {
     pub(crate) fn phase(&self, app: &AppHandle, phase: CheckInPhase) {
         let message = if phase == CheckInPhase::WaitingHuman && self.interactive {
             "请在浏览器中完成验证，完成后自动继续"
+        } else if phase == CheckInPhase::WaitingLogin && self.interactive {
+            "请在浏览器中使用绑定账号登录，完成后自动确认签到"
         } else {
             phase.message()
         };
@@ -154,6 +156,7 @@ pub(crate) fn enqueue(
     if !provider.runtime.enabled {
         return Err("中转站已停用".to_string());
     }
+    provider_domain::check_in::validate_credentials(&provider)?;
     if !provider_domain::capabilities::supports_check_in(&provider) {
         return Err("当前站点或认证方式不支持签到，请检查账号配置".to_string());
     }
@@ -417,6 +420,10 @@ fn spawn(
                 CheckInPhase::WaitingHuman,
                 CheckInPhase::WaitingHuman.message().to_string(),
             ),
+            Err(CheckInError::WaitingLogin) => (
+                CheckInPhase::WaitingLogin,
+                CheckInPhase::WaitingLogin.message().to_string(),
+            ),
             Err(CheckInError::WaitingBrowser(message)) => (CheckInPhase::WaitingBrowser, message),
             Err(CheckInError::Unconfirmed(message)) => (CheckInPhase::Unconfirmed, message),
             Err(CheckInError::Failed(message)) => (CheckInPhase::Failed, message),
@@ -513,6 +520,13 @@ mod tests {
         assert!(!task.can_resume);
         set_phase(&mut task, CheckInPhase::WaitingHuman, String::new(), false);
         assert!(task.can_resume && task.can_cancel && !task.finished);
+        set_phase(&mut task, CheckInPhase::WaitingLogin, String::new(), true);
+        assert!(!task.can_resume && task.can_cancel);
+        set_phase(&mut task, CheckInPhase::WaitingLogin, String::new(), false);
+        assert!(task.can_resume && task.can_cancel && !task.finished);
+        set_phase(&mut task, CheckInPhase::LoggingIn, String::new(), true);
+        assert!(task.phase.may_have_submitted());
+        assert!(!task.can_resume && task.can_cancel);
         set_phase(&mut task, CheckInPhase::Saving, String::new(), true);
         assert!(!task.can_cancel && !task.finished);
         set_phase(&mut task, CheckInPhase::Completed, String::new(), false);

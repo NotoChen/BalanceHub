@@ -1,11 +1,11 @@
 use super::{
-    encode_project_path, index_transcript, message_text, parse_transcript,
-    parse_transcript_messages, search_transcript,
+    encode_project_path, index_source, message_text, parse_transcript, parse_transcript_messages,
+    search_transcript,
 };
 use crate::{
     models::{AgentCliKind, CliSessionMessageRole},
     services::agent_cli::contracts::{
-        SessionContentSearchRequest, SessionIndexLoadResult, SessionReadLimits, SessionSearchTerm,
+        SessionContentSearchRequest, SessionReadLimits, SessionSearchTerm,
     },
 };
 use serde_json::{json, Value};
@@ -192,14 +192,10 @@ fn transcript_uses_the_first_real_user_message() {
     .collect::<Vec<_>>()
     .join("\n");
     fs::write(&transcript, lines).unwrap();
-    let super::ParsedClaudeTranscript {
-        summary,
-        read_limit_reason,
-        ..
-    } = parse_transcript(AgentCliKind::ClaudeCode, &transcript)
-        .unwrap()
-        .unwrap();
-    assert!(read_limit_reason.is_none());
+    let super::ParsedClaudeTranscript { summary, .. } =
+        parse_transcript(AgentCliKind::ClaudeCode, &transcript)
+            .unwrap()
+            .unwrap();
     assert_eq!(summary.preview.as_deref(), Some("actual request"));
     fs::remove_dir_all(root).unwrap();
 }
@@ -223,14 +219,10 @@ fn transcript_without_cwd_does_not_invent_source_origin() {
         .to_string(),
     )
     .unwrap();
-    let super::ParsedClaudeTranscript {
-        summary,
-        read_limit_reason,
-        ..
-    } = parse_transcript(AgentCliKind::ClaudeCode, &transcript)
-        .unwrap()
-        .unwrap();
-    assert!(read_limit_reason.is_none());
+    let super::ParsedClaudeTranscript { summary, .. } =
+        parse_transcript(AgentCliKind::ClaudeCode, &transcript)
+            .unwrap()
+            .unwrap();
     assert!(summary.workdir.is_empty());
     fs::remove_dir_all(root).unwrap();
 }
@@ -273,14 +265,10 @@ fn transcript_prefers_latest_ai_title_and_collects_models() {
     .collect::<Vec<_>>()
     .join("\n");
     fs::write(&transcript, lines).unwrap();
-    let super::ParsedClaudeTranscript {
-        summary,
-        read_limit_reason,
-        ..
-    } = parse_transcript(AgentCliKind::ClaudeCode, &transcript)
-        .unwrap()
-        .unwrap();
-    assert!(read_limit_reason.is_none());
+    let super::ParsedClaudeTranscript { summary, .. } =
+        parse_transcript(AgentCliKind::ClaudeCode, &transcript)
+            .unwrap()
+            .unwrap();
     assert_eq!(summary.id, "session-1");
     assert_eq!(summary.title, "修复历史会话");
     assert_eq!(summary.preview.as_deref(), Some("first request"));
@@ -439,11 +427,8 @@ fn transcript_index_excludes_tools_meta_and_thinking_blocks() {
     .join("\n");
     fs::write(&transcript, lines).unwrap();
 
-    let SessionIndexLoadResult::Updated { messages, .. } =
-        index_transcript(&transcript, None, &|| true).unwrap()
-    else {
-        panic!("new source must be indexed");
-    };
+    let messages =
+        crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].content, "visible answer");
     fs::remove_dir_all(root).unwrap();

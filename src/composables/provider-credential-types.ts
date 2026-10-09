@@ -2,6 +2,8 @@ import type { Ref } from "vue";
 import type {
   Provider,
   ProviderApiKeyOption,
+  ProviderApiKeyPatch,
+  ProviderApiKeyEditorContext,
   ProviderInput,
   ProviderProtocolDetectionResult,
   ProviderProtocolDescriptor,
@@ -16,7 +18,7 @@ export type CredentialCompletionState =
   | "needAccessTokenConfirm"
   | "generatingAccessToken"
   | "needApiKeySelection"
-  | "needApiKeyName"
+  | "needApiKeySettings"
   | "creatingApiKey"
   | "saving"
   | "done"
@@ -52,7 +54,8 @@ export interface UseProviderCredentialCompletionOptions {
     steps: { name: string; ok: boolean; message: string }[];
     apiKeyOptions: ProviderApiKeyOption[];
   }>;
-  createApiKeyForInput: (input: ProviderInput, name: string) => Promise<ProviderApiKeyOption>;
+  createApiKeyForInput: (input: ProviderInput, patch: ProviderApiKeyPatch) => Promise<ProviderApiKeyOption>;
+  apiKeyEditorContextForInput: (input: ProviderInput) => Promise<ProviderApiKeyEditorContext>;
   generateAccessTokenForInput: (input: ProviderInput) => Promise<string>;
   setApiKeyOptions: (options: ProviderApiKeyOption[]) => void;
   saveDraftAndFindProvider: (isCurrent?: () => boolean) => Promise<Provider | undefined>;

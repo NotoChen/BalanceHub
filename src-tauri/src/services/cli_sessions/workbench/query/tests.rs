@@ -1,7 +1,8 @@
 use super::*;
 use crate::services::agent_cli::contracts::EnvironmentPatch;
+use crate::services::cli_sessions::index::SessionIndexConfig;
 use serde_json::{json, Value};
-use std::fs;
+use std::{fs, path::PathBuf, sync::Mutex};
 
 fn budget(bytes: u64) -> SessionReadBudget {
     SessionReadBudget::new(
@@ -193,7 +194,7 @@ fn long_claude_cached_origins_survive_both_workspace_orders_and_cursor_retries()
                         &native,
                         &workspaces,
                         "",
-                        &index_config(&root),
+                        &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                         &limit,
                         saved.progress.matches.clone(),
                     )
@@ -250,7 +251,7 @@ fn long_claude_raw_record_cache_advances_budget_and_revalidates_changed_origin()
                     &native,
                     &workspaces,
                     "",
-                    &index_config(&root),
+                    &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                     &limit,
                     saved.progress.matches.clone(),
                 )
@@ -284,7 +285,7 @@ fn long_claude_raw_record_cache_advances_budget_and_revalidates_changed_origin()
                 &native,
                 &workspaces,
                 "",
-                &index_config(&root),
+                &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                 &limit,
                 refreshed.progress.matches.clone(),
             )
@@ -325,7 +326,7 @@ fn long_claude_unknown_origin_is_partial_without_an_endless_cursor() {
                     &native,
                     std::slice::from_ref(&workspace),
                     "",
-                    &index_config(&root),
+                    &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                     &limit,
                     saved.progress.matches.clone(),
                 )
@@ -379,7 +380,7 @@ fn more_than_one_hundred_native_sessions_and_fifty_body_matches_are_paged_withou
             &native,
             std::slice::from_ref(&workspace),
             "needle",
-            &index_config(&root),
+            &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
             &limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -446,7 +447,7 @@ fn more_than_one_hundred_native_sessions_and_fifty_body_matches_are_paged_withou
             &native,
             &[workspace],
             "tool-only",
-            &index_config(&root),
+            &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
             &limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -467,7 +468,7 @@ fn agent_counts_include_main_and_subagents_once_across_duplicate_scans_and_curso
             &native,
             std::slice::from_ref(&workspace),
             "",
-            &index_config(&root),
+            &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
             &limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -634,6 +635,32 @@ fn count_workspace(id: &str) -> AgentSessionWorkspace {
     }
 }
 
+#[test]
+fn default_selection_covers_registered_directories_and_explicit_ids_only_narrow_the_scope() {
+    let mut home = count_workspace("home");
+    home.is_home = true;
+    let registered = count_workspace("registered");
+    let scope = ScopeState {
+        public: AgentSessionScope {
+            revision: "scope".into(),
+            workspaces: vec![home.clone(), registered.clone()],
+            sources: vec![],
+        },
+        explicit_workdir: None,
+        sources: HashMap::new(),
+        created_at: Instant::now(),
+    };
+    assert_eq!(
+        select_workspaces(&scope, &[]).unwrap(),
+        [home, registered.clone()]
+    );
+    assert_eq!(
+        select_workspaces(&scope, std::slice::from_ref(&registered.id)).unwrap(),
+        [registered]
+    );
+    assert!(select_workspaces(&scope, &["not-registered".into()]).is_err());
+}
+
 fn count_state(
     source: &AgentSessionSource,
     workspace: &AgentSessionWorkspace,
@@ -665,7 +692,7 @@ fn budget_continuation_reuses_completed_summaries_and_progresses_to_the_remainin
                     &native,
                     std::slice::from_ref(&workspace),
                     "",
-                    &index_config(&root),
+                    &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                     &limit,
                     matches.clone(),
                 )
@@ -701,121 +728,122 @@ fn budget_continuation_reuses_completed_summaries_and_progresses_to_the_remainin
 }
 
 #[test]
-fn oversized_files_keep_proven_metadata_and_continuation_terminates_after_healthy_files() {
-    let (root, source, native, workspace) = fixture("oversized-continuation", 12);
+fn large_transcripts_keep_native_metadata_and_memory_index_progress_reaches_the_tail() {
+    use std::io::Write;
+    let (root, source, native, mut workspace) = fixture("large-continuation", 12);
+    fs::create_dir_all(&workspace.path).unwrap();
+    workspace.exists = true;
     let project = claude_project(&native, &workspace);
-    let oversized = project.join("session-0.jsonl");
-    let prefix = json!({
-        "sessionId": "session-0", "type": "user",
-        "message": { "content": "proven-prefix-title" },
-        "timestamp": "2026-09-16T00:00:00Z",
-    })
-    .to_string();
-    let tail = json!({
-        "sessionId": "session-0", "type": "assistant",
-        "message": { "content": "unread-tail-only ".repeat(600) },
-        "timestamp": "2026-09-17T00:00:00Z",
-    })
-    .to_string();
-    fs::write(&oversized, format!("{prefix}\n{tail}")).unwrap();
-    // A file name and a native ID beyond the allowed prefix are not evidence.
+    let path = project.join("session-0.jsonl");
+    let mut file = fs::File::create(&path).unwrap();
+    writeln!(file, "{}", json!({"sessionId":"session-0", "type":"user", "message":{"content":"proven-prefix-title"}, "timestamp":"2026-09-16T00:00:00Z"})).unwrap();
+    let padding = json!({"type":"progress", "padding":"x".repeat(8192)}).to_string();
+    for _ in 0..2048 {
+        writeln!(file, "{padding}").unwrap();
+    }
+    writeln!(file, "{}", json!({"sessionId":"session-0", "type":"assistant", "message":{"content":"tail-only-target"}, "timestamp":"2026-09-17T00:00:00Z"})).unwrap();
+    drop(file);
     for index in 0..6 {
-        fs::write(project.join(format!("not-a-proven-session-{index}.jsonl")), format!(
-            "{}\n{}\n{}",
-            json!({"type":"metadata"}),
-            json!({"padding":"x".repeat(3000)}),
-            json!({"sessionId":format!("late-unverified-id-{index}"),"type":"user","message":{"content":"late"}}),
-        )).unwrap();
+        fs::write(
+            project.join(format!("unproven-{index}.jsonl")),
+            json!({"type":"user", "message":{"content":"missing native identity"}}).to_string(),
+        )
+        .unwrap();
     }
     let cache = Arc::new(Mutex::new(Default::default()));
-    let matches = Arc::new(Mutex::new(HashMap::new()));
-    let mut saved = snapshot(Vec::new(), false);
-    let mut stopped = false;
-    let mut final_references = Vec::new();
-    for _ in 0..20 {
-        let limit = budget(1800);
-        let outcome = with_read_budget(&limit, || {
-            with_history_cache(&cache, || {
-                scan_source(
-                    &source,
-                    &native,
-                    std::slice::from_ref(&workspace),
-                    "",
-                    &index_config(&root),
-                    &limit,
-                    matches.clone(),
-                )
-            })
-        });
-        final_references =
-            merge_source_outcomes(&mut saved, vec![outcome], AgentSessionRoleFilter::All);
-        let end = page("oversized", &saved, saved.rows.len(), 50, &[], &[]);
-        if end.next_cursor.is_none() {
-            stopped = true;
-            break;
-        }
-    }
-    assert!(
-        stopped,
-        "a terminal file limit must not create an endless cursor"
-    );
-    assert_eq!(
-        saved.rows.len(),
-        12,
-        "eleven healthy records and one proven prefix remain listable"
-    );
-    assert_eq!(saved.states[0].state, AgentSessionSourceStatus::Partial);
-    assert!(saved.states[0]
-        .message
-        .as_deref()
-        .unwrap()
-        .contains("单文件超过读取上限"));
-    assert!(saved
-        .rows
-        .iter()
-        .all(|row| !row.session.id.starts_with("late-unverified-id")
-            && !row.session.id.starts_with("not-a-proven-session")));
-    let limited = final_references
-        .iter()
-        .find(|entry| entry.row.session.id == "session-0")
-        .unwrap();
-    assert_eq!(limited.row.session.title, "proven-prefix-title");
-    assert_eq!(limited.row.session.workdir, workspace.path);
-    assert_eq!(limited.row.role, AgentSessionRole::Main);
-    assert_eq!(limited.row.session.updated_at, None);
-    assert!(!limited.row.session.can_resume);
-    assert!(limited.record.content_unavailable_reason.is_some());
-    let adapter = history_adapter(AgentCliKind::ClaudeCode).unwrap();
-    assert!((adapter.detail)(
-        &limited.record,
-        crate::services::cli_sessions::DETAIL_READ_LIMITS
-    )
-    .is_err());
-    let end = page("oversized", &saved, 0, 50, &[], &[]);
-    assert_eq!(end.total, None);
-    assert!(end.next_cursor.is_none());
-
-    let limit = budget(1800);
-    let hidden = with_read_budget(&limit, || {
+    let index = HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id);
+    let limit = budget(512 * 1024);
+    let listed = with_read_budget(&limit, || {
         with_history_cache(&cache, || {
             scan_source(
                 &source,
                 &native,
                 std::slice::from_ref(&workspace),
-                "unread-tail-only",
-                &index_config(&root),
+                "",
+                &index,
                 &limit,
                 Arc::new(Mutex::new(HashMap::new())),
             )
         })
     });
-    assert!(hidden.matched.is_empty());
-    assert_eq!(hidden.states[0].state, AgentSessionSourceStatus::Partial);
+    assert!(
+        !listed.can_continue,
+        "listing must not read the full transcript"
+    );
+    assert!(limit.check().is_ok());
+    assert_eq!(listed.references.len(), 12);
+    assert_eq!(listed.matched.len(), 12);
+    let large = listed
+        .references
+        .iter()
+        .find(|entry| entry.row.session.id == "session-0")
+        .unwrap();
+    assert_eq!(large.row.session.title, "proven-prefix-title");
+    assert_eq!(large.row.role, AgentSessionRole::Main);
+    assert!(large.row.session.can_resume);
+    assert!(large.record.content_unavailable_reason.is_none());
+    assert!(large
+        .row
+        .session
+        .updated_at
+        .as_deref()
+        .unwrap()
+        .starts_with("2026-09-17"));
+    assert!(listed
+        .references
+        .iter()
+        .all(|entry| !entry.row.session.id.starts_with("unproven")));
+    assert_eq!(
+        listed.states[0].state,
+        AgentSessionSourceStatus::Partial,
+        "missing native IDs remain explicit errors"
+    );
+    let matches = Arc::new(Mutex::new(HashMap::new()));
+    let mut saved = snapshot(Vec::new(), false);
+    let mut completed = false;
+    for pass in 0..80 {
+        let limit = budget(32 * 1024 * 1024);
+        let found = with_read_budget(&limit, || {
+            with_history_cache(&cache, || {
+                scan_source(
+                    &source,
+                    &native,
+                    std::slice::from_ref(&workspace),
+                    "tail-only-target",
+                    &index,
+                    &limit,
+                    matches.clone(),
+                )
+            })
+        });
+        if pass == 0 {
+            assert!(found.can_continue);
+            assert!(found.matched.is_empty());
+        }
+        let pending = found.can_continue;
+        merge_source_outcomes(&mut saved, vec![found], AgentSessionRoleFilter::All);
+        let current = page("continued", &saved, 0, 50, &[], &[]);
+        assert_eq!(current.scan_pending, pending);
+        if !pending {
+            completed = true;
+            break;
+        }
+    }
+    assert!(
+        completed,
+        "memory-only indexing must retain its checkpoint between passes"
+    );
+    assert_eq!(saved.rows.len(), 1);
+    assert_eq!(saved.rows[0].session.id, "session-0");
+    assert!(
+        !root.join("derived-index").exists(),
+        "disabled persistence must not write a cache"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn two_files_each_below_the_fixed_limit_resume_instead_of_becoming_terminal_oversized_files() {
+fn summary_continuation_reuses_completed_files_when_the_next_one_exhausts_the_pass() {
     let (root, source, native, workspace) = fixture("sixty-percent-files", 2);
     let project = claude_project(&native, &workspace);
     for index in 0..2 {
@@ -840,7 +868,7 @@ fn two_files_each_below_the_fixed_limit_resume_instead_of_becoming_terminal_over
                     &native,
                     std::slice::from_ref(&workspace),
                     "",
-                    &index_config(&root),
+                    &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                     &limit,
                     saved.progress.matches.clone(),
                 )
@@ -932,7 +960,7 @@ fn assert_source_metadata_continuation(kind: AgentCliKind) {
                     &native,
                     std::slice::from_ref(&workspace),
                     "",
-                    &index_config(&root),
+                    &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                     &limit,
                     saved.progress.matches.clone(),
                 )
@@ -987,7 +1015,7 @@ fn maintenance_budget_expiry_keeps_native_results_and_diagnostics_without_a_retr
             &native,
             std::slice::from_ref(&workspace),
             "needle",
-            &derived,
+            &HistoryIndex::new(&derived, source.agent_kind, &source.id),
             &seeded_budget,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -1010,7 +1038,7 @@ fn maintenance_budget_expiry_keeps_native_results_and_diagnostics_without_a_retr
             &native,
             std::slice::from_ref(&workspace),
             "first request",
-            &derived,
+            &HistoryIndex::new(&derived, source.agent_kind, &source.id),
             &limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -1019,13 +1047,10 @@ fn maintenance_budget_expiry_keeps_native_results_and_diagnostics_without_a_retr
     assert_eq!(outcome.references.len(), 3);
     assert_eq!(outcome.matched.len(), 3);
     assert_eq!(outcome.states[0].state, AgentSessionSourceStatus::Partial);
-    assert_eq!(
-        outcome.states[0].index_state,
-        CliSessionIndexState::Fallback
-    );
+    assert_eq!(outcome.states[0].index_state, CliSessionIndexState::Ready);
     let message = outcome.states[0].message.as_deref().unwrap();
     assert!(message.contains("没有可解析的原生事件"));
-    assert!(message.contains("索引容量维护未完成"));
+    assert!(message.contains("索引缓存整理稍后继续"));
     assert!(message.contains("字节预算"));
     let (healthy_root, healthy_source, healthy_native, healthy_workspace) =
         fixture("maintenance-healthy-source", 2);
@@ -1036,7 +1061,11 @@ fn maintenance_budget_expiry_keeps_native_results_and_diagnostics_without_a_retr
             &healthy_native,
             &[healthy_workspace],
             "",
-            &index_config(&healthy_root),
+            &HistoryIndex::new(
+                &index_config(&healthy_root),
+                healthy_source.agent_kind,
+                &healthy_source.id,
+            ),
             &healthy_budget,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -1069,7 +1098,7 @@ fn a_later_batch_with_newer_timestamps_does_not_repeat_or_hide_rows_behind_a_cur
             &native,
             &[workspace],
             "",
-            &index_config(&root),
+            &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
             &limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -1106,7 +1135,7 @@ fn native_references_separate_libraries_and_stay_independent_of_window_or_query_
             &native,
             std::slice::from_ref(&workspace),
             "",
-            &index_config(&root),
+            &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
             &limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -1152,7 +1181,7 @@ fn nested_subagents_link_to_unique_parents_outside_the_page_role_and_search_resu
                 &native,
                 std::slice::from_ref(&workspace),
                 text,
-                &index_config(&root),
+                &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                 &limit,
                 Arc::new(Mutex::new(HashMap::new())),
             )
@@ -1237,7 +1266,7 @@ fn ambiguous_parent_ids_never_cross_sources_or_workspaces() {
             &native,
             &[workspace.clone(), other_workspace.clone()],
             "",
-            &index_config(&root),
+            &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
             &limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -1249,7 +1278,11 @@ fn ambiguous_parent_ids_never_cross_sources_or_workspaces() {
             &other_native,
             std::slice::from_ref(&workspace),
             "",
-            &index_config(&other_root),
+            &HistoryIndex::new(
+                &index_config(&other_root),
+                other_source.agent_kind,
+                &other_source.id,
+            ),
             &other_limit,
             Arc::new(Mutex::new(HashMap::new())),
         )
@@ -1332,7 +1365,7 @@ fn later_parent_discovery_and_ambiguity_are_serialized_as_updates_for_delivered_
                 &native,
                 std::slice::from_ref(&workspace),
                 "early child",
-                &index_config(&root),
+                &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                 &limit,
                 Arc::new(Mutex::new(HashMap::new())),
             )
@@ -1422,7 +1455,7 @@ fn later_parent_discovery_and_ambiguity_are_serialized_as_updates_for_delivered_
 }
 
 #[test]
-fn oversized_codex_rollout_keeps_native_sqlite_metadata_and_has_no_endless_cursor() {
+fn codex_metadata_reads_stay_small_and_large_bodies_remain_searchable_and_resumable() {
     let root = std::env::temp_dir().join(format!(
         "balancehub-codex-oversized-rollout-{}",
         std::process::id()
@@ -1434,7 +1467,7 @@ fn oversized_codex_rollout_keeps_native_sqlite_metadata_and_has_no_endless_curso
     fs::create_dir_all(&workdir).unwrap();
     fs::write(config_root.join("sessions/large.jsonl"), [
         json!({"type":"session_meta","payload":{"source":"cli"}}).to_string(),
-        json!({"type":"event_msg","payload":{"type":"user_message","message":"unread-body-marker ".repeat(1000)}}).to_string(),
+        json!({"type":"event_msg","payload":{"type":"user_message","message":"unread-body-marker ".repeat(10_000)}}).to_string(),
     ].join("\n")).unwrap();
     let connection = rusqlite::Connection::open(config_root.join("state_5.sqlite")).unwrap();
     connection.execute_batch("CREATE TABLE threads (id TEXT, cwd TEXT, title TEXT, model TEXT, updated_at_ms INTEGER, rollout_path TEXT, source TEXT)").unwrap();
@@ -1466,7 +1499,11 @@ fn oversized_codex_rollout_keeps_native_sqlite_metadata_and_has_no_endless_curso
         "unread-body-marker",
         "native-index-title",
     ] {
-        let limit = budget(4096);
+        let limit = budget(if text == "unread-body-marker" {
+            1024 * 1024
+        } else {
+            128 * 1024
+        });
         let outcome = with_read_budget(&limit, || {
             with_history_cache(&cache, || {
                 scan_source(
@@ -1474,13 +1511,19 @@ fn oversized_codex_rollout_keeps_native_sqlite_metadata_and_has_no_endless_curso
                     &native,
                     std::slice::from_ref(&workspace),
                     text,
-                    &index_config(&root),
+                    &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
                     &limit,
                     Arc::new(Mutex::new(HashMap::new())),
                 )
             })
         });
         assert!(limit.check().is_ok());
+        if text == "native-index-title" {
+            assert!(
+                limit.bytes.load(Ordering::Relaxed) < 70 * 1024,
+                "metadata reads must remain smaller than the body"
+            );
+        }
         assert!(!outcome.can_continue);
         assert_eq!(outcome.references.len(), 1);
         let row = &outcome.references[0].row;
@@ -1488,22 +1531,18 @@ fn oversized_codex_rollout_keeps_native_sqlite_metadata_and_has_no_endless_curso
         assert_eq!(row.session.title, "native-index-title");
         assert_eq!(row.session.workdir, workspace.path);
         assert_eq!(row.role, AgentSessionRole::Main);
-        assert!(!row.session.can_resume);
+        assert!(row.session.can_resume);
         let mut saved = snapshot(Vec::new(), false);
         merge_source_outcomes(&mut saved, vec![outcome], AgentSessionRoleFilter::All);
         let page = page("codex-limit", &saved, 0, 50, &[], &[]);
-        assert_eq!(page.items.len(), usize::from(text == "native-index-title"));
-        assert_eq!(page.total, None);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.total, Some(1));
         assert!(page.next_cursor.is_none());
         assert_eq!(
             page.source_states[0].state,
-            AgentSessionSourceStatus::Partial
+            AgentSessionSourceStatus::Complete
         );
-        assert!(page.source_states[0]
-            .message
-            .as_deref()
-            .unwrap()
-            .contains("单文件超过读取上限"));
+        assert!(page.source_states[0].message.is_none());
     }
     fs::remove_dir_all(root).unwrap();
 }
@@ -1605,7 +1644,7 @@ fn codex_missing_rollouts_keep_indexed_metadata_without_reusing_unavailable_bodi
                     &native,
                     std::slice::from_ref(&workspace),
                     query,
-                    &derived,
+                    &HistoryIndex::new(&derived, source.agent_kind, &source.id),
                     &limit,
                     Arc::new(Mutex::new(HashMap::new())),
                 )

@@ -2,9 +2,8 @@ use crate::{
     models::{AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary},
     services::cli_sessions::{
         clean_text, combine_content_search_results, compact_json, first_non_empty,
-        normalize_timestamp, read_json_lines_limited, scan_json_records,
-        scan_json_records_background, session_index_source_fingerprint,
-        SessionContentSearchCollector, SessionMessageCollector,
+        normalize_timestamp, read_json_lines_limited, read_json_messages_limited,
+        scan_json_records, SessionContentSearchCollector, SessionMessageCollector,
     },
 };
 use serde_json::Value;
@@ -16,10 +15,10 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
-    SessionIndexMessage, SessionMetadataCursor, SessionMetadataLookupError,
-    SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionMetadataSnapshot,
-    SessionReadLimits,
+    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexFormat,
+    SessionIndexMessage, SessionIndexMutation, SessionIndexSource, SessionMetadataCursor,
+    SessionMetadataLookupError, SessionMetadataLookupRequest, SessionMetadataLookupResult,
+    SessionMetadataSnapshot, SessionReadLimits,
 };
 
 const INDEX_PARSER_VERSION: u32 = 1;
@@ -152,24 +151,17 @@ fn scan_conversation(
     path: &Path,
     label: &str,
     current: &dyn Fn() -> bool,
-    background: bool,
     mut observe: impl FnMut(usize, Value),
 ) -> Result<(), String> {
     if path
         .extension()
         .is_some_and(|extension| extension == "json")
     {
-        if !current() {
-            return Err("会话读取已取消".into());
-        }
-        let text = crate::services::cli_sessions::workbench::read_session_text_file_limited(
-            path,
-            32 * 1024 * 1024,
-            label,
-        )?;
-        let record =
-            serde_json::from_str(&text).map_err(|error| format!("{label}格式损坏：{error}"))?;
-        observe(0, record);
+        let mut sequence = 0;
+        read_json_messages_limited(path, usize::MAX, current, |value| {
+            observe(sequence, value);
+            sequence += 1;
+        })?;
         return Ok(());
     }
     let reader = |sequence, line: &[u8]| {
@@ -178,38 +170,82 @@ fn scan_conversation(
         }
         false
     };
-    if background {
-        scan_json_records_background(path, label, current, reader)
-    } else {
-        scan_json_records(path, label, current, reader)
+    scan_json_records(path, label, current, reader)
+}
+
+fn index_source(path: &Path) -> SessionIndexSource {
+    SessionIndexSource {
+        path: path.to_path_buf(),
+        parser_version: INDEX_PARSER_VERSION,
+        format: if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            SessionIndexFormat::JsonMessages
+        } else {
+            SessionIndexFormat::JsonLines
+        },
+        decode: index_record,
     }
 }
 
-fn index_conversation(
-    path: &Path,
-    known_fingerprint: Option<&str>,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
-    let (fingerprint, source_bytes) = session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
-    if known_fingerprint == Some(fingerprint.as_str()) {
-        return Ok(SessionIndexLoadResult::Unchanged {
-            fingerprint,
-            source_bytes,
-        });
+fn index_record(
+    _path: &Path,
+    _sequence: u64,
+    line: &[u8],
+    _state: &mut Value,
+) -> Vec<SessionIndexMutation> {
+    let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        return Vec::new();
+    };
+    if let Some(id) = value.get("$rewindTo").and_then(Value::as_str) {
+        return vec![SessionIndexMutation::Rewind(format!("gemini-{id}"))];
     }
-    let mut conversation = IndexConversation::default();
-    scan_conversation(
-        path,
-        "索引 Gemini CLI 会话正文",
-        is_current,
-        true,
-        |_index, value| conversation.observe(&value),
-    )?;
-    Ok(SessionIndexLoadResult::Updated {
-        fingerprint,
-        source_bytes,
-        messages: conversation.finish(),
-    })
+    let replacement = value
+        .get("$set")
+        .and_then(|update| update.get("messages"))
+        .or_else(|| value.get("messages"))
+        .and_then(Value::as_array);
+    let mut result = Vec::new();
+    if let Some(messages) = replacement {
+        result.push(SessionIndexMutation::Clear);
+        for message in messages {
+            index_message(message, &mut result);
+        }
+    } else if value.get("id").is_some() {
+        index_message(&value, &mut result);
+    }
+    result
+}
+
+fn index_message(value: &Value, result: &mut Vec<SessionIndexMutation>) {
+    let Some(message) = MessageSummary::from_value(value, ToolContentMode::Ignore) else {
+        return;
+    };
+    let id = format!("gemini-{}", message.id);
+    let role = match message.kind.as_str() {
+        "user" => CliSessionMessageRole::User,
+        "gemini" => CliSessionMessageRole::Assistant,
+        _ => {
+            result.push(SessionIndexMutation::Remove(id));
+            return;
+        }
+    };
+    let Some(content) = message
+        .text
+        .map(|text| text.trim().to_owned())
+        .filter(|text| {
+            !text.is_empty()
+                && (role != CliSessionMessageRole::User || !is_ignored_user_content(text))
+        })
+    else {
+        result.push(SessionIndexMutation::Remove(id));
+        return;
+    };
+    result.push(SessionIndexMutation::Put {
+        message: SessionIndexMessage { id, role, content },
+        priority: 1,
+    });
 }
 
 fn search_conversation(
@@ -222,7 +258,6 @@ fn search_conversation(
         path,
         "检索 Gemini CLI 会话正文",
         is_current,
-        false,
         |_index, value| conversation.observe(&value, request),
     )?;
     Ok(conversation.finish())
@@ -263,28 +298,7 @@ fn parse_session(
     path: &Path,
     workdir: &Path,
 ) -> Result<Option<(CliSessionSummary, bool)>, String> {
-    let mut conversation = ConversationSummary::default();
-    scan_conversation(
-        path,
-        "读取 Gemini 会话摘要",
-        &|| true,
-        false,
-        |_index, value| conversation.observe(&value),
-    )?;
-
-    // 旧版本可能把完整会话保存为单个 JSON 对象；JSONL 解析没有拿到会话 ID
-    // 时再走一次兼容读取，不影响当前增量格式的流式内存占用。
-    if conversation.session_id.is_none() {
-        if let Ok(text) = crate::services::cli_sessions::workbench::read_session_text_file_limited(
-            path,
-            32 * 1024 * 1024,
-            "读取 Gemini JSON 会话",
-        ) {
-            if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                conversation.observe(&value);
-            }
-        }
-    }
+    let (mut conversation, source_truncated) = load_conversation_limited(path, 256 * 1024)?;
 
     let is_subagent = conversation.kind.as_deref() == Some("subagent");
     let Some(id) = conversation
@@ -350,7 +364,7 @@ fn parse_session(
             workdir: workdir.to_string_lossy().to_string(),
             cli_version: None,
             archived: false,
-            can_resume: !is_subagent && has_messages,
+            can_resume: !is_subagent && (has_messages || source_truncated),
             metadata_source: "geminiTranscript".to_string(),
         },
         is_subagent,
@@ -359,26 +373,24 @@ fn parse_session(
 
 fn load_conversation_limited(
     path: &Path,
-    limits: SessionReadLimits,
+    max_file_bytes: usize,
 ) -> Result<(ConversationSummary, bool), String> {
     let mut conversation = ConversationSummary::default();
-    let source_truncated = read_json_lines_limited(
-        path,
-        limits.max_file_bytes,
-        "读取 Gemini CLI 会话正文",
-        |_line_index, value| conversation.observe(&value),
-    )?;
-    if conversation.session_id.is_none() {
-        if let Ok(text) = crate::services::cli_sessions::workbench::read_session_text_file_limited(
+    let source_truncated = if path
+        .extension()
+        .is_some_and(|extension| extension == "json")
+    {
+        read_json_messages_limited(path, max_file_bytes, &|| true, |value| {
+            conversation.observe(&value)
+        })?
+    } else {
+        read_json_lines_limited(
             path,
-            32 * 1024 * 1024,
-            "读取 Gemini JSON 会话",
-        ) {
-            if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                conversation.observe(&value);
-            }
-        }
-    }
+            max_file_bytes,
+            "读取 Gemini CLI 会话正文",
+            |_line_index, value| conversation.observe(&value),
+        )?
+    };
     Ok((conversation, source_truncated))
 }
 
@@ -486,96 +498,6 @@ struct SearchConversation {
 struct SearchMessage {
     id: String,
     result: SessionContentSearchResult,
-}
-
-#[derive(Default)]
-struct IndexConversation {
-    messages: Vec<SessionIndexMessage>,
-    message_positions: HashMap<String, usize>,
-}
-
-impl IndexConversation {
-    fn observe(&mut self, value: &Value) {
-        if let Some(rewind_id) = value.get("$rewindTo").and_then(Value::as_str) {
-            self.rewind_to(rewind_id);
-            return;
-        }
-        if let Some(updates) = value.get("$set").and_then(Value::as_object) {
-            if let Some(messages) = updates.get("messages").and_then(Value::as_array) {
-                self.replace_messages(messages);
-            }
-            return;
-        }
-        if value.get("id").and_then(Value::as_str).is_some() {
-            self.upsert_message(value);
-            return;
-        }
-        if let Some(messages) = value.get("messages").and_then(Value::as_array) {
-            self.replace_messages(messages);
-        }
-    }
-
-    fn replace_messages(&mut self, messages: &[Value]) {
-        self.messages.clear();
-        self.message_positions.clear();
-        for message in messages {
-            self.upsert_message(message);
-        }
-    }
-
-    fn upsert_message(&mut self, value: &Value) {
-        let Some(message) = MessageSummary::from_value(value, ToolContentMode::Ignore) else {
-            return;
-        };
-        let role = match message.kind.as_str() {
-            "user" => CliSessionMessageRole::User,
-            "gemini" => CliSessionMessageRole::Assistant,
-            _ => return,
-        };
-        let Some(content) = message
-            .text
-            .map(|value| value.trim().to_string())
-            .filter(|value| {
-                !value.is_empty()
-                    && (role != CliSessionMessageRole::User || !is_ignored_user_content(value))
-            })
-        else {
-            return;
-        };
-        let item = SessionIndexMessage {
-            id: format!("gemini-{}", message.id),
-            role,
-            content,
-        };
-        if let Some(index) = self.message_positions.get(&message.id).copied() {
-            self.messages[index] = item;
-        } else {
-            self.message_positions
-                .insert(message.id, self.messages.len());
-            self.messages.push(item);
-        }
-    }
-
-    fn rewind_to(&mut self, message_id: &str) {
-        let Some(index) = self.message_positions.get(message_id).copied() else {
-            self.messages.clear();
-            self.message_positions.clear();
-            return;
-        };
-        let removed = self
-            .message_positions
-            .iter()
-            .filter_map(|(id, position)| (*position >= index).then_some(id.clone()))
-            .collect::<Vec<_>>();
-        self.messages.truncate(index);
-        for id in removed {
-            self.message_positions.remove(&id);
-        }
-    }
-
-    fn finish(self) -> Vec<SessionIndexMessage> {
-        self.messages
-    }
 }
 
 impl SearchConversation {

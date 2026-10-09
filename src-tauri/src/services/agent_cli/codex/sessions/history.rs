@@ -114,18 +114,6 @@ fn scan(
                     &locator,
                     || {
                         let mut record = metadata_record.clone();
-                        if let Some(limit) =
-                            crate::services::cli_sessions::workbench::session_file_read_limit(
-                                &locator,
-                            )?
-                        {
-                            // The native SQLite row still proves this metadata.
-                            // Do not spend every continuation rereading a large
-                            // rollout just to refine its role or search its body.
-                            record.resume_reason = Some(limit.reason.clone());
-                            record.content_unavailable_reason = Some(limit.reason);
-                            return Ok(Some(record));
-                        }
                         let (from_rollout, from_parent) = rollout_role(&locator)?;
                         if from_rollout != AgentSessionRole::Unknown {
                             record.role = from_rollout;
@@ -318,15 +306,11 @@ fn search(
     }
     search_rollout(&record.locator, request, current)
 }
-fn index(
-    record: &SessionHistoryRecord,
-    known: Option<&str>,
-    current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
+fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
     if let Some(reason) = &record.content_unavailable_reason {
         return Err(reason.clone());
     }
-    index_rollout(&record.locator, known, current)
+    Ok(vec![index_source(&record.locator)])
 }
 
 #[cfg(test)]

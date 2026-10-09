@@ -3,7 +3,7 @@ use crate::{
     limits,
     models::{
         is_full_api_key_value, normalize_api_key_for_protocol, Provider, ProviderApiKeyOption,
-        ProviderAuth, ProviderInput, ProviderProtocol,
+        ProviderAuth, ProviderProtocol,
     },
 };
 use tauri::Manager;
@@ -116,61 +116,6 @@ impl<'a> ProviderService<'a> {
         Ok(find_provider(&data, &id)?.auth.api_key_options)
     }
 
-    pub async fn create_api_key(
-        &self,
-        id: String,
-        name: String,
-    ) -> Result<Vec<ProviderApiKeyOption>, String> {
-        let state = self.app.state::<crate::state::AppState>();
-        let _network_gate = state.refresh_gate.lock().await;
-        let data = self.snapshot_async().await?;
-        let provider = find_provider(&data, &id)?;
-        let provider = self
-            .prepare_operation_provider(&data.settings, &provider)
-            .await?;
-        let request_context = ProviderRequestContext::capture(&provider);
-        let adapter = ProtocolAdapter;
-        let created = adapter
-            .create_api_key(&data.settings, &provider, &name)
-            .await?;
-        let persisted_created = self
-            .persist_operation_credentials(&request_context, &created.credentials)
-            .await?;
-        let list_provider = persisted_created
-            .ok_or_else(|| "本地配置已变更，本次 API Key 创建结果已忽略".to_string())?;
-        let list_context = ProviderRequestContext::capture(&list_provider);
-        let listed = adapter
-            .list_api_keys(&data.settings, &list_provider)
-            .await?;
-        let persisted_listed = self
-            .persist_operation_credentials(&list_context, &listed.credentials)
-            .await?;
-        let options_context = persisted_listed
-            .as_ref()
-            .map(ProviderRequestContext::capture)
-            .unwrap_or(list_context);
-        let options = listed.value;
-        self.persist_api_key_options(&options_context, &options, None)
-            .await?;
-        let data = self.snapshot_async().await?;
-        Ok(find_provider(&data, &id)?.auth.api_key_options)
-    }
-
-    pub async fn create_api_key_for_input(
-        &self,
-        input: ProviderInput,
-        name: String,
-    ) -> Result<ProviderApiKeyOption, String> {
-        let state = self.app.state::<crate::state::AppState>();
-        let _network_gate = state.refresh_gate.lock().await;
-        let data = self.snapshot_async().await?;
-        let provider = self.prepare_input_provider(&data.settings, input).await?;
-        let operation = ProtocolAdapter
-            .create_api_key(&data.settings, &provider, &name)
-            .await?;
-        Ok(operation.value)
-    }
-
     pub async fn delete_api_key(
         &self,
         id: String,
@@ -191,27 +136,23 @@ impl<'a> ProviderService<'a> {
         let persisted_deleted = self
             .persist_operation_credentials(&request_context, &deleted.credentials)
             .await?;
-        let list_provider = persisted_deleted
-            .ok_or_else(|| "本地配置已变更，本次 API Key 删除结果已忽略".to_string())?;
-        let list_context = ProviderRequestContext::capture(&list_provider);
-        let listed = adapter
-            .list_api_keys(&data.settings, &list_provider)
-            .await?;
-        let persisted_listed = self
-            .persist_operation_credentials(&list_context, &listed.credentials)
-            .await?;
-        let options_context = persisted_listed
-            .as_ref()
-            .map(ProviderRequestContext::capture)
-            .unwrap_or(list_context);
-        let options = listed.value;
-        self.persist_api_key_options(&options_context, &options, Some(&token_id))
-            .await?;
+        let provider = persisted_deleted
+            .ok_or_else(|| "站点 Key 已删除，但本地配置已变更，请同步确认".to_string())?;
+        let context = ProviderRequestContext::capture(&provider);
+        let options = provider
+            .auth
+            .api_key_options
+            .into_iter()
+            .filter(|option| option.token_id != token_id)
+            .collect::<Vec<_>>();
+        self.persist_api_key_options(&context, &options, Some(&token_id))
+            .await
+            .map_err(|error| format!("站点 Key 已删除，但本地同步失败：{error}"))?;
         let data = self.snapshot_async().await?;
         Ok(find_provider(&data, &id)?.auth.api_key_options)
     }
 
-    async fn persist_api_key_options(
+    pub(super) async fn persist_api_key_options(
         &self,
         request_context: &ProviderRequestContext,
         options: &[ProviderApiKeyOption],
@@ -227,12 +168,17 @@ impl<'a> ProviderService<'a> {
                     .iter_mut()
                     .find(|provider| mutation_context.matches(provider))
                 {
+                    let previous_auth = provider.auth.clone();
                     let changed = sync_api_key_options(
                         &mut provider.auth,
                         provider.identity.protocol,
                         &options,
                         removed_token_id.as_deref(),
                     );
+                    if model_permissions_changed(&previous_auth, &provider.auth) {
+                        provider.capabilities.clear_available_models();
+                        provider.auth.credential_revision += 1;
+                    }
                     Ok(if changed {
                         MutationDecision::changed(true)
                     } else {
@@ -248,6 +194,39 @@ impl<'a> ProviderService<'a> {
         } else {
             Err("本地配置已变更，本次 API Key 结果已忽略".to_string())
         }
+    }
+}
+
+fn model_permissions_changed(previous: &ProviderAuth, current: &ProviderAuth) -> bool {
+    if previous.api_key != current.api_key {
+        return true;
+    }
+    if current.api_key.trim().is_empty() {
+        return false;
+    }
+    let before = previous
+        .api_key_options
+        .iter()
+        .find(|key| key.key == previous.api_key);
+    let after = current
+        .api_key_options
+        .iter()
+        .find(|key| key.key == current.api_key);
+    match (before, after) {
+        (Some(before), Some(after)) => {
+            before.group != after.group
+                || before.group_id != after.group_id
+                || before.model_limits_enabled != after.model_limits_enabled
+                || before.model_limits != after.model_limits
+                || before.auto_groups != after.auto_groups
+                || before.cross_group_retry != after.cross_group_retry
+                || before.status != after.status
+                || before.allow_ips != after.allow_ips
+                || before.deny_ips != after.deny_ips
+                || before.expired_time != after.expired_time
+        }
+        (None, None) => false,
+        _ => !current.api_key.is_empty(),
     }
 }
 
@@ -358,6 +337,32 @@ fn sync_api_key_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ProviderInput;
+
+    #[test]
+    fn model_cache_changes_only_for_current_key_access_changes() {
+        let mut previous = ProviderInput::default().auth;
+        previous.api_key = "sk-first".into();
+        previous.api_key_options = vec![
+            option(ProviderProtocol::NewApi, "1", "sk-first", "First"),
+            option(ProviderProtocol::NewApi, "2", "sk-second", "Second"),
+        ];
+        let mut refreshed = previous.clone();
+        refreshed.api_key_options[0].name = "renamed".into();
+        refreshed.api_key_options[0].remain_quota -= 1.0;
+        refreshed.api_key_options[1].group = "different".into();
+        assert!(!model_permissions_changed(&previous, &refreshed));
+        refreshed.api_key_options[0].group = "different".into();
+        assert!(model_permissions_changed(&previous, &refreshed));
+        refreshed = previous.clone();
+        refreshed.api_key_options[0].model_limits = vec!["restricted-model".into()];
+        assert!(model_permissions_changed(&previous, &refreshed));
+        previous.api_key.clear();
+        refreshed.api_key.clear();
+        previous.api_key_options[0].key.clear();
+        refreshed.api_key_options[0].key.clear();
+        assert!(!model_permissions_changed(&previous, &refreshed));
+    }
 
     fn option(
         protocol: ProviderProtocol,

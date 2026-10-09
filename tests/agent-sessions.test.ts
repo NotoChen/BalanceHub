@@ -8,7 +8,7 @@ import type { AgentCliKind } from "../src/stores/provider-types.ts";
 import { sessionDetail, sessionPage, sessionRow, sessionScope } from "./agent-session-fixtures.ts";
 
 function harness(t: TestContext, overrides: Partial<AgentSessionQueryApi> = {}, explicitPath?: string,
-  configuration: Pick<Parameters<typeof useAgentSessions>[0], "pageSize" | "initialWorkspaceMode" | "refreshOnIndexUpdate" | "autoLoad"> = {}) {
+  configuration: Pick<Parameters<typeof useAgentSessions>[0], "pageSize" | "initialWorkspaceMode" | "refreshOnIndexUpdate" | "autoLoad" | "autoContinue"> = {}) {
   const queries: AgentSessionQuery[] = [];
   const details: AgentSessionDetailRequest[] = [];
   const cancellations: AgentSessionCancelRequest[] = [];
@@ -34,22 +34,267 @@ function harness(t: TestContext, overrides: Partial<AgentSessionQueryApi> = {}, 
   const lifetime = effectScope();
   const sessions = lifetime.run(() => useAgentSessions({ active, agentKinds, query, scopeKey, explicitWorkdir, autoLoad: false, ...configuration, api }))!;
   t.after(() => lifetime.stop());
-  return { sessions, active, agentKinds, query, scopeKey, explicitWorkdir, queries, details, cancellations, scopes };
+  return { sessions, active, agentKinds, query, scopeKey, explicitWorkdir, queries, details, cancellations, scopes, dispose: () => lifetime.stop() };
 }
 
-test("default history selects only the exact home workspace and all-directories retains missing entries", async (t) => {
+test("default history searches all registered directories and an explicit selection only narrows that scope", async (t) => {
   const context = harness(t);
   await context.sessions.load();
   assert.deepEqual(context.scopes, [null]);
-  assert.deepEqual(context.queries[0].workspaceIds, ["home"]);
+  assert.deepEqual(context.queries[0].workspaceIds, ["home", "project", "unmounted"]);
   assert.equal(context.queries[0].cursor, null);
   assert.equal(context.queries[0].pageSize, 50);
   assert.equal(context.queries[0].roleFilter, "all");
   assert.deepEqual(context.queries[0].agentKinds, []);
+  context.sessions.selectWorkspace("project");
+  await settle();
+  assert.deepEqual(context.queries.at(-1)?.workspaceIds, ["project"]);
   context.sessions.selectWorkspace(null);
   await settle();
   assert.deepEqual(context.queries.at(-1)?.workspaceIds, ["home", "project", "unmounted"]);
   assert.equal(context.sessions.selectedWorkspaces.value.at(-1)?.exists, false);
+});
+
+test("completed and empty history pages survive repeated tab switches without another scope or query request", async (t) => {
+  for (const rows of [[], [sessionRow("cached")]]) {
+    const context = harness(t, { query: async () => sessionPage(rows, { nextCursor: rows.length ? "page:next" : null }) }, undefined, { autoLoad: true });
+    await settle();
+    const scope = context.sessions.scope.value;
+    const snapshot = context.sessions.snapshotId.value;
+    for (let visit = 0; visit < 3; visit += 1) {
+      context.active.value = false;
+      assert.deepEqual(context.sessions.rows.value, rows);
+      assert.equal(context.sessions.scope.value, scope);
+      assert.equal(context.sessions.busy.value, false);
+      context.active.value = true;
+      await settle();
+      assert.equal(context.sessions.snapshotId.value, snapshot);
+      assert.deepEqual(context.sessions.rows.value, rows);
+    }
+    assert.equal(context.queries.length, 1);
+    assert.equal(context.scopes.length, 1);
+    if (rows.length) {
+      await context.sessions.loadMore();
+      assert.equal(context.queries[1].cursor, "page:next", "ordinary pagination is retained but not fetched merely by returning");
+    }
+    context.dispose();
+  }
+});
+
+test("inactive history keeps completed results, cancels a pending continuation and resumes from the same cursor", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const late = deferred<AgentSessionPage>();
+  const first = sessionRow("first");
+  const next = sessionRow("next");
+  let reads = 0;
+  const context = harness(t, { query: async () => {
+    if (++reads === 1) return sessionPage([first], { scanPending: true, nextCursor: "scan:cached", total: null });
+    if (reads === 2) return late.promise;
+    return sessionPage([next], { loadedCount: 2, total: 2 });
+  } }, undefined, { autoLoad: true });
+  await settle();
+  t.mock.timers.tick(150);
+  await settle();
+  assert.equal(context.sessions.loadingMore.value, true);
+  context.active.value = false;
+  assert.equal(context.sessions.busy.value, false);
+  assert.equal(context.sessions.scanPending.value, true);
+  assert.ok(context.cancellations.some((request) => request.requestId === context.queries[1].requestId));
+  late.resolve(sessionPage([sessionRow("stale")], { scanPending: true, nextCursor: "scan:stale" }));
+  await settle();
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.deepEqual(context.sessions.rows.value, [first]);
+  assert.equal(context.queries.length, 2);
+  context.active.value = true;
+  t.mock.timers.tick(150);
+  await settle();
+  assert.deepEqual(context.queries.map((request) => request.cursor), [null, "scan:cached", "scan:cached"]);
+  assert.deepEqual(context.sessions.rows.value.map((row) => row.session.id).sort(), ["first", "next"]);
+  assert.equal(context.scopes.length, 1);
+  assert.equal(context.sessions.scanPending.value, false);
+});
+
+test("a first query interrupted by navigation can restart once and never accept its late result", async (t) => {
+  const late = deferred<AgentSessionPage>();
+  let reads = 0;
+  const context = harness(t, { query: async () => ++reads === 1 ? late.promise : sessionPage([sessionRow("current")]) }, undefined, { autoLoad: true });
+  await settle();
+  context.active.value = false;
+  assert.equal(context.sessions.busy.value, false);
+  context.active.value = true;
+  await settle();
+  late.resolve(sessionPage([sessionRow("stale")]));
+  await settle();
+  assert.deepEqual(context.sessions.rows.value.map((row) => row.session.id), ["current"]);
+  assert.equal(context.queries.length, 2);
+  assert.equal(context.scopes.length, 1);
+});
+
+test("real filters changed while history is hidden invalidate the cache and query only the final selection on return", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const context = harness(t, { query: async () => sessionPage([sessionRow()]) }, undefined, { autoLoad: true });
+  await settle();
+  context.active.value = false;
+  context.agentKinds.value = ["claudeCode"];
+  context.sessions.roleFilter.value = "subagent";
+  context.sessions.selectWorkspace("project");
+  context.query.value = "changed while hidden";
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.equal(context.queries.length, 1);
+  assert.deepEqual(context.sessions.rows.value, []);
+  context.active.value = true;
+  await settle();
+  assert.equal(context.queries.length, 2);
+  assert.deepEqual(context.queries[1].agentKinds, ["claudeCode"]);
+  assert.deepEqual(context.queries[1].workspaceIds, ["project"]);
+  assert.equal(context.queries[1].roleFilter, "subagent");
+  assert.equal(context.queries[1].query, "changed while hidden");
+  assert.equal(context.scopes.length, 1);
+});
+
+test("cancelled and failed queries do not restart themselves on tab activation", async (t) => {
+  for (const outcome of ["cancelled", "failed"]) {
+    let reads = 0;
+    const context = harness(t, { query: async () => {
+      reads += 1;
+      if (outcome === "failed" && reads === 1) throw new Error("source read failed");
+      return sessionPage([sessionRow()], { scanPending: outcome === "cancelled", nextCursor: outcome === "cancelled" ? "scan:next" : null });
+    } }, undefined, { autoLoad: true, autoContinue: false });
+    await settle();
+    if (outcome === "cancelled") context.sessions.cancel();
+    context.active.value = false;
+    context.active.value = true;
+    await settle();
+    assert.equal(context.queries.length, 1, outcome);
+    assert.equal(context.sessions.busy.value, false, outcome);
+    await context.sessions.refresh();
+    assert.equal(context.queries.length, 2, "explicit refresh still starts a new query");
+    context.dispose();
+  }
+});
+
+test("cache-aware reads coalesce first loads and reuse the explicit directory after returning", async (t) => {
+  const context = harness(t, {}, "/fixture/project");
+  await Promise.all([context.sessions.ensureLoaded(), context.sessions.ensureLoaded()]);
+  assert.equal(context.queries.length, 1);
+  context.active.value = false;
+  context.active.value = true;
+  await context.sessions.ensureLoaded();
+  assert.equal(context.queries.length, 1);
+  context.explicitWorkdir!.value = "/fixture/other";
+  await context.sessions.ensureLoaded();
+  assert.equal(context.queries.length, 2);
+  assert.deepEqual(context.scopes, ["/fixture/project", "/fixture/other"]);
+});
+
+test("pending scanning continues automatically, keeps visible results, and stops before ordinary pagination", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const continuation = deferred<AgentSessionPage>();
+  const detailReply = deferred<AgentSessionDetail>();
+  let reads = 0;
+  const first = sessionRow("found-first");
+  const second = sessionRow("found-later");
+  const context = harness(t, {
+    query: async () => ++reads === 1
+      ? sessionPage([first], { total: null, nextCursor: "scan:1", scanPending: true })
+      : continuation.promise,
+    detail: async () => detailReply.promise,
+  });
+  await context.sessions.load();
+  assert.equal(context.sessions.scanPending.value, true);
+  assert.equal(context.sessions.busy.value, false);
+  t.mock.timers.tick(150);
+  await settle();
+  assert.equal(context.sessions.loadingMore.value, true);
+  assert.deepEqual(context.sessions.rows.value, [first]);
+  const viewing = context.sessions.openDetail(first.sessionRef);
+  context.sessions.closeDetail();
+  assert.equal(context.sessions.detailVisible.value, false, "pending scanning and details never lock the modal");
+  detailReply.resolve(sessionDetail(first));
+  await viewing;
+  continuation.resolve(sessionPage([second], { total: 3, loadedCount: 3, nextCursor: "page:2", scanPending: false }));
+  await settle();
+  assert.equal(context.sessions.rows.value.length, 2);
+  assert.equal(context.sessions.scanPending.value, false);
+  assert.equal(context.sessions.busy.value, false);
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.deepEqual(context.queries.map((request) => request.cursor), [null, "scan:1"]);
+  assert.equal(context.sessions.hasMore.value, true, "the remaining ordinary page waits for user input");
+});
+
+test("scheduled continuation is cancelled by cancel, scope changes, inactivity and disposal", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const action of ["cancel", "scope", "inactive", "dispose"]) {
+    const context = harness(t, { query: async () => sessionPage([sessionRow()], { total: null, nextCursor: "scan:next", scanPending: true }) });
+    await context.sessions.load();
+    if (action === "cancel") context.sessions.cancel();
+    if (action === "scope") context.scopeKey.value = "changed";
+    if (action === "inactive") context.active.value = false;
+    if (action === "dispose") context.dispose();
+    t.mock.timers.tick(1000);
+    await settle();
+    assert.equal(context.queries.length, 1, action);
+    assert.equal(context.sessions.scanPending.value, action === "inactive", action);
+    assert.equal(context.sessions.busy.value, false, action);
+    context.dispose();
+  }
+});
+
+test("a failed or timed out continuation releases its state and never schedules another read", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const failure of ["error", "timeout"]) {
+    const late = deferred<AgentSessionPage>();
+    let reads = 0;
+    const context = harness(t, { query: async () => {
+      if (++reads === 1) return sessionPage([sessionRow()], { nextCursor: "scan:next", scanPending: true, total: null });
+      if (failure === "error") throw new Error("读取失败");
+      return late.promise;
+    } });
+    await context.sessions.load();
+    t.mock.timers.tick(150);
+    await settle();
+    if (failure === "timeout") { t.mock.timers.tick(65_000); await settle(); }
+    assert.equal(context.sessions.busy.value, false);
+    assert.equal(context.sessions.scanPending.value, false);
+    assert.match(context.sessions.error.value, failure === "timeout" ? /超时/ : /读取失败/);
+    assert.equal(context.sessions.rows.value.length, 1);
+    late.resolve(sessionPage([sessionRow("late")], { nextCursor: "stale", scanPending: true }));
+    await settle();
+    t.mock.timers.tick(1000);
+    await settle();
+    assert.equal(context.queries.length, 2);
+    assert.equal(context.sessions.rows.value.length, 1);
+    context.dispose();
+  }
+});
+
+test("a search change rejects the previous continuation and its timer", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const stale = deferred<AgentSessionPage>();
+  let reads = 0;
+  const current = sessionRow("current-query");
+  const context = harness(t, { query: async () => {
+    if (++reads === 1) return sessionPage([], { total: null, scanPending: true, nextCursor: "old-scan" });
+    if (reads === 2) return stale.promise;
+    return sessionPage([current], { snapshotId: "current-query" });
+  } });
+  await context.sessions.load();
+  t.mock.timers.tick(150);
+  await settle();
+  context.query.value = "new query";
+  t.mock.timers.tick(280);
+  await settle();
+  stale.resolve(sessionPage([sessionRow("stale-query")], { scanPending: true, nextCursor: "stale-next" }));
+  await settle();
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.deepEqual(context.sessions.rows.value, [current]);
+  assert.equal(context.sessions.scanPending.value, false);
+  assert.equal(context.queries.length, 3);
+  assert.equal(context.queries.at(-1)?.query, "new query");
 });
 
 test("count consumers start once with all backend workspace IDs and expose counts independently of the page", async (t) => {

@@ -1,9 +1,10 @@
 use crate::models::{
-    AppSettings, Provider, ProviderApiKeyOption, ProviderCapabilities,
-    ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
-    ProviderCredentialCompletionResult, ProviderInput, ProviderQuota, ProviderRequestLogsQuery,
-    ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderStatus, ProviderUsageSummary,
-    SiteAnnouncement,
+    AppSettings, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption, ProviderApiKeyPatch,
+    ProviderCapabilities, ProviderCheckInRecordsResult, ProviderCheckInResult,
+    ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
+    ProviderModelList, ProviderModelListState, ProviderModelScope, ProviderQuota,
+    ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderStatus,
+    ProviderUsageSummary, SiteAnnouncement,
 };
 use async_trait::async_trait;
 
@@ -105,6 +106,7 @@ pub(crate) struct ProviderObservationPatch {
     site_logo: String,
     quota: ProviderQuota,
     available_models: Vec<String>,
+    available_models_state: ProviderModelListState,
     last_synced_at: Option<String>,
     status: ProviderStatus,
     error_message: Option<String>,
@@ -122,6 +124,7 @@ impl ProviderObservationPatch {
             // Adapters retain the previous list on fetch failure and replace it
             // only on success. Quota errors must not discard successful models.
             available_models: refreshed.capabilities.available_models.clone(),
+            available_models_state: refreshed.capabilities.available_models_state.clone(),
             last_synced_at: refreshed.automation.last_synced_at.clone(),
             status: refreshed.runtime.status,
             error_message: refreshed.runtime.error_message.clone(),
@@ -142,6 +145,10 @@ impl ProviderObservationPatch {
             .capabilities
             .available_models
             .clone_from(&self.available_models);
+        provider
+            .capabilities
+            .available_models_state
+            .clone_from(&self.available_models_state);
         provider
             .automation
             .last_synced_at
@@ -226,6 +233,21 @@ pub(crate) trait AccessTokenCapability: Send + Sync {
 
 #[async_trait]
 pub(crate) trait ConnectionCapability: Send + Sync {
+    async fn fetch_available_models(
+        &self,
+        client: &crate::adapters::transport::ProviderTransport,
+        provider: &Provider,
+    ) -> Result<ProviderOperationOutcome<ProviderModelList>, String> {
+        crate::adapters::api::fetch_models(client, provider)
+            .await
+            .map(|models| {
+                ProviderOperationOutcome::unchanged(ProviderModelList::new(
+                    models,
+                    ProviderModelScope::ApiKey,
+                ))
+            })
+    }
+
     async fn test_connection(
         &self,
         settings: &AppSettings,
@@ -247,6 +269,20 @@ pub(crate) trait ConnectionCapability: Send + Sync {
 
 #[async_trait]
 pub(crate) trait ApiKeyManagementCapability: Send + Sync {
+    async fn api_key_editor_context(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: Option<&str>,
+    ) -> Result<ProviderOperationOutcome<ProviderApiKeyEditorContext>, String>;
+
+    async fn update_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+        patch: &ProviderApiKeyPatch,
+    ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String>;
     async fn list_api_keys(
         &self,
         settings: &AppSettings,
@@ -257,7 +293,7 @@ pub(crate) trait ApiKeyManagementCapability: Send + Sync {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-        name: &str,
+        patch: &ProviderApiKeyPatch,
     ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String>;
 
     async fn delete_api_key(

@@ -63,6 +63,17 @@ export function canSkipAssistantAccessToken(input: ProviderInput, protocol: Prov
     .some((field) => credentialFieldHasValue(input, field));
 }
 
+export function needsCredentialCompletionForInput(input: ProviderInput, descriptors: ProviderProtocolDescriptor[]) {
+  const protocol = providerProtocolDescriptor(descriptors, input.identity.protocol);
+  if (!protocol?.credentialAssistant.enabled || input.auth.mode === "apiKey") return false;
+  const current = protocol.authModes.findIndex((mode) => mode.mode === input.auth.mode);
+  if (current < 0) return false;
+  return protocol.authModes.slice(current + 1).some((mode) => {
+    if (mode.mode === "accessToken" && canSkipAssistantAccessToken(input, protocol)) return false;
+    return missingCredentialRequirements(input, mode).length > 0;
+  });
+}
+
 export function blockingCredentialCompletionFailures(steps: CredentialResultStep[]) {
   return steps.filter((step) => {
     if (step.ok) {

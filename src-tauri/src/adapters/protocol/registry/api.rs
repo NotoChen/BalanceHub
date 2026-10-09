@@ -23,7 +23,7 @@ const API_KEY_FIELDS: &[ProviderAuthFieldSchema] = &[auth_field(
 pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefinition {
     kind: ProviderProtocol::Api,
     label: "通用 API Key",
-    description: "未知站点的 OpenAI 兼容模型接口，仅支持 API Key",
+    description: "通过 API Key 连接 OpenAI 兼容模型接口",
     detection_role: ProtocolDetectionRole::ApiKeyFallback,
     default_auth_mode: AuthMode::ApiKey,
     auth_schemas: &[ProviderProtocolAuthSchema::new(

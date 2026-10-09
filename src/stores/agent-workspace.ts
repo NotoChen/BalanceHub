@@ -24,15 +24,20 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
   const view = ref<AppWorkspaceView>("providers");
   const page = ref<AgentWorkspacePage>("overview");
   const sessionView = ref<AgentSessionView>("history");
-  const sessionWorkspaceMode = ref<"home" | "all">("home");
+  const sessionWorkspaceMode = ref<"home" | "all">("all");
   const sessionWorkspaceSelection = ref<string | null>(null);
   const sessionRoleFilter = ref<AgentSessionRoleFilter>("all");
+  const sessionAgentFilter = ref<AgentCliKind | null>(null);
   const agentFilter = ref<AgentCliKind | null>(null);
   const queries = ref<Partial<Record<AgentSearchScope, string>>>({});
   const searchScope = computed<AgentSearchScope>(() => page.value === "sessions" ? `sessions:${sessionView.value}` : page.value);
   const query = computed({
     get: () => queries.value[searchScope.value] ?? "",
     set: (value: string) => { queries.value[searchScope.value] = value; },
+  });
+  const sessionHistoryQuery = computed({
+    get: () => queries.value["sessions:history"] ?? "",
+    set: (value: string) => { queries.value["sessions:history"] = value; },
   });
   const searchPlaceholder = computed(() => page.value === "sessions" && sessionView.value === "active"
     ? "搜索活动会话、目录或模型"
@@ -76,12 +81,13 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
   }
 
   function openSessions(view: AgentSessionView = "history", agent?: AgentCliKind | null, options: { workspaceMode?: "home" | "all" } = {}) {
+    if (agent !== undefined) sessionAgentFilter.value = agent;
     if (options.workspaceMode) {
       sessionWorkspaceMode.value = options.workspaceMode;
       if (options.workspaceMode === "home") sessionWorkspaceSelection.value = null;
     }
     sessionView.value = view;
-    navigate("sessions", agent);
+    navigate("sessions", sessionAgentFilter.value);
   }
 
   function selectSessionView(next: AgentSessionView) {
@@ -91,6 +97,7 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
   }
 
   function selectAgent(agent: AgentCliKind | null) {
+    if (page.value === "sessions") sessionAgentFilter.value = agent;
     if (agentFilter.value === agent) return;
     agentFilter.value = agent;
     navigationRevision.value += 1;
@@ -103,7 +110,7 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
     navigationRevision.value += 1;
   }
 
-  return { view, page, sessionView, sessionWorkspaceMode, sessionWorkspaceSelection, sessionRoleFilter, agentFilter, queries, query, searchPlaceholder, workspacePath, navigationRevision,
+  return { view, page, sessionView, sessionWorkspaceMode, sessionWorkspaceSelection, sessionRoleFilter, sessionAgentFilter, agentFilter, queries, query, sessionHistoryQuery, searchPlaceholder, workspacePath, navigationRevision,
     operationDetails, libraryAssetId, openOperation, closeOperation, setView, openPage, openLibrary, openSessions, selectSessionView, selectAgent, selectWorkspace };
 });
 

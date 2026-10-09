@@ -119,6 +119,11 @@ export interface ProviderActions {
   apiKeyManagement: boolean;
   invitation: boolean;
   refreshModelsOnly: boolean;
+  models: {
+    canSync: boolean;
+    scope: ProviderModelScope;
+    unavailableReason: string | null;
+  };
 }
 
 export interface ProviderIdentity {
@@ -267,6 +272,16 @@ export interface ProviderCapabilities {
   probedAt: string | null;
   errorMessage?: string | null;
   availableModels: string[];
+  availableModelsState: ProviderModelListState;
+}
+
+export type ProviderModelScope = "account" | "apiKey";
+
+export interface ProviderModelListState {
+  scope: ProviderModelScope | null;
+  updatedAt: string | null;
+  error: string | null;
+  fallbackReason: string | null;
 }
 
 export type ProviderCheckInMethod = "auto" | "standard" | "sessionSignIn" | "freshLogin";
@@ -1218,15 +1233,69 @@ export interface ProviderApiKeyOption {
   remainQuotaRaw: number;
   unlimitedQuota: boolean;
   group: string;
+  totalQuota: number;
+  groupId: string;
   crossGroupRetry: boolean;
   modelLimitsEnabled: boolean;
   modelLimits: string[];
   allowIps: string[];
+  denyIps: string[];
+  autoGroups: string[];
+  spendingLimits: ProviderApiKeySpendingLimits;
   quotaDisplayType: string;
   currencySymbol: string;
   createdTime?: number | null;
   accessedTime?: number | null;
   expiredTime?: number | null;
+}
+
+export interface ProviderApiKeySpendingLimits {
+  fiveHours: number;
+  oneDay: number;
+  sevenDays: number;
+}
+
+export type ProviderApiKeyExpiration =
+  | { mode: "never" }
+  | { mode: "at"; timestamp: number }
+  | { mode: "afterDays"; days: number };
+
+export interface ProviderApiKeySettings {
+  name: string;
+  group: string;
+  quota: { unlimited: boolean; amount: number };
+  expiration: ProviderApiKeyExpiration;
+  allowIps: string[];
+  denyIps: string[];
+  modelLimits: string[];
+  modelLimitsEnabled: boolean;
+  crossGroupRetry: boolean;
+  autoGroups: string[];
+  spendingLimits: ProviderApiKeySpendingLimits;
+  enabled: boolean;
+}
+
+export type ProviderApiKeyPatch = Partial<ProviderApiKeySettings> & { customKey?: string };
+
+export interface ProviderApiKeyEditorContext {
+  credentialRevision: number;
+  settings: ProviderApiKeySettings;
+  groups: { value: string; label: string; description: string; rate: number | null }[];
+  groupClearable: boolean;
+  defaultGroupLabel: string;
+  quotaLabel: string;
+  quotaUnit: string;
+  quotaMinimum: number;
+  expirationInDays: boolean;
+  supportsIpBlacklist: boolean;
+  supportsModelLimits: boolean;
+  supportsCrossGroupRetry: boolean;
+  automaticGroup: string | null;
+  supportsSpendingLimits: boolean;
+  supportsCustomKey: boolean;
+  autoGroups: { groups: string[]; maxCount: number } | null;
+  modelOptions: string[];
+  modelOptionsError: string | null;
 }
 
 export interface ProviderConnectionTestResult {

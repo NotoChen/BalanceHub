@@ -198,6 +198,58 @@ pub struct ProviderCapabilities {
     pub error_message: Option<String>,
     #[serde(default)]
     pub available_models: Vec<String>,
+    #[serde(default)]
+    pub available_models_state: ProviderModelListState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderModelScope {
+    Account,
+    ApiKey,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderModelListState {
+    pub scope: Option<ProviderModelScope>,
+    pub updated_at: Option<String>,
+    pub error: Option<String>,
+    pub fallback_reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProviderModelList {
+    pub models: Vec<String>,
+    pub scope: ProviderModelScope,
+    pub fallback_reason: Option<String>,
+}
+
+impl ProviderModelList {
+    pub(crate) fn new(models: Vec<String>, scope: ProviderModelScope) -> Self {
+        Self {
+            models,
+            scope,
+            fallback_reason: None,
+        }
+    }
+}
+
+impl ProviderCapabilities {
+    pub(crate) fn set_available_models(&mut self, result: ProviderModelList) {
+        self.available_models = result.models;
+        self.available_models_state = ProviderModelListState {
+            scope: Some(result.scope),
+            updated_at: Some(crate::util::unix_millis().to_string()),
+            error: None,
+            fallback_reason: result.fallback_reason,
+        };
+    }
+
+    pub(crate) fn clear_available_models(&mut self) {
+        self.available_models.clear();
+        self.available_models_state = ProviderModelListState::default();
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

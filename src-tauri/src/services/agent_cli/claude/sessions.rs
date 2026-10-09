@@ -2,8 +2,7 @@ use crate::{
     models::{AgentCliKind, CliSessionDetail, CliSessionMessageRole, CliSessionSummary},
     services::cli_sessions::{
         clean_text, compact_json, first_non_empty, normalize_timestamp, read_json_lines_limited,
-        scan_json_lines_matching, scan_json_records_background, session_index_source_fingerprint,
-        SessionContentSearchCollector, SessionMessageCollector,
+        scan_json_lines_matching, SessionContentSearchCollector, SessionMessageCollector,
     },
 };
 use serde_json::Value;
@@ -14,9 +13,9 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
-    SessionIndexMessage, SessionMetadataLookupError, SessionMetadataLookupRequest,
-    SessionMetadataLookupResult, SessionReadLimits,
+    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexFormat,
+    SessionIndexMessage, SessionIndexMutation, SessionIndexSource, SessionMetadataLookupError,
+    SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionReadLimits,
 };
 
 const INDEX_PARSER_VERSION: u32 = 1;
@@ -38,112 +37,86 @@ pub(super) fn metadata_lookup(
     metadata::lookup(&config_dir, request)
 }
 
-fn index_transcript(
-    path: &Path,
-    known_fingerprint: Option<&str>,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
-    let (fingerprint, source_bytes) = session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
-    if known_fingerprint == Some(fingerprint.as_str()) {
-        return Ok(SessionIndexLoadResult::Unchanged {
-            fingerprint,
-            source_bytes,
-        });
+fn index_source(path: &Path) -> SessionIndexSource {
+    SessionIndexSource {
+        path: path.to_path_buf(),
+        parser_version: INDEX_PARSER_VERSION,
+        format: SessionIndexFormat::JsonLines,
+        decode: index_record,
     }
+}
 
+fn index_record(
+    path: &Path,
+    sequence: u64,
+    line: &[u8],
+    _state: &mut Value,
+) -> Vec<SessionIndexMutation> {
+    if !(line
+        .windows(4)
+        .any(|part| part.eq_ignore_ascii_case(b"user"))
+        || line
+            .windows(9)
+            .any(|part| part.eq_ignore_ascii_case(b"assistant")))
+    {
+        return Vec::new();
+    }
+    let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        return Vec::new();
+    };
+    if (!history::is_subagent_path(path)
+        && value
+            .get("isSidechain")
+            .and_then(Value::as_bool)
+            .unwrap_or(false))
+        || value
+            .get("isMeta")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        return Vec::new();
+    }
+    let role = match value.get("type").and_then(Value::as_str) {
+        Some("user") => CliSessionMessageRole::User,
+        Some("assistant") => CliSessionMessageRole::Assistant,
+        _ => return Vec::new(),
+    };
+    let Some(content) = value
+        .get("message")
+        .and_then(|message| message.get("content"))
+    else {
+        return Vec::new();
+    };
     let mut messages = Vec::new();
-    scan_json_records_background(
-        path,
-        "索引 Claude Code 会话正文",
-        is_current,
-        |line_index, line| {
-            if !(line
-                .windows(4)
-                .any(|window| window.eq_ignore_ascii_case(b"user"))
-                || line
-                    .windows(9)
-                    .any(|window| window.eq_ignore_ascii_case(b"assistant")))
-            {
-                return false;
-            }
-            if line.windows(11).any(|window| window == b"tool_result")
-                && !line.windows(6).any(|window| window == b"\"text\"")
-            {
-                return false;
-            }
-            let Ok(value) = serde_json::from_slice::<Value>(line) else {
-                return false;
-            };
-            if (!history::is_subagent_path(path)
-                && value
-                    .get("isSidechain")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false))
-                || value
-                    .get("isMeta")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-            {
-                return false;
-            }
-            let role = match value.get("type").and_then(Value::as_str) {
-                Some("user") => CliSessionMessageRole::User,
-                Some("assistant") => CliSessionMessageRole::Assistant,
-                _ => return false,
-            };
-            let Some(content) = value
-                .get("message")
-                .and_then(|message| message.get("content"))
-            else {
-                return false;
-            };
-            if let Some(text) = content.as_str() {
-                let text = text.trim();
-                if !text.is_empty()
-                    && (role != CliSessionMessageRole::User || visible_user_text(text))
-                {
-                    messages.push(SessionIndexMessage {
-                        id: format!("claude-{line_index}"),
-                        role,
-                        content: text.to_string(),
-                    });
-                }
-                return false;
-            }
-            if let Some(parts) = content.as_array() {
-                for (part_index, part) in parts.iter().enumerate() {
-                    if !matches!(
-                        part.get("type").and_then(Value::as_str),
-                        Some("text") | None
-                    ) {
-                        continue;
-                    }
-                    let Some(text) = part
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|text| !text.is_empty())
-                    else {
-                        continue;
-                    };
-                    if role == CliSessionMessageRole::User && !visible_user_text(text) {
-                        continue;
-                    }
-                    messages.push(SessionIndexMessage {
-                        id: format!("claude-{line_index}-{part_index}"),
-                        role,
-                        content: text.to_string(),
-                    });
+    let mut add = |id: String, text: &str| {
+        let text = text.trim();
+        if !text.is_empty() && (role != CliSessionMessageRole::User || visible_user_text(text)) {
+            messages.push(SessionIndexMutation::Put {
+                message: SessionIndexMessage {
+                    id,
+                    role,
+                    content: text.to_owned(),
+                },
+                priority: 1,
+            });
+        }
+    };
+    if let Some(text) = content.as_str() {
+        add(format!("claude-{sequence}"), text);
+    }
+    if let Some(parts) = content.as_array() {
+        for (part_index, part) in parts.iter().enumerate() {
+            if matches!(
+                part.get("type").and_then(Value::as_str),
+                Some("text") | None
+            ) {
+                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    add(format!("claude-{sequence}-{part_index}"), text);
                 }
             }
-            false
-        },
-    )?;
-    Ok(SessionIndexLoadResult::Updated {
-        fingerprint,
-        source_bytes,
-        messages,
-    })
+        }
+    }
+    messages
 }
 
 fn search_transcript(
@@ -348,7 +321,6 @@ fn parse_transcript_messages(
 struct ParsedClaudeTranscript {
     summary: CliSessionSummary,
     native_origin_workdir: Option<std::path::PathBuf>,
-    read_limit_reason: Option<String>,
 }
 
 fn parse_transcript(
@@ -357,7 +329,6 @@ fn parse_transcript(
 ) -> Result<Option<ParsedClaudeTranscript>, String> {
     let mut summary = TranscriptSummary::default();
     let mut valid_record = false;
-    let limit = crate::services::cli_sessions::workbench::session_file_read_limit(path)?;
     let mut observe = |value: &Value| {
         valid_record = true;
         if history::is_subagent_path(path)
@@ -369,34 +340,38 @@ fn parse_transcript(
             summary.observe(value);
         }
     };
-    if let Some(limit) = &limit {
-        crate::services::cli_sessions::read_json_lines_prefix(
+    // Summary work stays bounded independently of transcript length. Body
+    // search has its own durable checkpoint and does not gate resume eligibility.
+    let source_truncated = read_json_lines_limited(
+        path,
+        256 * 1024,
+        "读取 Claude 会话摘要",
+        |_, value| observe(&value),
+    )?;
+    if summary.session_id.is_none() && source_truncated && !valid_record {
+        if let Some(header) = crate::services::cli_sessions::read_session_header(
             path,
-            limit.prefix_bytes,
-            "读取 Claude Code 会话有限摘要",
-            |value| observe(&value),
-        )?;
-    } else {
-        crate::services::cli_sessions::scan_json_records(
-            path,
-            "读取 Claude Code 会话摘要",
-            &|| true,
-            |_sequence, line| {
-                if let Ok(value) = serde_json::from_slice::<Value>(line) {
-                    observe(&value);
-                }
-                false
+            &[
+                "sessionId",
+                "session_id",
+                "cwd",
+                "workdir",
+                "version",
+                "timestamp",
+                "isSidechain",
+            ],
+            |fields, _| {
+                transcript_identity(&Value::Object(fields.clone()))
+                    .0
+                    .is_some()
             },
-        )?;
-    }
-    let read_limit_reason = limit.map(|limit| limit.reason);
-    if let Some(reason) = &read_limit_reason {
-        if summary
-            .session_id
-            .as_deref()
-            .is_none_or(|id| id.trim().is_empty())
-        {
-            return Err(format!("{reason}；有限前缀未包含可验证的原生会话 ID"));
+        )? {
+            if history::is_subagent_path(path)
+                || header.get("isSidechain").and_then(Value::as_bool) != Some(true)
+            {
+                summary.observe(&Value::Object(header));
+                valid_record = true;
+            }
         }
     }
 
@@ -442,25 +417,20 @@ fn parse_transcript(
             models,
             cli_kind,
             created_at: normalize_timestamp(summary.created_at.as_deref()),
-            // A bounded prefix cannot prove the latest native activity timestamp.
-            updated_at: if read_limit_reason.is_none() {
-                normalize_timestamp(summary.updated_at.as_deref())
-            } else {
-                None
-            },
+            updated_at: normalize_timestamp(summary.updated_at.as_deref()).or_else(|| {
+                fs::metadata(path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .map(chrono::DateTime::<chrono::Utc>::from)
+                    .map(|time| time.to_rfc3339())
+            }),
             workdir,
             cli_version: summary.cli_version.and_then(|value| clean_text(value, 50)),
             archived: false,
-            can_resume: read_limit_reason.is_none(),
-            metadata_source: if read_limit_reason.is_some() {
-                "claudeTranscriptPrefix"
-            } else {
-                "claudeTranscript"
-            }
-            .to_string(),
+            can_resume: true,
+            metadata_source: "claudeTranscript".into(),
         },
         native_origin_workdir,
-        read_limit_reason,
     }))
 }
 

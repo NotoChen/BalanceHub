@@ -177,7 +177,10 @@ impl Sub2ApiAdapter {
                     next.auth.access_token_expires_at = authenticated.auth.access_token_expires_at;
                 }
                 apply_user(&mut next, &user);
-                let _ = refresh_models_if_available(client, &mut next).await;
+                if !next.auth.api_key.trim().is_empty() {
+                    // The independent model state retains failures without losing a valid quota.
+                    let _ = refresh_models_if_available(client, &mut next).await;
+                }
                 next.runtime.status = if next.quota.available <= 0.0 {
                     ProviderStatus::Warning
                 } else {
@@ -252,12 +255,21 @@ async fn refresh_models_if_available(
     client: &ProviderTransport,
     provider: &mut Provider,
 ) -> Result<(), String> {
-    if provider.auth.api_key.trim().is_empty() {
-        return Err("缺少 API Key，无法获取模型列表".to_string());
+    match crate::adapters::api::fetch_models(client, provider).await {
+        Ok(models) => {
+            provider
+                .capabilities
+                .set_available_models(crate::models::ProviderModelList::new(
+                    models,
+                    crate::models::ProviderModelScope::ApiKey,
+                ));
+            Ok(())
+        }
+        Err(error) => {
+            provider.capabilities.available_models_state.error = Some(error.clone());
+            Err(error)
+        }
     }
-    provider.capabilities.available_models =
-        crate::adapters::api::fetch_models(client, provider).await?;
-    Ok(())
 }
 
 fn provider_with_error(provider: &Provider, message: String) -> Provider {

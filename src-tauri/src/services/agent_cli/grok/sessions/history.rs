@@ -183,48 +183,28 @@ fn search(
     }
     search_chat_history(&chat_history_path, request, is_current)
 }
-fn index(
-    record: &SessionHistoryRecord,
-    known_fingerprint: Option<&str>,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionIndexLoadResult, String> {
-    let session_dir = record
-        .locator
-        .parent()
-        .ok_or_else(|| "Grok Build 会话目录无效".to_string())?;
-    let updates_path = session_dir.join("updates.jsonl");
-    let chat_history_path = session_dir.join("chat_history.jsonl");
-    if !updates_path.is_file() && !chat_history_path.is_file() {
-        return Err("Grok Build 会话摘要存在，但正文文件已不可用".to_string());
-    }
-    let mut source_bytes = 0u64;
-    let mut fingerprint_parts = Vec::new();
-    for path in [&updates_path, &chat_history_path] {
-        if !path.is_file() {
-            continue;
+fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
+    let directory = record.locator.parent().ok_or("Grok Build 会话目录无效")?;
+    let mut sources = Vec::new();
+    for (name, decode) in [
+        (
+            "updates.jsonl",
+            index_update_record as fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionIndexMutation>,
+        ),
+        ("chat_history.jsonl", index_chat_record),
+    ] {
+        let path = directory.join(name);
+        if path.is_file() {
+            sources.push(SessionIndexSource {
+                path,
+                parser_version: INDEX_PARSER_VERSION,
+                format: SessionIndexFormat::JsonLines,
+                decode,
+            });
         }
-        let (part, bytes) = session_index_source_fingerprint(path, INDEX_PARSER_VERSION)?;
-        fingerprint_parts.push(part);
-        source_bytes = source_bytes.saturating_add(bytes);
     }
-    let fingerprint = fingerprint_parts.join("|");
-    if known_fingerprint == Some(fingerprint.as_str()) {
-        return Ok(SessionIndexLoadResult::Unchanged {
-            fingerprint,
-            source_bytes,
-        });
+    if sources.is_empty() {
+        return Err("Grok Build 会话摘要存在，但正文文件已不可用".into());
     }
-    let mut messages = if updates_path.is_file() {
-        index_updates(&updates_path, is_current)?
-    } else {
-        Vec::new()
-    };
-    if messages.is_empty() && chat_history_path.is_file() {
-        messages = index_chat_history(&chat_history_path, is_current)?;
-    }
-    Ok(SessionIndexLoadResult::Updated {
-        fingerprint,
-        source_bytes,
-        messages,
-    })
+    Ok(sources)
 }

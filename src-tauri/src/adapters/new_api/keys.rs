@@ -84,7 +84,7 @@ async fn fetch_api_key_page(
     parse_success_data(&status, body, "API 密钥列表")
 }
 
-fn build_api_key_list_url(base_url: &str) -> Result<reqwest::Url, String> {
+pub(super) fn build_api_key_list_url(base_url: &str) -> Result<reqwest::Url, String> {
     let mut url = build_url(base_url, "/api/token/")?;
     {
         // The current New-API backend normalizes p=0 to its one-based first
@@ -97,79 +97,6 @@ fn build_api_key_list_url(base_url: &str) -> Result<reqwest::Url, String> {
         pairs.append_pair("size", &limits::MAX_API_KEYS_PER_PROVIDER.to_string());
     }
     Ok(url)
-}
-
-pub(crate) async fn create_api_key(
-    client: &ProviderTransport,
-    base_url: &str,
-    api_user: &str,
-    credential: UserCredential,
-    name: &str,
-) -> Result<ProviderApiKeyOption, String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("请填写 API 密钥名称".to_string());
-    }
-    let url = build_url(base_url, "/api/token/")?;
-    let payload = json!({
-        "name": name,
-        "remain_quota": 500000000000i64,
-        "unlimited_quota": true,
-        "expired_time": -1,
-    });
-    let request = build_user_request(
-        client,
-        Method::POST,
-        url,
-        base_url,
-        api_user,
-        credential.clone(),
-    )
-    .json(&payload);
-    let (status, body) = send_text(client, request, "创建 API 密钥").await?;
-    let data = parse_success_data(&status, body, "创建 API 密钥")?;
-    let site = fetch_site_metadata_or(client, base_url, SiteMetadata::default()).await?;
-
-    if let Some(key) = extract_string_field(&data, &["key", "Key"]) {
-        return Ok(api_key_option_from_token(
-            &data,
-            name.to_string(),
-            Some(normalize_api_key(&key)),
-            extract_token_id(&data).unwrap_or_default(),
-            extract_token_status(&data).unwrap_or_default(),
-            &site,
-        ));
-    }
-
-    if let Some(token_id) = extract_token_id(&data) {
-        let key = reveal_api_key(client, base_url, api_user, credential, &token_id).await?;
-        return Ok(api_key_option_from_token(
-            &data,
-            name.to_string(),
-            Some(key),
-            token_id,
-            extract_token_status(&data).unwrap_or_default(),
-            &site,
-        ));
-    }
-
-    let options = fetch_api_key_options(client, base_url, api_user, credential)
-        .await
-        .map_err(|error| {
-            format!(
-                "API Key 已提交创建，但刷新列表失败，请先刷新确认后再重试，避免重复创建：{error}"
-            )
-        })?;
-    options
-        .iter()
-        .find(|option| option.name == name && option.key_available)
-        .cloned()
-        .or_else(|| options.into_iter().find(|option| option.key_available))
-        .ok_or_else(|| {
-            format!(
-                "API Key 已提交创建，但刷新列表中没有找到“{name}”，请先刷新确认后再重试，避免重复创建"
-            )
-        })
 }
 
 pub(crate) async fn delete_api_key(
@@ -186,7 +113,7 @@ pub(crate) async fn delete_api_key(
     Ok(())
 }
 
-async fn reveal_api_key(
+pub(super) async fn reveal_api_key(
     client: &ProviderTransport,
     base_url: &str,
     api_user: &str,
@@ -254,6 +181,21 @@ fn extract_full_key_from_token(token: &Value) -> Option<String> {
         .map(|key| normalize_api_key(&key))
 }
 
+pub(super) fn option_from_value(
+    token: &Value,
+    key: Option<String>,
+    site: &SiteMetadata,
+) -> ProviderApiKeyOption {
+    api_key_option_from_token(
+        token,
+        extract_token_name(token).unwrap_or_default(),
+        key.or_else(|| extract_full_key_from_token(token)),
+        extract_token_id(token).unwrap_or_default(),
+        extract_token_status(token).unwrap_or_default(),
+        site,
+    )
+}
+
 fn api_key_option_from_token(
     token: &Value,
     name: String,
@@ -303,6 +245,8 @@ fn api_key_option_from_token(
         created_time: extract_i64_field(token, &["created_time", "createdTime", "created_at"]),
         accessed_time: extract_i64_field(token, &["accessed_time", "accessedTime"]),
         expired_time: extract_i64_field(token, &["expired_time", "expiredTime"]),
+        auto_groups: extract_string_list_field(token, &["auto_groups"]),
+        ..Default::default()
     }
     .normalize()
 }

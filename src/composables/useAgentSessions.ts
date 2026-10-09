@@ -9,6 +9,7 @@ import { compareSessionRows } from "../utils/agent-session-display.ts";
 const QUERY_TIMEOUT_MS = 65_000;
 const DETAIL_TIMEOUT_MS = 25_000;
 const SEARCH_DEBOUNCE_MS = 280;
+const SCAN_CONTINUE_DELAY_MS = 150;
 
 interface AgentSessionsOptions {
   active: Ref<boolean>;
@@ -24,6 +25,7 @@ interface AgentSessionsOptions {
   initialRoleFilter?: AgentSessionRoleFilter;
   refreshOnIndexUpdate?: boolean;
   autoLoad?: boolean;
+  autoContinue?: boolean;
   api?: AgentSessionQueryApi;
 }
 
@@ -38,7 +40,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   const scopeLoading = ref(false);
   const scopeError = ref("");
   const workspaceSelection = ref<string | null>(options.initialWorkspaceSelection ?? null);
-  const allWorkspaces = ref(options.initialWorkspaceMode === "all");
+  const allWorkspaces = ref(options.initialWorkspaceMode !== "home");
   const roleFilter = ref<AgentSessionRoleFilter>(options.initialRoleFilter ?? "all");
   const rows = shallowRef<AgentSessionRow[]>([]);
   const loading = ref(false);
@@ -46,6 +48,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   const error = ref("");
   const cancelled = ref(false);
   const nextCursor = ref<string | null>(null);
+  const scanPending = ref(false);
   const snapshotId = ref<string | null>(null);
   const loadedCount = ref(0);
   const total = ref<number | null>(null);
@@ -67,7 +70,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   });
   const incomplete = computed(() => sourceStates.value.some((source) => source.state !== "complete"));
   const contextKey = computed(() => JSON.stringify([
-    options.active.value, options.explicitWorkdir?.value ?? null, options.scopeKey?.value ?? "",
+    options.explicitWorkdir?.value ?? null, options.scopeKey?.value ?? "",
   ]));
   let disposed = false;
   let listRequestId = 0;
@@ -77,6 +80,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   let pendingDetailId: number | null = null;
   let scopePromise: Promise<AgentSessionScope | null> | null = null;
   let searchTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  let scanTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
   let indexUnlisten: UnlistenFn | null = null;
   // Per-ref history belongs to the current list snapshot; the sequence stays
   // monotonic so an in-flight detail can detect updates even across a reset.
@@ -94,10 +98,26 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     searchTimer = null;
   }
 
+  function clearScanTimer() {
+    if (scanTimer !== null) globalThis.clearTimeout(scanTimer);
+    scanTimer = null;
+  }
+
+  function scheduleContinuation() {
+    clearScanTimer();
+    if (options.autoContinue === false || disposed || !options.active.value || !scanPending.value || !nextCursor.value || error.value || cancelled.value) return;
+    const generation = listRequestId;
+    scanTimer = globalThis.setTimeout(() => {
+      scanTimer = null;
+      if (generation === listRequestId) void load(true);
+    }, SCAN_CONTINUE_DELAY_MS);
+  }
+
   function clearPage() {
     parentUpdates.clear();
     rows.value = [];
     nextCursor.value = null;
+    scanPending.value = false;
     snapshotId.value = null;
     loadedCount.value = 0;
     total.value = null;
@@ -105,13 +125,19 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     sourceStates.value = [];
   }
 
-  function invalidateList(clear = false) {
+  function stopListRequest() {
     clearSearchTimer();
+    clearScanTimer();
     listRequestId += 1;
     cancelRequest(consumerId, pendingListId);
     pendingListId = null;
     loading.value = false;
     loadingMore.value = false;
+  }
+
+  function invalidateList(clear = false) {
+    stopListRequest();
+    scanPending.value = false;
     if (clear) clearPage();
   }
 
@@ -125,16 +151,31 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     detailVisible.value = false;
   }
 
-  function invalidate() {
-    invalidateList(true);
-    closeDetail();
+  function stopScopeRequest() {
     scopeRequestId += 1;
     scopePromise = null;
     scopeLoading.value = false;
-    scope.value = null;
-    scopeError.value = "";
+  }
+
+  function suspend() {
+    // Visibility controls work, not the identity or validity of cached results.
+    stopListRequest();
+    stopScopeRequest();
+    closeDetail();
+  }
+
+  function invalidateQuery() {
+    invalidateList(true);
+    closeDetail();
     error.value = "";
     cancelled.value = false;
+  }
+
+  function invalidate() {
+    invalidateQuery();
+    stopScopeRequest();
+    scope.value = null;
+    scopeError.value = "";
   }
 
   async function ensureScope(force = false): Promise<AgentSessionScope | null> {
@@ -170,7 +211,9 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     if (disposed || !options.active.value || (append && (!nextCursor.value || busy.value))) return;
     const cursor = append ? nextCursor.value : null;
     const previousSnapshot = snapshotId.value;
+    const continuing = append && scanPending.value;
     invalidateList(!append);
+    scanPending.value = continuing;
     const requestId = ++listRequestId;
     const context = contextKey.value;
     loading.value = !append;
@@ -212,6 +255,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
       rows.value = [...merged.values()].sort(compareSessionRows);
       snapshotId.value = page.snapshotId;
       nextCursor.value = page.nextCursor;
+      scanPending.value = page.scanPending;
       loadedCount.value = page.loadedCount;
       total.value = page.total;
       agentCounts.value = page.agentCounts;
@@ -220,36 +264,42 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     } catch (failure) {
       if (!disposed && requestId === listRequestId && context === contextKey.value) {
         error.value = errorMessage(failure);
+        scanPending.value = false;
         cancelRequest(consumerId, pendingListId);
       }
     } finally {
-      if (requestId === listRequestId) { pendingListId = null; loading.value = false; loadingMore.value = false; }
+      if (requestId === listRequestId) {
+        pendingListId = null; loading.value = false; loadingMore.value = false;
+        scheduleContinuation();
+      }
     }
   }
 
   function refresh() { return load(false, true); }
   function loadMore() { return load(true); }
 
+  async function ensureLoaded() {
+    if (disposed || !options.active.value || busy.value || cancelled.value || error.value || scopeError.value) return;
+    if (snapshotId.value) { scheduleContinuation(); return; }
+    await load();
+  }
+
   function cancel() {
     invalidateList();
-    scopeRequestId += 1;
-    scopePromise = null;
-    scopeLoading.value = false;
+    stopScopeRequest();
     cancelled.value = true;
   }
 
   function selectWorkspace(id: string | null) {
+    if (id === null ? allWorkspaces.value : !allWorkspaces.value && workspaceSelection.value === id) return;
     allWorkspaces.value = id === null;
     if (id !== null) workspaceSelection.value = id;
-    closeDetail();
+    invalidateQuery();
     void load();
   }
 
   function scheduleSearch() {
-    invalidateList(true);
-    closeDetail();
-    error.value = "";
-    cancelled.value = false;
+    invalidateQuery();
     if (disposed || !options.active.value) return;
     loading.value = true;
     searchTimer = globalThis.setTimeout(() => { searchTimer = null; void load(); }, SEARCH_DEBOUNCE_MS);
@@ -290,16 +340,23 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   watch(contextKey, () => {
     invalidate();
     if (options.active.value && options.autoLoad !== false) void load();
+  }, { flush: "sync" });
+  watch(options.active, (active) => {
+    if (!active) suspend();
+    else if (options.autoLoad !== false) void ensureLoaded();
+    else scheduleContinuation();
   }, { immediate: options.autoLoad !== false, flush: "sync" });
-  watch(() => options.agentKinds.value.join("|"), () => { invalidateList(true); closeDetail(); if (options.active.value && options.autoLoad !== false) void load(); }, { flush: "sync" });
-  watch(roleFilter, () => { closeDetail(); void load(); }, { flush: "sync" });
-  watch(options.query, scheduleSearch, { flush: "sync" });
+  watch(() => options.agentKinds.value.join("|"), () => { invalidateQuery(); if (options.active.value && options.autoLoad !== false) void load(); }, { flush: "sync" });
+  watch(roleFilter, () => { invalidateQuery(); void load(); }, { flush: "sync" });
+  watch(() => options.query.value.trim(), scheduleSearch, { flush: "sync" });
   watch(detailVisible, (visible) => { if (!visible && (pendingDetailId !== null || detailResult.value)) closeDetail(); }, { flush: "sync" });
 
   if (getCurrentInstance() && options.refreshOnIndexUpdate !== false) onMounted(async () => {
     try {
-      const unlisten = await listen<string>("cli-session-index-updated", (event) => {
-        if (options.active.value && (!options.agentKinds.value.length || options.agentKinds.value.some((kind) => kind === event.payload)) && !busy.value && !detailVisible.value) void load();
+      const unlisten = await listen<AgentCliKind | null>("cli-session-index-updated", (event) => {
+        if (event.payload !== null && options.agentKinds.value.length && !options.agentKinds.value.includes(event.payload)) return;
+        invalidateQuery();
+        if (options.active.value && options.autoLoad !== false) void load();
       });
       if (disposed) unlisten(); else indexUnlisten = unlisten;
     } catch { /* The Tauri event bus is optional in isolated component tests. */ }
@@ -307,9 +364,9 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   if (getCurrentScope()) onScopeDispose(() => { disposed = true; invalidate(); indexUnlisten?.(); });
 
   return { scope, scopeLoading, scopeError, workspaceSelection, allWorkspaces, selectedWorkspaces, roleFilter,
-    rows, loading, loadingMore, busy, error, cancelled, nextCursor, snapshotId, loadedCount, total, agentCounts, sourceStates, incomplete, hasMore,
+    rows, loading, loadingMore, busy, error, cancelled, nextCursor, scanPending, snapshotId, loadedCount, total, agentCounts, sourceStates, incomplete, hasMore,
     detailVisible, detailLoading, detailError, detailResult, detailRow, detail,
-    ensureScope, load, refresh, loadMore, cancel, selectWorkspace, openDetail, closeDetail, invalidate, invalidateList };
+    ensureScope, ensureLoaded, load, refresh, loadMore, cancel, selectWorkspace, openDetail, closeDetail, suspend, invalidate, invalidateList };
 }
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }

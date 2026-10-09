@@ -3,12 +3,12 @@
 use super::SessionContentSearchCollector;
 use crate::{
     models::{
-        AgentCliKind, AppSettings, CliSessionIndexAgentStats, CliSessionIndexStatus,
-        CliSessionMessageRole, CliSessionSummary,
+        AgentCliKind, AppSettings, CliSessionIndexAgentStats, CliSessionIndexState,
+        CliSessionIndexStatus, CliSessionMessageRole,
     },
     services::agent_cli::contracts::{
         SessionContentSearchRequest, SessionContentSearchResult, SessionHistoryAdapter,
-        SessionHistoryRecord, SessionIndexLoadResult, SessionIndexMessage, SessionReadBudget,
+        SessionHistoryRecord, SessionReadBudget,
     },
     util::unix_millis,
 };
@@ -27,9 +27,14 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 
 pub(crate) const SESSION_INDEX_UPDATED_EVENT: &str = "cli-session-index-updated";
-const INDEX_SCHEMA_VERSION: i64 = 4;
+mod records;
+#[cfg(test)]
+pub(super) mod test_support;
+use super::record_stream as stream;
+
+const INDEX_SCHEMA_VERSION: i64 = 5;
 const MESSAGE_CHUNK_CHARS: usize = 32 * 1024;
-const MESSAGE_CHUNK_OVERLAP_CHARS: usize = 96;
+const MESSAGE_CHUNK_OVERLAP_CHARS: usize = super::MAX_SEARCH_QUERY_CHARS;
 const INDEX_SQL_BUSY_STEP: Duration = Duration::from_millis(25);
 
 #[derive(Clone, Copy)]
@@ -56,6 +61,7 @@ pub(crate) struct SessionIndexConfig {
 struct ActiveIndex {
     directory: PathBuf,
     cancelled: Arc<AtomicBool>,
+    readers: Arc<AtomicU64>,
 }
 #[derive(Default)]
 struct IndexRegistry {
@@ -88,17 +94,35 @@ fn cancel_directory(directory: &Path) {
     }
 }
 
+pub(crate) struct HistorySearchResult {
+    pub content: SessionContentSearchResult,
+    pub complete: bool,
+    pub indexed_bytes: u64,
+    pub source_bytes: u64,
+    pub skipped_records: u64,
+}
+
 pub(crate) struct HistoryIndex {
+    memory: Mutex<Option<Connection>>,
+    memory_only: AtomicBool,
     config: SessionIndexConfig,
     path: PathBuf,
     token: u64,
     cancelled: Arc<AtomicBool>,
+    readers: Arc<AtomicU64>,
+}
+struct IndexReadGuard<'a>(&'a AtomicU64);
+impl Drop for IndexReadGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Release);
+    }
 }
 impl HistoryIndex {
     pub(crate) fn new(config: &SessionIndexConfig, kind: AgentCliKind, source_id: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let token = NEXT.fetch_add(1, Ordering::Relaxed);
         let cancelled = Arc::new(AtomicBool::new(false));
+        let readers = Arc::new(AtomicU64::new(0));
         registry()
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -108,13 +132,26 @@ impl HistoryIndex {
                 ActiveIndex {
                     directory: config.directory.clone(),
                     cancelled: cancelled.clone(),
+                    readers: readers.clone(),
                 },
             );
         Self {
+            memory: Mutex::new(None),
+            memory_only: AtomicBool::new(!config.enabled),
             config: config.clone(),
             path: source_database_path(config, kind, source_id),
             token,
             cancelled,
+            readers,
+        }
+    }
+    pub(crate) fn state(&self) -> CliSessionIndexState {
+        if !self.config.enabled {
+            CliSessionIndexState::Disabled
+        } else if self.memory_only.load(Ordering::Acquire) {
+            CliSessionIndexState::Fallback
+        } else {
+            CliSessionIndexState::Ready
         }
     }
     fn check(&self, budget: &SessionReadBudget) -> Result<(), String> {
@@ -129,6 +166,33 @@ impl HistoryIndex {
         budget: &SessionReadBudget,
         apply: impl FnOnce(&mut Connection) -> Result<T, String>,
     ) -> Result<T, String> {
+        if self.memory_only.load(Ordering::Acquire) {
+            let mut slot = loop {
+                self.check(budget)?;
+                match self.memory.try_lock() {
+                    Ok(guard) => break guard,
+                    Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(Duration::from_millis(5))
+                    }
+                }
+            };
+            if slot.is_none() {
+                let connection = Connection::open_in_memory().map_err(|error| error.to_string())?;
+                initialize_schema(&connection)?;
+                *slot = Some(connection);
+            }
+            let connection = slot.as_mut().ok_or("会话临时索引未就绪")?;
+            let read = budget.clone();
+            let invalidated = self.cancelled.clone();
+            connection.progress_handler(
+                1000,
+                Some(move || read.check().is_err() || invalidated.load(Ordering::Acquire)),
+            );
+            let result = apply(connection);
+            self.check(budget)?;
+            return result;
+        }
         let gate = database_gate(&self.path);
         let _guard = loop {
             self.check(budget)?;
@@ -145,7 +209,19 @@ impl HistoryIndex {
             read: budget,
             invalidated: &self.cancelled,
         };
-        let mut connection = open_connection_with_budget(&self.path, true, Some(context))?;
+        let mut connection = match open_connection_with_budget(&self.path, true, Some(context)) {
+            Ok(connection) => connection,
+            Err(error) => {
+                context.check()?;
+                // A read-only or unavailable cache directory must not turn
+                // large-file search into repeated full scans. Keep a temporary
+                // index for the lifetime of this query instead.
+                self.memory_only.store(true, Ordering::Release);
+                eprintln!("会话索引缓存暂不可用，本次查询使用临时索引：{error}");
+                drop(_guard);
+                return self.connection(budget, apply);
+            }
+        };
         let result = apply(&mut connection);
         context.check()?;
         result
@@ -157,57 +233,71 @@ impl HistoryIndex {
         adapter: &SessionHistoryAdapter,
         request: &SessionContentSearchRequest,
         budget: &SessionReadBudget,
-    ) -> Result<SessionContentSearchResult, String> {
-        let known: Option<String> = self.connection(budget, |connection| {
-            connection
-                .query_row(
-                    "SELECT fingerprint FROM sessions WHERE workspace=?1 AND session_id=?2",
-                    params![workspace, record.record_key],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(|error| error.to_string())
+    ) -> Result<HistorySearchResult, String> {
+        self.readers.fetch_add(1, Ordering::AcqRel);
+        let _guard = IndexReadGuard(&self.readers);
+        let sources = (adapter.index)(record)?;
+        let source_keys = sources
+            .iter()
+            .map(|source| source.path.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        self.connection(budget, |connection| {
+            records::reconcile_sources(connection, workspace, &record.record_key, &source_keys)
         })?;
-        // Validate the native fingerprint on every query. The adapter skips
-        // unchanged bodies, including Grok's updates/chat-history pair.
-        let loaded = (adapter.index)(record, known.as_deref(), &|| self.check(budget).is_ok())?;
-        self.check(budget)?;
-        match loaded {
-            SessionIndexLoadResult::Unchanged { .. } => self.connection(budget, |connection| {
-                search_indexed_messages(connection, workspace, &record.record_key, request)
-            }),
-            SessionIndexLoadResult::Updated {
-                fingerprint,
-                source_bytes,
-                messages,
-            } => {
-                let mut matched = SessionContentSearchCollector::new(request);
-                for message in &messages {
-                    if matches!(
-                        message.role,
-                        CliSessionMessageRole::User | CliSessionMessageRole::Assistant
-                    ) {
-                        matched.observe(&message.content);
-                    }
-                }
-                let result = matched.finish();
-                let mut summary = record.summary.clone();
-                summary.id.clone_from(&record.record_key);
-                self.connection(budget, |connection| {
-                    replace_session(
+        let mut result = HistorySearchResult {
+            content: SessionContentSearchResult::default(),
+            complete: true,
+            indexed_bytes: 0,
+            source_bytes: 0,
+            skipped_records: 0,
+        };
+        for (source, key) in sources.iter().zip(&source_keys) {
+            self.check(budget)?;
+            let known: Option<String> = self.connection(budget, |connection| {
+                connection.query_row(
+                    "SELECT checkpoint FROM session_sources WHERE workspace=?1 AND session_id=?2 AND source_key=?3",
+                    params![workspace, record.record_key, key], |row| row.get(0),
+                ).optional().map_err(|error| error.to_string())
+            })?;
+            let previous = known
+                .as_deref()
+                .and_then(|value| serde_json::from_str::<stream::Checkpoint>(value).ok());
+            let batch =
+                stream::read_batch(source, previous.as_ref(), &|| self.check(budget).is_ok())?;
+            let changed = previous.as_ref() != Some(&batch.checkpoint) || batch.reset;
+            if changed
+                && !self.connection(budget, |connection| {
+                    records::apply_batch(
                         connection,
                         workspace,
-                        &summary,
-                        &fingerprint,
-                        source_bytes,
-                        messages,
+                        record,
+                        key,
+                        known.as_deref(),
+                        &batch,
                     )
-                })?;
-                Ok(result)
+                })?
+            {
+                result.complete = false;
             }
+            result.complete &= batch.checkpoint.complete;
+            result.indexed_bytes += batch.checkpoint.offset;
+            result.source_bytes += batch.checkpoint.source_bytes;
+            result.skipped_records += batch.checkpoint.skipped_records;
         }
+        if result.complete {
+            result.content = self.connection(budget, |connection| {
+                connection.execute("UPDATE sessions SET last_used_at=?3, source_bytes=?4 WHERE workspace=?1 AND session_id=?2",
+                    params![workspace, record.record_key, unix_millis() as i64, result.source_bytes as i64])
+                    .map_err(|error| error.to_string())?;
+                search_indexed_messages(connection, workspace, &record.record_key, request)
+            })?;
+        }
+        Ok(result)
     }
     pub(crate) fn finish(&self, budget: &SessionReadBudget) -> Result<(), String> {
+        if self.memory_only.load(Ordering::Acquire) {
+            return Ok(());
+        }
         enforce_capacity(
             &self.config,
             IndexBudget {
@@ -301,7 +391,9 @@ pub(crate) fn status(
         .active
         .values()
         .any(|active| {
-            active.directory == config.directory && !active.cancelled.load(Ordering::Acquire)
+            active.directory == config.directory
+                && !active.cancelled.load(Ordering::Acquire)
+                && active.readers.load(Ordering::Acquire) > 0
         });
     Ok(CliSessionIndexStatus {
         enabled: config.enabled,
@@ -364,14 +456,6 @@ fn source_database_path(config: &SessionIndexConfig, kind: AgentCliKind, source:
         super::workbench::hash(&[source])
     ))
 }
-#[cfg(test)]
-fn database_path(config: &SessionIndexConfig, kind: AgentCliKind) -> PathBuf {
-    source_database_path(config, kind, "test-source")
-}
-#[cfg(test)]
-fn workspace_key(path: &Path) -> String {
-    path.to_string_lossy().to_string()
-}
 fn database_files(config: &SessionIndexConfig) -> Vec<PathBuf> {
     database_files_with_budget(config, None).unwrap_or_default()
 }
@@ -426,10 +510,6 @@ fn database_disk_size(path: &Path) -> u64 {
             .unwrap_or(0)
     })
     .sum()
-}
-#[cfg(test)]
-fn total_disk_size(config: &SessionIndexConfig) -> u64 {
-    total_disk_size_with_budget(config, None).unwrap_or_default()
 }
 fn total_disk_size_with_budget(
     config: &SessionIndexConfig,
@@ -500,7 +580,10 @@ fn enforce_capacity(config: &SessionIndexConfig, budget: IndexBudget<'_>) -> Res
         let mut indexed_total = 0u64;
         {
             let mut statement = connection
-                .prepare("SELECT workspace, session_id, last_used_at, indexed_bytes FROM sessions")
+                .prepare("SELECT workspace, session_id, last_used_at, indexed_bytes FROM sessions WHERE NOT EXISTS (
+                    SELECT 1 FROM session_sources s WHERE s.workspace=sessions.workspace AND s.session_id=sessions.session_id
+                    AND json_extract(s.checkpoint, '$.complete') != 1
+                )")
                 .map_err(|error| error.to_string())?;
             let mut rows = statement.query([]).map_err(|error| error.to_string())?;
             while let Some(row) = rows.next().map_err(|error| error.to_string())? {
@@ -524,8 +607,13 @@ fn enforce_capacity(config: &SessionIndexConfig, budget: IndexBudget<'_>) -> Res
             }
         }
         budget.check()?;
+        let has_sessions: bool = connection
+            .query_row("SELECT EXISTS(SELECT 1 FROM sessions)", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| error.to_string())?;
         drop(connection);
-        if indexed_total == 0 {
+        if !has_sessions {
             // A previous bounded pass may have committed deletion before its
             // compaction budget ended. Empty derived libraries need no VACUUM.
             remove_database_files_with_budget(&path, Some(budget))?;
@@ -665,6 +753,8 @@ fn ensure_schema(connection: &mut Connection) -> Result<(), String> {
             .execute_batch(
                 "DROP TABLE IF EXISTS message_fts;
                  DROP TABLE IF EXISTS messages;
+                 DROP TABLE IF EXISTS session_sources;
+                 DROP TABLE IF EXISTS message_positions;
                  DROP TABLE IF EXISTS sessions;
                  DROP TABLE IF EXISTS metadata;",
             )
@@ -704,8 +794,28 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
                  message_id TEXT NOT NULL,
                  role TEXT NOT NULL,
                  chunk_index INTEGER NOT NULL,
-                 content TEXT NOT NULL
+                 content TEXT NOT NULL,
+                 source_key TEXT NOT NULL DEFAULT '',
+                 priority INTEGER NOT NULL DEFAULT 1,
+                 message_order INTEGER NOT NULL DEFAULT 0
              );
+             CREATE TABLE IF NOT EXISTS session_sources (
+                 workspace TEXT NOT NULL,
+                 session_id TEXT NOT NULL,
+                 source_key TEXT NOT NULL,
+                 checkpoint TEXT NOT NULL,
+                 PRIMARY KEY(workspace,session_id,source_key)
+             );
+             CREATE TABLE IF NOT EXISTS message_positions (
+                 workspace TEXT NOT NULL,
+                 session_id TEXT NOT NULL,
+                 source_key TEXT NOT NULL,
+                 message_id TEXT NOT NULL,
+                 message_order INTEGER NOT NULL,
+                 PRIMARY KEY(workspace,session_id,source_key,message_id)
+             );
+             CREATE INDEX IF NOT EXISTS messages_source_idx
+                 ON messages(workspace,session_id,source_key,message_id,chunk_index);
              CREATE INDEX IF NOT EXISTS messages_session_idx
                  ON messages(workspace, session_id);
              CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
@@ -713,7 +823,13 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
                  tokenize='trigram',
                  content='',
                  contentless_delete=1
-             );",
+             );
+             CREATE TRIGGER IF NOT EXISTS messages_insert AFTER INSERT ON messages BEGIN
+                 INSERT INTO message_fts(rowid,content) VALUES (new.row_id,new.content);
+             END;
+             CREATE TRIGGER IF NOT EXISTS messages_delete AFTER DELETE ON messages BEGIN
+                 DELETE FROM message_fts WHERE rowid=old.row_id;
+             END;",
         )
         .map_err(|error| format!("创建会话索引结构失败: {error}"))?;
     connection
@@ -723,113 +839,6 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
         )
         .map_err(|error| format!("写入会话索引版本失败: {error}"))?;
     Ok(())
-}
-
-fn replace_session(
-    connection: &mut Connection,
-    workspace: &str,
-    session: &CliSessionSummary,
-    fingerprint: &str,
-    source_bytes: u64,
-    messages: Vec<SessionIndexMessage>,
-) -> Result<(), String> {
-    let indexed_bytes = session
-        .title
-        .len()
-        .saturating_add(session.preview.as_deref().map(str::len).unwrap_or_default())
-        .saturating_add(session.model.as_deref().map(str::len).unwrap_or_default())
-        .saturating_add(session.models.iter().map(String::len).sum::<usize>())
-        .saturating_add(
-            messages
-                .iter()
-                .map(|message| message.id.len().saturating_add(message.content.len()))
-                .sum::<usize>(),
-        );
-    let transaction = connection
-        .transaction()
-        .map_err(|error| format!("开始会话索引事务失败: {error}"))?;
-    let old_ids = {
-        let mut statement = transaction
-            .prepare("SELECT row_id FROM messages WHERE workspace=?1 AND session_id=?2")
-            .map_err(|error| format!("读取旧会话索引失败: {error}"))?;
-        let rows = statement
-            .query_map(params![workspace, session.id], |row| row.get::<_, i64>(0))
-            .map_err(|error| format!("查询旧会话索引失败: {error}"))?
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>();
-        rows
-    };
-    for row_id in old_ids {
-        transaction
-            .execute("DELETE FROM message_fts WHERE rowid=?1", [row_id])
-            .map_err(|error| format!("删除旧全文索引失败: {error}"))?;
-    }
-    transaction
-        .execute(
-            "DELETE FROM messages WHERE workspace=?1 AND session_id=?2",
-            params![workspace, session.id],
-        )
-        .map_err(|error| format!("删除旧会话消息失败: {error}"))?;
-    transaction
-        .execute(
-            "INSERT OR REPLACE INTO sessions(
-                 workspace, session_id, title, preview, model, models_json, workdir,
-                 created_at, updated_at, fingerprint, source_bytes, indexed_bytes, indexed_at,
-                 last_used_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                workspace,
-                session.id,
-                session.title,
-                session.preview,
-                session.model,
-                serde_json::to_string(&session.models).unwrap_or_else(|_| "[]".to_string()),
-                session.workdir,
-                session.created_at,
-                session.updated_at,
-                fingerprint,
-                source_bytes as i64,
-                indexed_bytes as i64,
-                chrono::Utc::now().to_rfc3339(),
-                unix_millis() as i64,
-            ],
-        )
-        .map_err(|error| format!("写入会话索引摘要失败: {error}"))?;
-    for message in messages {
-        super::workbench::check_read_budget()?;
-        if !matches!(
-            message.role,
-            CliSessionMessageRole::User | CliSessionMessageRole::Assistant
-        ) {
-            continue;
-        }
-        for (chunk_index, content) in chunk_message(&message.content).into_iter().enumerate() {
-            transaction
-                .execute(
-                    "INSERT INTO messages(workspace, session_id, message_id, role, chunk_index, content)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        workspace,
-                        session.id,
-                        message.id,
-                        role_key(message.role),
-                        chunk_index as i64,
-                        content,
-                    ],
-                )
-                .map_err(|error| format!("写入会话消息索引失败: {error}"))?;
-            let row_id = transaction.last_insert_rowid();
-            transaction
-                .execute(
-                    "INSERT INTO message_fts(rowid, content) VALUES (?1, ?2)",
-                    params![row_id, content],
-                )
-                .map_err(|error| format!("写入全文索引失败: {error}"))?;
-        }
-    }
-    transaction
-        .commit()
-        .map_err(|error| format!("提交会话索引失败: {error}"))
 }
 
 fn search_indexed_messages(
@@ -843,9 +852,9 @@ fn search_indexed_messages(
         super::workbench::check_read_budget()?;
         let content = if term.value.chars().count() >= 3 {
             let query = format!("\"{}\"", term.value.replace('"', "\"\""));
-            connection.query_row("SELECT m.content FROM message_fts f JOIN messages m ON m.row_id=f.rowid WHERE m.workspace=?1 AND m.session_id=?2 AND message_fts MATCH ?3 LIMIT 1", params![workspace, session_id, query], |row| row.get::<_, String>(0)).optional()
+            connection.query_row("SELECT m.content FROM message_fts f JOIN messages m ON m.row_id=f.rowid WHERE m.workspace=?1 AND m.session_id=?2 AND m.priority=(SELECT MAX(priority) FROM messages WHERE workspace=?1 AND session_id=?2) AND message_fts MATCH ?3 LIMIT 1", params![workspace, session_id, query], |row| row.get::<_, String>(0)).optional()
         } else {
-            connection.query_row("SELECT content FROM messages WHERE workspace=?1 AND session_id=?2 AND instr(lower(content), ?3)>0 LIMIT 1", params![workspace, session_id, term.value], |row| row.get::<_, String>(0)).optional()
+            connection.query_row("SELECT content FROM messages WHERE workspace=?1 AND session_id=?2 AND priority=(SELECT MAX(priority) FROM messages WHERE workspace=?1 AND session_id=?2) AND instr(lower(content), ?3)>0 LIMIT 1", params![workspace, session_id, term.value], |row| row.get::<_, String>(0)).optional()
         }.map_err(|error| format!("检索原生会话索引失败：{error}"))?;
         if let Some(content) = content {
             collector.observe(&content);
@@ -884,9 +893,11 @@ fn delete_session_batch(
     }
     transaction
         .execute_batch(
-            "DELETE FROM message_fts WHERE rowid IN (
-             SELECT m.row_id FROM messages m JOIN capacity_evictions e
-             ON m.workspace=e.workspace AND m.session_id=e.session_id
+            "DELETE FROM session_sources WHERE (workspace, session_id) IN (
+             SELECT workspace, session_id FROM capacity_evictions
+         );
+         DELETE FROM message_positions WHERE (workspace, session_id) IN (
+             SELECT workspace, session_id FROM capacity_evictions
          );
          DELETE FROM messages WHERE (workspace, session_id) IN (
              SELECT workspace, session_id FROM capacity_evictions
@@ -943,349 +954,4 @@ fn role_key(role: CliSessionMessageRole) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::CliSessionMessageRole;
-
-    fn test_root(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "balancehub-session-index-{name}-{}",
-            std::process::id()
-        ))
-    }
-
-    fn summary(id: &str, workdir: &Path) -> CliSessionSummary {
-        CliSessionSummary {
-            id: id.to_string(),
-            title: "会话索引测试".to_string(),
-            preview: Some("只保存可见正文".to_string()),
-            model: Some("model-test".to_string()),
-            models: vec!["model-test".to_string()],
-            cli_kind: AgentCliKind::Codex,
-            created_at: None,
-            updated_at: Some("2026-08-19T08:00:00Z".to_string()),
-            workdir: workdir.to_string_lossy().to_string(),
-            cli_version: None,
-            archived: false,
-            can_resume: true,
-            metadata_source: "test".to_string(),
-        }
-    }
-
-    fn read_budget(max_bytes: u64) -> SessionReadBudget {
-        SessionReadBudget::new(
-            Instant::now() + Duration::from_secs(30),
-            Arc::new(AtomicBool::new(false)),
-            max_bytes,
-        )
-    }
-
-    #[test]
-    fn trigram_index_finds_chinese_substrings_and_short_terms() {
-        let root = test_root("search");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        let database = root.join("codex.sqlite3");
-        let mut connection = open_connection(&database, true).unwrap();
-        let workdir = root.join("workspace");
-        fs::create_dir_all(&workdir).unwrap();
-        let session = summary("session-1", &workdir);
-        replace_session(
-            &mut connection,
-            &workspace_key(&workdir),
-            &session,
-            "fingerprint",
-            128,
-            vec![SessionIndexMessage {
-                id: "message-1".to_string(),
-                role: CliSessionMessageRole::Assistant,
-                content: "BalanceHub 会话全文检索已经完成".to_string(),
-            }],
-        )
-        .unwrap();
-
-        for term in ["全文检索", "会话"] {
-            let request = crate::services::agent_cli::contracts::SessionContentSearchRequest {
-                terms: vec![crate::services::agent_cli::contracts::SessionSearchTerm {
-                    index: 0,
-                    value: term.to_string(),
-                }],
-            };
-            let result = search_indexed_messages(
-                &connection,
-                &workspace_key(&workdir),
-                &session.id,
-                &request,
-            )
-            .unwrap();
-            assert_eq!(result.matched_term_indexes, vec![0]);
-        }
-        connection
-            .close()
-            .map_err(|(_, error)| error)
-            .expect("the SQLite test connection should close before cleanup");
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn message_chunking_preserves_cross_boundary_search_text() {
-        let content = format!(
-            "{}跨块关键字{}",
-            "x".repeat(MESSAGE_CHUNK_CHARS - 4),
-            "y".repeat(20)
-        );
-        let chunks = chunk_message(&content);
-        assert!(chunks.len() >= 2);
-        assert!(chunks.iter().any(|chunk| chunk.contains("跨块关键字")));
-    }
-
-    #[test]
-    fn message_chunking_uses_utf8_boundaries() {
-        let content = format!("{}尾部", "会".repeat(MESSAGE_CHUNK_CHARS + 8));
-        let chunks = chunk_message(&content);
-        assert_eq!(chunks[0].chars().count(), MESSAGE_CHUNK_CHARS);
-        assert!(chunks[1].starts_with('会'));
-        assert!(chunks[1].ends_with("尾部"));
-    }
-
-    #[test]
-    fn capacity_is_shared_across_agent_databases() {
-        let root = test_root("capacity");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        let config = SessionIndexConfig {
-            enabled: true,
-            directory: root.clone(),
-            max_size_bytes: 1,
-        };
-        for cli_kind in [AgentCliKind::Codex, AgentCliKind::ClaudeCode] {
-            let database = database_path(&config, cli_kind);
-            let mut connection = open_connection(&database, true).unwrap();
-            let workdir = root.join(cli_kind.key());
-            fs::create_dir_all(&workdir).unwrap();
-            let mut session = summary(cli_kind.key(), &workdir);
-            session.cli_kind = cli_kind;
-            replace_session(
-                &mut connection,
-                &workspace_key(&workdir),
-                &session,
-                "fingerprint",
-                64,
-                vec![SessionIndexMessage {
-                    id: "message".to_string(),
-                    role: CliSessionMessageRole::User,
-                    content: "需要被容量约束管理的正文".repeat(200),
-                }],
-            )
-            .unwrap();
-        }
-        HistoryIndex::new(&config, AgentCliKind::Codex, "test-source")
-            .finish(&read_budget(u64::MAX))
-            .unwrap();
-        let remaining = AgentCliKind::ALL
-            .iter()
-            .filter_map(|&kind| {
-                let path = database_path(&config, kind);
-                path.is_file().then(|| {
-                    open_connection(&path, false)
-                        .unwrap()
-                        .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
-                            row.get::<_, i64>(0)
-                        })
-                        .unwrap_or_default()
-                })
-            })
-            .sum::<i64>();
-        assert_eq!(remaining, 0);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn shared_capacity_keeps_valid_indexes_when_partial_eviction_is_enough() {
-        let root = test_root("capacity-partial");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        let mut config = SessionIndexConfig {
-            enabled: true,
-            directory: root.clone(),
-            max_size_bytes: u64::MAX,
-        };
-
-        for &cli_kind in AgentCliKind::ALL {
-            let database = database_path(&config, cli_kind);
-            let mut connection = open_connection(&database, true).unwrap();
-            let workdir = root.join(cli_kind.key());
-            fs::create_dir_all(&workdir).unwrap();
-            let mut session = summary(cli_kind.key(), &workdir);
-            session.cli_kind = cli_kind;
-            let content = (0..2_000)
-                .map(|index| format!("{}-{index:04x}", cli_kind.key()))
-                .collect::<Vec<_>>()
-                .join(" ");
-            replace_session(
-                &mut connection,
-                &workspace_key(&workdir),
-                &session,
-                "fingerprint",
-                content.len() as u64,
-                vec![SessionIndexMessage {
-                    id: "message".to_string(),
-                    role: CliSessionMessageRole::Assistant,
-                    content,
-                }],
-            )
-            .unwrap();
-        }
-
-        let total_before = total_disk_size(&config);
-        let largest_database = AgentCliKind::ALL
-            .iter()
-            .map(|&kind| database_disk_size(&database_path(&config, kind)))
-            .max()
-            .unwrap();
-        config.max_size_bytes = total_before.saturating_sub(largest_database / 3);
-
-        HistoryIndex::new(&config, AgentCliKind::Codex, "test-source")
-            .finish(&read_budget(u64::MAX))
-            .unwrap();
-
-        let remaining = AgentCliKind::ALL
-            .iter()
-            .filter_map(|&kind| {
-                let path = database_path(&config, kind);
-                path.is_file().then(|| {
-                    open_connection(&path, false)
-                        .unwrap()
-                        .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
-                            row.get::<_, i64>(0)
-                        })
-                        .unwrap_or_default()
-                })
-            })
-            .sum::<i64>();
-        assert!(remaining > 0, "partial pressure must not erase every index");
-        assert!(remaining < AgentCliKind::ALL.len() as i64);
-        assert!(total_disk_size(&config) <= config.max_size_bytes);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn capacity_maintenance_obeys_row_budget_before_deleting_existing_indexes() {
-        let root = test_root("bounded-capacity");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        let config = SessionIndexConfig {
-            enabled: true,
-            directory: root.clone(),
-            max_size_bytes: 1,
-        };
-        let database = database_path(&config, AgentCliKind::Codex);
-        let mut connection = open_connection(&database, true).unwrap();
-        for index in 0..8 {
-            replace_session(
-                &mut connection,
-                "native-workspace",
-                &summary(&format!("session-{index}"), &root),
-                "fingerprint",
-                128,
-                vec![SessionIndexMessage {
-                    id: "message".into(),
-                    role: CliSessionMessageRole::User,
-                    content: "derived content".repeat(100),
-                }],
-            )
-            .unwrap();
-        }
-        drop(connection);
-        let index = HistoryIndex::new(&config, AgentCliKind::Codex, "test-source");
-        let budget = read_budget(1);
-        let started = Instant::now();
-        assert!(index.finish(&budget).unwrap_err().contains("字节预算"));
-        assert!(started.elapsed() < Duration::from_secs(2));
-        let connection = open_connection(&database, false).unwrap();
-        let remaining: i64 = connection
-            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(
-            remaining, 8,
-            "an interrupted enumeration must not start eviction"
-        );
-        drop(connection);
-        // Cancellation released every gate; a later independent pass can finish.
-        index.finish(&read_budget(u64::MAX)).unwrap();
-        assert!(database_files(&config).is_empty());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn sqlite_progress_interrupts_long_statements_on_cancel_or_index_invalidation() {
-        let root = test_root("sql-progress");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        for invalidate_settings in [false, true] {
-            let budget = read_budget(u64::MAX);
-            let invalidated = Arc::new(AtomicBool::new(false));
-            let connection = open_connection_with_budget(
-                &root.join("codex.sqlite3"),
-                true,
-                Some(IndexBudget {
-                    read: &budget,
-                    invalidated: &invalidated,
-                }),
-            )
-            .unwrap();
-            let cancelled = if invalidate_settings {
-                invalidated
-            } else {
-                budget.cancelled.clone()
-            };
-            let started = Instant::now();
-            let result = std::thread::scope(|threads| {
-                threads.spawn(move || {
-                    std::thread::sleep(Duration::from_millis(10));
-                    cancelled.store(true, Ordering::Release);
-                });
-                connection.query_row(
-                    "WITH RECURSIVE work(value) AS (
-                         SELECT 1 UNION ALL SELECT value + 1 FROM work WHERE value < 1000000000
-                     ) SELECT SUM(value) FROM work",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
-            });
-            assert!(
-                matches!(result, Err(rusqlite::Error::SqliteFailure(error, _))
-                if error.code == rusqlite::ErrorCode::OperationInterrupted)
-            );
-            assert!(started.elapsed() < Duration::from_secs(2));
-        }
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn index_connection_lock_wait_stops_when_the_request_is_cancelled() {
-        let root = test_root("cancel-lock-wait");
-        let config = SessionIndexConfig {
-            enabled: true,
-            directory: root,
-            max_size_bytes: u64::MAX,
-        };
-        let index = HistoryIndex::new(&config, AgentCliKind::Codex, "test-source");
-        let gate = database_gate(&index.path);
-        let _held = gate.lock().unwrap();
-        let budget = read_budget(u64::MAX);
-        let cancelled = budget.cancelled.clone();
-        let started = Instant::now();
-        let result = std::thread::scope(|threads| {
-            threads.spawn(move || {
-                std::thread::sleep(Duration::from_millis(10));
-                cancelled.store(true, Ordering::Release);
-            });
-            index.connection(&budget, |_| -> Result<(), String> {
-                panic!("cancelled work must not open the held database");
-            })
-        });
-        assert!(result.unwrap_err().contains("已取消"));
-        assert!(started.elapsed() < Duration::from_secs(2));
-    }
-}
+mod tests;

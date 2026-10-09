@@ -15,6 +15,7 @@ import type {
   ProviderBatchStatus,
 } from "../api/batch-operation";
 import type { CheckInTask } from "../api/checkin";
+import { checkInResumeLabel } from "../utils/check-in-tasks";
 import { formatQuotaValue } from "../utils/provider-display";
 
 const props = withDefaults(defineProps<{
@@ -83,7 +84,7 @@ const progressStatus = computed(() => props.error || failedCount.value > 0 ? "da
 const summaryTitle = computed(() => {
   if (!isCheckIn.value) return props.running ? "后端正在逐站处理" : props.completed ? "批量操作已完成" : "批量操作尚未开始";
   if (props.submitting) return "正在创建签到任务";
-  if (waitingOnly.value) return "等待处理验证，可在下方继续";
+  if (waitingOnly.value) return "等待登录或验证，可在下方继续";
   if (props.running) return "正在逐站签到";
   if (props.error) return "签到任务提交失败";
   if (props.completed && !progressItems.value.length) return "当前没有需要签到的中转站";
@@ -107,7 +108,7 @@ function count(status: RowStatus) {
 
 function checkInStatus(task: CheckInTask): RowStatus {
   if (!task.finished) {
-    if (task.canResume || task.phase === "waitingHuman" || task.phase === "waitingBrowser") return "waiting";
+    if (task.canResume || ["waitingHuman", "waitingLogin", "waitingBrowser"].includes(task.phase)) return "waiting";
     return task.phase === "queued" ? "pending" : "running";
   }
   if (task.phase === "completed") return "success";
@@ -118,6 +119,7 @@ function checkInStatus(task: CheckInTask): RowStatus {
 
 function statusLabel(item: ProgressRow) {
   if (item.task?.phase === "waitingBrowser") return "等待组件";
+  if (item.task?.phase === "waitingLogin") return "等待登录";
   return {
     pending: "等待",
     running: "处理中",
@@ -258,7 +260,7 @@ function durationLabel() {
           </div>
           <p v-if="item.message" class="batch-operation-row-message">{{ item.message }}</p>
           <div v-if="item.task && (item.task.canResume || item.task.canCancel)" class="batch-operation-row-actions">
-            <a-button v-if="item.task.canResume" size="small" type="primary" :disabled="taskActionPending(item.task)" @click="emit('resumeCheckIn', item.task)">继续签到</a-button>
+            <a-button v-if="item.task.canResume" size="small" type="primary" :disabled="taskActionPending(item.task)" @click="emit('resumeCheckIn', item.task)">{{ checkInResumeLabel(item.task) }}</a-button>
             <a-button v-if="item.task.canCancel" size="small" :disabled="taskActionPending(item.task)" @click="emit('cancelCheckIn', item.task)">取消</a-button>
           </div>
           <div v-if="item.details && item.status === 'success'" class="batch-operation-row-details">

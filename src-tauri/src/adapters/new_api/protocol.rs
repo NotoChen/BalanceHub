@@ -6,10 +6,11 @@ use crate::{
         CredentialCapability, ProviderOperationOutcome, UsageCapability,
     },
     models::{
-        AppSettings, Provider, ProviderApiKeyOption, ProviderCapabilities,
-        ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
-        ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
-        ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
+        AppSettings, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption,
+        ProviderApiKeyPatch, ProviderCapabilities, ProviderCheckInRecordsResult,
+        ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
+        ProviderInput, ProviderRequestLogsQuery, ProviderRequestLogsResult,
+        ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
     },
 };
 use async_trait::async_trait;
@@ -39,6 +40,14 @@ impl AccessTokenCapability for NewApiAdapter {
 
 #[async_trait]
 impl ConnectionCapability for NewApiAdapter {
+    async fn fetch_available_models(
+        &self,
+        client: &crate::adapters::transport::ProviderTransport,
+        provider: &Provider,
+    ) -> Result<ProviderOperationOutcome<crate::models::ProviderModelList>, String> {
+        super::models::fetch_models(client, provider).await
+    }
+
     async fn test_connection(
         &self,
         settings: &AppSettings,
@@ -85,9 +94,32 @@ impl ApiKeyManagementCapability for NewApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-        name: &str,
+        patch: &ProviderApiKeyPatch,
     ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String> {
-        NewApiAdapter::create_api_key(self, settings, provider, name)
+        NewApiAdapter::create_api_key(self, settings, provider, patch)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+
+    async fn api_key_editor_context(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: Option<&str>,
+    ) -> Result<ProviderOperationOutcome<ProviderApiKeyEditorContext>, String> {
+        NewApiAdapter::api_key_editor_context(self, settings, provider, token_id)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+
+    async fn update_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+        patch: &ProviderApiKeyPatch,
+    ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String> {
+        NewApiAdapter::update_api_key(self, settings, provider, token_id, patch)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
     }

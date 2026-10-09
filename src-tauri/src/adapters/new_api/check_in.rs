@@ -129,6 +129,12 @@ async fn execute(
     let method = policy::effective_method(provider);
     let always = provider.automation.turnstile_mode == ProviderTurnstileMode::Always;
     if method == ProviderCheckInMethod::FreshLogin {
+        if matches!(
+            policy::fresh_login_route(provider)?,
+            policy::FreshLoginRoute::BrowserAccount(_)
+        ) {
+            return Err(CheckInError::WaitingLogin);
+        }
         return fresh_login::run(
             executor,
             provider,

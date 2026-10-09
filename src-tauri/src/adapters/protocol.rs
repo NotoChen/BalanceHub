@@ -21,6 +21,45 @@ use contracts::ProviderOperationOutcome;
 pub(crate) struct ProtocolAdapter;
 
 impl ProtocolAdapter {
+    pub(crate) async fn fetch_available_models_with_account_auth<Prepare, Prepared>(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        prepare_account: Prepare,
+    ) -> Result<ProviderOperationOutcome<crate::models::ProviderModelList>, String>
+    where
+        Prepare: FnOnce(Provider) -> Prepared,
+        Prepared: std::future::Future<Output = Result<Provider, String>>,
+    {
+        if provider.identity.protocol != crate::models::ProviderProtocol::NewApi {
+            return self.fetch_available_models(settings, provider).await;
+        }
+        if let Some(reason) =
+            crate::models::provider_domain::model_list::action(provider).unavailable_reason
+        {
+            return Err(reason.to_string());
+        }
+        let client = crate::adapters::transport::build_client(settings, provider).await?;
+        super::new_api::fetch_models_with_account_auth(&client, provider, prepare_account).await
+    }
+
+    pub(crate) async fn fetch_available_models(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<ProviderOperationOutcome<crate::models::ProviderModelList>, String> {
+        if let Some(reason) =
+            crate::models::provider_domain::model_list::action(provider).unavailable_reason
+        {
+            return Err(reason.to_string());
+        }
+        let client = crate::adapters::transport::build_client(settings, provider).await?;
+        definition(provider.identity.protocol)
+            .connection
+            .fetch_available_models(&client, provider)
+            .await
+    }
+
     pub(crate) async fn complete_credentials(
         &self,
         settings: &AppSettings,
@@ -72,14 +111,53 @@ impl ProtocolAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-        name: &str,
+        patch: &crate::models::ProviderApiKeyPatch,
     ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String> {
+        Self::require_key_management(provider)?;
         let definition = definition(provider.identity.protocol);
         definition
             .api_keys
             .ok_or_else(|| definition.unsupported("创建 API Key"))?
-            .create_api_key(settings, provider, name)
+            .create_api_key(settings, provider, patch)
             .await
+    }
+
+    pub(crate) async fn api_key_editor_context(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: Option<&str>,
+    ) -> Result<ProviderOperationOutcome<crate::models::ProviderApiKeyEditorContext>, String> {
+        Self::require_key_management(provider)?;
+        let definition = definition(provider.identity.protocol);
+        definition
+            .api_keys
+            .ok_or_else(|| definition.unsupported("编辑 API Key"))?
+            .api_key_editor_context(settings, provider, token_id)
+            .await
+    }
+
+    pub(crate) async fn update_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+        patch: &crate::models::ProviderApiKeyPatch,
+    ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String> {
+        Self::require_key_management(provider)?;
+        let definition = definition(provider.identity.protocol);
+        definition
+            .api_keys
+            .ok_or_else(|| definition.unsupported("编辑 API Key"))?
+            .update_api_key(settings, provider, token_id, patch)
+            .await
+    }
+
+    fn require_key_management(provider: &Provider) -> Result<(), String> {
+        if !crate::models::provider_domain::capabilities::supports_account_management(provider) {
+            return Err("管理站点 Key 需要账号认证，请先登录".into());
+        }
+        Ok(())
     }
 
     pub(crate) async fn generate_access_token(

@@ -9,7 +9,7 @@ import {
   IconLoading,
   IconRefresh,
 } from "@arco-design/web-vue/es/icon";
-import { CalendarCheck2, Power, PowerOff } from "@lucide/vue";
+import { Power, PowerOff } from "@lucide/vue";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import type { AgentCliKind, Provider } from "../../stores/providers";
 import { providerAuthModeDescription } from "../../utils/provider-display";
@@ -19,6 +19,7 @@ import {
 } from "../../utils/provider-actions";
 import type { CcSwitchAppTarget } from "../../utils/ccswitch-deeplink";
 import ProviderCardActionMenus from "./ProviderCardActionMenus.vue";
+import ProviderCheckInAction from "./ProviderCheckInAction.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -146,21 +147,14 @@ function removeProvider() {
       </span>
     </template>
     <WorkspaceCardActionGroup label="中转站管理">
-      <CardIconButton
+      <ProviderCheckInAction
         v-if="canCheckInAction"
-        tone="success"
-        :disabled="checkedInToday || checkingIn"
-        :aria-busy="checkingIn"
-        :title="checkingIn ? '签到中' : checkedInToday ? '今日已签到' : '签到'"
-        :aria-label="
-          checkingIn ? '签到中' : checkedInToday ? '今日已签到' : '签到'
-        "
-        @click="checkInProvider"
-        @pointerdown.stop
-      >
-        <icon-loading v-if="checkingIn" />
-        <CalendarCheck2 v-else :size="15" :stroke-width="1.9" />
-      </CardIconButton>
+        :provider-id="provider.identity.id"
+        :checked-in-today="checkedInToday"
+        :checking-in="checkingIn"
+        @check-in="checkInProvider"
+        @interaction="emit('interaction', $event)"
+      />
 
       <CardIconButton
         tone="refresh"

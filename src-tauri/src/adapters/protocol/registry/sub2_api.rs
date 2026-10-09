@@ -57,7 +57,7 @@ const API_KEY_FIELDS: &[ProviderAuthFieldSchema] = &[auth_field(
 pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefinition {
     kind: ProviderProtocol::Sub2Api,
     label: "Sub2API",
-    description: "JWT 账号与 OpenAI 兼容网关",
+    description: "适用于 Sub2API 站点",
     detection_role: ProtocolDetectionRole::Primary,
     default_auth_mode: AuthMode::Password,
     auth_schemas: &[

@@ -36,6 +36,7 @@ const counts: AgentSessionCount[] = [
   { agentKind: "grok", loadedCount: 0, total: null },
 ];
 const queries: AgentSessionQuery[] = [];
+const scopeRequests: (string | null)[] = [];
 const countRequests: AgentSessionCountRequest[] = [];
 const cancellations: AgentSessionCancelRequest[] = [];
 const replies: Promise<AgentSessionCounts>[] = [];
@@ -62,7 +63,7 @@ before(async () => {
   Object.defineProperty(globalThis, "__TAURI_INTERNALS__", { configurable: true, value: {
     transformCallback() { return 1; }, unregisterCallback() {},
     invoke(command: string, args: Record<string, unknown> = {}) {
-      if (command === "get_agent_session_scope") return Promise.resolve(structuredClone(backendScope));
+      if (command === "get_agent_session_scope") { scopeRequests.push(args.explicitWorkdir as string | null); return Promise.resolve(structuredClone(backendScope)); }
       if (command === "query_agent_sessions") {
         const request = args.request as AgentSessionQuery;
         queries.push(structuredClone(request));
@@ -180,7 +181,7 @@ function deferred<T>(): Deferred<T> {
 async function settle() { for (let index = 0; index < 24; index += 1) { await Promise.resolve(); await nextTick(); } }
 
 function mountDashboard(t: TestContext, options: { visible?: boolean; firstReply?: Deferred<AgentSessionCounts> } = {}) {
-  queries.length = 0; countRequests.length = 0; cancellations.length = 0; replies.length = 0; unexpected.length = 0; listeners.clear();
+  queries.length = 0; scopeRequests.length = 0; countRequests.length = 0; cancellations.length = 0; replies.length = 0; unexpected.length = 0; listeners.clear();
   backendScope = sessionScope();
   backendScope.sources.push(...(["gemini", "grok"] as const).map((kind) => ({ id: `source:${kind}`, agentKind: kind, configRoot: `/fixture/${kind}`, available: true })));
   if (options.firstReply) replies.push(options.firstReply.promise);
@@ -227,8 +228,106 @@ function mountDashboard(t: TestContext, options: { visible?: boolean; firstReply
     const button = descendants(nav).find((item) => item.type === "button" && text(item) === label);
     assert.ok(button); return button;
   }
-  return { root, navigation, props, workspaces, cli, lifecycle, exposed, historyButton, value, navButton };
+  function sessionTab(label: string) {
+    const tabs = descendants(root).find((item) => item.props["aria-label"] === "会话视图");
+    assert.ok(tabs);
+    const button = descendants(tabs).find((item) => item.type === "button" && text(item) === label);
+    assert.ok(button); return button;
+  }
+  function historyPanel() {
+    const panel = descendants(root).find((item) => item.props["aria-label"] === "Agent 会话");
+    assert.ok(panel); return panel;
+  }
+  return { root, navigation, props, workspaces, cli, lifecycle, exposed, historyButton, value, navButton, sessionTab, historyPanel };
 }
+
+test("history survives active, asset and provider navigation without rereading or using their search text", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const surface = mountDashboard(t); await settle();
+  assert.equal(queries.length, 0, "history stays unmounted until its first visit");
+  click(surface.navButton("会话")); await settle();
+  assert.equal(queries.length, 1);
+  const panel = surface.historyPanel();
+  surface.navigation.query = "history keyword";
+  t.mock.timers.tick(280); await settle();
+  assert.equal(queries.length, 2);
+  assert.equal(queries[1].query, "history keyword");
+
+  click(surface.sessionTab("活动会话")); await settle();
+  surface.navigation.query = "active keyword";
+  t.mock.timers.tick(1000); await settle();
+  click(surface.sessionTab("历史会话")); await settle();
+  assert.equal(surface.navigation.query, "history keyword");
+  assert.equal(queries.length, 2);
+
+  click(surface.navButton("Skill")); await settle();
+  surface.navigation.query = "skill keyword";
+  t.mock.timers.tick(1000); await settle();
+  click(surface.navButton("会话")); await settle();
+  assert.equal(surface.navigation.query, "history keyword");
+  assert.equal(surface.historyPanel(), panel, "the previously opened session panel is retained");
+  assert.match(text(panel), /已显示 1 条/);
+  assert.equal(queries.length, 2);
+
+  surface.navigation.setView("providers"); await settle();
+  surface.navigation.setView("agents"); await settle();
+  surface.props.active = false; await settle();
+  surface.props.active = true; await settle();
+  click(surface.navButton("会话")); await settle();
+  assert.equal(queries.length, 2);
+  assert.equal(scopeRequests.length, 1);
+  assert.equal(surface.historyPanel(), panel);
+});
+
+test("cached history preserves its selected directory and card navigation can explicitly restore all directories", async (t) => {
+  const surface = mountDashboard(t); await settle();
+  click(surface.navButton("会话")); await settle();
+  const directory = descendants(surface.root).find((item) => item.props["aria-label"] === "会话工作目录");
+  assert.ok(directory);
+  (directory.props.onChange as (id: string) => void)("project"); await settle();
+  assert.equal(queries.length, 2);
+  assert.deepEqual(queries[1].workspaceIds, ["project"]);
+  click(surface.navButton("总览")); await settle();
+  click(surface.navButton("会话")); await settle();
+  assert.equal(queries.length, 2);
+  assert.equal(surface.navigation.sessionWorkspaceSelection, "project");
+  assert.equal(surface.navigation.sessionWorkspaceMode, "home");
+  click(surface.navButton("总览")); await settle();
+  click(surface.historyButton("codex")); await settle();
+  assert.equal(queries.length, 3, "only the final Agent and directory selection is queried");
+  assert.deepEqual(queries[2].workspaceIds, ["home", "project", "unmounted"]);
+  assert.deepEqual(queries[2].agentKinds, ["codex"]);
+  assert.equal(surface.navigation.sessionWorkspaceMode, "all");
+  click(surface.navButton("共享库")); await settle();
+  surface.navigation.selectAgent("gemini"); await settle();
+  click(surface.navButton("会话")); await settle();
+  assert.equal(surface.navigation.agentFilter, "codex", "other pages have their own Agent selection");
+  assert.equal(queries.length, 3);
+});
+
+test("real index and recorded-directory changes invalidate hidden history without scanning until it is visible", async (t) => {
+  const surface = mountDashboard(t); await settle();
+  click(surface.historyButton("codex")); await settle();
+  assert.equal(queries.length, 1);
+  click(surface.navButton("总览")); await settle();
+  for (const handler of listeners.get("cli-session-index-updated") ?? []) handler({ payload: "gemini" });
+  click(surface.navButton("会话")); await settle();
+  assert.equal(queries.length, 1, "unrelated Agent index changes do not invalidate this history");
+  click(surface.navButton("总览")); await settle();
+  for (const handler of listeners.get("cli-session-index-updated") ?? []) handler({ payload: null });
+  await settle();
+  assert.equal(queries.length, 1, "global cache reconfiguration is deferred while hidden");
+  click(surface.navButton("会话")); await settle();
+  assert.equal(queries.length, 2);
+  click(surface.navButton("总览")); await settle();
+  backendScope = { ...backendScope, revision: "scope:changed", workspaces: [...backendScope.workspaces, { id: "new", path: "/fixture/new", isHome: false, exists: true }] };
+  surface.workspaces.workspaces.push({ path: "/fixture/new", useCount: 1 }); await settle();
+  assert.equal(queries.length, 2);
+  click(surface.navButton("会话")); await settle();
+  assert.equal(queries.length, 3);
+  assert.equal(queries[2].scopeRevision, "scope:changed");
+  assert.deepEqual(queries[2].workspaceIds, ["home", "project", "unmounted", "new"]);
+});
 
 test("one visible overview consumer serves four cards without rescanning for runtime, filters, versions, asset scope or index events", async (t) => {
   const surface = mountDashboard(t, { visible: false });
@@ -324,6 +423,6 @@ test("active-card navigation keeps its Agent without starting a history query", 
   const active = descendants(surface.root).find((item) => item.type === "button" && String(item.props["aria-label"] ?? "").startsWith("查看 Codex CLI 的 活跃会话"));
   assert.ok(active); click(active); await settle();
   assert.equal(surface.navigation.sessionView, "active"); assert.equal(surface.navigation.agentFilter, "codex");
-  assert.equal(surface.navigation.sessionWorkspaceMode, "home"); assert.equal(queries.length, 0);
+  assert.equal(surface.navigation.sessionWorkspaceMode, "all"); assert.equal(queries.length, 0);
   assert.equal(countRequests.length, 1);
 });

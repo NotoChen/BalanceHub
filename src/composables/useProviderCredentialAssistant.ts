@@ -1,7 +1,9 @@
-import { computed, ref } from "vue";
+import { computed, onScopeDispose, ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type { ProviderApiKeyOption } from "../stores/providers";
-import { confirmAction, promptApiKeyName } from "./provider-credential-dialogs";
+import { chooseProviderApiKey, confirmAction } from "./provider-credential-dialogs";
+import { openApiKeyEditor } from "./provider-api-key-editor";
+import { withTimeout } from "../utils/promise-timeout";
 import {
   blockingCredentialCompletionFailures,
   canRunCredentialAssistantForInput,
@@ -9,6 +11,7 @@ import {
   credentialFieldHasValue,
   isEmptyApiKeyMessage,
   missingCredentialRequirements,
+  needsCredentialCompletionForInput,
 } from "./provider-credential-rules";
 import { fieldLabel } from "./provider-editor-shared";
 import {
@@ -38,6 +41,12 @@ export function useProviderCredentialAssistant(
     requestContextIsCurrent,
   } = requestGuard;
 
+  let activeKeyEditor: ReturnType<typeof openApiKeyEditor<ProviderApiKeyOption>> | null = null;
+  let interactionController = new AbortController();
+  let operationRevision = 0;
+  let disposed = false;
+  onScopeDispose(() => { disposed = true; resetCredentialAssistant(); });
+
   const credentialAssistantState = ref<CredentialCompletionState>("idle");
   const credentialAssistantSteps = ref<CredentialCompletionStep[]>([]);
   const credentialAssistantMessage = ref("");
@@ -47,7 +56,10 @@ export function useProviderCredentialAssistant(
     [
       "probingSite",
       "resolvingCredentials",
+      "needAccessTokenConfirm",
       "generatingAccessToken",
+      "needApiKeySelection",
+      "needApiKeySettings",
       "creatingApiKey",
       "saving",
     ].includes(credentialAssistantState.value),
@@ -62,6 +74,12 @@ export function useProviderCredentialAssistant(
   );
 
   function resetCredentialAssistant() {
+    operationRevision += 1;
+    interactionController.abort();
+    interactionController = new AbortController();
+    activeKeyEditor?.close();
+    activeKeyEditor = null;
+    options.completingCredentials.value = false;
     credentialAssistantState.value = "idle";
     credentialAssistantSteps.value = [];
     credentialAssistantMessage.value = "";
@@ -108,12 +126,14 @@ export function useProviderCredentialAssistant(
 
     const requestInput = snapshotInput();
     const requestContext = captureRequestContext(requestInput);
+    const revision = operationRevision;
+    const current = () => !disposed && revision === operationRevision && requestContextIsCurrent(requestContext);
     options.completingCredentials.value = true;
     options.credentialCompletionMessage.value = "";
     options.credentialCompletionSteps.value = [];
     try {
-      const result = await options.completeProviderCredentials(requestInput);
-      if (!requestContextIsCurrent(requestContext)) {
+      const result = await withTimeout(options.completeProviderCredentials(requestInput), 60_000, "自动补全凭据超时，当前填写内容已保留，请重试");
+      if (!current()) {
         return null;
       }
 
@@ -161,7 +181,7 @@ export function useProviderCredentialAssistant(
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!requestContextIsCurrent(requestContext)) {
+      if (!current()) {
         return null;
       }
       options.credentialCompletionMessage.value = message;
@@ -170,94 +190,80 @@ export function useProviderCredentialAssistant(
       }
       return null;
     } finally {
-      if (editorSessionIsActive(requestContext)) {
+      if (revision === operationRevision && editorSessionIsActive(requestContext)) {
         options.completingCredentials.value = false;
       }
     }
   }
 
-  async function runCredentialAssistant() {
-    if (!validateAssistantStart()) {
-      return;
+  async function prepareCredentialsForSave() {
+    const prepared = await runCredentialAssistant({ save: false, onlyMissing: true });
+    if (!prepared && credentialAssistantState.value === "failed") {
+      throw new Error(credentialAssistantMessage.value || "自动补全未完成，当前填写内容已保留");
     }
+    return prepared;
+  }
 
-    const assistantContext = captureRequestContext();
+  async function runCredentialAssistant(runOptions: { save?: boolean; onlyMissing?: boolean } = {}) {
+    if (disposed || credentialAssistantBusy.value) return false;
+    if (runOptions.onlyMissing && !needsCredentialCompletionForInput(options.draftProvider, options.providerProtocols())) return true;
+    if (!validateAssistantStart()) return false;
     resetCredentialAssistant();
-    setAssistantStep("site", "读取站点信息", "running", "正在读取站点名称和基础能力");
-    credentialAssistantState.value = "probingSite";
-
-    const siteContext = captureRequestContext();
-    const site = await probeSite({ silent: true });
-    if (!editorSessionIsCurrent(assistantContext)) {
-      return;
-    }
-    if (!site) {
-      if (!requestContextIsCurrent(siteContext)) {
-        resetCredentialAssistant();
-        return;
+    const revision = operationRevision;
+    const assistantContext = captureRequestContext();
+    const current = () => !disposed && revision === operationRevision && editorSessionIsActive(assistantContext);
+    try {
+      if (!runOptions.onlyMissing) {
+        setAssistantStep("site", "读取站点信息", "running", "正在读取站点名称和基础能力");
+        credentialAssistantState.value = "probingSite";
+        const siteContext = captureRequestContext();
+        const site = await probeSite({ silent: true });
+        if (!current()) return false;
+        if (!site) {
+          if (requestContextIsCurrent(siteContext)) failAssistantStep("site", "读取站点信息失败");
+          return false;
+        }
+        if (!site.ok) {
+          failAssistantStep("site", site.message || "读取站点信息失败");
+          return false;
+        }
+        setAssistantStep("site", "读取站点信息", "done", site.message || "已读取站点信息");
       }
-      failAssistantStep("site", "读取站点信息失败");
-      return;
-    }
-    if (!site.ok) {
-      failAssistantStep("site", site.message || "读取站点信息失败");
-      return;
-    }
-    setAssistantStep("site", "读取站点信息", "done", site.message || "已读取站点信息");
-
-    credentialAssistantState.value = "resolvingCredentials";
-    setAssistantStep("credentials", "解析基础凭据", "running", "正在解析用户信息和已有凭据");
-    const completionContext = captureRequestContext();
-    const completion = await completeCredentials({ notify: false, save: false });
-    if (!editorSessionIsCurrent(assistantContext)) {
-      return;
-    }
-    if (!completion) {
-      if (!requestContextIsCurrent(completionContext)) {
-        resetCredentialAssistant();
-        return;
+      credentialAssistantState.value = "resolvingCredentials";
+      setAssistantStep("credentials", "补全认证凭据", "running", "正在读取用户信息、登录凭据和 API Key");
+      const completionContext = captureRequestContext();
+      const completion = await completeCredentials({ notify: false, save: false });
+      if (!current()) return false;
+      if (!completion) {
+        if (requestContextIsCurrent(completionContext)) failAssistantStep("credentials", options.credentialCompletionMessage.value || "补全认证凭据失败");
+        return false;
       }
-      failAssistantStep("credentials", options.credentialCompletionMessage.value || "解析基础凭据失败");
-      return;
-    }
-    const changedFields = completion.changedFields.map(fieldLabel);
-    credentialAssistantChangedFields.value = changedFields;
-    setAssistantStep(
-      "credentials",
-      "解析基础凭据",
-      "done",
-      changedFields.length > 0 ? `已补全：${changedFields.join("、")}` : "没有需要补全的基础凭据",
-    );
-
-    const accessTokenContext = captureRequestContext();
-    if (!(await ensureAccessToken())) {
-      if (
-        editorSessionIsCurrent(assistantContext)
-        && !requestContextIsCurrent(accessTokenContext)
-      ) {
-        resetCredentialAssistant();
+      const blockingFailures = blockingCredentialCompletionFailures(completion.steps);
+      if (blockingFailures.length > 0) {
+        failAssistantStep("credentials", blockingFailures.map((step) => step.message).join("；"));
+        return false;
       }
-      return;
-    }
-    if (!editorSessionIsCurrent(assistantContext)) {
-      return;
-    }
-
-    const apiKeyContext = captureRequestContext();
-    if (!(await ensureApiKey())) {
-      if (
-        editorSessionIsCurrent(assistantContext)
-        && !requestContextIsCurrent(apiKeyContext)
-      ) {
-        resetCredentialAssistant();
+      const changedFields = completion.changedFields.map(fieldLabel);
+      credentialAssistantChangedFields.value = changedFields;
+      setAssistantStep("credentials", "补全认证凭据", "done", changedFields.length > 0 ? `已补全：${changedFields.join("、")}` : "已读取现有凭据");
+      if (!(await ensureAccessToken()) || !current()) return false;
+      if (!(await ensureApiKey()) || !current()) return false;
+      if (runOptions.save === false) {
+        credentialAssistantState.value = "done";
+        credentialAssistantMessage.value = "凭据检查完成，正在保存";
+        return true;
       }
-      return;
+      await finishAssistantSave();
+      return credentialAssistantSaved.value;
+    } catch (error) {
+      if (current()) failAssistantStep("credentials", error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      if (revision === operationRevision) {
+        options.completingCredentials.value = false;
+        if (credentialAssistantBusy.value) credentialAssistantState.value = "idle";
+      }
     }
-    if (!editorSessionIsCurrent(assistantContext)) {
-      return;
-    }
-
-    await finishAssistantSave();
   }
 
   async function ensureAccessToken() {
@@ -294,13 +300,15 @@ export function useProviderCredentialAssistant(
     credentialAssistantState.value = "needAccessTokenConfirm";
     setAssistantStep("accessToken", "生成访问令牌", "running", "等待确认是否生成访问令牌");
     const confirmationContext = captureRequestContext();
+    const revision = operationRevision;
     const confirmed = await confirmAction(
       "生成访问令牌",
       "当前中转站没有可用访问令牌。是否使用会话 Cookie 生成新的访问令牌？生成后可能覆盖该账号原有访问令牌。",
       "生成",
       "warning",
+      interactionController.signal,
     );
-    if (!requestContextIsCurrent(confirmationContext)) {
+    if (revision !== operationRevision || !requestContextIsCurrent(confirmationContext)) {
       return false;
     }
     if (!confirmed) {
@@ -314,8 +322,8 @@ export function useProviderCredentialAssistant(
     const requestInput = snapshotInput();
     const requestContext = captureRequestContext(requestInput);
     try {
-      const accessToken = await options.generateAccessTokenForInput(requestInput);
-      if (!requestContextIsCurrent(requestContext)) {
+      const accessToken = await withTimeout(options.generateAccessTokenForInput(requestInput), 30_000, "生成访问令牌超时，请先在站点确认生成结果");
+      if (revision !== operationRevision || !requestContextIsCurrent(requestContext)) {
         return false;
       }
       options.draftProvider.auth.accessToken = accessToken;
@@ -323,18 +331,13 @@ export function useProviderCredentialAssistant(
       Message.success("访问令牌已生成");
       return true;
     } catch (error) {
-      if (!requestContextIsCurrent(requestContext)) {
+      if (revision !== operationRevision || !requestContextIsCurrent(requestContext)) {
         return false;
       }
-      setAssistantStep(
-        "accessToken",
-        "生成访问令牌",
-        "skipped",
-        `生成失败，保留当前认证方式：${error instanceof Error ? error.message : String(error)}`,
-      );
-      return true;
+      failAssistantStep("accessToken", `生成访问令牌失败：${error instanceof Error ? error.message : String(error)}`);
+      return false;
     } finally {
-      if (editorSessionIsCurrent(requestContext)) {
+      if (revision === operationRevision && editorSessionIsCurrent(requestContext)) {
         options.completingCredentials.value = false;
       }
     }
@@ -381,14 +384,20 @@ export function useProviderCredentialAssistant(
     }
     if (knownKeys.length > 1) {
       credentialAssistantState.value = "needApiKeySelection";
-      credentialAssistantMessage.value = "已发现多个 API Key，请先选择本卡片用于默认请求的 Key";
-      setAssistantStep(
-        "apiKey",
-        "选择当前调用 API Key",
-        "pending",
-        `已发现 ${knownKeys.length} 个可用 Key，请在上方列表中选择后继续保存`,
-      );
-      return false;
+      setAssistantStep("apiKey", "选择当前调用 API Key", "running", `已读取 ${knownKeys.length} 把 Key，等待选择`);
+      const context = captureRequestContext();
+      const revision = operationRevision;
+      const option = await chooseProviderApiKey(knownKeys, interactionController.signal);
+      if (revision !== operationRevision || !requestContextIsCurrent(context)) return false;
+      if (!option) {
+        credentialAssistantState.value = "idle";
+        setAssistantStep("apiKey", "选择当前调用 API Key", "pending", "已取消选择，当前填写内容已保留");
+        return false;
+      }
+      options.draftProvider.auth.apiKey = option.key;
+      options.draftProvider.auth.apiKeyTokenId = option.tokenId;
+      setAssistantStep("apiKey", "选择当前调用 API Key", "done", `已选择：${providerApiKeyDisplayName(option)}`);
+      return true;
     }
     if (options.draftProvider.auth.apiKeyOptions.length > 0) {
       failAssistantStep("apiKey", "站点已有 API Key，但当前凭据无法读取完整 Key，未自动创建新 Key");
@@ -413,77 +422,50 @@ export function useProviderCredentialAssistant(
       return false;
     }
 
-    credentialAssistantState.value = "needApiKeyName";
-    setAssistantStep("apiKey", "创建 API 密钥", "running", "等待输入 API 密钥名称");
-    const promptContext = captureRequestContext();
-    const name = await promptApiKeyName();
-    if (!requestContextIsCurrent(promptContext)) {
-      return false;
+    if (!options.editingProviderId.value) {
+      credentialAssistantState.value = "saving";
+      setAssistantStep("save", "保存账号配置", "running", "正在保存账号，以便创建和管理站点 Key");
+      const context = captureRequestContext();
+      const saved = await options.saveDraftAndFindProvider(() => requestContextIsCurrent(context));
+      if (!saved) return false;
+      options.editingProviderId.value = saved.identity.id;
+      options.draftProvider.id = saved.identity.id;
+      Object.assign(options.draftProvider.auth, saved.auth);
+      setAssistantStep("save", "保存账号配置", "done", "账号已保存，继续设置 API Key");
     }
-    if (!name) {
+    credentialAssistantState.value = "needApiKeySettings";
+    setAssistantStep("apiKey", "创建 API 密钥", "running", "等待填写 Key 设置");
+    const requestInput = snapshotInput();
+    const requestContext = captureRequestContext(requestInput);
+    const editor = openApiKeyEditor({
+      editing: false,
+      loadContext: () => options.apiKeyEditorContextForInput(requestInput),
+      submit: (patch) => {
+        if (!requestContextIsCurrent(requestContext)) return Promise.reject(new Error("账号配置已变更，请重新打开 Key 设置"));
+        return options.createApiKeyForInput(requestInput, patch);
+      },
+    });
+    activeKeyEditor = editor;
+    const option = await editor.result;
+    if (activeKeyEditor === editor) activeKeyEditor = null;
+    if (!requestContextIsCurrent(requestContext)) return false;
+    if (!option) {
       setAssistantStep("apiKey", "创建 API 密钥", "skipped", "已取消创建，保留当前认证方式");
       return true;
     }
-
-    credentialAssistantState.value = "creatingApiKey";
-    setAssistantStep("apiKey", "创建 API 密钥", "running", "正在创建 API 密钥");
-    options.completingCredentials.value = true;
-    const requestInput = snapshotInput();
-    const requestContext = captureRequestContext(requestInput);
-    try {
-      const option = await options.createApiKeyForInput(
-        requestInput,
-        name,
-      );
-      if (!requestContextIsCurrent(requestContext)) {
-        return false;
-      }
+    credentialAssistantState.value = "saving";
+    if (option.keyAvailable) {
       options.draftProvider.auth.apiKey = option.key;
       options.draftProvider.auth.apiKeyTokenId = option.tokenId;
-      options.setApiKeyOptions([...options.draftProvider.auth.apiKeyOptions, option]);
-      setAssistantStep(
-        "apiKey",
-        "创建 API 密钥",
-        "done",
-        `API 密钥已创建：${providerApiKeyDisplayName(option) || name}`,
-      );
-      Message.success("API 密钥已创建");
-      return true;
-    } catch (error) {
-      if (!requestContextIsCurrent(requestContext)) {
-        return false;
-      }
-      failAssistantStep("apiKey", `创建 API 密钥失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    options.setApiKeyOptions([...options.draftProvider.auth.apiKeyOptions, option]);
+    setAssistantStep("apiKey", "创建 API 密钥", "done", `API 密钥已创建：${providerApiKeyDisplayName(option)}`);
+    if (!option.keyAvailable) {
+      failAssistantStep("apiKey", "Key 已创建，但站点未返回完整密钥值，请同步站点 Key 后确认");
       return false;
-    } finally {
-      if (editorSessionIsCurrent(requestContext)) {
-        options.completingCredentials.value = false;
-      }
     }
-  }
-
-  async function selectCredentialApiKey(option: ProviderApiKeyOption) {
-    if (!option.keyAvailable || !option.key.trim()) {
-      Message.warning("该 API Key 未读取到完整值，无法设为当前调用 Key");
-      return;
-    }
-    const resume = credentialAssistantState.value === "needApiKeySelection";
-    if (resume) {
-      // 先进入忙碌态，避免 draft 变化触发 watcher 清空当前助手步骤。
-      credentialAssistantState.value = "saving";
-    }
-    options.draftProvider.auth.apiKey = option.key;
-    options.draftProvider.auth.apiKeyTokenId = option.tokenId;
-    options.setApiKeyOptions(options.draftProvider.auth.apiKeyOptions);
-    setAssistantStep(
-      "apiKey",
-      "选择当前调用 API Key",
-      "done",
-      `已选择：${providerApiKeyDisplayName(option)}`,
-    );
-    if (resume) {
-      await finishAssistantSave();
-    }
+    Message.success("API 密钥已创建");
+    return true;
   }
 
   async function finishAssistantSave() {
@@ -580,6 +562,7 @@ export function useProviderCredentialAssistant(
   return {
     completeCredentials,
     runCredentialAssistant,
+    prepareCredentialsForSave,
     resetCredentialAssistant,
     canRunCredentialAssistant,
     credentialAssistantBusy,
@@ -588,6 +571,5 @@ export function useProviderCredentialAssistant(
     credentialAssistantMessage,
     credentialAssistantChangedFields,
     credentialAssistantSaved,
-    selectCredentialApiKey,
   };
 }

@@ -1,16 +1,17 @@
-import { computed, ref, watch, type Ref } from "vue";
+import { computed, onScopeDispose, ref, watch, type Ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
-import type { Provider, ProviderApiKeyOption } from "../stores/providers";
+import type { Provider, ProviderApiKeyOption, ProviderApiKeyPatch, ProviderApiKeyEditorContext } from "../stores/providers";
 import {
   providerApiKeyDisplayName,
   providerUsesApiKeyOption,
 } from "../utils/provider-display";
 import { effectiveProviderApiKeyOptions } from "../utils/provider-api-key-options";
 import { copyText } from "./useClipboard";
+import { openApiKeyEditor } from "./provider-api-key-editor";
+import { withTimeout } from "../utils/promise-timeout";
 
 export type ApiKeyManagerOperation =
   | "sync"
-  | "create"
   | "add"
   | "remark"
   | "default"
@@ -20,7 +21,9 @@ interface UseApiKeyManagerOptions {
   providers: Ref<Provider[]>;
   syncRemoteKeys: (providerId: string) => Promise<ProviderApiKeyOption[]>;
   addLocalKey: (providerId: string, key: string, remark: string) => Promise<Provider>;
-  createRemoteKey: (providerId: string, name: string) => Promise<ProviderApiKeyOption[]>;
+  createRemoteKey: (providerId: string, credentialRevision: number, patch: ProviderApiKeyPatch) => Promise<ProviderApiKeyOption[]>;
+  updateRemoteKey: (providerId: string, credentialRevision: number, tokenId: string, patch: ProviderApiKeyPatch) => Promise<ProviderApiKeyOption[]>;
+  getRemoteKeyEditorContext: (providerId: string, tokenId: string | null) => Promise<ProviderApiKeyEditorContext>;
   setRemark: (providerId: string, localId: string, remark: string) => Promise<Provider>;
   setDefaultKey: (providerId: string, localId: string) => Promise<Provider>;
   removeLocalKey: (providerId: string, localId: string) => Promise<Provider>;
@@ -34,8 +37,6 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   const apiKeyManagerProvider = ref<Provider | null>(null);
   const apiKeyManagerOperation = ref<ApiKeyManagerOperation | null>(null);
   const apiKeyManagerKeys = ref<ProviderApiKeyOption[]>([]);
-  const apiKeyCreateVisible = ref(false);
-  const apiKeyCreateName = ref("");
   const apiKeyAddVisible = ref(false);
   const apiKeyAddRemark = ref("");
   const apiKeyAddValue = ref("");
@@ -43,6 +44,7 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   const apiKeyRemarkValue = ref("");
   const apiKeyRemarkTarget = ref<ProviderApiKeyOption | null>(null);
   let requestRevision = 0;
+  let activeEditor: ReturnType<typeof openApiKeyEditor<ProviderApiKeyOption[]>> | null = null;
 
   const apiKeyRemoteManaged = computed(() =>
     Boolean(apiKeyManagerProvider.value?.actions.apiKeyManagement),
@@ -69,10 +71,10 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   }
 
   function resetInlineEditors() {
-    apiKeyCreateVisible.value = false;
+    activeEditor?.close();
+    activeEditor = null;
     apiKeyAddVisible.value = false;
     apiKeyRemarkVisible.value = false;
-    apiKeyCreateName.value = "";
     apiKeyAddRemark.value = "";
     apiKeyAddValue.value = "";
     apiKeyRemarkValue.value = "";
@@ -106,15 +108,37 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     resetInlineEditors();
   }
 
-  function openApiKeyCreatePanel() {
-    apiKeyAddVisible.value = false;
-    apiKeyRemarkVisible.value = false;
-    apiKeyCreateName.value = "";
-    apiKeyCreateVisible.value = true;
+  function openApiKeyCreateEditor() {
+    void openManagedEditor();
+  }
+
+  function openApiKeySettingsEditor(option: ProviderApiKeyOption) {
+    if (option.tokenId.trim()) void openManagedEditor(option);
+  }
+
+  async function openManagedEditor(option?: ProviderApiKeyOption) {
+    const provider = apiKeyManagerProvider.value;
+    if (!provider || !apiKeyRemoteManaged.value) return;
+    resetInlineEditors();
+    const providerId = provider.identity.id;
+    const revision = ++requestRevision;
+    const editor = openApiKeyEditor({
+      editing: Boolean(option),
+      loadContext: () => options.getRemoteKeyEditorContext(providerId, option?.tokenId ?? null),
+      submit: (patch, credentialRevision) => option
+        ? options.updateRemoteKey(providerId, credentialRevision, option.tokenId, patch)
+        : options.createRemoteKey(providerId, credentialRevision, patch),
+    });
+    activeEditor = editor;
+    const keys = await editor.result;
+    if (activeEditor === editor) activeEditor = null;
+    if (!keys || !currentRequest(providerId, revision)) return;
+    apiKeyManagerKeys.value = keys;
+    applyProvider(currentProvider(providerId));
+    Message.success(option ? "站点 Key 设置已保存" : "已创建站点 API Key");
   }
 
   function openApiKeyAddPanel() {
-    apiKeyCreateVisible.value = false;
     apiKeyRemarkVisible.value = false;
     apiKeyAddRemark.value = "";
     apiKeyAddValue.value = "";
@@ -122,7 +146,6 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
   }
 
   function openApiKeyRemarkEditor(option: ProviderApiKeyOption) {
-    apiKeyCreateVisible.value = false;
     apiKeyAddVisible.value = false;
     apiKeyRemarkTarget.value = option;
     apiKeyRemarkValue.value = option.localName?.trim() || "";
@@ -136,7 +159,7 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     const revision = ++requestRevision;
     apiKeyManagerOperation.value = "sync";
     try {
-      const remoteKeys = await options.syncRemoteKeys(providerId);
+      const remoteKeys = await withTimeout(options.syncRemoteKeys(providerId), 65_000, "同步站点 Key 超时，请重试");
       if (!currentRequest(providerId, revision)) return;
       apiKeyManagerKeys.value = remoteKeys;
       applyProvider(currentProvider(providerId));
@@ -161,36 +184,14 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     const revision = ++requestRevision;
     apiKeyManagerOperation.value = operation;
     try {
-      const updated = await action(providerId);
-      if (!currentRequest(providerId, revision)) return;
+      const updated = await withTimeout(action(providerId), 15_000, "保存 API Key 超时，请重新读取确认");
+      if (!currentRequest(providerId, revision)) return false;
       applyProvider(updated);
       Message.success(success);
+      return true;
     } catch (error) {
       if (currentRequest(providerId, revision)) Message.error(errorMessage(error));
       throw error;
-    } finally {
-      if (currentRequest(providerId, revision)) apiKeyManagerOperation.value = null;
-    }
-  }
-
-  async function createManagedApiKey() {
-    const provider = apiKeyManagerProvider.value;
-    const name = apiKeyCreateName.value.trim();
-    if (!provider) return;
-    if (!name) return Message.warning("请填写 API 密钥名称");
-    const providerId = provider.identity.id;
-    const revision = ++requestRevision;
-    apiKeyManagerOperation.value = "create";
-    try {
-      const keys = await options.createRemoteKey(providerId, name);
-      if (!currentRequest(providerId, revision)) return;
-      apiKeyManagerKeys.value = keys;
-      applyProvider(currentProvider(providerId));
-      apiKeyCreateVisible.value = false;
-      apiKeyCreateName.value = "";
-      Message.success("已创建站点 API Key");
-    } catch (error) {
-      if (currentRequest(providerId, revision)) Message.error(errorMessage(error));
     } finally {
       if (currentRequest(providerId, revision)) apiKeyManagerOperation.value = null;
     }
@@ -201,11 +202,12 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     const remark = apiKeyAddRemark.value.trim();
     if (!key) return Message.warning("请填写 API Key");
     try {
-      await runProviderMutation(
+      const applied = await runProviderMutation(
         "add",
         (providerId) => options.addLocalKey(providerId, key, remark),
         "API Key 已保存到当前卡片",
       );
+      if (!applied) return;
       apiKeyAddVisible.value = false;
       apiKeyAddRemark.value = "";
       apiKeyAddValue.value = "";
@@ -219,11 +221,12 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     const remark = apiKeyRemarkValue.value.trim();
     if (!target) return;
     try {
-      await runProviderMutation(
+      const applied = await runProviderMutation(
         "remark",
         (providerId) => options.setRemark(providerId, target.localId, remark),
         remark ? "已保存 API Key 本地备注" : "已清空 API Key 本地备注",
       );
+      if (!applied) return;
       apiKeyRemarkVisible.value = false;
       apiKeyRemarkTarget.value = null;
       apiKeyRemarkValue.value = "";
@@ -247,7 +250,7 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     apiKeyManagerProvider.value = provider;
     apiKeyManagerOperation.value = "default";
     try {
-      const updated = await options.setDefaultKey(providerId, option.localId);
+      const updated = await withTimeout(options.setDefaultKey(providerId, option.localId), 15_000, "切换 API Key 超时，请重新读取确认");
       if (!currentRequest(providerId, revision)) return false;
       applyProvider(updated);
       Message.success(`本卡片将使用“${providerApiKeyDisplayName(option)}”发起默认请求`);
@@ -320,7 +323,7 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
           const revision = ++requestRevision;
           apiKeyManagerOperation.value = "delete";
           try {
-            const keys = await options.deleteRemoteKey(providerId, option.tokenId);
+            const keys = await withTimeout(options.deleteRemoteKey(providerId, option.tokenId), 65_000, "删除 Key 请求超时，请同步站点 Key 确认");
             if (!currentRequest(providerId, revision)) return;
             apiKeyManagerKeys.value = keys;
             applyProvider(currentProvider(providerId));
@@ -363,13 +366,13 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     { flush: "sync" },
   );
 
+  onScopeDispose(closeApiKeyManager);
+
   return {
     apiKeyManagerProvider,
     apiKeyManagerOperation,
     apiKeyManagerKeys,
     apiKeyRemoteManaged,
-    apiKeyCreateVisible,
-    apiKeyCreateName,
     apiKeyAddVisible,
     apiKeyAddRemark,
     apiKeyAddValue,
@@ -378,11 +381,11 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
     apiKeyRemarkTarget,
     bindApiKeyManager,
     closeApiKeyManager,
-    openApiKeyCreatePanel,
+    openApiKeyCreateEditor,
+    openApiKeySettingsEditor,
     openApiKeyAddPanel,
     openApiKeyRemarkEditor,
     syncRemoteApiKeys,
-    createManagedApiKey,
     addLocalApiKey,
     saveManagedApiKeyRemark,
     setDefaultManagedApiKey,

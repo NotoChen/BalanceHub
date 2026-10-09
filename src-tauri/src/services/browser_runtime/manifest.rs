@@ -64,6 +64,10 @@ pub(super) fn write_worker_files(directory: &std::path::Path) -> Result<(), Stri
             "accounts.mjs",
             include_str!("../../../../browser-worker/accounts.mjs"),
         ),
+        (
+            "verification.mjs",
+            include_str!("../../../../browser-worker/verification.mjs"),
+        ),
     ] {
         let path = directory.join(name);
         if std::fs::read(&path).is_ok_and(|current| current == content.as_bytes()) {

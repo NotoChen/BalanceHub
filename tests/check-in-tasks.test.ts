@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CheckInTask } from "../src/api/checkin.ts";
-import { createCheckInTracker, type CheckInSnapshot } from "../src/utils/check-in-tasks.ts";
+import { checkInResumeLabel, createCheckInTracker, type CheckInSnapshot } from "../src/utils/check-in-tasks.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -91,4 +91,28 @@ test("waiting for human assistance is retained as a resumable task", async () =>
   assert.equal(snapshot.items[0].canResume, true);
   assert.deepEqual(snapshot.pending, []);
   tracker.stop();
+});
+
+test("bound-account login runs in the background and releases the launch action immediately", async () => {
+  let receive!: (task: CheckInTask) => void;
+  let snapshot!: CheckInSnapshot;
+  const login = { ...progress(2, "waitingLogin"), canResume: false };
+  const tracker = createCheckInTracker({ ...api(), submit: async () => login,
+    listen: async (callback) => { receive = callback; return () => {}; },
+  }, (state) => { snapshot = state; });
+  await tracker.start();
+  await tracker.submit("provider-1");
+  assert.deepEqual(snapshot.pending, []);
+  assert.equal(snapshot.items[0].finished, false);
+  assert.equal(snapshot.items[0].canCancel, true);
+  receive(progress(4, "completed"));
+  receive(login);
+  assert.equal(snapshot.items[0].phase, "completed", "late login progress cannot revive a completed task");
+  tracker.stop();
+});
+
+test("login, verification and browser preparation have distinct resume actions", () => {
+  assert.equal(checkInResumeLabel(progress(1, "waitingLogin")), "继续登录");
+  assert.equal(checkInResumeLabel(progress(1, "waitingHuman")), "继续验证");
+  assert.equal(checkInResumeLabel(progress(1, "waitingBrowser")), "准备浏览器");
 });

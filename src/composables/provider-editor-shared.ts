@@ -1,5 +1,7 @@
 import type {
   ProviderApiKeyOption,
+  ProviderApiKeyPatch,
+  ProviderApiKeyEditorContext,
   ProviderCapabilityProbeResult,
   ProviderConnectionTestResult,
   ProviderInput,
@@ -23,7 +25,8 @@ export interface ProviderEditorStore {
     apiKeyOptions: ProviderApiKeyOption[];
   }>;
   testProviderConnection: (input: ProviderInput) => Promise<ProviderConnectionTestResult>;
-  createApiKeyForInput: (input: ProviderInput, name: string) => Promise<ProviderApiKeyOption>;
+  createApiKeyForInput: (input: ProviderInput, patch: ProviderApiKeyPatch) => Promise<ProviderApiKeyOption>;
+  apiKeyEditorContextForInput: (input: ProviderInput) => Promise<ProviderApiKeyEditorContext>;
   generateAccessTokenForInput: (input: ProviderInput) => Promise<string>;
   refreshByIds: (ids: string[]) => Promise<unknown>;
   probeCapabilities: (id: string) => Promise<ProviderCapabilityProbeResult>;

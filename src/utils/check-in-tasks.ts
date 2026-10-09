@@ -1,5 +1,11 @@
 import type { CheckInBatch, CheckInTask } from "../api/checkin";
 
+export function checkInResumeLabel(task: Pick<CheckInTask, "phase">): string {
+  if (task.phase === "waitingBrowser") return "准备浏览器";
+  if (task.phase === "waitingLogin") return "继续登录";
+  return "继续验证";
+}
+
 export interface CheckInSnapshot {
   items: CheckInTask[];
   pending: string[];

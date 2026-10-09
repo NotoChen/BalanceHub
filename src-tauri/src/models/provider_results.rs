@@ -87,11 +87,16 @@ pub struct ProviderApiKeyOption {
     pub used_quota_raw: i64,
     pub remain_quota_raw: i64,
     pub unlimited_quota: bool,
+    pub total_quota: f64,
     pub group: String,
+    pub group_id: String,
     pub cross_group_retry: bool,
     pub model_limits_enabled: bool,
     pub model_limits: Vec<String>,
     pub allow_ips: Vec<String>,
+    pub deny_ips: Vec<String>,
+    pub auto_groups: Vec<String>,
+    pub spending_limits: super::ProviderApiKeySpendingLimits,
     pub quota_display_type: String,
     pub currency_symbol: String,
     pub created_time: Option<i64>,
@@ -137,8 +142,11 @@ impl ProviderApiKeyOption {
         self.token_id = self.token_id.trim().to_string();
         self.user_id = self.user_id.trim().to_string();
         self.group = self.group.trim().to_string();
+        self.group_id = self.group_id.trim().to_string();
         self.model_limits = normalize_string_list(self.model_limits);
         self.allow_ips = normalize_string_list(self.allow_ips);
+        self.deny_ips = normalize_string_list(self.deny_ips);
+        self.auto_groups = normalize_string_list(self.auto_groups);
         if self.quota_display_type.trim().is_empty() {
             self.quota_display_type = "currency".to_string();
         }
@@ -346,6 +354,22 @@ pub struct ProviderCheckInResult {
     pub last_check_in_user: Option<String>,
     #[serde(rename = "quotaDelta", skip_serializing_if = "Option::is_none")]
     pub quota_delta: Option<f64>,
+}
+
+impl ProviderCheckInResult {
+    /// A fresh login and same-account readback do not prove a reward amount.
+    pub(crate) fn confirmed_login() -> Self {
+        Self {
+            ok: true,
+            message: "已重新登录并确认账号状态；奖励以站点记录为准".into(),
+            unconfirmed: false,
+            verification_required: None,
+            verification_requires_login: false,
+            last_checked_in_at: None,
+            last_check_in_user: None,
+            quota_delta: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

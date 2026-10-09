@@ -36,7 +36,7 @@ const identityUsername = computed(() => providerIdentitySecondaryUsername(props.
 const identityId = computed(() => providerIdentityId(props.provider));
 const identityEmptyLabel = computed(() => "用户信息未同步");
 const modelSyncTime = computed(() =>
-  formatProviderSyncTime(props.provider.automation.lastSyncedAt),
+  formatProviderSyncTime(props.provider.capabilities.availableModelsState.updatedAt),
 );
 const quotaTone = computed(() => {
   if (providerQuotaUnlimited(props.provider)) {
@@ -102,6 +102,7 @@ const quotaTone = computed(() => {
 
 <ProviderModelPreview
   :models="provider.capabilities.availableModels"
+  :state="provider.capabilities.availableModelsState"
   :rows="isApiKeyAuth ? 5 : 2"
   :sync-time="isApiKeyAuth ? modelSyncTime : ''"
 />

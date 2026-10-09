@@ -4,11 +4,12 @@ use crate::{
         ProviderView, RefreshResultView,
     },
     models::{
-        ProviderApiKeyOption, ProviderBatchProgressEvent, ProviderCheckInRecordsResult,
-        ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
-        ProviderProtocolDetectionResult, ProviderRemovalResult, ProviderRequestLogsQuery,
-        ProviderRequestLogsResult, ProviderSaveOptions, ProviderSiteProbeResult,
-        ProviderUsageSummary, SiteAnnouncementsSnapshot,
+        ProviderApiKeyEditorContext, ProviderApiKeyOption, ProviderApiKeyPatch,
+        ProviderBatchProgressEvent, ProviderCheckInRecordsResult, ProviderConnectionTestResult,
+        ProviderCredentialCompletionResult, ProviderInput, ProviderProtocolDetectionResult,
+        ProviderRemovalResult, ProviderRequestLogsQuery, ProviderRequestLogsResult,
+        ProviderSaveOptions, ProviderSiteProbeResult, ProviderUsageSummary,
+        SiteAnnouncementsSnapshot,
     },
     services::provider_service::ProviderService,
     tray,
@@ -134,7 +135,63 @@ pub(crate) async fn list_provider_api_keys(
     app: AppHandle,
     id: String,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    ProviderService::new(&app).list_api_keys(id).await
+    api_key_request(ProviderService::new(&app).list_api_keys(id), false).await
+}
+
+async fn api_key_request<T>(
+    operation: impl std::future::Future<Output = Result<T, String>>,
+    writing: bool,
+) -> Result<T, String> {
+    tokio::time::timeout(std::time::Duration::from_secs(60), operation)
+        .await
+        .map_err(|_| {
+            if writing {
+                "Key 保存请求超时，站点可能已生效，请先同步确认，避免重复操作"
+            } else {
+                "读取 Key 信息超时，请重试"
+            }
+            .to_string()
+        })?
+}
+
+#[tauri::command]
+pub(crate) async fn get_provider_api_key_editor_context(
+    app: AppHandle,
+    id: String,
+    token_id: Option<String>,
+) -> Result<ProviderApiKeyEditorContext, String> {
+    api_key_request(
+        ProviderService::new(&app).api_key_editor_context(id, token_id),
+        false,
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_provider_api_key_editor_context_for_input(
+    app: AppHandle,
+    input: ProviderInput,
+) -> Result<ProviderApiKeyEditorContext, String> {
+    api_key_request(
+        ProviderService::new(&app).api_key_editor_context_for_input(input),
+        false,
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn update_provider_api_key(
+    app: AppHandle,
+    id: String,
+    credential_revision: u64,
+    token_id: String,
+    patch: ProviderApiKeyPatch,
+) -> Result<Vec<ProviderApiKeyOption>, String> {
+    api_key_request(
+        ProviderService::new(&app).update_api_key(id, credential_revision, token_id, patch),
+        true,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -215,20 +272,27 @@ pub(crate) async fn remove_local_provider_api_key(
 pub(crate) async fn create_provider_api_key(
     app: AppHandle,
     id: String,
-    name: String,
+    credential_revision: u64,
+    patch: ProviderApiKeyPatch,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    ProviderService::new(&app).create_api_key(id, name).await
+    api_key_request(
+        ProviderService::new(&app).create_api_key(id, credential_revision, patch),
+        true,
+    )
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn create_provider_api_key_for_input(
     app: AppHandle,
     input: ProviderInput,
-    name: String,
+    patch: ProviderApiKeyPatch,
 ) -> Result<ProviderApiKeyOption, String> {
-    ProviderService::new(&app)
-        .create_api_key_for_input(input, name)
-        .await
+    api_key_request(
+        ProviderService::new(&app).create_api_key_for_input(input, patch),
+        true,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -247,9 +311,11 @@ pub(crate) async fn delete_provider_api_key(
     id: String,
     token_id: String,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    ProviderService::new(&app)
-        .delete_api_key(id, token_id)
-        .await
+    api_key_request(
+        ProviderService::new(&app).delete_api_key(id, token_id),
+        true,
+    )
+    .await
 }
 
 #[tauri::command]

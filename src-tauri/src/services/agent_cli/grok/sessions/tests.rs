@@ -266,6 +266,14 @@ fn update_search_merges_streamed_chunks_and_replaces_tool_states() {
     assert_eq!(streamed.matched_term_indexes, vec![0]);
     let replaced = search_updates(&path, &request("obsolete-keyword"), &|| true).unwrap();
     assert!(replaced.matched_term_indexes.is_empty());
+    let indexed = crate::services::cli_sessions::read_indexed_messages(&[SessionIndexSource {
+        path,
+        parser_version: INDEX_PARSER_VERSION,
+        format: SessionIndexFormat::JsonLines,
+        decode: index_update_record,
+    }]);
+    assert_eq!(indexed.len(), 1);
+    assert_eq!(indexed[0].content, "BalanceHub");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -402,7 +410,12 @@ fn chat_history_index_excludes_tools_and_hidden_reasoning() {
     .join("\n");
     fs::write(&path, lines).unwrap();
 
-    let messages = index_chat_history(&path, &|| true).unwrap();
+    let messages = crate::services::cli_sessions::read_indexed_messages(&[SessionIndexSource {
+        path: path.clone(),
+        parser_version: INDEX_PARSER_VERSION,
+        format: SessionIndexFormat::JsonLines,
+        decode: index_chat_record,
+    }]);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].content, "visible answer");
     fs::remove_dir_all(root).unwrap();

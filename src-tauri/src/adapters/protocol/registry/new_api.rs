@@ -95,7 +95,7 @@ const API_KEY_FIELDS: &[ProviderAuthFieldSchema] = &[auth_field(
 pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefinition {
     kind: ProviderProtocol::NewApi,
     label: "NewAPI",
-    description: "兼容 NewAPI / AnyRouter 协议",
+    description: "适用于 NewAPI 及其兼容站点，AnyRouter 选择此类型",
     detection_role: ProtocolDetectionRole::Primary,
     default_auth_mode: AuthMode::Password,
     auth_schemas: &[
@@ -141,7 +141,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         check_in: Some("GET /api/user/checkin?month=YYYY-MM"),
         api_keys: Some("GET /api/token/"),
         invitation: Some("GET /api/user/aff"),
-        models: "GET OpenAI 兼容 /models",
+        models: "账号模型列表 / API Key 模型列表",
         announcements: Some("GET /api/notice"),
     },
     credential_assistant: ProviderCredentialAssistantDefinition {

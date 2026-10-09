@@ -1,7 +1,7 @@
 {
   "name": "balancehub",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "用于集中管理 AI 中转站账号的跨平台桌面应用。",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -36,11 +36,11 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
-    "dompurify": "^3.4.15",
+    "dompurify": "^3.4.16",
     "marked": "^18.0.14",
     "pinia": "^3.0.4",
     "prettier": "^3.9.8",
-    "vue": "^3.5.13"
+    "vue": "^3.5.43"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

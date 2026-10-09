@@ -122,7 +122,7 @@ mod tests {
     use crate::models::{ProviderAuth, ProviderIdentityInput, ProviderInput};
 
     #[test]
-    fn agentrouter_login_check_in_requires_password_and_ignores_standard_endpoint_probe() {
+    fn agentrouter_password_check_in_ignores_standard_endpoint_probe() {
         let mut provider = Provider::from_input(ProviderInput::default(), "login".into());
         provider.identity.base_url = "https://agentrouter.org".into();
         provider.auth.mode = AuthMode::Password;
@@ -138,6 +138,46 @@ mod tests {
             check_in::effective_method(&provider),
             ProviderCheckInMethod::Standard
         );
+    }
+
+    #[test]
+    fn agentrouter_bound_oauth_can_check_in_without_password_or_live_cookie() {
+        use crate::models::{
+            AuthSource, BrowserLoginBinding, BrowserLoginMechanism, LoginPlatform,
+        };
+        let mut provider = Provider::from_input(ProviderInput::default(), "oauth".into());
+        provider.identity.base_url = "https://agentrouter.org".into();
+        provider.auth.mode = AuthMode::Session;
+        provider.auth.source = AuthSource::Oauth;
+        provider.auth.api_user = "42".into();
+        provider.auth.browser_binding = Some(BrowserLoginBinding {
+            account_id: Some("fixture-account".into()),
+            platform: LoginPlatform::LinuxDo,
+            mechanism: BrowserLoginMechanism::Oauth,
+            imported_at: 1,
+        });
+        provider.capabilities.check_in_known = true;
+        provider.capabilities.check_in_supported = false;
+        for method in [
+            ProviderCheckInMethod::Auto,
+            ProviderCheckInMethod::FreshLogin,
+        ] {
+            provider.automation.check_in_method = method;
+            assert!(supports_check_in(&provider));
+            assert!(check_in::preview(&provider).supported);
+            assert_eq!(
+                check_in::fresh_login_route(&provider),
+                Ok(check_in::FreshLoginRoute::BrowserAccount("fixture-account"))
+            );
+        }
+        provider.auth.session_cookie = "session=fixture".into();
+        provider.auth.access_token = "fixture-token".into();
+        provider.auth.browser_binding.as_mut().unwrap().account_id = None;
+        assert!(
+            !supports_check_in(&provider),
+            "a manual session cannot trigger a fresh login"
+        );
+        assert!(check_in::preview(&provider).message.contains("登录并导入"));
     }
 
     fn provider() -> Provider {

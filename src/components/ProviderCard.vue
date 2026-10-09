@@ -6,7 +6,6 @@ import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
 import ProviderCardHeader from "./provider-card/ProviderCardHeader.vue";
 import ProviderCardBody from "./provider-card/ProviderCardBody.vue";
 import ProviderCardActions from "./provider-card/ProviderCardActions.vue";
-import ProviderCheckInState from "./provider-card/ProviderCheckInState.vue";
 import ProviderCardCliOrbits from "./provider-card/ProviderCardCliOrbits.vue";
 import WorkspaceCard from "./workspace-card/WorkspaceCard.vue";
 import type { ProviderCardCliOrbitSpec } from "../utils/provider-card-cli-orbit";
@@ -193,6 +192,5 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
       :checking-in="checkingIn"
       v-on="actionListeners"
     />
-    <ProviderCheckInState :provider-id="provider.identity.id" :interactive="interactive" />
   </WorkspaceCard>
 </template>

@@ -23,12 +23,12 @@ test("the provider editor owns the API Key vault inline instead of stacking anot
   assert.match(editor, /apiKeyManagerProvider/);
   assert.match(editor, /<ProviderEditorCredentialsSection/);
   assert.doesNotMatch(overlays, /ApiKeyManager|api-key-manager/);
-  assert.match(app, /@open-api-key-create-panel="app\.openApiKeyCreatePanel"/);
+  assert.match(app, /@open-api-key-create-editor="app\.openApiKeyCreateEditor"/);
   assert.match(controller, /providerEditor\.openEditProvider\(provider, "credentials"\)/);
   assert.match(credentials, /:remote-managed="apiKeyRemoteManaged"/);
   assert.doesNotMatch(credentials, /:remote-managed="currentProtocol\?\.capabilities\.apiKeyManagement/);
   assert.match(vault, /当前调用 Key/);
-  assert.match(vault, /新增、备注、切换和删除会立即保存/);
+  assert.match(vault, /此处的操作会立即保存/);
   assert.match(credentials, /showAuthModePicker/);
 });
 

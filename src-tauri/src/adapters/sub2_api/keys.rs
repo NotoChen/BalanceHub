@@ -89,8 +89,22 @@ pub(super) fn api_key_from_value(value: &Value) -> Option<ProviderApiKeyOption> 
     option.used_quota_raw = used.round() as i64;
     option.remain_quota_raw = option.remain_quota.round() as i64;
     option.unlimited_quota = unlimited;
+    option.total_quota = quota;
     option.group = group;
+    option.group_id = string_field(value, &["group_id", "groupId"])
+        .or_else(|| {
+            value
+                .get("group")
+                .and_then(|group| string_field(group, &["id"]))
+        })
+        .unwrap_or_default();
     option.allow_ips = string_list(value, &["ip_whitelist", "ipWhitelist"]);
+    option.deny_ips = string_list(value, &["ip_blacklist", "ipBlacklist"]);
+    option.spending_limits = crate::models::ProviderApiKeySpendingLimits {
+        five_hours: number_field(value, &["rate_limit_5h"]),
+        one_day: number_field(value, &["rate_limit_1d"]),
+        seven_days: number_field(value, &["rate_limit_7d"]),
+    };
     option.created_time = timestamp_millis(value, &["created_at", "createdAt"]);
     option.accessed_time = timestamp_millis(value, &["last_used_at", "lastUsedAt"]);
     option.expired_time = timestamp_millis(value, &["expires_at", "expiresAt"]);

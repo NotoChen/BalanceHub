@@ -6,10 +6,10 @@ use crate::{
         ProviderOperationOutcome, UsageCapability,
     },
     models::{
-        AppSettings, Provider, ProviderApiKeyOption, ProviderCapabilities,
-        ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
-        ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult,
-        ProviderUsageSummary, SiteAnnouncement,
+        AppSettings, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption,
+        ProviderApiKeyPatch, ProviderCapabilities, ProviderConnectionTestResult,
+        ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
+        ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
     },
 };
 use async_trait::async_trait;
@@ -85,9 +85,32 @@ impl ApiKeyManagementCapability for Sub2ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-        name: &str,
+        patch: &ProviderApiKeyPatch,
     ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String> {
-        Sub2ApiAdapter::create_api_key(self, settings, provider, name)
+        Sub2ApiAdapter::create_api_key(self, settings, provider, patch)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+
+    async fn api_key_editor_context(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: Option<&str>,
+    ) -> Result<ProviderOperationOutcome<ProviderApiKeyEditorContext>, String> {
+        Sub2ApiAdapter::api_key_editor_context(self, settings, provider, token_id)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+
+    async fn update_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+        patch: &ProviderApiKeyPatch,
+    ) -> Result<ProviderOperationOutcome<ProviderApiKeyOption>, String> {
+        Sub2ApiAdapter::update_api_key(self, settings, provider, token_id, patch)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
     }

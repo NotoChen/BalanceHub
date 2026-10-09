@@ -19,6 +19,25 @@ test("credentials are confined to the exact original origin", () => {
   }
 });
 
+test("browser startup probe uses a disposable blank profile and returns the actual version", {
+  skip: process.env.BALANCEHUB_BROWSER_SMOKE !== "1", timeout: 45_000,
+}, async () => {
+  const profileDir = await mkdtemp(join(tmpdir(), "balancehub-browser-probe-"));
+  const events = [];
+  const worker = new BrowserWorker((event) => events.push(event));
+  try {
+    const result = await worker.probe({ profileDir, executablePath: process.env.BALANCEHUB_BROWSER_EXECUTABLE });
+    assert.match(result.version, /^\d+\.\d+\./);
+    assert.ok(events.some((event) => event.event === "browserStarted" && event.browserPid > 0));
+    assert.ok(worker.context.pages().every((page) => page.url() === "about:blank"));
+    assert.deepEqual(await worker.context.cookies(), []);
+  } finally {
+    await worker.close();
+    await rm(profileDir, { recursive: true, force: true });
+  }
+  assert.equal(worker.context, null);
+});
+
 test("disabled protection keeps Turnstile usable without page challenges or shield cookies", {
   skip: process.env.BALANCEHUB_BROWSER_SMOKE !== "1",
   timeout: 30_000,

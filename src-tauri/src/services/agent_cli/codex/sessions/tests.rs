@@ -1,9 +1,9 @@
 use super::index::read_session_titles;
-use super::{codex_home, index_rollout, parse_rollout_messages, search_rollout};
+use super::{codex_home, index_source, parse_rollout_messages, search_rollout};
 use crate::{
     models::{AgentCliKind, CliSessionMessageRole},
     services::agent_cli::contracts::{
-        SessionContentSearchRequest, SessionIndexLoadResult, SessionReadLimits, SessionSearchTerm,
+        SessionContentSearchRequest, SessionReadLimits, SessionSearchTerm,
     },
 };
 use rusqlite::Connection;
@@ -256,6 +256,9 @@ fn rollout_search_ignores_legacy_messages_when_primary_events_exist() {
     };
     let result = search_rollout(&path, &request, &|| true).unwrap();
     assert!(result.matched_term_indexes.is_empty());
+    let indexed = crate::services::cli_sessions::read_indexed_messages(&[index_source(&path)]);
+    assert_eq!(indexed.len(), 1);
+    assert_eq!(indexed[0].content, "当前消息");
     fs::remove_dir_all(directory).unwrap();
 }
 
@@ -338,11 +341,7 @@ fn rollout_index_keeps_visible_messages_only() {
     .join("\n");
     fs::write(&path, lines).unwrap();
 
-    let SessionIndexLoadResult::Updated { messages, .. } =
-        index_rollout(&path, None, &|| true).unwrap()
-    else {
-        panic!("new source must be indexed");
-    };
+    let messages = crate::services::cli_sessions::read_indexed_messages(&[index_source(&path)]);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].content, "visible answer");
     fs::remove_dir_all(directory).unwrap();

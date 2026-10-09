@@ -1,8 +1,8 @@
-use super::{index_conversation, load_conversation_limited, search_conversation};
+use super::{index_source, load_conversation_limited, search_conversation};
 use crate::{
     models::AgentCliKind,
     services::agent_cli::contracts::{
-        SessionContentSearchRequest, SessionIndexLoadResult, SessionReadLimits, SessionSearchTerm,
+        SessionContentSearchRequest, SessionReadLimits, SessionSearchTerm,
     },
 };
 use serde_json::json;
@@ -201,7 +201,8 @@ fn detail_loader_applies_set_rewind_updates_and_tool_calls() {
         .join("\n");
     fs::write(&transcript, lines).unwrap();
 
-    let (conversation, truncated) = load_conversation_limited(&transcript, TEST_LIMITS).unwrap();
+    let (conversation, truncated) =
+        load_conversation_limited(&transcript, TEST_LIMITS.max_file_bytes).unwrap();
     assert!(!truncated);
     assert_eq!(conversation.session_id.as_deref(), Some("gemini-detail"));
     assert_eq!(conversation.summary.as_deref(), Some("最终标题"));
@@ -258,6 +259,51 @@ fn search_uses_the_final_conversation_after_rewind() {
     assert!(discarded.matched_term_indexes.is_empty());
     let kept = search_conversation(&transcript, &request("final-keyword"), &|| true).unwrap();
     assert_eq!(kept.matched_term_indexes, vec![0]);
+    let indexed =
+        crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
+    assert_eq!(
+        indexed
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>(),
+        ["保留内容", "final-keyword"]
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn index_rewinds_keep_hidden_message_positions_and_apply_replacements() {
+    let root = test_root("index-hidden-rewind");
+    fs::create_dir_all(&root).unwrap();
+    let transcript = root.join("session.jsonl");
+    for events in [
+        vec![
+            json!({"id":"first", "type":"user", "content":"kept"}),
+            json!({"id":"boundary", "type":"info", "content":"not searchable"}),
+            json!({"id":"last", "type":"gemini", "content":"discarded"}),
+            json!({"$rewindTo":"boundary"}),
+        ],
+        vec![
+            json!({"id":"first", "type":"user", "content":"obsolete"}),
+            json!({"$set":{"messages":[{"id":"kept", "type":"user", "content":"kept"}, {"id":"changed", "type":"gemini", "content":"obsolete too"}]}}),
+            json!({"id":"changed", "type":"gemini", "content":""}),
+            json!({"id":"last", "type":"gemini", "content":"discarded"}),
+            json!({"$rewindTo":"changed"}),
+        ],
+    ] {
+        fs::write(
+            &transcript,
+            events
+                .iter()
+                .map(|event| event.to_string() + "\n")
+                .collect::<String>(),
+        )
+        .unwrap();
+        let indexed =
+            crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
+        assert_eq!(indexed.len(), 1);
+        assert_eq!(indexed[0].content, "kept");
+    }
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -322,11 +368,8 @@ fn index_excludes_tool_calls_and_hidden_thoughts() {
     )
     .unwrap();
 
-    let SessionIndexLoadResult::Updated { messages, .. } =
-        index_conversation(&transcript, None, &|| true).unwrap()
-    else {
-        panic!("new source must be indexed");
-    };
+    let messages =
+        crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].content, "visible answer");
     fs::remove_dir_all(root).unwrap();

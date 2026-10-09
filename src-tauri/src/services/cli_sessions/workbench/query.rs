@@ -8,23 +8,20 @@ use super::{
 use crate::{
     models::*,
     services::{
-        agent_cli::contracts::{
-            SessionHistoryReadMode, SessionHistoryRecord, SessionHistorySource, SessionReadBudget,
-        },
-        cli_sessions::{
-            index::{HistoryIndex, SessionIndexConfig},
-            session_sort_key, SearchAccumulator, SearchQuery,
-        },
+        agent_cli::contracts::{SessionHistoryRecord, SessionHistorySource, SessionReadBudget},
+        cli_sessions::{index::HistoryIndex, session_sort_key, SearchQuery},
     },
     state::AppState,
 };
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
 use tauri::Manager;
+
+mod scan;
+use scan::scan_source;
 
 struct SourceOutcome {
     references: Vec<ReferenceState>,
@@ -97,8 +94,7 @@ pub(crate) fn query(
         };
         (id, 0, snapshot)
     };
-    if request.cursor.is_none() || (offset == snapshot.rows.len() && snapshot.progress.can_continue)
-    {
+    if request.cursor.is_none() || snapshot.progress.can_continue {
         let settings = actor
             .app
             .state::<AppState>()
@@ -123,8 +119,19 @@ pub(crate) fn query(
                     .entry(source.id.clone())
                     .or_default()
                     .clone();
+                let index = snapshot
+                    .progress
+                    .indexes
+                    .entry(source.id.clone())
+                    .or_insert_with(|| {
+                        Arc::new(HistoryIndex::new(
+                            &index_config,
+                            source.agent_kind,
+                            &source.id,
+                        ))
+                    })
+                    .clone();
                 let workspaces = selected_workspaces.clone();
-                let index_config = index_config.clone();
                 let query_text = request.query.clone();
                 let matches = snapshot.progress.matches.clone();
                 // Fast sources have independent workers and budgets. Later
@@ -145,7 +152,7 @@ pub(crate) fn query(
                                     &source_config,
                                     &workspaces,
                                     &query_text,
-                                    &index_config,
+                                    &index,
                                     &source_budget,
                                     matches,
                                 )
@@ -168,15 +175,8 @@ pub(crate) fn query(
         }
         validated_scope(actor, &request.scope_revision)?;
         let refs = merge_source_outcomes(&mut snapshot, outcomes, request.role_filter);
-        if snapshot.progress.passes > 1 {
-            for source in &mut snapshot.states {
-                source.message = Some(match source.message.take() {
-                    Some(message) => {
-                        format!("{message}；本次按续读批次保持稳定顺序，刷新可重新按时间排序")
-                    }
-                    None => "本次按续读批次保持稳定顺序，刷新可重新按时间排序".into(),
-                });
-            }
+        if !snapshot.progress.can_continue {
+            snapshot.progress.indexes.clear();
         }
         let mut registry = state::registry();
         for reference in refs {
@@ -212,13 +212,7 @@ fn select_workspaces(
     ids: &[String],
 ) -> Result<Vec<AgentSessionWorkspace>, String> {
     if ids.is_empty() {
-        return Ok(scope
-            .public
-            .workspaces
-            .iter()
-            .filter(|workspace| workspace.is_home || scope.public.workspaces.len() == 1)
-            .cloned()
-            .collect());
+        return Ok(scope.public.workspaces.clone());
     }
     if ids.iter().any(|id| {
         !scope
@@ -359,209 +353,6 @@ fn row_order(left: &AgentSessionRow, right: &AgentSessionRow) -> std::cmp::Order
         .then_with(|| left.session_ref.cmp(&right.session_ref))
 }
 
-fn scan_source(
-    source: &AgentSessionSource,
-    config: &SessionHistorySource,
-    workspaces: &[AgentSessionWorkspace],
-    text: &str,
-    index_config: &SessionIndexConfig,
-    budget: &SessionReadBudget,
-    previous_matches: Arc<Mutex<HashMap<String, bool>>>,
-) -> SourceOutcome {
-    let mut outcome = SourceOutcome {
-        references: Vec::new(),
-        matched: HashSet::new(),
-        states: Vec::new(),
-        can_continue: false,
-    };
-    let failure = |message: String, status| {
-        workspaces
-            .iter()
-            .map(|workspace| AgentSessionSourceState {
-                source_id: source.id.clone(),
-                workspace_id: workspace.id.clone(),
-                state: status,
-                loaded_count: 0,
-                message: Some(message.clone()),
-                index_state: if index_config.enabled {
-                    CliSessionIndexState::Fallback
-                } else {
-                    CliSessionIndexState::Disabled
-                },
-            })
-            .collect::<Vec<_>>()
-    };
-    if !source.available {
-        outcome.states = failure(
-            "原生会话目录不存在或不可用".into(),
-            AgentSessionSourceStatus::Unavailable,
-        );
-        return outcome;
-    }
-    let adapter = match history_adapter(source.agent_kind) {
-        Ok(adapter) => adapter,
-        Err(error) => {
-            outcome.states = failure(error, AgentSessionSourceStatus::Unsupported);
-            return outcome;
-        }
-    };
-    let query = match SearchQuery::new(text) {
-        Ok(query) => query,
-        Err(error) => {
-            outcome.states = failure(error, AgentSessionSourceStatus::Partial);
-            return outcome;
-        }
-    };
-    let paths = workspaces
-        .iter()
-        .map(|workspace| PathBuf::from(&workspace.path))
-        .collect::<Vec<_>>();
-    let loaded = match super::budget::with_source_root(&config.config_root, || {
-        (adapter.scan)(
-            source.agent_kind,
-            &config.config_root,
-            &paths,
-            budget,
-            SessionHistoryReadMode::Summaries,
-        )
-    }) {
-        Ok(loaded) => loaded,
-        Err(error) => {
-            outcome.can_continue = error.contains("预算");
-            outcome.states = failure(error, AgentSessionSourceStatus::Partial);
-            return outcome;
-        }
-    };
-    let index = (index_config.enabled && !query.is_empty())
-        .then(|| HistoryIndex::new(index_config, source.agent_kind, &source.id));
-    for loaded in loaded {
-        let Some(workspace) = workspaces.iter().find(|workspace| {
-            path_identity(std::path::Path::new(&workspace.path)) == path_identity(&loaded.workdir)
-        }) else {
-            continue;
-        };
-        let mut state = AgentSessionSourceState {
-            source_id: source.id.clone(),
-            workspace_id: workspace.id.clone(),
-            state: if loaded.complete {
-                AgentSessionSourceStatus::Complete
-            } else {
-                AgentSessionSourceStatus::Partial
-            },
-            loaded_count: loaded.records.len(),
-            message: (!loaded.diagnostics.is_empty()).then(|| loaded.diagnostics.join("；")),
-            index_state: if index_config.enabled {
-                CliSessionIndexState::Ready
-            } else {
-                CliSessionIndexState::Disabled
-            },
-        };
-        // Native duplicate indexes are merged by the adapter's project/record
-        // identity, not by a UI title, install path or bare cross-source ID.
-        for record in super::super::normalize_records(loaded.records) {
-            let row = row_for_record(source, config, workspace, &record);
-            let ref_key = row.session_ref.clone();
-            let prior = previous_matches
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .get(&ref_key)
-                .copied();
-            let matches = prior.map(Ok).unwrap_or_else(|| {
-                let mut matched = SearchAccumulator::new(&query);
-                matched.observe(&record.summary.title);
-                matched.observe(&record.summary.id);
-                if let Some(preview) = &record.summary.preview {
-                    matched.observe(preview);
-                }
-                if let Some(model) = &record.summary.model {
-                    matched.observe(model);
-                }
-                for model in &record.summary.models {
-                    matched.observe(model);
-                }
-                matched.observe(&workspace.path);
-                if !matched.complete() && record.content_unavailable_reason.is_none() {
-                    budget.check()?;
-                    let request = matched.content_request();
-                    let content = match &index {
-                        Some(index) => {
-                            match index.search(&workspace.id, &record, adapter, &request, budget) {
-                                Ok(content) => content,
-                                Err(error) => {
-                                    state.index_state = CliSessionIndexState::Fallback;
-                                    append_state_message(
-                                        &mut state,
-                                        format!("索引暂不可用，已改用原生正文扫描：{error}"),
-                                    );
-                                    (adapter.search)(&record, &request, &|| budget.check().is_ok())?
-                                }
-                            }
-                        }
-                        None => (adapter.search)(&record, &request, &|| budget.check().is_ok())?,
-                    };
-                    matched.merge_content(content);
-                }
-                Ok(matched.complete())
-            });
-            match matches {
-                Ok(value) => {
-                    if value || record.content_unavailable_reason.is_none() {
-                        previous_matches
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .insert(ref_key.clone(), value);
-                    }
-                    if value {
-                        outcome.matched.insert(ref_key);
-                    }
-                }
-                Err(error) => {
-                    state.state = AgentSessionSourceStatus::Partial;
-                    append_state_message(&mut state, error);
-                }
-            }
-            outcome.references.push(ReferenceState { row, record });
-        }
-        if budget.check().is_err() && !budget.cancelled.load(Ordering::Acquire) {
-            outcome.can_continue = true;
-            state.state = AgentSessionSourceStatus::Partial;
-            append_state_message(&mut state, "本轮读取预算已用完，可继续读取其余会话".into());
-        }
-        if budget.cancelled.load(Ordering::Acquire) {
-            state.state = AgentSessionSourceStatus::Cancelled;
-        }
-        outcome.states.push(state);
-    }
-    if let Some(index) = index {
-        if let Err(error) = index.finish(budget) {
-            for state in &mut outcome.states {
-                state.index_state = CliSessionIndexState::Fallback;
-                state.state = if budget.cancelled.load(Ordering::Acquire) {
-                    AgentSessionSourceStatus::Cancelled
-                } else {
-                    AgentSessionSourceStatus::Partial
-                };
-                append_state_message(state, format!("索引容量维护未完成：{error}"));
-            }
-            // Maintenance alone does not mean native records remain unread.
-            // Preserve an existing continuation, but do not create an endless
-            // cursor just to retry capacity work after native scanning finished.
-        }
-    }
-    outcome
-}
-
-fn append_state_message(state: &mut AgentSessionSourceState, message: String) {
-    if let Some(previous) = &mut state.message {
-        if !previous.contains(&message) {
-            previous.push('；');
-            previous.push_str(&message);
-        }
-    } else {
-        state.message = Some(message);
-    }
-}
-
 fn row_for_record(
     source: &AgentSessionSource,
     config: &SessionHistorySource,
@@ -684,6 +475,7 @@ fn page(
         parent_updates,
         next_cursor: (end < snapshot.rows.len() || snapshot.progress.can_continue)
             .then(|| format!("{id}:{end}")),
+        scan_pending: snapshot.progress.can_continue,
         loaded_count: snapshot.rows.len(),
         total: snapshot.complete.then_some(snapshot.rows.len()),
         agent_counts: agent_counts(snapshot, sources, workspaces),

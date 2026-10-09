@@ -35,16 +35,7 @@ pub(super) async fn run(
             CheckInError::Unconfirmed("重新登录已完成，但账号状态回读失败；请查看站点记录".into())
         })?;
     verify_account(&response, provider).map_err(CheckInError::Unconfirmed)?;
-    Ok(ProviderCheckInResult {
-        ok: true,
-        message: "已重新登录并确认账号状态；奖励以站点记录为准".into(),
-        unconfirmed: false,
-        verification_required: None,
-        verification_requires_login: false,
-        last_checked_in_at: None,
-        last_check_in_user: None,
-        quota_delta: None,
-    })
+    Ok(ProviderCheckInResult::confirmed_login())
 }
 
 /// Shared with password authentication before standard/session sign-in.

@@ -1,7 +1,7 @@
 # Browser-assisted check-in integration
 
-This work is isolated in `feat/cloudflare-checkin`.
-Agent asset management is outside this change.
+Browser-assisted check-in is part of the desktop App. Agent asset management is
+outside this component's scope.
 
 ## Accepted scope
 
@@ -16,17 +16,28 @@ Agent asset management is outside this change.
   as unconfirmed and is not automatically submitted again.
 - Browser support is an optional component under the App data directory, installed
   only after an explicit UI action. The main installer carries no Node or browser.
-  Use local Chrome/Edge/Chromium when available; offer an isolated managed browser.
+  Reuse a selected local Chromium browser with Node.js/Playwright support, or offer
+  an isolated managed Chromium. Show required downloads separately from discovery.
 - Detect on component-panel opening, before browser use, and after installation,
   removal or launch failure. Ordinary inventory has a five-minute cache; launch
-  always checks executable existence. No periodic network/browser scan. Component
+  checks browser/runtime fingerprints and revalidates changed files with an empty
+  temporary-profile launch. No periodic network/browser scan. Component
   versions are pinned by the App; an incompatible installation offers an explicit
   update, never an unattended download.
 - Downloads use the existing global network proxy, bounded timeouts, progress,
   cancellation, verified archives and staged activation. Cancellation/failure
   leaves the previously installed component usable.
+- Persist a browser selection only after a successful launch probe. Switching
+  installed browsers does not download components. Windows discovery reads both
+  user/machine registry scopes and registry views, as well as default directories;
+  all platforms offer manual selection. Native Windows acceptance remains pending.
+- Never click CAPTCHA controls. Turnstile callbacks report interactive mode,
+  errors, expiry, timeout and unsupported browsers. Manual tasks keep the window;
+  automatic tasks yield for a later user-triggered attempt. Cloudflare's published
+  lack of support for automation still applies; do not promise universal clearance.
 - Successful empty model lists replace cached models; failed fetches retain them.
-- AgentRouter uses its login-based NewAPI dialect, with account/password required.
+- AgentRouter uses its login-based NewAPI dialect. Reauthenticate with saved
+  account/password or a bound browser login account; a pasted session alone is insufficient.
 - Provider cards expose an action to open the configured site in the default browser.
 - Verification uses a separate compact application window without browser tabs or
   an address bar. The generated Turnstile page fits its content and follows widget
@@ -46,8 +57,9 @@ commands. Model-list parsing and provider-card actions are independent fixes.
 
 Use focused regression tests for empty-vs-failed model results, task deduplication,
 waiting/cancel/resume transitions, persistence ordering and frontend stale-result
-and busy-state cleanup. Reuse the recorded real Turnstile check-in evidence;
-do not repeat real submissions for unchanged paths. Launch an isolated Tauri dev
+and busy-state cleanup. Keep recorded real Turnstile check-ins as historical
+evidence; changed verification behavior needs separate acceptance and historical
+results do not prove current compatibility. Launch an isolated Tauri dev
 App with automatic activity initially disabled and leave it running for the user.
 Automated verification does not constitute user acceptance.
 
@@ -76,6 +88,18 @@ repeat an uncertain submission. Fresh login confirms the account/session; it doe
 not prove that a daily reward was credited.
 The in-process verification handoff retains whether login is still pending, so
 cached credentials cannot skip a login that was intercepted by a page challenge.
+
+Bound-account reauthentication uses `provider_browser_login/check_in` inside the
+existing check-in task. It shares the exclusive account profile lease with login
+imports and account management, without holding the HTTP or global refresh gate.
+The worker clears relay credentials, optionally selects the known platform's login
+button, and requires a successful login response plus same-user readback. OAuth
+state, session refresh and localStorage cannot prove reauthentication. Rust checks
+the bound account generation, observed platform identity and current provider
+context before merging credentials, then uses the common check-in finalizer.
+Bulk and scheduled runs yield as `waitingLogin`; a manual resume opens the window.
+Progress distinguishes waiting for login from actual login submission so cancellation
+after a possible submission remains unconfirmed instead of silently retrying.
 
 `autoShield = false` disables cached shield injection and solving in provider HTTP
 transport, and page-challenge navigation in the browser executor. Browser profiles

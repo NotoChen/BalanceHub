@@ -2,6 +2,7 @@
 import { computed, ref, useId } from "vue";
 import { Activity, CalendarCheck2, CheckCircle2, CircleAlert, CloudDownload, Megaphone, RefreshCw, Search, Terminal, LogIn } from "@lucide/vue";
 import type { BackgroundTask, BackgroundTaskKind } from "../composables/useBackgroundTaskCenter";
+import { formatProgress } from "../utils/progress-display";
 
 const props = defineProps<{
   tasks: BackgroundTask[];
@@ -66,7 +67,7 @@ function statusLabel(task: BackgroundTask) {
   if (task.status === "cancelled") return "已取消";
   if (task.status === "unconfirmed") return "待确认";
   if (task.progress === null) return "进行中";
-  return `${Math.round(task.progress * 100)}%`;
+  return formatProgress(task.progress);
 }
 
 function formatTime(value?: number) {

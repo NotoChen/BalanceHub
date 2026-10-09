@@ -1,7 +1,7 @@
 mod account;
 mod announcements;
+mod api_key_editor;
 mod api_keys;
-mod available_models;
 mod browser_login;
 mod login_accounts;
 pub(crate) use login_accounts::{LoginAccountSummary, LoginCookieSummary};
@@ -53,6 +53,7 @@ pub(super) struct ProviderRequestContext {
     access_token_expires_at: Option<i64>,
     new_api_session: Option<crate::models::NewApiSession>,
     credential_revision: u64,
+    browser_binding: Option<crate::models::BrowserLoginBinding>,
     check_in_method: ProviderCheckInMethod,
     auto_shield: bool,
     turnstile_mode: ProviderTurnstileMode,
@@ -77,6 +78,7 @@ impl ProviderRequestContext {
             access_token_expires_at: provider.auth.access_token_expires_at,
             new_api_session: provider.auth.new_api_session.clone(),
             credential_revision: provider.auth.credential_revision,
+            browser_binding: provider.auth.browser_binding.clone(),
             check_in_method: provider.automation.check_in_method,
             auto_shield: provider.automation.auto_shield,
             turnstile_mode: provider.automation.turnstile_mode,
@@ -100,6 +102,7 @@ impl ProviderRequestContext {
             && self.access_token_expires_at == provider.auth.access_token_expires_at
             && self.new_api_session == provider.auth.new_api_session
             && self.credential_revision == provider.auth.credential_revision
+            && self.browser_binding == provider.auth.browser_binding
             && self.check_in_method == provider.automation.check_in_method
             && self.auto_shield == provider.automation.auto_shield
             && self.turnstile_mode == provider.automation.turnstile_mode

@@ -1,6 +1,6 @@
 [package]
 name = "balancehub"
-version = "0.6.0"
+version = "0.6.1"
 description = "用于集中管理 AI 中转站账号的跨平台桌面应用。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"
@@ -24,10 +24,9 @@ opt-level = 3
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-[dev-dependencies]
-tempfile = "3"
-
 [dependencies]
+# 浏览器启动验证使用自动清理的独立临时 profile。
+tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "gzip", "brotli", "deflate", "system-proxy", "socks"] }
 # updater 目前使用 reqwest 0.13；显式合并 SOCKS 与系统代理 feature，
 # 并由 tauri-plugin-updater 的 native-tls feature 使用系统证书存储。
@@ -70,4 +69,4 @@ rustix = { version = "1.1", features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
 # 目录资产盘点必须从已打开且禁止删除共享的句柄枚举，避免路径替换竞态。
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_Registry"] }

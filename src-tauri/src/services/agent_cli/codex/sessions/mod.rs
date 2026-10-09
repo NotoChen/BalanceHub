@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexLoadResult,
+    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexSource,
     SessionMetadataCursor, SessionMetadataLookupError, SessionMetadataLookupRequest,
     SessionMetadataLookupResult, SessionMetadataSnapshot, SessionReadLimits,
 };
@@ -20,7 +20,7 @@ mod index;
 mod rollout;
 
 use index::{read_database_session, read_session_title, state_databases};
-use rollout::{index_rollout, parse_rollout_messages, search_rollout};
+use rollout::{index_source, parse_rollout_messages, search_rollout};
 
 mod history;
 pub(super) use history::HISTORY;
