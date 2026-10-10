@@ -209,7 +209,11 @@ impl ProviderService<'_> {
         })
     }
 
-    pub fn save_settings(&self, mut settings: AppSettings) -> Result<AppSettings, String> {
+    pub fn save_settings(
+        &self,
+        mut settings: AppSettings,
+        expected: AppSettings,
+    ) -> Result<AppSettings, String> {
         let _ = limits::normalize_settings(&mut settings);
         if settings.notification_channels.len() > limits::MAX_NOTIFICATION_CHANNELS {
             return Err(format!(
@@ -217,9 +221,10 @@ impl ProviderService<'_> {
                 limits::MAX_NOTIFICATION_CHANNELS
             ));
         }
-        let (previous, saved) = self.mutate(|data| {
-            let previous = std::mem::replace(&mut data.settings, settings);
-            (previous, data.settings.clone())
+        let (previous, saved) = self.mutate_decided(|data| {
+            let merged = merge_settings_changes(&expected, &settings, &data.settings)?;
+            let previous = std::mem::replace(&mut data.settings, merged);
+            Ok(MutationDecision::changed((previous, data.settings.clone())))
         })?;
         crate::services::cli_sessions::reconfigure_index(self.app, &previous, &saved);
         Ok(saved)
@@ -258,6 +263,9 @@ impl ProviderService<'_> {
             std::mem::replace(&mut *current, data.clone())
         };
         state.clear_load_error();
+        if crate::services::cloud_sync::app_changed(&previous_data, &data) {
+            state.cloud_sync_signal.changed();
+        }
         drop(previous_data);
         let result = AppDataTransferResult {
             path: source.display().to_string(),
@@ -266,6 +274,24 @@ impl ProviderService<'_> {
         };
         Ok((data, result))
     }
+}
+
+/// A settings draft only owns fields edited since its last acknowledgement.
+/// Cloud updates may change other fields while that draft remains open.
+fn merge_settings_changes(
+    expected: &AppSettings,
+    desired: &AppSettings,
+    current: &AppSettings,
+) -> Result<AppSettings, String> {
+    let expected = serde_json::to_value(expected).map_err(|_| "设置原始状态无效")?;
+    let desired = serde_json::to_value(desired).map_err(|_| "设置草稿无效")?;
+    let mut merged = serde_json::to_value(current).map_err(|_| "当前设置无效")?;
+    for (key, value) in desired.as_object().ok_or("设置格式无效")? {
+        if expected.get(key) != Some(value) {
+            merged[key] = value.clone();
+        }
+    }
+    serde_json::from_value(merged).map_err(|_| "设置合并失败".to_owned())
 }
 
 fn provider_save_conflict(
@@ -319,6 +345,18 @@ fn provider_save_conflict(
 mod tests {
     use super::*;
     use crate::models::{AuthMode, ProviderProtocol};
+
+    #[test]
+    fn cloud_sync_changes_survive_an_older_settings_draft() {
+        let before = AppSettings::default();
+        let mut remote = before.clone();
+        remote.theme_mode = crate::models::ThemeMode::Dark;
+        let mut draft = before.clone();
+        draft.refresh_interval = before.refresh_interval + 60;
+        let saved = merge_settings_changes(&before, &draft, &remote).unwrap();
+        assert!(matches!(saved.theme_mode, crate::models::ThemeMode::Dark));
+        assert_eq!(saved.refresh_interval, draft.refresh_interval);
+    }
 
     fn api_key_provider(id: &str, key: &str) -> Provider {
         let mut input = ProviderInput::default();

@@ -103,7 +103,7 @@ function fresh(t: TestContext) {
     browserRuntime: ref(null), cancelBrowserRuntime: async () => { controls.push("cancel:browser"); },
     checkingForUpdate: ref(false), updateCheckError: ref(""), installingUpdate: ref(false), updateDownloadProgress: ref(null), updateInstallStatus: ref(""), updateInstallError: ref(""),
     announcementsLoading: ref(false), announcementFatalError: ref(""), announcementErrors: ref([]), cliRuntimeLoading: ref(false),
-    temporaryCliLaunchTasks: ref([]), probingCapabilitiesProviderId: ref(null), agentTasks: ref<BackgroundTask[]>([]),
+    temporaryCliLaunchTasks: ref([]), probingCapabilitiesProviderId: ref(null), domainTasks: ref<BackgroundTask[]>([]),
   };
   const renderer = createRenderer<Record<string, unknown>, Record<string, unknown>>({
     patchProp() {}, insert() {}, remove() {}, createElement: (type) => ({ type }), createText: (text) => ({ text }), createComment: (text) => ({ text }),
@@ -117,6 +117,21 @@ function fresh(t: TestContext) {
 function action(task: BackgroundTask, label: string) {
   const found = task.actions?.find((item) => item.label === label); assert.ok(found, "Expected action: " + label); return found;
 }
+
+test("WebDAV waiting and failure snapshots never create a false success or mark provider cards syncing", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  const task = agentTask("cloud-sync-fixture", { kind: "cloudSync", title: "WebDAV 同步", status: "waiting", detail: "等待冲突处理" });
+  context.options.domainTasks!.value = [task]; await settle();
+  assert.equal(center.activeTaskCount.value, 1);
+  assert.equal(context.options.refreshInProgress.value, false);
+  assert.equal(context.options.refreshingProviderIds.value.size, 0);
+  context.options.domainTasks!.value = [{ ...task, status: "failed", detail: "WebDAV 上传失败", finishedAt: Date.now() }]; await settle();
+  assert.equal(center.activeTaskCount.value, 0);
+  assert.deepEqual(center.recentTasks.value.map((entry) => entry.status), ["failed"]);
+  context.options.domainTasks!.value = [{ ...task, id: "cloud-sync-next", status: "running" }]; await settle();
+  context.options.domainTasks!.value = []; await settle();
+  assert.deepEqual(center.recentTasks.value.map((entry) => entry.status), ["failed"]);
+});
 
 test("waiting login stays active and cancellable until its domain event confirms cancellation", async (t) => {
   const context = fresh(t); const center = await context.mount();
@@ -175,10 +190,10 @@ test("browser launch validation remains cancellable and records its actual termi
 test("Agent snapshots replace same-ID events and remain the terminal authority after late events", async (t) => {
   const context = fresh(t); const center = await context.mount(); const running = agentTask();
   emit(event(running.id, { kind: "sync", status: "running", title: "通用事件任务" })); await settle();
-  context.options.agentTasks!.value = [running]; await settle();
+  context.options.domainTasks!.value = [running]; await settle();
   assert.equal(center.activeTaskCount.value, 1); assert.equal(center.activeTasks.value[0].title, running.title);
   const failed = { ...running, status: "failed" as const, detail: "领域核验失败", finishedAt: Date.now() };
-  context.options.agentTasks!.value = [failed]; await settle();
+  context.options.domainTasks!.value = [failed]; await settle();
   assert.equal(center.activeTaskCount.value, 0); assert.deepEqual(center.recentTasks.value.map((task) => [task.id, task.status, task.detail]), [[running.id, "failed", failed.detail]]);
   emit(event(running.id, { kind: "sync", status: "success", detail: "晚到的通用成功", finishedAt: Date.now() })); await settle();
   emit(event(running.id, { kind: "sync", status: "waiting", detail: "晚到的通用等待" })); await settle();
@@ -189,10 +204,10 @@ test("an arriving Agent snapshot supersedes an earlier event result without dupl
   const context = fresh(t); const center = await context.mount(); const running = agentTask();
   emit(event(running.id, { kind: "sync", status: "success", finishedAt: Date.now() })); await settle();
   assert.equal(center.recentTasks.value.length, 1);
-  context.options.agentTasks!.value = [running]; await settle();
+  context.options.domainTasks!.value = [running]; await settle();
   assert.equal(center.activeTaskCount.value, 1); assert.deepEqual(center.recentTasks.value, []);
   emit(event(running.id, { kind: "sync", status: "running" })); await settle();
-  context.options.agentTasks!.value = []; await settle();
+  context.options.domainTasks!.value = []; await settle();
   assert.equal(center.activeTaskCount.value, 0); assert.deepEqual(center.recentTasks.value, []);
 });
 
@@ -200,7 +215,7 @@ test("check-in, browser runtime, CLI launch and Agent results retain their own t
   const context = fresh(t); const center = await context.mount();
   context.options.checkInTasks.value = [checkInTask()]; context.options.browserRuntime.value = browserRuntime();
   context.options.temporaryCliLaunchTasks.value = [{ id: "temporary-cli-launch-fixture", title: "隔离启动", detail: "正在启动", status: "running", startedAt: Date.now() - 1_000 }];
-  context.options.agentTasks!.value = [agentTask()]; await settle();
+  context.options.domainTasks!.value = [agentTask()]; await settle();
   assert.equal(center.activeTaskCount.value, 4);
   const checkIn = center.activeTasks.value.find((task) => task.id === "checkin-fixture")!;
   assert.equal(checkIn.status, "waiting"); action(checkIn, "继续验证").run(); action(checkIn, "取消").run();
@@ -211,7 +226,7 @@ test("check-in, browser runtime, CLI launch and Agent results retain their own t
   context.options.checkInTasks.value = [checkInTask({ phase: "unconfirmed", message: "签到结果未确认", finished: true, finishedAt: Date.now(), canResume: false, canCancel: false, revision: 2 })];
   context.options.browserRuntime.value = browserRuntime({ phase: "cancelled", message: "组件安装已取消", revision: 2 });
   context.options.temporaryCliLaunchTasks.value = [{ ...context.options.temporaryCliLaunchTasks.value[0], status: "failed", detail: "启动失败", error: "fixture launch failed", finishedAt: Date.now() }];
-  context.options.agentTasks!.value = [agentTask(undefined, { status: "failed", detail: "领域任务失败", finishedAt: Date.now() })]; await settle();
+  context.options.domainTasks!.value = [agentTask(undefined, { status: "failed", detail: "领域任务失败", finishedAt: Date.now() })]; await settle();
   assert.equal(center.activeTaskCount.value, 0);
   assert.deepEqual(Object.fromEntries(center.recentTasks.value.map((task) => [task.id, [task.status, task.detail]])), {
     "agent-catalog-fixture": ["failed", "领域任务失败"], "browser-runtime-install": ["cancelled", "组件安装已取消"],
@@ -221,9 +236,9 @@ test("check-in, browser runtime, CLI launch and Agent results retain their own t
 
 test("scheduler and vanished domain tasks are not automatically recorded as successful", async (t) => {
   const context = fresh(t); const center = await context.mount();
-  context.options.checkInTasks.value = [checkInTask()]; context.options.agentTasks!.value = [agentTask()];
+  context.options.checkInTasks.value = [checkInTask()]; context.options.domainTasks!.value = [agentTask()];
   emit(event("scheduler-fixture", { kind: "autoRefresh", status: "running" })); await settle();
-  context.options.checkInTasks.value = []; context.options.agentTasks!.value = [];
+  context.options.checkInTasks.value = []; context.options.domainTasks!.value = [];
   emit(event("scheduler-fixture", { kind: "autoRefresh", status: "failed", detail: "自动刷新失败", finishedAt: Date.now() })); await settle();
   assert.equal(center.activeTaskCount.value, 0);
   assert.deepEqual(center.recentTasks.value.map((task) => [task.id, task.status, task.detail]), [["scheduler-fixture", "failed", "自动刷新失败"]]);

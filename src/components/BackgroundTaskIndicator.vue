@@ -47,6 +47,7 @@ function iconFor(kind: BackgroundTaskKind) {
     case "announcement":
       return Megaphone;
     case "update":
+    case "cloudSync":
       return CloudDownload;
     case "cliProbe":
     case "cliLaunch":

@@ -177,7 +177,7 @@ pub(super) fn input_payload(
     }
 }
 
-fn validate_hook_display_name(name: &str) -> Result<(), String> {
+pub(super) fn validate_hook_display_name(name: &str) -> Result<(), String> {
     if name.is_empty()
         || name.trim() != name
         || name.len() > 128

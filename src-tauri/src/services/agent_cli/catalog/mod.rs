@@ -1,5 +1,6 @@
 //! Global asset identities, private shared definitions and native bindings.
 mod action_state;
+mod cloud_sync;
 mod comparison;
 mod content_sources;
 mod definition;
@@ -93,6 +94,13 @@ impl CatalogService {
     }
     pub(crate) fn with_display_cache(mut self, root: PathBuf) -> Self {
         self.display_cache_root = Some(root);
+        self
+    }
+    pub(crate) fn with_sync_signal(
+        mut self,
+        signal: Arc<crate::services::cloud_sync::SyncSignal>,
+    ) -> Self {
+        self.repository.set_sync_signal(signal);
         self
     }
     pub(crate) fn with_managed_hook_root(mut self, root: PathBuf) -> Self {

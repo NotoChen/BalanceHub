@@ -4,6 +4,7 @@ import AppDrawers from "./components/AppDrawers.vue";
 import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
 import BrowserRuntimeModal from "./components/BrowserRuntimeModal.vue";
+import CloudSyncReviewModal from "./components/CloudSyncReviewModal.vue";
 import LoginAccountsModal from "./components/LoginAccountsModal.vue";
 import LoginAccountPicker from "./components/LoginAccountPicker.vue";
 import ProviderCredentialsModal from "./components/ProviderCredentialsModal.vue";
@@ -24,6 +25,7 @@ useWindowGridSnap();
     <!-- 桌面界面不显示 WebView 原生右键菜单，卡片操作统一在卡片内完成。 -->
     <div class="app-shell" @contextmenu.prevent>
       <BrowserRuntimeModal />
+      <CloudSyncReviewModal />
       <LoginAccountsModal />
       <LoginAccountPicker />
       <ProviderCredentialsModal />

@@ -51,6 +51,18 @@ pub(crate) fn build_download_client(settings: &AppSettings) -> Result<Client, St
     .map_err(|_| "初始化组件下载网络失败".to_string())
 }
 
+pub(crate) fn build_sync_client(settings: &AppSettings) -> Result<Client, String> {
+    configure_reqwest_builder(
+        Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
+            .redirect(Policy::none()),
+        &resolve_global_proxy(settings),
+    )?
+    .build()
+    .map_err(|_| "无法创建同步网络客户端".to_owned())
+}
+
 fn build_cached_client(
     profile: HttpClientProfile,
     proxy: EffectiveProxy,

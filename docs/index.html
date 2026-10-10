@@ -278,10 +278,10 @@ page_class: landing-page
   <div class="site-shell privacy-layout">
     <div class="privacy-copy">
       <p class="section-kicker">本地优先</p>
-      <h2 id="privacy-title">敏感信息留在你自己的电脑上。</h2>
+      <h2 id="privacy-title">配置由你保存，同步由你选择。</h2>
       <p>
         BalanceHub 是本地桌面工具，不是托管服务。账号密码、Cookie、Token、API Key
-        与站点配置由当前设备保存；带认证的站点请求由本机 Rust 后端直接执行。
+        与站点配置默认由当前设备保存。启用 WebDAV 后，在本机加密并同步到你指定的服务；带认证的站点请求由本机 Rust 后端直接执行。
       </p>
       <p class="boundary-note">
         当前只支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 按 NewAPI 方言兼容。
@@ -375,6 +375,9 @@ page_class: landing-page
       </a>
       <a class="doc-link" href="{{ '/changelog.html' | relative_url }}">
         <span class="doc-number">08</span><div><h3>更新记录</h3><p>按版本查看新增能力、行为变化和问题修复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="doc-link" href="{{ '/webdav-sync.html' | relative_url }}">
+        <span class="doc-number">09</span><div><h3>WebDAV 同步</h3><p>加密与增量同步、冲突差异和本机恢复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
     </div>
   </div>

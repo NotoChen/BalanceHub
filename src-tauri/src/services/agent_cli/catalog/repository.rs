@@ -15,7 +15,8 @@ use std::{
     sync::Mutex,
 };
 
-const LIBRARY_LIMIT: usize = 64 * 1024 * 1024;
+pub(super) const LIBRARY_LIMIT: usize = 64 * 1024 * 1024;
+pub(super) const MAX_LIBRARY_ENTRIES: usize = 4096;
 const RETAINED_DEFINITION_VERSIONS: usize = 32;
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -38,6 +39,10 @@ pub(super) struct Entry {
     pub variants: BTreeMap<String, String>,
     pub versions: Vec<StoredDefinition>,
     pub receipts: BTreeMap<String, Receipt>,
+    /// Cloud deletion removes the shared definition without uninstalling any
+    /// local binding or discarding the historical receipt recovery material.
+    #[serde(default)]
+    pub shared_deleted: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -74,14 +79,20 @@ impl Entry {
             variants: BTreeMap::new(),
             versions: Vec::new(),
             receipts: BTreeMap::new(),
+            shared_deleted: false,
         }
     }
     pub fn current(&self) -> Option<&StoredDefinition> {
-        self.versions.last()
+        if self.shared_deleted {
+            None
+        } else {
+            self.versions.last()
+        }
     }
     pub fn push_version(&mut self, value: StoredDefinition) -> Result<(), String> {
         if self
-            .current()
+            .versions
+            .last()
             .is_some_and(|current| value.version <= current.version)
         {
             return Err("共享版本必须递增".to_owned());
@@ -117,12 +128,14 @@ impl Entry {
             }
         }
         let version = self
-            .current()
+            .versions
+            .last()
             .map_or(0, |current| current.version)
             .checked_add(1)
             .ok_or("共享版本已达到上限")?;
         let value = StoredDefinition { version, payload };
         self.push_version(value.clone())?;
+        self.shared_deleted = false;
         name.clone_into(&mut self.name);
         Ok(value)
     }
@@ -140,6 +153,7 @@ pub(super) struct Repository {
     root: PathBuf,
     lock: Mutex<()>,
     entry_cache: Mutex<Option<LibrarySnapshot>>,
+    sync_signal: Option<std::sync::Arc<crate::services::cloud_sync::SyncSignal>>,
     #[cfg(test)]
     persistence_fault: Mutex<Option<PersistenceFault>>,
     #[cfg(test)]
@@ -155,11 +169,18 @@ impl Repository {
             root,
             lock: Mutex::new(()),
             entry_cache: Mutex::new(None),
+            sync_signal: None,
             #[cfg(test)]
             persistence_fault: Mutex::new(None),
             #[cfg(test)]
             failure_after_save: Mutex::new(false),
         }
+    }
+    pub fn set_sync_signal(
+        &mut self,
+        signal: std::sync::Arc<crate::services::cloud_sync::SyncSignal>,
+    ) {
+        self.sync_signal = Some(signal);
     }
     pub fn transact<T>(
         &self,
@@ -174,7 +195,7 @@ impl Repository {
         &self,
         action: impl FnOnce(&mut Library) -> Result<T, String>,
     ) -> Result<(T, GuardedFile), String> {
-        self.checkpointed_inner(None, |library, _| action(library))
+        self.checkpointed_inner(None, true, |library, _, _| action(library))
     }
 
     /// Reading a preview must not create the private directory or an empty file.
@@ -246,7 +267,7 @@ impl Repository {
         expected: &GuardedFile,
         action: impl FnOnce(&mut Library) -> Result<T, String>,
     ) -> Result<T, String> {
-        self.checkpointed_inner(Some(expected), |library, _| action(library))
+        self.checkpointed_inner(Some(expected), true, |library, _, _| action(library))
             .map(|(output, _)| output)
     }
 
@@ -260,15 +281,33 @@ impl Repository {
             &mut dyn FnMut(&Library) -> Result<(), String>,
         ) -> Result<T, String>,
     ) -> Result<T, String> {
-        self.checkpointed_inner(None, action)
+        self.checkpointed_inner(None, true, |library, _, checkpoint| {
+            action(library, checkpoint)
+        })
+        .map(|(output, _)| output)
+    }
+
+    /// The coordinator explicitly publishes and rolls back while the library
+    /// lock is held. Never perform a second implicit save after it commits.
+    pub fn checkpointed_with_original<T>(
+        &self,
+        action: impl FnOnce(
+            &mut Library,
+            Option<&[u8]>,
+            &mut dyn FnMut(&Library) -> Result<(), String>,
+        ) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.checkpointed_inner(None, false, action)
             .map(|(output, _)| output)
     }
 
     fn checkpointed_inner<T>(
         &self,
         expected: Option<&GuardedFile>,
+        save_at_end: bool,
         action: impl FnOnce(
             &mut Library,
+            Option<&[u8]>,
             &mut dyn FnMut(&Library) -> Result<(), String>,
         ) -> Result<T, String>,
     ) -> Result<(T, GuardedFile), String> {
@@ -286,11 +325,12 @@ impl Repository {
             return Err("共享库在提交前已变化，未覆盖当前内容".to_owned());
         }
         let mut library = Self::decode(&file)?;
+        let original = file.bytes().map(<[u8]>::to_vec);
         let mut before = serde_json::to_vec(&library).map_err(|_| "共享库格式无效")?;
         let mut checkpoint = |library: &Library| -> Result<(), String> {
             file.revalidate()
                 .map_err(|_| "共享库在事务期间被外部修改")?;
-            if library.entries.len() > 4096 {
+            if library.entries.len() > MAX_LIBRARY_ENTRIES {
                 return Err("共享库超过 4096 项上限".to_owned());
             }
             let after = serde_json::to_vec(library).map_err(|_| "共享库格式无效")?;
@@ -310,6 +350,9 @@ impl Repository {
                     }
                 }
                 persistence::save(&file, &after)?;
+                if let Some(signal) = &self.sync_signal {
+                    signal.changed();
+                }
                 #[cfg(test)]
                 if std::mem::take(
                     &mut *self
@@ -327,8 +370,10 @@ impl Repository {
             }
             Ok(())
         };
-        let output = action(&mut library, &mut checkpoint)?;
-        checkpoint(&library)?;
+        let output = action(&mut library, original.as_deref(), &mut checkpoint)?;
+        if save_at_end {
+            checkpoint(&library)?;
+        }
         Ok((output, file))
     }
     #[cfg(all(test, unix))]

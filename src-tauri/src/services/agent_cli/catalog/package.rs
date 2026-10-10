@@ -14,8 +14,8 @@ use std::{
 };
 
 pub(super) const MAX_FILE_BYTES: usize = 512 * 1024;
-const MAX_PACKAGE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_PACKAGE_FILES: usize = 256;
+pub(super) const MAX_PACKAGE_BYTES: usize = 8 * 1024 * 1024;
+pub(super) const MAX_PACKAGE_FILES: usize = 256;
 const MAX_DEPTH: usize = 8;
 
 pub(super) struct PackageSnapshot {

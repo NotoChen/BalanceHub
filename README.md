@@ -149,7 +149,7 @@ BalanceHub 的定位更进一步:**面向真正在用 Agent CLI 打中转站的�
 | 会话检索 | • 按 Agent 与工作目录搜索可见历史会话<br>• 查看对话详情 | • ✗ | • 会话浏览与目录导航(五款应用) |
 | 账号运维 | • 余额与 Key 额度<br>• 用量趋势<br>• 请求日志<br>• 签到增量识别<br>• 站点公告<br>• 后台任务中心 | • 余额 / 用量看板<br>• 模型价格比对<br>• 自动签到<br>• 用量报表(热力图、慢请求) | • Token 消耗与费用统计 |
 | 网络兼容 | • 统一代理(HTTP / SOCKS / 系统代理)<br>• 确定性阿里云 WAF JS 挑战自动重试<br>• 挑战凭证按站点隔离 | • 浏览器扩展内的站点兼容辅助 | • 本地 HTTP 代理<br>• 自动故障转移与请求监控 |
-| 数据存储 | • 本地优先<br>• 异常写入恢复 + 事务化写盘<br>• 导入导出迁移 | • 本地管理<br>• 可选 WebDAV 加密同步 | • 本地存储 + 自动备份<br>• WebDAV 同步 |
+| 数据存储 | • 本地优先<br>• 异常写入恢复 + 事务化写盘<br>• 导入导出迁移<br>• 可选 WebDAV 加密增量同步 | • 本地管理<br>• 可选 WebDAV 加密同步 | • 本地存储 + 自动备份<br>• WebDAV 同步 |
 
 **怎么选?** 只想在浏览器里看看余额、比比模型价格 —— [All API Hub](https://github.com/qixing-jk/all-api-hub) 更轻便;只需要给 CLI 切换 API 配置、不管账号本身 —— [CC Switch](https://github.com/farion1231/cc-switch) 就够了;既要管账号(余额 / 签到 / 日志),又要确认它在本机 CLI 里真的能用、还想直接切进去干活 —— 这才是 BalanceHub 的位置。
 
@@ -165,13 +165,13 @@ BalanceHub 的定位更进一步:**面向真正在用 Agent CLI 打中转站的�
 ![Arco Design](https://img.shields.io/badge/Arco%20Design-165dff)
 ![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)
 
-后端用 Rust(tokio / reqwest / serde)承担协议适配、调度、存储、通知与测活;前端负责交互与状态呈现。原生桌面体验,占用小,敏感凭据留在本机。完整的架构分层与目录说明见[功能与架构参考](docs/reference.md)。
+后端用 Rust(tokio / reqwest / serde)承担协议适配、调度、存储、通知与测活;前端负责交互与状态呈现。配置默认保存在本机，可选择自己的 WebDAV 服务进行加密同步。完整的架构分层与目录说明见[功能与架构参考](docs/reference.md)。
 
 ## 隐私与安全
 
 BalanceHub 处理的是账号密码、Cookie、Token 和 API Key,所以在设计上把"本地优先"落到实处:
 
-- **凭据只存本机** —— 全部保存在本地应用数据目录,不上传任何远端服务器,项目方看不到、也收不到。
+- **凭据默认存本机** —— 保存在本地应用数据目录。启用 WebDAV 时，同步内容在本机加密后上传到你指定的服务，项目方没有中间服务接收配置。
 - **请求本地直发** —— 带认证的站点请求由本机 Rust 执行,不经浏览器页面、不经第三方中转。
 - **临时凭据收紧权限** —— 临时 CLI 运行时写出的凭据文件,权限收紧为仅当前用户可读,退出后清理。
 - **挑战凭证隔离** —— 确定性阿里云 WAF JS 挑战产生的凭证按站点、来源与代理路由隔离,互不串用。
@@ -184,6 +184,7 @@ BalanceHub 处理的是账号密码、Cookie、Token 和 API Key,所以在设计
 | [快速开始](docs/getting-started.md) | 安装、添加第一个中转站、日常使用与配置迁移 |
 | [中转站配置](docs/provider-config.md) | NewAPI / Sub2API / 通用 API 的认证方式、协议边界与连接测试 |
 | [Agent 工作台](docs/agent-workbench.md) | 双视角、全局资产绑定、共享定义应用、CLI 升级、路径与配置入口 |
+| [WebDAV 配置同步](docs/webdav-sync.md) | 连接、加密与增量同步、冲突 diff、删除传播和本机恢复 |
 | [测活配置](docs/liveness.md) | 全局与单站测活、CLI 路径查找、模型与凭据、常见错误排查 |
 | [功能与架构参考](docs/reference.md) | 完整功能清单、技术框架、架构分层、目录说明与关键边界 |
 | [发布与更新](docs/release.md) | 各平台发布包、发布前检查、自动更新机制与版本说明 |

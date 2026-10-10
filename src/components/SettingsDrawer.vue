@@ -64,7 +64,7 @@ const sections = [
     id: "system",
     title: "网络与数据",
     description: "管理代理、登录组件和应用备份。",
-    keywords: "网络代理 代理策略 代理地址 proxy HTTP HTTPS SOCKS5 自定义 直连 跟随系统 浏览器 Chromium 登录账号 授权 Linux DO GitHub Cookie 凭据 数据备份 导出当前配置 从备份恢复 导入",
+    keywords: "网络代理 代理策略 代理地址 proxy HTTP HTTPS SOCKS5 自定义 直连 跟随系统 浏览器 Chromium 登录账号 授权 Linux DO GitHub Cookie 凭据 数据备份 导出当前配置 从备份恢复 导入 WebDAV 同步 共享资产 云端 加密 冲突",
   },
 ] as const;
 

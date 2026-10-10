@@ -235,7 +235,7 @@ test("completed session tasks remain visible in the shared recent task center wi
     resumeCheckInTask: async () => {}, cancelCheckInTask: async () => {}, showCheckInWindow: async () => {}, browserRuntime: ref(null), cancelBrowserRuntime: async () => {},
     checkingForUpdate: ref(false), updateCheckError: ref(""), installingUpdate: ref(false), updateDownloadProgress: ref(null), updateInstallStatus: ref(""), updateInstallError: ref(""),
     announcementsLoading: ref(false), announcementFatalError: ref(""), announcementErrors: ref([]), cliRuntimeLoading: ref(false), temporaryCliLaunchTasks: ref([]),
-    probingCapabilitiesProviderId: ref(null), agentTasks: backgrounds.useAgentBackgroundTasks(),
+    probingCapabilitiesProviderId: ref(null), domainTasks: backgrounds.useAgentBackgroundTasks(),
   }));
   await settle();
   assert.equal(center.activeTaskCount.value, 0);

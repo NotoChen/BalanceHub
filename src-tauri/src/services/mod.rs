@@ -8,6 +8,7 @@ pub(crate) mod check_in_tasks;
 pub(crate) mod cli_paths;
 pub mod cli_runtime;
 pub mod cli_sessions;
+pub(crate) mod cloud_sync;
 pub mod liveness;
 pub(crate) mod login_profiles;
 pub mod notifications;

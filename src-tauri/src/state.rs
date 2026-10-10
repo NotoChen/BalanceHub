@@ -36,6 +36,8 @@ pub struct AppState {
         OnceLock<Arc<crate::services::agent_cli::configuration::ConfigurationService>>,
     agent_catalog: OnceLock<Arc<CatalogService>>,
     agent_lifecycle: OnceLock<Arc<LifecycleService>>,
+    cloud_sync: OnceLock<Arc<crate::services::cloud_sync::CloudSyncService>>,
+    pub(crate) cloud_sync_signal: Arc<crate::services::cloud_sync::SyncSignal>,
     agent_overview: OnceLock<Arc<crate::services::agent_cli::overview::OverviewService>>,
     asset_actors: Mutex<BTreeMap<String, String>>,
     revision: AtomicU64,
@@ -62,6 +64,8 @@ impl AppState {
             agent_configuration: OnceLock::new(),
             agent_catalog: OnceLock::new(),
             agent_lifecycle: OnceLock::new(),
+            cloud_sync: OnceLock::new(),
+            cloud_sync_signal: Arc::default(),
             agent_overview: OnceLock::new(),
             asset_actors: Mutex::default(),
             revision: AtomicU64::new(1),
@@ -99,6 +103,7 @@ impl AppState {
         Ok(Arc::clone(self.agent_catalog.get_or_init(|| {
             Arc::new(
                 CatalogService::new(root, Arc::clone(&self.agent_asset_mutations))
+                    .with_sync_signal(Arc::clone(&self.cloud_sync_signal))
                     .with_managed_hook_root(managed_hook_root)
                     .with_display_cache(display_cache_root),
             )
@@ -194,6 +199,30 @@ impl AppState {
             .load_error
             .write()
             .unwrap_or_else(|err| err.into_inner()) = None;
+    }
+
+    pub(crate) fn block_storage(&self, error: String) {
+        *self
+            .load_error
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = Some(error);
+    }
+
+    pub(crate) fn cloud_sync(
+        &self,
+        app: &tauri::AppHandle,
+    ) -> Result<Arc<crate::services::cloud_sync::CloudSyncService>, String> {
+        let root = app
+            .path()
+            .app_config_dir()
+            .map_err(|_| "无法获取同步配置目录")?
+            .join("cloud-sync");
+        Ok(Arc::clone(self.cloud_sync.get_or_init(|| {
+            Arc::new(crate::services::cloud_sync::CloudSyncService::new(
+                root,
+                Arc::clone(&self.cloud_sync_signal),
+            ))
+        })))
     }
 
     pub fn next_revision(&self) -> u64 {

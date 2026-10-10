@@ -85,10 +85,8 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   });
 
   watch(options.settings, (value) => {
-    // 设置草稿会实时写入；设置窗口打开时仍避免后台状态回灌覆盖正在编辑的控件。
-    if (options.settingsDrawerVisible.value) {
-      return;
-    }
+    // The settings controller protects pending edits. A clean open window must
+    // still receive cloud changes and delayed provider reloads.
     options.syncFromSettings(value);
   });
 

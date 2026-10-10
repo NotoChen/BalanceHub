@@ -21,6 +21,7 @@ export type BackgroundTaskStatus = "running" | "waiting" | "success" | "failed" 
 
 export type BackgroundTaskKind =
   | "providerLogin"
+  | "cloudSync"
   | "refresh"
   | "checkIn"
   | "announcement"
@@ -93,14 +94,14 @@ interface UseBackgroundTaskCenterOptions {
   cliRuntimeLoading: Ref<boolean>;
   temporaryCliLaunchTasks: Ref<TemporaryCliLaunchTask[]>;
   probingCapabilitiesProviderId: Ref<string | null>;
-  agentTasks?: Ref<BackgroundTask[]>;
+  domainTasks?: Ref<BackgroundTask[]>;
 }
 
 const TASK_EVENT_NAME = "background-task";
 const RECENT_TASK_LIMIT = 12;
 const RECENT_TASK_MAX_AGE_MS = 15 * 60 * 1_000;
 
-function isPendingAgentTask(task: BackgroundTask): boolean {
+function isPendingDomainTask(task: BackgroundTask): boolean {
   return task.status === "running"
     || task.status === "waiting"
     || (task.status === "unconfirmed" && task.finishedAt === undefined);
@@ -120,7 +121,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   let observedActiveState = false;
   const rememberedTemporaryCliTaskIds = new Set<string>();
   const rememberedCheckInIds = new Set<string>();
-  const rememberedAgentTaskResults = new Map<string, string>();
+  const rememberedDomainTaskResults = new Map<string, string>();
   let disposed = false;
   const observedLoginEvents = new Set<string>();
   const loginControl = createLoginTaskControl({
@@ -275,14 +276,14 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       }
     }
 
-    const agentTasks = options.agentTasks?.value ?? [];
-    const agentTaskIds = new Set(agentTasks.map((task) => task.id));
+    const domainTasks = options.domainTasks?.value ?? [];
+    const domainTaskIds = new Set(domainTasks.map((task) => task.id));
     for (const task of Object.values(remoteTasks.value)) {
       // Domain snapshots recover missed events and own the final state for the same ID.
-      if ((task.status === "running" || task.status === "waiting") && !agentTaskIds.has(task.id)) tasks.push(task);
+      if ((task.status === "running" || task.status === "waiting") && !domainTaskIds.has(task.id)) tasks.push(task);
     }
-    for (const task of agentTasks) {
-      if (isPendingAgentTask(task)) tasks.push(task);
+    for (const task of domainTasks) {
+      if (isPendingDomainTask(task)) tasks.push(task);
     }
     return tasks.sort((left, right) => left.startedAt - right.startedAt);
   });
@@ -378,6 +379,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
         if (
           !next.has(id)
           && previous.kind !== "providerLogin"
+          && previous.kind !== "cloudSync"
           && !id.startsWith("scheduler-")
           && !id.startsWith("temporary-cli-launch-")
           && !id.startsWith("checkin-")
@@ -394,7 +396,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
 
   function handleSchedulerEvent(event: BackgroundTaskEvent) {
     if (!event || !event.taskId || !event.title) return;
-    if (options.agentTasks?.value.some((task) => task.id === event.taskId)) return;
+    if (options.domainTasks?.value.some((task) => task.id === event.taskId)) return;
     const actions: NonNullable<BackgroundTask["actions"]> = [];
     if (event.kind === "providerLogin") {
       const disabled = loginControl.pending(event.taskId);
@@ -507,21 +509,21 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       status: runtime.phase === "ready" ? "success" : runtime.phase === "cancelled" ? "cancelled" : "failed",
       progress: null, startedAt: previousActive.get("browser-runtime-install")?.startedAt ?? Date.now(), finishedAt: Date.now(), source: "manual" });
   });
-  if (options.agentTasks) watch(options.agentTasks, (tasks) => {
+  if (options.domainTasks) watch(options.domainTasks, (tasks) => {
     const retained = new Set(tasks.map((task) => task.id));
     if (Object.keys(remoteTasks.value).some((id) => retained.has(id))) {
       remoteTasks.value = Object.fromEntries(Object.entries(remoteTasks.value).filter(([id]) => !retained.has(id)));
     }
-    const pendingIds = new Set(tasks.filter(isPendingAgentTask).map((task) => task.id));
+    const pendingIds = new Set(tasks.filter(isPendingDomainTask).map((task) => task.id));
     if (pendingIds.size) recentTasks.value = recentTasks.value.filter((task) => !pendingIds.has(task.id));
     for (const task of tasks) {
-      if (isPendingAgentTask(task)) { rememberedAgentTaskResults.delete(task.id); continue; }
+      if (isPendingDomainTask(task)) { rememberedDomainTaskResults.delete(task.id); continue; }
       const signature = `${task.status}:${task.finishedAt}:${task.detail}`;
-      if (rememberedAgentTaskResults.get(task.id) === signature) continue;
-      rememberedAgentTaskResults.set(task.id, signature);
+      if (rememberedDomainTaskResults.get(task.id) === signature) continue;
+      rememberedDomainTaskResults.set(task.id, signature);
       rememberRecent(task);
     }
-    for (const id of rememberedAgentTaskResults.keys()) if (!retained.has(id)) rememberedAgentTaskResults.delete(id);
+    for (const id of rememberedDomainTaskResults.keys()) if (!retained.has(id)) rememberedDomainTaskResults.delete(id);
   }, { immediate: true });
 
   return {

@@ -34,6 +34,8 @@ mod app_settings;
 mod check_in_task;
 #[path = "models/cli_sessions.rs"]
 mod cli_sessions;
+#[path = "models/cloud_sync.rs"]
+mod cloud_sync;
 #[path = "models/enums.rs"]
 mod enums;
 #[path = "models/liveness.rs"]
@@ -74,6 +76,7 @@ pub use cli_sessions::{
     CliSessionDetail, CliSessionIndexAgentStats, CliSessionIndexState, CliSessionIndexStatus,
     CliSessionMessage, CliSessionMessageRole, CliSessionSummary,
 };
+pub use cloud_sync::*;
 pub use enums::*;
 pub use liveness::*;
 pub use login_account::*;

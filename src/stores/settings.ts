@@ -13,9 +13,9 @@ export const useSettingsStore = defineStore("settings", {
       this.saveRequestId += 1;
       this.settings = settings;
     },
-    async save(settings: AppSettings) {
+    async save(settings: AppSettings, expected: AppSettings) {
       const requestId = ++this.saveRequestId;
-      const saved = await saveSettingsCommand(settings);
+      const saved = await saveSettingsCommand(settings, expected);
       if (requestId === this.saveRequestId) this.settings = saved;
       return saved;
     },

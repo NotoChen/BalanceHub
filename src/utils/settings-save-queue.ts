@@ -2,7 +2,7 @@ export type SettingsSaveState = "saved" | "pending" | "saving" | "error";
 
 interface SettingsSaveQueueOptions<T> {
   read: () => T;
-  write: (value: T) => Promise<T>;
+  write: (value: T, expected: T) => Promise<T>;
   accept: (value: T) => void;
   state: (state: SettingsSaveState, error: string) => void;
   failed: (message: string) => void;
@@ -56,6 +56,7 @@ export function createSettingsSaveQueue<T>(options: SettingsSaveQueueOptions<T>)
     }
 
     const value = options.read();
+    const expected = JSON.parse(persisted) as T;
     const snapshot = settingsSnapshot(value);
     let finish!: (saved: boolean) => void;
     const current = {
@@ -77,13 +78,16 @@ export function createSettingsSaveQueue<T>(options: SettingsSaveQueueOptions<T>)
 
     // A timed-out IPC may still write later. Keep its place in the queue instead
     // of issuing a competing write that could restore older settings on disk.
-    void Promise.resolve().then(() => options.write(value)).then((saved) => {
+    void Promise.resolve().then(() => options.write(value, expected)).then((saved) => {
       clearTimeout(timeout);
       active = null;
       if (disposed) { finish(false); return; }
-      const unchanged = settingsSnapshot(options.read()) === snapshot;
+      // The acknowledgement may contain fields received from another device.
+      // Rebase edits made while this request was pending onto that result, so
+      // the next queued save does not restore untouched, older field values.
+      const draft = mergeChangedSettings(value, options.read(), saved);
       persisted = settingsSnapshot(saved);
-      if (unchanged) options.accept(saved);
+      options.accept(draft);
       if (dirty()) {
         void flush().then(finish);
       } else {

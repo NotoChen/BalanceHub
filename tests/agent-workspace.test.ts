@@ -1217,7 +1217,7 @@ test("Agent task disappearance is not inferred as success by the shared backgrou
     resumeCheckInTask: async () => {}, cancelCheckInTask: async () => {}, showCheckInWindow: async () => {}, browserRuntime: ref(null), cancelBrowserRuntime: async () => {},
     checkingForUpdate: ref(false), updateCheckError: ref(""), installingUpdate: ref(false), updateDownloadProgress: ref(null), updateInstallStatus: ref(""), updateInstallError: ref(""),
     announcementsLoading: ref(false), announcementFatalError: ref(""), announcementErrors: ref([]), cliRuntimeLoading: ref(false), temporaryCliLaunchTasks: ref([]),
-    probingCapabilitiesProviderId: ref(null), agentTasks: tasks,
+    probingCapabilitiesProviderId: ref(null), domainTasks: tasks,
   }));
   context.catalog.startTimes["global-asset"] = Date.now(); context.catalog.starting["global-asset"] = true; await nextTick();
   assert.equal(center.activeTaskCount.value, 1);

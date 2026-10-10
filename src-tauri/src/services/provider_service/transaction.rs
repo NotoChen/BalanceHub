@@ -140,6 +140,11 @@ impl ProviderService<'_> {
         }
         let previous_data = {
             let mut current = state.data.write().unwrap_or_else(|err| err.into_inner());
+            if state.cloud_sync_signal.enabled()
+                && crate::services::cloud_sync::app_changed(&current, &next_data)
+            {
+                state.cloud_sync_signal.changed();
+            }
             std::mem::replace(&mut *current, next_data)
         };
         drop(previous_data);

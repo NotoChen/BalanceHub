@@ -8,6 +8,7 @@ pub(crate) mod agent_sessions;
 pub(crate) mod app;
 pub(crate) mod browser_runtime;
 pub(crate) mod cli;
+pub(crate) mod cloud_sync;
 pub(crate) mod login_accounts;
 pub(crate) mod provider;
 pub(crate) mod provider_browser_login;

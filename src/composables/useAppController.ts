@@ -15,6 +15,8 @@ import { useAvailableModels } from "./useAvailableModels";
 import { useBatchOperation } from "./useBatchOperation";
 import { useBackgroundTaskCenter } from "./useBackgroundTaskCenter";
 import { useBrowserRuntime } from "./useBrowserRuntime";
+import { useCloudSync } from "./useCloudSync";
+import { useAgentCatalogStore } from "../stores/agent-catalog";
 import { useLoginAccounts } from "./useLoginAccounts";
 import { useProviderCredentials } from "./useProviderCredentials";
 import { useAgentBackgroundTasks } from "./useAgentBackgroundTasks";
@@ -68,7 +70,7 @@ export function useAppController() {
     providers,
     settings,
     initialSettings: settingsStore.settings,
-    saveSettings: (value) => settingsStore.save(value),
+    saveSettings: (value, expected) => settingsStore.save(value, expected),
   });
 
   const systemNotification = useSystemNotification(settingsController.settingsForm);
@@ -82,6 +84,12 @@ export function useAppController() {
   });
 
   const browserRuntime = useBrowserRuntime();
+  const cloudSync = useCloudSync(async () => {
+    await providerStore.reload();
+    settingsController.syncFromSettings();
+    const catalog = useAgentCatalogStore();
+    for (const key of Object.keys(catalog.catalogs)) catalog.invalidate(key === "__native__" ? undefined : key);
+  });
   const loginAccounts = useLoginAccounts(browserRuntime);
   const checkIn = useCheckInActions({
     reload: () => providerStore.reload(),
@@ -333,9 +341,10 @@ export function useAppController() {
   }
 
   const globalCheckInInProgress = checkIn.globalCheckInInProgress;
+  const agentTasks = useAgentBackgroundTasks();
 
   const backgroundTaskCenter = useBackgroundTaskCenter({
-    agentTasks: useAgentBackgroundTasks(),
+    domainTasks: computed(() => [...agentTasks.value, ...cloudSync.tasks.value]),
     providers,
     openLoginAccount: loginAccounts.open,
     openProviderCredentials: providerCredentials.open,

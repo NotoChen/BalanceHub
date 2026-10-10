@@ -99,6 +99,36 @@ test("backend normalization and object key order do not cause an autosave loop",
   assert.equal(queue.hasPendingChanges(), false);
 });
 
+test("queued edits preserve cloud fields returned by an earlier save", async (t) => {
+  let draft = { theme: "light", interval: 30 };
+  const native = deferred<typeof draft>();
+  const writes: { value: typeof draft; expected: typeof draft }[] = [];
+  const queue = createSettingsSaveQueue({
+    read: () => structuredClone(draft),
+    write: async (value, expected) => {
+      writes.push({ value, expected });
+      return writes.length === 1 ? native.promise : value;
+    },
+    accept: (value) => { draft = value; },
+    state: () => {},
+    failed: (message) => assert.fail(message),
+  });
+  t.after(queue.dispose);
+  draft.interval = 60;
+  const saving = queue.flush();
+  await settle();
+  draft.interval = 90;
+  queue.schedule();
+  native.resolve({ theme: "dark", interval: 60 });
+  assert.equal(await saving, true);
+  assert.deepEqual(writes, [
+    { value: { theme: "light", interval: 60 }, expected: { theme: "light", interval: 30 } },
+    { value: { theme: "dark", interval: 90 }, expected: { theme: "dark", interval: 60 } },
+  ]);
+  assert.deepEqual(draft, { theme: "dark", interval: 90 });
+  assert.equal(queue.hasPendingChanges(), false);
+});
+
 test("restoring configuration holds later saves and rebases only edits made while waiting", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let draft = { theme: "light", interval: 30, notification: { name: "before", enabled: true } };

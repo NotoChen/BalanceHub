@@ -11,6 +11,7 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import type { AppSettings } from "../../stores/providers";
 import { proxyModeOptions } from "../../utils/proxy-options";
+import SettingsCloudSyncSection from "./SettingsCloudSyncSection.vue";
 
 defineProps<{
   settings: AppSettings;
@@ -29,6 +30,7 @@ const browserRuntime = inject(BROWSER_RUNTIME_CONTEXT);
 
 <template>
   <div class="settings-page settings-system-page">
+    <SettingsCloudSyncSection />
     <section class="settings-card">
       <header class="settings-card-header">
         <span class="settings-card-icon"><IconWifi /></span>

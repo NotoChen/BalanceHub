@@ -2,7 +2,7 @@ use crate::{
     commands::{
         agent_assets::*, agent_catalog::*, agent_configuration::*, agent_lifecycle::*,
         agent_overview::*, agent_session_resume::*, agent_sessions::*, app::*, browser_runtime::*,
-        cli::*, login_accounts::*, provider::*, provider_browser_login::*,
+        cli::*, cloud_sync::*, login_accounts::*, provider::*, provider_browser_login::*,
     },
     models::AppData,
     services::{self, app_updater::AppUpdaterState},
@@ -49,6 +49,14 @@ pub(crate) fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            cloud_sync_state,
+            cloud_sync_save,
+            cloud_sync_start,
+            cloud_sync_test,
+            cloud_sync_confirm,
+            cloud_sync_restore,
+            cloud_sync_cancel,
+            cloud_sync_compare,
             host_platform,
             open_ccswitch_deeplink,
             open_project_repository,
@@ -258,7 +266,12 @@ fn build_app_menu<R: tauri::Runtime>(
 }
 
 fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    let app_state = match storage::load_app_data(app.app_handle()) {
+    let recovery = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "无法获取应用配置目录".to_owned())
+        .and_then(|root| services::cloud_sync::recover(&root));
+    let app_state = match recovery.and_then(|_| storage::load_app_data(app.app_handle())) {
         Ok(data) => AppState::new(data),
         Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
     };
@@ -280,6 +293,9 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             .launch_at_login_minimized,
     );
     app.manage(app_state);
+    if let Ok(sync) = app.state::<AppState>().cloud_sync(app.app_handle()) {
+        sync.start_worker(app.app_handle().clone());
+    }
 
     // Agent runtime persistence is optional. Initialization failures remain
     // available through IPC and must not prevent the main App from starting.

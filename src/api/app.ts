@@ -157,8 +157,8 @@ export function reorderProviders(ids: string[]) {
   return invoke<string[]>("reorder_providers", { ids });
 }
 
-export function saveSettings(settings: AppSettings) {
-  return invoke<AppSettings>("save_settings", { settings });
+export function saveSettings(settings: AppSettings, expected: AppSettings) {
+  return invoke<AppSettings>("save_settings", { settings, expected });
 }
 
 export function sendAppNotification(

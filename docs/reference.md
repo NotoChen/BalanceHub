@@ -15,6 +15,7 @@ Agent 工作台相关条目描述当前仓库源码，操作步骤见 [Agent 工
 
 | 功能 | 定义 | 实现位置 | 说明 |
 | --- | --- | --- | --- |
+| WebDAV 配置同步 | 加密同步中转站、可移植偏好与共享 Skill、MCP、Hook。 | `src-tauri/src/services/cloud_sync/`、`src/components/settings/SettingsCloudSyncSection.vue` | 按条目与文件增量同步，首次差异和冲突使用 diff 确认；[连接与恢复说明](webdav-sync.html)。 |
 | 中转站账号管理 | 把 NewAPI、Sub2API 和通用 OpenAI 兼容 API 集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`src-tauri/src/services/provider_service/` | AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
 | 认证方式管理 | 按协议保存账号密码、Cookie、访问令牌、Refresh Token、API Key 等认证信息。 | `src/stores/provider-types.ts`、`src-tauri/src/models/`、`src-tauri/src/adapters/` | NewAPI / Sub2API 默认账号密码；通用 API 只使用 API Key。 |
 | 操作能力契约 | 由 Rust 统一判断账号管理、签到、密钥管理和邀请等操作是否可用。 | `src-tauri/src/models/provider_domain/capabilities.rs`、`src-tauri/src/contracts.rs`、`src/utils/provider-actions.ts` | 不引入类型生成工具；TypeScript 只声明 IPC 结构并读取 Rust 返回结果。 |
@@ -92,7 +93,7 @@ Vue 3 UI
           -> storage.rs 读写本地配置
 ```
 
-前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。账号密码、Cookie、Token、API Key 不需要交给远端服务，也不依赖浏览器页面直接访问中转站。
+前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。凭据默认保存在本机；启用 WebDAV 后，同步范围内的凭据在本机加密后上传到用户指定的服务。业务请求由桌面后端执行，不依赖浏览器页面直接访问中转站。
 
 ## 目录说明
 

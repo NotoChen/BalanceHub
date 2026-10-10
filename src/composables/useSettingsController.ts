@@ -12,7 +12,7 @@ interface UseSettingsControllerOptions {
   providers: Ref<Provider[]>;
   settings: Ref<AppSettings>;
   initialSettings: AppSettings;
-  saveSettings: (settings: AppSettings) => Promise<AppSettings>;
+  saveSettings: (settings: AppSettings, expected: AppSettings) => Promise<AppSettings>;
 }
 
 export type { SettingsSaveState } from "../utils/settings-save-queue";
@@ -33,13 +33,13 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
       normalizeLivenessTiming(draft);
       return draft;
     },
-    write: async (payload) => {
+    write: async (payload, expected) => {
       if (lastLaunchAtLogin !== payload.launchAtLogin) {
         if (payload.launchAtLogin) await enable();
         else await disable();
         lastLaunchAtLogin = payload.launchAtLogin;
       }
-      return options.saveSettings(payload);
+      return options.saveSettings(payload, expected);
     },
     accept: (saved) => { Object.assign(settingsForm, cloneSettings(saved)); },
     state: (state, error) => {

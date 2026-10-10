@@ -70,7 +70,7 @@ export function useAgentInstallationManager(options: {
     savingPath.value = kind;
     delete pathErrors.value[kind];
     try {
-      await withTimeout(settings.save({ ...settings.settings, agentCliPaths: { ...settings.settings.agentCliPaths, [kind]: path.trim() } }), 15_000, "保存 Agent 启动路径超时");
+      await withTimeout(settings.save({ ...settings.settings, agentCliPaths: { ...settings.settings.agentCliPaths, [kind]: path.trim() } }, settings.settings), 15_000, "保存 Agent 启动路径超时");
       saved = true;
       if (disposed || request !== pathRequest) return;
       if (revision === viewRevision && lifecycle.agentKind === kind && pathDraft.value === previousDraft) pathDraft.value = path.trim();

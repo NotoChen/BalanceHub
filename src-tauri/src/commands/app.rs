@@ -73,10 +73,11 @@ pub(crate) async fn load_app_data(app: AppHandle) -> Result<AppDataView, String>
 pub(crate) async fn save_settings(
     app: AppHandle,
     settings: AppSettings,
+    expected: AppSettings,
 ) -> Result<AppSettings, String> {
     let task_app = app.clone();
     let settings = run_blocking("保存应用设置", move || {
-        ProviderService::new(&task_app).save_settings(settings)
+        ProviderService::new(&task_app).save_settings(settings, expected)
     })
     .await?;
     tray::refresh_from_state(&app);
