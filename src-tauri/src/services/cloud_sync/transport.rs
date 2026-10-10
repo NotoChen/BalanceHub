@@ -263,7 +263,7 @@ impl DavClient {
         // A timestamp/size ETag can claim to be strong while missing rapid
         // same-size updates (including encrypted manifests). Check this before
         // trusting either conditional reads or writes for user data.
-        for marker in [b'1', b'2', b'3'] {
+        for marker in *b"123" {
             let mut replacement = content.clone();
             replacement[0] = marker;
             if !self.put(name, replacement.clone(), Some(&etag)).await? {
