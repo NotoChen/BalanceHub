@@ -231,7 +231,7 @@ function mountDashboard(t: TestContext, options: { visible?: boolean; firstReply
   function sessionTab(label: string) {
     const tabs = descendants(root).find((item) => item.props["aria-label"] === "会话视图");
     assert.ok(tabs);
-    const button = descendants(tabs).find((item) => item.type === "button" && text(item) === label);
+    const button = descendants(tabs).find((item) => item.type === "button" && text(item).trim() === label);
     assert.ok(button); return button;
   }
   function historyPanel() {

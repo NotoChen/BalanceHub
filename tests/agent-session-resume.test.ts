@@ -44,9 +44,27 @@ before(async () => {
   server = await createServer({
     optimizeDeps: { noDiscovery: true, include: [] },
     server: { middlewareMode: true }, appType: "custom", logLevel: "silent",
-    resolve: { alias: [{ find: /^@arco-design\/web-vue$/, replacement: "virtual:session-messages" }] },
-    plugins: [{ name: "session-messages", resolveId(id) { if (id === "virtual:session-messages") return "\0session-messages"; },
-      load(id) { if (id === "\0session-messages") return "export const Message = { success() {}, error() {}, info() {}, warning() {} };"; } }],
+    resolve: { alias: [
+      { find: /^@arco-design\/web-vue$/, replacement: "virtual:session-messages" },
+      { find: /^@tanstack\/vue-virtual$/, replacement: "virtual:session-virtualizer" },
+    ] },
+    plugins: [{
+      name: "session-render-fixtures",
+      resolveId(id) {
+        if (id === "virtual:session-messages" || id === "virtual:session-virtualizer") return `\0${id.slice("virtual:".length)}`;
+      },
+      load(id) {
+        if (id === "\0session-messages") return "export const Message = { success() {}, error() {}, info() {}, warning() {} };";
+        // SSR 没有 DOM 布局，只补充视口尺寸，保留真实虚拟列表计算和行模板。
+        if (id === "\0session-virtualizer") return `
+          import { computed, unref } from "vue";
+          import { useVirtualizer as actual } from "/node_modules/@tanstack/vue-virtual/dist/esm/index.js";
+          export function useVirtualizer(options) {
+            return actual(computed(() => ({ initialRect: { width: 800, height: 600 }, ...unref(options) })));
+          }
+        `;
+      },
+    }],
   });
   [stores, resumes, workspaceStores, cliStores] = await Promise.all([
     server.ssrLoadModule("/src/stores/agent-session-resume.ts"), server.ssrLoadModule("/src/composables/useAgentSessionResume.ts"),
@@ -296,8 +314,10 @@ test("real history rows render subagent relationships and only backend-authorize
   assert.match(html, /子会话/);
   assert.match(html, /父会话 parent/);
   assert.match(html, /该子会话只读/);
-  assert.equal((html.match(/切回终端/g) ?? []).length, 1);
-  assert.ok(hasDisabledButton(html, "继续会话"));
+  const terminalButtons = buttonAttributes(html, "终端");
+  assert.equal(terminalButtons.length, 1);
+  assert.doesNotMatch(terminalButtons[0], /\bdisabled\b/);
+  assert.ok(hasDisabledButton(html, "继续"));
 });
 
 async function renderSurface(path: string, props: Record<string, unknown>, pinia: Pinia) {
@@ -322,10 +342,13 @@ function pending(command: string) {
 }
 function resumeCalls() { return calls.filter((call) => call.command === "resume_agent_session"); }
 function submitted() { const call = resumeCalls().at(-1); assert.ok(call); return call.args.request as AgentSessionResumeRequest; }
+function buttonAttributes(html: string, label: string) {
+  return [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)]
+    .filter((match) => match[2].replace(/<[^>]*>/g, "").trim() === label)
+    .map((match) => match[1]);
+}
 function hasDisabledButton(html: string, label: string) {
-  return [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].some((match) =>
-    /\bdisabled\b/.test(match[1]) && match[2].replace(/<[^>]*>/g, "").trim() === label,
-  );
+  return buttonAttributes(html, label).some((attributes) => /\bdisabled\b/.test(attributes));
 }
 async function settle() { for (let index = 0; index < 24; index += 1) await Promise.resolve(); }
 const originalTimeout = globalThis.setTimeout;
