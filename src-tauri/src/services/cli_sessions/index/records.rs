@@ -47,9 +47,21 @@ pub(super) fn apply_batch(
                 put(&transaction, &key, message, *priority, *order, true)?
             }
             SessionIndexMutation::Clear => -truncate(&transaction, &key, None)?,
-            SessionIndexMutation::Remove(id) => {
+            SessionIndexMutation::RemoveGroup(id) => {
                 remember_position(&transaction, &key, id, *order)?;
-                -remove(&transaction, &key, Some(id), None)?
+                let mut statement=transaction.prepare("SELECT message_id FROM message_positions WHERE workspace=?1 AND session_id=?2 AND source_key=?3 AND (message_id=?4 OR substr(message_id,1,length(?4)+1)=?4||':')").map_err(|error|error.to_string())?;
+                let ids = statement
+                    .query_map(params![key.workspace, key.session, key.source, id], |row| {
+                        row.get::<_, String>(0)
+                    })
+                    .map_err(|error| error.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?;
+                let mut removed = 0;
+                for id in ids {
+                    removed += remove(&transaction, &key, Some(&id), None)?;
+                }
+                -removed
             }
             SessionIndexMutation::Rewind(id) => {
                 let position: Option<i64> = transaction.query_row(
@@ -134,10 +146,10 @@ fn remember_position(
     // A non-searchable native message can still be a rewind boundary. Keep
     // its position even when its visible text is removed or replaced.
     transaction.query_row(
-        "INSERT INTO message_positions(workspace,session_id,source_key,message_id,message_order) VALUES (?1,?2,?3,?4,?5)
+        "INSERT INTO message_positions(workspace,session_id,source_key,message_id,message_order,public_id) VALUES (?1,?2,?3,?4,?5,?6)
          ON CONFLICT(workspace,session_id,source_key,message_id) DO UPDATE SET message_order=message_positions.message_order
          RETURNING message_order",
-        params![key.workspace, key.session, key.source, id, order as i64], |row| row.get(0),
+        params![key.workspace, key.session, key.source, id, order as i64, super::reader::message_key(key.source,id)], |row| row.get(0),
     ).map_err(|error| error.to_string())
 }
 
@@ -184,7 +196,18 @@ fn put(
         params![key.workspace, key.session, key.source, message.id],
         |row| Ok((row.get(0)?, row.get(1)?)),
     ).optional().map_err(|error| error.to_string())?;
+    let content_version = order;
+    let order = if let Some(parent) = message.metadata.group_id.as_deref() {
+        remember_position(transaction, key, parent, order)? as u64
+    } else {
+        order
+    };
     let saved_order = remember_position(transaction, key, &message.id, order)?;
+    let metadata = serde_json::to_string(&message.metadata).map_err(|error| error.to_string())?;
+    transaction.execute(
+        "UPDATE message_positions SET metadata=?5,content_version=?6 WHERE workspace=?1 AND session_id=?2 AND source_key=?3 AND message_id=?4",
+        params![key.workspace,key.session,key.source,message.id,metadata,content_version as i64],
+    ).map_err(|error| error.to_string())?;
     let (first_chunk, content, mut delta) = if let Some((chunk, text)) = previous.filter(|_| append)
     {
         transaction.execute(
@@ -202,9 +225,9 @@ fn put(
     };
     for (index, content) in chunk_message(&content).into_iter().enumerate() {
         transaction.execute(
-            "INSERT INTO messages(workspace, session_id, source_key, message_id, role, chunk_index, content, priority, message_order) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO messages(workspace, session_id, source_key, message_id, role, chunk_index, content, priority, message_order, searchable) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![key.workspace, key.session, key.source, message.id, role_key(message.role),
-                first_chunk + index as i64, content, priority, saved_order],
+                first_chunk + index as i64, content, priority, saved_order, message.metadata.kind != crate::models::SessionMessageKind::Image],
         ).map_err(|error| error.to_string())?;
         delta += content.len() as i64;
     }

@@ -1,9 +1,9 @@
 use crate::services::agent_cli::contracts::{SessionHistoryRecord, SessionReadBudget};
 use std::{
     cell::RefCell,
-    collections::HashMap,
     fs::{File, Metadata},
     io::{self, Read, Seek, SeekFrom},
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -47,6 +47,9 @@ pub(crate) fn open_session_file(path: impl AsRef<Path>) -> io::Result<BudgetFile
     })
 }
 impl BudgetFile {
+    pub(crate) fn use_current_budget(&mut self) {
+        self.budget = ACTIVE_BUDGET.with(|active| active.borrow().clone());
+    }
     pub(crate) fn metadata(&self) -> io::Result<Metadata> {
         self.file.metadata()
     }
@@ -109,10 +112,19 @@ struct CachedMetadataText {
     max_bytes: usize,
     text: String,
 }
-#[derive(Default)]
 pub(crate) struct HistoryReadCacheData {
-    records: HashMap<PathBuf, CachedHistoryRecord>,
-    metadata: HashMap<PathBuf, CachedMetadataText>,
+    records: lru::LruCache<PathBuf, CachedHistoryRecord>,
+    metadata: lru::LruCache<PathBuf, CachedMetadataText>,
+}
+impl Default for HistoryReadCacheData {
+    fn default() -> Self {
+        Self {
+            records: lru::LruCache::new(
+                NonZeroUsize::new(20_000).expect("positive cache capacity"),
+            ),
+            metadata: lru::LruCache::new(NonZeroUsize::new(1024).expect("positive cache capacity")),
+        }
+    }
 }
 pub(crate) type HistoryReadCache = Arc<Mutex<HistoryReadCacheData>>;
 thread_local! { static ACTIVE_HISTORY_CACHE: RefCell<Option<HistoryReadCache>> = const { RefCell::new(None) }; }
@@ -173,7 +185,7 @@ pub(crate) fn cached_history_record_facts(
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .records
-            .insert(
+            .put(
                 key,
                 CachedHistoryRecord {
                     fingerprint,
@@ -220,7 +232,7 @@ pub(crate) fn read_session_metadata_text_file_limited(
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .metadata
-        .insert(
+        .put(
             key,
             CachedMetadataText {
                 fingerprint,

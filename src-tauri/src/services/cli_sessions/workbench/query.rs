@@ -1,7 +1,7 @@
 use super::{
     budget::with_history_cache,
     hash,
-    scope::{history_adapter, path_identity, validated_scope},
+    scope::{history_adapter, validated_scope},
     state::{self, QueryProgress, ReferenceState, ScopeState, Snapshot},
     with_read_budget, AgentSessionActor,
 };
@@ -9,13 +9,13 @@ use crate::{
     models::*,
     services::{
         agent_cli::contracts::{SessionHistoryRecord, SessionHistorySource, SessionReadBudget},
-        cli_sessions::{index::HistoryIndex, session_sort_key, SearchQuery},
+        cli_sessions::{session_sort_key, SearchQuery},
     },
     state::AppState,
 };
 use std::{
     collections::{HashMap, HashSet},
-    sync::{atomic::Ordering, Arc},
+    sync::atomic::Ordering,
     time::{Duration, Instant},
 };
 use tauri::Manager;
@@ -90,7 +90,7 @@ pub(crate) fn query(
             states: Vec::new(),
             complete: false,
             progress: QueryProgress::default(),
-            created_at: Instant::now(),
+            used_at: Instant::now(),
         };
         (id, 0, snapshot)
     };
@@ -113,24 +113,9 @@ pub(crate) fn query(
                     .get(&source.id)
                     .cloned()
                     .ok_or_else(|| "原生来源已不可用".to_string())?;
-                let cache = snapshot
-                    .progress
-                    .source_caches
-                    .entry(source.id.clone())
-                    .or_default()
-                    .clone();
-                let index = snapshot
-                    .progress
-                    .indexes
-                    .entry(source.id.clone())
-                    .or_insert_with(|| {
-                        Arc::new(HistoryIndex::new(
-                            &index_config,
-                            source.agent_kind,
-                            &source.id,
-                        ))
-                    })
-                    .clone();
+                let resources = state::source_resources(actor, &source, &index_config);
+                let cache = resources.cache;
+                let index = resources.index;
                 let workspaces = selected_workspaces.clone();
                 let query_text = request.query.clone();
                 let matches = snapshot.progress.matches.clone();
@@ -175,9 +160,6 @@ pub(crate) fn query(
         }
         validated_scope(actor, &request.scope_revision)?;
         let refs = merge_source_outcomes(&mut snapshot, outcomes, request.role_filter);
-        if !snapshot.progress.can_continue {
-            snapshot.progress.indexes.clear();
-        }
         let mut registry = state::registry();
         for reference in refs {
             registry.references.insert(
@@ -189,12 +171,12 @@ pub(crate) fn query(
                 reference,
             );
         }
-        registry.prune();
-        registry
-            .snapshots
-            .insert(snapshot_id.clone(), snapshot.clone());
     }
-    budget.check()?;
+    {
+        let mut registry = state::registry();
+        budget.check()?;
+        registry.store_snapshot(snapshot_id.clone(), snapshot.clone());
+    }
     let mut page = page(
         &snapshot_id,
         &snapshot,
@@ -386,9 +368,10 @@ fn row_for_record(
         resume_reason,
         activity_state: AgentSessionActivityState::Unknown,
         runtime_ids: Vec::new(),
+        search_hit: None,
     }
 }
-fn apply_activity(rows: &mut [AgentSessionRow]) {
+pub(super) fn apply_activity(rows: &mut [AgentSessionRow]) {
     let activity = super::super::resume::native_session_activity();
     let wanted: HashSet<_> = rows.iter().map(|row| row.session_ref.as_str()).collect();
     let identities: HashMap<_, _> = {
@@ -481,37 +464,6 @@ fn page(
         agent_counts: agent_counts(snapshot, sources, workspaces),
         source_states: snapshot.states.clone(),
     }
-}
-
-pub(crate) fn detail(
-    actor: AgentSessionActor<'_>,
-    request: &AgentSessionDetailRequest,
-    budget: &SessionReadBudget,
-) -> Result<AgentSessionDetail, String> {
-    let target = super::resolve_session_ref(actor, &request.scope_revision, &request.session_ref)?;
-    let reference = state::registry()
-        .references
-        .get(&(
-            actor.key(),
-            request.scope_revision.clone(),
-            request.session_ref.clone(),
-        ))
-        .cloned()
-        .ok_or_else(|| "会话引用已失效".to_string())?;
-    let mut detail = with_read_budget(budget, || {
-        super::budget::with_source_root(&target.config_root, || {
-            (history_adapter(target.cli_kind)?.detail)(
-                &reference.record,
-                super::super::DETAIL_READ_LIMITS,
-            )
-        })
-    })?;
-    budget.check()?;
-    super::resolve_session_ref(actor, &request.scope_revision, &request.session_ref)?;
-    let mut row = reference.row;
-    apply_activity(std::slice::from_mut(&mut row));
-    detail.session = row.session.clone();
-    Ok(AgentSessionDetail { row, detail })
 }
 
 #[cfg(test)]

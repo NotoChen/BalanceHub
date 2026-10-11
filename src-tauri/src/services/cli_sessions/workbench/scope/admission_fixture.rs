@@ -16,7 +16,6 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Mutex,
     },
-    time::Instant,
 };
 
 /// Synthetic scope data replaces only App reads. Grants and references use the
@@ -62,6 +61,7 @@ impl ResumeAdmissionFixture {
             metadata_source: "synthetic-fixture".into(),
         };
         let row = AgentSessionRow {
+            search_hit: None,
             session_ref: hash(&["resume-fixture", &actor_prefix]),
             source_id: source_id.clone(),
             workspace_id: workspace_id.clone(),
@@ -97,7 +97,6 @@ impl ResumeAdmissionFixture {
                     resume_reason: None,
                 },
             )]),
-            created_at: Instant::now(),
         };
         Self {
             root,

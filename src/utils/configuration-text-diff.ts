@@ -1,4 +1,4 @@
-type DiffLineKind = "context" | "removed" | "added";
+type DiffLineKind = "context" | "removed" | "added" | "hunk";
 
 interface DiffLine {
   id: string;
@@ -13,6 +13,53 @@ interface DiffFileState {
   trailingNewline: boolean;
 }
 
+export type DiffDisplayRow =
+  | DiffLine
+  | {
+      id: string;
+      kind: "omitted";
+      from: number;
+      count: number;
+    };
+
+/** Fold unchanged ranges without dropping their positions in the full diff. */
+export function configurationDiffRows(
+  lines: readonly DiffLine[],
+  contextLines = 3,
+): DiffDisplayRow[] {
+  const context = Math.max(0, Math.floor(contextLines));
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].kind === "context") continue;
+    const start = Math.max(0, index - context);
+    const end = Math.min(lines.length, index + context + 1);
+    const previous = ranges[ranges.length - 1];
+    if (previous && start <= previous.end) previous.end = end;
+    else ranges.push({ start, end });
+  }
+
+  const rows: DiffDisplayRow[] = [];
+  let cursor = 0;
+  function omit(until: number) {
+    if (until > cursor) {
+      rows.push({
+        id: `omitted-${cursor}`,
+        kind: "omitted",
+        from: cursor,
+        count: until - cursor,
+      });
+    }
+  }
+  for (const range of ranges) {
+    omit(range.start);
+    for (let index = range.start; index < range.end; index += 1)
+      rows.push(lines[index]);
+    cursor = range.end;
+  }
+  omit(lines.length);
+  return rows;
+}
+
 const MAX_DIFF_MATRIX_CELLS = 250_000;
 
 function splitLines(content: string) {
@@ -22,10 +69,16 @@ function splitLines(content: string) {
   if (trailingNewline) {
     lines.pop();
   }
-  return { lines: lines.length === 1 && lines[0] === "" ? [] : lines, trailingNewline };
+  return {
+    lines: lines.length === 1 && lines[0] === "" ? [] : lines,
+    trailingNewline,
+  };
 }
 
-export function buildConfigurationDiff(original: string, target: string): DiffFileState {
+export function buildConfigurationDiff(
+  original: string,
+  target: string,
+): DiffFileState {
   const before = splitLines(original).lines;
   const after = splitLines(target);
   if (before.length * after.lines.length > MAX_DIFF_MATRIX_CELLS) {
@@ -40,7 +93,10 @@ export function buildConfigurationDiff(original: string, target: string): DiffFi
       matrix[oldIndex][newIndex] =
         before[oldIndex] === after.lines[newIndex]
           ? matrix[oldIndex + 1][newIndex + 1] + 1
-          : Math.max(matrix[oldIndex + 1][newIndex], matrix[oldIndex][newIndex + 1]);
+          : Math.max(
+              matrix[oldIndex + 1][newIndex],
+              matrix[oldIndex][newIndex + 1],
+            );
     }
   }
 
@@ -63,7 +119,10 @@ export function buildConfigurationDiff(original: string, target: string): DiffFi
       });
       oldIndex += 1;
       newIndex += 1;
-    } else if (oldIndex < before.length && shouldRemoveLine(before, after.lines, matrix, oldIndex, newIndex)) {
+    } else if (
+      oldIndex < before.length &&
+      shouldRemoveLine(before, after.lines, matrix, oldIndex, newIndex)
+    ) {
       lines.push({
         id: `removed-${oldIndex + 1}-${sequence++}`,
         kind: "removed",
@@ -94,14 +153,19 @@ function shouldRemoveLine(
   oldIndex: number,
   newIndex: number,
 ) {
-  if (newIndex >= after.length || matrix[oldIndex + 1][newIndex] > matrix[oldIndex][newIndex + 1]) {
+  if (
+    newIndex >= after.length ||
+    matrix[oldIndex + 1][newIndex] > matrix[oldIndex][newIndex + 1]
+  ) {
     return true;
   }
   if (matrix[oldIndex + 1][newIndex] < matrix[oldIndex][newIndex + 1]) {
     return false;
   }
-  const oldLineAppearsLater = after.indexOf(before[oldIndex], newIndex + 1) !== -1;
-  const newLineAppearsLater = before.indexOf(after[newIndex], oldIndex + 1) !== -1;
+  const oldLineAppearsLater =
+    after.indexOf(before[oldIndex], newIndex + 1) !== -1;
+  const newLineAppearsLater =
+    before.indexOf(after[newIndex], oldIndex + 1) !== -1;
   return !(oldLineAppearsLater && !newLineAppearsLater);
 }
 
@@ -110,14 +174,19 @@ function buildCoarseDiff(
   after: { lines: string[]; trailingNewline: boolean },
 ): DiffFileState {
   let prefix = 0;
-  while (prefix < before.length && prefix < after.lines.length && before[prefix] === after.lines[prefix]) {
+  while (
+    prefix < before.length &&
+    prefix < after.lines.length &&
+    before[prefix] === after.lines[prefix]
+  ) {
     prefix += 1;
   }
   let suffix = 0;
   while (
     suffix < before.length - prefix &&
     suffix < after.lines.length - prefix &&
-    before[before.length - suffix - 1] === after.lines[after.lines.length - suffix - 1]
+    before[before.length - suffix - 1] ===
+      after.lines[after.lines.length - suffix - 1]
   ) {
     suffix += 1;
   }
@@ -163,4 +232,74 @@ function buildCoarseDiff(
     });
   }
   return { lines, trailingNewline: after.trailingNewline };
+}
+
+/** Render an existing unified patch without inventing missing file contents. */
+export function parseUnifiedDiff(patch: string): DiffFileState {
+  const lines: DiffLine[] = [];
+  let oldLine: number | null = null;
+  let newLine: number | null = null;
+  let inHunk = false;
+  let oldRemaining: number | null = null;
+  let newRemaining: number | null = null;
+  for (const [index, text] of patch
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .entries()) {
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(text);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[3]);
+      oldRemaining = Number(hunk[2] ?? 1);
+      newRemaining = Number(hunk[4] ?? 1);
+      inHunk = true;
+    } else if (text.startsWith("*** Add File: ")) {
+      oldLine = null;
+      newLine = 1;
+      oldRemaining = newRemaining = null;
+      inHunk = true;
+    } else if (
+      text.startsWith("*** Update File: ") ||
+      text === "@@" ||
+      text.startsWith("@@ ")
+    ) {
+      oldLine = null;
+      newLine = null;
+      oldRemaining = newRemaining = null;
+      inHunk = true;
+    } else if (text.startsWith("diff --git ") || text.startsWith("*** ")) {
+      oldLine = null;
+      newLine = null;
+      inHunk = false;
+    }
+    if (
+      inHunk &&
+      !hunk &&
+      (text.startsWith("+") || text.startsWith("-") || text.startsWith(" "))
+    ) {
+      const kind =
+        text[0] === "+" ? "added" : text[0] === "-" ? "removed" : "context";
+      lines.push({
+        id: `patch-${index}`,
+        kind,
+        text: text.slice(1),
+        oldLine: kind === "added" ? null : oldLine,
+        newLine: kind === "removed" ? null : newLine,
+      });
+      if (kind !== "added" && oldLine !== null) oldLine += 1;
+      if (kind !== "removed" && newLine !== null) newLine += 1;
+      if (kind !== "added" && oldRemaining !== null) oldRemaining -= 1;
+      if (kind !== "removed" && newRemaining !== null) newRemaining -= 1;
+      if (oldRemaining === 0 && newRemaining === 0) inHunk = false;
+    } else if (text) {
+      lines.push({
+        id: `patch-${index}`,
+        kind: "hunk",
+        text,
+        oldLine: null,
+        newLine: null,
+      });
+    }
+  }
+  return { lines, trailingNewline: patch.endsWith("\n") };
 }

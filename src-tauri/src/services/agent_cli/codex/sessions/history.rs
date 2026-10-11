@@ -14,8 +14,6 @@ const UNAVAILABLE_ROLLOUT_REASON: &str = "原生会话日志不可用，仅能�
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
     source,
     scan,
-    detail,
-    search,
     index,
 };
 fn source() -> Result<SessionHistorySource, String> {
@@ -115,15 +113,25 @@ fn scan(
                     || {
                         let mut record = metadata_record.clone();
                         let (from_rollout, from_parent) = rollout_role(&locator)?;
-                        if from_rollout != AgentSessionRole::Unknown {
-                            record.role = from_rollout;
-                        }
-                        if from_parent.is_some() {
-                            record.parent_native_id = from_parent;
-                        }
+                        record.role = from_rollout;
+                        record.parent_native_id = from_parent;
                         record.locator = locator.clone();
                         record.content_unavailable_reason = None;
-                        let resume_reason = if record.summary.archived {
+                        Ok(Some(record))
+                    },
+                );
+                match loaded {
+                    Ok(Some(mut record)) => {
+                        // The transcript fingerprint does not change when the
+                        // native database title, archive or parent is updated.
+                        record.summary = metadata_record.summary.clone();
+                        if record.role == AgentSessionRole::Unknown {
+                            record.role = metadata_record.role;
+                        }
+                        record.parent_native_id = record
+                            .parent_native_id
+                            .or_else(|| metadata_record.parent_native_id.clone());
+                        record.resume_reason = if record.summary.archived {
                             Some("该 Codex 会话已归档".into())
                         } else if record.role == AgentSessionRole::Subagent {
                             Some("尚未验证 Codex 子 Agent 会话可独立继续".into())
@@ -132,13 +140,7 @@ fn scan(
                         } else {
                             None
                         };
-                        record.summary.can_resume = resume_reason.is_none();
-                        record.resume_reason = resume_reason;
-                        Ok(Some(record))
-                    },
-                );
-                match loaded {
-                    Ok(Some(record)) => {
+                        record.summary.can_resume = record.resume_reason.is_none();
                         if let Some(reason) = &record.content_unavailable_reason {
                             workspace.failed(reason.clone());
                         }
@@ -174,6 +176,7 @@ pub(super) fn resolve_record_locator(
     } else {
         root.join(&indexed)
     };
+    let direct = crate::services::cli_sessions::source::existing_variant(&direct);
     if direct.is_file()
         && direct
             .canonicalize()
@@ -182,7 +185,8 @@ pub(super) fn resolve_record_locator(
     {
         return Ok(direct);
     }
-    let name = indexed
+    let logical = crate::services::cli_sessions::source::logical_path(&indexed);
+    let name = logical
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "Codex 正文定位缺失".to_string())?;
@@ -215,11 +219,22 @@ fn rollout_files(
             let ty = entry.file_type().map_err(|e| e.to_string())?;
             if ty.is_dir() {
                 directories.push(entry.path());
-            } else if ty.is_file() && entry.path().extension().is_some_and(|ext| ext == "jsonl") {
-                result.insert(
-                    entry.file_name().to_string_lossy().to_string(),
-                    entry.path(),
-                );
+            } else if ty.is_file()
+                && crate::services::cli_sessions::source::json_lines(&entry.path())
+            {
+                let logical = crate::services::cli_sessions::source::logical_path(&entry.path());
+                let name = logical
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                // Both forms may coexist while Codex compresses an archived
+                // rollout. Prefer the uncompressed file deterministically.
+                if !result.contains_key(&name)
+                    || !crate::services::cli_sessions::source::compressed(&entry.path())
+                {
+                    result.insert(name, entry.path());
+                }
             }
         }
     }
@@ -278,33 +293,6 @@ fn rollout_role(path: &Path) -> Result<(AgentSessionRole, Option<String>), Strin
         },
     )?;
     Ok(result)
-}
-fn detail(
-    record: &SessionHistoryRecord,
-    limits: SessionReadLimits,
-) -> Result<CliSessionDetail, String> {
-    if let Some(reason) = &record.content_unavailable_reason {
-        return Err(reason.clone());
-    }
-    let (messages, truncated, omitted_message_count) =
-        parse_rollout_messages(&record.locator, limits)?;
-    Ok(CliSessionDetail {
-        session: record.summary.clone(),
-        messages,
-        truncated,
-        omitted_message_count,
-        content_source: "codexRollout".into(),
-    })
-}
-fn search(
-    record: &SessionHistoryRecord,
-    request: &SessionContentSearchRequest,
-    current: &dyn Fn() -> bool,
-) -> Result<SessionContentSearchResult, String> {
-    if let Some(reason) = &record.content_unavailable_reason {
-        return Err(reason.clone());
-    }
-    search_rollout(&record.locator, request, current)
 }
 fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
     if let Some(reason) = &record.content_unavailable_reason {

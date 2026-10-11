@@ -1,13 +1,6 @@
 use super::*;
-use crate::services::agent_cli::contracts::SessionSearchTerm;
+use crate::services::agent_cli::contracts::{SessionContentSearchRequest, SessionSearchTerm};
 use serde_json::json;
-
-const TEST_LIMITS: SessionReadLimits = SessionReadLimits {
-    max_file_bytes: 1024 * 1024,
-    max_messages: 100,
-    max_total_chars: 100_000,
-    max_message_chars: 10_000,
-};
 
 fn test_root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -262,72 +255,84 @@ fn update_search_merges_streamed_chunks_and_replaces_tool_states() {
         }],
     };
 
-    let streamed = search_updates(&path, &request("balancehub"), &|| true).unwrap();
+    let streamed = search_updates_index(&path, &request("balancehub"), &|| true).unwrap();
     assert_eq!(streamed.matched_term_indexes, vec![0]);
-    let replaced = search_updates(&path, &request("obsolete-keyword"), &|| true).unwrap();
+    let replaced = search_updates_index(&path, &request("obsolete-keyword"), &|| true).unwrap();
     assert!(replaced.matched_term_indexes.is_empty());
     let indexed = crate::services::cli_sessions::read_indexed_messages(&[SessionIndexSource {
         path,
         parser_version: INDEX_PARSER_VERSION,
         format: SessionIndexFormat::JsonLines,
-        decode: index_update_record,
+        decode: decoder::update,
     }]);
-    assert_eq!(indexed.len(), 1);
+    assert_eq!(indexed.len(), 2);
     assert_eq!(indexed[0].content, "BalanceHub");
+    assert_eq!(indexed[1].content, "完成");
+    assert_eq!(
+        indexed[1].metadata.status,
+        Some(crate::models::SessionToolStatus::Succeeded)
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn streamed_search_tracks_character_count_without_rescanning_accumulated_text() {
+fn streamed_search_preserves_unicode_across_appended_chunks() {
+    let root = test_root("unicode-stream");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("updates.jsonl");
+    let lines = ["你好", "BalanceHub"]
+        .map(|content| {
+            json!({"params":{"update":{"sessionUpdate":"agent_message_chunk","content":content}}})
+                .to_string()
+        })
+        .join("\n");
+    fs::write(&path, lines).unwrap();
     let request = SessionContentSearchRequest {
         terms: vec![SessionSearchTerm {
             index: 0,
             value: "你好balancehub".to_string(),
         }],
     };
-    let mut state = GrokUpdateSearchState::new(&request);
-    state.observe(
-        0,
-        &json!({"sessionUpdate": "agent_message_chunk", "content": "你好"}),
-    );
-    state.observe(
-        1,
-        &json!({"sessionUpdate": "agent_message_chunk", "content": "BalanceHub"}),
-    );
-
-    let current = state.current.as_ref().unwrap();
-    assert_eq!(current.char_count, "你好BalanceHub".chars().count());
-    let result = state.finish();
+    let messages =
+        crate::services::cli_sessions::read_indexed_messages(&[source(&path, decoder::update)]);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content, "你好BalanceHub");
+    let result = search_updates_index(&path, &request, &|| true).unwrap();
     assert_eq!(result.matched_term_indexes, vec![0]);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn streamed_search_splits_a_single_oversized_chunk_into_bounded_messages() {
+fn streamed_search_finds_the_tail_of_an_oversized_unicode_message() {
+    let root = test_root("oversized-stream");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("updates.jsonl");
     let request = SessionContentSearchRequest {
         terms: vec![SessionSearchTerm {
             index: 0,
             value: "grok-oversized-tail".to_string(),
         }],
     };
-    let mut state = GrokUpdateSearchState::new(&request);
-    let content = format!(
-        "{}grok-oversized-tail",
-        "x".repeat(MAX_STREAMED_MESSAGE_CHARS + 32)
-    );
-    state.observe(
-        0,
-        &json!({"sessionUpdate": "agent_message_chunk", "content": content}),
-    );
-
-    let messages = state.messages.len();
-    let result = state.finish();
-
-    assert!(messages >= 1);
+    let content = format!("{}grok-oversized-tail", "字🦀".repeat(256 * 1024));
+    fs::write(
+        &path,
+        json!({"params":{"update":{"sessionUpdate":"agent_message_chunk","content":content}}})
+            .to_string(),
+    )
+    .unwrap();
+    let messages =
+        crate::services::cli_sessions::read_indexed_messages(&[source(&path, decoder::update)]);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content, content);
+    let result = search_updates_index(&path, &request, &|| true).unwrap();
     assert_eq!(result.matched_term_indexes, vec![0]);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn search_excludes_tool_updates_and_history_parts() {
+fn search_finds_tool_updates_and_history_parts() {
     let root = test_root("long-tool-search");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
@@ -355,11 +360,15 @@ fn search_excludes_tool_updates_and_history_parts() {
     )
     .unwrap();
     let update_result =
-        search_updates(&updates_path, &request("grok-update-tail-keyword"), &|| {
+        search_updates_index(&updates_path, &request("grok-update-tail-keyword"), &|| {
             true
         })
         .unwrap();
-    assert!(update_result.matched_term_indexes.is_empty());
+    assert_eq!(update_result.matched_term_indexes, [0]);
+    assert_eq!(
+        update_result.hit.as_ref().unwrap().kind,
+        crate::models::SessionMessageKind::ToolResult
+    );
 
     let history_path = root.join("chat_history.jsonl");
     let history_output = format!("{}grok-history-tail-keyword", "x".repeat(40 * 1024));
@@ -376,19 +385,23 @@ fn search_excludes_tool_updates_and_history_parts() {
         .to_string(),
     )
     .unwrap();
-    let history_result = search_chat_history(
+    let history_result = search_chat_index(
         &history_path,
         &request("grok-history-tail-keyword"),
         &|| true,
     )
     .unwrap();
-    assert!(history_result.matched_term_indexes.is_empty());
+    assert_eq!(history_result.matched_term_indexes, [0]);
+    assert_eq!(
+        history_result.hit.as_ref().unwrap().kind,
+        crate::models::SessionMessageKind::ToolResult
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn chat_history_index_excludes_tools_and_hidden_reasoning() {
+fn chat_history_index_preserves_tool_and_thinking_block_order() {
     let root = test_root("index-filter");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
@@ -414,10 +427,25 @@ fn chat_history_index_excludes_tools_and_hidden_reasoning() {
         path: path.clone(),
         parser_version: INDEX_PARSER_VERSION,
         format: SessionIndexFormat::JsonLines,
-        decode: index_chat_record,
+        decode: decoder::chat,
     }]);
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].content, "visible answer");
+    use crate::models::SessionMessageKind;
+    assert_eq!(messages.len(), 5);
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| message.metadata.kind)
+            .collect::<Vec<_>>(),
+        [
+            SessionMessageKind::Thinking,
+            SessionMessageKind::Thinking,
+            SessionMessageKind::Text,
+            SessionMessageKind::ToolCall,
+            SessionMessageKind::ToolResult,
+        ]
+    );
+    assert_eq!(messages[2].content, "visible answer");
+    assert_eq!(messages[4].content, "hidden-tool-keyword");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -538,17 +566,19 @@ fn updates_detail_keeps_user_agent_and_tool_events() {
         .join("\n");
     fs::write(&path, lines).unwrap();
 
-    let (messages, truncated, omitted) = parse_updates(&path, TEST_LIMITS).unwrap();
-    assert!(!truncated);
-    assert_eq!(omitted, 0);
+    let messages =
+        crate::services::cli_sessions::read_indexed_messages(&[source(&path, decoder::update)]);
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[0].role, CliSessionMessageRole::User);
     assert_eq!(messages[0].content, "真实问题");
     assert_eq!(messages[1].role, CliSessionMessageRole::Assistant);
     assert_eq!(messages[1].content, "处理完成");
-    assert_eq!(messages[1].model.as_deref(), Some("grok-code-fast-1"));
+    assert_eq!(
+        messages[1].metadata.model.as_deref(),
+        Some("grok-code-fast-1")
+    );
     assert_eq!(messages[2].role, CliSessionMessageRole::Tool);
-    assert_eq!(messages[2].tool_name.as_deref(), Some("Read"));
+    assert_eq!(messages[2].metadata.tool_name.as_deref(), Some("Read"));
     assert!(messages[2].content.contains("文件内容"));
     fs::remove_dir_all(root).unwrap();
 }
@@ -577,14 +607,43 @@ fn chat_history_detail_is_a_readable_fallback() {
     .join("\n");
     fs::write(&path, lines).unwrap();
 
-    let (messages, truncated, omitted) = parse_chat_history(&path, TEST_LIMITS).unwrap();
-    assert!(!truncated);
-    assert_eq!(omitted, 0);
+    let messages =
+        crate::services::cli_sessions::read_indexed_messages(&[source(&path, decoder::chat)]);
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[0].content, "用户问题");
     assert_eq!(messages[1].content, "Agent 回复");
     assert_eq!(messages[2].role, CliSessionMessageRole::Tool);
-    assert_eq!(messages[2].tool_name.as_deref(), Some("Search"));
+    assert_eq!(messages[2].metadata.tool_name.as_deref(), Some("Search"));
     assert!(messages[2].content.contains("BalanceHub"));
     fs::remove_dir_all(root).unwrap();
+}
+
+fn source(
+    path: &Path,
+    decode: fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionIndexMutation>,
+) -> SessionIndexSource {
+    SessionIndexSource {
+        path: path.into(),
+        parser_version: INDEX_PARSER_VERSION,
+        format: SessionIndexFormat::JsonLines,
+        decode,
+    }
+}
+fn search_updates_index(
+    path: &Path,
+    request: &crate::services::agent_cli::contracts::SessionContentSearchRequest,
+    current: &dyn Fn() -> bool,
+) -> Result<crate::services::agent_cli::contracts::SessionContentSearchResult, String> {
+    crate::services::cli_sessions::search_sources(
+        &[source(path, decoder::update)],
+        request,
+        current,
+    )
+}
+fn search_chat_index(
+    path: &Path,
+    request: &crate::services::agent_cli::contracts::SessionContentSearchRequest,
+    current: &dyn Fn() -> bool,
+) -> Result<crate::services::agent_cli::contracts::SessionContentSearchResult, String> {
+    crate::services::cli_sessions::search_sources(&[source(path, decoder::chat)], request, current)
 }

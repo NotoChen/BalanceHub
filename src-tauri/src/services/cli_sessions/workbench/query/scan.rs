@@ -1,18 +1,23 @@
-use super::{history_adapter, path_identity, row_for_record, ReferenceState, SourceOutcome};
+use super::super::state::PreviousMatches;
+use super::super::workspace_scan::scan_workspaces;
+use super::{history_adapter, row_for_record, ReferenceState, SourceOutcome};
 use crate::{
     models::{
-        AgentSessionSource, AgentSessionSourceState, AgentSessionSourceStatus,
-        AgentSessionWorkspace, CliSessionIndexState,
+        AgentSessionRow, AgentSessionSource, AgentSessionSourceState, AgentSessionSourceStatus,
+        AgentSessionWorkspace,
     },
     services::{
-        agent_cli::contracts::{SessionHistoryReadMode, SessionHistorySource, SessionReadBudget},
+        agent_cli::contracts::{
+            SessionContentSearchRequest, SessionHistoryReadMode, SessionHistorySource,
+            SessionReadBudget,
+        },
         cli_sessions::{index::HistoryIndex, SearchAccumulator, SearchQuery},
     },
 };
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::atomic::Ordering,
+    time::{Duration, Instant},
 };
 
 pub(super) fn scan_source(
@@ -22,7 +27,7 @@ pub(super) fn scan_source(
     text: &str,
     index: &HistoryIndex,
     budget: &SessionReadBudget,
-    previous_matches: Arc<Mutex<HashMap<String, bool>>>,
+    previous_matches: PreviousMatches,
 ) -> SourceOutcome {
     let mut outcome = SourceOutcome {
         references: Vec::new(),
@@ -30,7 +35,6 @@ pub(super) fn scan_source(
         states: Vec::new(),
         can_continue: false,
     };
-    let index_state = index.state();
     let failure = |message: String, status| {
         workspaces
             .iter()
@@ -40,7 +44,7 @@ pub(super) fn scan_source(
                 state: status,
                 loaded_count: 0,
                 message: Some(message.clone()),
-                index_state,
+                index_state: index.state(),
             })
             .collect::<Vec<_>>()
     };
@@ -65,19 +69,14 @@ pub(super) fn scan_source(
             return outcome;
         }
     };
-    let paths = workspaces
-        .iter()
-        .map(|workspace| PathBuf::from(&workspace.path))
-        .collect::<Vec<_>>();
-    let loaded = match super::super::budget::with_source_root(&config.config_root, || {
-        (adapter.scan)(
-            source.agent_kind,
-            &config.config_root,
-            &paths,
-            budget,
-            SessionHistoryReadMode::Summaries,
-        )
-    }) {
+    let loaded = match scan_workspaces(
+        adapter,
+        source.agent_kind,
+        &config.config_root,
+        workspaces,
+        budget,
+        SessionHistoryReadMode::Summaries,
+    ) {
         Ok(loaded) => loaded,
         Err(error) => {
             outcome.can_continue =
@@ -93,10 +92,13 @@ pub(super) fn scan_source(
             return outcome;
         }
     };
+    let full_request = SearchAccumulator::new(&query).content_request();
+    let empty_request = SessionContentSearchRequest { terms: Vec::new() };
     for loaded in loaded {
-        let Some(workspace) = workspaces.iter().find(|workspace| {
-            path_identity(std::path::Path::new(&workspace.path)) == path_identity(&loaded.workdir)
-        }) else {
+        let Some(workspace) = workspaces
+            .iter()
+            .find(|workspace| std::path::Path::new(&workspace.path) == loaded.workdir)
+        else {
             continue;
         };
         let mut diagnostics = loaded
@@ -105,143 +107,152 @@ pub(super) fn scan_source(
             .filter(|message| !message.contains("预算"))
             .collect::<Vec<_>>();
         let mut pending = false;
-        let mut indexed_bytes = 0u64;
-        let mut source_bytes = 0u64;
-        let mut state = AgentSessionSourceState {
-            source_id: source.id.clone(),
-            workspace_id: workspace.id.clone(),
-            state: AgentSessionSourceStatus::Complete,
-            loaded_count: loaded.records.len(),
-            message: None,
-            index_state,
-        };
-        // Native duplicate indexes are merged by the adapter's project/record
-        // identity, never by a UI title or a bare cross-source session ID.
-        for record in crate::services::cli_sessions::normalize_records(loaded.records) {
+        let mut references = Vec::new();
+        let mut indexed = HashSet::new();
+        let mut incomplete = HashSet::new();
+        let mut decisions = HashMap::new();
+        for record in loaded.records {
             let row = row_for_record(source, config, workspace, &record);
-            let ref_key = row.session_ref.clone();
             let prior = previous_matches
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .get(&ref_key)
-                .copied();
-            let matches: Result<Option<bool>, String> =
-                prior.map(|value| Ok(Some(value))).unwrap_or_else(|| {
-                    let mut matched = SearchAccumulator::new(&query);
-                    matched.observe(&record.summary.title);
-                    matched.observe(&record.summary.id);
-                    if let Some(preview) = &record.summary.preview {
-                        matched.observe(preview);
-                    }
-                    if let Some(model) = &record.summary.model {
-                        matched.observe(model);
-                    }
-                    for model in &record.summary.models {
-                        matched.observe(model);
-                    }
-                    matched.observe(&workspace.path);
-                    if !matched.complete() && record.content_unavailable_reason.is_none() {
-                        budget.check()?;
-                        let request = matched.content_request();
-                        match index.search(&workspace.id, &record, adapter, &request, budget) {
-                            Ok(result) => {
-                                state.index_state = index.state();
-                                if result.skipped_records > 0 {
-                                    diagnostics.push(format!(
-                                        "会话 {} 有 {} 条异常超长记录未计入搜索",
-                                        record.summary.id, result.skipped_records
-                                    ));
-                                }
-                                if !result.complete {
-                                    pending = true;
-                                    indexed_bytes =
-                                        indexed_bytes.saturating_add(result.indexed_bytes);
-                                    source_bytes = source_bytes.saturating_add(result.source_bytes);
-                                    return Ok(None);
-                                }
-                                matched.merge_content(result.content);
+                .get(&row.session_ref)
+                .cloned();
+            if let Some(prior) = prior {
+                decisions.insert(row.session_ref.clone(), prior);
+            } else if metadata_match(&query, &row).complete() {
+                decisions.insert(row.session_ref.clone(), (true, None));
+            } else if record.content_unavailable_reason.is_none() {
+                // Leave time for the one FTS query that delivers this batch.
+                if budget.deadline.saturating_duration_since(Instant::now())
+                    < Duration::from_millis(250)
+                {
+                    pending = true;
+                } else {
+                    match index.search(&workspace.id, &record, adapter, &empty_request, budget) {
+                        Ok(progress) => {
+                            indexed.insert(record.record_key.clone());
+                            if progress.skipped_records > 0 {
+                                diagnostics.push(format!(
+                                    "有 {} 条损坏或异常超长记录无法读取",
+                                    progress.skipped_records
+                                ));
                             }
-                            Err(error) => {
-                                budget.check()?;
-                                state.index_state = CliSessionIndexState::Fallback;
-                                diagnostics
-                                    .push(format!("索引暂不可用，已改用原生正文扫描：{error}"));
-                                matched.merge_content((adapter.search)(
-                                    &record,
-                                    &request,
-                                    &|| budget.check().is_ok(),
-                                )?);
+                            if !progress.complete {
+                                incomplete.insert(record.record_key.clone());
+                                pending = true;
                             }
                         }
-                    }
-                    Ok(Some(matched.complete()))
-                });
-            match matches {
-                Ok(Some(value)) => {
-                    if value || record.content_unavailable_reason.is_none() {
-                        previous_matches
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .insert(ref_key.clone(), value);
-                    }
-                    if value {
-                        outcome.matched.insert(ref_key);
+                        Err(error) if budget.check().is_err() => {
+                            let _ = error;
+                            pending = true;
+                        }
+                        Err(error) => diagnostics.push(error),
                     }
                 }
-                Ok(None) => {}
-                Err(error) => {
-                    if budget.check().is_err() {
-                        pending = true;
-                    } else {
-                        diagnostics.push(error);
+            } else {
+                decisions.insert(row.session_ref.clone(), (false, None));
+            }
+            references.push(ReferenceState { row, record });
+        }
+        // The query runs once per workspace, including tools and thought text.
+        // Native scans only update changed sources; no per-session FTS roundtrip.
+        if !indexed.is_empty() {
+            match index.search_workspace(&workspace.id, &full_request, budget) {
+                Ok(mut results) => {
+                    for reference in &references {
+                        if !indexed.contains(&reference.record.record_key) {
+                            continue;
+                        }
+                        let result = results
+                            .remove(&reference.record.record_key)
+                            .unwrap_or_default();
+                        let hit = result.hit.clone();
+                        let mut matched = metadata_match(&query, &reference.row);
+                        matched.merge_content(result);
+                        decisions
+                            .insert(reference.row.session_ref.clone(), (matched.complete(), hit));
+                    }
+                }
+                Err(error) if budget.check().is_err() => {
+                    let _ = error;
+                    pending = true;
+                }
+                Err(error) => diagnostics.push(error),
+            }
+        }
+        {
+            let mut previous = previous_matches
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            for reference in &mut references {
+                if let Some((matched, hit)) = decisions.remove(&reference.row.session_ref) {
+                    if matched {
+                        outcome.matched.insert(reference.row.session_ref.clone());
+                    }
+                    reference.row.search_hit = hit.clone();
+                    // Partial matches are useful immediately, but a later native
+                    // rewind or update can change them. Cache final decisions only.
+                    if reference.record.content_unavailable_reason.is_none()
+                        && !incomplete.contains(&reference.record.record_key)
+                    {
+                        previous.insert(reference.row.session_ref.clone(), (matched, hit));
                     }
                 }
             }
-            outcome.references.push(ReferenceState { row, record });
         }
+        let loaded_count = references.len();
+        outcome.references.extend(references);
         pending |= budget.check().is_err();
         diagnostics.sort();
         diagnostics.dedup();
-        if budget.cancelled.load(Ordering::Acquire) {
-            state.state = AgentSessionSourceStatus::Cancelled;
+        let state = if budget.cancelled.load(Ordering::Acquire) {
+            AgentSessionSourceStatus::Cancelled
         } else if pending {
             outcome.can_continue = true;
-            state.state = if diagnostics.is_empty() {
-                AgentSessionSourceStatus::Indexing
-            } else {
-                AgentSessionSourceStatus::Partial
-            };
-            diagnostics.insert(
-                0,
-                if source_bytes > 0 {
-                    format!(
-                        "正在检索会话正文，已读取 {:.1}%，将自动继续",
-                        (indexed_bytes as f64 / source_bytes as f64 * 100.0).min(100.0)
-                    )
-                } else {
-                    "正在继续读取其余会话".into()
-                },
-            );
+            diagnostics.insert(0, "正在增量检索其余会话".into());
+            AgentSessionSourceStatus::Indexing
         } else if !loaded.complete || !diagnostics.is_empty() {
-            state.state = AgentSessionSourceStatus::Partial;
-        }
-        state.message = (!diagnostics.is_empty()).then(|| diagnostics.join("；"));
-        outcome.states.push(state);
+            AgentSessionSourceStatus::Partial
+        } else {
+            AgentSessionSourceStatus::Complete
+        };
+        outcome.states.push(AgentSessionSourceState {
+            source_id: source.id.clone(),
+            workspace_id: workspace.id.clone(),
+            state,
+            loaded_count,
+            message: (!diagnostics.is_empty()).then(|| diagnostics.join("；")),
+            index_state: index.state(),
+        });
     }
     if !query.is_empty() && !outcome.can_continue {
         if let Err(error) = index.finish(budget) {
-            // Cache maintenance does not make a successfully read source
-            // incomplete, and must not create an endless continuation cursor.
             for state in &mut outcome.states {
-                let message = format!("搜索已完成，索引缓存整理稍后继续：{error}");
-                if let Some(previous) = &mut state.message {
-                    previous.push('；');
-                    previous.push_str(&message);
-                } else {
-                    state.message = Some(message);
-                }
+                let maintenance = format!("索引缓存整理稍后继续：{error}");
+                state.message = Some(match state.message.take() {
+                    Some(message) => format!("{message}；{maintenance}"),
+                    None => maintenance,
+                });
             }
         }
     }
     outcome
+}
+
+fn metadata_match<'a>(query: &'a SearchQuery, row: &AgentSessionRow) -> SearchAccumulator<'a> {
+    let mut matched = SearchAccumulator::new(query);
+    matched.observe(&row.session.title);
+    matched.observe(&row.session.id);
+    matched.observe(&row.session.workdir);
+    if let Some(preview) = &row.session.preview {
+        matched.observe(preview);
+    }
+    if let Some(model) = &row.session.model {
+        matched.observe(model);
+    }
+    for model in &row.session.models {
+        matched.observe(model);
+    }
+    matched
 }

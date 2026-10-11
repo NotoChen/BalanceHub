@@ -1,4 +1,10 @@
-import type { AgentCliKind } from "../agent-cli/visuals.ts";
+import type {
+  SessionMessageMetadata,
+  SessionFileChange,
+  SessionReadPage,
+  SessionTurnSummary,
+  SessionFindState,
+} from "./session-reader-types";import type { AgentCliKind } from "../agent-cli/visuals.ts";
 import type { AgentSessionLaunchIdentity } from "./agent-session-types";
 
 export type { AgentCliKind } from "../agent-cli/visuals.ts";
@@ -1526,6 +1532,12 @@ export interface CliSessionSummary {
 export type CliSessionMessageRole = "user" | "assistant" | "tool";
 
 export interface CliSessionMessage {
+  contentVersion: number;
+  metadata: SessionMessageMetadata;
+  contentLength: number;
+  contentOffset: number;
+  hasMoreContent: boolean;
+  changes: SessionFileChange[];
   id: string;
   role: CliSessionMessageRole;
   content: string;
@@ -1537,9 +1549,9 @@ export interface CliSessionMessage {
 export interface CliSessionDetail {
   session: CliSessionSummary;
   messages: CliSessionMessage[];
-  truncated: boolean;
-  omittedMessageCount: number;
-  contentSource: string;
+  page: SessionReadPage;
+  outline: SessionTurnSummary[];
+  find: SessionFindState;
 }
 
 export type CliSessionIndexState =

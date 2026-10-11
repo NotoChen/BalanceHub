@@ -40,7 +40,9 @@ interface UseWorkspacePickerOptions {
   browse: (path?: string) => Promise<WorkspaceDirectoryListing>;
   forget: (path: string) => Promise<Workspace[]>;
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
-  preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
+  preview: (
+    input: TemporaryCliLaunchInput,
+  ) => Promise<TemporaryCliLaunchPreview>;
   getInstance: (instanceId: string) => Promise<TemporaryCliInstance | null>;
   sessionApi?: AgentSessionQueryApi;
 }
@@ -54,7 +56,9 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceNewSessionModel = ref("");
   const workspaceSessionName = ref("");
   const workspaceSessionMode = ref<TemporaryCliSessionMode>("new");
-  const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(options.terminalKind.value);
+  const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(
+    options.terminalKind.value,
+  );
   const workspaceCliOptions = computed(() =>
     availableCliOptions(options.cliEnvironmentProbe.value, "temporaryLaunch"),
   );
@@ -62,7 +66,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     availableTerminalOptions(options.terminalEnvironmentProbe.value),
   );
   const selectedCliTool = computed(() =>
-    agentCliTool(options.cliEnvironmentProbe.value, workspacePickerCliKind.value),
+    agentCliTool(
+      options.cliEnvironmentProbe.value,
+      workspacePickerCliKind.value,
+    ),
   );
   const workspaceCanNameSession = computed(() =>
     canNameSessionAtLaunch(
@@ -126,7 +133,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     return loaded;
   }
 
-  async function openWorkspacePicker(provider: Provider, cliKind?: AgentCliKind) {
+  async function openWorkspacePicker(
+    provider: Provider,
+    cliKind?: AgentCliKind,
+  ) {
     const requestId = ++pickerRequestId;
     workspacePickerProvider.value = provider;
     const preference = options.preferences.value.find(
@@ -135,10 +145,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     const preferredCliKind = cliKind ?? preference?.cliKind ?? "codex";
     apiKeySelection.resetWorkspaceApiKeys(preference?.apiKeyLocalId ?? "");
     workspaceNewSessionModel.value =
-      provider.cli.preferredModel?.trim()
-      || preference?.model
-      || provider.liveness.model
-      || "";
+      provider.cli.preferredModel?.trim() ||
+      preference?.model ||
+      provider.liveness.model ||
+      "";
     workspaceSelectedModel.value = workspaceNewSessionModel.value;
     workspaceSessionName.value = "";
     workspaceSessionMode.value = "new";
@@ -166,9 +176,11 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       (option) => option.value === options.terminalKind.value,
     )
       ? options.terminalKind.value
-      : (workspaceTerminalOptions.value[0]?.value ?? options.terminalKind.value);
+      : (workspaceTerminalOptions.value[0]?.value ??
+        options.terminalKind.value);
 
-    const initialPath = preference?.workspacePath || options.workspaces.value[0]?.path;
+    const initialPath =
+      preference?.workspacePath || options.workspaces.value[0]?.path;
     const loaded = await browseWorkspaceDirectory(initialPath);
     if (!isCurrentPickerRequest(requestId, provider)) return;
     if (!loaded && initialPath && workspacePickerVisible.value) {
@@ -179,15 +191,17 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   }
 
   function isCurrentPickerRequest(requestId: number, provider: Provider) {
-    return requestId === pickerRequestId
-      && workspacePickerProvider.value?.identity.id === provider.identity.id;
+    return (
+      requestId === pickerRequestId &&
+      workspacePickerProvider.value?.identity.id === provider.identity.id
+    );
   }
 
   watch(workspaceCliOptions, (available) => {
     if (
-      workspacePickerVisible.value
-      && available.length > 0
-      && !available.some((option) => option.value === workspacePickerCliKind.value)
+      workspacePickerVisible.value &&
+      available.length > 0 &&
+      !available.some((option) => option.value === workspacePickerCliKind.value)
     ) {
       workspacePickerCliKind.value = available[0].value;
     }
@@ -196,9 +210,9 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   watch(workspacePickerCliKind, () => {
     sessionHistory.resetWorkspaceSessions();
     if (
-      workspaceSessionMode.value === "history"
-      && (!selectedCliTool.value?.capabilities.sessionHistory
-        || !selectedCliTool.value?.capabilities.sessionResume)
+      workspaceSessionMode.value === "history" &&
+      (!selectedCliTool.value?.capabilities.sessionHistory ||
+        !selectedCliTool.value?.capabilities.sessionResume)
     ) {
       workspaceSessionMode.value = "new";
     }
@@ -233,9 +247,9 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
 
   watch(workspaceTerminalOptions, (available) => {
     if (
-      workspacePickerVisible.value
-      && available.length > 0
-      && !available.some((option) => option.value === workspaceTerminalKind.value)
+      workspacePickerVisible.value &&
+      available.length > 0 &&
+      !available.some((option) => option.value === workspaceTerminalKind.value)
     ) {
       workspaceTerminalKind.value = available[0].value;
     }
@@ -283,6 +297,15 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionDetailError: sessionHistory.workspaceSessionDetailError,
     workspaceSessionDetail: sessionHistory.workspaceSessionDetail,
     workspaceSessionDetailRow: sessionHistory.workspaceSessionDetailRow,
+    workspaceSessionDetailQuery: sessionHistory.workspaceSessionDetailQuery,
+    workspaceSessionDetailPaused: sessionHistory.workspaceSessionDetailPaused,
+    workspaceSessionMessageStates: sessionHistory.workspaceSessionMessageStates,
+    navigateWorkspaceSessionDetail:
+      sessionHistory.navigateWorkspaceSessionDetail,
+    expandWorkspaceSessionMessage: sessionHistory.expandWorkspaceSessionMessage,
+    pauseWorkspaceSessionDetail: sessionHistory.pauseWorkspaceSessionDetail,
+    refreshWorkspaceSessionDetail: sessionHistory.refreshWorkspaceSessionDetail,
+
     workspaceTerminalKind,
     workspaceTerminalOptions,
     workspaceDirectory: directoryBrowser.workspaceDirectory,
@@ -305,7 +328,8 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     openWorkspaceSessionDetail: sessionHistory.openWorkspaceSessionDetail,
     closeWorkspaceSessionDetail: sessionHistory.closeWorkspaceSessionDetail,
     selectWorkspaceSession: sessionHistory.selectWorkspaceSession,
-    selectWorkspaceSessionFromDetail: sessionHistory.selectWorkspaceSessionFromDetail,
+    selectWorkspaceSessionFromDetail:
+      sessionHistory.selectWorkspaceSessionFromDetail,
     forgetWorkspace: directoryBrowser.forgetWorkspace,
   };
 }

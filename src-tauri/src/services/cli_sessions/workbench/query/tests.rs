@@ -1,8 +1,12 @@
 use super::*;
 use crate::services::agent_cli::contracts::EnvironmentPatch;
-use crate::services::cli_sessions::index::SessionIndexConfig;
+use crate::services::cli_sessions::index::{HistoryIndex, SessionIndexConfig};
 use serde_json::{json, Value};
-use std::{fs, path::PathBuf, sync::Mutex};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 fn budget(bytes: u64) -> SessionReadBudget {
     SessionReadBudget::new(
@@ -92,7 +96,7 @@ fn snapshot(rows: Vec<AgentSessionRow>, complete: bool) -> Snapshot {
         states: Vec::new(),
         complete,
         progress: QueryProgress::default(),
-        created_at: Instant::now(),
+        used_at: Instant::now(),
     }
 }
 
@@ -441,7 +445,7 @@ fn more_than_one_hundred_native_sessions_and_fifty_body_matches_are_paged_withou
         assert_eq!(page.next_cursor.is_some(), offset < 150);
     }
     assert_eq!(delivered.len(), 155);
-    let no_tools = with_read_budget(&limit, || {
+    let tool_matches = with_read_budget(&limit, || {
         scan_source(
             &source,
             &native,
@@ -452,7 +456,60 @@ fn more_than_one_hundred_native_sessions_and_fifty_body_matches_are_paged_withou
             Arc::new(Mutex::new(HashMap::new())),
         )
     });
-    assert!(no_tools.matched.is_empty());
+    assert_eq!(tool_matches.matched.len(), 155);
+    assert!(tool_matches.references.iter().all(|reference| reference
+        .row
+        .search_hit
+        .as_ref()
+        .is_some_and(|hit| hit.kind == crate::models::SessionMessageKind::ToolCall)));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn partial_body_matches_are_visible_before_indexing_finishes_without_caching_final_decisions() {
+    use std::io::Write;
+    let (root, source, native, workspace) = fixture("partial-body-hit", 1);
+    let path = claude_project(&native, &workspace).join("session-0.jsonl");
+    let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    writeln!(file).unwrap();
+    let padding = json!({"type":"progress","padding":"x".repeat(32 * 1024)}).to_string();
+    for index in 0..800 {
+        if index == 32 {
+            writeln!(
+                file,
+                "{}",
+                json!({"type":"assistant","message":{"content":"incremental-middle-hit"}})
+            )
+            .unwrap();
+        }
+        writeln!(file, "{padding}").unwrap();
+    }
+    drop(file);
+    let previous = Arc::new(Mutex::new(HashMap::new()));
+    let limit = budget(16 * 1024 * 1024);
+    let index = HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id);
+    let outcome = with_read_budget(&limit, || {
+        scan_source(
+            &source,
+            &native,
+            &[workspace],
+            "incremental-middle-hit",
+            &index,
+            &limit,
+            previous.clone(),
+        )
+    });
+    assert!(outcome.can_continue);
+    assert_eq!(outcome.matched.len(), 1);
+    assert!(outcome.references[0]
+        .row
+        .search_hit
+        .as_ref()
+        .is_some_and(|hit| hit.snippet.contains("incremental-middle-hit")));
+    assert!(
+        previous.lock().unwrap().is_empty(),
+        "an unfinished native file may still rewind or replace the match"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -648,7 +705,6 @@ fn default_selection_covers_registered_directories_and_explicit_ids_only_narrow_
         },
         explicit_workdir: None,
         sources: HashMap::new(),
-        created_at: Instant::now(),
     };
     assert_eq!(
         select_workspaces(&scope, &[]).unwrap(),
@@ -1049,7 +1105,7 @@ fn maintenance_budget_expiry_keeps_native_results_and_diagnostics_without_a_retr
     assert_eq!(outcome.states[0].state, AgentSessionSourceStatus::Partial);
     assert_eq!(outcome.states[0].index_state, CliSessionIndexState::Ready);
     let message = outcome.states[0].message.as_deref().unwrap();
-    assert!(message.contains("没有可解析的原生事件"));
+    assert!(message.contains("没有可解析的原生事件"), "{message}");
     assert!(message.contains("索引缓存整理稍后继续"));
     assert!(message.contains("字节预算"));
     let (healthy_root, healthy_source, healthy_native, healthy_workspace) =
@@ -1681,11 +1737,8 @@ fn codex_missing_rollouts_keep_indexed_metadata_without_reusing_unavailable_bodi
             assert_eq!(entry.row.workspace_id, workspace.id);
             assert_eq!(entry.row.session.workdir, workspace.path);
             assert_eq!(
-                (adapter.detail)(
-                    &entry.record,
-                    crate::services::cli_sessions::DETAIL_READ_LIMITS
-                )
-                .unwrap_err(),
+                crate::services::cli_sessions::read_history_detail(adapter, &entry.record)
+                    .unwrap_err(),
                 REASON
             );
             match entry.row.session.id.as_str() {

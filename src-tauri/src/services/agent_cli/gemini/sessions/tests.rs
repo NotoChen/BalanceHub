@@ -1,19 +1,10 @@
-use super::{index_source, load_conversation_limited, search_conversation};
+use super::{index_source, load_conversation_limited};
 use crate::{
     models::AgentCliKind,
-    services::agent_cli::contracts::{
-        SessionContentSearchRequest, SessionReadLimits, SessionSearchTerm,
-    },
+    services::agent_cli::contracts::{SessionContentSearchRequest, SessionSearchTerm},
 };
 use serde_json::json;
 use std::fs;
-
-const TEST_LIMITS: SessionReadLimits = SessionReadLimits {
-    max_file_bytes: 1024 * 1024,
-    max_messages: 100,
-    max_total_chars: 100_000,
-    max_message_chars: 10_000,
-};
 
 fn test_root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
@@ -201,8 +192,7 @@ fn detail_loader_applies_set_rewind_updates_and_tool_calls() {
         .join("\n");
     fs::write(&transcript, lines).unwrap();
 
-    let (conversation, truncated) =
-        load_conversation_limited(&transcript, TEST_LIMITS.max_file_bytes).unwrap();
+    let (conversation, truncated) = load_conversation_limited(&transcript, 1024 * 1024).unwrap();
     assert!(!truncated);
     assert_eq!(conversation.session_id.as_deref(), Some("gemini-detail"));
     assert_eq!(conversation.summary.as_deref(), Some("最终标题"));
@@ -218,11 +208,21 @@ fn detail_loader_applies_set_rewind_updates_and_tool_calls() {
         conversation.messages[3].model.as_deref(),
         Some("gemini-3-pro")
     );
-    assert_eq!(conversation.messages[3].tool_calls.len(), 1);
-    assert_eq!(conversation.messages[3].tool_calls[0].name, "read_file");
-    assert!(conversation.messages[3].tool_calls[0]
-        .content
-        .contains("src/App.vue"));
+    let indexed =
+        crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
+    let calls: Vec<_> = indexed
+        .iter()
+        .filter(|message| message.metadata.kind == crate::models::SessionMessageKind::ToolCall)
+        .collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].metadata.tool_name.as_deref(), Some("read_file"));
+    assert!(calls[0].content.contains("src/App.vue"));
+    assert!(indexed.iter().any(|message| message.metadata.kind
+        == crate::models::SessionMessageKind::ToolResult
+        && message.content == "文件内容"));
+    assert!(!indexed
+        .iter()
+        .any(|message| message.content == "需要回退的消息"));
     assert!(!conversation
         .messages
         .iter()
@@ -254,10 +254,9 @@ fn search_uses_the_final_conversation_after_rewind() {
             value: value.to_string(),
         }],
     };
-    let discarded =
-        search_conversation(&transcript, &request("discarded-keyword"), &|| true).unwrap();
+    let discarded = search_native(&transcript, &request("discarded-keyword"), &|| true).unwrap();
     assert!(discarded.matched_term_indexes.is_empty());
-    let kept = search_conversation(&transcript, &request("final-keyword"), &|| true).unwrap();
+    let kept = search_native(&transcript, &request("final-keyword"), &|| true).unwrap();
     assert_eq!(kept.matched_term_indexes, vec![0]);
     let indexed =
         crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
@@ -308,7 +307,7 @@ fn index_rewinds_keep_hidden_message_positions_and_apply_replacements() {
 }
 
 #[test]
-fn search_excludes_tool_calls() {
+fn search_finds_tool_calls() {
     let root = test_root("tool-search");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
@@ -336,14 +335,18 @@ fn search_excludes_tool_calls() {
         }],
     };
 
-    let search_result = search_conversation(&transcript, &request, &|| true).unwrap();
+    let search_result = search_native(&transcript, &request, &|| true).unwrap();
 
-    assert!(search_result.matched_term_indexes.is_empty());
+    assert_eq!(search_result.matched_term_indexes, [0]);
+    assert_eq!(
+        search_result.hit.as_ref().unwrap().kind,
+        crate::models::SessionMessageKind::ToolResult
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn index_excludes_tool_calls_and_hidden_thoughts() {
+fn index_keeps_tools_and_thoughts_separate_from_the_answer() {
     let root = test_root("index-filter");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
@@ -370,8 +373,25 @@ fn index_excludes_tool_calls_and_hidden_thoughts() {
 
     let messages =
         crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
-    assert_eq!(messages.len(), 1);
+    use crate::models::SessionMessageKind;
+    assert_eq!(messages.len(), 5);
     assert_eq!(messages[0].content, "visible answer");
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.metadata.kind == SessionMessageKind::Thinking)
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>(),
+        ["hidden-thought-keyword", "hidden-thinking-keyword"]
+    );
+    assert!(messages.iter().any(
+        |message| message.metadata.kind == SessionMessageKind::ToolCall
+            && message.metadata.tool_name.as_deref() == Some("read_file")
+    ));
+    assert!(messages.iter().any(
+        |message| message.metadata.kind == SessionMessageKind::ToolResult
+            && message.content == "hidden-tool-keyword"
+    ));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -427,10 +447,18 @@ fn native_nested_subagent_records_link_to_the_parent_without_becoming_resumable(
         }],
     };
     assert_eq!(
-        (super::HISTORY.search)(child, &request, &|| true)
+        crate::services::cli_sessions::search_history(&super::HISTORY, child, &request, &|| true)
             .unwrap()
             .matched_term_indexes,
         vec![0]
     );
     fs::remove_dir_all(root).unwrap();
+}
+
+fn search_native(
+    path: &std::path::Path,
+    request: &crate::services::agent_cli::contracts::SessionContentSearchRequest,
+    current: &dyn Fn() -> bool,
+) -> Result<crate::services::agent_cli::contracts::SessionContentSearchResult, String> {
+    crate::services::cli_sessions::search_sources(&[super::index_source(path)], request, current)
 }

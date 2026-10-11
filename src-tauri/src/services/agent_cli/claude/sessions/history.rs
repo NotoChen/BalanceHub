@@ -15,8 +15,6 @@ use std::path::PathBuf;
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
     source,
     scan,
-    detail,
-    search,
     index,
 };
 fn source() -> Result<SessionHistorySource, String> {
@@ -270,33 +268,6 @@ fn add_record(
     }
 }
 
-fn detail(
-    record: &SessionHistoryRecord,
-    limits: SessionReadLimits,
-) -> Result<CliSessionDetail, String> {
-    if let Some(reason) = &record.content_unavailable_reason {
-        return Err(reason.clone());
-    }
-    let (messages, truncated, omitted_message_count) =
-        parse_transcript_messages(&record.locator, limits)?;
-    Ok(CliSessionDetail {
-        session: record.summary.clone(),
-        messages,
-        truncated,
-        omitted_message_count,
-        content_source: "claudeTranscript".into(),
-    })
-}
-fn search(
-    record: &SessionHistoryRecord,
-    request: &SessionContentSearchRequest,
-    current: &dyn Fn() -> bool,
-) -> Result<SessionContentSearchResult, String> {
-    if let Some(reason) = &record.content_unavailable_reason {
-        return Err(reason.clone());
-    }
-    search_transcript(&record.locator, request, current)
-}
 fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
     if let Some(reason) = &record.content_unavailable_reason {
         return Err(reason.clone());

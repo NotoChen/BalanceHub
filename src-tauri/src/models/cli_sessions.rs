@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::AgentCliKind;
 
@@ -23,15 +23,16 @@ pub struct CliSessionSummary {
     pub metadata_source: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CliSessionMessageRole {
+    #[default]
     User,
     Assistant,
     Tool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliSessionMessage {
     pub id: String,
@@ -40,6 +41,12 @@ pub struct CliSessionMessage {
     pub timestamp: Option<String>,
     pub model: Option<String>,
     pub tool_name: Option<String>,
+    pub metadata: super::SessionMessageMetadata,
+    pub content_version: u64,
+    pub content_length: usize,
+    pub content_offset: usize,
+    pub has_more_content: bool,
+    pub changes: Vec<super::SessionFileChange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -47,10 +54,10 @@ pub struct CliSessionMessage {
 pub struct CliSessionDetail {
     pub session: CliSessionSummary,
     pub messages: Vec<CliSessionMessage>,
-    pub truncated: bool,
-    pub omitted_message_count: usize,
-    /// Agent 自己维护的正文来源标识，仅用于诊断显示。
-    pub content_source: String,
+    /// 索引中的分页位置与可继续读取的游标。
+    pub page: super::SessionReadPage,
+    pub outline: Vec<super::SessionTurnSummary>,
+    pub find: super::SessionFindState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

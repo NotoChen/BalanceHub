@@ -11,6 +11,7 @@ use std::{
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
     time::{Duration, Instant, UNIX_EPOCH},
 };
+mod compressed;
 
 const BATCH_BYTES: u64 = 8 * 1024 * 1024;
 const BATCH_TIME: Duration = Duration::from_millis(120);
@@ -81,6 +82,18 @@ fn fingerprint(metadata: &Metadata, version: u32) -> String {
     format!("{version}:{}:{modified}", metadata.len())
 }
 
+pub(super) fn source_signature(source: &SessionIndexSource) -> Result<String, String> {
+    let file =
+        super::workbench::open_session_file(&source.path).map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    Ok(format!(
+        "{}:{}:{}",
+        source.path.to_string_lossy(),
+        identity(&metadata),
+        fingerprint(&metadata, source.parser_version)
+    ))
+}
+
 fn digest(file: &mut (impl Read + Seek), start: u64, length: u64) -> Result<String, String> {
     file.seek(SeekFrom::Start(start))
         .map_err(|error| error.to_string())?;
@@ -108,6 +121,9 @@ pub(super) fn read_batch_with_limit(
     current: &dyn Fn() -> bool,
     batch_bytes: u64,
 ) -> Result<Batch, String> {
+    if super::source::compressed(&source.path) {
+        return compressed::read_batch(source, previous, current, batch_bytes);
+    }
     if !current() {
         return Err("会话读取已取消".into());
     }

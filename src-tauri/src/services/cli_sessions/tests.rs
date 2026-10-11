@@ -1,10 +1,8 @@
 use super::{
-    clean_text, first_non_empty, normalize_timestamp, read_json_lines_limited,
-    scan_json_lines_matching, scan_json_records, timestamp_from_value, SearchAccumulator,
-    SearchQuery,
+    clean_text, first_non_empty, normalize_timestamp, read_json_lines_limited, scan_json_records,
+    timestamp_from_value, SearchAccumulator, SearchQuery,
 };
 use crate::models::{AgentCliKind, CliSessionSummary};
-use crate::services::agent_cli::contracts::SessionContentSearchRequest;
 use std::{
     fs,
     sync::atomic::{AtomicUsize, Ordering},
@@ -136,21 +134,15 @@ fn streaming_jsonl_scan_reaches_middle_records_without_loading_the_file() {
     fs::write(&path, format!("{content}\n")).unwrap();
 
     let mut found = None;
-    scan_json_lines_matching(
-        &path,
-        "检索测试会话",
-        &SessionContentSearchRequest { terms: Vec::new() },
-        &|| true,
-        |_sequence, value| {
-            if value.get("text").and_then(serde_json::Value::as_str) == Some("middle-only-keyword")
-            {
-                found = value.get("id").and_then(serde_json::Value::as_i64);
-                true
-            } else {
-                false
-            }
-        },
-    )
+    scan_json_records(&path, "检索测试会话", &|| true, |_sequence, bytes| {
+        let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        if value.get("text").and_then(serde_json::Value::as_str) == Some("middle-only-keyword") {
+            found = value.get("id").and_then(serde_json::Value::as_i64);
+            true
+        } else {
+            false
+        }
+    })
     .unwrap();
     assert_eq!(found, Some(1_237));
     fs::remove_file(path).unwrap();
@@ -164,14 +156,8 @@ fn streaming_jsonl_scan_honors_cancellation() {
     ));
     let _ = fs::remove_file(&path);
     fs::write(&path, "{}\n{}\n").unwrap();
-    let error = scan_json_lines_matching(
-        &path,
-        "检索测试会话",
-        &SessionContentSearchRequest { terms: Vec::new() },
-        &|| false,
-        |_sequence, _value| false,
-    )
-    .unwrap_err();
+    let error =
+        scan_json_records(&path, "检索测试会话", &|| false, |_sequence, _value| false).unwrap_err();
     assert!(error.contains("新的搜索"));
     fs::remove_file(path).unwrap();
 }
@@ -209,24 +195,13 @@ fn streaming_jsonl_scan_skips_oversized_records_and_keeps_searching() {
         format!("{oversized}\n{{\"text\":\"after-oversized-keyword\"}}\n"),
     )
     .unwrap();
-    let request = SessionContentSearchRequest {
-        terms: vec![crate::services::agent_cli::contracts::SessionSearchTerm {
-            index: 0,
-            value: "after-oversized-keyword".to_string(),
-        }],
-    };
     let mut found = false;
-    scan_json_lines_matching(
-        &path,
-        "检索测试会话",
-        &request,
-        &|| true,
-        |_sequence, value| {
-            found = value.get("text").and_then(serde_json::Value::as_str)
-                == Some("after-oversized-keyword");
-            found
-        },
-    )
+    scan_json_records(&path, "检索测试会话", &|| true, |_sequence, bytes| {
+        let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        found = value.get("text").and_then(serde_json::Value::as_str)
+            == Some("after-oversized-keyword");
+        found
+    })
     .unwrap();
     assert!(found);
     fs::remove_file(path).unwrap();

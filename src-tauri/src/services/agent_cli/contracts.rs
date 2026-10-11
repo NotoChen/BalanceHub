@@ -7,7 +7,7 @@ use crate::models::{
     AgentAssetResolutionParticipation, AgentAssetResolutionRelation, AgentAssetRevision,
     AgentAssetScope, AgentAssetSourceKind, AgentAssetState, AgentAssetSuppressionReason,
     AgentCliKind, AgentConfigurationContext, AgentInstallation, AgentTrustState, CliConfigSnapshot,
-    CliSessionDetail, CliSessionMessageRole, CliSessionSummary, Provider, TemporaryCliSessionMode,
+    CliSessionMessageRole, CliSessionSummary, Provider, TemporaryCliSessionMode,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1639,13 +1639,6 @@ type SessionHistoryScanner = fn(
     &SessionReadBudget,
     SessionHistoryReadMode,
 ) -> Result<Vec<SessionHistoryWorkspace>, String>;
-type SessionHistoryDetailReader =
-    fn(&SessionHistoryRecord, SessionReadLimits) -> Result<CliSessionDetail, String>;
-type SessionHistorySearcher = fn(
-    &SessionHistoryRecord,
-    &SessionContentSearchRequest,
-    &dyn Fn() -> bool,
-) -> Result<SessionContentSearchResult, String>;
 type SessionHistoryIndexReader =
     fn(&SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String>;
 
@@ -1653,8 +1646,6 @@ type SessionHistoryIndexReader =
 pub(crate) struct SessionHistoryAdapter {
     pub source: SessionHistorySourceResolver,
     pub scan: SessionHistoryScanner,
-    pub detail: SessionHistoryDetailReader,
-    pub search: SessionHistorySearcher,
     pub index: SessionHistoryIndexReader,
 }
 
@@ -1748,21 +1739,15 @@ pub(crate) struct SessionContentSearchRequest {
 pub(crate) struct SessionContentSearchResult {
     pub matched_term_indexes: Vec<usize>,
     pub has_content: bool,
+    pub hit: Option<crate::models::SessionSearchHit>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SessionReadLimits {
-    pub max_file_bytes: usize,
-    pub max_messages: usize,
-    pub max_total_chars: usize,
-    pub max_message_chars: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct SessionIndexMessage {
     pub id: String,
     pub role: CliSessionMessageRole,
     pub content: String,
+    pub metadata: crate::models::SessionMessageMetadata,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1791,7 +1776,7 @@ pub(crate) enum SessionIndexMutation {
     },
     Clear,
     Rewind(String),
-    Remove(String),
+    RemoveGroup(String),
 }
 
 #[derive(Clone, Copy)]

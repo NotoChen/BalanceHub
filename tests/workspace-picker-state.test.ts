@@ -6,9 +6,18 @@ import { useWorkspaceApiKeySelection } from "../src/composables/useWorkspaceApiK
 import { useWorkspaceDirectoryBrowser } from "../src/composables/useWorkspaceDirectoryBrowser.ts";
 import { useWorkspaceLaunchFlow } from "../src/composables/useWorkspaceLaunchFlow.ts";
 import { useWorkspaceSessionHistory } from "../src/composables/useWorkspaceSessionHistory.ts";
-import type { AgentSessionDetail, AgentSessionPage, AgentSessionResumeRequest } from "../src/stores/agent-session-types.ts";
+import type {
+  AgentSessionDetail,
+  AgentSessionPage,
+  AgentSessionResumeRequest,
+} from "../src/stores/agent-session-types.ts";
 import type { AgentSessionQueryApi } from "../src/api/agent-sessions.ts";
-import { sessionDetail, sessionPage, sessionRow, sessionScope } from "./agent-session-fixtures.ts";
+import {
+  sessionDetail,
+  sessionPage,
+  sessionRow,
+  sessionScope,
+} from "./agent-session-fixtures.ts";
 import type {
   Provider,
   ProviderApiKeyOption,
@@ -47,16 +56,23 @@ test("session history ignores results from a previous directory", async () => {
     sessionMode: ref("history"),
     selectedModel: ref(""),
     directory: directoryRef,
-    sessionApi: historyApi({ query: async (request) => request.scopeRevision === "scope:/old" ? first.promise : second.promise }),
+    sessionApi: historyApi({
+      query: async (request) =>
+        request.scopeRevision === "scope:/old" ? first.promise : second.promise,
+    }),
   });
 
   const firstLoad = history.loadWorkspaceSessions();
   await settleSessions();
   directoryRef.value = directory("/current");
   const secondLoad = history.loadWorkspaceSessions();
-  second.resolve(sessionPage([sessionRow("current")], { scopeRevision: "scope:/current" }));
+  second.resolve(
+    sessionPage([sessionRow("current")], { scopeRevision: "scope:/current" }),
+  );
   await secondLoad;
-  first.resolve(sessionPage([sessionRow("old")], { scopeRevision: "scope:/old" }));
+  first.resolve(
+    sessionPage([sessionRow("old")], { scopeRevision: "scope:/old" }),
+  );
   await firstLoad;
   assert.deepEqual(
     history.workspaceSessionResults.value.map((item) => item.session.id),
@@ -74,7 +90,10 @@ test("session detail ignores an older selection result", async () => {
     sessionMode: ref("history"),
     selectedModel: ref(""),
     directory: ref(directory("/workspace")),
-    sessionApi: historyApi({ detail: async (request) => request.sessionRef === "ref:first" ? first.promise : second.promise }),
+    sessionApi: historyApi({
+      detail: async (request) =>
+        request.sessionRef === "ref:first" ? first.promise : second.promise,
+    }),
   });
 
   await history.loadWorkspaceSessions();
@@ -87,7 +106,7 @@ test("session detail ignores an older selection result", async () => {
   assert.equal(history.workspaceSessionDetail.value?.session.id, "second");
 });
 
-test("typing a new session query clears stale results before the debounced search", async () => {
+test("typing a new session query retains the last page while the replacement search loads", async () => {
   const history = useWorkspaceSessionHistory({
     visible: ref(true),
     cliKind: ref("codex"),
@@ -101,7 +120,10 @@ test("typing a new session query clears stale results before the debounced searc
   history.workspaceSessionQuery.value = "新的关键字";
   await nextTick();
 
-  assert.deepEqual(history.workspaceSessionResults.value, []);
+  assert.deepEqual(
+    history.workspaceSessionResults.value.map((row) => row.session.id),
+    ["stale"],
+  );
   assert.equal(history.workspaceSessionsLoading.value, true);
   history.invalidateWorkspaceSessionRequests();
 });
@@ -112,7 +134,8 @@ test("API Key results cannot cross-write after switching providers", async () =>
   const currentProvider = ref<Provider | null>(provider("first", ""));
   const selection = useWorkspaceApiKeySelection({
     currentProvider,
-    listApiKeys: async (providerId) => providerId === "first" ? first.promise : second.promise,
+    listApiKeys: async (providerId) =>
+      providerId === "first" ? first.promise : second.promise,
   });
 
   const firstLoad = selection.loadWorkspaceApiKeys(currentProvider.value!);
@@ -123,7 +146,10 @@ test("API Key results cannot cross-write after switching providers", async () =>
   await secondLoad;
   first.resolve([apiKey("first-token", "sk-first")]);
   await firstLoad;
-  assert.deepEqual(selection.workspaceApiKeys.value.map((item) => item.tokenId), ["second-token"]);
+  assert.deepEqual(
+    selection.workspaceApiKeys.value.map((item) => item.tokenId),
+    ["second-token"],
+  );
   assert.equal(selection.workspaceApiKeyLocalId.value, "key-2");
 });
 
@@ -131,7 +157,9 @@ test("local API Keys remain selectable when a provider has no remote key endpoin
   let remoteRequests = 0;
   const currentProvider = ref<Provider | null>(provider("local", ""));
   currentProvider.value!.actions.apiKeyManagement = false;
-  currentProvider.value!.auth.apiKeyOptions = [apiKey("", "sk-local", "key-local")];
+  currentProvider.value!.auth.apiKeyOptions = [
+    apiKey("", "sk-local", "key-local"),
+  ];
   const selection = useWorkspaceApiKeySelection({
     currentProvider,
     listApiKeys: async () => {
@@ -143,14 +171,19 @@ test("local API Keys remain selectable when a provider has no remote key endpoin
   await selection.loadWorkspaceApiKeys(currentProvider.value!);
 
   assert.equal(remoteRequests, 0);
-  assert.deepEqual(selection.workspaceApiKeys.value.map((item) => item.localId), ["key-local"]);
+  assert.deepEqual(
+    selection.workspaceApiKeys.value.map((item) => item.localId),
+    ["key-local"],
+  );
   assert.equal(selection.workspaceApiKeyLocalId.value, "key-local");
   assert.equal(selection.workspaceApiKeyError.value, "");
 });
 
 test("legacy token preferences normalize to the stable local API Key identity", async () => {
   const currentProvider = ref<Provider | null>(provider("remote", "sk-remote"));
-  currentProvider.value!.auth.apiKeyOptions = [apiKey("legacy-token", "sk-remote", "key-stable")];
+  currentProvider.value!.auth.apiKeyOptions = [
+    apiKey("legacy-token", "sk-remote", "key-stable"),
+  ];
   const selection = useWorkspaceApiKeySelection({
     currentProvider,
     listApiKeys: async () => currentProvider.value!.auth.apiKeyOptions,
@@ -324,32 +357,35 @@ test("confirming a launch closes the picker without waiting for terminal dispatc
     sessionScopeRevision: ref(""),
     selectedSessionTitle: ref(""),
     error: ref(""),
-    preview: async () => ({
-      providerName: "Provider",
-      cliKind: "codex",
-      cliPath: "/usr/local/bin/codex",
-      args: [],
-      terminalKind: "terminal",
-      terminalName: "Terminal",
-      workdir: "/workspace",
-      command: "codex",
-      baseUrl: "https://example.com",
-      apiKeyLabel: "Codex 主用",
-      apiKey: "***",
-      model: "",
-      sessionMode: "new",
-      sessionName: "",
-      resumeId: "",
-      environment: {},
-      settingsPath: null,
-      settingsContent: null,
-    } satisfies TemporaryCliLaunchPreview),
+    preview: async () =>
+      ({
+        providerName: "Provider",
+        cliKind: "codex",
+        cliPath: "/usr/local/bin/codex",
+        args: [],
+        terminalKind: "terminal",
+        terminalName: "Terminal",
+        workdir: "/workspace",
+        command: "codex",
+        baseUrl: "https://example.com",
+        apiKeyLabel: "Codex 主用",
+        apiKey: "***",
+        model: "",
+        sessionMode: "new",
+        sessionName: "",
+        resumeId: "",
+        environment: {},
+        settingsPath: null,
+        settingsContent: null,
+      }) satisfies TemporaryCliLaunchPreview,
     launch: async () => {
       launchCalled = true;
       return pendingLaunch.promise;
     },
     getInstance: async () => null,
-    resume: async () => { throw new Error("not expected"); },
+    resume: async () => {
+      throw new Error("not expected");
+    },
     notify: {
       success: () => {},
       warning: () => {},
@@ -384,52 +420,101 @@ test("history preview confirms through the shared resume request after closing, 
   const previews: TemporaryCliLaunchInput[] = [];
   const submissions: Omit<AgentSessionResumeRequest, "requestId">[] = [];
   let legacyLaunches = 0;
-  const flow = useWorkspaceLaunchFlow(historyLaunchOptions({
-    visible, selectedSessionRef, sessionScopeRevision: scopeRevision, selectedModel,
-    preview: async (input) => { previews.push(input); return previewReply.promise; },
-    resume: async (input) => {
-      assert.equal(visible.value, false, "close the picker before submitting any resume IPC");
-      assert.equal(flow.workspaceLaunchPreviewVisible.value, false);
-      submissions.push(input);
-      return resumeReply.promise;
-    },
-    launch: async () => { legacyLaunches += 1; throw new Error("history must not use legacy launch"); },
-  }));
+  const flow = useWorkspaceLaunchFlow(
+    historyLaunchOptions({
+      visible,
+      selectedSessionRef,
+      sessionScopeRevision: scopeRevision,
+      selectedModel,
+      preview: async (input) => {
+        previews.push(input);
+        return previewReply.promise;
+      },
+      resume: async (input) => {
+        assert.equal(
+          visible.value,
+          false,
+          "close the picker before submitting any resume IPC",
+        );
+        assert.equal(flow.workspaceLaunchPreviewVisible.value, false);
+        submissions.push(input);
+        return resumeReply.promise;
+      },
+      launch: async () => {
+        legacyLaunches += 1;
+        throw new Error("history must not use legacy launch");
+      },
+    }),
+  );
 
   const preparing = flow.launchWorkspace();
   assert.equal(previews[0]?.sessionMode, "history");
   assert.equal(previews[0]?.resumeId, "native-id");
-  assert.equal(previews[0]?.model, "", "preview cannot claim a model override absent from the resume contract");
+  assert.equal(
+    previews[0]?.model,
+    "",
+    "preview cannot claim a model override absent from the resume contract",
+  );
   selectedSessionRef.value = "ref:different-selection";
   scopeRevision.value = "scope:new-selection";
-  previewReply.resolve({ ...launchPreview(), cliPath: "/fixture/verified/codex", sessionMode: "history", resumeId: "native-id" });
+  previewReply.resolve({
+    ...launchPreview(),
+    cliPath: "/fixture/verified/codex",
+    sessionMode: "history",
+    resumeId: "native-id",
+  });
   await preparing;
-  assert.equal(flow.workspaceLaunchPreview.value?.cliPath, "/fixture/verified/codex");
+  assert.equal(
+    flow.workspaceLaunchPreview.value?.cliPath,
+    "/fixture/verified/codex",
+  );
 
   flow.confirmWorkspaceLaunch();
   flow.confirmWorkspaceLaunch();
-  assert.deepEqual(submissions, [{
-    sessionRef: "ref:source-a:native-id", scopeRevision: "scope:at-preview",
-    cliPath: "/fixture/verified/codex", terminalKind: "terminal",
-    intent: { kind: "provider", providerId: "provider", apiKeyLocalId: "fixture-local-key" },
-  }]);
+  assert.deepEqual(submissions, [
+    {
+      sessionRef: "ref:source-a:native-id",
+      scopeRevision: "scope:at-preview",
+      cliPath: "/fixture/verified/codex",
+      terminalKind: "terminal",
+      intent: {
+        kind: "provider",
+        providerId: "provider",
+        apiKeyLocalId: "fixture-local-key",
+      },
+    },
+  ]);
   assert.equal(legacyLaunches, 0);
   assert.deepEqual(flow.temporaryCliLaunchTasks.value, []);
   assert.equal(flow.workspaceLaunchPreviewLoading.value, false);
   assert.equal(visible.value, false);
   resumeReply.resolve(null);
   await settleSessions();
-  assert.equal(visible.value, false, "a background acknowledgement must never reopen the picker");
+  assert.equal(
+    visible.value,
+    false,
+    "a background acknowledgement must never reopen the picker",
+  );
 });
 
 test("history confirmation refuses a native ID without its source reference and scope revision", async () => {
-  for (const [sessionRef, scopeRevision] of [["", "scope:valid"], ["ref:valid", ""]]) {
+  for (const [sessionRef, scopeRevision] of [
+    ["", "scope:valid"],
+    ["ref:valid", ""],
+  ]) {
     const error = ref("");
     let previews = 0;
-    const flow = useWorkspaceLaunchFlow(historyLaunchOptions({
-      selectedSessionRef: ref(sessionRef), sessionScopeRevision: ref(scopeRevision), error,
-      preview: async () => { previews += 1; return launchPreview(); },
-    }));
+    const flow = useWorkspaceLaunchFlow(
+      historyLaunchOptions({
+        selectedSessionRef: ref(sessionRef),
+        sessionScopeRevision: ref(scopeRevision),
+        error,
+        preview: async () => {
+          previews += 1;
+          return launchPreview();
+        },
+      }),
+    );
     await flow.launchWorkspace();
     assert.equal(previews, 0);
     assert.match(error.value, /来源已失效/);
@@ -443,18 +528,38 @@ function historyLaunchOptions(
   overrides: Partial<Parameters<typeof useWorkspaceLaunchFlow>[0]> = {},
 ): Parameters<typeof useWorkspaceLaunchFlow>[0] {
   return {
-    visible: ref(true), provider: ref(provider("provider")), cliKind: ref("codex"),
-    cliOptions: ref([{ value: "codex", label: "Codex" }]), cliTool: computed(cliTool), cliProbe: ref(null),
-    terminalKind: ref("terminal"), terminalOptions: ref([{ value: "terminal", label: "Terminal" }]),
-    directory: ref(directory("/workspace")), apiKeys: ref([apiKey("fixture-token", "fixture-secret", "fixture-local-key")]),
-    apiKeyLocalId: ref("fixture-local-key"), selectedModel: ref(""), sessionMode: ref("history"),
-    sessionName: ref(""), canNameSession: ref(false), selectedResumeId: ref("native-id"),
-    selectedSessionRef: ref("ref:source-a:native-id"), sessionScopeRevision: ref("scope:valid"),
-    selectedSessionTitle: ref("合成历史会话"), error: ref(""),
-    preview: async () => launchPreview(), getInstance: async () => null,
-    launch: async () => { throw new Error("unexpected legacy launch"); },
-    resume: async () => { throw new Error("unexpected resume"); },
-    notify: { success: () => {}, warning: () => {}, error: () => {} }, ...overrides,
+    visible: ref(true),
+    provider: ref(provider("provider")),
+    cliKind: ref("codex"),
+    cliOptions: ref([{ value: "codex", label: "Codex" }]),
+    cliTool: computed(cliTool),
+    cliProbe: ref(null),
+    terminalKind: ref("terminal"),
+    terminalOptions: ref([{ value: "terminal", label: "Terminal" }]),
+    directory: ref(directory("/workspace")),
+    apiKeys: ref([
+      apiKey("fixture-token", "fixture-secret", "fixture-local-key"),
+    ]),
+    apiKeyLocalId: ref("fixture-local-key"),
+    selectedModel: ref(""),
+    sessionMode: ref("history"),
+    sessionName: ref(""),
+    canNameSession: ref(false),
+    selectedResumeId: ref("native-id"),
+    selectedSessionRef: ref("ref:source-a:native-id"),
+    sessionScopeRevision: ref("scope:valid"),
+    selectedSessionTitle: ref("合成历史会话"),
+    error: ref(""),
+    preview: async () => launchPreview(),
+    getInstance: async () => null,
+    launch: async () => {
+      throw new Error("unexpected legacy launch");
+    },
+    resume: async () => {
+      throw new Error("unexpected resume");
+    },
+    notify: { success: () => {}, warning: () => {}, error: () => {} },
+    ...overrides,
   };
 }
 
@@ -477,11 +582,19 @@ function directory(currentPath: string): WorkspaceDirectoryListing {
   };
 }
 
-function historyApi(overrides: Partial<AgentSessionQueryApi> = {}): AgentSessionQueryApi {
+function historyApi(
+  overrides: Partial<AgentSessionQueryApi> = {},
+): AgentSessionQueryApi {
   return {
     scope: async (path = null) => sessionScope(path),
-    query: async (request) => sessionPage([], { scopeRevision: request.scopeRevision }),
-    detail: async () => { throw new Error("unexpected detail read"); },
+    query: async (request) =>
+      sessionPage([], { scopeRevision: request.scopeRevision }),
+    detail: async () => {
+      throw new Error("unexpected detail read");
+    },
+    message: async () => {
+      throw new Error("unexpected message read");
+    },
     cancel: async () => undefined,
     ...overrides,
   };

@@ -1,22 +1,10 @@
-use super::{
-    encode_project_path, index_source, message_text, parse_transcript, parse_transcript_messages,
-    search_transcript,
-};
+use super::{encode_project_path, index_source, message_text, parse_transcript};
 use crate::{
     models::{AgentCliKind, CliSessionMessageRole},
-    services::agent_cli::contracts::{
-        SessionContentSearchRequest, SessionReadLimits, SessionSearchTerm,
-    },
+    services::agent_cli::contracts::{SessionContentSearchRequest, SessionSearchTerm},
 };
 use serde_json::{json, Value};
 use std::{fs, path::Path};
-
-const TEST_LIMITS: SessionReadLimits = SessionReadLimits {
-    max_file_bytes: 1024 * 1024,
-    max_messages: 100,
-    max_total_chars: 100_000,
-    max_message_chars: 10_000,
-};
 
 #[test]
 fn project_path_encoding_matches_claude_layout() {
@@ -98,7 +86,8 @@ fn native_underscore_project_lists_main_and_child_with_readable_bodies() {
             .unwrap();
         assert_eq!(record.role, role);
         assert_eq!(record.summary.workdir, "/fixture/known_project");
-        let detail = (super::HISTORY.detail)(record, TEST_LIMITS).unwrap();
+        let detail =
+            crate::services::cli_sessions::read_history_detail(&super::HISTORY, record).unwrap();
         assert_eq!(detail.messages.len(), 1);
         assert_eq!(detail.messages[0].content, body);
         let request = SessionContentSearchRequest {
@@ -108,9 +97,14 @@ fn native_underscore_project_lists_main_and_child_with_readable_bodies() {
             }],
         };
         assert_eq!(
-            (super::HISTORY.search)(record, &request, &|| true)
-                .unwrap()
-                .matched_term_indexes,
+            crate::services::cli_sessions::search_history(
+                &super::HISTORY,
+                record,
+                &request,
+                &|| true
+            )
+            .unwrap()
+            .matched_term_indexes,
             vec![0]
         );
     }
@@ -278,7 +272,7 @@ fn transcript_prefers_latest_ai_title_and_collects_models() {
 }
 
 #[test]
-fn transcript_detail_keeps_messages_tools_and_filters_internal_records() {
+fn transcript_detail_separates_injected_context_and_excludes_other_sessions() {
     let root = std::env::temp_dir().join(format!(
         "balancehub-cli-session-claude-detail-test-{}",
         std::process::id()
@@ -331,21 +325,30 @@ fn transcript_detail_keeps_messages_tools_and_filters_internal_records() {
         .join("\n");
     fs::write(&transcript, lines).unwrap();
 
-    let (messages, truncated, omitted) =
-        parse_transcript_messages(&transcript, TEST_LIMITS).unwrap();
-    assert!(!truncated);
-    assert_eq!(omitted, 0);
+    let messages =
+        crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
+    assert_eq!(messages.len(), 6);
+    assert!(messages[0].metadata.injected);
+    assert!(messages[1].metadata.injected);
+    assert_eq!(messages[1].content, "内部上下文");
+    let messages = messages
+        .into_iter()
+        .filter(|message| !message.metadata.injected)
+        .collect::<Vec<_>>();
     assert_eq!(messages.len(), 4);
     assert_eq!(messages[0].role, CliSessionMessageRole::User);
     assert_eq!(messages[0].content, "真实问题");
     assert_eq!(messages[1].role, CliSessionMessageRole::Assistant);
     assert_eq!(messages[1].content, "正在处理");
-    assert_eq!(messages[1].model.as_deref(), Some("claude-sonnet-4-5"));
+    assert_eq!(
+        messages[1].metadata.model.as_deref(),
+        Some("claude-sonnet-4-5")
+    );
     assert_eq!(messages[2].role, CliSessionMessageRole::Tool);
-    assert_eq!(messages[2].tool_name.as_deref(), Some("Read"));
+    assert_eq!(messages[2].metadata.tool_name.as_deref(), Some("Read"));
     assert!(messages[2].content.contains("src/App.vue"));
     assert_eq!(messages[3].role, CliSessionMessageRole::Tool);
-    assert_eq!(messages[3].tool_name.as_deref(), Some("Read"));
+    assert_eq!(messages[3].metadata.tool_name.as_deref(), Some("Read"));
     assert_eq!(messages[3].content, "文件内容");
     assert!(!messages
         .iter()
@@ -357,7 +360,7 @@ fn transcript_detail_keeps_messages_tools_and_filters_internal_records() {
 }
 
 #[test]
-fn transcript_search_excludes_tool_results() {
+fn transcript_search_finds_tool_results() {
     let root = std::env::temp_dir().join(format!(
         "balancehub-cli-session-claude-tool-search-test-{}",
         std::process::id()
@@ -388,14 +391,18 @@ fn transcript_search_excludes_tool_results() {
         }],
     };
 
-    let result = search_transcript(&transcript, &request, &|| true).unwrap();
+    let result = search_native(&transcript, &request, &|| true).unwrap();
 
-    assert!(result.matched_term_indexes.is_empty());
+    assert_eq!(result.matched_term_indexes, [0]);
+    assert_eq!(
+        result.hit.as_ref().unwrap().kind,
+        crate::models::SessionMessageKind::ToolResult
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn transcript_index_excludes_tools_meta_and_thinking_blocks() {
+fn transcript_index_keeps_tools_context_and_thinking_as_independent_blocks() {
     let root = std::env::temp_dir().join(format!(
         "balancehub-cli-session-claude-index-filter-test-{}",
         std::process::id()
@@ -429,8 +436,27 @@ fn transcript_index_excludes_tools_meta_and_thinking_blocks() {
 
     let messages =
         crate::services::cli_sessions::read_indexed_messages(&[index_source(&transcript)]);
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].content, "visible answer");
+    use crate::models::SessionMessageKind;
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| (
+                message.metadata.kind,
+                message.metadata.injected,
+                message.content.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (SessionMessageKind::ToolResult, false, "hidden-tool-keyword"),
+            (SessionMessageKind::Text, true, "hidden-meta-keyword"),
+            (
+                SessionMessageKind::Thinking,
+                false,
+                "hidden-thinking-keyword"
+            ),
+            (SessionMessageKind::Text, false, "visible answer"),
+        ]
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -513,17 +539,32 @@ fn child_transcripts_share_the_parser_but_keep_independent_identity_and_body() {
             }],
         };
         assert_eq!(
-            (super::HISTORY.search)(child, &request, &|| true)
-                .unwrap()
-                .matched_term_indexes,
+            crate::services::cli_sessions::search_history(
+                &super::HISTORY,
+                child,
+                &request,
+                &|| true
+            )
+            .unwrap()
+            .matched_term_indexes,
             vec![0]
         );
-        assert!(!(super::HISTORY.detail)(child, TEST_LIMITS)
-            .unwrap()
-            .messages
-            .is_empty());
+        assert!(
+            !crate::services::cli_sessions::read_history_detail(&super::HISTORY, child)
+                .unwrap()
+                .messages
+                .is_empty()
+        );
     }
     fs::remove_dir_all(root).unwrap();
 }
 
 mod long_paths;
+
+fn search_native(
+    path: &std::path::Path,
+    request: &SessionContentSearchRequest,
+    current: &dyn Fn() -> bool,
+) -> Result<crate::services::agent_cli::contracts::SessionContentSearchResult, String> {
+    crate::services::cli_sessions::search_sources(&[index_source(path)], request, current)
+}

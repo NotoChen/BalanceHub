@@ -1,21 +1,12 @@
 use super::index::read_session_titles;
-use super::{codex_home, index_source, parse_rollout_messages, search_rollout};
+use super::{codex_home, index_source};
 use crate::{
     models::{AgentCliKind, CliSessionMessageRole},
-    services::agent_cli::contracts::{
-        SessionContentSearchRequest, SessionReadLimits, SessionSearchTerm,
-    },
+    services::agent_cli::contracts::{SessionContentSearchRequest, SessionSearchTerm},
 };
 use rusqlite::Connection;
 use serde_json::json;
 use std::{fs, path::PathBuf};
-
-const TEST_LIMITS: SessionReadLimits = SessionReadLimits {
-    max_file_bytes: 1024 * 1024,
-    max_messages: 100,
-    max_total_chars: 100_000,
-    max_message_chars: 10_000,
-};
 
 #[test]
 fn default_home_uses_user_home() {
@@ -114,18 +105,26 @@ fn rollout_messages_prefer_current_events_and_keep_tool_calls() {
         .join("\n");
     fs::write(&path, lines).unwrap();
 
-    let (messages, truncated, omitted) = parse_rollout_messages(&path, TEST_LIMITS).unwrap();
-    assert!(!truncated);
-    assert_eq!(omitted, 0);
-    assert_eq!(messages.len(), 3);
+    let messages = crate::services::cli_sessions::read_indexed_messages(&[index_source(&path)]);
+    assert_eq!(messages.len(), 4);
     assert_eq!(messages[0].role, CliSessionMessageRole::User);
     assert_eq!(messages[0].content, "当前用户消息");
     assert_eq!(messages[1].role, CliSessionMessageRole::Tool);
-    assert_eq!(messages[1].tool_name.as_deref(), Some("read_file"));
+    assert_eq!(messages[1].metadata.tool_name.as_deref(), Some("read_file"));
     assert!(messages[1].content.contains("src/App.vue"));
-    assert!(messages[1].content.contains("读取完成"));
-    assert_eq!(messages[2].role, CliSessionMessageRole::Assistant);
-    assert_eq!(messages[2].model.as_deref(), Some("gpt-5.6"));
+    assert!(!messages[1].content.contains("读取完成"));
+    assert_eq!(
+        messages[1].metadata.kind,
+        crate::models::SessionMessageKind::ToolCall
+    );
+    assert_eq!(messages[2].content, "读取完成");
+    assert_eq!(
+        messages[2].metadata.kind,
+        crate::models::SessionMessageKind::ToolResult
+    );
+    assert_eq!(messages[2].metadata.tool_name.as_deref(), Some("read_file"));
+    assert_eq!(messages[3].role, CliSessionMessageRole::Assistant);
+    assert_eq!(messages[3].metadata.model.as_deref(), Some("gpt-5.6"));
     assert!(!messages
         .iter()
         .any(|message| message.content == "旧格式重复消息"));
@@ -155,11 +154,11 @@ fn rollout_messages_fall_back_to_legacy_response_messages() {
         )
         .unwrap();
 
-    let (messages, _, _) = parse_rollout_messages(&path, TEST_LIMITS).unwrap();
+    let messages = crate::services::cli_sessions::read_indexed_messages(&[index_source(&path)]);
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].content, "旧用户消息");
     assert_eq!(messages[1].content, "旧 Agent 回复");
-    assert_eq!(messages[1].model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(messages[1].metadata.model.as_deref(), Some("gpt-5.5"));
     fs::remove_dir_all(directory).unwrap();
 }
 
@@ -222,7 +221,7 @@ fn rollout_search_scans_beyond_detail_windows() {
             value: "middle-codex-keyword".to_string(),
         }],
     };
-    let result = search_rollout(&path, &request, &|| true).unwrap();
+    let result = search_native(&path, &request, &|| true).unwrap();
     assert_eq!(result.matched_term_indexes, vec![0]);
     fs::remove_dir_all(directory).unwrap();
 }
@@ -254,7 +253,7 @@ fn rollout_search_ignores_legacy_messages_when_primary_events_exist() {
             value: "legacy-only-keyword".to_string(),
         }],
     };
-    let result = search_rollout(&path, &request, &|| true).unwrap();
+    let result = search_native(&path, &request, &|| true).unwrap();
     assert!(result.matched_term_indexes.is_empty());
     let indexed = crate::services::cli_sessions::read_indexed_messages(&[index_source(&path)]);
     assert_eq!(indexed.len(), 1);
@@ -263,7 +262,7 @@ fn rollout_search_ignores_legacy_messages_when_primary_events_exist() {
 }
 
 #[test]
-fn rollout_search_excludes_tool_outputs() {
+fn rollout_search_finds_tool_outputs() {
     let directory = std::env::temp_dir().join(format!(
         "balancehub-cli-session-codex-tool-search-test-{}",
         std::process::id()
@@ -292,14 +291,18 @@ fn rollout_search_excludes_tool_outputs() {
         }],
     };
 
-    let result = search_rollout(&path, &request, &|| true).unwrap();
+    let result = search_native(&path, &request, &|| true).unwrap();
 
-    assert!(result.matched_term_indexes.is_empty());
+    assert_eq!(result.matched_term_indexes, [0]);
+    assert_eq!(
+        result.hit.as_ref().unwrap().kind,
+        crate::models::SessionMessageKind::ToolResult
+    );
     fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
-fn rollout_index_keeps_visible_messages_only() {
+fn rollout_index_separates_text_tools_and_stored_reasoning() {
     let directory = std::env::temp_dir().join(format!(
         "balancehub-cli-session-codex-index-filter-test-{}",
         std::process::id()
@@ -342,7 +345,26 @@ fn rollout_index_keeps_visible_messages_only() {
     fs::write(&path, lines).unwrap();
 
     let messages = crate::services::cli_sessions::read_indexed_messages(&[index_source(&path)]);
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].content, "visible answer");
+    use crate::models::SessionMessageKind;
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| (message.metadata.kind, message.content.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (SessionMessageKind::Thinking, "hidden-reasoning-keyword"),
+            (SessionMessageKind::ToolResult, "hidden-tool-keyword"),
+            (SessionMessageKind::Thinking, "hidden-part-keyword"),
+            (SessionMessageKind::Text, "visible answer"),
+        ]
+    );
     fs::remove_dir_all(directory).unwrap();
+}
+
+fn search_native(
+    path: &std::path::Path,
+    request: &SessionContentSearchRequest,
+    current: &dyn Fn() -> bool,
+) -> Result<crate::services::agent_cli::contracts::SessionContentSearchResult, String> {
+    crate::services::cli_sessions::search_sources(&[index_source(path)], request, current)
 }

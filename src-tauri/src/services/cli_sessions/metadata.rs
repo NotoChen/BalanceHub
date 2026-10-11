@@ -15,19 +15,18 @@ pub(crate) fn read_session_header(
     fields: &[&str],
     mut ready: impl FnMut(&Map<String, Value>, bool) -> bool,
 ) -> Result<Option<Map<String, Value>>, String> {
-    let file = super::workbench::open_session_file(path)
-        .map_err(|error| format!("读取会话身份失败：{error}"))?;
-    let length = file.metadata().map_err(|error| error.to_string())?.len();
-    if length == 0 {
-        return Ok(None);
-    }
+    let file = super::source::reader(path).map_err(|error| format!("读取会话身份失败：{error}"))?;
     // Keep the limit below buffering, and stop as soon as the native identity
     // is available, even if the remainder is huge, missing or malformed.
     let mut reader = BufReader::with_capacity(4096, file.take(MAX_HEADER_BYTES));
+    let mut saw_record = false;
     loop {
         super::workbench::check_read_budget()?;
         let available = reader.fill_buf().map_err(|error| error.to_string())?;
         if available.is_empty() {
+            if !saw_record {
+                return Ok(None);
+            }
             return Err("会话元数据未包含可确认的原生身份".into());
         }
         let whitespace = available
@@ -39,6 +38,7 @@ pub(crate) fn read_session_header(
             continue;
         }
         let mut decoder = serde_json::Deserializer::from_reader(&mut reader);
+        saw_record = true;
         let mut found = None;
         let result = Header {
             fields,

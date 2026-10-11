@@ -2,8 +2,8 @@ use super::run_blocking;
 use crate::{
     models::{
         AgentSessionCancelRequest, AgentSessionCountRequest, AgentSessionCounts,
-        AgentSessionDetail, AgentSessionDetailRequest, AgentSessionPage, AgentSessionQuery,
-        AgentSessionScope,
+        AgentSessionDetail, AgentSessionDetailRequest, AgentSessionMessageContent,
+        AgentSessionMessageRequest, AgentSessionPage, AgentSessionQuery, AgentSessionScope,
     },
     services::cli_sessions::workbench::{self, AgentSessionActor},
 };
@@ -140,6 +140,41 @@ pub(crate) async fn get_agent_session_detail(
         }
     }
 }
+#[tauri::command]
+pub(crate) async fn get_agent_session_message_content(
+    app: AppHandle,
+    window: WebviewWindow,
+    request: AgentSessionMessageRequest,
+) -> Result<AgentSessionMessageContent, String> {
+    let label = window.label().to_string();
+    let budget = workbench::begin_request(
+        AgentSessionActor {
+            app: &app,
+            window_label: &label,
+        },
+        &request.consumer_id,
+        request.request_id,
+        workbench::DETAIL_TIMEOUT,
+    )?;
+    let cancellation = budget.cancelled.clone();
+    let result = tokio::time::timeout(
+        workbench::DETAIL_TIMEOUT,
+        run_blocking("展开会话消息", move || {
+            workbench::message_content(
+                AgentSessionActor {
+                    app: &app,
+                    window_label: &label,
+                },
+                &request,
+                &budget,
+            )
+        }),
+    )
+    .await;
+    cancellation.store(true, std::sync::atomic::Ordering::Release);
+    result.map_err(|_| "消息读取超时，后台读取已取消".to_owned())?
+}
+
 #[tauri::command]
 pub(crate) fn cancel_agent_session_query(
     app: AppHandle,

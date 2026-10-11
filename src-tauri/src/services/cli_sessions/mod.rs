@@ -1,40 +1,31 @@
-use crate::{models::CliSessionMessage, services::agent_cli::contracts::SessionReadLimits};
-
 mod index;
 mod io;
 mod metadata;
+pub(crate) mod presentation;
 mod record_stream;
 pub(crate) mod resume;
 mod search;
+pub(crate) mod source;
 #[cfg(test)]
 mod tests;
 pub(crate) mod workbench;
 
 #[cfg(test)]
-pub(crate) use index::test_support::read_indexed_messages;
+pub(crate) use index::test_support::{
+    read_history_detail, read_indexed_messages, search_history, search_sources,
+};
 pub(crate) use index::{
     clear as clear_index, config as index_config, reconfigure as reconfigure_index,
     status as index_status,
 };
 pub(crate) use io::{
-    compact_json, json_record_may_match, json_text, read_json_lines_limited,
-    scan_json_lines_matching, scan_json_records, session_index_source_fingerprint,
+    json_text, read_json_lines_limited, scan_json_records, session_index_source_fingerprint,
 };
 pub(crate) use metadata::read_session_header;
 pub(crate) use record_stream::read_json_messages_limited;
-pub(crate) use search::{
-    combine_content_search_results, truncate_text, SearchAccumulator, SearchQuery,
-    SessionContentSearchCollector,
-};
+pub(crate) use search::{SearchAccumulator, SearchQuery};
 const MAX_SEARCH_QUERY_CHARS: usize = 200;
 const MAX_SEARCH_TERMS: usize = 8;
-const DETAIL_READ_LIMITS: SessionReadLimits = SessionReadLimits {
-    max_file_bytes: 32 * 1024 * 1024,
-    max_messages: 800,
-    max_total_chars: 4 * 1024 * 1024,
-    max_message_chars: 32 * 1024,
-};
-
 pub(crate) fn normalize_records(
     mut records: Vec<crate::services::agent_cli::contracts::SessionHistoryRecord>,
 ) -> Vec<crate::services::agent_cli::contracts::SessionHistoryRecord> {
@@ -106,73 +97,4 @@ pub(crate) fn normalize_timestamp(value: Option<&str>) -> Option<String> {
 
 pub(crate) fn timestamp_from_unix(value: Option<i64>) -> Option<String> {
     timestamp_from_value(value, false)
-}
-
-pub(crate) struct SessionMessageCollector {
-    limits: SessionReadLimits,
-    messages: Vec<CliSessionMessage>,
-    total_chars: usize,
-    truncated: bool,
-    omitted_message_count: usize,
-}
-
-impl SessionMessageCollector {
-    pub(crate) fn new(limits: SessionReadLimits) -> Self {
-        Self {
-            limits,
-            messages: Vec::new(),
-            total_chars: 0,
-            truncated: false,
-            omitted_message_count: 0,
-        }
-    }
-
-    pub(crate) fn push(
-        &mut self,
-        id: impl Into<String>,
-        role: crate::models::CliSessionMessageRole,
-        content: impl AsRef<str>,
-        timestamp: Option<String>,
-        model: Option<String>,
-        tool_name: Option<String>,
-    ) {
-        let content = content.as_ref().trim();
-        if content.is_empty() {
-            return;
-        }
-        if self.messages.len() >= self.limits.max_messages
-            || self.total_chars >= self.limits.max_total_chars
-        {
-            self.truncated = true;
-            self.omitted_message_count = self.omitted_message_count.saturating_add(1);
-            return;
-        }
-
-        let remaining = self.limits.max_total_chars - self.total_chars;
-        let allowed = self.limits.max_message_chars.min(remaining);
-        let (content, was_truncated) = truncate_text(content, allowed);
-        if content.is_empty() {
-            self.truncated = true;
-            self.omitted_message_count = self.omitted_message_count.saturating_add(1);
-            return;
-        }
-        self.total_chars = self.total_chars.saturating_add(content.chars().count());
-        self.truncated |= was_truncated;
-        self.messages.push(CliSessionMessage {
-            id: id.into(),
-            role,
-            content,
-            timestamp,
-            model: model.and_then(|value| clean_text(value, 120)),
-            tool_name: tool_name.and_then(|value| clean_text(value, 120)),
-        });
-    }
-
-    pub(crate) fn finish(
-        mut self,
-        source_truncated: bool,
-    ) -> (Vec<CliSessionMessage>, bool, usize) {
-        self.truncated |= source_truncated;
-        (self.messages, self.truncated, self.omitted_message_count)
-    }
 }

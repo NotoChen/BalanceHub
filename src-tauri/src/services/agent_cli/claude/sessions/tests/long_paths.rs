@@ -118,10 +118,12 @@ fn native_project_length_boundaries_keep_main_child_bodies_and_parent_identity()
                 assert!(!record.summary.can_resume);
                 format!("child body {length}")
             };
-            let detail = (HISTORY.detail)(record, super::TEST_LIMITS).unwrap();
+            let detail =
+                crate::services::cli_sessions::read_history_detail(&HISTORY, record).unwrap();
             assert_eq!(detail.messages.len(), 1);
             assert_eq!(detail.messages[0].content, body);
-            let found = (HISTORY.search)(
+            let found = crate::services::cli_sessions::search_history(
+                &HISTORY,
                 record,
                 &SessionContentSearchRequest {
                     terms: vec![SessionSearchTerm {

@@ -3,6 +3,8 @@ use crate::services::agent_cli::{self, contracts::SessionSearchTerm};
 use serde_json::json;
 use std::io::Write;
 
+mod reader;
+
 fn fixture(kind: AgentCliKind) -> (tempfile::TempDir, SessionIndexConfig, SessionHistoryRecord) {
     let root = tempfile::tempdir().unwrap();
     let config = SessionIndexConfig {

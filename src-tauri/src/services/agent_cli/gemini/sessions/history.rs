@@ -13,8 +13,6 @@ use crate::{
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
     source,
     scan,
-    detail,
-    search,
     index,
 };
 fn source() -> Result<SessionHistorySource, String> {
@@ -265,87 +263,9 @@ fn add_record(
     }
 }
 
-fn search(
-    record: &SessionHistoryRecord,
-    request: &SessionContentSearchRequest,
-    current: &dyn Fn() -> bool,
-) -> Result<SessionContentSearchResult, String> {
-    search_conversation(&record.locator, request, current)
-}
 fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
     if let Some(reason) = &record.content_unavailable_reason {
         return Err(reason.clone());
     }
     Ok(vec![index_source(&record.locator)])
-}
-fn detail(
-    record: &SessionHistoryRecord,
-    limits: SessionReadLimits,
-) -> Result<CliSessionDetail, String> {
-    let (conversation, source_truncated) =
-        load_conversation_limited(&record.locator, limits.max_file_bytes)?;
-    let mut collector = SessionMessageCollector::new(limits);
-    for (index, message) in conversation.messages.into_iter().enumerate() {
-        let timestamp = normalize_timestamp(message.timestamp.as_deref());
-        let model = message.model.clone();
-        match message.kind.as_str() {
-            "user" => {
-                if let Some(text) = message.text {
-                    if !is_ignored_user_content(text.trim()) {
-                        collector.push(
-                            format!("gemini-{index}"),
-                            CliSessionMessageRole::User,
-                            text,
-                            timestamp.clone(),
-                            None,
-                            None,
-                        );
-                    }
-                }
-            }
-            "gemini" => {
-                if let Some(text) = message.text {
-                    collector.push(
-                        format!("gemini-{index}"),
-                        CliSessionMessageRole::Assistant,
-                        text,
-                        timestamp.clone(),
-                        model.clone(),
-                        None,
-                    );
-                }
-            }
-            kind if kind.contains("tool") => {
-                if let Some(text) = message.text {
-                    collector.push(
-                        format!("gemini-{index}"),
-                        CliSessionMessageRole::Tool,
-                        text,
-                        timestamp.clone(),
-                        model.clone(),
-                        None,
-                    );
-                }
-            }
-            _ => {}
-        }
-        for (tool_index, tool) in message.tool_calls.into_iter().enumerate() {
-            collector.push(
-                format!("gemini-{index}-tool-{tool_index}"),
-                CliSessionMessageRole::Tool,
-                tool.content,
-                timestamp.clone(),
-                model.clone(),
-                Some(tool.name),
-            );
-        }
-    }
-    let (messages, truncated, omitted_message_count) = collector.finish(source_truncated);
-    Ok(CliSessionDetail {
-        session: record.summary.clone(),
-        messages,
-        truncated,
-        omitted_message_count,
-        content_source: "geminiTranscript".to_string(),
-    })
 }

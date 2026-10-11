@@ -2,17 +2,20 @@
 mod budget;
 mod counts;
 mod query;
+mod reader;
 mod scope;
 mod state;
+mod workspace_scan;
 
 use crate::services::agent_cli::contracts::SessionReadBudget;
 pub(crate) use budget::{
     cached_history_record, cached_history_record_facts, check_read_budget, open_session_file,
     read_session_metadata_text_file_limited, read_session_text_file_limited, with_read_budget,
-    with_source_root, HistoryRecordFacts,
+    with_source_root, BudgetFile, HistoryRecordFacts,
 };
 pub(crate) use counts::count;
-pub(crate) use query::{detail, query};
+pub(crate) use query::query;
+pub(crate) use reader::{detail, message_content};
 #[cfg(test)]
 pub(crate) use scope::ResumeAdmissionFixture;
 pub(crate) use scope::{get_scope, resolve_session_ref, ResolvedSessionTarget};
@@ -107,6 +110,7 @@ pub(crate) fn release_window(app: &AppHandle, window_label: &str) {
     registry
         .snapshots
         .retain(|_, snapshot| snapshot.actor != actor);
+    registry.sources.retain(|(owner, _), _| owner != &actor);
 }
 
 pub(super) fn hash(parts: &[&str]) -> String {

@@ -1,12 +1,9 @@
-use crate::services::agent_cli::contracts::SessionContentSearchRequest;
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::Path,
     time::UNIX_EPOCH,
 };
-
-use super::truncate_text;
 
 const MAX_SESSION_RECORD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_RETAINED_LINE_BUFFER_BYTES: usize = 1024 * 1024;
@@ -36,6 +33,26 @@ pub(crate) fn read_json_lines_limited(
     label: &str,
     mut observe: impl FnMut(usize, Value),
 ) -> Result<bool, String> {
+    if super::source::compressed(path) {
+        let reader =
+            super::source::reader(path).map_err(|error| format!("{label}失败：{error}"))?;
+        let mut sequence = 0;
+        read_json_segment(
+            reader,
+            JsonSegmentWindow {
+                max_bytes: max_bytes.max(1),
+                skip_partial_line: false,
+                allow_incomplete_window_end: true,
+            },
+            path,
+            label,
+            &mut sequence,
+            &mut observe,
+        )?;
+        // Compressed metadata reads inspect the header. Full content is paged
+        // through record_stream and never uses this metadata window.
+        return Ok(true);
+    }
     let mut file = super::workbench::open_session_file(path)
         .map_err(|err| format!("{label}失败：{}：{err}", path.display()))?;
     let file_bytes = file
@@ -114,32 +131,15 @@ pub(crate) fn read_json_lines_limited(
 
 /// 顺序扫描 JSONL 会话文件，任何时刻只保留一条记录。请求预算控制
 /// 本轮工作量；单条异常记录另有上限，避免损坏数据造成无界内存占用。
-pub(crate) fn scan_json_lines_matching(
-    path: &Path,
-    label: &str,
-    request: &SessionContentSearchRequest,
-    is_current: &dyn Fn() -> bool,
-    mut observe: impl FnMut(usize, Value) -> bool,
-) -> Result<(), String> {
-    scan_json_records(path, label, is_current, |sequence, line| {
-        if !json_record_may_match(line, request) {
-            return false;
-        }
-        serde_json::from_slice::<Value>(line)
-            .ok()
-            .is_some_and(|value| observe(sequence, value))
-    })
-}
-
 pub(crate) fn scan_json_records(
     path: &Path,
     label: &str,
     is_current: &dyn Fn() -> bool,
     mut observe: impl FnMut(usize, &[u8]) -> bool,
 ) -> Result<(), String> {
-    let file = super::workbench::open_session_file(path)
+    let source = super::source::reader(path)
         .map_err(|err| format!("{label}失败：{}：{err}", path.display()))?;
-    let mut reader = BufReader::new(file);
+    let mut reader = BufReader::new(source);
     let mut line = Vec::new();
     let mut sequence = 0usize;
     loop {
@@ -215,28 +215,6 @@ fn release_large_byte_buffer(buffer: &mut Vec<u8>) {
     }
 }
 
-pub(crate) fn json_record_may_match(line: &[u8], request: &SessionContentSearchRequest) -> bool {
-    if request.terms.is_empty() {
-        return true;
-    }
-    request.terms.iter().any(|term| {
-        let needle = term.value.as_bytes();
-        if needle.is_empty() {
-            return true;
-        }
-        if !term.value.is_ascii() && line.windows(2).any(|window| window == br"\u") {
-            return true;
-        }
-        line.windows(needle.len()).any(|window| {
-            if term.value.is_ascii() {
-                window.eq_ignore_ascii_case(needle)
-            } else {
-                window == needle
-            }
-        })
-    })
-}
-
 struct JsonSegmentWindow {
     max_bytes: usize,
     skip_partial_line: bool,
@@ -300,14 +278,12 @@ fn read_json_segment(
     Ok(())
 }
 
-pub(crate) fn compact_json(value: &Value, limit: usize) -> String {
-    truncate_text(&serde_json::to_string(value).unwrap_or_default(), limit).0
-}
-
-/// 将 JSON 完整序列化给搜索路径使用。展示路径应使用 `compact_json`，搜索
-/// 路径则不能先截断，否则关键词落在工具输入/输出尾部时会被漏掉。
+/// Retain original string contents; only structured tool values are serialized.
 pub(crate) fn json_text(value: &Value) -> String {
-    serde_json::to_string(value).unwrap_or_default()
+    match value {
+        Value::String(text) => text.clone(),
+        _ => serde_json::to_string_pretty(value).unwrap_or_default(),
+    }
 }
 
 #[cfg(test)]

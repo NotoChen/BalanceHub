@@ -1,5 +1,5 @@
 use crate::{
-    models::{AgentCliKind, CliSessionDetail, CliSessionSummary},
+    models::{AgentCliKind, CliSessionSummary},
     services::cli_sessions::clean_text,
 };
 use std::{
@@ -8,9 +8,8 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionContentSearchRequest, SessionContentSearchResult, SessionIndexSource,
-    SessionMetadataCursor, SessionMetadataLookupError, SessionMetadataLookupRequest,
-    SessionMetadataLookupResult, SessionMetadataSnapshot, SessionReadLimits,
+    SessionIndexSource, SessionMetadataCursor, SessionMetadataLookupError,
+    SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionMetadataSnapshot,
 };
 
 const METADATA_PARSER_VERSION: u32 = 1;
@@ -20,7 +19,7 @@ mod index;
 mod rollout;
 
 use index::{read_database_session, read_session_title, state_databases};
-use rollout::{index_source, parse_rollout_messages, search_rollout};
+use rollout::index_source;
 
 mod history;
 pub(super) use history::HISTORY;

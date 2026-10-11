@@ -1,4 +1,7 @@
 import type {
+  SessionSearchHit,
+  SessionReaderNavigation,
+} from "./session-reader-types";import type {
   AgentCliKind,
   AgentRuntimeScope,
   CliSessionDetail,
@@ -39,6 +42,7 @@ export type AgentSessionParent =
   | { kind: "unknown" };
 
 export interface AgentSessionRow {
+  searchHit: SessionSearchHit | null;
   sessionRef: string;
   sourceId: string;
   workspaceId: string;
@@ -62,7 +66,13 @@ export interface AgentSessionQuery {
   cursor: string | null;
 }
 
-export type AgentSessionSourceStatus = "complete" | "indexing" | "partial" | "unavailable" | "unsupported" | "cancelled";
+export type AgentSessionSourceStatus =
+  | "complete"
+  | "indexing"
+  | "partial"
+  | "unavailable"
+  | "unsupported"
+  | "cancelled";
 
 export interface AgentSessionSourceState {
   sourceId: string;
@@ -108,7 +118,7 @@ export interface AgentSessionPage {
   sourceStates: AgentSessionSourceState[];
 }
 
-export interface AgentSessionDetailRequest {
+export interface AgentSessionDetailRequest extends SessionReaderNavigation {
   consumerId: string;
   requestId: number;
   scopeRevision: string;

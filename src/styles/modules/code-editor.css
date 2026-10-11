@@ -4,8 +4,8 @@
   --code-gutter: #eef2f7;
   --code-muted: #64748b;
   --code-line: #d3dce8;
-  --code-active: #f0f5ff;
-  --code-selection: #d3e2ff;
+  --code-active: rgb(22 93 255 / 6%);
+  --code-selection: #c5d9ff;
   --code-key: #1d4d98;
   --code-string: #18704d;
   --code-literal: #80509e;
@@ -23,8 +23,8 @@
   --code-gutter: #182437;
   --code-muted: #93a6bf;
   --code-line: #3a4c65;
-  --code-active: #1b2c43;
-  --code-selection: #294a73;
+  --code-active: rgb(96 165 250 / 10%);
+  --code-selection: #335884;
   --code-key: #9bc6ff;
   --code-string: #94d9ad;
   --code-literal: #d5b4ef;
@@ -40,9 +40,11 @@
 .code-editor .cm-line { padding: 0 16px; }
 .code-editor .cm-gutters { background: var(--code-gutter); color: var(--code-muted); border-right: 1px solid var(--code-line); }
 .code-editor .cm-lineNumbers .cm-gutterElement { padding: 0 10px 0 12px; min-width: 38px; }
+/* Selection is drawn below the text layer; line/bracket fills must stay translucent. */
 .code-editor .cm-activeLine, .code-editor .cm-activeLineGutter { background: var(--code-active); }
 .code-editor .cm-activeLineGutter { color: var(--code-key); }
-.code-editor .cm-selectionBackground, .code-editor .cm-editor.cm-focused .cm-selectionBackground { background: var(--code-selection); }
+.code-editor .cm-selectionBackground,
+.code-editor .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: var(--code-selection); }
 .code-editor .cm-cursor { border-left-color: var(--code-foreground); }
 .code-editor .cm-selectionMatch { background: color-mix(in srgb, var(--code-selection) 65%, transparent); }
 .code-editor .cm-searchMatch { background: #ffdf8870; outline: 1px solid #b98631; }

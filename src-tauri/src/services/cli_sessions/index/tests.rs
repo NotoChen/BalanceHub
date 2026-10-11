@@ -51,9 +51,8 @@ fn trigram_index_finds_chinese_substrings_and_short_terms() {
         &mut connection,
         &workspace_key(&workdir),
         &session,
-        "fingerprint",
-        128,
         vec![SessionIndexMessage {
+            metadata: Default::default(),
             id: "message-1".to_string(),
             role: CliSessionMessageRole::Assistant,
             content: "BalanceHub 会话全文检索已经完成".to_string(),
@@ -122,9 +121,8 @@ fn capacity_is_shared_across_agent_databases() {
             &mut connection,
             &workspace_key(&workdir),
             &session,
-            "fingerprint",
-            64,
             vec![SessionIndexMessage {
+                metadata: Default::default(),
                 id: "message".to_string(),
                 role: CliSessionMessageRole::User,
                 content: "需要被容量约束管理的正文".repeat(200),
@@ -179,9 +177,8 @@ fn shared_capacity_keeps_valid_indexes_when_partial_eviction_is_enough() {
             &mut connection,
             &workspace_key(&workdir),
             &session,
-            "fingerprint",
-            content.len() as u64,
             vec![SessionIndexMessage {
+                metadata: Default::default(),
                 id: "message".to_string(),
                 role: CliSessionMessageRole::Assistant,
                 content,
@@ -239,9 +236,8 @@ fn capacity_maintenance_obeys_row_budget_before_deleting_existing_indexes() {
             &mut connection,
             "native-workspace",
             &summary(&format!("session-{index}"), &root),
-            "fingerprint",
-            128,
             vec![SessionIndexMessage {
+                metadata: Default::default(),
                 id: "message".into(),
                 role: CliSessionMessageRole::User,
                 content: "derived content".repeat(100),
@@ -358,84 +354,51 @@ fn replace_session(
     connection: &mut Connection,
     workspace: &str,
     session: &CliSessionSummary,
-    fingerprint: &str,
-    source_bytes: u64,
     messages: Vec<SessionIndexMessage>,
 ) -> Result<(), String> {
-    let indexed_bytes = session
-        .title
-        .len()
-        .saturating_add(session.preview.as_deref().map(str::len).unwrap_or_default())
-        .saturating_add(session.model.as_deref().map(str::len).unwrap_or_default())
-        .saturating_add(session.models.iter().map(String::len).sum::<usize>())
-        .saturating_add(
-            messages
-                .iter()
-                .map(|message| message.id.len().saturating_add(message.content.len()))
-                .sum::<usize>(),
-        );
-    let transaction = connection
-        .transaction()
-        .map_err(|error| format!("开始会话索引事务失败: {error}"))?;
-    transaction
-        .execute(
-            "DELETE FROM messages WHERE workspace=?1 AND session_id=?2",
-            params![workspace, session.id],
-        )
-        .map_err(|error| format!("删除旧会话消息失败: {error}"))?;
-    transaction
-        .execute(
-            "INSERT OR REPLACE INTO sessions(
-                 workspace, session_id, title, preview, model, models_json, workdir,
-                 created_at, updated_at, fingerprint, source_bytes, indexed_bytes, indexed_at,
-                 last_used_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                workspace,
-                session.id,
-                session.title,
-                session.preview,
-                session.model,
-                serde_json::to_string(&session.models).unwrap_or_else(|_| "[]".to_string()),
-                session.workdir,
-                session.created_at,
-                session.updated_at,
-                fingerprint,
-                source_bytes as i64,
-                indexed_bytes as i64,
-                chrono::Utc::now().to_rfc3339(),
-                unix_millis() as i64,
-            ],
-        )
-        .map_err(|error| format!("写入会话索引摘要失败: {error}"))?;
-    for message in messages {
-        crate::services::cli_sessions::workbench::check_read_budget()?;
-        if !matches!(
-            message.role,
-            CliSessionMessageRole::User | CliSessionMessageRole::Assistant
-        ) {
-            continue;
-        }
-        for (chunk_index, content) in chunk_message(&message.content).into_iter().enumerate() {
-            transaction
-                .execute(
-                    "INSERT INTO messages(workspace, session_id, message_id, role, chunk_index, content)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        workspace,
-                        session.id,
-                        message.id,
-                        role_key(message.role),
-                        chunk_index as i64,
-                        content,
-                    ],
+    let mut record = SessionHistoryRecord::identity(
+        session.cli_kind,
+        session.id.clone(),
+        Path::new(&session.workdir),
+        PathBuf::from("fixture"),
+    );
+    record.summary = session.clone();
+    let expected: Option<String> = connection.query_row(
+        "SELECT checkpoint FROM session_sources WHERE workspace=?1 AND session_id=?2 AND source_key='fixture'",
+        params![workspace, session.id], |row| row.get(0),
+    ).optional().map_err(|error| error.to_string())?;
+    let mut checkpoint = stream::Checkpoint::default();
+    checkpoint.complete = true;
+    checkpoint.source_bytes = messages
+        .iter()
+        .map(|message| message.content.len() as u64)
+        .sum();
+    let batch = stream::Batch {
+        reset: true,
+        checkpoint,
+        mutations: messages
+            .into_iter()
+            .enumerate()
+            .map(|(order, message)| {
+                (
+                    order as u64 + 1,
+                    crate::services::agent_cli::contracts::SessionIndexMutation::Put {
+                        message,
+                        priority: 1,
+                    },
                 )
-                .map_err(|error| format!("写入会话消息索引失败: {error}"))?;
-        }
-    }
-    transaction
-        .commit()
-        .map_err(|error| format!("提交会话索引失败: {error}"))
+            })
+            .collect(),
+    };
+    assert!(records::apply_batch(
+        connection,
+        workspace,
+        &record,
+        "fixture",
+        expected.as_deref(),
+        &batch
+    )?);
+    Ok(())
 }
 
 mod incremental;

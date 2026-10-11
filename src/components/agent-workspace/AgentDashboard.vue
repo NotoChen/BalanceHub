@@ -157,7 +157,7 @@ defineExpose({ refresh });
         <div v-if="model.navigation.page !== 'sessions'" class="agent-workspace-scope"><AgentWorkspaceScopeSelect :model-value="model.navigation.workspacePath || ''" :options="model.workspaceOptions" @update:model-value="model.navigation.selectWorkspace($event || undefined)" /></div>
       </div>
     </header>
-    <div ref="content" class="agent-dashboard-content" :class="{ 'has-catalog': model.navigation.page !== 'overview' && model.navigation.page !== 'sessions' }" @scroll="cancelCardDrag">
+    <div ref="content" class="agent-dashboard-content" :class="{ 'has-catalog': model.navigation.page !== 'overview' && model.navigation.page !== 'sessions', 'has-session-history': model.navigation.page === 'sessions' && model.navigation.sessionView === 'history' }" @scroll="cancelCardDrag">
       <p v-if="taskRecoveryError" class="agent-workspace-error" role="alert">{{ taskRecoveryError }}<a-button type="text" size="small" :loading="model.catalogStore.recovering || model.lifecycleStore.recovering" @click="recoverTasks">重新读取任务状态</a-button></p>
       <template v-if="model.navigation.page === 'overview'">
         <header class="agent-section-toolbar agent-overview-toolbar"><p>{{ model.cards.length }} 个 Agent</p><a-button size="small" :loading="model.lifecycleStore.checkingVersions" @click="model.lifecycleStore.refresh('force')"><template #icon><RefreshCw :size="16" /></template>检查更新</a-button></header>

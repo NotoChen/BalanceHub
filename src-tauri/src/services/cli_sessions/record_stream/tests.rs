@@ -51,6 +51,7 @@ fn decode(
     };
     vec![SessionIndexMutation::Put {
         message: SessionIndexMessage {
+            metadata: Default::default(),
             id: id.into(),
             role: CliSessionMessageRole::User,
             content: value["text"].as_str().unwrap_or_default().into(),
@@ -74,6 +75,46 @@ fn read_budget() -> SessionReadBudget {
         Arc::new(AtomicBool::new(false)),
         u64::MAX,
     )
+}
+
+#[test]
+fn compressed_checkpoints_resume_after_cancel_without_duplicating_or_losing_records() {
+    let fixture = Fixture::new();
+    let source = fixture.source("compressed.jsonl.zst", SessionIndexFormat::JsonLines);
+    let content = (0..100)
+        .map(|number| format!("{{\"id\":\"{number}\",\"text\":\"完整记录 {number}\"}}\n"))
+        .collect::<String>();
+    fs::write(
+        &source.path,
+        zstd::stream::encode_all(content.as_bytes(), 1).unwrap(),
+    )
+    .unwrap();
+    let first = read_batch_with_limit(&source, None, &|| true, 1).unwrap();
+    let mut messages = contents(&first)
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let mut checkpoint = first.checkpoint;
+    assert!(read_batch_with_limit(&source, Some(&checkpoint), &|| false, 1).is_err());
+    for pass in 0..100 {
+        assert!(pass < 99 || checkpoint.complete);
+        if checkpoint.complete {
+            break;
+        }
+        let batch = read_batch_with_limit(&source, Some(&checkpoint), &|| true, 80).unwrap();
+        assert!(!batch.reset);
+        messages.extend(contents(&batch).into_iter().map(str::to_owned));
+        checkpoint =
+            serde_json::from_str(&serde_json::to_string(&batch.checkpoint).unwrap()).unwrap();
+    }
+    assert!(checkpoint.complete);
+    assert_eq!(
+        messages,
+        (0..100)
+            .map(|number| format!("完整记录 {number}"))
+            .collect::<Vec<_>>()
+    );
+    assert!(read_batch_with_limit(&source, Some(&checkpoint), &|| false, 1).is_err());
 }
 
 #[test]

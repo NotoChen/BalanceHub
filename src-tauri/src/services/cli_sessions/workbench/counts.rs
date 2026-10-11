@@ -2,7 +2,8 @@
 //! No pagination, transcript search, resume references or persisted partial sums.
 use super::{
     budget::{with_history_cache, with_read_budget, with_source_root},
-    scope::{build_scope, history_adapter, path_identity, session_identity},
+    scope::{build_scope, history_adapter, session_identity},
+    workspace_scan::scan_workspaces,
     AgentSessionActor,
 };
 use crate::{
@@ -13,7 +14,7 @@ use crate::{
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 struct CountSource {
@@ -141,14 +142,11 @@ fn read_source(
         Ok(adapter) => adapter,
         Err(error) => return empty(AgentSessionSourceStatus::Unsupported, Some(error)),
     };
-    let paths = workspaces
-        .iter()
-        .map(|workspace| PathBuf::from(&workspace.path))
-        .collect::<Vec<_>>();
-    let loaded = match (adapter.scan)(
+    let loaded = match scan_workspaces(
+        adapter,
         source.agent_kind,
         &config.config_root,
-        &paths,
+        workspaces,
         budget,
         SessionHistoryReadMode::Identities,
     ) {
@@ -160,9 +158,10 @@ fn read_source(
         states: Vec::new(),
     };
     for loaded in loaded {
-        let Some(workspace) = workspaces.iter().find(|workspace| {
-            path_identity(Path::new(&workspace.path)) == path_identity(&loaded.workdir)
-        }) else {
+        let Some(workspace) = workspaces
+            .iter()
+            .find(|workspace| Path::new(&workspace.path) == loaded.workdir)
+        else {
             continue;
         };
         result.states.push(source_state(
@@ -176,7 +175,7 @@ fn read_source(
             loaded.records.len(),
             (!loaded.diagnostics.is_empty()).then(|| loaded.diagnostics.join("；")),
         ));
-        for record in super::super::normalize_records(loaded.records) {
+        for record in loaded.records {
             result.identities.push((
                 source.agent_kind,
                 session_identity(source, workspace, &record),

@@ -65,6 +65,7 @@ pub(crate) fn run() {
             get_agent_session_scope,
             query_agent_sessions,
             get_agent_session_detail,
+            get_agent_session_message_content,
             cancel_agent_session_query,
             resume_agent_session,
             get_agent_session_resume_operation,

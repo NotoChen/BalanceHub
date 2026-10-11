@@ -10,8 +10,6 @@ use crate::{
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
     source,
     scan,
-    detail,
-    search,
     index,
 };
 fn source() -> Result<SessionHistorySource, String> {
@@ -127,71 +125,15 @@ fn scan_workspace(
     }
     Ok(())
 }
-fn detail(
-    record: &SessionHistoryRecord,
-    limits: SessionReadLimits,
-) -> Result<CliSessionDetail, String> {
-    let session_dir = record
-        .locator
-        .parent()
-        .ok_or_else(|| "Grok Build 会话目录无效".to_string())?;
-    let updates_path = session_dir.join("updates.jsonl");
-    let chat_history_path = session_dir.join("chat_history.jsonl");
-    let (messages, truncated, omitted_message_count, source) = if updates_path.is_file() {
-        let (messages, truncated, omitted) = parse_updates(&updates_path, limits)?;
-        if messages.is_empty() && chat_history_path.is_file() {
-            let (messages, truncated, omitted) = parse_chat_history(&chat_history_path, limits)?;
-            (messages, truncated, omitted, "grokChatHistory")
-        } else {
-            (messages, truncated, omitted, "grokUpdates")
-        }
-    } else if chat_history_path.is_file() {
-        let (messages, truncated, omitted) = parse_chat_history(&chat_history_path, limits)?;
-        (messages, truncated, omitted, "grokChatHistory")
-    } else {
-        return Err("Grok Build 会话摘要存在，但正文文件已不可用".to_string());
-    };
-    Ok(CliSessionDetail {
-        session: record.summary.clone(),
-        messages,
-        truncated,
-        omitted_message_count,
-        content_source: source.to_string(),
-    })
-}
-fn search(
-    record: &SessionHistoryRecord,
-    request: &SessionContentSearchRequest,
-    is_current: &dyn Fn() -> bool,
-) -> Result<SessionContentSearchResult, String> {
-    let session_dir = record
-        .locator
-        .parent()
-        .ok_or_else(|| "Grok Build 会话目录无效".to_string())?;
-    let updates_path = session_dir.join("updates.jsonl");
-    let chat_history_path = session_dir.join("chat_history.jsonl");
-    if !updates_path.is_file() && !chat_history_path.is_file() {
-        return Err("Grok Build 会话摘要存在，但正文文件已不可用".to_string());
-    }
-    let result = if updates_path.is_file() {
-        search_updates(&updates_path, request, is_current)?
-    } else {
-        SessionContentSearchResult::default()
-    };
-    if result.has_content || !chat_history_path.is_file() {
-        return Ok(result);
-    }
-    search_chat_history(&chat_history_path, request, is_current)
-}
 fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
     let directory = record.locator.parent().ok_or("Grok Build 会话目录无效")?;
     let mut sources = Vec::new();
     for (name, decode) in [
         (
             "updates.jsonl",
-            index_update_record as fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionIndexMutation>,
+            decoder::update as fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionIndexMutation>,
         ),
-        ("chat_history.jsonl", index_chat_record),
+        ("chat_history.jsonl", decoder::chat),
     ] {
         let path = directory.join(name);
         if path.is_file() {

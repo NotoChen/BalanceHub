@@ -34,6 +34,9 @@ mod app_settings;
 mod check_in_task;
 #[path = "models/cli_sessions.rs"]
 mod cli_sessions;
+#[path = "models/session_reader.rs"]
+mod session_reader;
+pub use session_reader::*;
 #[path = "models/cloud_sync.rs"]
 mod cloud_sync;
 #[path = "models/enums.rs"]

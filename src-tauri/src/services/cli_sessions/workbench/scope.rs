@@ -17,7 +17,6 @@ use crate::{
 use std::{
     collections::HashMap,
     path::{Component, Path, PathBuf},
-    time::Instant,
 };
 use tauri::Manager;
 
@@ -88,7 +87,7 @@ fn lexical_path(path: &Path) -> PathBuf {
     result
 }
 
-fn workspace_scope(
+pub(super) fn workspace_scope(
     home: &Path,
     recorded: &[PathBuf],
     explicit_workdir: Option<&str>,
@@ -99,6 +98,12 @@ fn workspace_scope(
         let path = PathBuf::from(explicit.trim());
         if !path.is_absolute() || explicit.chars().any(char::is_control) {
             return Err("显式工作目录必须是有效绝对路径".into());
+        }
+        // Native history may use a registered alias instead of the selected
+        // canonical path. Resolve those spellings even on the first explicit
+        // query; only the selected directory is admitted to the scan scope.
+        for recorded_path in recorded.iter().filter(|path| path.is_absolute()) {
+            path_identity(recorded_path);
         }
         paths = vec![path];
     }
@@ -180,7 +185,6 @@ pub(super) fn build_scope(
         },
         explicit_workdir: explicit_workdir.map(str::to_string),
         sources,
-        created_at: Instant::now(),
     })
 }
 
@@ -204,11 +208,7 @@ pub(crate) fn get_scope(
 ) -> Result<AgentSessionScope, String> {
     let scope = build_scope(actor, explicit_workdir)?;
     let public = scope.public.clone();
-    let mut registry = state::registry();
-    registry.prune();
-    registry
-        .scopes
-        .insert((actor.key(), public.revision.clone()), scope);
+    state::registry().register_scope(actor.key(), scope);
     Ok(public)
 }
 
@@ -231,9 +231,6 @@ fn validated_scope_with(
         .get(&(actor_key.into(), revision.into()))
         .cloned()
         .ok_or_else(|| "会话范围已失效，请刷新目录列表".to_string())?;
-    if saved.created_at.elapsed().as_secs() >= 3600 {
-        return Err("会话范围已过期，请刷新".into());
-    }
     let current = build_current(saved.explicit_workdir.as_deref())?;
     if current.public.revision != revision {
         return Err("目录集合或原生会话来源已变化，请刷新".into());

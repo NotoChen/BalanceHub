@@ -79,6 +79,7 @@ pub struct AgentSessionRow {
     pub resume_reason: Option<String>,
     pub activity_state: AgentSessionActivityState,
     pub runtime_ids: Vec<String>,
+    pub search_hit: Option<super::SessionSearchHit>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -171,6 +172,11 @@ pub struct AgentSessionDetailRequest {
     pub request_id: u64,
     pub scope_revision: String,
     pub session_ref: String,
+    pub cursor: Option<String>,
+    pub anchor: Option<String>,
+    #[serde(default)]
+    pub query: String,
+    pub match_position: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

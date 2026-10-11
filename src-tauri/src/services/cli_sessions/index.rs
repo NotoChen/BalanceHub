@@ -1,6 +1,5 @@
 //! Derived native-session full-text index. Database gates are keyed by the
 //! actual Agent library; transcript scanning never holds any database gate.
-use super::SessionContentSearchCollector;
 use crate::{
     models::{
         AgentCliKind, AppSettings, CliSessionIndexAgentStats, CliSessionIndexState,
@@ -17,6 +16,7 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap, HashMap},
     fs,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -27,12 +27,13 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 
 pub(crate) const SESSION_INDEX_UPDATED_EVENT: &str = "cli-session-index-updated";
+pub(super) mod reader;
 mod records;
 #[cfg(test)]
 pub(super) mod test_support;
 use super::record_stream as stream;
 
-const INDEX_SCHEMA_VERSION: i64 = 5;
+const INDEX_SCHEMA_VERSION: i64 = 7;
 const MESSAGE_CHUNK_CHARS: usize = 32 * 1024;
 const MESSAGE_CHUNK_OVERLAP_CHARS: usize = super::MAX_SEARCH_QUERY_CHARS;
 const INDEX_SQL_BUSY_STEP: Duration = Duration::from_millis(25);
@@ -52,7 +53,7 @@ impl IndexBudget<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionIndexConfig {
     pub enabled: bool,
     pub directory: PathBuf,
@@ -66,6 +67,7 @@ struct ActiveIndex {
 #[derive(Default)]
 struct IndexRegistry {
     gates: HashMap<PathBuf, Arc<Mutex<()>>>,
+    generations: HashMap<PathBuf, Arc<AtomicU64>>,
     active: HashMap<u64, ActiveIndex>,
 }
 fn registry() -> &'static Mutex<IndexRegistry> {
@@ -77,6 +79,15 @@ fn database_gate(path: &Path) -> Arc<Mutex<()>> {
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .gates
+        .entry(path.to_path_buf())
+        .or_default()
+        .clone()
+}
+fn database_generation(path: &Path) -> Arc<AtomicU64> {
+    registry()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .generations
         .entry(path.to_path_buf())
         .or_default()
         .clone()
@@ -94,6 +105,7 @@ fn cancel_directory(directory: &Path) {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct HistorySearchResult {
     pub content: SessionContentSearchResult,
     pub complete: bool,
@@ -102,7 +114,15 @@ pub(crate) struct HistorySearchResult {
     pub skipped_records: u64,
 }
 
+struct FreshRecord {
+    signature: Vec<String>,
+    generation: u64,
+    progress: HistorySearchResult,
+}
+
 pub(crate) struct HistoryIndex {
+    fresh: Mutex<lru::LruCache<(String, String), FreshRecord>>,
+    generation: Arc<AtomicU64>,
     memory: Mutex<Option<Connection>>,
     memory_only: AtomicBool,
     config: SessionIndexConfig,
@@ -118,6 +138,9 @@ impl Drop for IndexReadGuard<'_> {
     }
 }
 impl HistoryIndex {
+    pub(crate) fn matches_config(&self, config: &SessionIndexConfig) -> bool {
+        &self.config == config && !self.cancelled.load(Ordering::Acquire)
+    }
     pub(crate) fn new(config: &SessionIndexConfig, kind: AgentCliKind, source_id: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let token = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -136,6 +159,10 @@ impl HistoryIndex {
                 },
             );
         Self {
+            fresh: Mutex::new(lru::LruCache::new(
+                NonZeroUsize::new(20_000).expect("positive cache capacity"),
+            )),
+            generation: database_generation(&source_database_path(config, kind, source_id)),
             memory: Mutex::new(None),
             memory_only: AtomicBool::new(!config.enabled),
             config: config.clone(),
@@ -237,6 +264,30 @@ impl HistoryIndex {
         self.readers.fetch_add(1, Ordering::AcqRel);
         let _guard = IndexReadGuard(&self.readers);
         let sources = (adapter.index)(record)?;
+        let generation = self.generation.load(Ordering::Acquire);
+        let signature = sources
+            .iter()
+            .map(stream::source_signature)
+            .collect::<Result<Vec<_>, _>>()?;
+        let cache_key = (workspace.to_string(), record.record_key.clone());
+        let fresh = self
+            .fresh
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&cache_key)
+            .filter(|cached| cached.generation == generation && cached.signature == signature)
+            .map(|cached| cached.progress.clone());
+        if let Some(mut progress) =
+            fresh.filter(|_| self.memory_only.load(Ordering::Acquire) || self.path.is_file())
+        {
+            self.check(budget)?;
+            if !request.terms.is_empty() {
+                progress.content = self.connection(budget, |connection| {
+                    search_indexed_messages(connection, workspace, &record.record_key, request)
+                })?;
+            }
+            return Ok(progress);
+        }
         let source_keys = sources
             .iter()
             .map(|source| source.path.to_string_lossy().into_owned())
@@ -280,11 +331,20 @@ impl HistoryIndex {
                 result.complete = false;
             }
             result.complete &= batch.checkpoint.complete;
-            result.indexed_bytes += batch.checkpoint.offset;
+            result.indexed_bytes += if super::source::compressed(&source.path) {
+                // Compressed and decoded offsets have different units.
+                if batch.checkpoint.complete {
+                    batch.checkpoint.source_bytes
+                } else {
+                    0
+                }
+            } else {
+                batch.checkpoint.offset
+            };
             result.source_bytes += batch.checkpoint.source_bytes;
             result.skipped_records += batch.checkpoint.skipped_records;
         }
-        if result.complete {
+        if result.complete && !request.terms.is_empty() {
             result.content = self.connection(budget, |connection| {
                 connection.execute("UPDATE sessions SET last_used_at=?3, source_bytes=?4 WHERE workspace=?1 AND session_id=?2",
                     params![workspace, record.record_key, unix_millis() as i64, result.source_bytes as i64])
@@ -292,7 +352,33 @@ impl HistoryIndex {
                 search_indexed_messages(connection, workspace, &record.record_key, request)
             })?;
         }
+        if result.complete && generation == self.generation.load(Ordering::Acquire) {
+            let mut cache = self.fresh.lock().unwrap_or_else(|error| error.into_inner());
+            let mut progress = result.clone();
+            progress.content = SessionContentSearchResult::default();
+            cache.put(
+                cache_key,
+                FreshRecord {
+                    signature,
+                    generation,
+                    progress,
+                },
+            );
+        }
         Ok(result)
+    }
+    pub(crate) fn search_workspace(
+        &self,
+        workspace: &str,
+        request: &SessionContentSearchRequest,
+        budget: &SessionReadBudget,
+    ) -> Result<HashMap<String, SessionContentSearchResult>, String> {
+        self.connection(budget, |connection| {
+            Ok(reader::search_hits(connection, workspace, None, request)?
+                .into_iter()
+                .map(|(session, hits)| (session, reader::content_result(&hits, request)))
+                .collect())
+        })
     }
     pub(crate) fn finish(&self, budget: &SessionReadBudget) -> Result<(), String> {
         if self.memory_only.load(Ordering::Acquire) {
@@ -653,6 +739,7 @@ fn enforce_capacity(config: &SessionIndexConfig, budget: IndexBudget<'_>) -> Res
         }
         let mut connection = open_connection_with_budget(&path, false, Some(budget))?;
         delete_session_batch(&mut connection, &sessions, budget)?;
+        database_generation(&path).fetch_add(1, Ordering::AcqRel);
         budget.check()?;
         let remaining = connection
             .query_row("SELECT COUNT(*) FROM sessions", [], |row| {
@@ -751,7 +838,8 @@ fn ensure_schema(connection: &mut Connection) -> Result<(), String> {
     if stored_version.is_some() && stored_version != Some(INDEX_SCHEMA_VERSION) {
         connection
             .execute_batch(
-                "DROP TABLE IF EXISTS message_fts;
+                "DROP VIEW IF EXISTS visible_messages;
+                 DROP TABLE IF EXISTS message_fts;
                  DROP TABLE IF EXISTS messages;
                  DROP TABLE IF EXISTS session_sources;
                  DROP TABLE IF EXISTS message_positions;
@@ -797,7 +885,8 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
                  content TEXT NOT NULL,
                  source_key TEXT NOT NULL DEFAULT '',
                  priority INTEGER NOT NULL DEFAULT 1,
-                 message_order INTEGER NOT NULL DEFAULT 0
+                 message_order INTEGER NOT NULL DEFAULT 0,
+                 searchable INTEGER NOT NULL DEFAULT 1
              );
              CREATE TABLE IF NOT EXISTS session_sources (
                  workspace TEXT NOT NULL,
@@ -812,19 +901,32 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
                  source_key TEXT NOT NULL,
                  message_id TEXT NOT NULL,
                  message_order INTEGER NOT NULL,
+                 public_id TEXT NOT NULL,
+                 metadata TEXT NOT NULL DEFAULT '{}',
+                 content_version INTEGER NOT NULL DEFAULT 0,
                  PRIMARY KEY(workspace,session_id,source_key,message_id)
              );
              CREATE INDEX IF NOT EXISTS messages_source_idx
                  ON messages(workspace,session_id,source_key,message_id,chunk_index);
              CREATE INDEX IF NOT EXISTS messages_session_idx
                  ON messages(workspace, session_id);
+             CREATE INDEX IF NOT EXISTS messages_priority_idx
+                 ON messages(workspace, session_id, priority);
+             CREATE INDEX IF NOT EXISTS message_public_id_idx
+                 ON message_positions(workspace,session_id,public_id);
+             CREATE VIEW IF NOT EXISTS visible_messages AS
+                 SELECT m.* FROM messages m WHERE (m.priority < 0 AND m.priority =
+                   (SELECT MAX(p.priority) FROM messages p WHERE p.workspace=m.workspace
+                    AND p.session_id=m.session_id AND p.priority<0)) OR m.priority =
+                   (SELECT MAX(p.priority) FROM messages p WHERE p.workspace=m.workspace
+                    AND p.session_id=m.session_id AND p.priority>=0);
              CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
                  content,
                  tokenize='trigram',
                  content='',
                  contentless_delete=1
              );
-             CREATE TRIGGER IF NOT EXISTS messages_insert AFTER INSERT ON messages BEGIN
+             CREATE TRIGGER IF NOT EXISTS messages_insert AFTER INSERT ON messages WHEN new.searchable=1 BEGIN
                  INSERT INTO message_fts(rowid,content) VALUES (new.row_id,new.content);
              END;
              CREATE TRIGGER IF NOT EXISTS messages_delete AFTER DELETE ON messages BEGIN
@@ -847,20 +949,11 @@ fn search_indexed_messages(
     session_id: &str,
     request: &SessionContentSearchRequest,
 ) -> Result<SessionContentSearchResult, String> {
-    let mut collector = SessionContentSearchCollector::new(request);
-    for term in &request.terms {
-        super::workbench::check_read_budget()?;
-        let content = if term.value.chars().count() >= 3 {
-            let query = format!("\"{}\"", term.value.replace('"', "\"\""));
-            connection.query_row("SELECT m.content FROM message_fts f JOIN messages m ON m.row_id=f.rowid WHERE m.workspace=?1 AND m.session_id=?2 AND m.priority=(SELECT MAX(priority) FROM messages WHERE workspace=?1 AND session_id=?2) AND message_fts MATCH ?3 LIMIT 1", params![workspace, session_id, query], |row| row.get::<_, String>(0)).optional()
-        } else {
-            connection.query_row("SELECT content FROM messages WHERE workspace=?1 AND session_id=?2 AND priority=(SELECT MAX(priority) FROM messages WHERE workspace=?1 AND session_id=?2) AND instr(lower(content), ?3)>0 LIMIT 1", params![workspace, session_id, term.value], |row| row.get::<_, String>(0)).optional()
-        }.map_err(|error| format!("检索原生会话索引失败：{error}"))?;
-        if let Some(content) = content {
-            collector.observe(&content);
-        }
-    }
-    Ok(collector.finish())
+    let hits = reader::search_hits(connection, workspace, Some(session_id), request)?;
+    Ok(reader::content_result(
+        hits.get(session_id).map(Vec::as_slice).unwrap_or_default(),
+        request,
+    ))
 }
 
 fn delete_session_batch(
