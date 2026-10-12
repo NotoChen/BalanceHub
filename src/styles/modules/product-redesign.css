@@ -7,8 +7,8 @@
   --product-line-strong: #c7d0dc;
   --product-ink: #172033;
   --product-ink-soft: #425066;
-  --product-muted: #758196;
-  --product-accent: #3b6ff5;
+  --product-muted: #5f6e83;
+  --product-accent: #315fdf;
   --product-accent-soft: #edf3ff;
   --product-shadow: 0 8px 24px rgba(30, 48, 78, 0.07);
   --product-shadow-hover: 0 14px 32px rgba(30, 48, 78, 0.12);
@@ -38,11 +38,11 @@
   --product-canvas: #111722;
   --product-panel: #192231;
   --product-panel-muted: #151e2b;
-  --product-line: #2b394b;
-  --product-line-strong: #3a4b62;
+  --product-line: #35445a;
+  --product-line-strong: #566b87;
   --product-ink: #f1f5fa;
   --product-ink-soft: #c2cedd;
-  --product-muted: #8999ad;
+  --product-muted: #a5b4c7;
   --product-accent: #78a1ff;
   --product-accent-soft: rgba(86, 132, 255, 0.16);
   --product-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);

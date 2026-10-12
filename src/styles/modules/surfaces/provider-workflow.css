@@ -9,7 +9,7 @@
   overflow: hidden;
   border: 1px solid #dde3ea;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface-panel);
 }
 
 .provider-form-block-primary {
@@ -50,31 +50,31 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 6px;
-  background: #e7effd;
-  color: #285da8;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
   font-size: 15px;
 }
 
 .provider-form-block-icon-neutral {
-  background: #edf0f4;
+  background: var(--surface-panel-soft);
   color: #647286;
 }
 
 .provider-form-block-icon-warning {
-  background: #fff3dd;
-  color: #a66d18;
+  background: var(--surface-warning-soft);
+  color: var(--surface-warning);
 }
 
 .provider-form-block-icon-auth {
-  background: #edf0f4;
+  background: var(--surface-panel-soft);
 }
 
 .provider-form-block-meta {
   flex: 0 0 auto;
   margin-left: auto;
   border-radius: 5px;
-  background: #f1f4f8;
-  color: #687689;
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
   font-size: 9px;
   font-weight: 650;
   padding: 4px 6px;
@@ -112,7 +112,7 @@
 }
 
 .provider-field .arco-form-item-label > label {
-  color: #475569;
+  color: var(--surface-ink-soft);
   font-size: 11px;
 }
 
@@ -139,7 +139,7 @@
   height: 22px;
   place-items: center;
   border-radius: 5px;
-  background: #edf0f4;
+  background: var(--surface-panel-soft);
   color: #748194;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 9px;
@@ -147,7 +147,7 @@
 
 .provider-credential-active-panel {
   border-color: #cddbf0;
-  background: #ffffff;
+  background: var(--surface-panel);
   padding: 0;
 }
 

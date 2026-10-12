@@ -18,10 +18,8 @@ const props = defineProps<{
   indexState: CliSessionIndexState;
   indexMessage: string;
   roleFilter: AgentSessionRoleFilter;
-  selectedResumeId: string;
   selectedSessionRef: string;
   selectedSessionTitle: string;
-  workdir: string;
   disabled: boolean;
   total: number | null;
   hasMore: boolean;
@@ -29,8 +27,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:query": [query: string];
   "update:roleFilter": [role: AgentSessionRoleFilter];
-  refresh: [workdir: string];
+  refresh: [];
   "load-more": [];
+  "select-session": [row: AgentSessionRow];
   "view-session": [row: AgentSessionRow];
   "view-parent": [sessionRef: string];
 }>();
@@ -67,7 +66,7 @@ const selectedSession = computed(
           v-model="queryModel"
           size="small"
           allow-clear
-          :disabled="disabled || !workdir"
+          :disabled="disabled"
           placeholder="搜索标题、会话 ID 或正文"
           aria-label="搜索历史会话"
         >
@@ -79,9 +78,9 @@ const selectedSession = computed(
           shape="circle"
           size="mini"
           :loading="loading"
-          :disabled="disabled || !workdir"
+          :disabled="disabled"
           aria-label="刷新历史会话"
-          @click="emit('refresh', workdir)"
+          @click="emit('refresh')"
         >
           <template #icon><icon-refresh /></template>
         </a-button>
@@ -104,13 +103,16 @@ const selectedSession = computed(
           / 共 {{ total }} 条</template
         ><template v-if="loading"> · 正在读取…</template></span
       >
+      <span>最近更新优先</span>
     </p>
     <AgentSessionList
       v-if="results.length"
       :rows="results"
       :agents="store.cliRuntime.agents"
       :selected-session-ref="selectedSessionRef"
+      selection-mode
       :disabled="disabled"
+      @select="emit('select-session', $event)"
       @detail="emit('view-session', $event)"
       @parent="emit('view-parent', $event)"
     />
@@ -122,9 +124,9 @@ const selectedSession = computed(
             ? "暂时无法读取历史会话"
             : query.trim()
               ? "没有匹配的会话"
-              : "当前目录暂无历史会话"
+              : "暂无历史会话"
       }}</strong>
-      <span v-if="!loading">可切换目录、会话角色或刷新后查看。</span>
+      <span v-if="!loading">可切换会话角色或刷新后查看。</span>
     </div>
     <div v-if="hasMore" class="agent-session-pagination">
       <a-button
@@ -135,14 +137,16 @@ const selectedSession = computed(
         >继续加载</a-button
       >
     </div>
-    <a-alert
-      v-if="selectedSession || selectedSessionTitle"
+    <p
       class="workspace-session-selected-note"
-      type="success"
-      show-icon
-      >已选择：{{
-        selectedSession?.title || selectedSessionTitle
-      }}。不选择模型时将沿用历史会话模型。</a-alert
+      :class="{ 'has-selection': selectedSession || selectedSessionTitle }"
+      :title="selectedSession?.title || selectedSessionTitle"
+      role="status"
+      >{{
+        selectedSession || selectedSessionTitle
+          ? `已选择：${selectedSession?.title || selectedSessionTitle}`
+          : "请选择要继续的会话"
+      }}</p
     >
   </div>
 </template>

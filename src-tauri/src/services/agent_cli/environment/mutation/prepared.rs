@@ -137,7 +137,11 @@ impl MutationPreparation<'_> {
     pub(crate) fn boolean_change(&self, path: &Path, label: &str) -> AgentAssetPlanChange {
         AgentAssetPlanChange {
             label: label.to_owned(),
-            path: Some(path.to_string_lossy().into_owned()),
+            path: Some(
+                crate::platform::paths::compatible_path(path)
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             before: Some(
                 match self.asset.declared_state {
                     AgentAssetState::Enabled => "已启用",

@@ -93,7 +93,6 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     cliKind: workspacePickerCliKind,
     sessionMode: workspaceSessionMode,
     selectedModel: workspaceSelectedModel,
-    directory: directoryBrowser.workspaceDirectory,
     sessionApi: options.sessionApi,
   });
   const launchFlow = useWorkspaceLaunchFlow({
@@ -116,6 +115,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     selectedSessionRef: sessionHistory.workspaceSelectedSessionRef,
     sessionScopeRevision: sessionHistory.workspaceSessionScopeRevision,
     selectedSessionTitle: sessionHistory.workspaceSelectedSessionTitle,
+    selectedSessionWorkdir: sessionHistory.workspaceSelectedSessionWorkdir,
     error: directoryBrowser.workspaceBrowserError,
     launch: options.launch,
     preview: options.preview,
@@ -124,13 +124,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   });
 
   async function browseWorkspaceDirectory(path?: string) {
-    sessionHistory.resetWorkspaceSessions();
-    const loaded = await directoryBrowser.browseWorkspaceDirectory(path);
-    const currentPath = directoryBrowser.workspaceDirectory.value?.currentPath;
-    if (loaded && currentPath) {
-      void sessionHistory.loadWorkspaceSessions(currentPath);
-    }
-    return loaded;
+    return directoryBrowser.browseWorkspaceDirectory(path);
   }
 
   async function openWorkspacePicker(
@@ -153,6 +147,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionName.value = "";
     workspaceSessionMode.value = "new";
     sessionHistory.resetWorkspaceSessions();
+    sessionHistory.workspaceSessionRoleFilter.value = "main";
     launchFlow.resetWorkspaceLaunch();
     directoryBrowser.resetWorkspaceDirectory();
     workspacePickerVisible.value = true;
@@ -219,9 +214,8 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     if (workspacePickerVisible.value && workspaceSessionMode.value !== "new") {
       workspaceSelectedModel.value = "";
     }
-    const currentPath = directoryBrowser.workspaceDirectory.value?.currentPath;
-    if (workspacePickerVisible.value && currentPath) {
-      void sessionHistory.loadWorkspaceSessions(currentPath);
+    if (workspacePickerVisible.value) {
+      void sessionHistory.loadWorkspaceSessions();
     }
   });
 
@@ -233,9 +227,8 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     } else if (previousMode === "new") {
       workspaceSelectedModel.value = "";
     }
-    const currentPath = directoryBrowser.workspaceDirectory.value?.currentPath;
-    if (workspacePickerVisible.value && currentPath) {
-      void sessionHistory.loadWorkspaceSessions(currentPath);
+    if (workspacePickerVisible.value) {
+      void sessionHistory.loadWorkspaceSessions();
     }
   });
 
@@ -292,6 +285,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionIndexMessage: sessionHistory.workspaceSessionIndexMessage,
     workspaceSelectedResumeId: sessionHistory.workspaceSelectedResumeId,
     workspaceSelectedSessionTitle: sessionHistory.workspaceSelectedSessionTitle,
+    workspaceSelectedSessionWorkdir: sessionHistory.workspaceSelectedSessionWorkdir,
     workspaceSessionDetailVisible: sessionHistory.workspaceSessionDetailVisible,
     workspaceSessionDetailLoading: sessionHistory.workspaceSessionDetailLoading,
     workspaceSessionDetailError: sessionHistory.workspaceSessionDetailError,
@@ -328,8 +322,6 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     openWorkspaceSessionDetail: sessionHistory.openWorkspaceSessionDetail,
     closeWorkspaceSessionDetail: sessionHistory.closeWorkspaceSessionDetail,
     selectWorkspaceSession: sessionHistory.selectWorkspaceSession,
-    selectWorkspaceSessionFromDetail:
-      sessionHistory.selectWorkspaceSessionFromDetail,
     forgetWorkspace: directoryBrowser.forgetWorkspace,
   };
 }

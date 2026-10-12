@@ -26,6 +26,7 @@ pub(in crate::services::temporary_cli) use windows::{
 use crate::{
     models::{AgentCliKind, AppSettings, Provider},
     network::ProxyEnvironment,
+    platform::paths::compatible_path,
     services::agent_cli::{
         self,
         contracts::{EnvironmentPatch, TemporaryLaunchPlan},
@@ -71,7 +72,7 @@ pub(in crate::services::temporary_cli) fn temporary_script_path(
     cli_kind: AgentCliKind,
 ) -> PathBuf {
     let kind = agent_cli::definition(cli_kind).executable;
-    env::temp_dir()
+    compatible_path(&env::temp_dir())
         .join(format!(
             "balancehub-temporary-cli-{}-{}-{}-{}",
             provider

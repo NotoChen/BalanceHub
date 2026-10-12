@@ -4,7 +4,6 @@ import type {
   AgentSessionRole,
   AgentSessionRow,
   AgentSessionSourceStatus,
-  AgentSessionWorkspace,
 } from "../stores/agent-session-types";
 
 export const agentSessionRoleLabels: Record<AgentSessionRole, string> = {
@@ -80,41 +79,13 @@ export function compareSessionRows(
   );
 }
 
-export function groupSessionRows(
+export function groupSessionRowsByDay(
   rows: readonly AgentSessionRow[],
-  groupBy: "time" | "project",
-  workspaces: readonly AgentSessionWorkspace[] = [],
 ) {
-  const projectNames = new Map(
-    workspaces.map((workspace) => [workspace.id, workspace.path]),
-  );
-  for (const row of rows) {
-    if (!projectNames.has(row.workspaceId))
-      projectNames.set(row.workspaceId, row.session.workdir);
-  }
-  const projectName = (row: AgentSessionRow) =>
-    projectNames.get(row.workspaceId)!;
-  const ordered =
-    groupBy === "project"
-      ? [...rows].sort(
-          (left, right) =>
-            projectName(left).localeCompare(projectName(right)) ||
-            left.workspaceId.localeCompare(right.workspaceId) ||
-            compareSessionRows(left, right),
-        )
-      : rows;
   let previousGroup: string | null = null;
-  return ordered.map((row) => {
-    const group =
-      groupBy === "project"
-        ? row.workspaceId
-        : sessionDayLabel(row.session.updatedAt);
-    const heading =
-      group !== previousGroup
-        ? groupBy === "project"
-          ? projectName(row)
-          : group
-        : "";
+  return rows.map((row) => {
+    const group = sessionDayLabel(row.session.updatedAt);
+    const heading = group !== previousGroup ? group : "";
     previousGroup = group;
     return { row, heading };
   });

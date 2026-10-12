@@ -47,6 +47,7 @@ interface UseWorkspaceLaunchFlowOptions {
   selectedSessionRef: Ref<string>;
   sessionScopeRevision: Ref<string>;
   selectedSessionTitle: Ref<string>;
+  selectedSessionWorkdir: Ref<string>;
   error: Ref<string>;
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
   preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
@@ -109,7 +110,9 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
 
   function buildLaunchInput(path?: string): TemporaryCliLaunchInput | null {
     const provider = options.provider.value;
-    const workdir = (path || options.directory.value?.currentPath || "").trim();
+    const workdir = (options.sessionMode.value === "history"
+      ? options.selectedSessionWorkdir.value
+      : path || options.directory.value?.currentPath || "").trim();
     if (
       !provider
       || !workdir

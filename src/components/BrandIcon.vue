@@ -5,10 +5,13 @@ import claudeLogo from "../assets/logos/claude.svg";
 import opencodeLogo from "../assets/logos/opencode.svg";
 import openclawLogo from "../assets/logos/openclaw.svg";
 import hermesLogo from "../assets/logos/hermes.png";
+import { agentCliVisuals } from "../agent-cli/visuals";
 
 export type BrandIconName =
   | "codex"
   | "claude"
+  | "gemini"
+  | "grokbuild"
   | "opencode"
   | "openclaw"
   | "hermes";
@@ -30,6 +33,8 @@ const props = withDefaults(
 const sources: Record<BrandIconName, string> = {
   codex: codexLogo,
   claude: claudeLogo,
+  gemini: agentCliVisuals.gemini.source,
+  grokbuild: agentCliVisuals.grok.source,
   opencode: opencodeLogo,
   openclaw: openclawLogo,
   hermes: hermesLogo,
@@ -38,6 +43,8 @@ const sources: Record<BrandIconName, string> = {
 const labels: Record<BrandIconName, string> = {
   codex: "Codex CLI",
   claude: "Claude Code",
+  gemini: "Gemini CLI",
+  grokbuild: "Grok Build",
   opencode: "OpenCode",
   openclaw: "OpenClaw",
   hermes: "Hermes",

@@ -251,7 +251,7 @@
   place-items: center;
   border: 1px solid #dbe5f2;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface-panel);
 }
 
 .temporary-cli-terminal-icon {
@@ -263,7 +263,7 @@
   flex: 0 0 auto;
   border: 1px solid var(--surface-line);
   border-radius: 5px;
-  background: #ffffff;
+  background: var(--surface-panel);
   color: var(--surface-muted);
   font-size: 10px;
   font-weight: 720;
@@ -273,31 +273,31 @@
 
 .temporary-cli-status-starting {
   border-color: rgba(183, 121, 31, 0.24);
-  background: #fff8e8;
+  background: var(--surface-warning-soft);
   color: var(--surface-warning);
 }
 
 .temporary-cli-status-running {
   border-color: rgba(22, 131, 106, 0.22);
-  background: #edf9f5;
+  background: var(--surface-success-soft);
   color: var(--surface-success);
 }
 
 .temporary-cli-status-busy {
   border-color: rgba(57, 103, 186, 0.24);
-  background: #eef4ff;
+  background: var(--surface-accent-soft);
   color: var(--surface-accent);
 }
 
 .temporary-cli-status-idle {
   border-color: rgba(22, 131, 106, 0.22);
-  background: #edf9f5;
+  background: var(--surface-success-soft);
   color: var(--surface-success);
 }
 
 .temporary-cli-status-unknown {
   border-color: rgba(183, 121, 31, 0.24);
-  background: #fff8e8;
+  background: var(--surface-warning-soft);
   color: var(--surface-warning);
 }
 

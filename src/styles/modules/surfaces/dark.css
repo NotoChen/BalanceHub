@@ -1,18 +1,46 @@
 /* Dark theme: same hierarchy, inverted surfaces. */
 :root.theme-dark {
-  --surface-ink: #f4f7fb;
-  --surface-ink-soft: #d1dae6;
-  --surface-muted: #96a5b7;
-  --surface-line: #2e3a4c;
-  --surface-line-strong: #435168;
-  --surface-canvas: #131b27;
-  --surface-panel: #1a2432;
-  --surface-panel-soft: #202d3e;
-  --surface-accent: #78a9ff;
-  --surface-accent-soft: #20395f;
+  --surface-ink: var(--product-ink);
+  --surface-ink-soft: var(--product-ink-soft);
+  --surface-muted: var(--product-muted);
+  --surface-line: var(--product-line);
+  --surface-line-strong: var(--product-line-strong);
+  --surface-canvas: var(--product-canvas);
+  --surface-panel: var(--product-panel);
+  --surface-panel-soft: var(--product-panel-muted);
+  --surface-accent: var(--product-accent);
+  --surface-accent-soft: var(--product-accent-soft);
   --surface-success: #61d4b0;
+  --surface-success-soft: #1b3936;
   --surface-warning: #e5b968;
+  --surface-warning-soft: #3b3023;
+  --surface-danger: #ff929f;
+  --surface-danger-soft: #422b37;
+  --surface-teal: #66d4d2;
+  --surface-purple: #c4a2f4;
+  --surface-purple-soft: #342847;
+  --surface-control-line: #627995;
+  --surface-control-hover: #8ba5c6;
+  --surface-on-accent: #101f38;
+  --surface-accent-hover: #a5c0ff;
   --surface-shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
+}
+
+body[arco-theme="dark"] {
+  --color-text-1: var(--surface-ink);
+  --color-text-2: var(--surface-ink-soft);
+  --color-text-3: var(--surface-muted);
+  --color-text-4: #93a3ba;
+  --color-bg-popup: var(--surface-panel);
+  --color-border-2: var(--surface-control-line);
+  --color-border-3: var(--surface-control-line);
+}
+
+:root.theme-dark .arco-btn.arco-btn-disabled {
+  border-color: var(--surface-line);
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+  box-shadow: none;
 }
 
 :root.theme-dark .surface-modal.arco-modal,
@@ -31,9 +59,6 @@
 :root.theme-dark .surface-modal .arco-select-view-value,
 :root.theme-dark .surface-modal .arco-picker-input,
 :root.theme-dark .surface-modal .arco-textarea { color: var(--surface-ink); }
-:root.theme-dark .surface-modal .arco-btn:not(.arco-btn-primary) { background: var(--surface-panel); color: var(--surface-ink-soft); }
-:root.theme-dark .surface-modal .arco-btn:not(.arco-btn-primary):hover,
-:root.theme-dark .surface-modal .arco-btn:not(.arco-btn-primary):focus-visible { background: var(--surface-accent-soft); color: var(--surface-accent); }
 :root.theme-dark .surface-modal-title-copy > strong,
 :root.theme-dark .surface-modal .arco-modal-title,
 :root.theme-dark .settings-overview-hero h2,

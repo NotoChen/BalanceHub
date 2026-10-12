@@ -33,7 +33,7 @@
 }
 
 .surface-drawer .arco-drawer-title {
-  color: #172233;
+  color: var(--surface-ink);
   font-size: 16px;
   font-weight: 750;
 }
@@ -45,15 +45,15 @@
   place-items: center;
   border: 1px solid #d6dfe9;
   border-radius: 8px;
-  background: #ffffff;
-  color: #566579;
+  background: var(--surface-panel);
+  color: var(--surface-ink-soft);
 }
 
 .surface-drawer .arco-drawer-close-btn:hover,
 .surface-drawer .arco-drawer-close-btn:focus-visible {
   border-color: #8fb3ee;
-  background: #edf4ff;
-  color: #165dff;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
 }
 
 .surface-drawer .arco-drawer-body {

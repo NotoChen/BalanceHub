@@ -37,6 +37,8 @@ impl ResumeAdmissionFixture {
             SEQUENCE.fetch_add(1, Ordering::Relaxed)
         );
         let root = std::env::temp_dir().join(&actor_prefix);
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
         let workdir = root.join("workspace");
         let config_root = root.join("native-source");
         std::fs::create_dir_all(&workdir).unwrap();
@@ -193,4 +195,37 @@ impl Drop for ResumeAdmissionFixture {
         drop(registry);
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn native_reference_survives_bookmark_changes_and_unrelated_project_discovery() {
+    let mut fixture = ResumeAdmissionFixture::new("native-discovery");
+    fixture.scope.explicit_workdir = None;
+    fixture.grant("main", "native-sources");
+    let mut refreshed = fixture.scope.clone();
+    refreshed.public.revision = "native-sources".into();
+    refreshed.public.workspaces = vec![super::workspace_for_path(
+        &fixture.root.join("another-project"),
+    )];
+    fixture
+        .current_scopes
+        .lock()
+        .unwrap()
+        .insert("main".into(), refreshed.clone());
+    // A fresh scope request and changed bookmarks preserve already discovered
+    // directories and the server-issued reference to its exact native record.
+    state::registry().register_scope(fixture.actor_key("main"), refreshed);
+    fixture
+        .resolve("main", "native-sources", fixture.session_ref())
+        .unwrap();
+    std::fs::remove_dir_all(fixture.root.join("workspace")).unwrap();
+    let target = resolve_session_ref_with(
+        &fixture.actor_key("main"),
+        "native-sources",
+        fixture.session_ref(),
+        |_| Ok(fixture.current_scopes.lock().unwrap()["main"].clone()),
+    )
+    .unwrap();
+    assert!(!target.can_resume);
+    assert!(target.resume_reason.as_deref().unwrap().contains("不存在"));
 }

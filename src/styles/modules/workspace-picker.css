@@ -1,14 +1,37 @@
-.workspace-picker-modal .arco-modal-body {
+.surface-modal.workspace-picker-modal {
+  display: flex;
+  height: min(748px, calc(100dvh - 48px));
+  flex-direction: column;
+}
+
+.workspace-picker-modal .arco-modal-header {
+  flex: 0 0 auto;
+}
+
+.surface-modal.workspace-picker-modal .arco-modal-body {
+  display: flex;
+  min-height: 0;
+  max-height: none;
+  flex: 1;
+  overflow: hidden;
   container: workspace-picker / inline-size;
 }
 
 .workspace-picker {
   display: grid;
   min-width: 0;
-  height: min(640px, calc(100dvh - 132px));
-  min-height: min(400px, calc(100dvh - 132px));
+  min-height: 0;
+  flex: 1;
   grid-template-columns: minmax(210px, 0.5fr) minmax(520px, 1.5fr);
   overflow: hidden;
+}
+
+.workspace-picker.is-history {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-picker.is-history .workspace-browser {
+  min-height: 0;
 }
 
 .workspace-history,
@@ -41,7 +64,7 @@
 }
 
 .workspace-history-header strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 650;
 }
@@ -78,7 +101,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #1d2129;
+  color: var(--surface-ink);
   cursor: pointer;
   padding: 4px 6px;
   text-align: left;
@@ -120,7 +143,7 @@
 }
 
 .workspace-history-copy strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   font-weight: 650;
 }
@@ -135,7 +158,7 @@
   height: 24px;
   border: 0;
   background: transparent;
-  color: #86909c;
+  color: var(--surface-muted);
   padding: 0;
 }
 
@@ -143,7 +166,7 @@
 .workspace-history-remove.arco-btn:focus-visible {
   border: 0;
   background: rgba(245, 63, 63, 0.08);
-  color: #f53f3f;
+  color: var(--surface-danger);
   outline: none;
 }
 
@@ -154,7 +177,7 @@
   place-content: center;
   justify-items: center;
   gap: 4px;
-  color: #86909c;
+  color: var(--surface-muted);
   text-align: center;
 }
 
@@ -165,7 +188,7 @@
 }
 
 .workspace-history-empty strong {
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 13px;
   font-weight: 650;
 }
@@ -176,11 +199,21 @@
   flex-direction: column;
   gap: 12px;
   padding: 16px;
+  overflow: hidden;
+}
+
+.workspace-browser-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
-.workspace-browser > :not(.workspace-session-picker, .workspace-directory-scroll) {
+.workspace-browser-content > :not(.workspace-session-picker, .workspace-directory-scroll) {
   flex-shrink: 0;
 }
 
@@ -197,24 +230,9 @@
 .workspace-ai-config {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(90px, 0.7fr) minmax(170px, 1fr) minmax(180px, 1.1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 10px;
-}
-
-.workspace-history-launch-config {
-  flex: 0 0 auto;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  border-top: 1px solid var(--glass-border);
-  border-bottom: 0;
-  padding: 10px 0 0;
-}
-
-.workspace-history-launch-config .workspace-fixed-credential {
-  gap: 5px;
-  min-height: 30px;
-  padding: 0 6px;
 }
 
 .workspace-launch-config-kind,
@@ -229,7 +247,7 @@
 }
 
 .workspace-config-label {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
@@ -251,7 +269,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 6px;
   background: rgba(247, 248, 250, 0.72);
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 11px;
   padding: 0 9px;
 }
@@ -284,7 +302,7 @@
 
 .workspace-fixed-credential-copy small,
 .workspace-api-key-remote-name {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 9px;
 }
 
@@ -392,7 +410,7 @@
   gap: 7px;
   border-radius: 6px;
   background: rgba(22, 93, 255, 0.06);
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 10px;
   line-height: 1.45;
   padding: 5px 8px;
@@ -401,7 +419,7 @@
 .workspace-session-index-state.is-disabled,
 .workspace-session-index-state.is-fallback {
   background: rgba(134, 144, 156, 0.09);
-  color: #6b7280;
+  color: var(--surface-muted);
 }
 
 .workspace-session-empty {
@@ -410,18 +428,29 @@
   min-height: 200px;
   place-content: center;
   gap: 3px;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   text-align: center;
 }
 
 .workspace-session-empty strong {
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 11px;
 }
 
 .workspace-session-selected-note {
-  font-size: 10px;
+  min-height: 18px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-session-selected-note.has-selection {
+  color: var(--surface-accent);
 }
 
 .workspace-browser-toolbar {
@@ -484,7 +513,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   cursor: pointer;
   padding: 7px 9px;
   text-align: left;
@@ -496,7 +525,7 @@
 .workspace-directory-item:hover,
 .workspace-directory-item:focus-visible {
   background: rgba(22, 93, 255, 0.07);
-  color: #1d2129;
+  color: var(--surface-ink);
   outline: none;
 }
 
@@ -533,12 +562,13 @@
   min-height: 220px;
   align-items: center;
   justify-content: center;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
 .workspace-picker-footer {
   min-width: 0;
+  flex-shrink: 0;
   justify-content: space-between;
   gap: 16px;
   border-top: 1px solid var(--glass-border);
@@ -553,12 +583,12 @@
 }
 
 .workspace-current-selection span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
 }
 
 .workspace-current-selection strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
   font-weight: 550;
@@ -593,7 +623,7 @@
 :root.theme-dark .workspace-history-empty,
 :root.theme-dark .workspace-directory-empty,
 :root.theme-dark .workspace-current-selection span {
-  color: #6b7280;
+  color: var(--surface-muted);
 }
 
 :root.theme-dark .workspace-directory-item,
@@ -602,7 +632,7 @@
 }
 
 :root.theme-dark .workspace-config-label {
-  color: #6b7280;
+  color: var(--surface-muted);
 }
 
 :root.theme-dark .workspace-fixed-credential {
@@ -642,8 +672,6 @@
 
 @container workspace-picker (max-width: 730px) {
   .workspace-picker {
-    height: min(700px, calc(100dvh - 116px));
-    min-height: 0;
     grid-template-columns: minmax(0, 1fr);
     overflow-y: auto;
   }
@@ -697,25 +725,22 @@
 
 }
 
-@container workspace-browser (max-width: 760px) {
-  .workspace-ai-config {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+.workspace-browser-history-mode .workspace-ai-config {
+  grid-template-columns: minmax(176px, 0.9fr) minmax(150px, 0.7fr) minmax(0, 1.4fr);
+}
+
+@container workspace-browser (max-width: 650px) {
+  .workspace-browser-history-mode .workspace-ai-config {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .workspace-ai-config .workspace-launch-config-kind {
+  .workspace-browser-history-mode .workspace-launch-key-field {
     grid-column: 1 / -1;
   }
 }
 
-.workspace-browser-history-mode .workspace-ai-config {
-  grid-template-columns: minmax(176px, 0.7fr) minmax(0, 1fr);
-}
-
-.workspace-browser-history-mode .workspace-ai-config .workspace-launch-config-kind {
-  grid-column: auto;
-}
-
 @container workspace-browser (max-width: 410px) {
+  .workspace-ai-config,
   .workspace-browser-history-mode .workspace-ai-config {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -737,18 +762,8 @@
   }
 }
 
-/* The shared dialog skin gives launch configs a card frame. This picker uses
- * the left rail as its frame, so keep the controls flat and compact here. */
 .surface-modal.workspace-picker-modal .workspace-history {
   padding: 14px 12px;
-}
-
-.surface-modal.workspace-picker-modal .workspace-history-launch-config {
-  border: 0;
-  border-top: 1px solid var(--glass-border);
-  border-radius: 0;
-  background: transparent;
-  padding: 10px 0 0;
 }
 
 .surface-modal.workspace-picker-modal .workspace-history-remove.arco-btn {
@@ -756,13 +771,13 @@
   min-height: 24px;
   background: transparent;
   border-radius: 4px;
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .surface-modal.workspace-picker-modal .workspace-history-remove.arco-btn:hover:not(:disabled),
 .surface-modal.workspace-picker-modal .workspace-history-remove.arco-btn:focus-visible {
   border: 0;
   background: rgba(245, 63, 63, 0.08);
-  color: #f53f3f;
+  color: var(--surface-danger);
   outline: none;
 }

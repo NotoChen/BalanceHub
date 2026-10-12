@@ -4,7 +4,7 @@ use crate::{
     services::{
         agent_cli::contracts::{
             SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryRecord,
-            SessionHistorySource, SessionHistoryWorkspace, SessionReadBudget,
+            SessionHistoryScan, SessionHistorySource, SessionHistoryWorkspace, SessionReadBudget,
         },
         cli_sessions::workbench::{check_read_budget, read_session_metadata_text_file_limited},
     },
@@ -38,6 +38,7 @@ fn source() -> Result<SessionHistorySource, String> {
 #[derive(Default)]
 pub(super) struct ProjectIndex {
     projects: HashMap<String, BTreeSet<String>>,
+    directories: BTreeSet<String>,
     diagnostics: Vec<String>,
 }
 impl ProjectIndex {
@@ -56,7 +57,10 @@ impl ProjectIndex {
                 Ok(value) => {
                     if let Some(projects) = value.get("projects").and_then(Value::as_object) {
                         for (path, id) in projects {
-                            if let Some(id) = id.as_str().filter(|id| safe_component(id)) {
+                            if let Some(id) = id
+                                .as_str()
+                                .filter(|id| safe_component(id) && Path::new(path).is_absolute())
+                            {
                                 index
                                     .projects
                                     .entry(path_key(Path::new(path)))
@@ -89,19 +93,24 @@ impl ProjectIndex {
             if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                 continue;
             }
+            let id = entry.file_name().to_string_lossy().to_string();
+            index.directories.insert(id.clone());
             let marker = entry.path().join(".project_root");
             if !marker.is_file() {
                 continue;
             }
             match read_session_metadata_text_file_limited(&marker, 4096, "读取 Gemini 项目目录标记")
             {
-                Ok(path) => {
+                Ok(path) if Path::new(path.trim()).is_absolute() => {
                     index
                         .projects
                         .entry(path_key(Path::new(path.trim())))
                         .or_default()
-                        .insert(entry.file_name().to_string_lossy().to_string());
+                        .insert(id);
                 }
+                Ok(_) => index
+                    .diagnostics
+                    .push("Gemini 项目目录标记不是绝对路径".into()),
                 Err(error) => index.diagnostics.push(error),
             }
         }
@@ -136,9 +145,52 @@ fn scan(
     workdirs: &[PathBuf],
     budget: &SessionReadBudget,
     mode: SessionHistoryReadMode,
-) -> Result<Vec<SessionHistoryWorkspace>, String> {
+) -> Result<SessionHistoryScan, String> {
     let project_index = ProjectIndex::read(root)?;
-    let mut result = Vec::new();
+    let mut result = SessionHistoryScan::new(&[]);
+    result.diagnostics = project_index.diagnostics.clone();
+    if workdirs.is_empty() {
+        let mut projects = project_index
+            .directories
+            .iter()
+            .map(|id| (id.clone(), None::<PathBuf>))
+            .collect::<HashMap<_, _>>();
+        let mut conflicting = BTreeSet::new();
+        for (path, ids) in &project_index.projects {
+            for id in ids {
+                let origin = projects.entry(id.clone()).or_default();
+                if origin
+                    .as_ref()
+                    .is_some_and(|origin| path_key(origin) != *path)
+                {
+                    conflicting.insert(id.clone());
+                }
+                *origin = Some(PathBuf::from(path));
+            }
+        }
+        let mut projects = projects.into_iter().collect::<Vec<_>>();
+        projects.sort_by(|left, right| left.0.cmp(&right.0));
+        for (id, origin) in projects {
+            if let Err(error) = budget.check() {
+                result.failed(error);
+                break;
+            }
+            let origin = origin
+                .filter(|_| !conflicting.contains(&id))
+                .unwrap_or_default();
+            let workspace = result.workspace(&origin);
+            if let Err(error) = scan_chats(
+                kind,
+                &root.join("tmp").join(id).join("chats"),
+                workspace,
+                budget,
+                mode,
+            ) {
+                workspace.failed(error);
+            }
+        }
+        return Ok(result);
+    }
     for workdir in workdirs {
         let mut workspace = SessionHistoryWorkspace::new(workdir);
         for diagnostic in &project_index.diagnostics {
@@ -150,7 +202,7 @@ fn scan(
                 workspace.failed(error);
             }
         }
-        result.push(workspace);
+        result.workspaces.push(workspace);
     }
     Ok(result)
 }
@@ -257,7 +309,11 @@ fn add_record(
         )
     });
     match result {
-        Ok(Some(record)) => workspace.records.push(record),
+        Ok(Some(mut record)) => {
+            // The project marker can change without changing the transcript.
+            record.summary.workdir = workspace.workdir.to_string_lossy().into_owned();
+            workspace.records.push(record);
+        }
         Ok(None) => {}
         Err(error) => workspace.failed(error),
     }

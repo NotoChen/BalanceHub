@@ -1,6 +1,10 @@
-use crate::models::{WorkspaceDirectoryEntry, WorkspaceDirectoryListing};
+use crate::{
+    models::{WorkspaceDirectoryEntry, WorkspaceDirectoryListing},
+    platform::paths::compatible_path,
+    services::cli_paths::user_home as home_dir,
+};
 use std::{
-    env, fs,
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -57,30 +61,13 @@ pub fn normalize_directory(path: &Path) -> Result<PathBuf, String> {
     if !canonical.is_dir() {
         return Err("所选工作空间不是文件夹".to_string());
     }
-    Ok(canonical)
-}
-
-fn home_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        env::var_os("USERPROFILE")
-            .or_else(|| {
-                let mut home = env::var_os("HOMEDRIVE")?;
-                home.push(env::var_os("HOMEPATH")?);
-                Some(home)
-            })
-            .map(PathBuf::from)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        env::var_os("HOME").map(PathBuf::from)
-    }
+    Ok(compatible_path(&canonical).into_owned())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
 
     #[test]
     fn browse_lists_directories_and_marks_hidden_entries() {
@@ -101,5 +88,25 @@ mod tests {
         assert!(!listing.entries[1].hidden);
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn browse_does_not_expose_windows_canonical_prefixes() {
+        let root = tempfile::Builder::new()
+            .prefix("balancehub-workspace-path-")
+            .tempdir()
+            .unwrap();
+        fs::create_dir(root.path().join("project")).unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        assert!(canonical.to_string_lossy().starts_with(r"\\?\"));
+        let listing = browse(canonical.to_str()).unwrap();
+        assert!(!listing.current_path.starts_with(r"\\?\"));
+        assert!(!listing.entries[0].path.starts_with(r"\\?\"));
+        assert!(!listing.parent_path.unwrap().starts_with(r"\\?\"));
+        assert_eq!(
+            Path::new(&listing.current_path).canonicalize().unwrap(),
+            canonical
+        );
     }
 }

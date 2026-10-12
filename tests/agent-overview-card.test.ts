@@ -324,7 +324,7 @@ test("history statistics distinguish exact totals, failed metadata reads and unc
   const card = mountCard(t, { historyCount: null });
   let history = card.button(/^查看 Codex CLI 的 历史会话，/);
   assert.equal(visibleText(history), "历史—");
-  assert.match(String(history.props.title), /主目录本身及已记录目录，数量尚未读取/);
+  assert.match(String(history.props.title), /全部目录，数量尚未读取/);
   await card.update({ historyCount: { agentKind: "codex", loadedCount: 0, total: null } });
   history = card.button(/^查看 Codex CLI 的 历史会话，/);
   assert.equal(visibleText(history), "历史—");

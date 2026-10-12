@@ -45,33 +45,40 @@ test("late directory results cannot replace the latest browsing target", async (
   assert.equal(browser.workspaceDirectory.value?.currentPath, "/current");
 });
 
-test("session history ignores results from a previous directory", async () => {
+test("session history defaults to all native main sessions and ignores late results from the previous Agent", async () => {
   const first = deferred<AgentSessionPage>();
   const second = deferred<AgentSessionPage>();
   const visible = ref(true);
-  const directoryRef = ref<WorkspaceDirectoryListing | null>(directory("/old"));
+  const cliKind = ref<"codex" | "claudeCode">("codex");
+  const queries: { workspaceIds: string[]; roleFilter: string }[] = [];
   const history = useWorkspaceSessionHistory({
     visible,
-    cliKind: ref("codex"),
+    cliKind,
     sessionMode: ref("history"),
     selectedModel: ref(""),
-    directory: directoryRef,
     sessionApi: historyApi({
-      query: async (request) =>
-        request.scopeRevision === "scope:/old" ? first.promise : second.promise,
+      query: async (request) => {
+        queries.push(request);
+        return request.agentKinds.includes("claudeCode") ? second.promise : first.promise;
+      },
     }),
   });
 
   const firstLoad = history.loadWorkspaceSessions();
   await settleSessions();
-  directoryRef.value = directory("/current");
+  assert.deepEqual(queries[0].workspaceIds, []);
+  assert.equal(queries[0].roleFilter, "main");
+  cliKind.value = "claudeCode";
   const secondLoad = history.loadWorkspaceSessions();
+  await settleSessions();
   second.resolve(
-    sessionPage([sessionRow("current")], { scopeRevision: "scope:/current" }),
+    sessionPage([sessionRow("current")]),
   );
   await secondLoad;
+  assert.deepEqual(queries[1].workspaceIds, []);
+  assert.equal(queries[1].roleFilter, "main");
   first.resolve(
-    sessionPage([sessionRow("old")], { scopeRevision: "scope:/old" }),
+    sessionPage([sessionRow("old")]),
   );
   await firstLoad;
   assert.deepEqual(
@@ -89,7 +96,6 @@ test("session detail ignores an older selection result", async () => {
     cliKind: ref("codex"),
     sessionMode: ref("history"),
     selectedModel: ref(""),
-    directory: ref(directory("/workspace")),
     sessionApi: historyApi({
       detail: async (request) =>
         request.sessionRef === "ref:first" ? first.promise : second.promise,
@@ -112,7 +118,6 @@ test("typing a new session query retains the last page while the replacement sea
     cliKind: ref("codex"),
     sessionMode: ref("history"),
     selectedModel: ref(""),
-    directory: ref(directory("/workspace")),
     sessionApi: historyApi(),
   });
   history.workspaceSessionResults.value = [sessionRow("stale")];
@@ -217,6 +222,7 @@ test("a synthetic current API Key is never sent as a local key identity", async 
     selectedSessionRef: ref(""),
     sessionScopeRevision: ref(""),
     selectedSessionTitle: ref(""),
+    selectedSessionWorkdir: ref("/native/original-project"),
     error: ref(""),
     preview: async (input) => {
       previewInput = input;
@@ -278,6 +284,7 @@ test("closing a launch flow discards a late preview", async () => {
     selectedSessionRef: ref(""),
     sessionScopeRevision: ref(""),
     selectedSessionTitle: ref(""),
+    selectedSessionWorkdir: ref("/native/original-project"),
     error: ref(""),
     preview: async () => pendingPreview.promise,
     launch: async () => { throw new Error("not expected"); },
@@ -356,6 +363,7 @@ test("confirming a launch closes the picker without waiting for terminal dispatc
     selectedSessionRef: ref(""),
     sessionScopeRevision: ref(""),
     selectedSessionTitle: ref(""),
+    selectedSessionWorkdir: ref("/native/original-project"),
     error: ref(""),
     preview: async () =>
       ({
@@ -450,6 +458,7 @@ test("history preview confirms through the shared resume request after closing, 
   const preparing = flow.launchWorkspace();
   assert.equal(previews[0]?.sessionMode, "history");
   assert.equal(previews[0]?.resumeId, "native-id");
+  assert.equal(previews[0]?.workdir, "/native/original-project", "preview uses the selected session's original directory");
   assert.equal(
     previews[0]?.model,
     "",
@@ -549,6 +558,7 @@ function historyLaunchOptions(
     selectedSessionRef: ref("ref:source-a:native-id"),
     sessionScopeRevision: ref("scope:valid"),
     selectedSessionTitle: ref("合成历史会话"),
+    selectedSessionWorkdir: ref("/native/original-project"),
     error: ref(""),
     preview: async () => launchPreview(),
     getInstance: async () => null,

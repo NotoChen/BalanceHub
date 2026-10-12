@@ -34,13 +34,21 @@ pub(super) fn scan_source(
         matched: HashSet::new(),
         states: Vec::new(),
         can_continue: false,
+        workspaces: Vec::new(),
     };
     let failure = |message: String, status| {
-        workspaces
-            .iter()
-            .map(|workspace| AgentSessionSourceState {
+        let ids = if workspaces.is_empty() {
+            vec![None]
+        } else {
+            workspaces
+                .iter()
+                .map(|workspace| Some(workspace.id.clone()))
+                .collect()
+        };
+        ids.into_iter()
+            .map(|workspace_id| AgentSessionSourceState {
                 source_id: source.id.clone(),
-                workspace_id: workspace.id.clone(),
+                workspace_id,
                 state: status,
                 loaded_count: 0,
                 message: Some(message.clone()),
@@ -94,25 +102,29 @@ pub(super) fn scan_source(
     };
     let full_request = SearchAccumulator::new(&query).content_request();
     let empty_request = SessionContentSearchRequest { terms: Vec::new() };
-    for loaded in loaded {
-        let Some(workspace) = workspaces
+    let source_diagnostics = loaded.diagnostics;
+    for loaded in loaded.workspaces {
+        let workspace = workspaces
             .iter()
             .find(|workspace| std::path::Path::new(&workspace.path) == loaded.workdir)
-        else {
-            continue;
-        };
+            .cloned()
+            .unwrap_or_else(|| super::super::scope::workspace_for_path(&loaded.workdir));
+        outcome.workspaces.push(workspace.clone());
         let mut diagnostics = loaded
             .diagnostics
             .into_iter()
             .filter(|message| !message.contains("预算"))
             .collect::<Vec<_>>();
+        if !workspaces.is_empty() {
+            diagnostics.extend(source_diagnostics.iter().cloned());
+        }
         let mut pending = false;
         let mut references = Vec::new();
         let mut indexed = HashSet::new();
         let mut incomplete = HashSet::new();
         let mut decisions = HashMap::new();
         for record in loaded.records {
-            let row = row_for_record(source, config, workspace, &record);
+            let row = row_for_record(source, config, &workspace, &record);
             let prior = previous_matches
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
@@ -219,10 +231,36 @@ pub(super) fn scan_source(
         };
         outcome.states.push(AgentSessionSourceState {
             source_id: source.id.clone(),
-            workspace_id: workspace.id.clone(),
+            workspace_id: Some(workspace.id.clone()),
             state,
             loaded_count,
             message: (!diagnostics.is_empty()).then(|| diagnostics.join("；")),
+            index_state: index.state(),
+        });
+    }
+    if workspaces.is_empty() {
+        let cancelled = budget.cancelled.load(Ordering::Acquire);
+        let pending = !cancelled && (outcome.can_continue || budget.check().is_err());
+        outcome.can_continue |= pending;
+        let state = if cancelled {
+            AgentSessionSourceStatus::Cancelled
+        } else if pending {
+            AgentSessionSourceStatus::Indexing
+        } else if !source_diagnostics.is_empty() {
+            AgentSessionSourceStatus::Partial
+        } else {
+            AgentSessionSourceStatus::Complete
+        };
+        outcome.states.push(AgentSessionSourceState {
+            source_id: source.id.clone(),
+            workspace_id: None,
+            state,
+            loaded_count: outcome.references.len(),
+            message: if pending {
+                Some("正在增量读取其余会话".into())
+            } else {
+                (!source_diagnostics.is_empty()).then(|| source_diagnostics.join("；"))
+            },
             index_state: index.state(),
         });
     }

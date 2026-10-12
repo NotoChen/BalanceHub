@@ -7,6 +7,9 @@ mod scope;
 mod state;
 mod workspace_scan;
 
+#[cfg(test)]
+pub(crate) use budget::with_history_cache;
+
 use crate::services::agent_cli::contracts::SessionReadBudget;
 pub(crate) use budget::{
     cached_history_record, cached_history_record_facts, check_read_budget, open_session_file,

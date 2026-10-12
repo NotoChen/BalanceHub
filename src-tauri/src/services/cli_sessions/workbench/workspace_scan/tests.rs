@@ -1,12 +1,14 @@
 use super::*;
+#[cfg(unix)]
+use crate::services::cli_sessions::workbench::scope::workspace_scope;
 use crate::services::cli_sessions::workbench::{
-    scope::{history_adapter, workspace_scope},
-    with_read_budget, with_source_root,
+    scope::history_adapter, with_read_budget, with_source_root,
 };
 use serde_json::json;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::{
     fs,
-    os::unix::fs::symlink,
     sync::{atomic::AtomicBool, Arc},
     time::{Duration, Instant},
 };
@@ -62,11 +64,25 @@ fn write_record(kind: AgentCliKind, root: &Path, workdir: &Path, id: &str) {
             )
             .unwrap();
         }
-        AgentCliKind::Gemini => unreachable!(),
+        AgentCliKind::Gemini => {
+            let project = root.join("tmp").join(id);
+            fs::create_dir_all(project.join("chats")).unwrap();
+            fs::write(
+                project.join(".project_root"),
+                workdir.to_string_lossy().as_bytes(),
+            )
+            .unwrap();
+            fs::write(
+                project.join("chats/session.json"),
+                json!({"sessionId":id,"messages":[{"type":"user","content":id}]}).to_string(),
+            )
+            .unwrap();
+        }
     }
 }
 
 #[test]
+#[cfg(unix)]
 fn explicit_native_scans_discover_registered_aliases_on_first_query_and_reject_retargeting() {
     for kind in [
         AgentCliKind::Codex,
@@ -139,7 +155,7 @@ fn explicit_native_scans_discover_registered_aliases_on_first_query_and_reject_r
             SessionHistoryReadMode::Summaries,
             SessionHistoryReadMode::Identities,
         ] {
-            let result = read(mode);
+            let result = read(mode).workspaces;
             assert_eq!(result.len(), 1, "{kind:?}: aliases form one workspace");
             assert!(result[0].complete, "{kind:?}: {:?}", result[0].diagnostics);
             let ids = result[0]
@@ -160,7 +176,7 @@ fn explicit_native_scans_discover_registered_aliases_on_first_query_and_reject_r
         }
         fs::remove_file(&alias).unwrap();
         symlink(&outside, &alias).unwrap();
-        let result = read(SessionHistoryReadMode::Summaries);
+        let result = read(SessionHistoryReadMode::Summaries).workspaces;
         assert!(
             result[0]
                 .records
@@ -172,6 +188,89 @@ fn explicit_native_scans_discover_registered_aliases_on_first_query_and_reject_r
             .records
             .iter()
             .any(|record| record.summary.id == "physical-session"));
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn all_native_sources_discover_unregistered_and_missing_directories_and_allow_optional_filtering() {
+    for kind in [
+        AgentCliKind::Codex,
+        AgentCliKind::ClaudeCode,
+        AgentCliKind::Gemini,
+        AgentCliKind::Grok,
+    ] {
+        let root = std::env::temp_dir().join(format!(
+            "balancehub-native-discovery-{}-{}",
+            kind.key(),
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let native = root.join("native");
+        let project = root.join("unregistered");
+        let missing = root.join("missing-mount");
+        fs::create_dir_all(&native).unwrap();
+        fs::create_dir_all(&project).unwrap();
+        write_record(kind, &native, &project, "unregistered-session");
+        write_record(kind, &native, &missing, "missing-session");
+        for mode in [
+            SessionHistoryReadMode::Summaries,
+            SessionHistoryReadMode::Identities,
+        ] {
+            let scan = |workspaces: &[AgentSessionWorkspace]| {
+                let budget = SessionReadBudget::new(
+                    Instant::now() + Duration::from_secs(5),
+                    Arc::new(AtomicBool::new(false)),
+                    4 * 1024 * 1024,
+                );
+                with_read_budget(&budget, || {
+                    with_source_root(&native, || {
+                        scan_workspaces(
+                            history_adapter(kind).unwrap(),
+                            kind,
+                            &native,
+                            workspaces,
+                            &budget,
+                            mode,
+                        )
+                    })
+                })
+                .unwrap()
+            };
+            let all = scan(&[]);
+            assert!(
+                all.diagnostics.is_empty(),
+                "{kind:?}: {:?}",
+                all.diagnostics
+            );
+            assert_eq!(all.workspaces.len(), 2, "{kind:?}");
+            let ids = all
+                .workspaces
+                .iter()
+                .flat_map(|workspace| &workspace.records)
+                .map(|record| record.summary.id.as_str())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                ids,
+                BTreeSet::from(["unregistered-session", "missing-session"]),
+                "{kind:?}"
+            );
+            let selected = super::super::scope::workspace_for_path(&project);
+            let narrowed = scan(&[selected]);
+            assert_eq!(narrowed.workspaces.len(), 1, "{kind:?}");
+            assert_eq!(
+                narrowed.workspaces[0].records[0].summary.id, "unregistered-session",
+                "{kind:?}"
+            );
+            let rediscovered = scan(&[]);
+            assert_eq!(
+                rediscovered.workspaces.len(),
+                2,
+                "directory filtering must not shrink later global scans"
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }

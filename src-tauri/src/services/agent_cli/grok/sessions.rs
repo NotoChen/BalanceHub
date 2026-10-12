@@ -109,7 +109,7 @@ fn metadata_lookup_from_home(
             });
         }
         request.budget.check(length)?;
-        let summary = parse_summary(request.cli_kind, &path, workdir)
+        let summary = parse_summary(request.cli_kind, &path, Some(workdir))
             .map_err(SessionMetadataLookupError::Parse)?;
         let Some((summary, _)) = summary.filter(|(summary, _)| summary.id == request.session_id)
         else {
@@ -354,7 +354,7 @@ fn content_part_is_hidden(value: &Value) -> bool {
 fn parse_summary(
     cli_kind: AgentCliKind,
     path: &Path,
-    expected_workdir: &Path,
+    expected_workdir: Option<&Path>,
 ) -> Result<Option<(CliSessionSummary, bool)>, String> {
     let text = read_text_file_limited(
         path,
@@ -374,15 +374,13 @@ fn parse_summary(
     else {
         return Ok(None);
     };
-    let Some(workdir) = info
+    let workdir = info
         .get("cwd")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|workdir| !workdir.is_empty())
-    else {
-        return Ok(None);
-    };
-    if path_key(Path::new(workdir)) != path_key(expected_workdir) {
+        .unwrap_or_default();
+    if expected_workdir.is_some_and(|expected| path_key(Path::new(workdir)) != path_key(expected)) {
         return Ok(None);
     }
     let is_subagent = value

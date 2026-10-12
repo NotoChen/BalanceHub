@@ -16,11 +16,55 @@
   --surface-panel-soft: #f8fafc;
   --surface-accent: #2563eb;
   --surface-accent-soft: #eaf1ff;
-  --surface-success: #16836a;
-  --surface-warning: #b7791f;
+  --surface-success: #116d56;
+  --surface-success-soft: #e9f5ef;
+  --surface-warning: #976018;
+  --surface-warning-soft: #fff6e5;
+  --surface-danger: #b53f4d;
+  --surface-danger-soft: #faecee;
+  --surface-teal: #087d83;
+  --surface-purple: #6d34ac;
+  --surface-purple-soft: #f4edff;
+  --surface-control-line: #7d8da3;
+  --surface-control-hover: #607491;
+  --surface-on-accent: #ffffff;
+  --surface-accent-hover: #1d4ed8;
   --surface-shadow: 0 28px 80px rgba(15, 23, 42, 0.2);
   --surface-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --provider-grid-gap: 16px;
+}
+
+/* Form boundaries also apply to page toolbars and teleported controls. */
+.arco-input-wrapper,
+.arco-input-number,
+.arco-select-view,
+.arco-picker,
+.arco-textarea-wrapper {
+  border-color: var(--surface-control-line);
+}
+
+:root .arco-input::placeholder,
+:root .arco-textarea::placeholder,
+:root .arco-select-view-placeholder {
+  color: var(--surface-muted);
+}
+
+:root .arco-radio-group-button {
+  background: var(--surface-panel-soft);
+}
+
+:root .arco-radio-button.arco-radio-checked:not(.arco-radio-disabled) {
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
+:root .arco-switch:not(.arco-switch-checked, .arco-switch-loading, .arco-switch-custom-color, .arco-switch-type-line, [disabled]) {
+  background: var(--surface-control-line);
+}
+
+.arco-switch:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 3px;
 }
 
 /* Shared modal shell */
@@ -125,7 +169,7 @@
 .surface-modal .arco-picker,
 .surface-modal .arco-textarea-wrapper {
   min-height: 38px;
-  border: 1px solid var(--surface-line-strong);
+  border: 1px solid var(--surface-control-line);
   border-radius: 9px;
   background: var(--surface-panel);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
@@ -137,7 +181,7 @@
 .surface-modal .arco-select-view:hover,
 .surface-modal .arco-picker:hover,
 .surface-modal .arco-textarea-wrapper:hover {
-  border-color: #94a3b8;
+  border-color: var(--surface-control-hover);
 }
 
 .surface-modal .arco-input-wrapper:focus-within,
@@ -155,17 +199,34 @@
 .surface-modal .arco-select-view-value,
 .surface-modal .arco-picker-input,
 .surface-modal .arco-textarea {
+  min-height: 38px;
+  background: transparent;
   color: var(--surface-ink);
   font-size: 13px;
 }
 
 .surface-modal .arco-input::placeholder,
 .surface-modal .arco-textarea::placeholder {
-  color: #a5afbd;
+  color: var(--surface-muted);
 }
 
-.surface-modal .arco-switch-checked {
+.surface-modal .arco-select-view-suffix,
+.surface-modal .arco-picker-suffix,
+.surface-modal .arco-input-suffix {
+  color: var(--surface-muted);
+}
+
+.surface-modal .arco-switch-checked:not(.arco-switch-loading, [disabled]) {
   background: var(--surface-accent);
+}
+
+.surface-modal .arco-switch-checked:not(.arco-switch-loading, [disabled]) .arco-switch-handle {
+  background: var(--surface-on-accent);
+  color: var(--surface-accent);
+}
+
+.surface-modal .arco-switch-checked:not(.arco-switch-loading, [disabled]) .arco-switch-text {
+  color: var(--surface-on-accent);
 }
 
 .surface-modal .arco-btn {
@@ -179,33 +240,68 @@
   transform: translateY(1px) scale(0.985);
 }
 
-.surface-modal .arco-btn:not(.arco-btn-primary) {
-  border-color: var(--surface-line-strong);
+.surface-modal .arco-btn:not(.arco-btn-primary, .arco-btn-status-danger, .arco-btn-status-warning, .arco-btn-status-success) {
+  border-color: var(--surface-control-line);
   background: var(--surface-panel);
   color: var(--surface-ink-soft);
 }
 
-.surface-modal .arco-btn:not(.arco-btn-primary):hover,
-.surface-modal .arco-btn:not(.arco-btn-primary):focus-visible {
+.surface-modal .arco-btn:not(.arco-btn-primary, .arco-btn-disabled, .arco-btn-status-danger, .arco-btn-status-warning, .arco-btn-status-success):hover,
+.surface-modal .arco-btn:not(.arco-btn-primary, .arco-btn-disabled, .arco-btn-status-danger, .arco-btn-status-warning, .arco-btn-status-success):focus-visible {
   border-color: rgba(37, 99, 235, 0.36);
   background: var(--surface-accent-soft);
   color: var(--surface-accent);
   outline: none;
 }
 
-.surface-modal .arco-btn-primary {
-  border-color: var(--surface-accent);
-  background: var(--surface-accent);
+.arco-btn-primary {
+  --surface-button-color: var(--surface-accent);
+  --surface-button-hover: var(--surface-accent-hover);
+}
+
+.arco-btn-primary.arco-btn-status-danger {
+  --surface-button-color: var(--surface-danger);
+  --surface-button-hover: color-mix(in srgb, var(--surface-danger) 88%, black);
+}
+
+.arco-btn-primary.arco-btn-status-warning {
+  --surface-button-color: var(--surface-warning);
+  --surface-button-hover: color-mix(in srgb, var(--surface-warning) 88%, black);
+}
+
+.arco-btn-primary.arco-btn-status-success {
+  --surface-button-color: var(--surface-success);
+  --surface-button-hover: color-mix(in srgb, var(--surface-success) 88%, black);
+}
+
+:root .arco-btn-primary:not(.arco-btn-disabled) {
+  border-color: var(--surface-button-color);
+  background: var(--surface-button-color);
+  color: var(--surface-on-accent);
+}
+
+:root .arco-btn-primary:not(.arco-btn-disabled):hover,
+:root .arco-btn-primary:not(.arco-btn-disabled):focus-visible {
+  border-color: var(--surface-button-hover);
+  background: var(--surface-button-hover);
+}
+
+.surface-modal .arco-btn-primary:not(.arco-btn-disabled) {
   box-shadow: 0 7px 16px rgba(37, 99, 235, 0.2);
 }
 
-.surface-modal .arco-btn-primary:hover,
-.surface-modal .arco-btn-primary:focus-visible {
-  border-color: #1d4ed8;
-  background: #1d4ed8;
+.surface-modal .arco-btn-primary:not(.arco-btn-disabled):hover,
+.surface-modal .arco-btn-primary:not(.arco-btn-disabled):focus-visible {
   box-shadow: 0 9px 20px rgba(37, 99, 235, 0.27);
   outline: none;
   transform: translateY(-1px);
+}
+
+.surface-modal .arco-btn.arco-btn-disabled {
+  border-color: var(--surface-line);
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+  box-shadow: none;
 }
 
 .surface-modal-title {

@@ -105,6 +105,7 @@ export function sessionPage(
     loadedCount: items.length,
     total: items.length,
     agentCounts: [],
+    workspaces: [],
     scanPending: false,
     sourceStates: [
       {

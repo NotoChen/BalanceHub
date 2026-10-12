@@ -28,6 +28,7 @@ struct SourceOutcome {
     matched: HashSet<String>,
     states: Vec<AgentSessionSourceState>,
     can_continue: bool,
+    workspaces: Vec<AgentSessionWorkspace>,
 }
 
 pub(crate) fn query(
@@ -88,6 +89,7 @@ pub(crate) fn query(
             rows: Vec::new(),
             parent_updates: HashMap::new(),
             states: Vec::new(),
+            workspaces: Vec::new(),
             complete: false,
             progress: QueryProgress::default(),
             used_at: Instant::now(),
@@ -161,6 +163,21 @@ pub(crate) fn query(
         validated_scope(actor, &request.scope_revision)?;
         let refs = merge_source_outcomes(&mut snapshot, outcomes, request.role_filter);
         let mut registry = state::registry();
+        if let Some(saved) = registry
+            .scopes
+            .get_mut(&(actor.key(), request.scope_revision.clone()))
+        {
+            for workspace in &snapshot.workspaces {
+                if !saved
+                    .public
+                    .workspaces
+                    .iter()
+                    .any(|item| item.id == workspace.id)
+                {
+                    saved.public.workspaces.push(workspace.clone());
+                }
+            }
+        }
         for reference in refs {
             registry.references.insert(
                 (
@@ -194,7 +211,11 @@ fn select_workspaces(
     ids: &[String],
 ) -> Result<Vec<AgentSessionWorkspace>, String> {
     if ids.is_empty() {
-        return Ok(scope.public.workspaces.clone());
+        return Ok(if scope.explicit_workdir.is_some() {
+            scope.public.workspaces.clone()
+        } else {
+            Vec::new()
+        });
     }
     if ids.iter().any(|id| {
         !scope
@@ -252,6 +273,15 @@ fn merge_source_outcomes(
         matched_ids.extend(outcome.matched);
         snapshot.states.extend(outcome.states);
         snapshot.progress.can_continue |= outcome.can_continue;
+        for workspace in outcome.workspaces {
+            if !snapshot
+                .workspaces
+                .iter()
+                .any(|item| item.id == workspace.id)
+            {
+                snapshot.workspaces.push(workspace);
+            }
+        }
     }
     // Resolve against all actual native records before search, role filtering
     // and paging. A parent may itself be a subagent or outside the result page.
@@ -343,7 +373,9 @@ fn row_for_record(
 ) -> AgentSessionRow {
     let mut session = record.summary.clone();
     let resume_reason = record.resume_reason.clone().or_else(|| {
-        if !workspace.exists {
+        if workspace.path.is_empty() {
+            Some("原生记录未提供有效工作目录；仍可查看历史".into())
+        } else if !workspace.exists {
             Some("工作目录不存在或未挂载；仍可查看历史".into())
         } else {
             config.resume_reason.clone()
@@ -463,6 +495,7 @@ fn page(
         total: snapshot.complete.then_some(snapshot.rows.len()),
         agent_counts: agent_counts(snapshot, sources, workspaces),
         source_states: snapshot.states.clone(),
+        workspaces: snapshot.workspaces.clone(),
     }
 }
 

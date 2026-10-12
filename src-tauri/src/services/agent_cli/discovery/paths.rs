@@ -1,5 +1,9 @@
 use super::candidates::{compare_version_keys, numeric_version_key};
-use crate::{limits, platform::process::run_command_with_output_timeout};
+pub(super) use crate::services::cli_paths::user_home as home_dir;
+use crate::{
+    limits,
+    platform::{paths::compatible_path, process::run_command_with_output_timeout},
+};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
@@ -122,11 +126,14 @@ impl RuntimePathSnapshot {
         directories.extend(self.directories.iter().cloned());
 
         let mut seen = BTreeSet::new();
-        directories.retain(|directory| {
-            !directory.as_os_str().is_empty()
-                && seen.insert(lexical_comparison_key(directory.as_path()))
-        });
-        env::join_paths(directories).ok()
+        let directories = directories
+            .iter()
+            .map(|directory| compatible_path(directory))
+            .filter(|directory| {
+                !directory.as_os_str().is_empty()
+                    && seen.insert(lexical_comparison_key(directory.as_ref()))
+            });
+        env::join_paths(directories.map(|directory| directory.into_owned())).ok()
     }
 }
 
@@ -157,7 +164,10 @@ pub(super) fn expand_home_path(value: &str) -> PathBuf {
     if value == "~" {
         return home_dir().unwrap_or_else(|| PathBuf::from(value));
     }
-    if let Some(rest) = value.strip_prefix("~/") {
+    let rest = value
+        .strip_prefix("~/")
+        .or_else(|| cfg!(windows).then(|| value.strip_prefix("~\\")).flatten());
+    if let Some(rest) = rest {
         if let Some(home) = home_dir() {
             return home.join(rest);
         }
@@ -171,7 +181,7 @@ pub(super) fn has_path_separator(value: &str) -> bool {
 
 pub(super) fn process_path_candidates(binary: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Ok(path) = env::var("PATH") {
+    if let Some(path) = env::var_os("PATH") {
         for dir in env::split_paths(&path) {
             candidates.extend(binary_names(binary).into_iter().map(|name| dir.join(name)));
         }
@@ -209,27 +219,20 @@ pub(super) fn capture_shell_discovery(binaries: &[String]) -> ShellDiscoverySnap
     if cfg!(target_os = "windows") {
         let mut candidates = BTreeMap::new();
         for binary in binaries {
-            let mut command = Command::new("cmd");
-            command.arg("/C").arg(format!("where {binary}"));
-            let paths = run_command_with_output_timeout(
-                &mut command,
-                Duration::from_secs(5),
-                limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
-            )
-            .ok()
-            .filter(|output| {
-                !output.timed_out && output.status.is_some_and(|status| status.success())
-            })
-            .map(|output| {
-                output
-                    .stdout
-                    .lines()
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(PathBuf::from)
-                    .collect()
-            })
-            .unwrap_or_default();
+            // Read native paths directly. `where` prints using the Windows
+            // console code page, which corrupts Unicode paths when read as UTF-8.
+            let mut paths = env::current_dir()
+                .ok()
+                .into_iter()
+                .flat_map(|directory| {
+                    binary_names(&binary)
+                        .into_iter()
+                        .map(move |name| directory.join(name))
+                })
+                .collect::<Vec<_>>();
+            paths.extend(process_path_candidates(&binary));
+            let mut seen = BTreeSet::new();
+            paths.retain(|path| path.is_file() && seen.insert(lexical_comparison_key(path)));
             candidates.insert(binary, paths);
         }
         return ShellDiscoverySnapshot {
@@ -362,19 +365,14 @@ pub(super) fn canonicalize_for_owner(path: &Path) -> std::io::Result<PathBuf> {
     fs::canonicalize(path)
 }
 
-pub(super) fn home_dir() -> Option<PathBuf> {
-    env::var_os("HOME")
-        .or_else(|| env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-}
-
 pub(super) fn binary_names(binary: &str) -> Vec<String> {
-    let mut names = vec![binary.to_string()];
-    if cfg!(target_os = "windows") {
-        names.push(format!("{binary}.cmd"));
-        names.push(format!("{binary}.exe"));
+    if cfg!(target_os = "windows") && Path::new(binary).extension().is_none() {
+        return ["exe", "cmd", "bat", "com"]
+            .into_iter()
+            .map(|extension| format!("{binary}.{extension}"))
+            .collect();
     }
-    names
+    vec![binary.to_string()]
 }
 
 pub(super) fn platform_global_dirs() -> &'static [&'static str] {

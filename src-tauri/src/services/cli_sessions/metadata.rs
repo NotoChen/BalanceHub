@@ -56,13 +56,13 @@ pub(crate) fn read_session_header(
     }
 }
 
-struct Header<'a, F> {
+struct Header<'a> {
     fields: &'a [&'a str],
-    ready: &'a mut F,
+    ready: &'a mut dyn FnMut(&Map<String, Value>, bool) -> bool,
     found: &'a mut Option<Map<String, Value>>,
 }
 
-impl<'de, F: FnMut(&Map<String, Value>, bool) -> bool> DeserializeSeed<'de> for Header<'_, F> {
+impl<'de> DeserializeSeed<'de> for Header<'_> {
     type Value = Map<String, Value>;
 
     fn deserialize<D: serde::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
@@ -70,7 +70,7 @@ impl<'de, F: FnMut(&Map<String, Value>, bool) -> bool> DeserializeSeed<'de> for 
     }
 }
 
-impl<'de, F: FnMut(&Map<String, Value>, bool) -> bool> Visitor<'de> for Header<'_, F> {
+impl<'de> Visitor<'de> for Header<'_> {
     type Value = Map<String, Value>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -90,9 +90,95 @@ impl<'de, F: FnMut(&Map<String, Value>, bool) -> bool> Visitor<'de> for Header<'
                     return Err(serde::de::Error::custom("native identity collected"));
                 }
             } else {
-                map.next_value::<IgnoredAny>()?;
+                // A dotted selector reads only the needed native payload
+                // fields, without deserializing embedded instructions/bodies.
+                let prefix = format!("{key}.");
+                let nested = self
+                    .fields
+                    .iter()
+                    .filter_map(|field| field.strip_prefix(&prefix))
+                    .collect::<Vec<_>>();
+                if nested.is_empty() {
+                    map.next_value::<IgnoredAny>()?;
+                    continue;
+                }
+                let mut nested_found = None;
+                let result = {
+                    let mut ready = |fields: &Map<String, Value>, _complete| {
+                        let mut candidate = metadata.clone();
+                        candidate.insert(key.clone(), Value::Object(fields.clone()));
+                        (self.ready)(&candidate, false)
+                    };
+                    map.next_value_seed(Header {
+                        fields: &nested,
+                        ready: &mut ready,
+                        found: &mut nested_found,
+                    })
+                };
+                if let Some(fields) = nested_found {
+                    metadata.insert(key, Value::Object(fields));
+                    *self.found = Some(metadata);
+                    return Err(serde::de::Error::custom("native identity collected"));
+                }
+                metadata.insert(key, Value::Object(result?));
+                if (self.ready)(&metadata, false) {
+                    *self.found = Some(metadata);
+                    return Err(serde::de::Error::custom("native identity collected"));
+                }
             }
         }
         Ok(metadata)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::agent_cli::contracts::SessionReadBudget;
+    use crate::services::cli_sessions::workbench::with_read_budget;
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    fn native_payload_identity_can_stop_before_an_oversized_or_unfinished_body() {
+        let path = std::env::temp_dir().join(format!(
+            "balancehub-nested-session-header-{}.jsonl",
+            std::process::id()
+        ));
+        let record = format!(
+            r#"{{"type":"session_meta","payload":{{"id":"native","cwd":"/synthetic/project","source":"cli","base_instructions":"{}"#,
+            "irrelevant native instructions ".repeat(100_000)
+        );
+        std::fs::write(&path, record).unwrap();
+        let budget = SessionReadBudget::new(
+            Instant::now() + Duration::from_secs(5),
+            Arc::new(AtomicBool::new(false)),
+            32 * 1024,
+        );
+        let metadata = with_read_budget(&budget, || {
+            read_session_header(
+                &path,
+                &["type", "payload.id", "payload.cwd", "payload.source"],
+                |fields, _| {
+                    fields.get("payload").is_some_and(|payload| {
+                        payload.get("id").is_some()
+                            && payload.get("cwd").is_some()
+                            && payload.get("source").is_some()
+                    })
+                },
+            )
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(metadata["payload"]["id"], "native");
+        assert_eq!(metadata["payload"]["cwd"], "/synthetic/project");
+        assert!(metadata["payload"].get("base_instructions").is_none());
+        assert!(budget.bytes.load(Ordering::Relaxed) < 16 * 1024);
+        std::fs::remove_file(path).unwrap();
     }
 }

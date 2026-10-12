@@ -7,6 +7,6 @@ pub(super) fn launch_environment(root: &Path) -> Result<EnvironmentPatch, &'stat
     }
     let home = root.parent().ok_or("无法定位 Gemini 原生主目录")?;
     let mut environment = EnvironmentPatch::default();
-    environment.set("GEMINI_CLI_HOME", home.to_string_lossy());
+    environment.set_path("GEMINI_CLI_HOME", home);
     Ok(environment)
 }

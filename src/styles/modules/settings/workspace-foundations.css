@@ -2,7 +2,7 @@
 .surface-modal .arco-modal-content {
   border: 1px solid rgba(29, 33, 41, 0.12);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface-panel);
   box-shadow:
     0 26px 70px rgba(24, 32, 48, 0.18),
     0 2px 10px rgba(24, 32, 48, 0.08);
@@ -11,7 +11,7 @@
 .surface-modal .arco-modal-header {
   min-height: 62px;
   border-bottom: 1px solid #e8eaee;
-  background: #ffffff;
+  background: var(--surface-panel);
   padding: 0 22px;
 }
 
@@ -35,13 +35,13 @@
   place-items: center;
   border-radius: 8px;
   background: #edf3ff;
-  color: #165dff;
+  color: var(--surface-accent);
   font-size: 16px;
 }
 
 .surface-modal-title-icon-settings {
   background: #eaf8f6;
-  color: #0f8b7e;
+  color: var(--surface-teal);
 }
 
 .surface-modal-title-copy {
@@ -75,8 +75,8 @@
   gap: 5px;
   margin-left: auto;
   border-radius: 6px;
-  background: #f2f4f7;
-  color: #6b7280;
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
   font-size: 10px;
   font-weight: 650;
   padding: 0 8px;
@@ -112,7 +112,7 @@
   overflow: hidden;
   border: 1px solid #e2e5e9;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface-panel);
 }
 
 .settings-card-header {
@@ -151,7 +151,7 @@
   place-items: center;
   border-radius: 8px;
   background: #edf3ff;
-  color: #165dff;
+  color: var(--surface-accent);
   font-size: 16px;
 }
 
@@ -187,7 +187,7 @@
 
 .settings-version-badge {
   background: #edf3ff;
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .settings-setting-list {
@@ -215,8 +215,8 @@
   gap: 10px;
   border: 1px solid #e2e5e9;
   border-radius: 7px;
-  background: #ffffff;
-  color: #4e5969;
+  background: var(--surface-panel);
+  color: var(--surface-ink-soft);
   cursor: pointer;
   padding: 8px 10px;
   text-align: left;
@@ -250,7 +250,7 @@
 
 .settings-theme-option.active .settings-theme-option-icon {
   background: #e3edff;
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .settings-theme-option-label {
@@ -289,7 +289,7 @@
   overflow: hidden;
   border: 1px solid #dfe3e8;
   border-radius: 8px;
-  background: #edf0f4;
+  background: var(--surface-panel-soft);
   padding: 12px;
 }
 
@@ -304,7 +304,7 @@
   align-items: center;
   gap: 4px;
   border-radius: 5px 5px 0 0;
-  background: #ffffff;
+  background: var(--surface-panel);
   padding: 0 8px;
 }
 
@@ -324,7 +324,7 @@
   height: 112px;
   grid-template-columns: 42px minmax(0, 1fr);
   border-radius: 0 0 5px 5px;
-  background: #f7f8fa;
+  background: var(--surface-panel-soft);
 }
 
 .settings-appearance-preview.is-dark .settings-preview-canvas {
@@ -375,7 +375,7 @@
   height: 28px;
   border: 1px solid #e1e5ea;
   border-radius: 5px;
-  background: #ffffff;
+  background: var(--surface-panel);
 }
 
 .settings-appearance-preview.is-dark .settings-preview-sidebar > i,
@@ -388,7 +388,7 @@
   position: absolute;
   right: 17px;
   bottom: 17px;
-  color: #7b8491;
+  color: var(--surface-muted);
   font-size: 9px;
   font-weight: 600;
 }
@@ -428,14 +428,14 @@
   gap: 14px;
   border: 1px solid #e2e5e9;
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface-panel);
   padding: 8px 10px;
 }
 
 .settings-session-index-path > span {
   min-width: 0;
   overflow: hidden;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 10px;
   text-overflow: ellipsis;
@@ -462,7 +462,7 @@
 }
 
 .settings-session-index-actions > span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
@@ -474,7 +474,7 @@
   flex-wrap: wrap;
   gap: 7px 0;
   border-top: 1px solid #eceef1;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   padding-top: 12px;
@@ -496,7 +496,7 @@
 }
 
 .settings-session-index-agent-stats strong {
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-weight: 650;
 }
 
@@ -562,7 +562,7 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  color: #89919d;
+  color: var(--surface-muted);
   font-size: 10px;
 }
 

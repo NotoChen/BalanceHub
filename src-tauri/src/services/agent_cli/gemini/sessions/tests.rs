@@ -32,7 +32,8 @@ fn history_summaries(
                 &budget,
                 crate::services::agent_cli::contracts::SessionHistoryReadMode::Summaries,
             )
-        })?;
+        })?
+        .workspaces;
     Ok(
         crate::services::cli_sessions::normalize_records(workspaces.remove(0).records)
             .into_iter()
@@ -435,8 +436,8 @@ fn native_nested_subagent_records_link_to_the_parent_without_becoming_resumable(
         )
     })
     .unwrap();
-    assert_eq!(groups[0].records.len(), 1);
-    let child = &groups[0].records[0];
+    assert_eq!(groups.workspaces[0].records.len(), 1);
+    let child = &groups.workspaces[0].records[0];
     assert_eq!(child.role, crate::models::AgentSessionRole::Subagent);
     assert_eq!(child.parent_native_id.as_deref(), Some(parent));
     assert!(!child.summary.can_resume);

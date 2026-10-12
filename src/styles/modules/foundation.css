@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   color: #1d2129;
   background: #f2f3f5;
   --glass-canvas: #f2f3f5;
@@ -44,6 +45,7 @@
 
 :root.theme-dark .brand-icon-codex,
 :root.theme-dark .brand-icon-opencode,
+:root.theme-dark .brand-icon-grokbuild,
 :root.theme-dark .agent-cli-icon-grok {
   filter: invert(1);
 }

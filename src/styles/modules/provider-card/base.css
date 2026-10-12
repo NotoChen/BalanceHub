@@ -168,13 +168,13 @@
 .provider-card-disabled .provider-card-model-more,
 .provider-card-disabled .provider-card-model-empty,
 .provider-card-disabled .provider-card-auth-summary {
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .provider-card-disabled .provider-card-auth-summary > svg,
 .provider-card-disabled .provider-card-auth-summary strong,
 .provider-card-disabled .provider-card-auth-summary span {
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .provider-card-disabled .workspace-card-logo img {
@@ -240,7 +240,7 @@
 .provider-card-api-remark {
   min-width: 0;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: var(--workspace-card-title-size);
   font-weight: 650;
   line-height: 1.25;
@@ -261,7 +261,7 @@
   width: 100%;
   align-items: center;
   gap: 6px;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 620;
   line-height: 1.35;
@@ -275,7 +275,7 @@
 }
 
 .provider-card-api-protocol {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.02em;
@@ -343,7 +343,7 @@
 
 .provider-card-api-key-count {
   flex: 0 0 auto;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -405,7 +405,7 @@
 .provider-card-api-key-inline-actions button:hover,
 .provider-card-api-key-inline-actions button:focus-visible {
   background: #edf3fa;
-  color: #315f9d;
+  color: var(--surface-accent);
   outline: none;
 }
 
@@ -428,7 +428,7 @@
   max-width: 100%;
   flex: 0 1 auto;
   overflow: hidden;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.35;
@@ -492,7 +492,7 @@
   display: block;
   min-width: 0;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 14px;
   font-weight: 650;
   line-height: 1.25;
@@ -501,7 +501,7 @@
 }
 
 .provider-card-user-name-muted {
-  color: #86909c;
+  color: var(--surface-muted);
   font-weight: 500;
 }
 
@@ -514,7 +514,7 @@
   min-width: 0;
   flex-wrap: wrap;
   gap: 5px 12px;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
   line-height: 1.25;
 }
@@ -568,7 +568,7 @@
 
 .provider-card-balance span,
 .provider-card-progress-row > span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
   line-height: 1.25;
 }
@@ -576,7 +576,7 @@
 .provider-card-balance strong {
   min-width: 0;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 20px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -642,18 +642,18 @@
 .provider-card-section-heading {
   justify-content: space-between;
   gap: 10px;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 11px;
   font-weight: 650;
 }
 
 .provider-card-section-heading span:last-child {
-  color: #86909c;
+  color: var(--surface-muted);
   font-weight: 500;
 }
 
 .provider-card-model-sync-time {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
@@ -708,14 +708,14 @@
   overflow: hidden;
   align-items: center;
   gap: 5px;
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .provider-card-auth-summary > svg {
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .provider-card-auth-summary > .provider-auth-icon-session,
@@ -735,7 +735,7 @@
 
 .provider-card-auth-summary strong {
   flex: 0 0 auto;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.25;
@@ -746,7 +746,7 @@
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid var(--glass-border);
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   line-height: 1.25;
   padding-left: 6px;

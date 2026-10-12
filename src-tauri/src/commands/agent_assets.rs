@@ -137,15 +137,18 @@ async fn open_target(
                 target_kind: kind,
             };
             // The access layer retains all object guards until this callback returns.
-            let open = |path: &Path| match request.target {
-                AgentAssetOpenTarget::Asset => app
-                    .opener()
-                    .open_path(path.to_string_lossy(), None::<&str>)
-                    .map_err(|_| "系统打开失败".to_owned()),
-                AgentAssetOpenTarget::Reveal => app
-                    .opener()
-                    .reveal_item_in_dir(path)
-                    .map_err(|_| "系统定位失败".to_owned()),
+            let open = |path: &Path| {
+                let path = crate::platform::paths::compatible_path(path);
+                match request.target {
+                    AgentAssetOpenTarget::Asset => app
+                        .opener()
+                        .open_path(path.to_string_lossy(), None::<&str>)
+                        .map_err(|_| "系统打开失败".to_owned()),
+                    AgentAssetOpenTarget::Reveal => app
+                        .opener()
+                        .reveal_item_in_dir(path.as_ref())
+                        .map_err(|_| "系统定位失败".to_owned()),
+                }
             };
             match kind {
                 AgentAssetAccessTargetKind::Asset => environment::open_asset(

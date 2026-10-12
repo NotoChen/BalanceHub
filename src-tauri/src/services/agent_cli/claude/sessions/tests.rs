@@ -62,6 +62,7 @@ fn native_underscore_project_lists_main_and_child_with_readable_bodies() {
         )
     })
     .unwrap();
+    let groups = groups.workspaces;
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].records.len(), 2);
     let records = crate::services::cli_sessions::normalize_records(
@@ -507,6 +508,7 @@ fn child_transcripts_share_the_parser_but_keep_independent_identity_and_body() {
         )
     })
     .unwrap();
+    let groups = groups.workspaces;
     assert_eq!(groups[0].records.len(), 3);
     let records = crate::services::cli_sessions::normalize_records(
         groups.into_iter().flat_map(|group| group.records).collect(),

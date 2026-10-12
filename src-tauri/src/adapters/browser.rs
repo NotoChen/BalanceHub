@@ -2,7 +2,10 @@ use super::transport::TransportResponse;
 mod control;
 use crate::{
     models::{CheckInError, CheckInPhase},
-    platform::process::{configure_process_group, kill_process_tree},
+    platform::{
+        paths::compatible_path,
+        process::{configure_process_group, kill_process_tree},
+    },
 };
 pub(crate) use control::BrowserWindowControl;
 use reqwest::{header::HeaderMap, StatusCode, Url};
@@ -34,9 +37,9 @@ impl BrowserSession {
         if !node.is_file() || !worker.is_file() {
             return Err("浏览器组件缺失，请在设置中安装或修复组件".to_string());
         }
-        let mut command = std::process::Command::new(node);
+        let mut command = std::process::Command::new(compatible_path(&node).as_ref());
         command
-            .arg(worker)
+            .arg(compatible_path(&worker).as_ref())
             .env_remove("NODE_OPTIONS")
             .env_remove("NODE_PATH")
             .stdin(Stdio::piped())
@@ -67,7 +70,20 @@ impl BrowserSession {
         self.control.clone()
     }
 
-    pub(crate) async fn request(&mut self, op: &str, params: Value) -> Result<Value, CheckInError> {
+    pub(crate) async fn request(
+        &mut self,
+        op: &str,
+        mut params: Value,
+    ) -> Result<Value, CheckInError> {
+        // These are filesystem paths crossing into Node/Playwright. Keep URLs,
+        // cookies and the remaining protocol parameters untouched.
+        for name in ["profileDir", "executablePath"] {
+            if let Some(Value::String(path)) = params.get_mut(name) {
+                *path = compatible_path(Path::new(path))
+                    .to_string_lossy()
+                    .into_owned();
+            }
+        }
         let seconds = if matches!(op, "login" | "account") {
             620
         } else if matches!(op, "open" | "navigate" | "verify") {

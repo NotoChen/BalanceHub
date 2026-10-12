@@ -248,4 +248,37 @@ impl ProjectLookup {
             })
             .collect())
     }
+
+    pub(super) fn discover_all(
+        &self,
+        budget: &SessionReadBudget,
+    ) -> Result<Vec<ProjectCandidate>, String> {
+        if !self.projects_exist {
+            return Ok(Vec::new());
+        }
+        let mut projects = Vec::new();
+        for entry in fs::read_dir(&self.projects).map_err(|error| error.to_string())? {
+            budget.check()?;
+            let entry = entry.map_err(|error| error.to_string())?;
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+            {
+                continue;
+            }
+            let path = entry
+                .path()
+                .canonicalize()
+                .map_err(|error| error.to_string())?;
+            if path.parent() == Some(self.projects.as_path()) {
+                projects.push(ProjectCandidate {
+                    path,
+                    kind: ProjectMatch::Prefix,
+                });
+            }
+        }
+        projects.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(projects)
+    }
 }

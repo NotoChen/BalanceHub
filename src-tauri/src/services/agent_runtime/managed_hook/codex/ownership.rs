@@ -8,10 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    env,
     fs::{self, File, OpenOptions},
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -327,16 +326,7 @@ pub(crate) fn now_millis() -> i64 {
         .unwrap_or_default()
 }
 
-pub(crate) fn home_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        env::var_os("USERPROFILE").map(PathBuf::from)
-    }
-    #[cfg(not(windows))]
-    {
-        env::var_os("HOME").map(PathBuf::from)
-    }
-}
+pub(crate) use crate::services::cli_paths::user_home as home_dir;
 
 pub(crate) fn ensure_managed_parent(path: &Path) -> Result<(), String> {
     let parent = path

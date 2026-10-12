@@ -232,15 +232,18 @@ pub(crate) async fn open_agent_configuration_source(
     let (actor, service) = actor_and_service(&app, &window)?;
     run_configuration(move || {
         let target = request.target;
-        service.open_source(&actor, request, |path| match target {
-            AgentAssetOpenTarget::Asset => app
-                .opener()
-                .open_path(path.to_string_lossy(), None::<&str>)
-                .map_err(|_| "无法打开来源".to_owned()),
-            AgentAssetOpenTarget::Reveal => app
-                .opener()
-                .reveal_item_in_dir(path)
-                .map_err(|_| "无法定位来源".to_owned()),
+        service.open_source(&actor, request, |path| {
+            let path = crate::platform::paths::compatible_path(path);
+            match target {
+                AgentAssetOpenTarget::Asset => app
+                    .opener()
+                    .open_path(path.to_string_lossy(), None::<&str>)
+                    .map_err(|_| "无法打开来源".to_owned()),
+                AgentAssetOpenTarget::Reveal => app
+                    .opener()
+                    .reveal_item_in_dir(path.as_ref())
+                    .map_err(|_| "无法定位来源".to_owned()),
+            }
         })
     })
     .await

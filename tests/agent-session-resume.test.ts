@@ -6,7 +6,7 @@ import { renderToString } from "@vue/server-renderer";
 import { createServer, type ViteDevServer } from "vite";
 import type { AgentSessionResumeRequest, AgentSessionRow } from "../src/stores/agent-session-types.ts";
 import type { CliEnvironmentProbeResult, Provider, TemporaryCliPreference, TerminalEnvironmentProbeResult } from "../src/stores/provider-types.ts";
-import { resumeOperation, runtimeSession, sessionInstance, sessionRow } from "./agent-session-fixtures.ts";
+import { resumeOperation, runtimeSession, sessionDetail, sessionInstance, sessionRow } from "./agent-session-fixtures.ts";
 import { workspaceAgent } from "./agent-workspace-fixtures.ts";
 
 type StoreModule = typeof import("../src/stores/agent-session-resume.ts");
@@ -300,6 +300,21 @@ test("real resume modal remains closable and describes native continuation witho
   assert.match(html, /原生子会话只读/);
   assert.ok(hasDisabledButton(html, "确认继续"));
   await settle();
+});
+
+test("temporary CLI detail reader is closable and has no launch-selection action", async (t) => {
+  const context = fresh(t);
+  const result = sessionDetail(sessionRow());
+  result.detail.messages = [];
+  const html = await renderSurface("/src/components/CliSessionDetailModal.vue", {
+    visible: true, loading: false, error: "", detail: result.detail, sessionRow: result.row,
+    query: "", paused: false, messageStates: {},
+  }, context.pinia);
+  assert.match(html, /data-closable="true"/);
+  assert.match(html, /data-mask-closable="true"/);
+  assert.match(html, /data-esc-to-close="true"/);
+  assert.ok(html.includes(result.row.session.title));
+  assert.doesNotMatch(html, /选中并返回|已选中/);
 });
 
 test("real history rows render subagent relationships and only backend-authorized terminal activation", async (t) => {

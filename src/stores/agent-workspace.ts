@@ -24,8 +24,6 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
   const view = ref<AppWorkspaceView>("providers");
   const page = ref<AgentWorkspacePage>("overview");
   const sessionView = ref<AgentSessionView>("history");
-  const sessionWorkspaceMode = ref<"home" | "all">("all");
-  const sessionWorkspaceSelection = ref<string | null>(null);
   const sessionRoleFilter = ref<AgentSessionRoleFilter>("all");
   const sessionAgentFilter = ref<AgentCliKind | null>(null);
   const agentFilter = ref<AgentCliKind | null>(null);
@@ -80,12 +78,8 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
     libraryAssetId.value = assetId;
   }
 
-  function openSessions(view: AgentSessionView = "history", agent?: AgentCliKind | null, options: { workspaceMode?: "home" | "all" } = {}) {
+  function openSessions(view: AgentSessionView = "history", agent?: AgentCliKind | null) {
     if (agent !== undefined) sessionAgentFilter.value = agent;
-    if (options.workspaceMode) {
-      sessionWorkspaceMode.value = options.workspaceMode;
-      if (options.workspaceMode === "home") sessionWorkspaceSelection.value = null;
-    }
     sessionView.value = view;
     navigate("sessions", sessionAgentFilter.value);
   }
@@ -110,7 +104,7 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
     navigationRevision.value += 1;
   }
 
-  return { view, page, sessionView, sessionWorkspaceMode, sessionWorkspaceSelection, sessionRoleFilter, sessionAgentFilter, agentFilter, queries, query, sessionHistoryQuery, searchPlaceholder, workspacePath, navigationRevision,
+  return { view, page, sessionView, sessionRoleFilter, sessionAgentFilter, agentFilter, queries, query, sessionHistoryQuery, searchPlaceholder, workspacePath, navigationRevision,
     operationDetails, libraryAssetId, openOperation, closeOperation, setView, openPage, openLibrary, openSessions, selectSessionView, selectAgent, selectWorkspace };
 });
 

@@ -41,7 +41,7 @@
   min-width: 0;
   align-items: center;
   gap: 6px;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
@@ -56,7 +56,7 @@
 .usage-summary-cards strong {
   min-width: 0;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 22px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -71,7 +71,7 @@
 
 .usage-summary-cards small {
   overflow: hidden;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -100,14 +100,14 @@
 }
 
 .usage-chart-header strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 14px;
   font-weight: 650;
 }
 
 .usage-chart-header span,
 .usage-chart-legend {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
@@ -204,7 +204,7 @@
 
 .usage-date,
 .usage-meta {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
@@ -222,7 +222,7 @@
 }
 
 .usage-row strong {
-  color: #f53f3f;
+  color: var(--surface-danger);
   text-align: right;
 }
 
@@ -253,13 +253,13 @@
 }
 
 .usage-model-panel-header strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 14px;
   font-weight: 650;
 }
 
 .usage-model-panel-header span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -291,14 +291,14 @@
 }
 
 .usage-model-row-head strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   font-weight: 650;
 }
 
 .usage-model-row-head span,
 .usage-model-row small {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
 }
 

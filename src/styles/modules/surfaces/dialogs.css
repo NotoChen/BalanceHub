@@ -15,7 +15,6 @@
 .app-update-modal .app-update-release-scroll { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); padding: 13px 15px; }
 .app-update-modal .app-update-footer { padding-top: 0; }
 .workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
-.workspace-picker-modal .workspace-picker { height: min(650px, calc(100dvh - 126px)); }
 .workspace-picker-modal .workspace-history { background: #edf2f8; padding: 18px 15px; }
 .workspace-picker-modal .workspace-browser { background: var(--surface-panel); padding: 18px; }
 .workspace-picker-modal .workspace-launch-config { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel-soft); padding: 12px; }
@@ -82,7 +81,7 @@
 }
 
 .provider-protocol-option.active {
-  background: #fff;
+  background: var(--surface-panel);
   color: #315e99;
   box-shadow: 0 1px 3px rgba(31, 48, 68, 0.12);
 }
@@ -150,15 +149,15 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #738197;
+  color: var(--surface-muted);
   cursor: pointer;
   padding: 0;
 }
 
 .provider-inline-icon-button:hover,
 .provider-inline-icon-button:focus-visible {
-  background: #e7edf5;
-  color: #2f5f9e;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
   outline: none;
 }
 

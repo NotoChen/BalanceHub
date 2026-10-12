@@ -22,10 +22,7 @@ pub(super) fn build_plan(request: LivenessRequest<'_>) -> Result<LivenessPlan, S
     ] {
         environment.remove(name);
     }
-    environment.set(
-        "GROK_HOME",
-        request.isolated_home.to_string_lossy().to_string(),
-    );
+    environment.set_path("GROK_HOME", request.isolated_home);
     environment.set("GROK_MODELS_BASE_URL", request.base_url.trim());
     environment.set("XAI_API_KEY", request.api_key.trim());
     environment.set("GROK_DISABLE_AUTOUPDATER", "1");
@@ -36,7 +33,7 @@ pub(super) fn build_plan(request: LivenessRequest<'_>) -> Result<LivenessPlan, S
 
     let mut args = vec![
         "--cwd".to_string(),
-        request.isolated_home.to_string_lossy().to_string(),
+        crate::platform::paths::compatible_path(request.isolated_home).to_string_lossy().into_owned(),
         "-p".to_string(),
         request.prompt.to_string(),
         "--output-format".to_string(),

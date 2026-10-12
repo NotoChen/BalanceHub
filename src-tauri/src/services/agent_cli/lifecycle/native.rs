@@ -259,7 +259,9 @@ pub(super) fn validate_vendor_upgrade(
     if installation.agent_kind == AgentCliKind::Grok {
         environment.push((
             OsString::from("GROK_HOME"),
-            mechanism.directory().as_os_str().to_owned(),
+            crate::platform::paths::compatible_path(mechanism.directory())
+                .into_owned()
+                .into_os_string(),
         ));
     }
     let command = ExactCliCommand::new(
@@ -426,7 +428,9 @@ impl NativeExecution {
                     AgentCliKind::Grok => {
                         overrides.push((
                             "GROK_HOME".into(),
-                            context.home.join(".grok").into_os_string(),
+                            crate::platform::paths::compatible_path(&context.home.join(".grok"))
+                                .into_owned()
+                                .into_os_string(),
                         ));
                         vec!["update".to_owned()]
                     }
@@ -464,8 +468,7 @@ impl NativeExecution {
 
     pub(super) fn command_preview(&self) -> Vec<String> {
         std::iter::once(
-            self.command
-                .executable_path()
+            crate::platform::paths::compatible_path(self.command.executable_path())
                 .to_string_lossy()
                 .into_owned(),
         )

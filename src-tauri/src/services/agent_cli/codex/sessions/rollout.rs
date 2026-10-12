@@ -22,7 +22,7 @@ pub(super) fn index_source(path: &Path) -> SessionIndexSource {
     }
 }
 
-fn response_message_text(payload: &Value) -> Option<String> {
+pub(super) fn response_message_text(payload: &Value) -> Option<String> {
     let content = payload.get("content")?;
     if let Some(content) = content.as_str() {
         return (!content.trim().is_empty()).then(|| content.to_string());

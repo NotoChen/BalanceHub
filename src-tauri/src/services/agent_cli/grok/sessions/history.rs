@@ -2,8 +2,9 @@ use super::*;
 use crate::{
     models::AgentSessionRole,
     services::agent_cli::contracts::{
-        SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryRecord, SessionHistorySource,
-        SessionHistoryWorkspace, SessionMetadataLookupBudget, SessionReadBudget,
+        SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryRecord, SessionHistoryScan,
+        SessionHistorySource, SessionHistoryWorkspace, SessionMetadataLookupBudget,
+        SessionReadBudget,
     },
 };
 
@@ -29,19 +30,47 @@ fn scan(
     workdirs: &[PathBuf],
     budget: &SessionReadBudget,
     _mode: SessionHistoryReadMode,
-) -> Result<Vec<SessionHistoryWorkspace>, String> {
+) -> Result<SessionHistoryScan, String> {
     // Grok already enumerates summary.json metadata. No transcript or resume
     // inspection is involved in either mode.
     let sessions_root = root.join("sessions");
     if !sessions_root.exists() {
-        return Ok(workdirs
-            .iter()
-            .map(|workdir| SessionHistoryWorkspace::new(workdir))
-            .collect());
+        return Ok(SessionHistoryScan::new(workdirs));
     }
     let canonical = sessions_root
         .canonicalize()
         .map_err(|error| error.to_string())?;
+    if workdirs.is_empty() {
+        let mut result = SessionHistoryScan::default();
+        for entry in fs::read_dir(&canonical).map_err(|error| error.to_string())? {
+            if let Err(error) = budget.check() {
+                result.failed(error);
+                break;
+            }
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    result.failed(error.to_string());
+                    continue;
+                }
+            };
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            let mut project = SessionHistoryWorkspace::new(Path::new(""));
+            if let Err(error) = scan_workspace(kind, &entry.path(), &mut project, budget) {
+                project.failed(error);
+            }
+            for error in project.diagnostics {
+                result.failed(error);
+            }
+            for record in project.records {
+                let origin = PathBuf::from(&record.summary.workdir);
+                result.workspace(&origin).records.push(record);
+            }
+        }
+        return Ok(result);
+    }
     let metadata_budget = SessionMetadataLookupBudget {
         max_bytes: budget.max_bytes.min(usize::MAX as u64) as usize,
         deadline: budget.deadline,
@@ -53,7 +82,7 @@ fn scan(
         .err()
         .map(|error| format!("部分 Grok 项目映射不可读：{error:?}"));
     let markers = markers.unwrap_or_default();
-    let mut result = Vec::new();
+    let mut result = SessionHistoryScan::default();
     for workdir in workdirs {
         let mut workspace = SessionHistoryWorkspace::new(workdir);
         if let Some(error) = &marker_error {
@@ -69,7 +98,7 @@ fn scan(
             }
             Err(error) => workspace.failed(format!("Grok 项目根不可读：{error:?}")),
         }
-        result.push(workspace);
+        result.workspaces.push(workspace);
     }
     Ok(result)
 }
@@ -99,26 +128,29 @@ fn scan_workspace(
         }
         let record = crate::services::cli_sessions::workbench::cached_history_record(&path, || {
             Ok(
-                parse_summary(kind, &path, &workspace.workdir)?.map(|(summary, child)| {
-                    SessionHistoryRecord {
-                        record_key: summary.id.clone(),
-                        summary,
-                        locator: path.clone(),
-                        role: if child {
-                            AgentSessionRole::Subagent
-                        } else {
-                            AgentSessionRole::Main
-                        },
-                        parent_native_id: None,
-                        resume_reason: child
-                            .then(|| "尚未验证 Grok 子 Agent 会话可独立继续".into()),
-                        content_unavailable_reason: None,
-                    }
+                parse_summary(kind, &path, None)?.map(|(summary, child)| SessionHistoryRecord {
+                    record_key: summary.id.clone(),
+                    summary,
+                    locator: path.clone(),
+                    role: if child {
+                        AgentSessionRole::Subagent
+                    } else {
+                        AgentSessionRole::Main
+                    },
+                    parent_native_id: None,
+                    resume_reason: child.then(|| "尚未验证 Grok 子 Agent 会话可独立继续".into()),
+                    content_unavailable_reason: None,
                 }),
             )
         });
         match record {
-            Ok(Some(record)) => workspace.records.push(record),
+            Ok(Some(record)) => {
+                if workspace.workdir.as_os_str().is_empty()
+                    || path_key(Path::new(&record.summary.workdir)) == path_key(&workspace.workdir)
+                {
+                    workspace.records.push(record);
+                }
+            }
             Ok(None) => {}
             Err(error) => workspace.failed(error),
         }

@@ -1,11 +1,10 @@
-import { computed, ref, watch, type Ref } from "vue";
+import { computed, ref, shallowRef, watch, type Ref } from "vue";
 import type { AgentSessionQueryApi } from "../api/agent-sessions.ts";
 import type { AgentSessionRow } from "../stores/agent-session-types.ts";
 import type {
   AgentCliKind,
   CliSessionIndexState,
   TemporaryCliSessionMode,
-  WorkspaceDirectoryListing,
 } from "../stores/provider-types.ts";
 import { useAgentSessions } from "./useAgentSessions.ts";
 
@@ -14,11 +13,10 @@ interface UseWorkspaceSessionHistoryOptions {
   cliKind: Ref<AgentCliKind>;
   sessionMode: Ref<TemporaryCliSessionMode>;
   selectedModel: Ref<string>;
-  directory: Ref<WorkspaceDirectoryListing | null>;
   sessionApi?: AgentSessionQueryApi;
 }
 
-/** The temporary CLI picker shares the workbench query and detail lifetimes. */
+/** Reuse session queries and the optional reader; launch selection stays independent. */
 export function useWorkspaceSessionHistory(
   options: UseWorkspaceSessionHistoryOptions,
 ) {
@@ -26,24 +24,22 @@ export function useWorkspaceSessionHistory(
   const active = computed(
     () =>
       options.visible.value &&
-      options.sessionMode.value === "history" &&
-      Boolean(options.directory.value?.currentPath),
-  );
-  const explicitWorkdir = computed(
-    () => options.directory.value?.currentPath || null,
+      options.sessionMode.value === "history",
   );
   const agentKinds = computed(() => [options.cliKind.value]);
   const sessions = useAgentSessions({
     active,
     agentKinds,
     query: workspaceSessionQuery,
-    explicitWorkdir,
+    initialRoleFilter: "main",
     autoLoad: false,
     api: options.sessionApi,
   });
-  const workspaceSelectedResumeId = ref("");
-  const workspaceSelectedSessionRef = ref("");
-  const workspaceSelectedSessionTitle = ref("");
+  const selectedSession = shallowRef<AgentSessionRow | null>(null);
+  const workspaceSelectedResumeId = computed(() => selectedSession.value?.session.id ?? "");
+  const workspaceSelectedSessionRef = computed(() => selectedSession.value?.sessionRef ?? "");
+  const workspaceSelectedSessionTitle = computed(() => selectedSession.value?.session.title ?? "");
+  const workspaceSelectedSessionWorkdir = computed(() => selectedSession.value?.session.workdir ?? "");
   const workspaceSessionIndexState = computed<CliSessionIndexState>(() => {
     const states = sessions.sourceStates.value;
     if (states.some((state) => state.indexState === "fallback"))
@@ -57,7 +53,7 @@ export function useWorkspaceSessionHistory(
     const messages = sessions.sourceStates.value.flatMap((state) =>
       state.message ? [state.message] : [],
     );
-    if (sessions.incomplete.value)
+    if (sessions.sourceStates.value.some((state) => ["partial", "unavailable", "unsupported"].includes(state.state)))
       messages.unshift("部分来源读取受限，已保留可读会话");
     if (sessions.cancelled.value) messages.push("本次查询已取消");
     return [...new Set(messages)].join("；");
@@ -66,14 +62,10 @@ export function useWorkspaceSessionHistory(
     () => sessions.scopeError.value || sessions.error.value,
   );
 
-  async function loadWorkspaceSessions(workdir?: string) {
-    if (workdir && workdir.trim() !== options.directory.value?.currentPath)
-      return;
+  async function loadWorkspaceSessions() {
     await sessions.ensureLoaded();
   }
-  function refreshWorkspaceSessions(workdir?: string) {
-    if (workdir && workdir.trim() !== options.directory.value?.currentPath)
-      return;
+  function refreshWorkspaceSessions() {
     return sessions.refresh();
   }
   function openWorkspaceSessionDetail(row: AgentSessionRow) {
@@ -81,21 +73,12 @@ export function useWorkspaceSessionHistory(
   }
   function selectWorkspaceSession(row: AgentSessionRow) {
     if (!row.session.canResume) return;
-    workspaceSelectedResumeId.value = row.session.id;
-    workspaceSelectedSessionRef.value = row.sessionRef;
-    workspaceSelectedSessionTitle.value = row.session.title;
+    selectedSession.value = row;
     options.sessionMode.value = "history";
     options.selectedModel.value = "";
   }
-  function selectWorkspaceSessionFromDetail() {
-    if (!sessions.detailRow.value) return;
-    selectWorkspaceSession(sessions.detailRow.value);
-    sessions.closeDetail();
-  }
   function clearWorkspaceSessionSelection() {
-    workspaceSelectedResumeId.value = "";
-    workspaceSelectedSessionRef.value = "";
-    workspaceSelectedSessionTitle.value = "";
+    selectedSession.value = null;
   }
   function resetWorkspaceSessions() {
     sessions.invalidate();
@@ -106,7 +89,7 @@ export function useWorkspaceSessionHistory(
     sessions.suspend();
   }
   watch(
-    () => [options.cliKind.value, explicitWorkdir.value] as const,
+    () => [options.cliKind.value, sessions.roleFilter.value, workspaceSessionQuery.value] as const,
     clearWorkspaceSessionSelection,
     { flush: "sync" },
   );
@@ -135,6 +118,7 @@ export function useWorkspaceSessionHistory(
       () => sessions.scope.value?.revision ?? "",
     ),
     workspaceSelectedSessionTitle,
+    workspaceSelectedSessionWorkdir,
     workspaceSessionDetailVisible: sessions.detailVisible,
     workspaceSessionDetailLoading: sessions.detailLoading,
     workspaceSessionDetailError: sessions.detailError,
@@ -154,7 +138,6 @@ export function useWorkspaceSessionHistory(
     openWorkspaceSessionParent: sessions.openDetail,
     closeWorkspaceSessionDetail: sessions.closeDetail,
     selectWorkspaceSession,
-    selectWorkspaceSessionFromDetail,
     resetWorkspaceSessions,
     clearWorkspaceSessionSelection,
     invalidateWorkspaceSessionRequests,

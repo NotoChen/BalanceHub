@@ -7,6 +7,7 @@ use crate::{
     limits,
     models::{provider_domain, AgentCliKind, AppSettings, LivenessRecord, Provider},
     network,
+    platform::paths::compatible_path,
     services::agent_cli::{
         self,
         contracts::{EnvironmentPatch, LivenessRequest, LivenessResponseSource},
@@ -153,7 +154,7 @@ impl LivenessRunner {
             );
         }
 
-        let mut command = Command::new(&context.cli_path);
+        let mut command = Command::new(compatible_path(Path::new(&context.cli_path)).as_ref());
         if let Some(path_env) = agent_cli::runtime_path_for(Path::new(&context.cli_path)) {
             command.env("PATH", path_env);
         }
@@ -282,9 +283,10 @@ fn write_plan_files(
 }
 
 fn apply_common_isolated_home(command: &mut Command, path: &Path) {
+    let path = compatible_path(path);
     command
-        .env("HOME", path)
-        .env("USERPROFILE", path)
+        .env("HOME", path.as_ref())
+        .env("USERPROFILE", path.as_ref())
         .env("APPDATA", path.join("AppData/Roaming"))
         .env("LOCALAPPDATA", path.join("AppData/Local"))
         .env("XDG_CONFIG_HOME", path.join(".config"))

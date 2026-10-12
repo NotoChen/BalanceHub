@@ -95,7 +95,7 @@ const historySummary = computed(() => {
   const count = props.historyCount;
   const summary = props.historyError ? `会话数量读取失败：${props.historyError}`
     : count?.total != null ? `共 ${count.total} 条历史会话` : "数量尚未读取";
-  return `主目录本身及已记录目录，${summary}${props.historyLoading ? "，正在统计" : ""}`;
+  return `全部目录，${summary}${props.historyLoading ? "，正在统计" : ""}`;
 });
 const runtimeSummary = computed(() => `已观测并确认的活跃会话，共 ${props.runningCount} 个；未确认状态不计入`);
 const assetLinks = [

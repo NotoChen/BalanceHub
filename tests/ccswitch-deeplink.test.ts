@@ -33,6 +33,7 @@ function provider(overrides: Partial<Provider> = {}): Provider {
       loginPassword: "",
       refreshToken: "",
     },
+    cli: { preferredModel: "" },
     liveness: {
       useGlobal: true,
       enabled: false,

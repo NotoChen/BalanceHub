@@ -1,7 +1,7 @@
 use crate::{
     models::{
         AgentSessionParent, AgentSessionRow, AgentSessionScope, AgentSessionSourceState,
-        SessionSearchHit,
+        AgentSessionWorkspace, SessionSearchHit,
     },
     services::agent_cli::contracts::{SessionHistoryRecord, SessionHistorySource},
 };
@@ -35,6 +35,7 @@ pub(super) struct Snapshot {
     pub rows: Vec<AgentSessionRow>,
     pub parent_updates: HashMap<String, AgentSessionParent>,
     pub states: Vec<AgentSessionSourceState>,
+    pub workspaces: Vec<AgentSessionWorkspace>,
     pub complete: bool,
     pub progress: QueryProgress,
     pub used_at: Instant,
@@ -95,10 +96,25 @@ impl Registry {
         // A visible list keeps its scope until that context changes or its
         // window closes. Native paths are still revalidated on every read.
         self.scopes.retain(|(owner, _), saved| {
-            owner != &actor || saved.explicit_workdir != scope.explicit_workdir
+            owner != &actor
+                || saved.explicit_workdir != scope.explicit_workdir
+                || saved.public.revision == scope.public.revision
         });
-        self.scopes
-            .insert((actor, scope.public.revision.clone()), scope);
+        let key = (actor, scope.public.revision.clone());
+        let mut scope = scope;
+        if let Some(previous) = self.scopes.get(&key) {
+            for workspace in &previous.public.workspaces {
+                if !scope
+                    .public
+                    .workspaces
+                    .iter()
+                    .any(|item| item.id == workspace.id)
+                {
+                    scope.public.workspaces.push(workspace.clone());
+                }
+            }
+        }
+        self.scopes.insert(key, scope);
         self.prune();
     }
 

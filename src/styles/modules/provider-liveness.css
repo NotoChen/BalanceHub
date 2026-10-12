@@ -13,7 +13,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -22,14 +22,14 @@
 .provider-liveness-summary strong {
   min-width: 0;
   overflow: hidden;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .provider-liveness-latency {
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-weight: 550;
   white-space: nowrap;
 }

@@ -2,12 +2,14 @@ use super::*;
 use crate::{
     models::AgentSessionRole,
     services::agent_cli::contracts::{
-        SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryRecord, SessionHistorySource,
-        SessionHistoryWorkspace, SessionReadBudget,
+        SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryRecord, SessionHistoryScan,
+        SessionHistorySource, SessionHistoryWorkspace, SessionReadBudget,
     },
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+mod unindexed;
 
 const UNAVAILABLE_ROLLOUT_REASON: &str = "原生会话日志不可用，仅能查看索引摘要";
 
@@ -32,11 +34,8 @@ fn scan(
     workdirs: &[PathBuf],
     budget: &SessionReadBudget,
     mode: SessionHistoryReadMode,
-) -> Result<Vec<SessionHistoryWorkspace>, String> {
-    let mut result: Vec<_> = workdirs
-        .iter()
-        .map(|workdir| SessionHistoryWorkspace::new(workdir))
-        .collect();
+) -> Result<SessionHistoryScan, String> {
+    let mut result = SessionHistoryScan::new(workdirs);
     let titles = match (mode == SessionHistoryReadMode::Summaries)
         .then(|| super::index::read_session_titles(root))
         .transpose()
@@ -44,7 +43,8 @@ fn scan(
         Ok(None) => HashMap::new(),
         Ok(Some(titles)) => titles,
         Err(error) => {
-            for workspace in &mut result {
+            result.failed(error.clone());
+            for workspace in &mut result.workspaces {
                 workspace.failed(error.clone());
             }
             HashMap::new()
@@ -58,6 +58,7 @@ fn scan(
         }
     }
     let mut fallbacks: Option<HashMap<String, PathBuf>> = None;
+    let mut indexed_locators = HashSet::new();
     for database in state_databases(root)? {
         let read = super::index::read_database_history(
             kind,
@@ -65,10 +66,21 @@ fn scan(
             workdirs,
             budget,
             |mut record, source, parent| {
-                let Some(index) = workspace_indexes.get(&record.summary.workdir) else {
+                let index = if let Some(index) = workspace_indexes.get(&record.summary.workdir) {
+                    *index
+                } else if workdirs.is_empty() {
+                    let index = result.workspaces.len();
+                    result
+                        .workspaces
+                        .push(SessionHistoryWorkspace::new(Path::new(
+                            &record.summary.workdir,
+                        )));
+                    workspace_indexes.insert(record.summary.workdir.clone(), index);
+                    index
+                } else {
                     return;
                 };
-                let workspace = &mut result[*index];
+                let workspace = &mut result.workspaces[index];
                 if let Some(title) = titles
                     .get(&record.summary.id)
                     .and_then(|value| clean_text(value, 100))
@@ -90,6 +102,11 @@ fn scan(
                     content_unavailable_reason: Some(UNAVAILABLE_ROLLOUT_REASON.into()),
                 };
                 if mode == SessionHistoryReadMode::Identities {
+                    indexed_locators.insert(
+                        crate::services::cli_sessions::source::existing_variant(
+                            &metadata_record.locator,
+                        ),
+                    );
                     workspace.records.push(metadata_record);
                     return;
                 }
@@ -110,37 +127,29 @@ fn scan(
                 };
                 let loaded = crate::services::cli_sessions::workbench::cached_history_record(
                     &locator,
-                    || {
-                        let mut record = metadata_record.clone();
-                        let (from_rollout, from_parent) = rollout_role(&locator)?;
-                        record.role = from_rollout;
-                        record.parent_native_id = from_parent;
-                        record.locator = locator.clone();
-                        record.content_unavailable_reason = None;
-                        Ok(Some(record))
-                    },
+                    || unindexed::read_record(kind, root, &locator, mode),
                 );
                 match loaded {
                     Ok(Some(mut record)) => {
+                        if !record.summary.id.is_empty()
+                            && record.summary.id != metadata_record.summary.id
+                        {
+                            workspace.failed("Codex 索引与日志的原生会话 ID 不一致");
+                            workspace.records.push(metadata_record);
+                            return;
+                        }
+                        indexed_locators.insert(locator.clone());
                         // The transcript fingerprint does not change when the
                         // native database title, archive or parent is updated.
                         record.summary = metadata_record.summary.clone();
+                        record.record_key = metadata_record.record_key.clone();
                         if record.role == AgentSessionRole::Unknown {
                             record.role = metadata_record.role;
                         }
                         record.parent_native_id = record
                             .parent_native_id
                             .or_else(|| metadata_record.parent_native_id.clone());
-                        record.resume_reason = if record.summary.archived {
-                            Some("该 Codex 会话已归档".into())
-                        } else if record.role == AgentSessionRole::Subagent {
-                            Some("尚未验证 Codex 子 Agent 会话可独立继续".into())
-                        } else if record.role == AgentSessionRole::Unknown {
-                            Some("原生会话角色未知，暂无法确认独立继续能力".into())
-                        } else {
-                            None
-                        };
-                        record.summary.can_resume = record.resume_reason.is_none();
+                        set_resume_capability(&mut record);
                         if let Some(reason) = &record.content_unavailable_reason {
                             workspace.failed(reason.clone());
                         }
@@ -157,12 +166,36 @@ fn scan(
             },
         );
         if let Err(error) = read {
-            for workspace in &mut result {
+            result.failed(error.clone());
+            for workspace in &mut result.workspaces {
                 workspace.failed(error.clone());
             }
         }
     }
+    unindexed::Scan {
+        kind,
+        root,
+        workdirs,
+        indexed_locators: &indexed_locators,
+        titles: &titles,
+        budget,
+        mode,
+    }
+    .append(fallbacks, &mut result);
     Ok(result)
+}
+
+fn set_resume_capability(record: &mut SessionHistoryRecord) {
+    record.resume_reason = if record.summary.archived {
+        Some("该 Codex 会话已归档".into())
+    } else if record.role == AgentSessionRole::Subagent {
+        Some("尚未验证 Codex 子 Agent 会话可独立继续".into())
+    } else if record.role == AgentSessionRole::Unknown {
+        Some("原生会话角色未知，暂无法确认独立继续能力".into())
+    } else {
+        None
+    };
+    record.summary.can_resume = record.resume_reason.is_none();
 }
 pub(super) fn resolve_record_locator(
     root: &Path,
@@ -269,30 +302,6 @@ fn decode_role(source: Option<&str>, parent: Option<String>) -> (AgentSessionRol
         _ => AgentSessionRole::Unknown,
     };
     (role, parent)
-}
-fn rollout_role(path: &Path) -> Result<(AgentSessionRole, Option<String>), String> {
-    let mut result = (AgentSessionRole::Unknown, None);
-    crate::services::cli_sessions::read_json_lines_limited(
-        path,
-        64 * 1024,
-        "读取 Codex 原生会话角色",
-        |_sequence, record| {
-            if record.get("type").and_then(Value::as_str) != Some("session_meta") {
-                return;
-            }
-            let Some(metadata) = record.get("payload") else {
-                return;
-            };
-            result = decode_role(
-                metadata.get("source").map(Value::to_string).as_deref(),
-                metadata
-                    .get("parent_thread_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-            );
-        },
-    )?;
-    Ok(result)
 }
 fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
     if let Some(reason) = &record.content_unavailable_reason {

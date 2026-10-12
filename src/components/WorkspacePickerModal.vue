@@ -73,6 +73,7 @@ const props = defineProps<{
   historyIndexState: CliSessionIndexState;
   historyIndexMessage: string;
   selectedSessionTitle: string;
+  selectedSessionWorkdir: string;
 }>();
 
 const emit = defineEmits<{
@@ -83,17 +84,17 @@ const emit = defineEmits<{
   "update:selectedModel": [model: string];
   "update:sessionName": [name: string];
   "update:sessionMode": [mode: TemporaryCliSessionMode];
-  "update:selectedResumeId": [id: string];
   "update:terminalKind": [kind: TemporaryCliTerminalKind];
   "update:historyQuery": [query: string];
   "update:historyRoleFilter": [role: AgentSessionRoleFilter];
   browse: [path?: string];
   launch: [path?: string];
   forget: [path: string];
+  "select-session": [row: AgentSessionRow];
   "view-session": [row: AgentSessionRow];
   "view-parent-session": [sessionRef: string];
   "load-more-sessions": [];
-  "refresh-sessions": [path?: string];
+  "refresh-sessions": [];
 }>();
 
 const showHidden = ref(false);
@@ -144,8 +145,10 @@ const historyQueryModel = computed({
   set: (value: string) => emit("update:historyQuery", value),
 });
 const historySelectionMissing = computed(
-  () => props.sessionMode === "history" && !props.selectedResumeId,
+  () => props.sessionMode === "history" && (!props.selectedResumeId || !props.selectedSessionWorkdir),
 );
+const launchWorkdir = computed(() => props.sessionMode === "history"
+  ? props.selectedSessionWorkdir : props.directory?.currentPath || "");
 
 const modelOptions = computed(() => {
   const models = props.provider?.capabilities.availableModels ?? [];
@@ -224,15 +227,15 @@ function handleVisibleChange(visible: boolean) {
       </div>
     </template>
 
-    <div class="workspace-picker">
-      <aside class="workspace-history">
+    <div class="workspace-picker" :class="{ 'is-history': sessionMode === 'history' }">
+      <aside v-if="sessionMode === 'new'" class="workspace-history">
         <div class="workspace-history-header">
-          <strong>常用工作空间</strong>
+          <strong>常用目录</strong>
         </div>
 
         <div v-if="orderedWorkspaces.length === 0" class="workspace-history-empty">
           <icon-folder />
-          <strong>暂无工作空间</strong>
+          <strong>暂无常用目录</strong>
         </div>
 
         <div v-else class="workspace-history-list">
@@ -245,7 +248,7 @@ function handleVisibleChange(visible: boolean) {
               type="button"
               class="workspace-history-launch"
               :class="{ selected: directory?.currentPath === workspace.path }"
-              :title="`选择工作空间：${workspace.path}`"
+              :title="`选择工作目录：${workspace.path}`"
               :disabled="launchLocked"
               @click="emit('browse', workspace.path)"
             >
@@ -254,7 +257,7 @@ function handleVisibleChange(visible: boolean) {
               </span>
             </button>
             <div class="workspace-history-actions">
-              <a-tooltip content="移除工作空间记录">
+              <a-tooltip content="移除常用目录记录">
                 <a-button
                   class="workspace-history-remove"
                   type="text"
@@ -263,7 +266,7 @@ function handleVisibleChange(visible: boolean) {
                   status="danger"
                   :loading="forgettingPath === workspace.path"
                   :disabled="launchLocked"
-                  aria-label="移除工作空间记录"
+                  aria-label="移除常用目录记录"
                   @click="emit('forget', workspace.path)"
                 >
                   <template #icon><icon-delete /></template>
@@ -273,240 +276,236 @@ function handleVisibleChange(visible: boolean) {
           </div>
         </div>
 
-        <section
-          class="workspace-launch-config workspace-history-launch-config workspace-terminal-launch-config"
-          aria-label="终端选择"
-        >
-          <div class="workspace-launch-config-field workspace-launch-terminal-field">
-            <span class="workspace-config-label">终端</span>
-            <TerminalIconSelector
-              v-model="terminalKindModel"
-              :options="terminalOptions"
-              :disabled="launchLocked"
-            />
-          </div>
-        </section>
       </aside>
 
       <section
         class="workspace-browser"
         :class="{ 'workspace-browser-history-mode': sessionMode === 'history' }"
       >
-        <section class="workspace-launch-config workspace-ai-config" aria-label="AI 启动配置">
-          <div class="workspace-launch-config-kind">
-            <span class="workspace-config-label">CLI</span>
-            <CliIconSelector
-              v-model="cliKindModel"
-              :options="cliOptions"
-              :disabled="launchLocked"
-            />
-          </div>
-          <div class="workspace-launch-config-field">
-            <span class="workspace-config-label">API Key</span>
-            <div v-if="hasSingleApiKey && singleApiKey" class="workspace-fixed-credential">
-              <ProviderAuthIcon mode="apiKey" />
-              <span class="workspace-fixed-credential-copy" :title="providerApiKeyDisplayName(singleApiKey)">
-                <strong>{{ providerApiKeyDisplayName(singleApiKey) }}</strong>
-                <small v-if="providerApiKeySecondaryName(singleApiKey)">
-                  站点名称：{{ providerApiKeySecondaryName(singleApiKey) }}
-                </small>
-              </span>
+        <div class="workspace-browser-content">
+          <section class="workspace-launch-config workspace-ai-config" aria-label="AI 启动配置">
+            <div class="workspace-launch-config-kind">
+              <span class="workspace-config-label">CLI</span>
+              <CliIconSelector
+                v-model="cliKindModel"
+                :options="cliOptions"
+                :disabled="launchLocked"
+              />
             </div>
-            <a-select
-              v-else
-              v-model="apiKeyModel"
-              size="small"
-              :loading="apiKeyLoading"
-              :disabled="launchLocked"
-              placeholder="选择 API Key"
-            >
-              <a-option
-                v-for="option in effectiveApiKeys"
-                :key="option.localId || option.tokenId || option.key"
-                :value="option.localId || option.tokenId || option.key"
-                :disabled="!isProviderApiKeyUsable(option)"
-              >
-                <span>{{ providerApiKeyDisplayName(option) }}</span>
-                <span v-if="providerApiKeySecondaryName(option)" class="workspace-api-key-remote-name">
-                  · 站点名称：{{ providerApiKeySecondaryName(option) }}
+            <div class="workspace-launch-config-field workspace-launch-terminal-field">
+              <span class="workspace-config-label">终端</span>
+              <TerminalIconSelector
+                v-model="terminalKindModel"
+                :options="terminalOptions"
+                :disabled="launchLocked"
+              />
+            </div>
+            <div class="workspace-launch-config-field workspace-launch-key-field">
+              <span class="workspace-config-label">API Key</span>
+              <div v-if="hasSingleApiKey && singleApiKey" class="workspace-fixed-credential">
+                <ProviderAuthIcon mode="apiKey" />
+                <span class="workspace-fixed-credential-copy" :title="providerApiKeyDisplayName(singleApiKey)">
+                  <strong>{{ providerApiKeyDisplayName(singleApiKey) }}</strong>
+                  <small v-if="providerApiKeySecondaryName(singleApiKey)">
+                    站点名称：{{ providerApiKeySecondaryName(singleApiKey) }}
+                  </small>
                 </span>
-                <span v-if="!isProviderApiKeyUsable(option)" class="workspace-api-key-unavailable">（不可用）</span>
-              </a-option>
-            </a-select>
-          </div>
-          <div
-            v-if="supportsModelSelection"
-            class="workspace-launch-config-field workspace-launch-model-field"
-          >
-            <span class="workspace-config-label">模型</span>
-            <div v-if="fixedModel" class="workspace-fixed-credential workspace-fixed-model">
-              <span :title="fixedModel">{{ fixedModel }}</span>
-            </div>
-            <a-select
-              v-else
-              v-model="selectedModelModel"
-              size="small"
-              allow-search
-              allow-clear
-              allow-create
-              :disabled="launchLocked"
-              placeholder="选择或输入模型（可选）"
-            >
-              <a-option v-for="model in modelOptions" :key="model" :value="model">
-                {{ model }}
-              </a-option>
-            </a-select>
-          </div>
-        </section>
-        <section class="workspace-session-picker" aria-label="会话启动方式">
-          <div class="workspace-session-header">
-            <span class="workspace-config-label">会话</span>
-            <a-radio-group v-model="sessionModeModel" type="button" size="small" :disabled="launchLocked">
-              <a-radio value="new">新会话</a-radio>
-              <a-radio v-if="supportsSessionHistory" value="history">继续历史会话</a-radio>
-            </a-radio-group>
-          </div>
-          <div v-if="canNameSession" class="workspace-session-name-field">
-            <span class="workspace-config-label">会话名称</span>
-            <a-input
-              v-model="sessionNameModel"
-              size="small"
-              allow-clear
-              :disabled="launchLocked"
-              placeholder="可选，例如：支付模块重构"
-            />
-          </div>
-          <a-alert
-            v-else-if="sessionNamingHint"
-            class="workspace-session-capability-note"
-            type="info"
-            show-icon
-          >
-            {{ sessionNamingHint }}
-          </a-alert>
-          <WorkspaceSessionHistoryPanel
-            v-if="supportsSessionHistory && sessionMode !== 'new'"
-            v-model:query="historyQueryModel"
-            :results="historyResults"
-            :role-filter="historyRoleFilter"
-            :total="historyTotal"
-            :has-more="historyHasMore"
-            :loading-more="historyLoadingMore"
-            :selected-session-ref="selectedSessionRef"
-            :loading="historyLoading"
-            :error="historyError"
-            :index-state="historyIndexState"
-            :index-message="historyIndexMessage"
-            :selected-resume-id="selectedResumeId"
-            :selected-session-title="selectedSessionTitle"
-            :workdir="directory?.currentPath || ''"
-            :disabled="launchLocked"
-            @view-session="emit('view-session', $event)"
-            @view-parent="emit('view-parent-session', $event)"
-            @load-more="emit('load-more-sessions')"
-            @update:role-filter="emit('update:historyRoleFilter', $event)"
-            @refresh="emit('refresh-sessions', $event)"
-          />
-        </section>
-        <a-alert v-if="apiKeyError" type="warning">
-          API Key 列表读取失败：{{ apiKeyError }}
-        </a-alert>
-        <a-alert v-if="error" type="error" show-icon>{{ error }}</a-alert>
-        <template v-if="sessionMode === 'new'">
-          <div class="workspace-browser-toolbar">
-            <div class="workspace-browser-navigation">
-              <a-tooltip content="主目录">
-                <a-button
-                  shape="circle"
-                  :disabled="browsing || launchLocked || !directory"
-                  aria-label="主目录"
-                  @click="emit('browse', directory?.homePath)"
-                >
-                  <template #icon><icon-home /></template>
-                </a-button>
-              </a-tooltip>
-              <a-tooltip content="上级目录">
-                <a-button
-                  shape="circle"
-                  :disabled="browsing || launchLocked || !directory?.parentPath"
-                  aria-label="上级目录"
-                  @click="emit('browse', directory?.parentPath ?? undefined)"
-                >
-                  <template #icon><icon-up /></template>
-                </a-button>
-              </a-tooltip>
-              <a-tooltip content="刷新目录">
-                <a-button
-                  shape="circle"
-                  :loading="browsing"
-                  :disabled="launchLocked || !directory"
-                  aria-label="刷新目录"
-                  @click="emit('browse', directory?.currentPath)"
-                >
-                  <template #icon><icon-refresh /></template>
-                </a-button>
-              </a-tooltip>
-            </div>
-            <a-checkbox v-model="showHidden">显示隐藏目录</a-checkbox>
-          </div>
-
-          <div class="workspace-path-row">
-            <a-input
-              v-model="pathModel"
-              :disabled="launchLocked"
-              placeholder="输入工作空间路径"
-              @keyup.enter="browseDraftPath"
-            >
-              <template #prefix><icon-folder /></template>
-            </a-input>
-            <a-tooltip content="打开路径">
-              <a-button
-                type="primary"
-                shape="circle"
-                :disabled="browsing || launchLocked || !pathModel.trim()"
-                aria-label="打开路径"
-                @click="browseDraftPath"
+              </div>
+              <a-select
+                v-else
+                v-model="apiKeyModel"
+                size="small"
+                :loading="apiKeyLoading"
+                :disabled="launchLocked"
+                placeholder="选择 API Key"
               >
-                <template #icon><icon-right /></template>
-              </a-button>
-            </a-tooltip>
-          </div>
-
-          <div class="workspace-directory-scroll">
-            <a-spin class="workspace-directory-spin" :loading="browsing">
-              <div v-if="directory && visibleDirectories.length > 0" class="workspace-directory-list">
-                <button
-                  v-for="entry in visibleDirectories"
-                  :key="entry.path"
-                  type="button"
-                  class="workspace-directory-item"
-                  :disabled="browsing || launchLocked"
-                  :title="entry.path"
-                  @click="emit('browse', entry.path)"
+                <a-option
+                  v-for="option in effectiveApiKeys"
+                  :key="option.localId || option.tokenId || option.key"
+                  :value="option.localId || option.tokenId || option.key"
+                  :disabled="!isProviderApiKeyUsable(option)"
                 >
-                  <icon-folder />
-                  <span>{{ entry.name }}</span>
-                  <icon-right />
-                </button>
+                  <span>{{ providerApiKeyDisplayName(option) }}</span>
+                  <span v-if="providerApiKeySecondaryName(option)" class="workspace-api-key-remote-name">
+                    · 站点名称：{{ providerApiKeySecondaryName(option) }}
+                  </span>
+                  <span v-if="!isProviderApiKeyUsable(option)" class="workspace-api-key-unavailable">（不可用）</span>
+                </a-option>
+              </a-select>
+            </div>
+            <div
+              v-if="supportsModelSelection"
+              class="workspace-launch-config-field workspace-launch-model-field"
+            >
+              <span class="workspace-config-label">模型</span>
+              <div v-if="fixedModel" class="workspace-fixed-credential workspace-fixed-model">
+                <span :title="fixedModel">{{ fixedModel }}</span>
               </div>
-              <div v-else-if="directory && !browsing" class="workspace-directory-empty">
-                当前目录没有可浏览的文件夹
+              <a-select
+                v-else
+                v-model="selectedModelModel"
+                size="small"
+                allow-search
+                allow-clear
+                allow-create
+                :disabled="launchLocked"
+                placeholder="选择或输入模型（可选）"
+              >
+                <a-option v-for="model in modelOptions" :key="model" :value="model">
+                  {{ model }}
+                </a-option>
+              </a-select>
+            </div>
+          </section>
+          <section class="workspace-session-picker" aria-label="会话启动方式">
+            <div class="workspace-session-header">
+              <span class="workspace-config-label">会话</span>
+              <a-radio-group v-model="sessionModeModel" type="button" size="small" :disabled="launchLocked">
+                <a-radio value="new">新会话</a-radio>
+                <a-radio v-if="supportsSessionHistory" value="history">继续历史会话</a-radio>
+              </a-radio-group>
+            </div>
+            <div v-if="canNameSession" class="workspace-session-name-field">
+              <span class="workspace-config-label">会话名称</span>
+              <a-input
+                v-model="sessionNameModel"
+                size="small"
+                allow-clear
+                :disabled="launchLocked"
+                placeholder="可选，例如：支付模块重构"
+              />
+            </div>
+            <a-alert
+              v-else-if="sessionNamingHint"
+              class="workspace-session-capability-note"
+              type="info"
+              show-icon
+            >
+              {{ sessionNamingHint }}
+            </a-alert>
+            <WorkspaceSessionHistoryPanel
+              v-if="supportsSessionHistory && sessionMode !== 'new'"
+              v-model:query="historyQueryModel"
+              :results="historyResults"
+              :role-filter="historyRoleFilter"
+              :total="historyTotal"
+              :has-more="historyHasMore"
+              :loading-more="historyLoadingMore"
+              :selected-session-ref="selectedSessionRef"
+              :loading="historyLoading"
+              :error="historyError"
+              :index-state="historyIndexState"
+              :index-message="historyIndexMessage"
+              :selected-session-title="selectedSessionTitle"
+              :disabled="launchLocked"
+              @select-session="emit('select-session', $event)"
+              @view-session="emit('view-session', $event)"
+              @view-parent="emit('view-parent-session', $event)"
+              @load-more="emit('load-more-sessions')"
+              @update:role-filter="emit('update:historyRoleFilter', $event)"
+              @refresh="emit('refresh-sessions')"
+            />
+          </section>
+          <a-alert v-if="apiKeyError" type="warning">
+            API Key 列表读取失败：{{ apiKeyError }}
+          </a-alert>
+          <a-alert v-if="error" type="error" show-icon>{{ error }}</a-alert>
+          <template v-if="sessionMode === 'new'">
+            <div class="workspace-browser-toolbar">
+              <div class="workspace-browser-navigation">
+                <a-tooltip content="主目录">
+                  <a-button
+                    shape="circle"
+                    :disabled="browsing || launchLocked || !directory"
+                    aria-label="主目录"
+                    @click="emit('browse', directory?.homePath)"
+                  >
+                    <template #icon><icon-home /></template>
+                  </a-button>
+                </a-tooltip>
+                <a-tooltip content="上级目录">
+                  <a-button
+                    shape="circle"
+                    :disabled="browsing || launchLocked || !directory?.parentPath"
+                    aria-label="上级目录"
+                    @click="emit('browse', directory?.parentPath ?? undefined)"
+                  >
+                    <template #icon><icon-up /></template>
+                  </a-button>
+                </a-tooltip>
+                <a-tooltip content="刷新目录">
+                  <a-button
+                    shape="circle"
+                    :loading="browsing"
+                    :disabled="launchLocked || !directory"
+                    aria-label="刷新目录"
+                    @click="emit('browse', directory?.currentPath)"
+                  >
+                    <template #icon><icon-refresh /></template>
+                  </a-button>
+                </a-tooltip>
               </div>
-            </a-spin>
-          </div>
-        </template>
+              <a-checkbox v-model="showHidden">显示隐藏目录</a-checkbox>
+            </div>
+
+            <div class="workspace-path-row">
+              <a-input
+                v-model="pathModel"
+                :disabled="launchLocked"
+                placeholder="输入工作目录路径"
+                @keyup.enter="browseDraftPath"
+              >
+                <template #prefix><icon-folder /></template>
+              </a-input>
+              <a-tooltip content="打开路径">
+                <a-button
+                  type="primary"
+                  shape="circle"
+                  :disabled="browsing || launchLocked || !pathModel.trim()"
+                  aria-label="打开路径"
+                  @click="browseDraftPath"
+                >
+                  <template #icon><icon-right /></template>
+                </a-button>
+              </a-tooltip>
+            </div>
+
+            <div class="workspace-directory-scroll">
+              <a-spin class="workspace-directory-spin" :loading="browsing">
+                <div v-if="directory && visibleDirectories.length > 0" class="workspace-directory-list">
+                  <button
+                    v-for="entry in visibleDirectories"
+                    :key="entry.path"
+                    type="button"
+                    class="workspace-directory-item"
+                    :disabled="browsing || launchLocked"
+                    :title="entry.path"
+                    @click="emit('browse', entry.path)"
+                  >
+                    <icon-folder />
+                    <span>{{ entry.name }}</span>
+                    <icon-right />
+                  </button>
+                </div>
+                <div v-else-if="directory && !browsing" class="workspace-directory-empty">
+                  当前目录没有可浏览的文件夹
+                </div>
+              </a-spin>
+            </div>
+          </template>
+        </div>
 
         <footer class="workspace-picker-footer">
           <div class="workspace-current-selection">
-            <span>当前工作空间</span>
-            <strong :title="directory?.currentPath">{{ directory?.currentPath || "正在读取..." }}</strong>
+            <span>{{ sessionMode === "history" ? "会话工作目录" : "当前工作目录" }}</span>
+            <strong :title="launchWorkdir">{{ launchWorkdir || (sessionMode === "history" ? "选择会话后自动使用原目录" : "正在读取...") }}</strong>
           </div>
           <div class="workspace-picker-actions">
             <a-button
               type="primary"
               :loading="launchPreviewLoading"
-              :disabled="browsing || launchLocked || launchPreviewLoading || !directory || apiKeyLoading || usableApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || historySelectionMissing"
-              @click="emit('launch', directory?.currentPath)"
+              :disabled="(sessionMode === 'new' && browsing) || launchLocked || launchPreviewLoading || !launchWorkdir || apiKeyLoading || usableApiKeys.length === 0 || cliOptions.length === 0 || terminalOptions.length === 0 || historySelectionMissing"
+              @click="emit('launch', launchWorkdir)"
             >
               <template #icon><icon-launch /></template>
               {{ sessionMode === "history" ? "继续" : "启动" }} {{ cliLabel }}

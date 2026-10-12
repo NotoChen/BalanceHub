@@ -246,7 +246,7 @@
   appearance: none;
   border: 0;
   background: transparent;
-  color: #708096;
+  color: var(--surface-muted);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
@@ -255,7 +255,7 @@
 
 .api-key-inline-editor > header > button:hover,
 .api-key-inline-editor > header > button:focus-visible {
-  color: #315f9d;
+  color: var(--surface-accent);
   outline: none;
 }
 
@@ -314,7 +314,7 @@
   place-items: center;
   border-radius: 8px;
   background: #dfeaf7;
-  color: #315f9d;
+  color: var(--surface-accent);
   font-size: 14px;
 }
 
@@ -477,7 +477,7 @@
   gap: 7px 10px;
   border: 1px solid #dce3ec;
   border-radius: 9px;
-  background: #ffffff;
+  background: var(--surface-panel);
   padding: 11px;
   transition:
     border-color 180ms var(--surface-ease),
@@ -513,7 +513,7 @@
 .api-key-vault-marker.active {
   border-color: #92aed0;
   background: #e6f0fb;
-  color: #315f9d;
+  color: var(--surface-accent);
 }
 
 .api-key-vault-main {
@@ -563,7 +563,7 @@
 }
 
 .api-key-vault-remote-name {
-  color: #687a90 !important;
+  color: var(--surface-muted) !important;
 }
 
 .api-key-agent-bindings {
@@ -571,7 +571,7 @@
   width: fit-content;
   align-items: center;
   gap: 5px;
-  color: #55708f;
+  color: var(--surface-ink-soft);
 }
 
 .api-key-agent-bindings small {
@@ -613,30 +613,30 @@
 
 .api-key-default-badge {
   background: #e5eef9;
-  color: #315f9d;
+  color: var(--surface-accent);
 }
 
 .api-key-source-badge {
-  background: #edf0f4;
+  background: var(--surface-panel-soft);
   color: #687589;
 }
 
 .api-key-status-enabled,
 .api-key-status-saved {
-  background: #e8f5ef;
-  color: #2f725a;
+  background: var(--surface-success-soft);
+  color: var(--surface-success);
 }
 
 .api-key-status-disabled,
 .api-key-status-unknown {
-  background: #edf0f4;
-  color: #697586;
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
 }
 
 .api-key-status-expired,
 .api-key-status-exhausted {
-  background: #faecec;
-  color: #a44e4e;
+  background: var(--surface-danger-soft);
+  color: var(--surface-danger);
 }
 
 .api-key-actions {
@@ -648,7 +648,7 @@
 }
 
 .api-key-set-default {
-  color: #315f9d !important;
+  color: var(--surface-accent) !important;
   font-size: 10px;
 }
 

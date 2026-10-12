@@ -171,7 +171,7 @@ defineExpose({ refresh });
           @open-file="model.openConfigurationFile(card.agent.kind, $event)"
           @refresh="refreshCard(card.agent.kind)" @documentation="model.openDocumentation(card.agent.kind)"
           @installation="model.installation.open(card.agent.kind)" @installation-guide="model.openDocumentation(card.agent.kind, 'installation')"
-          @history="model.navigation.openSessions('history', card.agent.kind, { workspaceMode: 'all' })" @runtime="model.navigation.openSessions('active', card.agent.kind)" @launch="model.launchKind = card.agent.kind" /></TransitionGroup>
+          @history="model.navigation.openSessions('history', card.agent.kind)" @runtime="model.navigation.openSessions('active', card.agent.kind)" @launch="model.launchKind = card.agent.kind" /></TransitionGroup>
         <span class="agent-card-sort-announcement" role="status">{{ sortAnnouncement }}</span>
         <Teleport to="body"><AgentOverviewCard v-if="drag.draggedItem" v-bind="drag.draggedItem" :loading="model.loading" class="agent-card-sort-preview" :style="drag.dragStyle()" aria-hidden="true" inert /></Teleport>
       </template>

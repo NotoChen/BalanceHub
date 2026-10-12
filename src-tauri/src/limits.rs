@@ -162,6 +162,24 @@ pub fn normalize_app_data(data: &mut AppData) -> bool {
     for provider in &mut data.providers {
         changed |= normalize_provider(provider);
     }
+    for path in data
+        .workspaces
+        .iter_mut()
+        .map(|workspace| &mut workspace.path)
+        .chain(
+            data.temporary_cli_preferences
+                .iter_mut()
+                .map(|preference| &mut preference.workspace_path),
+        )
+    {
+        let normalized = crate::platform::paths::compatible_path(std::path::Path::new(path))
+            .to_string_lossy()
+            .into_owned();
+        if *path != normalized {
+            *path = normalized;
+            changed = true;
+        }
+    }
     if data.workspaces.len() > MAX_WORKSPACES {
         data.workspaces.truncate(MAX_WORKSPACES);
         changed = true;
@@ -226,6 +244,35 @@ fn normalize_local_remark(value: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
     use crate::models::{AgentCliKind, Provider, ProviderInput};
+
+    #[cfg(windows)]
+    #[test]
+    fn saved_workspace_paths_and_launch_preferences_share_the_ordinary_spelling() {
+        let mut data = AppData::default();
+        data.providers.push(Provider::from_input(
+            ProviderInput::default(),
+            "provider-test".into(),
+        ));
+        data.workspaces.push(crate::models::Workspace {
+            path: r"\\?\C:\Users\demo".into(),
+            use_count: 7,
+        });
+        data.temporary_cli_preferences
+            .push(crate::models::TemporaryCliPreference {
+                provider_id: "provider-test".into(),
+                workspace_path: r"\\?\C:\Users\demo".into(),
+                ..Default::default()
+            });
+
+        assert!(normalize_app_data(&mut data));
+        assert_eq!(data.workspaces[0].path, r"C:\Users\demo");
+        assert_eq!(data.workspaces[0].use_count, 7);
+        assert_eq!(
+            data.temporary_cli_preferences[0].workspace_path,
+            data.workspaces[0].path
+        );
+        assert!(!normalize_app_data(&mut data));
+    }
 
     #[test]
     fn normalization_bounds_and_trims_agent_cli_paths() {

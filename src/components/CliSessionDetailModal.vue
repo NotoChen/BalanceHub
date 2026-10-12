@@ -6,23 +6,18 @@ import type {
   SessionReaderNavigation,
 } from "../stores/session-reader-types";
 import SessionReader from "./agent-workspace/SessionReader.vue";
-withDefaults(
-  defineProps<{
-    visible: boolean;
-    loading: boolean;
-    error: string;
-    detail: CliSessionDetail | null;
-    selectedResumeId: string;
-    sessionRow: AgentSessionRow | null;
-    query: string;
-    paused: boolean;
-    messageStates: Record<string, SessionMessageLoadState>;
-  }>(),
-  { selectedResumeId: "" },
-);
+defineProps<{
+  visible: boolean;
+  loading: boolean;
+  error: string;
+  detail: CliSessionDetail | null;
+  sessionRow: AgentSessionRow | null;
+  query: string;
+  paused: boolean;
+  messageStates: Record<string, SessionMessageLoadState>;
+}>();
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
-  select: [];
   parent: [sessionRef: string];
   navigate: [navigation: SessionReaderNavigation];
   expand: [id: string, fromStart: boolean];
@@ -57,25 +52,6 @@ const emit = defineEmits<{
       @expand="(id, fromStart) => emit('expand', id, fromStart)"
       @pause="emit('pause')"
       @retry="emit('retry')"
-    >
-      <template #footer
-        ><slot name="footer"
-          ><span v-if="sessionRow?.resumeReason">{{
-            sessionRow.resumeReason
-          }}</span
-          ><a-button
-            type="primary"
-            :disabled="
-              !detail?.session.canResume ||
-              detail.session.id === selectedResumeId
-            "
-            @click="emit('select')"
-            >{{
-              detail?.session.id === selectedResumeId ? "已选中" : "选中并返回"
-            }}</a-button
-          ></slot
-        ></template
-      >
-    </SessionReader>
+    />
   </a-modal>
 </template>

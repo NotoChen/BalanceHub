@@ -137,14 +137,14 @@
   place-items: center;
   border: 1px dashed #c9cdd4;
   border-radius: 8px;
-  color: #86909c;
+  color: var(--surface-muted);
   padding: 36px 20px;
   text-align: center;
 }
 
 .empty-state h3 {
   margin: 0;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 16px;
   font-weight: 650;
 }

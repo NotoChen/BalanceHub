@@ -6,6 +6,6 @@ pub(super) fn launch_environment(root: &Path) -> Result<EnvironmentPatch, &'stat
         return Err("Claude 原生目录必须是绝对路径");
     }
     let mut environment = EnvironmentPatch::default();
-    environment.set("CLAUDE_CONFIG_DIR", root.to_string_lossy());
+    environment.set_path("CLAUDE_CONFIG_DIR", root);
     Ok(environment)
 }

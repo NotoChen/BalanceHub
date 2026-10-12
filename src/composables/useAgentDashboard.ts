@@ -32,8 +32,7 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
   const workspaces = useWorkspaceStore();
   const kinds = computed(() => options.cliRuntime.value.agents.map((agent) => agent.kind));
   const historyActive = computed(() => options.active.value && navigation.page === "overview");
-  const historyScopeKey = computed(() => JSON.stringify([...new Set(workspaces.workspaces.map((workspace) => workspace.path))].sort()));
-  const history = reactive(useAgentHistorySummary(historyActive, historyScopeKey, kinds));
+  const history = reactive(useAgentHistorySummary(historyActive, kinds));
   const cli = useCliRuntimeStore();
   const catalogStore = useAgentCatalogStore();
   const lifecycleStore = useAgentLifecycleStore();

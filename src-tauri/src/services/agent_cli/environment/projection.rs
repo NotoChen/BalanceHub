@@ -1626,7 +1626,11 @@ fn materialize_record(
         provenance: Vec::new(),
         environment_id: environment.id.clone(),
         workspace_id: context.workspace_id.clone(),
-        path: Some(item.inspection.path.to_string_lossy().into_owned()),
+        path: Some(
+            crate::platform::paths::compatible_path(&item.inspection.path)
+                .to_string_lossy()
+                .into_owned(),
+        ),
         precedence,
         writable: if item.contributors.is_empty() {
             item.inspection.writable

@@ -5,9 +5,12 @@ use super::{
 use crate::{
     models::*,
     network::{apply_proxy_env, resolve_global_proxy},
-    platform::process::{
-        run_command_with_output_observed, run_command_with_output_timeout_before_spawn,
-        CommandOutput, ProcessOutputCapture, ProcessOutputSnapshot,
+    platform::{
+        paths::compatible_path,
+        process::{
+            run_command_with_output_observed, run_command_with_output_timeout_before_spawn,
+            CommandOutput, ProcessOutputCapture, ProcessOutputSnapshot,
+        },
     },
     services::agent_cli::discovery::paths::{runtime_path_for, runtime_path_without_shell_for},
 };
@@ -246,11 +249,11 @@ impl ExactCliCommand {
     }
 
     fn command(&self, settings: &AppSettings) -> Command {
-        let mut command = Command::new(&self.executable.canonical);
+        let mut command = Command::new(compatible_path(&self.executable.canonical).as_ref());
         command
             .env_clear()
             .args(&self.argv)
-            .current_dir(&self.cwd)
+            .current_dir(compatible_path(&self.cwd))
             .envs(self.environment.iter().cloned());
         apply_proxy_env(&mut command, &resolve_global_proxy(settings));
         command
@@ -288,12 +291,11 @@ fn launch_environment(
     let home = environment
         .get(std::ffi::OsStr::new("HOME"))
         .filter(|home| Path::new(home).is_absolute())
-        .ok_or_else(|| AgentAssetMutationError::new(AgentAssetMutationErrorKind::InvalidRequest))?
-        .clone();
+        .map(|home| compatible_path(Path::new(home)).into_owned())
+        .ok_or_else(|| AgentAssetMutationError::new(AgentAssetMutationErrorKind::InvalidRequest))?;
+    environment.insert(OsString::from("HOME"), home.clone().into_os_string());
     #[cfg(windows)]
-    environment.insert(OsString::from("USERPROFILE"), home);
-    #[cfg(not(windows))]
-    let _ = home;
+    environment.insert(OsString::from("USERPROFILE"), home.into_os_string());
     // NODE_OPTIONS, credential variables and native config overrides from the
     // GUI process must not redirect a command away from its planned context.
     // Network proxy variables are added solely by the existing network module.

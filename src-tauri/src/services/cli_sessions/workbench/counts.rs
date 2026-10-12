@@ -2,7 +2,7 @@
 //! No pagination, transcript search, resume references or persisted partial sums.
 use super::{
     budget::{with_history_cache, with_read_budget, with_source_root},
-    scope::{build_scope, history_adapter, session_identity},
+    scope::{build_scope, history_adapter, session_identity, workspace_for_path},
     workspace_scan::scan_workspaces,
     AgentSessionActor,
 };
@@ -12,10 +12,7 @@ use crate::{
         SessionHistoryReadMode, SessionHistorySource, SessionReadBudget,
     },
 };
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    path::Path,
-};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 struct CountSource {
     identities: Vec<(AgentCliKind, String)>,
@@ -38,7 +35,8 @@ pub(crate) fn count(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let workspaces = &scope.public.workspaces;
+    // An empty selector means all native projects, including unregistered ones.
+    let workspaces: &[AgentSessionWorkspace] = &[];
     let results = std::thread::scope(|threads| {
         let mut handles = Vec::new();
         for source in &sources {
@@ -115,10 +113,14 @@ fn read_source(
 ) -> CountSource {
     let empty = |status, message: Option<String>| CountSource {
         identities: Vec::new(),
-        states: workspaces
-            .iter()
-            .map(|workspace| source_state(source, workspace, status, 0, message.clone()))
-            .collect(),
+        states: if workspaces.is_empty() {
+            vec![source_state(source, None, status, 0, message)]
+        } else {
+            workspaces
+                .iter()
+                .map(|workspace| source_state(source, Some(workspace), status, 0, message.clone()))
+                .collect()
+        },
     };
     match std::fs::metadata(&config.config_root) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -157,16 +159,24 @@ fn read_source(
         identities: Vec::new(),
         states: Vec::new(),
     };
-    for loaded in loaded {
-        let Some(workspace) = workspaces
-            .iter()
-            .find(|workspace| Path::new(&workspace.path) == loaded.workdir)
-        else {
-            continue;
-        };
+    if workspaces.is_empty() {
         result.states.push(source_state(
             source,
-            workspace,
+            None,
+            if loaded.diagnostics.is_empty() {
+                AgentSessionSourceStatus::Complete
+            } else {
+                AgentSessionSourceStatus::Partial
+            },
+            0,
+            (!loaded.diagnostics.is_empty()).then(|| loaded.diagnostics.join("；")),
+        ));
+    }
+    for loaded in loaded.workspaces {
+        let workspace = workspace_for_path(&loaded.workdir);
+        result.states.push(source_state(
+            source,
+            Some(&workspace),
             if loaded.complete {
                 AgentSessionSourceStatus::Complete
             } else {
@@ -178,7 +188,7 @@ fn read_source(
         for record in loaded.records {
             result.identities.push((
                 source.agent_kind,
-                session_identity(source, workspace, &record),
+                session_identity(source, &workspace, &record),
             ));
         }
     }
@@ -187,14 +197,14 @@ fn read_source(
 
 fn source_state(
     source: &AgentSessionSource,
-    workspace: &AgentSessionWorkspace,
+    workspace: Option<&AgentSessionWorkspace>,
     state: AgentSessionSourceStatus,
     loaded_count: usize,
     message: Option<String>,
 ) -> AgentSessionSourceState {
     AgentSessionSourceState {
         source_id: source.id.clone(),
-        workspace_id: workspace.id.clone(),
+        workspace_id: workspace.map(|workspace| workspace.id.clone()),
         state,
         loaded_count,
         message,
@@ -216,7 +226,7 @@ pub(super) fn summarize<'a>(
     for state in states {
         let complete = state.state == AgentSessionSourceStatus::Complete;
         complete_pairs
-            .entry((state.source_id.as_str(), state.workspace_id.as_str()))
+            .entry((state.source_id.as_str(), state.workspace_id.as_deref()))
             .and_modify(|previous| *previous &= complete)
             .or_insert(complete);
     }
@@ -226,16 +236,24 @@ pub(super) fn summarize<'a>(
         .filter(|source| included.insert(source.agent_kind))
         .map(|source| {
             let loaded_count = loaded.get(&source.agent_kind).map_or(0, HashSet::len);
-            let complete = !workspaces.is_empty()
-                && sources
-                    .iter()
-                    .filter(|candidate| candidate.agent_kind == source.agent_kind)
-                    .all(|candidate| {
+            let complete = sources
+                .iter()
+                .filter(|candidate| candidate.agent_kind == source.agent_kind)
+                .all(|candidate| {
+                    if workspaces.is_empty() {
+                        complete_pairs.get(&(candidate.id.as_str(), None)) == Some(&true)
+                            && states
+                                .iter()
+                                .filter(|state| state.source_id == candidate.id)
+                                .all(|state| state.state == AgentSessionSourceStatus::Complete)
+                    } else {
                         workspaces.iter().all(|workspace| {
-                            complete_pairs.get(&(candidate.id.as_str(), workspace.id.as_str()))
+                            complete_pairs
+                                .get(&(candidate.id.as_str(), Some(workspace.id.as_str())))
                                 == Some(&true)
                         })
-                    });
+                    }
+                });
             AgentSessionCount {
                 agent_kind: source.agent_kind,
                 loaded_count,

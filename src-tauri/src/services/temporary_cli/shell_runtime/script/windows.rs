@@ -1,30 +1,37 @@
+use super::LaunchScriptInput;
 #[cfg(target_os = "windows")]
 use super::{
     runtime_instance_id_from_status_path, temporary_windows_launch_payload_path,
-    write_auxiliary_file, LaunchScriptInput,
+    write_auxiliary_file,
 };
 #[cfg(target_os = "windows")]
 use crate::services::temporary_cli::shell_runtime::environment::capture_shell_snapshot;
 use crate::{
     network::ProxyEnvironment,
+    platform::paths::{compatible_path, windows_shell_path},
     services::{
         agent_cli::contracts::TemporaryLaunchPlan,
         temporary_cli::shell_runtime::environment::ShellEnvironmentSnapshot,
     },
 };
-use std::collections::{BTreeMap, BTreeSet};
 #[cfg(target_os = "windows")]
-use std::{env, fs, path::Path};
+use std::fs;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env,
+    path::Path,
+};
 
 #[cfg(target_os = "windows")]
 pub(in crate::services::temporary_cli) fn write_launch_script(
     input: &LaunchScriptInput<'_>,
 ) -> Result<(), String> {
+    let launch_payload_path = temporary_windows_launch_payload_path(input.script);
+    let text = render_launch_script(input, &launch_payload_path)?;
     write_auxiliary_file(
         input.auxiliary_file_path,
         input.plan.auxiliary_file_content.as_deref(),
     )?;
-    let launch_payload_path = temporary_windows_launch_payload_path(input.script);
     let shell_snapshot = capture_shell_snapshot();
     let launch_payload = windows_launch_payload(WindowsLaunchPayloadInput {
         cli_path: input.cli_path,
@@ -51,34 +58,99 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
     fs::write(&launch_payload_path, launch_payload_text)
         .map_err(|err| format!("写入 Windows 临时 CLI 启动参数失败: {err}"))?;
     restrict_to_owner(&launch_payload_path)?;
+    fs::write(input.script, text).map_err(|err| format!("写入临时 CLI 启动脚本失败: {err}"))
+}
+
+fn render_launch_script(
+    input: &LaunchScriptInput<'_>,
+    launch_payload_path: &Path,
+) -> Result<String, String> {
+    windows_shell_path(input.script)?;
     let script_dir = input
         .script
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
+    let cleanup_settings = input
+        .auxiliary_file_path
+        .map(|path| escape_cmd_path(path).map(|path| format!("del \"{path}\" 2>nul\n")))
+        .transpose()?
+        .unwrap_or_default();
+    let workdir = escape_cmd_path(input.workdir)?;
+    let network_directory = workdir.starts_with(r"\\");
+    // CMD reads batches a command/block at a time. Delete this script inside
+    // the final parsed block so cleanup and exit never need to reopen it.
     let text = format!(
-        "@echo off\r\nsetlocal\r\nset \"BH_STATUS_FILE={status_path}\"\r\nset \"BH_LAUNCH_FILE={launch_payload_path}\"\r\nset \"BH_POWERSHELL=\"\r\nwhere pwsh.exe >nul 2>nul && set \"BH_POWERSHELL=pwsh.exe\"\r\nif not defined BH_POWERSHELL where powershell.exe >nul 2>nul && set \"BH_POWERSHELL=powershell.exe\"\r\nset \"BH_PID=null\"\r\nif defined BH_POWERSHELL for /f %%P in ('%BH_POWERSHELL% -NoProfile -Command \"(Get-CimInstance Win32_Process ^| Where-Object ProcessId -eq $PID).ParentProcessId\"') do set \"BH_PID=%%P\"\r\ncd /d \"{workdir}\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\nif not defined BH_POWERSHELL goto BH_POWERSHELL_ERROR\r\n{color_block}call :BH_WRITE_STATUS running %BH_PID% null null\r\n%BH_POWERSHELL% -NoProfile -ExecutionPolicy Bypass -Command \"{powershell_launch_command}\"\r\nset \"BH_EXIT_CODE=%ERRORLEVEL%\"\r\ngoto BH_FINISH\r\n:BH_WORKDIR_ERROR\r\nset \"BH_EXIT_CODE=%ERRORLEVEL%\"\r\ngoto BH_FINISH\r\n:BH_POWERSHELL_ERROR\r\nset \"BH_EXIT_CODE=9009\"\r\n:BH_FINISH\r\nset \"BH_ENDED=null\"\r\nif defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command \"[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()\"') do set \"BH_ENDED=%%T\"\r\ncall :BH_WRITE_STATUS exited null %BH_ENDED% %BH_EXIT_CODE%\r\ndel \"{launch_payload_path}\" 2>nul\r\n{cleanup_settings}del \"%~f0\"\r\nrmdir \"{script_dir}\" 2>nul\r\nexit /b %BH_EXIT_CODE%\r\n:BH_WRITE_STATUS\r\nset \"BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%\"\r\n> \"%BH_TMP%\" echo {{\"status\":\"%~1\",\"pid\":%~2,\"endedAt\":%~3,\"exitCode\":%~4}}\r\nmove /Y \"%BH_TMP%\" \"%BH_STATUS_FILE%\" >nul\r\nexit /b 0\r\n",
-        status_path = escape_cmd_value(&input.status_path.display().to_string()),
-        launch_payload_path = escape_cmd_value(&launch_payload_path.display().to_string()),
-        workdir = escape_cmd_value(&input.workdir.display().to_string()),
+        r#"@echo off
+setlocal EnableExtensions DisableDelayedExpansion
+chcp 65001 >nul 2>nul
+set "BH_STATUS_FILE={status_path}"
+set "BH_LAUNCH_FILE={launch_payload_path}"
+set "BH_POWERSHELL="
+where pwsh.exe >nul 2>nul && set "BH_POWERSHELL=pwsh.exe"
+if not defined BH_POWERSHELL (
+where powershell.exe >nul 2>nul && set "BH_POWERSHELL=powershell.exe"
+)
+set "BH_PUSHED="
+{change_directory} "{workdir}"
+if errorlevel 1 goto BH_WORKDIR_ERROR
+{remember_pushd}if not defined BH_POWERSHELL goto BH_POWERSHELL_ERROR
+{color_block}%BH_POWERSHELL% -NoProfile -ExecutionPolicy Bypass -Command "{powershell_launch_command}"
+set "BH_EXIT_CODE=%ERRORLEVEL%"
+goto BH_FINISH
+:BH_WORKDIR_ERROR
+set "BH_EXIT_CODE=%ERRORLEVEL%"
+goto BH_FINISH
+:BH_POWERSHELL_ERROR
+set "BH_EXIT_CODE=9009"
+:BH_FINISH
+set "BH_ENDED=null"
+if defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()"') do set "BH_ENDED=%%T"
+call :BH_WRITE_STATUS exited null %BH_ENDED% %BH_EXIT_CODE%
+if defined BH_PUSHED popd
+(
+del "{launch_payload_path}" 2>nul
+{cleanup_settings}del "%~f0" 2>nul
+rmdir "{script_dir}" 2>nul
+exit /b %BH_EXIT_CODE%
+)
+:BH_WRITE_STATUS
+set "BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%"
+> "%BH_TMP%" echo {{"status":"%~1","pid":%~2,"endedAt":%~3,"exitCode":%~4}}
+move /Y "%BH_TMP%" "%BH_STATUS_FILE%" >nul
+exit /b 0
+"#,
+        status_path = escape_cmd_path(input.status_path)?,
+        launch_payload_path = escape_cmd_path(launch_payload_path)?,
+        change_directory = if network_directory { "pushd" } else { "cd /d" },
+        remember_pushd = if network_directory {
+            "set \"BH_PUSHED=1\"\n"
+        } else {
+            ""
+        },
         color_block = windows_color_block(),
         powershell_launch_command = WINDOWS_LAUNCH_PAYLOAD_COMMAND,
-        script_dir = escape_cmd_value(&script_dir.display().to_string()),
-        cleanup_settings = input
-            .auxiliary_file_path
-            .map(|path| format!(
-                "del \"{}\" 2>nul\r\n",
-                escape_cmd_value(&path.display().to_string())
-            ))
-            .unwrap_or_default(),
+        script_dir = escape_cmd_path(&script_dir)?,
     );
+    Ok(text.replace('\n', "\r\n"))
+}
 
-    fs::write(input.script, text).map_err(|err| format!("写入临时 CLI 启动脚本失败: {err}"))
+fn escape_cmd_path(path: &Path) -> Result<String, String> {
+    Ok(escape_cmd_value(
+        &windows_shell_path(path)?.to_string_lossy(),
+    ))
 }
 
 pub(in crate::services::temporary_cli) const WINDOWS_LAUNCH_PAYLOAD_COMMAND: &str = concat!(
     "$ErrorActionPreference = 'Stop'; ",
-    "$BH_Launch = Get-Content -Raw -LiteralPath $env:BH_LAUNCH_FILE | ConvertFrom-Json; ",
+    "$BH_Launch = Get-Content -Raw -Encoding UTF8 -LiteralPath $env:BH_LAUNCH_FILE | ConvertFrom-Json; ",
+    // This PowerShell stays alive for the CLI invocation. A `for /f` probe
+    // instead observes a short-lived intermediate CMD and records a stale PID.
+    "if ($env:BH_STATUS_FILE) { ",
+    "$BH_StatusTemp = $env:BH_STATUS_FILE + '.tmp.' + [Guid]::NewGuid().ToString('N'); ",
+    "$BH_StatusJson = @{ status = 'running'; pid = $PID; endedAt = $null; exitCode = $null } | ConvertTo-Json -Compress; ",
+    "[System.IO.File]::WriteAllText($BH_StatusTemp, $BH_StatusJson, [System.Text.UTF8Encoding]::new($false)); ",
+    "Move-Item -LiteralPath $BH_StatusTemp -Destination $env:BH_STATUS_FILE -Force }; ",
     "foreach ($BH_Name in @($BH_Launch.removeEnv)) { ",
     "Remove-Item -LiteralPath ('Env:' + [string]$BH_Name) -ErrorAction SilentlyContinue }; ",
     "foreach ($BH_Entry in @($BH_Launch.setEnv.PSObject.Properties)) { ",
@@ -142,7 +214,7 @@ pub(in crate::services::temporary_cli) fn windows_launch_payload(
     }
 
     serde_json::json!({
-        "cliPath": cli_path,
+        "cliPath": compatible_path(Path::new(cli_path)).to_string_lossy(),
         "cliCommandName": cli_command_name,
         "preferShellCli": prefer_shell_cli,
         "args": plan.args,
@@ -164,9 +236,8 @@ fn remove_environment_name(target: &mut BTreeMap<String, String>, name: &str) {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn windows_color_block() -> &'static str {
-    "set NO_COLOR=\r\nset CLICOLOR=1\r\nif not defined TERM set \"TERM=xterm-256color\"\r\n"
+    "set NO_COLOR=\nset CLICOLOR=1\nif not defined TERM set \"TERM=xterm-256color\"\n"
 }
 
 #[cfg(target_os = "windows")]
@@ -189,3 +260,6 @@ pub(in crate::services::temporary_cli) fn escape_cmd_value(value: &str) -> Strin
         .collect::<String>()
         .replace('%', "%%")
 }
+
+#[cfg(test)]
+mod tests;

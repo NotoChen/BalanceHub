@@ -132,7 +132,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #86909c;
+  color: var(--surface-muted);
   cursor: pointer;
   padding: 0;
   transition:
@@ -144,7 +144,7 @@
 .topbar-search-clear:hover,
 .topbar-search-clear:focus-visible {
   background: rgba(22, 93, 255, 0.1);
-  color: #165dff;
+  color: var(--surface-accent);
   outline: none;
 }
 
@@ -194,7 +194,7 @@
 .topbar-task-button:focus-visible,
 .topbar-task-button.has-active {
   background: rgba(22, 93, 255, 0.1);
-  color: #165dff;
+  color: var(--surface-accent);
   box-shadow: 0 7px 16px rgba(22, 93, 255, 0.13);
   outline: none;
   transform: translateY(-1px);
@@ -328,7 +328,7 @@
   border-radius: 8px;
   background: transparent;
   box-shadow: none;
-  color: var(--topbar-action-color, #4e5969);
+  color: var(--topbar-action-color, var(--surface-ink-soft));
   transition:
     background 0.18s ease,
     box-shadow 0.18s ease,
@@ -398,8 +398,8 @@
 .topbar-icon-button.arco-btn:hover,
 .topbar-icon-button.arco-btn:focus-visible {
   border-color: transparent;
-  background: var(--topbar-action-bg, #f2f3f5);
-  color: var(--topbar-action-color, #165dff);
+  background: var(--topbar-action-bg, var(--surface-panel-soft));
+  color: var(--topbar-action-color, var(--surface-accent));
   box-shadow: 0 7px 16px var(--topbar-action-shadow, rgba(22, 93, 255, 0.12));
   outline: none;
   transform: translateY(-1px);
@@ -407,8 +407,8 @@
 
 .topbar-icon-button.is-loading,
 .topbar-menu-button.is-loading {
-  background: var(--topbar-action-bg, #f2f3f5);
-  color: var(--topbar-action-color, #165dff);
+  background: var(--topbar-action-bg, var(--surface-panel-soft));
+  color: var(--topbar-action-color, var(--surface-accent));
 }
 
 .topbar-action-spin {
@@ -543,7 +543,7 @@
 .background-task-clear:hover,
 .background-task-clear:focus-visible {
   background: rgba(22, 93, 255, 0.09);
-  color: #165dff;
+  color: var(--surface-accent);
   outline: none;
 }
 
@@ -612,7 +612,7 @@
   place-items: center;
   border-radius: 7px;
   background: rgba(22, 93, 255, 0.1);
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .background-task-row-copy {
@@ -654,12 +654,12 @@
 
 .background-task-row.is-success .background-task-row-icon {
   background: rgba(0, 168, 112, 0.11);
-  color: #008f67;
+  color: var(--surface-success);
 }
 
 .background-task-row.is-failed .background-task-row-icon {
   background: rgba(209, 67, 67, 0.11);
-  color: #d14343;
+  color: var(--surface-danger);
 }
 
 .background-task-empty {

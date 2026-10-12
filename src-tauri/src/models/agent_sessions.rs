@@ -113,7 +113,8 @@ pub enum AgentSessionSourceStatus {
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionSourceState {
     pub source_id: String,
-    pub workspace_id: String,
+    /// None reports enumeration of the whole native source.
+    pub workspace_id: Option<String>,
     pub state: AgentSessionSourceStatus,
     pub loaded_count: usize,
     pub message: Option<String>,
@@ -163,6 +164,8 @@ pub struct AgentSessionPage {
     pub total: Option<usize>,
     pub agent_counts: Vec<AgentSessionCount>,
     pub source_states: Vec<AgentSessionSourceState>,
+    /// Directories discovered from native history, independent of App bookmarks.
+    pub workspaces: Vec<AgentSessionWorkspace>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -79,7 +79,7 @@
 
 .settings-workspace-v3 .settings-setting-row:last-child { border-bottom: 0; }
 .settings-workspace-v3 .settings-setting-row.disabled { opacity: 0.65; }
-.settings-workspace-v3 .settings-setting-row > :not(.settings-setting-copy) { min-width: 0; justify-self: end; }
+.settings-workspace-v3 .settings-setting-row > :not(.settings-setting-copy, .arco-switch) { min-width: 0; justify-self: end; }
 .settings-workspace-v3 .settings-setting-row > :is(.arco-select-view, .arco-input-wrapper, .arco-input-number, .arco-picker, .settings-duration-control) { width: 240px; max-width: 100%; }
 .settings-workspace-v3 .settings-setting-row-wide { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .settings-workspace-v3 .settings-setting-row-wide > .arco-input-wrapper { width: 100%; }

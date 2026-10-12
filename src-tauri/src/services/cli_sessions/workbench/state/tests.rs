@@ -21,6 +21,7 @@ fn snapshot(actor: &str, consumer: &str, revision: &str) -> Snapshot {
         rows: Vec::new(),
         parent_updates: HashMap::new(),
         states: Vec::new(),
+        workspaces: Vec::new(),
         complete: true,
         progress: QueryProgress::default(),
         used_at: Instant::now(),

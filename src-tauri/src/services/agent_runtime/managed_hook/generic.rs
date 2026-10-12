@@ -156,14 +156,14 @@ impl GenericHookService {
                 let handler = match self.agent {
                     GenericAgent::ClaudeCode => json!({
                         "type": "command",
-                        "command": self.helper_path.to_string_lossy(),
-                        "args": helper_args(&self.spool_root, self.agent.key(), &identity),
+                        "command": crate::platform::paths::compatible_path(&self.helper_path).to_string_lossy(),
+                        "args": common::helper_args(&self.spool_root, self.agent.key(), &identity),
                         "timeout": 3
                     }),
                     GenericAgent::Gemini => json!({
                         "name": identity,
                         "type": "command",
-                        "command": helper_command(
+                        "command": common::helper_command(
                             &self.helper_path,
                             &self.spool_root,
                             self.agent.key(),
@@ -173,7 +173,7 @@ impl GenericHookService {
                     }),
                     GenericAgent::Grok => json!({
                         "type": "command",
-                        "command": helper_command(
+                        "command": common::helper_command(
                             &self.helper_path,
                             &self.spool_root,
                             self.agent.key(),
@@ -670,40 +670,6 @@ pub(super) fn owned_resource_selected(
     })
 }
 
-fn helper_command(executable: &Path, spool_root: &Path, agent: &str, identity: &str) -> String {
-    #[cfg(windows)]
-    {
-        format!(
-            "{} --balancehub-hook-ingest --agent {} --balancehub-hook-node={} --spool-root {}",
-            quote_windows(&executable.to_string_lossy()),
-            agent,
-            identity,
-            quote_windows(&spool_root.to_string_lossy())
-        )
-    }
-    #[cfg(not(windows))]
-    {
-        format!(
-            "{} --balancehub-hook-ingest --agent {} --balancehub-hook-node={} --spool-root {}",
-            quote_unix(&executable.to_string_lossy()),
-            agent,
-            identity,
-            quote_unix(&spool_root.to_string_lossy())
-        )
-    }
-}
-
-fn helper_args(spool_root: &Path, agent: &str, identity: &str) -> Vec<String> {
-    vec![
-        "--balancehub-hook-ingest".to_string(),
-        "--agent".to_string(),
-        agent.to_string(),
-        format!("--balancehub-hook-node={identity}"),
-        "--spool-root".to_string(),
-        spool_root.to_string_lossy().into_owned(),
-    ]
-}
-
 fn ensure_owned_leaf_parent(path: &Path) -> Result<(), String> {
     let parent = path
         .parent()
@@ -1006,15 +972,6 @@ fn remove_disabled(value: &mut Value, definitions: &[Definition]) -> bool {
     }
     false
 }
-#[cfg(not(windows))]
-fn quote_unix(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-#[cfg(windows)]
-fn quote_windows(value: &str) -> String {
-    format!("\"{}\"", value.replace('"', "\\\""))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

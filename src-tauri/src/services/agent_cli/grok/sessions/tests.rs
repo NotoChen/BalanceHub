@@ -46,7 +46,8 @@ fn history_summaries(
                 &budget,
                 crate::services::agent_cli::contracts::SessionHistoryReadMode::Summaries,
             )
-        })?;
+        })?
+        .workspaces;
     Ok(
         crate::services::cli_sessions::normalize_records(workspaces.remove(0).records)
             .into_iter()

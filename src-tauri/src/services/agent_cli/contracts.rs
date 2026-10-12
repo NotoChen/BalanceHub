@@ -1329,6 +1329,13 @@ impl EnvironmentPatch {
         self.set.insert(name, value.into());
     }
 
+    pub(crate) fn set_path(&mut self, name: impl Into<String>, path: &Path) {
+        self.set(
+            name,
+            crate::platform::paths::compatible_path(path).to_string_lossy(),
+        );
+    }
+
     pub(crate) fn remove(&mut self, name: impl Into<String>) {
         let name = name.into();
         self.set.remove(&name);
@@ -1532,6 +1539,45 @@ pub(crate) struct SessionHistoryWorkspace {
     pub diagnostics: Vec<String>,
 }
 
+/// Source enumeration can fail before a workspace is known. Keep that state
+/// separate from per-directory reads, including an empty native library.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionHistoryScan {
+    pub workspaces: Vec<SessionHistoryWorkspace>,
+    pub diagnostics: Vec<String>,
+}
+
+impl SessionHistoryScan {
+    pub(crate) fn new(workdirs: &[PathBuf]) -> Self {
+        Self {
+            workspaces: workdirs
+                .iter()
+                .map(|path| SessionHistoryWorkspace::new(path))
+                .collect(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub(crate) fn workspace(&mut self, path: &Path) -> &mut SessionHistoryWorkspace {
+        let index = self
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.workdir == path)
+            .unwrap_or_else(|| {
+                self.workspaces.push(SessionHistoryWorkspace::new(path));
+                self.workspaces.len() - 1
+            });
+        &mut self.workspaces[index]
+    }
+
+    pub(crate) fn failed(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        if self.diagnostics.len() < 4 && !self.diagnostics.contains(&message) {
+            self.diagnostics.push(message);
+        }
+    }
+}
+
 /// Identity enumeration has no dependency on transcript contents, display
 /// summaries or resume eligibility. Both modes use the same native scope and
 /// record-key rules; identity records never enter the resume-reference registry.
@@ -1635,10 +1681,11 @@ type SessionHistorySourceResolver = fn() -> Result<SessionHistorySource, String>
 type SessionHistoryScanner = fn(
     AgentCliKind,
     &Path,
+    // Empty selects all native history, independent of registered workspaces.
     &[PathBuf],
     &SessionReadBudget,
     SessionHistoryReadMode,
-) -> Result<Vec<SessionHistoryWorkspace>, String>;
+) -> Result<SessionHistoryScan, String>;
 type SessionHistoryIndexReader =
     fn(&SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String>;
 

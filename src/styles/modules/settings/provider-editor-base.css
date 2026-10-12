@@ -24,12 +24,12 @@
 }
 
 .provider-editor-summary-item > svg {
-  color: #165dff;
+  color: var(--surface-accent);
   font-size: 14px;
 }
 
 .provider-editor-summary-item span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -37,7 +37,7 @@
 .provider-editor-summary-item strong {
   min-width: 0;
   overflow: hidden;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 11px;
   font-weight: 700;
   text-align: right;
@@ -69,7 +69,7 @@
   border: 1px solid rgba(22, 93, 255, 0.2);
   border-radius: 7px;
   background: rgba(22, 93, 255, 0.08);
-  color: #165dff;
+  color: var(--surface-accent);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   font-weight: 750;
@@ -82,13 +82,13 @@
 }
 
 .provider-editor-section-header strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 14px;
   font-weight: 700;
 }
 
 .provider-editor-section-header small {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
 }
 
@@ -97,7 +97,7 @@
 }
 
 .provider-editor-section .arco-form-item-label {
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 12px;
   font-weight: 650;
 }

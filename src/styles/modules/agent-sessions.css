@@ -61,18 +61,6 @@
 .agent-session-filters .arco-select-view {
   min-width: 0;
 }
-.agent-session-directory {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-.agent-session-directory > .arco-select-view {
-  flex: 1;
-}
-.agent-session-directory > button {
-  flex: 0 0 28px;
-}
 .agent-session-result-summary {
   display: flex;
   align-items: center;
@@ -193,6 +181,9 @@
   min-height: 320px;
   min-width: 0;
 }
+.agent-session-workbench:not(.is-reading) {
+  grid-template-columns: minmax(0, 1fr);
+}
 .agent-session-browser {
   display: flex;
   flex-direction: column;
@@ -200,7 +191,13 @@
   min-height: 0;
 }
 .agent-session-browser .agent-session-filters {
-  grid-template-columns: minmax(0, 1fr) 144px;
+  grid-template-columns: 160px minmax(0, 1fr);
+  align-items: center;
+}
+.agent-session-order {
+  justify-self: end;
+  color: var(--surface-muted);
+  font-size: 12px;
 }
 .agent-session-browser .agent-session-result-summary {
   margin-block: 8px;
@@ -212,27 +209,6 @@
 }
 .agent-session-browser .agent-session-source-states > summary > span {
   display: none;
-}
-.agent-session-grouping {
-  display: flex;
-  gap: 16px;
-  border-bottom: 1px solid var(--surface-line);
-  margin-top: 6px;
-}
-.agent-session-grouping button {
-  border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 6px 0;
-  background: transparent;
-  color: var(--surface-muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.agent-session-grouping button[aria-pressed="true"] {
-  border-bottom-color: var(--surface-accent);
-  color: var(--surface-ink);
-  font-weight: 600;
 }
 .agent-session-list {
   flex: 1;
@@ -303,6 +279,31 @@
   flex-shrink: 0;
   margin-top: 2px;
 }
+.agent-session-select:disabled {
+  cursor: default;
+}
+.agent-session-choice {
+  display: inline-flex;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  margin-top: 2px;
+  border: 1px solid var(--surface-control-line);
+  border-radius: 50%;
+  color: transparent;
+}
+.agent-session-select[aria-pressed="true"] .agent-session-choice {
+  border-color: var(--surface-accent);
+  background: var(--surface-accent);
+  color: var(--surface-panel);
+}
+.agent-session-unavailable {
+  margin: 6px 0 0 31px;
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
 .agent-session-row-body {
   flex: 1;
   min-width: 0;
@@ -360,30 +361,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.agent-session-reader-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-  border: 1px solid var(--surface-line);
-  border-radius: 12px;
-  background: var(--surface-panel);
-  color: var(--surface-muted);
-  padding: 24px;
-  text-align: center;
-}
-.agent-session-reader-placeholder strong {
-  color: var(--surface-ink-soft);
-  font-size: 15px;
-  font-weight: 500;
-}
-.agent-session-reader-placeholder span {
-  max-width: 320px;
-  font-size: 12px;
-  line-height: 1.8;
-}
 .agent-session-relation {
   display: inline-flex;
   align-items: center;
@@ -400,8 +377,8 @@
   background: var(--surface-panel-soft);
 }
 .agent-session-role.is-subagent {
-  color: rgb(var(--purple-6));
-  background: rgb(var(--purple-1));
+  color: var(--surface-purple);
+  background: var(--surface-purple-soft);
 }
 .agent-session-relation button {
   display: inline-flex;
@@ -451,8 +428,21 @@
   color: var(--surface-accent);
 }
 .agent-session-row-footer button:disabled {
-  opacity: 0.42;
+  color: var(--surface-muted);
   cursor: default;
+}
+.agent-session-row-footer .agent-session-detail-button {
+  min-height: 28px;
+  border: 1px solid var(--surface-control-line);
+  border-radius: 5px;
+  padding: 4px 8px;
+  background: var(--surface-panel);
+  color: var(--surface-accent);
+  font-size: 12px;
+}
+.agent-session-row-footer .agent-session-detail-button:hover:enabled {
+  border-color: var(--surface-accent);
+  background: var(--surface-panel-soft);
 }
 .agent-session-workdir {
   flex: 1;
@@ -640,10 +630,6 @@
 @container (max-width: 880px) {
   .agent-session-workbench {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .agent-session-workbench:not(.is-reading)
-    > .agent-session-reader-placeholder {
-    display: none;
   }
   .agent-session-workbench.is-reading > .agent-session-browser {
     display: none;

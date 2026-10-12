@@ -1300,10 +1300,10 @@ fn windows_launch_commands_avoid_batch_command_string_quoting() {
     assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("[string]$BH_Launch.cliCommandName"));
     assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("$BH_Launch.args"));
     assert!(!WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("cmd /c"));
-    assert_eq!(
-        WINDOWS_POWERSHELL_SCRIPT_COMMAND,
-        "& $env:BALANCEHUB_TEMPORARY_CLI_SCRIPT"
-    );
+    assert!(WINDOWS_POWERSHELL_SCRIPT_COMMAND.contains("ProcessStartInfo"));
+    assert!(WINDOWS_POWERSHELL_SCRIPT_COMMAND.contains("%BALANCEHUB_TEMPORARY_CLI_SCRIPT%"));
+    assert!(WINDOWS_POWERSHELL_SCRIPT_COMMAND.contains("$BH_Start.UseShellExecute = $false"));
+    assert!(WINDOWS_LAUNCH_PAYLOAD_COMMAND.contains("Get-Content -Raw -Encoding UTF8"));
 }
 
 #[cfg(target_os = "macos")]

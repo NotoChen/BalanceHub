@@ -1,5 +1,9 @@
+mod output;
+
+use output::OutputBuffer;
+pub(crate) use output::OutputEncoding;
+
 use std::{
-    collections::VecDeque,
     io::Read,
     process::{Child, Command, ExitStatus, Stdio},
     sync::{
@@ -69,22 +73,22 @@ impl ProcessOutputCapture {
         state.exit_code = exit_code;
         state.error = error;
     }
-    fn update(&self, stderr: bool, buffer: &VecDeque<u8>, truncated: bool) {
-        let text =
-            String::from_utf8_lossy(&buffer.iter().copied().collect::<Vec<_>>()).into_owned();
+    fn update(&self, stderr: bool, buffer: &OutputBuffer) {
+        let text = buffer.text(false);
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         if stderr {
             state.stderr = text;
         } else {
             state.stdout = text;
         }
-        state.truncated |= truncated;
+        state.truncated |= buffer.truncated;
     }
 }
 
 struct OutputCaptureOptions {
     max_bytes: usize,
     live: Option<Arc<ProcessOutputCapture>>,
+    encoding: OutputEncoding,
 }
 
 struct ProcessLifecycleManager {
@@ -336,6 +340,27 @@ pub(crate) fn run_command_with_output_timeout(
     run_command_with_manager(&manager, command, timeout, max_output_bytes)
 }
 
+#[cfg(any(windows, test))]
+pub(crate) fn run_command_with_output_timeout_encoded(
+    command: &mut Command,
+    timeout: Duration,
+    max_output_bytes: usize,
+    encoding: OutputEncoding,
+) -> std::io::Result<CommandOutput> {
+    run_observed_with_manager(
+        &ProcessLifecycleManager::global(),
+        command,
+        timeout,
+        OutputCaptureOptions {
+            max_bytes: max_output_bytes,
+            live: None,
+            encoding,
+        },
+        || Ok(()),
+        || Ok(()),
+    )
+}
+
 /// Revalidate after acquiring a process slot, then recheck the deadline before
 /// closing the cancellation boundary. `before_spawn` must be a constant-time
 /// commit marker; all filesystem/process validation belongs in `preflight`.
@@ -371,6 +396,7 @@ pub(crate) fn run_command_with_output_observed(
         OutputCaptureOptions {
             max_bytes: max_output_bytes,
             live,
+            encoding: OutputEncoding::Utf8,
         },
         preflight,
         before_spawn,
@@ -408,6 +434,7 @@ fn run_command_with_manager_before_spawn(
         OutputCaptureOptions {
             max_bytes: max_output_bytes,
             live: None,
+            encoding: OutputEncoding::Utf8,
         },
         preflight,
         before_spawn,
@@ -458,14 +485,24 @@ fn wait_with_output_until(
     permit: ProcessLifecyclePermit,
 ) -> CommandOutput {
     let pid = child.id();
-    let stdout_reader = child
-        .stdout
-        .take()
-        .map(|pipe| spawn_observed_pipe_reader(pipe, output.max_bytes, output.live.clone(), false));
-    let stderr_reader = child
-        .stderr
-        .take()
-        .map(|pipe| spawn_observed_pipe_reader(pipe, output.max_bytes, output.live.clone(), true));
+    let stdout_reader = child.stdout.take().map(|pipe| {
+        spawn_observed_pipe_reader(
+            pipe,
+            output.max_bytes,
+            output.encoding,
+            output.live.clone(),
+            false,
+        )
+    });
+    let stderr_reader = child.stderr.take().map(|pipe| {
+        spawn_observed_pipe_reader(
+            pipe,
+            output.max_bytes,
+            output.encoding,
+            output.live.clone(),
+            true,
+        )
+    });
 
     let mut timed_out = false;
     let mut pending_child = None;
@@ -565,12 +602,13 @@ fn spawn_pipe_reader(
     pipe: impl Read + Send + 'static,
     max_output_bytes: usize,
 ) -> mpsc::Receiver<CapturedText> {
-    spawn_observed_pipe_reader(pipe, max_output_bytes, None, false)
+    spawn_observed_pipe_reader(pipe, max_output_bytes, OutputEncoding::Utf8, None, false)
 }
 
 fn spawn_observed_pipe_reader(
     mut pipe: impl Read + Send + 'static,
     max_output_bytes: usize,
+    encoding: OutputEncoding,
     live: Option<Arc<ProcessOutputCapture>>,
     stderr: bool,
 ) -> mpsc::Receiver<CapturedText> {
@@ -578,34 +616,20 @@ fn spawn_observed_pipe_reader(
     let _ = thread::Builder::new()
         .name("balancehub-process-output".to_string())
         .spawn(move || {
-            let mut buffer = VecDeque::with_capacity(max_output_bytes.min(64 * 1024));
+            let mut buffer = OutputBuffer::new(max_output_bytes, encoding);
             let mut chunk = [0_u8; 8 * 1024];
-            let mut truncated = false;
             while let Ok(read) = pipe.read(&mut chunk) {
                 if read == 0 {
                     break;
                 }
-                if read > max_output_bytes {
-                    buffer.clear();
-                    buffer.extend(&chunk[read - max_output_bytes..read]);
-                    truncated = true;
-                    if let Some(live) = &live {
-                        live.update(stderr, &buffer, truncated);
-                    }
-                    continue;
-                }
-                while buffer.len().saturating_add(read) > max_output_bytes {
-                    buffer.pop_front();
-                    truncated = true;
-                }
-                buffer.extend(&chunk[..read]);
+                buffer.push(&chunk[..read]);
                 if let Some(live) = &live {
-                    live.update(stderr, &buffer, truncated);
+                    live.update(stderr, &buffer);
                 }
             }
 
-            let mut text =
-                String::from_utf8_lossy(&buffer.into_iter().collect::<Vec<_>>()).into_owned();
+            let truncated = buffer.truncated;
+            let mut text = buffer.text(true);
             if truncated {
                 text.insert_str(0, "[输出过长，仅保留末尾内容]\n");
             }
@@ -716,6 +740,33 @@ fn request_process_tree_kill(pid: u32) -> Option<Child> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoded_command_output_uses_the_managed_reader() {
+        #[cfg(unix)]
+        let mut command = {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", "printf '\\055\\116\\207\\145'"]);
+            command
+        };
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/D", "/U", "/C", "echo 中文"]);
+            command
+        };
+        let output = run_command_with_output_timeout_encoded(
+            &mut command,
+            Duration::from_secs(3),
+            4096,
+            OutputEncoding::Utf16Le,
+        )
+        .unwrap();
+        assert!(!output.timed_out);
+        assert!(output.status.is_some_and(|status| status.success()));
+        assert_eq!(output.stdout.trim_end(), "中文");
+        assert!(!output.stdout_truncated);
+    }
 
     #[cfg(unix)]
     #[test]

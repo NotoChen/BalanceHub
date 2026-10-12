@@ -63,19 +63,19 @@
 }
 
 .settings-section-title strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 14px;
   font-weight: 650;
 }
 
 .settings-section-title span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
 .settings-section-arrow {
   flex: 0 0 auto;
-  color: #4080ff;
+  color: var(--surface-accent);
   font-size: 12px;
   font-weight: 650;
 }
@@ -91,7 +91,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.46);
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 650;
   padding: 0 10px;
@@ -115,13 +115,13 @@
 }
 
 .settings-preview span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
 .settings-preview strong {
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -147,7 +147,7 @@
 
 .arco-drawer-title,
 .arco-modal-title {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0;
@@ -179,14 +179,14 @@
   border: 1px solid rgba(22, 93, 255, 0.16);
   border-radius: 9px;
   background: rgba(22, 93, 255, 0.09);
-  color: #165dff;
+  color: var(--surface-accent);
   font-size: 17px;
 }
 
 .drawer-heading-icon-settings {
   border-color: rgba(14, 159, 168, 0.2);
   background: rgba(14, 159, 168, 0.1);
-  color: #0e9fa8;
+  color: var(--surface-teal);
 }
 
 .drawer-heading-copy {
@@ -196,7 +196,7 @@
 }
 
 .drawer-heading-kicker {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.08em;
@@ -206,7 +206,7 @@
 
 .drawer-heading-copy strong {
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 16px;
   font-weight: 700;
   line-height: 1.3;
@@ -251,13 +251,13 @@
 }
 
 .settings-drawer-intro strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 700;
 }
 
 .settings-drawer-intro span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
   line-height: 1.45;
 }
@@ -267,7 +267,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.68);
-  color: #4e5969 !important;
+  color: var(--surface-ink-soft) !important;
   font-size: 10px !important;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -307,7 +307,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 7px;
   background: var(--glass-card-muted);
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 14px;
   transition:
     transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
@@ -317,7 +317,7 @@
 
 .settings-section-glyph.expanded {
   border-color: rgba(22, 93, 255, 0.28);
-  color: #165dff;
+  color: var(--surface-accent);
   transform: rotate(90deg);
 }
 

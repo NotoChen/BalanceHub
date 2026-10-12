@@ -29,13 +29,13 @@
 }
 
 .provider-card-api-key-switcher-header strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   font-weight: 650;
 }
 
 .provider-card-api-key-switcher-header span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
@@ -57,7 +57,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   cursor: pointer;
   padding: 6px 8px;
   text-align: left;
@@ -81,7 +81,7 @@
   height: 16px;
   align-items: center;
   justify-content: center;
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .provider-card-api-key-switcher-check svg {
@@ -104,13 +104,13 @@
 }
 
 .provider-card-api-key-switcher-copy strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 11px;
   font-weight: 600;
 }
 
 .provider-card-api-key-switcher-copy small {
-  color: #86909c;
+  color: var(--surface-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 9px;
   line-height: 1.2;
@@ -121,7 +121,7 @@
   border: 0;
   border-top: 1px solid var(--glass-border);
   background: transparent;
-  color: #315f9d;
+  color: var(--surface-accent);
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
@@ -132,7 +132,7 @@
 
 .provider-card-api-key-switcher-manage:hover,
 .provider-card-api-key-switcher-manage:focus-visible {
-  color: #165dff;
+  color: var(--surface-accent);
   outline: none;
 }
 
@@ -151,7 +151,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   cursor: pointer;
   padding: 6px 8px;
   text-align: left;
@@ -178,7 +178,7 @@
 .provider-card-cli-config-list button > svg {
   width: 15px;
   height: 15px;
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .provider-card-cli-config-list button > img {
@@ -201,13 +201,13 @@
 }
 
 .provider-card-cli-config-list button strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   font-weight: 650;
 }
 
 .provider-card-cli-config-list button small {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
 }
 
@@ -217,7 +217,7 @@
 }
 
 .provider-card-cli-switch-option-current > svg:last-child {
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .provider-card-header-meta,
@@ -253,7 +253,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
 }
 
 .provider-card-cli-signal .brand-icon {
@@ -292,8 +292,8 @@ button.provider-card-cli-signal:active {
   place-items: center;
   border: 2px solid var(--workspace-card-surface);
   border-radius: 9px;
-  background: #e34d59;
-  color: #ffffff;
+  background: var(--surface-danger);
+  color: var(--surface-on-accent);
   font-size: 9px;
   font-variant-numeric: tabular-nums;
   font-weight: 750;
@@ -317,7 +317,7 @@ button.provider-card-cli-signal:active {
   overflow: visible;
   align-items: center;
   gap: 3px;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
 }
 
 .provider-card-auth-summary > svg {
@@ -332,7 +332,7 @@ button.provider-card-cli-signal:active {
 
 .provider-card-action-panel-title {
   min-height: 28px;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
   font-weight: 600;
   line-height: 28px;
@@ -355,7 +355,7 @@ button.provider-card-cli-signal:active {
 }
 
 .provider-card-cli-panel-header strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 650;
 }
@@ -371,7 +371,7 @@ button.provider-card-cli-signal:active {
 }
 
 .provider-card-action-panel-section-title {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 10px;
   font-weight: 650;
   line-height: 24px;
@@ -399,7 +399,7 @@ button.provider-card-cli-signal:active {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   cursor: pointer;
   padding: 6px 8px;
   text-align: left;
@@ -427,7 +427,7 @@ button.provider-card-cli-signal:active {
 .provider-card-action-list button svg {
   width: 14px;
   height: 14px;
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .provider-card-action-list button .provider-auth-icon-session {
@@ -483,7 +483,7 @@ button.provider-card-cli-signal:active {
 .provider-card-action-list button span {
   min-width: 0;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   font-weight: 550;
   text-overflow: ellipsis;

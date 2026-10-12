@@ -94,6 +94,7 @@ fn snapshot(rows: Vec<AgentSessionRow>, complete: bool) -> Snapshot {
         rows,
         parent_updates: HashMap::new(),
         states: Vec::new(),
+        workspaces: Vec::new(),
         complete,
         progress: QueryProgress::default(),
         used_at: Instant::now(),
@@ -537,6 +538,7 @@ fn agent_counts_include_main_and_subagents_once_across_duplicate_scans_and_curso
         references: outcome.references.clone(),
         matched: outcome.matched.clone(),
         states: outcome.states.clone(),
+        workspaces: outcome.workspaces.clone(),
         can_continue: outcome.can_continue,
     };
     let mut saved = snapshot(Vec::new(), false);
@@ -645,9 +647,9 @@ fn agent_counts_require_every_expected_source_workspace_pair_and_keep_complete_a
             ]
         );
     }
-    saved
-        .states
-        .retain(|state| state.source_id != "claude-other" || state.workspace_id != "project");
+    saved.states.retain(|state| {
+        state.source_id != "claude-other" || state.workspace_id.as_deref() != Some("project")
+    });
     let counts = agent_counts(&saved, &sources, &workspaces);
     assert_eq!(counts[0].total, Some(0));
     assert_eq!(
@@ -693,7 +695,7 @@ fn count_workspace(id: &str) -> AgentSessionWorkspace {
 }
 
 #[test]
-fn default_selection_covers_registered_directories_and_explicit_ids_only_narrow_the_scope() {
+fn default_selection_discovers_all_native_directories_and_explicit_ids_narrow_the_scope() {
     let mut home = count_workspace("home");
     home.is_home = true;
     let registered = count_workspace("registered");
@@ -706,15 +708,16 @@ fn default_selection_covers_registered_directories_and_explicit_ids_only_narrow_
         explicit_workdir: None,
         sources: HashMap::new(),
     };
-    assert_eq!(
-        select_workspaces(&scope, &[]).unwrap(),
-        [home, registered.clone()]
-    );
+    assert!(select_workspaces(&scope, &[]).unwrap().is_empty());
     assert_eq!(
         select_workspaces(&scope, std::slice::from_ref(&registered.id)).unwrap(),
         [registered]
     );
     assert!(select_workspaces(&scope, &["not-registered".into()]).is_err());
+    let mut explicit = scope;
+    explicit.explicit_workdir = Some(home.path.clone());
+    explicit.public.workspaces = vec![home.clone()];
+    assert_eq!(select_workspaces(&explicit, &[]).unwrap(), [home]);
 }
 
 fn count_state(
@@ -724,12 +727,60 @@ fn count_state(
 ) -> AgentSessionSourceState {
     AgentSessionSourceState {
         source_id: source.id.clone(),
-        workspace_id: workspace.id.clone(),
+        workspace_id: Some(workspace.id.clone()),
         state: status,
         loaded_count: 999,
         message: None,
         index_state: CliSessionIndexState::Ready,
     }
+}
+
+#[test]
+fn global_discovery_preserves_history_without_cwd_and_reports_source_level_failures() {
+    let (root, source, native, _) = fixture("global-unknown-directory", 1);
+    let read = || {
+        let limit = budget(4 * 1024 * 1024);
+        with_read_budget(&limit, || {
+            scan_source(
+                &source,
+                &native,
+                &[],
+                "",
+                &HistoryIndex::new(&index_config(&root), source.agent_kind, &source.id),
+                &limit,
+                Arc::new(Mutex::new(HashMap::new())),
+            )
+        })
+    };
+    let outcome = read();
+    assert_eq!(outcome.references.len(), 1);
+    let row = &outcome.references[0].row;
+    assert_eq!(row.session.workdir, "");
+    assert!(!row.session.can_resume);
+    assert!(row.resume_reason.as_deref().unwrap().contains("未提供"));
+    assert!(outcome
+        .states
+        .iter()
+        .any(|state| state.workspace_id.is_none()
+            && state.state == AgentSessionSourceStatus::Complete));
+    let counts = super::super::counts::summarize(
+        outcome
+            .references
+            .iter()
+            .map(|entry| (source.agent_kind, entry.row.session_ref.as_str())),
+        &outcome.states,
+        std::slice::from_ref(&source),
+        &[],
+    );
+    assert_eq!(counts[0].total, Some(1));
+    fs::remove_dir_all(native.config_root.join("projects")).unwrap();
+    fs::write(native.config_root.join("projects"), "not a directory").unwrap();
+    let failed = read();
+    assert!(failed.references.is_empty());
+    assert_eq!(failed.states.len(), 1);
+    assert!(failed.states[0].workspace_id.is_none());
+    assert_eq!(failed.states[0].state, AgentSessionSourceStatus::Partial);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

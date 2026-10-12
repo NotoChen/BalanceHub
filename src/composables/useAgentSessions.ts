@@ -34,13 +34,11 @@ interface AgentSessionsOptions {
   active: Ref<boolean>;
   agentKinds: Ref<AgentCliKind[]>;
   query: Ref<string>;
-  /** Explicit CLI picker scope is resolved to one workspace by Rust. */
+  /** Optional exact directory scope; null reads all native projects. */
   explicitWorkdir?: Ref<string | null>;
-  /** Changes when the recorded-directory set changes, including forgetting a path. */
+  /** Optional invalidation signal for changes to native source settings. */
   scopeKey?: Ref<string>;
   pageSize?: number;
-  initialWorkspaceMode?: "home" | "all";
-  initialWorkspaceSelection?: string | null;
   initialRoleFilter?: AgentSessionRoleFilter;
   refreshOnIndexUpdate?: boolean;
   autoLoad?: boolean;
@@ -57,10 +55,6 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   const scope = shallowRef<AgentSessionScope | null>(null);
   const scopeLoading = ref(false);
   const scopeError = ref("");
-  const workspaceSelection = ref<string | null>(
-    options.initialWorkspaceSelection ?? null,
-  );
-  const allWorkspaces = ref(options.initialWorkspaceMode !== "home");
   const roleFilter = ref<AgentSessionRoleFilter>(
     options.initialRoleFilter ?? "all",
   );
@@ -80,14 +74,6 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   const busy = computed(
     () => scopeLoading.value || loading.value || loadingMore.value,
   );
-  const selectedWorkspaces = computed(() => {
-    const choices = scope.value?.workspaces ?? [];
-    if (options.explicitWorkdir) return choices;
-    if (allWorkspaces.value) return choices;
-    return choices.filter(
-      (workspace) => workspace.id === workspaceSelection.value,
-    );
-  });
   const incomplete = computed(() =>
     sourceStates.value.some((source) => source.state !== "complete"),
   );
@@ -235,7 +221,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
         const result = await withTimeout(
           api.scope(options.explicitWorkdir?.value ?? null),
           15_000,
-          "读取会话目录范围超时，请刷新重试",
+          "读取会话来源超时，请刷新重试",
         );
         if (
           disposed ||
@@ -249,17 +235,6 @@ export function useAgentSessions(options: AgentSessionsOptions) {
           closeDetail();
         }
         scope.value = result;
-        if (
-          !workspaceSelection.value ||
-          !result.workspaces.some(
-            (workspace) => workspace.id === workspaceSelection.value,
-          )
-        ) {
-          workspaceSelection.value =
-            result.workspaces.find((workspace) => workspace.isHome)?.id ??
-            result.workspaces[0]?.id ??
-            null;
-        }
         return result;
       } catch (failure) {
         if (
@@ -314,10 +289,9 @@ export function useAgentSessions(options: AgentSessionsOptions) {
         context !== contextKey.value
       )
         return;
-      const workspaceIds = selectedWorkspaces.value.map(
-        (workspace) => workspace.id,
-      );
-      if (!workspaceIds.length) {
+      const queryAll = !options.explicitWorkdir?.value;
+      const workspaceIds = queryAll ? [] : currentScope.workspaces.map((workspace) => workspace.id);
+      if (!queryAll && !workspaceIds.length) {
         error.value = "当前没有可查询的工作目录，请刷新目录范围";
         return;
       }
@@ -349,6 +323,9 @@ export function useAgentSessions(options: AgentSessionsOptions) {
       ) {
         throw new Error("会话范围或分页快照已变更，请刷新后继续查看");
       }
+      const directories = new Map(scope.value.workspaces.map((workspace) => [workspace.id, workspace]));
+      for (const workspace of page.workspaces) directories.set(workspace.id, workspace);
+      scope.value = { ...scope.value, workspaces: [...directories.values()] };
       const merged = append
         ? new Map(rows.value.map((row) => [row.sessionRef, row]))
         : new Map<string, AgentSessionRow>();
@@ -433,19 +410,6 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     invalidateList();
     stopScopeRequest();
     cancelled.value = true;
-  }
-
-  function selectWorkspace(id: string | null) {
-    if (
-      id === null
-        ? allWorkspaces.value
-        : !allWorkspaces.value && workspaceSelection.value === id
-    )
-      return;
-    allWorkspaces.value = id === null;
-    if (id !== null) workspaceSelection.value = id;
-    invalidateQuery();
-    void load();
   }
 
   function scheduleSearch() {
@@ -539,9 +503,6 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     scope,
     scopeLoading,
     scopeError,
-    workspaceSelection,
-    allWorkspaces,
-    selectedWorkspaces,
     roleFilter,
     rows,
     loading,
@@ -565,7 +526,6 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     refresh,
     loadMore,
     cancel,
-    selectWorkspace,
     suspend,
     invalidate,
     invalidateList,

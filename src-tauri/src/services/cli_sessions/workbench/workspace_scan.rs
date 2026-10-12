@@ -1,8 +1,10 @@
 use super::{scope::path_identity, state};
 use crate::{
     models::{AgentCliKind, AgentSessionWorkspace},
+    platform::paths::compatible_path,
     services::agent_cli::contracts::{
-        SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryWorkspace, SessionReadBudget,
+        SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryScan, SessionHistoryWorkspace,
+        SessionReadBudget,
     },
 };
 use std::{
@@ -20,7 +22,7 @@ pub(super) fn scan_workspaces(
     workspaces: &[AgentSessionWorkspace],
     budget: &SessionReadBudget,
     mode: SessionHistoryReadMode,
-) -> Result<Vec<SessionHistoryWorkspace>, String> {
+) -> Result<SessionHistoryScan, String> {
     budget.check()?;
     let mut merged = BTreeMap::new();
     let mut paths = BTreeSet::new();
@@ -44,12 +46,20 @@ pub(super) fn scan_workspaces(
             paths.insert(path);
         }
     }
-    let paths = paths.into_iter().collect::<Vec<_>>();
-    let loaded = (adapter.scan)(kind, root, &paths, budget, mode)?;
-    for loaded in loaded {
-        let Some(workspace) = merged.get_mut(&path_identity(&loaded.workdir)) else {
+    let paths = if paths.iter().any(|path| path.as_os_str().is_empty()) {
+        Vec::new()
+    } else {
+        paths.into_iter().collect::<Vec<_>>()
+    };
+    let scan = (adapter.scan)(kind, root, &paths, budget, mode)?;
+    for loaded in scan.workspaces {
+        let identity = path_identity(&loaded.workdir);
+        if !workspaces.is_empty() && !merged.contains_key(&identity) {
             continue;
-        };
+        }
+        let workspace = merged
+            .entry(identity.clone())
+            .or_insert_with(|| SessionHistoryWorkspace::new(Path::new(&identity)));
         workspace.records.extend(loaded.records);
         workspace.complete &= loaded.complete;
         for diagnostic in loaded.diagnostics {
@@ -58,14 +68,23 @@ pub(super) fn scan_workspaces(
             }
         }
     }
-    Ok(merged
-        .into_values()
-        .map(|mut workspace| {
-            workspace.records = crate::services::cli_sessions::normalize_records(workspace.records);
-            workspace
-        })
-        .collect())
+    Ok(SessionHistoryScan {
+        workspaces: merged
+            .into_values()
+            .map(|mut workspace| {
+                workspace.records =
+                    crate::services::cli_sessions::normalize_records(workspace.records);
+                for record in &mut workspace.records {
+                    record.summary.workdir = compatible_path(&workspace.workdir)
+                        .to_string_lossy()
+                        .into_owned();
+                }
+                workspace
+            })
+            .collect(),
+        diagnostics: scan.diagnostics,
+    })
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;

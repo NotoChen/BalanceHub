@@ -6,6 +6,6 @@ pub(super) fn launch_environment(root: &Path) -> Result<EnvironmentPatch, &'stat
         return Err("Grok 原生目录必须是绝对路径");
     }
     let mut environment = EnvironmentPatch::default();
-    environment.set("GROK_HOME", root.to_string_lossy());
+    environment.set_path("GROK_HOME", root);
     Ok(environment)
 }

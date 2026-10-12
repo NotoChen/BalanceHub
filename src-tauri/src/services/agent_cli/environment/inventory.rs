@@ -554,8 +554,12 @@ fn build_inventory_with_lexical(
                         origin: source.origin,
                         environment_id: environment.id.clone(),
                         workspace_id: context.workspace_id.clone(),
-                        path: source.path.to_string_lossy().into_owned(),
-                        allowed_root: source.allowed_root.to_string_lossy().into_owned(),
+                        path: crate::platform::paths::compatible_path(&source.path)
+                            .to_string_lossy()
+                            .into_owned(),
+                        allowed_root: crate::platform::paths::compatible_path(&source.allowed_root)
+                            .to_string_lossy()
+                            .into_owned(),
                         precedence: source.precedence,
                         writable: source.writable,
                         sensitive: source.sensitive,

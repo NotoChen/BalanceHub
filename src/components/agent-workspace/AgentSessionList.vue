@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
-import { ArrowRight, FolderOpen, Terminal } from "@lucide/vue";
+import { ArrowRight, Check, FileText, FolderOpen, Terminal } from "@lucide/vue";
 import { Message } from "@arco-design/web-vue";
 import type {
   AgentCliDescriptor,
@@ -9,12 +9,11 @@ import type {
 } from "../../stores/provider-types";
 import type {
   AgentSessionRow,
-  AgentSessionWorkspace,
 } from "../../stores/agent-session-types";
 import type { SessionListPosition } from "../../stores/session-reader-types";
 import { copyText } from "../../composables/useClipboard";
 import {
-  groupSessionRows,
+  groupSessionRowsByDay,
   sessionModelLabel,
   sessionTime,
 } from "../../utils/agent-session-display";
@@ -26,31 +25,30 @@ const props = withDefaults(
   defineProps<{
     rows: AgentSessionRow[];
     agents?: readonly AgentCliDescriptor[];
-    workspaces?: readonly AgentSessionWorkspace[];
     selectedSessionRef?: string;
+    selectionMode?: boolean;
     allowResume?: boolean;
     resumeBusy?: (sessionRef: string) => boolean;
     runtimeSessions?: AgentRuntimeSession[];
     activatingId?: string | null;
     disabled?: boolean;
-    groupBy?: "time" | "project";
     positionKey?: string;
     position?: SessionListPosition | null;
   }>(),
   {
     agents: () => [],
-    workspaces: () => [],
     selectedSessionRef: "",
+    selectionMode: false,
     allowResume: false,
     runtimeSessions: () => [],
     activatingId: null,
     disabled: false,
-    groupBy: "time",
     positionKey: "",
     position: null,
   },
 );
 const emit = defineEmits<{
+  select: [row: AgentSessionRow];
   detail: [row: AgentSessionRow];
   resume: [row: AgentSessionRow];
   parent: [sessionRef: string];
@@ -69,7 +67,7 @@ const entries = computed(() => {
       .filter((session) => session.actions.canActivateTerminal)
       .map((session) => [session.runtimeId, session]),
   );
-  return groupSessionRows(props.rows, props.groupBy, props.workspaces).map(
+  return groupSessionRowsByDay(props.rows).map(
     ({ row, heading }) => {
       return {
         row,
@@ -152,13 +150,31 @@ async function copy(value: string) {
           <button
             type="button"
             class="agent-session-select"
-            :disabled="disabled"
+            :disabled="
+              disabled ||
+              (selectionMode && !entries[item.index].row.session.canResume)
+            "
+            :aria-label="
+              selectionMode
+                ? `选择会话：${entries[item.index].row.session.title}`
+                : undefined
+            "
+            :aria-pressed="
+              selectionMode
+                ? entries[item.index].row.sessionRef === selectedSessionRef
+                : undefined
+            "
             :aria-current="
+              !selectionMode &&
               entries[item.index].row.sessionRef === selectedSessionRef
                 ? 'true'
                 : undefined
             "
-            @click="emit('detail', entries[item.index].row)"
+            @click="
+              selectionMode
+                ? emit('select', entries[item.index].row)
+                : emit('detail', entries[item.index].row)
+            "
           >
             <AgentCliIcon
               :kind="entries[item.index].row.session.cliKind"
@@ -195,6 +211,14 @@ async function copy(value: string) {
                 {{ entries[item.index].row.session.preview }}
               </p>
             </div>
+            <span
+              v-if="selectionMode"
+              class="agent-session-choice"
+              aria-hidden="true"
+              ><Check
+                v-if="entries[item.index].row.sessionRef === selectedSessionRef"
+                :size="12"
+            /></span>
           </button>
           <div class="agent-session-meta">
             <span>{{ entries[item.index].label }}</span
@@ -215,18 +239,34 @@ async function copy(value: string) {
               >已归档</span
             >
           </div>
+          <p
+            v-if="selectionMode && !entries[item.index].row.session.canResume"
+            class="agent-session-unavailable"
+          >
+            {{ entries[item.index].row.resumeReason || "该会话仅支持查看" }}
+          </p>
           <div class="agent-session-row-footer">
             <button
               type="button"
               class="agent-session-workdir"
+              :disabled="!entries[item.index].row.session.workdir"
               :title="`复制目录：${entries[item.index].row.session.workdir}`"
               @click="copy(entries[item.index].row.session.workdir)"
             >
               <FolderOpen :size="12" /><span>{{
-                entries[item.index].row.session.workdir
+                entries[item.index].row.session.workdir || "未记录工作目录"
               }}</span>
             </button>
             <div class="agent-session-row-actions">
+              <button
+                type="button"
+                class="agent-session-detail-button"
+                :disabled="disabled"
+                :aria-label="`查看会话详情：${entries[item.index].row.session.title}`"
+                @click="emit('detail', entries[item.index].row)"
+              >
+                <FileText :size="14" />查看详情
+              </button>
               <button
                 v-for="runtime in entries[item.index].terminals"
                 :key="runtime.runtimeId"

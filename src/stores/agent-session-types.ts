@@ -1,7 +1,8 @@
 import type {
   SessionSearchHit,
   SessionReaderNavigation,
-} from "./session-reader-types";import type {
+} from "./session-reader-types";
+import type {
   AgentCliKind,
   AgentRuntimeScope,
   CliSessionDetail,
@@ -76,7 +77,7 @@ export type AgentSessionSourceStatus =
 
 export interface AgentSessionSourceState {
   sourceId: string;
-  workspaceId: string;
+  workspaceId: string | null;
   state: AgentSessionSourceStatus;
   loadedCount: number;
   message: string | null;
@@ -116,6 +117,7 @@ export interface AgentSessionPage {
   total: number | null;
   agentCounts: AgentSessionCount[];
   sourceStates: AgentSessionSourceState[];
+  workspaces: AgentSessionWorkspace[];
 }
 
 export interface AgentSessionDetailRequest extends SessionReaderNavigation {

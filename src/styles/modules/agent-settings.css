@@ -60,21 +60,21 @@
 }
 
 .provider-advanced-title strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 14px;
   font-weight: 650;
 }
 
 .provider-advanced-title small {
   overflow: hidden;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .provider-advanced-title b {
-  color: #4080ff;
+  color: var(--surface-accent);
   font-size: 12px;
 }
 
@@ -96,7 +96,7 @@
 }
 
 .provider-advanced-group > strong {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 650;
 }
@@ -156,7 +156,7 @@
   padding: 8px 10px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.34);
-  color: #4e5969;
+  color: var(--surface-ink-soft);
 }
 
 .credential-completion-steps b {
@@ -166,7 +166,7 @@
   min-height: 22px;
   border-radius: 4px;
   background: rgba(134, 144, 156, 0.12);
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 12px;
   font-weight: 600;
 }
@@ -179,7 +179,7 @@
 
 .credential-completion-steps span {
   font-size: 12px;
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .credential-completion-steps strong {
@@ -189,19 +189,19 @@
 
 .credential-step-running b {
   background: rgba(64, 128, 255, 0.14);
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .credential-step-done b,
 .credential-step-skipped b {
   background: rgba(0, 180, 42, 0.12);
-  color: #008a22;
+  color: var(--surface-success);
 }
 
 .credential-step-error b,
 .credential-step-error strong,
 .credential-step-failed strong {
-  color: #d25f00;
+  color: var(--surface-warning);
 }
 
 .model-support-tags {
@@ -214,6 +214,6 @@
 }
 
 .model-support-tags > span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }

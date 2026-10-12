@@ -58,6 +58,7 @@ impl Fixture {
             )
         })
         .unwrap()
+        .workspaces
     }
 }
 impl Drop for Fixture {

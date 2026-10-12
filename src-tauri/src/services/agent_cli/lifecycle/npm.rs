@@ -242,8 +242,11 @@ pub(super) fn upgrade_command(
     }
     let script_stamp =
         ExecutableStamp::capture_path(&runtime.npm_cli).map_err(map_mutation_error)?;
+    let prefix = crate::platform::paths::compatible_path(prefix);
     let mut argv = vec![
-        runtime.npm_cli.to_string_lossy().into_owned(),
+        crate::platform::paths::compatible_path(&runtime.npm_cli)
+            .to_string_lossy()
+            .into_owned(),
         "install".to_owned(),
         "--global".to_owned(),
         "--prefix".to_owned(),
@@ -303,7 +306,9 @@ pub(super) fn probe_version(
             (
                 runtime.node.as_path(),
                 vec![
-                    executable.to_string_lossy().into_owned(),
+                    crate::platform::paths::compatible_path(executable)
+                        .to_string_lossy()
+                        .into_owned(),
                     "--version".to_owned(),
                 ],
             )

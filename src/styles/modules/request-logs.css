@@ -34,14 +34,14 @@
 }
 
 .request-logs-stats span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
 .request-logs-stats strong {
   min-width: 0;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 18px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -51,15 +51,15 @@
 }
 
 .request-logs-stat-cost strong {
-  color: #f53f3f;
+  color: var(--surface-danger);
 }
 
 .request-logs-stat-rpm strong {
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .request-logs-stat-tpm strong {
-  color: #0e9fa8;
+  color: var(--surface-teal);
 }
 
 .request-logs-table-wrap {
@@ -88,7 +88,7 @@
 .request-logs-table td {
   padding: 9px 10px;
   border-bottom: 1px solid var(--glass-border);
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 12px;
   line-height: 1.35;
   text-align: left;
@@ -100,7 +100,7 @@
   z-index: 1;
   top: 0;
   background: rgba(247, 248, 250, 0.96);
-  color: #86909c;
+  color: var(--surface-muted);
   font-weight: 650;
 }
 
@@ -153,7 +153,7 @@
 }
 
 .request-log-time {
-  color: #86909c;
+  color: var(--surface-muted);
   font-variant-numeric: tabular-nums;
   white-space: normal;
 }
@@ -189,7 +189,7 @@
 .request-log-detail-button > span {
   display: block;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -203,7 +203,7 @@
   display: block;
   min-width: 0;
   overflow: hidden;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 11px;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -217,7 +217,7 @@
   display: block;
   min-width: 0;
   overflow: hidden;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   font-weight: 650;
   line-height: 1.4;
@@ -226,11 +226,11 @@
 }
 
 .request-log-cost > strong {
-  color: #f53f3f;
+  color: var(--surface-danger);
 }
 
 .request-log-timing {
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -257,27 +257,27 @@
 
 .request-log-status-ok {
   background: rgba(0, 180, 42, 0.1);
-  color: #00a870;
+  color: var(--surface-success);
 }
 
 .request-log-status-error {
   background: rgba(245, 63, 63, 0.1);
-  color: #f53f3f;
+  color: var(--surface-danger);
 }
 
 .request-log-status-info {
   background: rgba(22, 93, 255, 0.1);
-  color: #165dff;
+  color: var(--surface-accent);
 }
 
 .request-log-status-refund {
   background: rgba(14, 186, 197, 0.12);
-  color: #0e9fa8;
+  color: var(--surface-teal);
 }
 
 .request-log-status-neutral {
   background: rgba(134, 144, 156, 0.12);
-  color: #4e5969;
+  color: var(--surface-ink-soft);
 }
 
 .request-logs-pagination {
@@ -285,7 +285,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
@@ -312,7 +312,7 @@
 
 .request-log-detail-section h4 {
   margin: 0;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 650;
 }
@@ -322,7 +322,7 @@
   max-height: 240px;
   margin: 0;
   overflow: auto;
-  color: #4e5969;
+  color: var(--surface-ink-soft);
   font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -337,13 +337,13 @@
 }
 
 .request-log-detail-row > span {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
 .request-log-detail-row > strong {
   min-width: 0;
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 12px;
   font-weight: 500;
   overflow-wrap: anywhere;
@@ -364,13 +364,13 @@
 }
 
 .password-change-form span {
-  color: #1d2129;
+  color: var(--surface-ink);
   font-size: 13px;
   font-weight: 650;
 }
 
 .password-change-form small {
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
   line-height: 1.45;
 }

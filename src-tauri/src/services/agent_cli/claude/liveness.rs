@@ -34,14 +34,7 @@ pub(super) fn build_plan(request: LivenessRequest<'_>) -> Result<LivenessPlan, S
         "API_TIMEOUT_MS",
         request.timeout_seconds.saturating_mul(1000).to_string(),
     );
-    environment.set(
-        "CLAUDE_CONFIG_DIR",
-        request
-            .isolated_home
-            .join(".claude")
-            .to_string_lossy()
-            .to_string(),
-    );
+    environment.set_path("CLAUDE_CONFIG_DIR", &request.isolated_home.join(".claude"));
 
     let mut args = vec![
         "--bare".to_string(),

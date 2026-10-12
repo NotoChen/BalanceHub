@@ -1,20 +1,21 @@
 :root.theme-dark {
+  color-scheme: dark;
   color: #f2f3f5;
   background: #17171a;
-  --glass-canvas: #17171a;
-  --glass-topbar: #1f2026;
-  --glass-panel: #1f2026;
-  --glass-card: #24262f;
-  --glass-card-muted: #202126;
-  --glass-border: #343743;
-  --glass-border-strong: rgba(255, 255, 255, 0.24);
+  --glass-canvas: var(--product-canvas);
+  --glass-topbar: var(--product-panel);
+  --glass-panel: var(--product-panel);
+  --glass-card: var(--product-panel);
+  --glass-card-muted: var(--product-panel-muted);
+  --glass-border: var(--product-line);
+  --glass-border-strong: var(--product-line-strong);
   --glass-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
   --glass-highlight: none;
 }
 
 :root.theme-dark body,
 :root.theme-dark .content {
-  background: #17171a;
+  background: var(--glass-canvas);
 }
 
 :root.theme-dark .app-shell {
@@ -79,7 +80,7 @@
 :root.theme-dark .provider-card-auth-summary > svg,
 :root.theme-dark .provider-liveness-summary,
 :root.theme-dark .provider-board-section-header span {
-  color: #6b7280;
+  color: var(--surface-muted);
 }
 
 :root.theme-dark .provider-board-section-header h2 {
@@ -369,7 +370,7 @@
 :root.theme-dark .provider-card-disabled .provider-card-auth-summary,
 :root.theme-dark .provider-card-disabled .workspace-card-quick-actions,
 :root.theme-dark .provider-card-disabled .provider-card-unlimited {
-  color: #6b7280;
+  color: var(--surface-muted);
 }
 
 :root.theme-dark .provider-card-disabled .provider-quota-progress .arco-progress-line {

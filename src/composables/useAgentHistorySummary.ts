@@ -4,7 +4,7 @@ import { withTimeout } from "../utils/promise-timeout";
 import type { AgentCliKind } from "../stores/provider-types";
 import type { AgentSessionCount } from "../stores/agent-session-types";
 
-export function useAgentHistorySummary(active: Ref<boolean>, scopeKey: Ref<string>, kinds: Ref<AgentCliKind[]>) {
+export function useAgentHistorySummary(active: Ref<boolean>, kinds: Ref<AgentCliKind[]>) {
   // Rust retains request generations across frontend reloads in the same window.
   const consumerId = `agent-history-count-${crypto.randomUUID()}`;
   const agentCounts = shallowRef<AgentSessionCount[]>([]);
@@ -36,10 +36,9 @@ export function useAgentHistorySummary(active: Ref<boolean>, scopeKey: Ref<strin
     if (pending) selected = [...new Set([...pending.kinds, ...selected])];
     cancel();
     const requestId = ++revision;
-    const scope = scopeKey.value;
     countingKinds.value = selected;
     for (const item of selected) delete errors.value[item];
-    const current = () => !disposed && requestId === revision && scope === scopeKey.value && active.value;
+    const current = () => !disposed && requestId === revision && active.value;
     const task = (async () => {
       try {
         const result = await withTimeout(countAgentSessions({ consumerId, requestId, agentKinds: selected }), 25_000, "读取会话数量超时");
@@ -68,8 +67,8 @@ export function useAgentHistorySummary(active: Ref<boolean>, scopeKey: Ref<strin
     return task;
   }
 
-  watch([active, scopeKey, () => kinds.value.join("|")], ([enabled, scope, agents], previous) => {
-    if (!previous || scope !== previous[1] || agents !== previous[2]) {
+  watch([active, () => kinds.value.join("|")], ([enabled, agents], previous) => {
+    if (!previous || agents !== previous[1]) {
       cancel(); agentCounts.value = []; errors.value = {}; lastRead = 0;
     }
     if (enabled) void refresh();

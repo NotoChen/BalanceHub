@@ -5,7 +5,7 @@ use crate::{
     services::{
         agent_cli::contracts::{
             SessionHistoryAdapter, SessionHistoryReadMode, SessionHistoryRecord,
-            SessionHistorySource, SessionHistoryWorkspace, SessionReadBudget,
+            SessionHistoryScan, SessionHistorySource, SessionHistoryWorkspace, SessionReadBudget,
         },
         cli_sessions::workbench::{cached_history_record_facts, HistoryRecordFacts},
     },
@@ -39,7 +39,29 @@ fn scan(
     workdirs: &[PathBuf],
     budget: &SessionReadBudget,
     mode: SessionHistoryReadMode,
-) -> Result<Vec<SessionHistoryWorkspace>, String> {
+) -> Result<SessionHistoryScan, String> {
+    let lookup = ProjectLookup::new(root, budget)?;
+    if workdirs.is_empty() {
+        let mut result = SessionHistoryScan::default();
+        for project in lookup.discover_all(budget)? {
+            if let Err(error) = budget.check() {
+                result.failed(error);
+                break;
+            }
+            let mut records = SessionHistoryWorkspace::new(Path::new(""));
+            if let Err(error) = scan_project(kind, &project, None, &mut records, budget, mode) {
+                records.failed(error);
+            }
+            for diagnostic in records.diagnostics {
+                result.failed(diagnostic);
+            }
+            for record in records.records {
+                let origin = PathBuf::from(&record.summary.workdir);
+                result.workspace(&origin).records.push(record);
+            }
+        }
+        return Ok(result);
+    }
     let selectors = workdirs
         .iter()
         .map(|path| {
@@ -49,25 +71,25 @@ fn scan(
             Ok(selector)
         })
         .collect::<Result<Vec<_>, String>>()?;
-    let lookup = ProjectLookup::new(root, budget)?;
     let candidates = lookup.discover(&selectors, budget)?;
-    let mut result = Vec::new();
+    let mut result = SessionHistoryScan::default();
     for ((workdir, selector), projects) in workdirs.iter().zip(&selectors).zip(candidates) {
         let mut workspace = SessionHistoryWorkspace::new(workdir);
         for project in projects {
-            if let Err(error) = scan_project(kind, &project, selector, &mut workspace, budget, mode)
+            if let Err(error) =
+                scan_project(kind, &project, Some(selector), &mut workspace, budget, mode)
             {
                 workspace.failed(error);
             }
         }
-        result.push(workspace);
+        result.workspaces.push(workspace);
     }
     Ok(result)
 }
 fn scan_project(
     kind: AgentCliKind,
     project: &ProjectCandidate,
-    selector: &ProjectSelector,
+    selector: Option<&ProjectSelector>,
     workspace: &mut SessionHistoryWorkspace,
     budget: &SessionReadBudget,
     mode: SessionHistoryReadMode,
@@ -131,7 +153,7 @@ fn add_record(
     kind: AgentCliKind,
     path: &Path,
     project_match: ProjectMatch,
-    selector: &ProjectSelector,
+    selector: Option<&ProjectSelector>,
     workspace: &mut SessionHistoryWorkspace,
     mode: SessionHistoryReadMode,
 ) {
@@ -157,7 +179,9 @@ fn add_record(
                     native_id = native_id.take().or(id);
                     native_origin = native_origin.take().or(origin);
                     native_id.is_some()
-                        && (project_match != ProjectMatch::Prefix || native_origin.is_some())
+                        && (project_match != ProjectMatch::Prefix
+                            || native_origin.is_some()
+                            || (selector.is_none() && complete))
                 },
             )?;
             if metadata.is_none() {
@@ -242,7 +266,7 @@ fn add_record(
     };
     match result {
         Ok(Some(facts)) => {
-            if project_match == ProjectMatch::Prefix {
+            if let Some(selector) = selector.filter(|_| project_match == ProjectMatch::Prefix) {
                 match selector.proves_origin(facts.native_origin_workdir.as_deref()) {
                     Some(true) => {}
                     Some(false) => return,
@@ -257,7 +281,16 @@ fn add_record(
                 }
             }
             let mut record = facts.record;
-            record.summary.workdir = workspace.workdir.to_string_lossy().to_string();
+            record.summary.workdir = if selector.is_some() {
+                workspace.workdir.to_string_lossy().to_string()
+            } else {
+                facts
+                    .native_origin_workdir
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new(""))
+                    .to_string_lossy()
+                    .into_owned()
+            };
             if let Some(reason) = &record.content_unavailable_reason {
                 workspace.failed(reason.clone());
             }

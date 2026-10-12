@@ -5,17 +5,12 @@ import {
   ChevronDown,
   CircleAlert,
   CircleHelp,
-  Copy,
-  FolderOpen,
   RefreshCw,
   X,
 } from "@lucide/vue";
-import { Message } from "@arco-design/web-vue";
 import { useAgentSessions } from "../../composables/useAgentSessions";
 import { useAgentWorkspaceStore } from "../../stores/agent-workspace";
 import { useAgentSessionResumeStore } from "../../stores/agent-session-resume";
-import { useWorkspaceStore } from "../../stores/workspaces";
-import { copyText } from "../../composables/useClipboard";
 import type {
   AgentCliKind,
   AgentInstallation,
@@ -52,7 +47,6 @@ const emit = defineEmits<{
 }>();
 const navigation = useAgentWorkspaceStore();
 const { sessionHistoryQuery: query } = storeToRefs(navigation);
-const workspaces = useWorkspaceStore();
 const tasks = useAgentSessionResumeStore();
 const historyActive = computed(
   () =>
@@ -63,53 +57,25 @@ const historyActive = computed(
 const selectedAgentKinds = computed<AgentCliKind[]>(() =>
   navigation.sessionAgentFilter ? [navigation.sessionAgentFilter] : [],
 );
-const scopeKey = computed(() =>
-  JSON.stringify(
-    [
-      ...new Set(workspaces.workspaces.map((workspace) => workspace.path)),
-    ].sort(),
-  ),
-);
 const history = reactive(
   useAgentSessions({
     active: historyActive,
     agentKinds: selectedAgentKinds,
     query,
-    scopeKey,
-    initialWorkspaceMode: navigation.sessionWorkspaceMode,
-    initialWorkspaceSelection: navigation.sessionWorkspaceSelection,
     initialRoleFilter: navigation.sessionRoleFilter,
   }),
 );
 const resumeRow = ref<AgentSessionRow | null>(null);
-const groupBy = ref<"time" | "project">("time");
 const listPosition = shallowRef<SessionListPosition | null>(null);
 const listPositionKey = computed(() =>
   JSON.stringify([
     history.scope?.revision,
     navigation.sessionAgentFilter,
-    history.allWorkspaces ? null : history.workspaceSelection,
     history.roleFilter,
     query.value.trim(),
-    groupBy.value,
   ]),
 );
 const resumeRevision = ref("");
-const selectedDirectory = computed(() =>
-  history.selectedWorkspaces.length === 1
-    ? history.selectedWorkspaces[0]
-    : null,
-);
-const directoryValue = computed(() =>
-  history.allWorkspaces ? "" : (history.workspaceSelection ?? undefined),
-);
-const scopeLabel = computed(() =>
-  history.allWorkspaces
-    ? `全部已记录目录（含主目录，共 ${history.selectedWorkspaces.length} 个）`
-    : selectedDirectory.value
-      ? `${selectedDirectory.value.isHome ? "主目录本身" : "工作目录"} · ${selectedDirectory.value.path}`
-      : "正在读取目录范围",
-);
 const issueSources = computed(() =>
   history.sourceStates.filter((source) =>
     ["partial", "unavailable", "unsupported"].includes(source.state),
@@ -131,9 +97,6 @@ const detailRuntime = computed(() =>
     history.detailRow?.runtimeIds.includes(session.runtimeId),
   ),
 );
-function selectDirectory(value: unknown) {
-  if (typeof value === "string") history.selectWorkspace(value || null);
-}
 function sourceLabel(state: AgentSessionSourceState) {
   const source = history.scope?.sources.find(
     (candidate) => candidate.id === state.sourceId,
@@ -144,7 +107,7 @@ function sourceLabel(state: AgentSessionSourceState) {
   const workspace = history.scope?.workspaces.find(
     (candidate) => candidate.id === state.workspaceId,
   );
-  return `${agent?.label || source?.agentKind || "原生来源"} · ${workspace?.path || "工作目录"}`;
+  return `${agent?.label || source?.agentKind || "原生来源"} · ${workspace?.path || (state.workspaceId === null ? "全部目录" : "未记录目录")}`;
 }
 function openResume(row: AgentSessionRow) {
   if (
@@ -156,15 +119,6 @@ function openResume(row: AgentSessionRow) {
   history.closeDetail();
   resumeRevision.value = history.scope.revision;
   resumeRow.value = row;
-}
-async function copyDirectory() {
-  if (!selectedDirectory.value) return;
-  try {
-    await copyText(selectedDirectory.value.path);
-    Message.success("已复制完整目录");
-  } catch (failure) {
-    Message.error(failure instanceof Error ? failure.message : String(failure));
-  }
 }
 function refresh() {
   emit("refreshRuntime");
@@ -180,8 +134,7 @@ watch(
       historyActive.value,
       navigation.sessionAgentFilter,
       query.value,
-      history.workspaceSelection,
-      history.allWorkspaces,
+      history.roleFilter,
       history.scope?.revision,
     ] as const,
   () => {
@@ -190,30 +143,12 @@ watch(
   { flush: "sync" },
 );
 watch(
-  () =>
-    [
-      navigation.sessionWorkspaceSelection,
-      navigation.sessionWorkspaceMode,
-      navigation.sessionRoleFilter,
-    ] as const,
-  ([workspace, mode, role]) => {
-    if (mode === "all" || workspace !== null)
-      history.selectWorkspace(mode === "all" ? null : workspace);
-    history.roleFilter = role;
-  },
+  () => navigation.sessionRoleFilter,
+  (role) => { history.roleFilter = role; },
 );
 watch(
-  () =>
-    [
-      history.workspaceSelection,
-      history.allWorkspaces,
-      history.roleFilter,
-    ] as const,
-  ([workspace, all, role]) => {
-    navigation.sessionWorkspaceSelection = workspace;
-    navigation.sessionWorkspaceMode = all ? "all" : "home";
-    navigation.sessionRoleFilter = role;
-  },
+  () => history.roleFilter,
+  (role) => { navigation.sessionRoleFilter = role; },
   { flush: "sync" },
 );
 onMounted(() => {
@@ -276,45 +211,13 @@ defineExpose({ refresh });
     >
       <aside class="agent-session-browser" aria-label="会话检索">
         <div class="agent-session-filters">
-          <div class="agent-session-directory" :title="scopeLabel">
-            <a-select
-              :model-value="directoryValue"
-              :loading="history.scopeLoading"
-              aria-label="会话工作目录"
-              @change="selectDirectory"
-              ><template #prefix
-                ><FolderOpen :size="14" aria-hidden="true" /></template
-              ><a-option value="">全部已记录目录（含主目录）</a-option
-              ><a-option
-                v-for="workspace in history.scope?.workspaces || []"
-                :key="workspace.id"
-                :value="workspace.id"
-                >{{ workspace.isHome ? "主目录 · " : "" }}{{ workspace.path
-                }}{{ workspace.exists ? "" : " · 不存在或未挂载" }}</a-option
-              ></a-select
-            ><button
-              v-if="selectedDirectory"
-              type="button"
-              class="agent-catalog-icon-action"
-              aria-label="复制当前会话目录"
-              title="复制完整目录"
-              @click="copyDirectory"
-            >
-              <Copy :size="14" />
-            </button>
-          </div>
           <a-select v-model="history.roleFilter" aria-label="会话角色"
             ><a-option value="all">全部会话</a-option
             ><a-option value="main">主会话</a-option
             ><a-option value="subagent">子 Agent 会话</a-option></a-select
           >
+          <span class="agent-session-order">最近更新优先</span>
         </div>
-        <p
-          v-if="selectedDirectory && !selectedDirectory.exists"
-          class="agent-workspace-note"
-        >
-          目录不存在或未挂载；原生存储可读时仍可查看历史，继续前需要恢复目录。
-        </p>
         <p
           v-if="history.scopeError || history.error"
           class="agent-workspace-error"
@@ -322,21 +225,6 @@ defineExpose({ refresh });
         >
           {{ history.scopeError || history.error }}
         </p>
-        <div class="agent-session-grouping" role="group" aria-label="会话分组">
-          <button
-            type="button"
-            :aria-pressed="groupBy === 'time'"
-            @click="groupBy = 'time'"
-          >
-            按时间</button
-          ><button
-            type="button"
-            :aria-pressed="groupBy === 'project'"
-            @click="groupBy = 'project'"
-          >
-            按项目
-          </button>
-        </div>
         <div class="agent-session-result-summary">
           <span role="status"
             >已显示 {{ history.rows.length }} 条<span
@@ -354,18 +242,10 @@ defineExpose({ refresh });
               >正在读取原生会话…</span
             ><span v-else-if="history.hasMore">还有后续会话可加载</span>
             <button
-              v-if="!history.allWorkspaces"
-              type="button"
-              class="agent-session-clear-filters"
-              @click="history.selectWorkspace(null)"
-            >
-              搜索全部目录
-            </button>
-            <button
               v-if="hasSearchFilters"
               type="button"
               class="agent-session-clear-filters"
-              title="清除搜索和角色筛选，保留当前 Agent 与目录范围"
+              title="清除搜索和角色筛选，保留当前 Agent"
               @click="clearSearchFilters"
             >
               <X :size="12" aria-hidden="true" />清除筛选
@@ -431,19 +311,17 @@ defineExpose({ refresh });
                 : history.incomplete
                   ? "本次未读取到可展示会话，请查看来源状态"
                   : query.trim()
-                    ? "当前范围没有匹配的会话"
-                    : "当前范围没有可展示的原生会话"
+                    ? "没有匹配的会话"
+                    : "暂无可展示的原生会话"
           }}</span>
         </div>
         <AgentSessionList
           :key="listPositionKey"
           :position-key="listPositionKey"
           :position="listPosition"
-          :group-by="groupBy"
           :selected-session-ref="history.detailRow?.sessionRef"
           :rows="history.rows"
           :agents="cliRuntime.agents"
-          :workspaces="history.scope?.workspaces"
           allow-resume
           :resume-busy="tasks.isReserved"
           :runtime-sessions="runtimeSnapshot.sessions"
@@ -508,11 +386,6 @@ defineExpose({ refresh });
           </div></template
         >
       </SessionReader>
-      <div v-else class="agent-session-reader-placeholder">
-        <AgentWorkspaceIcon page="history" :size="32" /><strong
-          >选择一段会话开始阅读</strong
-        ><span>搜索会定位到原文，工具调用和文件改动可展开查看。</span>
-      </div>
     </div>
     <AgentRuntimeList
       v-else-if="navigation.sessionView === 'active'"

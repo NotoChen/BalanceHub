@@ -4,17 +4,17 @@
 
 .batch-operation-title .surface-modal-title-meta {
   margin-left: auto;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
   font-weight: 600;
 }
 
 .batch-operation-title .surface-modal-title-meta.running {
-  color: #1677ff;
+  color: var(--surface-accent);
 }
 
 .batch-operation-title .surface-modal-title-meta.completed {
-  color: #00b42a;
+  color: var(--surface-success);
 }
 
 .batch-operation-panel {
@@ -61,13 +61,13 @@
 }
 
 .batch-operation-summary-main strong {
-  color: var(--text-primary, #1d2129);
+  color: var(--surface-ink);
   font-size: 14px;
 }
 
 .batch-operation-summary-main span:not(.batch-operation-summary-dot) {
   overflow: hidden;
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -99,27 +99,27 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px 12px;
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .batch-operation-summary-counts .is-success {
-  color: #00b42a;
+  color: var(--surface-success);
 }
 
 .batch-operation-summary-counts .is-failed {
-  color: #f53f3f;
+  color: var(--surface-danger);
 }
 
 .batch-operation-summary-counts .is-skipped,
 .batch-operation-summary-counts .is-cancelled {
-  color: #86909c;
+  color: var(--surface-muted);
 }
 
 .batch-operation-summary-counts .is-waiting,
 .batch-operation-summary-counts .is-unconfirmed {
-  color: #ff7d00;
+  color: var(--surface-warning);
 }
 
 .batch-operation-progress-line {
@@ -135,7 +135,7 @@
 
 .batch-operation-progress-line > strong {
   width: 42px;
-  color: var(--text-primary, #1d2129);
+  color: var(--surface-ink);
   font-size: 13px;
   text-align: right;
 }
@@ -154,7 +154,7 @@
   border: 1px solid var(--glass-border, #e5e6eb);
   border-radius: 6px;
   background: var(--glass-card-muted, #f7f8fa);
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   cursor: pointer;
   font-size: 12px;
   white-space: nowrap;
@@ -164,7 +164,7 @@
 .batch-operation-filters button.active {
   border-color: rgba(22, 119, 255, 0.42);
   background: rgba(22, 119, 255, 0.08);
-  color: #1677ff;
+  color: var(--surface-accent);
 }
 
 .batch-operation-rows {
@@ -181,7 +181,7 @@
   display: grid;
   min-height: 120px;
   place-items: center;
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   font-size: 13px;
 }
 
@@ -234,45 +234,45 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 5px;
-  color: #86909c;
+  color: var(--surface-muted);
   font-size: 12px;
 }
 
 .batch-operation-row.is-running .batch-operation-row-status {
-  color: #1677ff;
+  color: var(--surface-accent);
 }
 
 .batch-operation-row.is-success .batch-operation-row-status {
-  color: #00b42a;
+  color: var(--surface-success);
 }
 
 .batch-operation-row.is-failed .batch-operation-row-status {
-  color: #f53f3f;
+  color: var(--surface-danger);
 }
 
 .batch-operation-row.is-waiting .batch-operation-row-status,
 .batch-operation-row.is-unconfirmed .batch-operation-row-status {
-  color: #ff7d00;
+  color: var(--surface-warning);
 }
 
 .batch-operation-row-name {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-primary, #1d2129);
+  color: var(--surface-ink);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .batch-operation-row-time {
   flex: 0 0 auto;
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   font-size: 11px;
 }
 
 .batch-operation-row-message {
   margin: 0 0 0 26px;
   overflow: hidden;
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   font-size: 12px;
   line-height: 1.5;
   text-overflow: ellipsis;
@@ -280,7 +280,7 @@
 }
 
 .batch-operation-row.is-failed .batch-operation-row-message {
-  color: #f53f3f;
+  color: var(--surface-danger);
 }
 
 .batch-operation-row.is-failed .batch-operation-row-message,
@@ -301,12 +301,12 @@
   flex-wrap: wrap;
   gap: 4px 12px;
   margin-left: 26px;
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   font-size: 11px;
 }
 
 .batch-operation-row-details .is-reward {
-  color: #00b42a;
+  color: var(--surface-success);
   font-weight: 600;
 }
 
@@ -320,7 +320,7 @@
 
 .batch-operation-footer-hint {
   margin-right: auto;
-  color: var(--text-secondary, #86909c);
+  color: var(--surface-muted);
   font-size: 11px;
 }
 

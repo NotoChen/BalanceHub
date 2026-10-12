@@ -63,7 +63,7 @@
 }
 
 .configuration-diff-line-added {
-  background: #edf9f5;
+  background: var(--surface-success-soft);
   color: #067647;
 }
 
@@ -83,12 +83,12 @@
 }
 
 .configuration-diff-line-removed .configuration-diff-marker {
-  color: #c53b43;
+  color: var(--surface-danger);
   font-weight: 800;
 }
 
 .configuration-diff-line-added .configuration-diff-marker {
-  color: #168a65;
+  color: var(--surface-success);
   font-weight: 800;
 }
 

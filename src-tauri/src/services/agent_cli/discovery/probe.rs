@@ -2,7 +2,7 @@ use super::paths::{canonicalize_for_owner, lexical_comparison_key, RuntimePathSn
 use super::{AgentCliDefinition, AgentCliExecutable};
 use crate::{
     models::{AgentAssetLimits, AgentExecutableProbeErrorKind},
-    platform::process::run_command_with_output_timeout,
+    platform::{paths::compatible_path, process::run_command_with_output_timeout},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -258,7 +258,7 @@ pub(super) fn probe_cli_candidate_with_gate(
     let executable_revision = executable_revision(&postflight, candidate, &version);
     Ok(ProbedCli {
         executable: AgentCliExecutable {
-            path: candidate.to_string_lossy().into_owned(),
+            path: compatible_path(candidate).to_string_lossy().into_owned(),
             version,
         },
         owner_key: postflight.owner_key,
@@ -276,7 +276,7 @@ fn cli_version_bounded(
     timeout: Duration,
     output_limit: usize,
 ) -> Result<(String, bool), ProbeFailure> {
-    let mut command = Command::new(path);
+    let mut command = Command::new(compatible_path(path).as_ref());
     if let Some(path_env) = runtime_path.path_for(path) {
         command.env("PATH", path_env);
     }

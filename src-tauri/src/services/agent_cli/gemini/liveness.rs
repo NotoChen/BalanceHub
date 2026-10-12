@@ -32,14 +32,8 @@ pub(super) fn build_plan(request: LivenessRequest<'_>) -> Result<LivenessPlan, S
     }
     environment.set("GEMINI_API_KEY", request.api_key.trim());
     environment.set("GOOGLE_GEMINI_BASE_URL", request.base_url);
-    environment.set(
-        "GEMINI_CLI_HOME",
-        request.isolated_home.to_string_lossy().to_string(),
-    );
-    environment.set(
-        "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
-        settings_path.to_string_lossy().to_string(),
-    );
+    environment.set_path("GEMINI_CLI_HOME", request.isolated_home);
+    environment.set_path("GEMINI_CLI_SYSTEM_SETTINGS_PATH", &settings_path);
 
     let mut args = vec![
         "-p".to_string(),

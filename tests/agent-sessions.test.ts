@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { effectScope, ref } from "vue";
 import { useAgentSessions } from "../src/composables/useAgentSessions.ts";
-import { groupSessionRows } from "../src/utils/agent-session-display.ts";
+import { groupSessionRowsByDay } from "../src/utils/agent-session-display.ts";
 import type { AgentSessionQueryApi } from "../src/api/agent-sessions.ts";
 import type {
   AgentSessionCancelRequest,
@@ -20,58 +20,24 @@ import {
   sessionScope,
 } from "./agent-session-fixtures.ts";
 
-test("project groups use backend workspace identities across native path aliases", () => {
-  const aliased = sessionRow("alias", { workspaceId: "project" });
-  aliased.session.workdir = "/private/var/project";
-  aliased.session.updatedAt = "2026-09-01T03:00:00Z";
-  const original = sessionRow("original", { workspaceId: "project" });
-  original.session.workdir = "/var/project";
-  const separate = sessionRow("separate", { workspaceId: "another-project" });
-  separate.session.workdir = "/var/other";
-  const rows = [original, separate, aliased];
-  const workspaces = [
-    { id: "project", path: "/var/project", exists: true, isHome: false },
-    { id: "another-project", path: "/var/other", exists: true, isHome: false },
-  ];
+test("date headings preserve recent-first order across projects without regrouping paths", () => {
+  const latest = sessionRow("latest", { workspaceId: "project-z" });
+  latest.session.updatedAt = "2026-10-11T09:00:00Z";
+  const other = sessionRow("other", { workspaceId: "project-a" });
+  other.session.updatedAt = "2026-10-11T08:00:00Z";
+  const older = sessionRow("older", { workspaceId: "project-z" });
+  older.session.updatedAt = "2026-10-10T08:00:00Z";
+  const unknown = sessionRow("unknown");
+  unknown.session.updatedAt = null;
+  const rows = [latest, other, older, unknown];
 
-  const grouped = groupSessionRows(rows, "project", workspaces);
-  assert.deepEqual(grouped.map(({ heading }) => heading).filter(Boolean), [
-    "/var/other",
-    "/var/project",
-  ]);
-  assert.deepEqual(
-    grouped.map(({ row }) => row.session.id),
-    ["separate", "alias", "original"],
-  );
-  assert.deepEqual(
-    rows.map((row) => row.session.id),
-    ["original", "separate", "alias"],
-  );
-  assert.equal(aliased.session.workdir, "/private/var/project");
-});
-
-test("project labels never replace backend identity and time groups preserve result order", () => {
-  const first = sessionRow("first", { workspaceId: "first-project" });
-  const second = sessionRow("second", { workspaceId: "second-project" });
-  const workspaces = [first, second].map((row) => ({
-    id: row.workspaceId,
-    path: "/fixture/shared-label",
-    exists: true,
-    isHome: false,
-  }));
-  assert.equal(
-    groupSessionRows([first, second], "project", workspaces).filter(
-      ({ heading }) => heading,
-    ).length,
-    2,
-  );
-  const timeGroups = groupSessionRows([second, first], "time", workspaces);
-  assert.deepEqual(
-    timeGroups.map(({ row }) => row.session.id),
-    ["second", "first"],
-  );
-  assert.ok(timeGroups[0].heading);
-  assert.equal(timeGroups[1].heading, "");
+  const grouped = groupSessionRowsByDay(rows);
+  assert.deepEqual(grouped.map(({ row }) => row.session.id), ["latest", "other", "older", "unknown"]);
+  assert.ok(grouped[0].heading);
+  assert.equal(grouped[1].heading, "");
+  assert.notEqual(grouped[2].heading, grouped[0].heading);
+  assert.equal(grouped[3].heading, "更新时间未记录");
+  assert.deepEqual(grouped.map(({ row }) => row), rows);
 });
 
 function harness(
@@ -81,7 +47,6 @@ function harness(
   configuration: Pick<
     Parameters<typeof useAgentSessions>[0],
     | "pageSize"
-    | "initialWorkspaceMode"
     | "refreshOnIndexUpdate"
     | "autoLoad"
     | "autoContinue"
@@ -151,30 +116,18 @@ function harness(
   };
 }
 
-test("default history searches all registered directories and an explicit selection only narrows that scope", async (t) => {
+test("default history searches all native directories and refresh preserves that scope", async (t) => {
   const context = harness(t);
   await context.sessions.load();
   assert.deepEqual(context.scopes, [null]);
-  assert.deepEqual(context.queries[0].workspaceIds, [
-    "home",
-    "project",
-    "unmounted",
-  ]);
+  assert.deepEqual(context.queries[0].workspaceIds, []);
   assert.equal(context.queries[0].cursor, null);
   assert.equal(context.queries[0].pageSize, 50);
   assert.equal(context.queries[0].roleFilter, "all");
   assert.deepEqual(context.queries[0].agentKinds, []);
-  context.sessions.selectWorkspace("project");
-  await settle();
-  assert.deepEqual(context.queries.at(-1)?.workspaceIds, ["project"]);
-  context.sessions.selectWorkspace(null);
-  await settle();
-  assert.deepEqual(context.queries.at(-1)?.workspaceIds, [
-    "home",
-    "project",
-    "unmounted",
-  ]);
-  assert.equal(context.sessions.selectedWorkspaces.value.at(-1)?.exists, false);
+  await context.sessions.refresh();
+  assert.deepEqual(context.queries.at(-1)?.workspaceIds, []);
+  assert.equal(context.sessions.scope.value?.workspaces.at(-1)?.exists, false);
 });
 
 test("completed and empty history pages survive repeated tab switches without another scope or query request", async (t) => {
@@ -213,6 +166,35 @@ test("completed and empty history pages survive repeated tab switches without an
     }
     context.dispose();
   }
+});
+
+test("native discovery preserves directory metadata without narrowing global pagination or expiring references", async (t) => {
+  const discovered = { id: "native-project", path: "/fixture/not-bookmarked", isHome: false, exists: true };
+  const row = sessionRow("native", { workspaceId: discovered.id });
+  row.session.workdir = discovered.path;
+  const context = harness(t, {
+    query: async (request) => sessionPage(request.cursor ? [] : [row], {
+      nextCursor: request.cursor || request.workspaceIds.length ? null : "snapshot:1:1",
+      workspaces: [discovered],
+    }),
+  });
+  await context.sessions.load();
+  assert.deepEqual(context.queries[0].workspaceIds, []);
+  assert.ok(context.sessions.scope.value?.workspaces.some((workspace) => workspace.id === discovered.id));
+  assert.equal(context.sessions.rows.value[0].sessionRef, row.sessionRef);
+  await context.sessions.loadMore();
+  assert.deepEqual(context.queries[1].workspaceIds, []);
+  assert.equal(context.queries[1].cursor, "snapshot:1:1");
+  assert.equal(context.queries[1].scopeRevision, context.queries[0].scopeRevision);
+  assert.equal(context.scopes.length, 1);
+});
+
+test("global discovery still runs when no directory choices have been loaded", async (t) => {
+  const context = harness(t, { scope: async () => ({ ...sessionScope(), workspaces: [] }) });
+  await context.sessions.load();
+  assert.deepEqual(context.queries[0].workspaceIds, []);
+  assert.equal(context.sessions.error.value, "");
+  assert.equal(context.sessions.busy.value, false);
 });
 
 test("inactive history keeps completed results, cancels a pending continuation and resumes from the same cursor", async (t) => {
@@ -315,7 +297,6 @@ test("real filters changed while history is hidden invalidate the cache and quer
   context.active.value = false;
   context.agentKinds.value = ["claudeCode"];
   context.sessions.roleFilter.value = "subagent";
-  context.sessions.selectWorkspace("project");
   context.query.value = "changed while hidden";
   t.mock.timers.tick(1000);
   await settle();
@@ -325,7 +306,7 @@ test("real filters changed while history is hidden invalidate the cache and quer
   await settle();
   assert.equal(context.queries.length, 2);
   assert.deepEqual(context.queries[1].agentKinds, ["claudeCode"]);
-  assert.deepEqual(context.queries[1].workspaceIds, ["project"]);
+  assert.deepEqual(context.queries[1].workspaceIds, []);
   assert.equal(context.queries[1].roleFilter, "subagent");
   assert.equal(context.queries[1].query, "changed while hidden");
   assert.equal(context.scopes.length, 1);
@@ -584,7 +565,6 @@ test("count consumers start once with all backend workspace IDs and expose count
     },
     undefined,
     {
-      initialWorkspaceMode: "all",
       pageSize: 1,
       autoLoad: true,
       refreshOnIndexUpdate: false,
@@ -592,11 +572,7 @@ test("count consumers start once with all backend workspace IDs and expose count
   );
   await settle();
   assert.equal(context.queries.length, 1);
-  assert.deepEqual(context.queries[0].workspaceIds, [
-    "home",
-    "project",
-    "unmounted",
-  ]);
+  assert.deepEqual(context.queries[0].workspaceIds, []);
   assert.deepEqual(context.queries[0].agentKinds, []);
   assert.equal(context.queries[0].roleFilter, "all");
   assert.equal(context.queries[0].query, "");
@@ -628,7 +604,7 @@ test("counts clear on refresh and scope invalidation and cancelled or late repli
           : stale.promise,
     },
     undefined,
-    { initialWorkspaceMode: "all", pageSize: 1 },
+    { pageSize: 1 },
   );
   await context.sessions.load();
   assert.deepEqual(context.sessions.agentCounts.value, counts);
@@ -651,7 +627,7 @@ test("counts clear on refresh and scope invalidation and cancelled or late repli
   assert.equal(context.sessions.busy.value, false);
 });
 
-test("the legacy picker uses the single canonical workspace returned for its explicit directory", async (t) => {
+test("an explicit API scope uses the canonical directory returned by the backend", async (t) => {
   const scope = sessionScope("/fixture/canonical/new-project");
   const context = harness(t, { scope: async () => scope }, "/fixture/alias");
   await context.sessions.load();
@@ -660,7 +636,7 @@ test("the legacy picker uses the single canonical workspace returned for its exp
     "workspace:/fixture/canonical/new-project",
   ]);
   assert.equal(context.queries[0].scopeRevision, scope.revision);
-  assert.equal(context.sessions.selectedWorkspaces.value.length, 1);
+  assert.equal(context.sessions.scope.value?.workspaces.length, 1);
 });
 
 test("pagination loads more than 100 distinct sources, continues empty partial pages, and sorts only display rows", async (t) => {

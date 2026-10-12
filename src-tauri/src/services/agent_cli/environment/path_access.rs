@@ -140,7 +140,9 @@ fn read_target(
         stable_id: request.target_id.to_string(),
         access_id: anchor.access_id.clone(),
         source_revision: anchor.verified.revision().clone(),
-        path: guard.display_path().to_string_lossy().into_owned(),
+        path: crate::platform::paths::compatible_path(guard.display_path())
+            .to_string_lossy()
+            .into_owned(),
         metadata_only: content.is_none(),
         content,
         size_bytes: metadata.len(),

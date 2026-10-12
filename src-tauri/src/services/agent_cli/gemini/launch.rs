@@ -33,10 +33,7 @@ pub(super) fn build_plan(
         }
         environment.set("GEMINI_API_KEY", api_key.trim());
         environment.set("GOOGLE_GEMINI_BASE_URL", base_url.trim());
-        environment.set(
-            "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
-            settings_path.to_string_lossy().to_string(),
-        );
+        environment.set_path("GEMINI_CLI_SYSTEM_SETTINGS_PATH", settings_path);
         auxiliary_file_content = Some(
             serde_json::to_string_pretty(&serde_json::json!({
                 "security": {

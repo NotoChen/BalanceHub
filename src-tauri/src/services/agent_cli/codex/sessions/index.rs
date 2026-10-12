@@ -161,10 +161,20 @@ pub(super) fn read_database_history(
         paths.dedup();
         // Batch parameters avoid SQLite's variable limit without changing the
         // requested directory set or re-opening its state database per project.
-        for paths in paths.chunks(200) {
+        let batches = if workdirs.is_empty() {
+            vec![&[][..]]
+        } else {
+            paths.chunks(200).collect::<Vec<_>>()
+        };
+        for paths in batches {
             budget.check()?;
             let placeholders = vec!["?"; paths.len()].join(",");
-            let sql = format!("SELECT id, cwd, {name}, {title}, {preview}, {first_user_message}, {model}, {created}, {updated}, {archived}, {cli_version}, {rollout_path}, {source}, {parent_thread_id} FROM threads WHERE cwd IN ({placeholders}) ORDER BY {updated} DESC, id ASC", name=optional("name"), title=optional("title"), preview=optional("preview"), first_user_message=optional("first_user_message"), model=optional("model"), archived=optional("archived"), cli_version=optional("cli_version"), rollout_path=optional("rollout_path"), source=optional("source"), parent_thread_id=optional("parent_thread_id"));
+            let filter = if workdirs.is_empty() {
+                String::new()
+            } else {
+                format!("WHERE cwd IN ({placeholders})")
+            };
+            let sql = format!("SELECT id, cwd, {name}, {title}, {preview}, {first_user_message}, {model}, {created}, {updated}, {archived}, {cli_version}, {rollout_path}, {source}, {parent_thread_id} FROM threads {filter} ORDER BY {updated} DESC, id ASC", name=optional("name"), title=optional("title"), preview=optional("preview"), first_user_message=optional("first_user_message"), model=optional("model"), archived=optional("archived"), cli_version=optional("cli_version"), rollout_path=optional("rollout_path"), source=optional("source"), parent_thread_id=optional("parent_thread_id"));
             let mut statement = connection
                 .prepare(&sql)
                 .map_err(|error| error.to_string())?;
@@ -298,7 +308,7 @@ fn row_to_summary(
     updated_milliseconds: bool,
 ) -> rusqlite::Result<CliSessionSummary> {
     let id: String = row.get(0)?;
-    let workdir: String = row.get(1)?;
+    let workdir: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
     let name: Option<String> = row.get(2)?;
     let title: Option<String> = row.get(3)?;
     let preview: Option<String> = row.get(4)?;

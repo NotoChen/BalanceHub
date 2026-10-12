@@ -8,7 +8,8 @@ pub(super) fn definitions(helper_path: &Path, spool_root: &Path) -> Vec<HookDefi
         .iter()
         .map(|event_name| {
             let identity = format!("balancehub:codex:{}:v1", event_name.to_ascii_lowercase());
-            let command = helper_command(helper_path, spool_root, &identity);
+            let command =
+                super::super::common::helper_command(helper_path, spool_root, "codex", &identity);
             HookDefinition {
                 event_name,
                 identity,
@@ -16,27 +17,6 @@ pub(super) fn definitions(helper_path: &Path, spool_root: &Path) -> Vec<HookDefi
             }
         })
         .collect()
-}
-
-fn helper_command(executable: &Path, spool_root: &Path, identity: &str) -> String {
-    #[cfg(windows)]
-    {
-        format!(
-            "{} --balancehub-hook-ingest --agent codex --balancehub-hook-node={} --spool-root {}",
-            windows_quote(&executable.to_string_lossy()),
-            identity,
-            windows_quote(&spool_root.to_string_lossy())
-        )
-    }
-    #[cfg(not(windows))]
-    {
-        format!(
-            "{} --balancehub-hook-ingest --agent codex --balancehub-hook-node={} --spool-root {}",
-            unix_quote(&executable.to_string_lossy()),
-            identity,
-            unix_quote(&spool_root.to_string_lossy())
-        )
-    }
 }
 
 pub(super) fn add_definition(root: &mut Value, definition: &HookDefinition) -> Result<(), String> {
@@ -186,14 +166,4 @@ fn canonical_json(value: &Value) -> String {
         ),
         _ => serde_json::to_string(value).unwrap_or_default(),
     }
-}
-
-#[cfg(not(windows))]
-fn unix_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-#[cfg(windows)]
-fn windows_quote(value: &str) -> String {
-    format!("\"{}\"", value.replace('"', "\\\""))
 }

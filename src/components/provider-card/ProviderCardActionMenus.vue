@@ -551,7 +551,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <BrandIcon :brand="target" :size="18" />
           <span>
             <strong>导入到 {{ ccSwitchTargetLabels[target] }}</strong>
-            <small>仅绑定 URL 与 API Key</small>
+            <small>{{ provider.cli.preferredModel ? "地址、API Key 与默认模型" : "地址与 API Key" }}</small>
           </span>
           <icon-link
             class="provider-card-action-icon provider-card-action-icon-link"

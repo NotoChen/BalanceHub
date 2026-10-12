@@ -1,5 +1,11 @@
 use super::ShellEnvironmentSnapshot;
-use crate::{limits, platform::process::run_command_with_output_timeout, services::agent_cli};
+use crate::{
+    limits,
+    platform::process::{
+        run_command_with_output_timeout, run_command_with_output_timeout_encoded, OutputEncoding,
+    },
+    services::agent_cli,
+};
 use std::{collections::BTreeMap, env, process::Command, time::Duration};
 
 const ENV_START: &str = "__BALANCEHUB_ENV_START__";
@@ -42,7 +48,26 @@ fn capture_powershell() -> Option<ShellEnvironmentSnapshot> {
         .collect::<Vec<_>>()
         .join(", ");
     let command = format!(
-        "$profiles = @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost, $PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost) | Where-Object {{ $_ -and (Test-Path -LiteralPath $_) }} | Select-Object -Unique; foreach ($profilePath in $profiles) {{ try {{ . $profilePath }} catch {{ }} }}; $values = [ordered]@{{}}; Get-ChildItem Env: | ForEach-Object {{ $values[[string]$_.Name] = [string]$_.Value }}; $aliases = [ordered]@{{}}; $functions = [ordered]@{{}}; foreach ($name in @({cli_names})) {{ $commandInfo = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1; if ($null -ne $commandInfo -and $commandInfo.CommandType -eq 'Alias') {{ $aliases[$name] = [string]$commandInfo.Definition }} elseif ($null -ne $commandInfo -and @('Function', 'Filter') -contains [string]$commandInfo.CommandType) {{ $functions[$name] = [string]$commandInfo.Definition }} }}; $snapshot = [ordered]@{{ environment = $values; aliases = $aliases; functions = $functions }}; [Console]::Out.WriteLine('{ENV_START}'); [Console]::Out.WriteLine(($snapshot | ConvertTo-Json -Compress -Depth 8)); [Console]::Out.WriteLine('{ENV_END}')"
+        r#"$BH_Profiles = @($PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost, $PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost) | Where-Object {{ $_ -and (Test-Path -LiteralPath $_) }} | Select-Object -Unique
+foreach ($BH_ProfilePath in $BH_Profiles) {{ try {{ . $BH_ProfilePath }} catch {{ }} }}
+$BH_Output = [System.IO.StreamWriter]::new([Console]::OpenStandardOutput(), [System.Text.UTF8Encoding]::new($false))
+$BH_Values = [ordered]@{{}}
+Get-ChildItem Env: | ForEach-Object {{ $BH_Values[[string]$_.Name] = [string]$_.Value }}
+$BH_Aliases = [ordered]@{{}}
+$BH_Functions = [ordered]@{{}}
+foreach ($BH_Name in @({cli_names})) {{
+    $BH_CommandInfo = Get-Command -Name $BH_Name -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $BH_CommandInfo -and $BH_CommandInfo.CommandType -eq 'Alias') {{
+        $BH_Aliases[$BH_Name] = [string]$BH_CommandInfo.Definition
+    }} elseif ($null -ne $BH_CommandInfo -and @('Function', 'Filter') -contains [string]$BH_CommandInfo.CommandType) {{
+        $BH_Functions[$BH_Name] = [string]$BH_CommandInfo.Definition
+    }}
+}}
+$BH_Snapshot = [ordered]@{{ environment = $BH_Values; aliases = $BH_Aliases; functions = $BH_Functions }}
+$BH_Output.WriteLine('{ENV_START}')
+$BH_Output.WriteLine(($BH_Snapshot | ConvertTo-Json -Compress -Depth 8))
+$BH_Output.WriteLine('{ENV_END}')
+$BH_Output.Flush()"#
     );
     let mut process = Command::new(binary);
     process.args([
@@ -58,7 +83,10 @@ fn capture_powershell() -> Option<ShellEnvironmentSnapshot> {
         limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
     )
     .ok()?;
-    if output.timed_out || !output.status.is_some_and(|status| status.success()) {
+    if output.timed_out
+        || output.stdout_truncated
+        || !output.status.is_some_and(|status| status.success())
+    {
         return None;
     }
     let json = marked_block(&output.stdout)?;
@@ -87,14 +115,18 @@ fn string_map(value: &serde_json::Value) -> BTreeMap<String, String> {
 fn capture_cmd() -> Option<BTreeMap<String, String>> {
     let command_line = format!("echo {ENV_START} & set & echo {ENV_END}");
     let mut process = Command::new("cmd");
-    process.args(["/C", &command_line]);
-    let output = run_command_with_output_timeout(
+    process.args(["/U", "/E:ON", "/V:OFF", "/C", &command_line]);
+    let output = run_command_with_output_timeout_encoded(
         &mut process,
         CAPTURE_TIMEOUT,
         limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
+        OutputEncoding::Utf16Le,
     )
     .ok()?;
-    if output.timed_out || !output.status.is_some_and(|status| status.success()) {
+    if output.timed_out
+        || output.stdout_truncated
+        || !output.status.is_some_and(|status| status.success())
+    {
         return None;
     }
     let block = marked_block(&output.stdout)?;

@@ -94,6 +94,7 @@ pub(crate) fn inspect(path: &Path) -> Result<BrowserInfo, String> {
     };
     #[cfg(not(target_os = "macos"))]
     let path = path.to_path_buf();
+    let path = crate::platform::paths::compatible_path(&path).into_owned();
     if !path.is_absolute() || !executable(&path) {
         return Err("未找到可执行的浏览器程序，请选择浏览器应用或其可执行文件".into());
     }

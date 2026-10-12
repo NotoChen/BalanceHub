@@ -20,6 +20,44 @@ pub(crate) use ownership::{
     remove_manifest, revision_for_bytes, revision_for_missing, write_atomic, write_manifest,
 };
 
+pub(super) fn helper_args(spool_root: &Path, agent: &str, identity: &str) -> Vec<String> {
+    vec![
+        "--balancehub-hook-ingest".to_owned(),
+        "--agent".to_owned(),
+        agent.to_owned(),
+        format!("--balancehub-hook-node={identity}"),
+        "--spool-root".to_owned(),
+        crate::platform::paths::compatible_path(spool_root)
+            .to_string_lossy()
+            .into_owned(),
+    ]
+}
+
+pub(super) fn helper_command(
+    executable: &Path,
+    spool_root: &Path,
+    agent: &str,
+    identity: &str,
+) -> String {
+    let arguments = helper_args(spool_root, agent, identity);
+    #[cfg(windows)]
+    {
+        crate::platform::windows_shell::native_command(executable, &arguments)
+    }
+    #[cfg(not(windows))]
+    {
+        // Keep ordinary flag spelling stable; all path values are quoted.
+        let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+        format!(
+            "{} --balancehub-hook-ingest --agent {} --balancehub-hook-node={} --spool-root {}",
+            quote(&executable.to_string_lossy()),
+            agent,
+            identity,
+            quote(&arguments[5])
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct JsonSnapshot {
     pub(crate) value: Value,

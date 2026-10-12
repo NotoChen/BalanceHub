@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     models::{AgentCliKind, AgentSessionScope, AgentSessionSource, AgentSessionWorkspace},
+    platform::paths::compatible_path,
     services::{
         agent_cli::{
             self,
@@ -50,6 +51,9 @@ pub(super) fn history_adapter(
 // Logical identity survives a temporarily missing mount. Canonical aliases are
 // remembered while reachable; no case-folding is assumed on a case-sensitive volume.
 pub(super) fn path_identity(path: &Path) -> String {
+    if !path.is_absolute() || path.to_string_lossy().chars().any(char::is_control) {
+        return String::new();
+    }
     let logical = lexical_path(path).to_string_lossy().to_string();
     let canonical = path
         .canonicalize()
@@ -70,6 +74,18 @@ pub(super) fn path_identity(path: &Path) -> String {
             .entry(logical.clone())
             .or_insert(logical)
             .clone()
+    }
+}
+
+pub(super) fn workspace_for_path(path: &Path) -> AgentSessionWorkspace {
+    let identity = path_identity(path);
+    AgentSessionWorkspace {
+        id: hash(&["workspace", &identity]),
+        exists: !identity.is_empty() && Path::new(&identity).is_dir(),
+        is_home: cli_paths::user_home().is_some_and(|home| path_identity(&home) == identity),
+        path: compatible_path(Path::new(&identity))
+            .to_string_lossy()
+            .into_owned(),
     }
 }
 
@@ -120,7 +136,9 @@ pub(super) fn workspace_scope(
         }
         workspaces.push(AgentSessionWorkspace {
             id,
-            path: identity.clone(),
+            path: compatible_path(Path::new(&identity))
+                .to_string_lossy()
+                .into_owned(),
             exists: Path::new(&identity).is_dir(),
             is_home: identity == home_identity,
         });
@@ -172,9 +190,16 @@ pub(super) fn build_scope(
         });
         sources.insert(id, source);
     }
+    // Global scope admits the selected native sources. Bookmarks and newly
+    // discovered projects are choices, not grants; they must not expire an
+    // already-issued session reference or pagination cursor.
+    let selected_directory = explicit_workdir
+        .and_then(|_| workspaces.first())
+        .map(|workspace| workspace.id.as_str())
+        .unwrap_or("all-native");
     let revision = hash(&[
-        "scope-v1",
-        &serde_json::to_string(&workspaces).map_err(|e| e.to_string())?,
+        "scope-v2",
+        selected_directory,
         &serde_json::to_string(&public_sources).map_err(|e| e.to_string())?,
     ]);
     Ok(ScopeState {
@@ -207,9 +232,10 @@ pub(crate) fn get_scope(
     explicit_workdir: Option<&str>,
 ) -> Result<AgentSessionScope, String> {
     let scope = build_scope(actor, explicit_workdir)?;
-    let public = scope.public.clone();
-    state::registry().register_scope(actor.key(), scope);
-    Ok(public)
+    let revision = scope.public.revision.clone();
+    let mut registry = state::registry();
+    registry.register_scope(actor.key(), scope);
+    Ok(registry.scopes[&(actor.key(), revision)].public.clone())
 }
 
 pub(super) fn validated_scope(
@@ -231,9 +257,21 @@ fn validated_scope_with(
         .get(&(actor_key.into(), revision.into()))
         .cloned()
         .ok_or_else(|| "会话范围已失效，请刷新目录列表".to_string())?;
-    let current = build_current(saved.explicit_workdir.as_deref())?;
+    let mut current = build_current(saved.explicit_workdir.as_deref())?;
     if current.public.revision != revision {
         return Err("目录集合或原生会话来源已变化，请刷新".into());
+    }
+    if current.explicit_workdir.is_none() {
+        for workspace in saved.public.workspaces {
+            if !current
+                .public
+                .workspaces
+                .iter()
+                .any(|item| item.id == workspace.id)
+            {
+                current.public.workspaces.push(workspace);
+            }
+        }
     }
     Ok(current)
 }
@@ -273,6 +311,10 @@ fn resolve_session_ref_with(
         .iter()
         .find(|workspace| workspace.id == entry.row.workspace_id)
         .ok_or_else(|| "工作目录已移出当前范围".to_string())?;
+    let current_workspace = workspace_for_path(Path::new(&workspace.path));
+    if current_workspace.id != workspace.id {
+        return Err("会话工作目录指向已变化，请重新查询".into());
+    }
     if let Some(reason) = entry.record.content_unavailable_reason {
         return Err(reason);
     }
@@ -293,7 +335,9 @@ fn resolve_session_ref_with(
         .resume_reason
         .clone()
         .or_else(|| source.resume_reason.clone());
-    if !workspace.exists {
+    if current_workspace.path.is_empty() {
+        resume_reason = Some("原生记录未提供有效工作目录；仍可查看历史".into());
+    } else if !current_workspace.exists {
         resume_reason = Some("工作目录不存在或未挂载；仍可查看历史".into());
     }
     Ok(ResolvedSessionTarget {
@@ -340,9 +384,15 @@ mod tests {
         let explicit = workspace_scope(&home, &[recorded], child.to_str()).unwrap();
         assert_eq!(explicit.len(), 1);
         assert_eq!(
-            explicit[0].path,
-            child.canonicalize().unwrap().to_string_lossy()
+            Path::new(&explicit[0].path).canonicalize().unwrap(),
+            child.canonicalize().unwrap()
         );
+        assert_eq!(
+            workspace_for_path(Path::new(&explicit[0].path)).id,
+            explicit[0].id
+        );
+        #[cfg(windows)]
+        assert!(!explicit[0].path.starts_with(r"\\?\"));
         std::fs::remove_dir_all(root).unwrap();
     }
     #[cfg(unix)]

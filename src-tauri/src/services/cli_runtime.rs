@@ -521,26 +521,23 @@ fn process_is_alive(pid: u32) -> bool {
 
 #[cfg(target_os = "windows")]
 fn process_is_alive(pid: u32) -> bool {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, GetLastError, ERROR_ACCESS_DENIED, WAIT_FAILED, WAIT_TIMEOUT},
+        System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
+    };
     if pid == 0 {
         return false;
     }
-    let mut command = std::process::Command::new("tasklist");
-    let pid_text = pid.to_string();
-    command.args(["/FI", &format!("PID eq {pid}"), "/NH"]);
-    crate::platform::process::run_command_with_output_timeout(
-        &mut command,
-        std::time::Duration::from_secs(3),
-        limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
-    )
-    .map(|output| {
-        !output.timed_out
-            && output.status.is_some_and(|status| status.success())
-            && output
-                .stdout
-                .split_whitespace()
-                .any(|value| value == pid_text)
-    })
-    .unwrap_or(false)
+    let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if process.is_null() {
+        // A permissions boundary is not evidence that a process has exited.
+        return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
+    }
+    let result = unsafe { WaitForSingleObject(process, 0) };
+    unsafe {
+        CloseHandle(process);
+    }
+    matches!(result, WAIT_TIMEOUT | WAIT_FAILED)
 }
 
 #[cfg(not(any(unix, target_os = "windows")))]

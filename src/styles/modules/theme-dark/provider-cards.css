@@ -138,7 +138,7 @@
 
 :root.theme-dark .provider-card-cli-signal-active b {
   border-color: var(--workspace-card-surface);
-  background: #f06a73;
+  background: var(--surface-danger);
 }
 
 :root.theme-dark .provider-card-auth-summary {

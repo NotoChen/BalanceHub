@@ -1,49 +1,44 @@
-#[cfg(any(target_os = "windows", test))]
 use super::SystemProxyConfig;
-#[cfg(target_os = "windows")]
-use crate::{limits, platform::process::run_command_with_output_timeout};
-#[cfg(target_os = "windows")]
-use std::{process::Command, time::Duration};
 
-#[cfg(target_os = "windows")]
-const INTERNET_SETTINGS_KEY: &str =
-    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-
-#[cfg(target_os = "windows")]
+#[cfg(windows)]
 pub(super) fn system_proxy_config() -> SystemProxyConfig {
-    let mut command = Command::new("reg");
-    command.args(["query", INTERNET_SETTINGS_KEY]);
-    let Ok(output) = run_command_with_output_timeout(
-        &mut command,
-        Duration::from_secs(3),
-        limits::MAX_SYSTEM_COMMAND_OUTPUT_BYTES,
+    use crate::platform::windows_registry::RegistryKey;
+    use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
+    let Some(key) = RegistryKey::open(
+        HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+        0,
     ) else {
         return SystemProxyConfig::default();
     };
-    if output.timed_out || !output.status.is_some_and(|status| status.success()) {
-        return SystemProxyConfig::default();
-    }
-    parse_registry_proxy(&output.stdout)
+    proxy_from_values(ProxyValues {
+        enabled: key.dword("ProxyEnable") == Some(1),
+        auto_detect: key.dword("AutoDetect") == Some(1),
+        auto_config_url: key.string("AutoConfigURL").unwrap_or_default(),
+        server: key.string("ProxyServer").unwrap_or_default(),
+        bypass: key.string("ProxyOverride").unwrap_or_default(),
+    })
 }
 
-fn parse_registry_proxy(text: &str) -> SystemProxyConfig {
-    let has_pac = registry_string_value(text, "AutoConfigURL").is_some_and(|url| !url.is_empty());
-    let auto_detect = registry_dword_enabled(text, "AutoDetect");
-    if has_pac || auto_detect || !registry_dword_enabled(text, "ProxyEnable") {
-        // PAC/WPAD 无法转换成一组静态环境变量；保持 reqwest/CLI 的环境继承语义。
+#[derive(Default)]
+struct ProxyValues {
+    enabled: bool,
+    auto_detect: bool,
+    auto_config_url: String,
+    server: String,
+    bypass: String,
+}
+
+fn proxy_from_values(values: ProxyValues) -> SystemProxyConfig {
+    if !values.auto_config_url.is_empty() || values.auto_detect || !values.enabled {
+        // PAC/WPAD cannot be reduced to static proxy variables.
         return SystemProxyConfig::default();
     }
-
-    let Some(server) = registry_string_value(text, "ProxyServer") else {
-        return SystemProxyConfig::default();
-    };
-    let mut config = parse_proxy_server_value(server);
+    let mut config = parse_proxy_server_value(&values.server);
     if config.http_url.is_empty() && config.https_url.is_empty() && config.all_url.is_empty() {
         return SystemProxyConfig::default();
     }
-    config.no_proxy = registry_string_value(text, "ProxyOverride")
-        .unwrap_or_default()
-        .to_string();
+    config.no_proxy = values.bypass;
     config.inherit_environment = false;
     config
 }
@@ -89,26 +84,6 @@ fn with_proxy_scheme(value: &str, scheme: &str) -> String {
     }
 }
 
-fn registry_string_value<'a>(text: &'a str, name: &str) -> Option<&'a str> {
-    let line = text.lines().find(|line| line_contains_value(line, name))?;
-    let (_, value) = line.split_once("REG_SZ")?;
-    let value = value.trim();
-    (!value.is_empty()).then_some(value)
-}
-
-fn registry_dword_enabled(text: &str, name: &str) -> bool {
-    let Some(line) = text.lines().find(|line| line_contains_value(line, name)) else {
-        return false;
-    };
-    line.split_once("REG_DWORD")
-        .map(|(_, value)| value.trim())
-        .is_some_and(|value| value.eq_ignore_ascii_case("0x1"))
-}
-
-fn line_contains_value(line: &str, name: &str) -> bool {
-    line.split_whitespace().next() == Some(name)
-}
-
 fn proxy_rule<'a>(value: &'a str, key: &str) -> Option<&'a str> {
     value.split(';').find_map(|part| {
         let (name, proxy) = part.trim().split_once('=')?;
@@ -124,9 +99,11 @@ mod tests {
 
     #[test]
     fn parses_single_proxy_for_http_and_https() {
-        let config = parse_registry_proxy(
-            "    ProxyEnable    REG_DWORD    0x1\n    ProxyServer    REG_SZ    127.0.0.1:7890\n",
-        );
+        let config = proxy_from_values(ProxyValues {
+            enabled: true,
+            server: "127.0.0.1:7890".into(),
+            ..Default::default()
+        });
         assert_eq!(config.http_url, "http://127.0.0.1:7890");
         assert_eq!(config.https_url, "http://127.0.0.1:7890");
         assert!(config.all_url.is_empty());
@@ -135,9 +112,12 @@ mod tests {
 
     #[test]
     fn preserves_protocol_specific_and_socks_proxy_rules() {
-        let config = parse_registry_proxy(
-            "    ProxyEnable    REG_DWORD    0x1\n    ProxyServer    REG_SZ    http=127.0.0.1:7890;https=127.0.0.1:7891;socks=127.0.0.1:7892\n    ProxyOverride    REG_SZ    localhost;*.internal;<local>\n",
-        );
+        let config = proxy_from_values(ProxyValues {
+            enabled: true,
+            server: "http=127.0.0.1:7890;https=127.0.0.1:7891;socks=127.0.0.1:7892".into(),
+            bypass: "localhost;*.internal;<local>".into(),
+            ..Default::default()
+        });
         assert_eq!(config.http_url, "http://127.0.0.1:7890");
         assert_eq!(config.https_url, "http://127.0.0.1:7891");
         assert_eq!(config.all_url, "socks5h://127.0.0.1:7892");
@@ -145,12 +125,39 @@ mod tests {
     }
 
     #[test]
-    fn pac_and_wpad_are_not_misreported_as_static_proxies() {
-        for text in [
-            "    AutoConfigURL    REG_SZ    https://proxy.example/proxy.pac\n    ProxyEnable    REG_DWORD    0x1\n    ProxyServer    REG_SZ    127.0.0.1:7890\n",
-            "    AutoDetect    REG_DWORD    0x1\n    ProxyEnable    REG_DWORD    0x1\n    ProxyServer    REG_SZ    127.0.0.1:7890\n",
+    fn pac_wpad_and_disabled_proxy_keep_environment_inheritance() {
+        for values in [
+            ProxyValues {
+                enabled: true,
+                auto_config_url: "https://proxy.example/proxy.pac".into(),
+                server: "127.0.0.1:7890".into(),
+                ..Default::default()
+            },
+            ProxyValues {
+                enabled: true,
+                auto_detect: true,
+                server: "127.0.0.1:7890".into(),
+                ..Default::default()
+            },
+            ProxyValues {
+                enabled: false,
+                server: "127.0.0.1:7890".into(),
+                ..Default::default()
+            },
         ] {
-            assert_eq!(parse_registry_proxy(text), SystemProxyConfig::default());
+            assert_eq!(proxy_from_values(values), SystemProxyConfig::default());
         }
+    }
+
+    #[test]
+    fn unicode_proxy_values_remain_intact() {
+        let config = proxy_from_values(ProxyValues {
+            enabled: true,
+            server: "代理.example:7890".into(),
+            bypass: "localhost;*.内部.example".into(),
+            ..Default::default()
+        });
+        assert_eq!(config.http_url, "http://代理.example:7890");
+        assert_eq!(config.no_proxy, "localhost;*.内部.example");
     }
 }

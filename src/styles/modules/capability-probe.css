@@ -210,28 +210,28 @@
 
 .capability-probe-step.is-running .capability-probe-step-icon,
 .capability-probe-step.is-running .capability-probe-step-state {
-  background: #eaf1ff;
-  color: #2563eb;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
 }
 
 .capability-probe-step.is-supported .capability-probe-step-icon,
 .capability-probe-step.is-supported .capability-probe-step-state {
-  background: #e9f5ef;
-  color: #16836a;
+  background: var(--surface-success-soft);
+  color: var(--surface-success);
 }
 
 .capability-probe-step.is-unsupported .capability-probe-step-icon,
 .capability-probe-step.is-unsupported .capability-probe-step-state,
 .capability-probe-step.is-skipped .capability-probe-step-icon,
 .capability-probe-step.is-skipped .capability-probe-step-state {
-  background: #f2f4f7;
+  background: var(--surface-panel-soft);
   color: #778396;
 }
 
 .capability-probe-step.is-error .capability-probe-step-icon,
 .capability-probe-step.is-error .capability-probe-step-state {
-  background: #faecee;
-  color: #b73d49;
+  background: var(--surface-danger-soft);
+  color: var(--surface-danger);
 }
 
 .capability-probe-footnote {
@@ -250,26 +250,26 @@
 
 .capability-probe-title .surface-modal-title-meta.is-running {
   border-color: rgba(37, 99, 235, 0.25);
-  background: #eaf1ff;
-  color: #2563eb;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
 }
 
 .capability-probe-title .surface-modal-title-meta.is-success {
   border-color: rgba(22, 131, 106, 0.22);
-  background: #e9f5ef;
-  color: #16836a;
+  background: var(--surface-success-soft);
+  color: var(--surface-success);
 }
 
 .capability-probe-title .surface-modal-title-meta.is-partial {
   border-color: rgba(183, 121, 31, 0.24);
-  background: #fff6e5;
-  color: #9b6518;
+  background: var(--surface-warning-soft);
+  color: var(--surface-warning);
 }
 
 .capability-probe-title .surface-modal-title-meta.is-error {
   border-color: rgba(209, 75, 87, 0.24);
-  background: #faecee;
-  color: #b73d49;
+  background: var(--surface-danger-soft);
+  color: var(--surface-danger);
 }
 
 @keyframes capability-probe-progress {
