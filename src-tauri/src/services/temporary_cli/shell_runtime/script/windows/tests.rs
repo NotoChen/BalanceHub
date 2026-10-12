@@ -62,7 +62,7 @@ fn shared_directories_use_pushd_and_release_the_temporary_drive() {
 }
 
 #[test]
-fn self_deletion_and_exit_share_one_parsed_block_after_status_is_written() {
+fn cleanup_releases_the_batch_context_after_status_is_written() {
     let script = render_fixture(
         Path::new("workdir"),
         Path::new("launch/fixture.cmd"),
@@ -70,12 +70,12 @@ fn self_deletion_and_exit_share_one_parsed_block_after_status_is_written() {
         Path::new("launch/auxiliary.json"),
     );
     let finish = script.split(":BH_FINISH\r\n").nth(1).unwrap();
-    let cleanup = finish.split("\r\n(\r\n").nth(1).unwrap();
+    let cleanup = finish.split("\r\n(goto) 2>nul & ").nth(1).unwrap();
     assert!(
-        finish.find("call :BH_WRITE_STATUS exited").unwrap() < finish.find("\r\n(\r\n").unwrap()
+        finish.find("call :BH_WRITE_STATUS exited").unwrap() < finish.find("\r\n(goto)").unwrap()
     );
-    assert!(cleanup.contains(
-        "del \"%~f0\" 2>nul\r\nrmdir \"launch\" 2>nul\r\nexit /b %BH_EXIT_CODE%\r\n)\r\n"
+    assert!(cleanup.starts_with(
+        "del \"%~f0\" 2>nul & rmdir \"launch\" 2>nul & cmd /D /C exit %BH_EXIT_CODE%\r\n"
     ));
 }
 
@@ -123,7 +123,7 @@ fn run_windows_fixture(cli_exit_code: i32, create_workdir: bool) {
     if create_workdir {
         fs::create_dir(&workdir).unwrap();
     }
-    let launch_dir = root.path().join("启动脚本 with spaces");
+    let launch_dir = root.path().join("启动脚本 (demo) & 100%PATH% !");
     fs::create_dir(&launch_dir).unwrap();
     let script = launch_dir.join("fixture.cmd");
     let auxiliary = launch_dir.join("auxiliary.json");
@@ -190,8 +190,10 @@ fn run_windows_fixture(cli_exit_code: i32, create_workdir: bool) {
         assert_eq!(
             output.status.and_then(|status| status.code()),
             Some(cli_exit_code),
-            "{}",
-            output.stderr
+            "stdout={}\nstderr={}\nstatus={}",
+            output.stdout,
+            output.stderr,
+            result
         );
         assert_eq!(result["exitCode"], cli_exit_code);
         assert!(

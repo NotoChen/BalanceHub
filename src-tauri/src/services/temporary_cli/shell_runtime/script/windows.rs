@@ -78,8 +78,9 @@ fn render_launch_script(
         .unwrap_or_default();
     let workdir = escape_cmd_path(input.workdir)?;
     let network_directory = workdir.starts_with(r"\\");
-    // CMD reads batches a command/block at a time. Delete this script inside
-    // the final parsed block so cleanup and exit never need to reopen it.
+    // `exit /b` still consults the batch file. Leave the batch context before
+    // deleting it; expand cleanup arguments first and return the original code
+    // through a child CMD so an interactive parent shell stays open.
     let text = format!(
         r#"@echo off
 setlocal EnableExtensions DisableDelayedExpansion
@@ -108,12 +109,8 @@ set "BH_ENDED=null"
 if defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()"') do set "BH_ENDED=%%T"
 call :BH_WRITE_STATUS exited null %BH_ENDED% %BH_EXIT_CODE%
 if defined BH_PUSHED popd
-(
 del "{launch_payload_path}" 2>nul
-{cleanup_settings}del "%~f0" 2>nul
-rmdir "{script_dir}" 2>nul
-exit /b %BH_EXIT_CODE%
-)
+{cleanup_settings}(goto) 2>nul & del "%~f0" 2>nul & rmdir "{script_dir}" 2>nul & cmd /D /C exit %BH_EXIT_CODE%
 :BH_WRITE_STATUS
 set "BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%"
 > "%BH_TMP%" echo {{"status":"%~1","pid":%~2,"endedAt":%~3,"exitCode":%~4}}
