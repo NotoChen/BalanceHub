@@ -70,10 +70,10 @@ impl OutputBuffer {
                 // The bounded tail may begin halfway through a code unit or a
                 // surrogate pair. Never reinterpret those bytes as a new unit.
                 let start = usize::from(self.dropped_odd).min(bytes.len());
-                let mut pairs = bytes[start..].chunks_exact(2);
+                let (pairs, remainder) = bytes[start..].as_chunks::<2>();
                 let mut units = pairs
-                    .by_ref()
-                    .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                    .iter()
+                    .map(|pair| u16::from_le_bytes(*pair))
                     .collect::<Vec<_>>();
                 let skip_leading_unit = units.first().is_some_and(|unit| {
                     if self.truncated {
@@ -93,7 +93,7 @@ impl OutputBuffer {
                     units.pop();
                 }
                 let mut text = String::from_utf16_lossy(&units);
-                if finished && !pairs.remainder().is_empty() {
+                if finished && !remainder.is_empty() {
                     text.push(char::REPLACEMENT_CHARACTER);
                 }
                 text
