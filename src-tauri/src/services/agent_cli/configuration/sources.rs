@@ -246,18 +246,12 @@ pub(super) fn public_source(
         context_id: context.id.clone(),
         environment_id: context.environment_id.clone(),
         agent_kind: context.agent_kind,
-        workspace: workspace.map(|path| {
-            crate::platform::paths::compatible_path(path)
-                .to_string_lossy()
-                .into_owned()
-        }),
+        workspace: workspace.map(|path| path.to_string_lossy().into_owned()),
         native_role: spec.native.native_source_key.clone(),
         scope: spec.native.scope,
         profile: spec.profile.clone(),
         label: spec.native.label.clone(),
-        path: crate::platform::paths::compatible_path(&spec.native.path)
-            .to_string_lossy()
-            .into_owned(),
+        path: spec.native.path.to_string_lossy().into_owned(),
         format: spec.format,
         revision: AgentAssetRevision::default(),
         access: AgentAssetAccess::default(),

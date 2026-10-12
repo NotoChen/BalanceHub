@@ -45,6 +45,7 @@ pub struct AgentCatalogContentFile {
     /// Physical file and selected entry, shared across equivalent bindings.
     pub target_id: String,
     pub document_id: Option<String>,
+    #[serde(serialize_with = "crate::platform::paths::serialize_optional_path")]
     pub path: Option<String>,
     pub read_only_reason: Option<String>,
 }
@@ -57,6 +58,7 @@ pub struct AgentCatalogContentSource {
     pub agent_kind: Option<AgentCliKind>,
     pub scope: Option<AgentAssetScope>,
     pub label: Option<String>,
+    #[serde(serialize_with = "crate::platform::paths::serialize_optional_path")]
     pub path: Option<String>,
     pub files: Vec<AgentCatalogContentFile>,
 }
@@ -192,6 +194,7 @@ pub struct AgentCatalogHookSource {
     pub binding_id: String,
     pub label: String,
     pub parent_native_asset_id: Option<String>,
+    #[serde(serialize_with = "crate::platform::paths::serialize_optional_path")]
     pub path: Option<String>,
 }
 
@@ -656,6 +659,7 @@ pub enum AgentCatalogComparisonFormat {
 pub struct AgentCatalogComparisonDocument {
     pub key: String,
     pub label: String,
+    #[serde(serialize_with = "crate::platform::paths::serialize_optional_path")]
     pub path: Option<String>,
     pub format: AgentCatalogComparisonFormat,
     pub content: Option<String>,
@@ -671,6 +675,7 @@ pub struct AgentCatalogComparisonBinding {
     pub agent_kind: AgentCliKind,
     pub context_id: String,
     pub scope: AgentAssetScope,
+    #[serde(serialize_with = "crate::platform::paths::serialize_optional_path")]
     pub path: Option<String>,
     pub provenance: Vec<AgentAssetProvenance>,
     pub complete: bool,
@@ -802,6 +807,7 @@ pub struct AgentCatalogAgentPanelEntry {
     pub context_id: String,
     pub scope: AgentAssetScope,
     pub label: String,
+    #[serde(serialize_with = "crate::platform::paths::serialize_optional_path")]
     pub path: Option<String>,
     pub state_label: String,
     pub sync_state: Option<AgentCatalogConfigurationState>,

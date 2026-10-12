@@ -1227,6 +1227,44 @@ fn windows_launch_payload_preserves_cli_arguments_and_credentials() {
     assert!(removed.contains(&serde_json::json!("CODEX_ACCESS_TOKEN")));
     assert!(removed.contains(&serde_json::json!("HTTPS_PROXY")));
     assert!(removed.contains(&serde_json::json!("https_proxy")));
+    let keys = payload["setEnv"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|name| name.to_ascii_uppercase())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(keys.len(), payload["setEnv"].as_object().unwrap().len());
+}
+
+#[test]
+fn windows_launch_payload_does_not_restore_disabled_inherited_proxies() {
+    let proxy_environment = network::resolve_global_proxy(&AppSettings {
+        proxy_mode: ProxyMode::NoProxy,
+        ..AppSettings::default()
+    })
+    .environment();
+    let shell_snapshot = ShellEnvironmentSnapshot {
+        variables: std::collections::BTreeMap::from([
+            ("HTTP_PROXY".into(), "http://127.0.0.1:8080".into()),
+            ("https_proxy".into(), "http://127.0.0.1:8080".into()),
+            ("All_Proxy".into(), "socks5://127.0.0.1:1080".into()),
+            ("no_proxy".into(), "localhost".into()),
+        ]),
+        ..Default::default()
+    };
+    let payload = windows_launch_payload(WindowsLaunchPayloadInput {
+        cli_path: r"C:\bin\codex.cmd",
+        cli_command_name: "codex",
+        plan: &TemporaryLaunchPlan {
+            args: Vec::new(),
+            environment: EnvironmentPatch::default(),
+            auxiliary_file_content: None,
+        },
+        proxy_environment: &proxy_environment,
+        shell_snapshot: &shell_snapshot,
+        prefer_shell_cli: false,
+    });
+    assert_eq!(payload["setEnv"], serde_json::json!({ "NO_PROXY": "*" }));
 }
 
 #[test]

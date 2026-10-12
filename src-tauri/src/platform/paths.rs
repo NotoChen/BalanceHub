@@ -11,6 +11,30 @@ pub(crate) fn compatible_path(path: &Path) -> Cow<'_, Path> {
     Cow::Borrowed(dunce::simplified(path))
 }
 
+/// Format public path fields without changing the in-memory paths used by
+/// source identity, scope checks and verified snapshot access.
+pub(crate) fn serialize_path<S>(path: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&compatible_path(Path::new(path)).to_string_lossy())
+}
+
+pub(crate) fn serialize_optional_path<S>(
+    path: &Option<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match path {
+        Some(path) => {
+            serializer.serialize_some(&compatible_path(Path::new(path)).to_string_lossy())
+        }
+        None => serializer.serialize_none(),
+    }
+}
+
 #[cfg(windows)]
 fn compatible_unc_path(path: &Path) -> Option<std::path::PathBuf> {
     use std::path::{Component, PathBuf, Prefix};
@@ -59,6 +83,33 @@ mod tests {
     fn ordinary_paths_keep_their_spelling() {
         for path in ["/tmp/project with spaces", "./project", ""] {
             assert_eq!(compatible_path(Path::new(path)).as_ref(), Path::new(path));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn public_serialization_keeps_internal_path_identity_untouched() {
+        #[derive(serde::Serialize)]
+        struct PublicPaths {
+            #[serde(serialize_with = "serialize_path")]
+            path: String,
+            #[serde(serialize_with = "serialize_optional_path")]
+            optional: Option<String>,
+        }
+        for (native, public) in [
+            (r"\\?\C:\Users\demo", r"C:\Users\demo"),
+            (r"\\?\UNC\server\share\project", r"\\server\share\project"),
+            (r"\\?\C:\project.", r"\\?\C:\project."),
+        ] {
+            let value = PublicPaths {
+                path: native.to_owned(),
+                optional: Some(native.to_owned()),
+            };
+            let json = serde_json::to_value(&value).unwrap();
+            assert_eq!(json["path"], public);
+            assert_eq!(json["optional"], public);
+            assert_eq!(value.path, native);
+            assert_eq!(value.optional.as_deref(), Some(native));
         }
     }
 

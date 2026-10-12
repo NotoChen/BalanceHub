@@ -723,6 +723,7 @@ pub struct AgentAssetSource {
     pub origin: AgentAssetInstallationOrigin,
     pub environment_id: String,
     pub workspace_id: Option<String>,
+    #[serde(serialize_with = "crate::platform::paths::serialize_path")]
     pub path: String,
     /// Adapter-owned access boundary used only by the Rust opaque-path
     /// resolver. It must never cross IPC or become frontend authority.
@@ -779,6 +780,7 @@ pub struct AgentAssetRecord {
     pub provenance: Vec<AgentAssetProvenance>,
     pub environment_id: String,
     pub workspace_id: Option<String>,
+    #[serde(serialize_with = "crate::platform::paths::serialize_optional_path")]
     pub path: Option<String>,
     pub precedence: u32,
     pub writable: bool,

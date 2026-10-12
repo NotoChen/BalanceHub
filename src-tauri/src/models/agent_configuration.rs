@@ -116,6 +116,7 @@ pub struct AgentConfigurationSource {
     pub scope: AgentAssetScope,
     pub profile: Option<String>,
     pub label: String,
+    #[serde(serialize_with = "crate::platform::paths::serialize_path")]
     pub path: String,
     pub format: AgentConfigurationFormat,
     pub revision: AgentAssetRevision,
@@ -169,6 +170,7 @@ pub struct AgentConfigurationReadResult {
 pub struct AgentConfigurationEditableDocument {
     pub source_id: String,
     pub label: String,
+    #[serde(serialize_with = "crate::platform::paths::serialize_path")]
     pub path: String,
     pub format: AgentConfigurationFormat,
     pub creating: bool,

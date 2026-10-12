@@ -239,7 +239,14 @@ fn home_bin_candidates_include_node_manager_shims() {
         "n/bin/codex",
         ".bun/bin/codex",
     ]
-    .map(|relative| home.join(relative));
+    .map(|relative| {
+        let path = home.join(relative);
+        if cfg!(windows) {
+            path.with_extension("cmd")
+        } else {
+            path
+        }
+    });
     for path in &installed {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, b"").unwrap();
@@ -950,8 +957,14 @@ fn claude_home_candidates_include_native_installer_path() {
 fn gemini_home_candidates_include_node_package_installations() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path();
-    let installed =
-        [".volta/bin/gemini", ".npm-global/bin/gemini"].map(|relative| home.join(relative));
+    let installed = [".volta/bin/gemini", ".npm-global/bin/gemini"].map(|relative| {
+        let path = home.join(relative);
+        if cfg!(windows) {
+            path.with_extension("cmd")
+        } else {
+            path
+        }
+    });
     for path in &installed {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, b"").unwrap();
@@ -1713,7 +1726,10 @@ fn completion_order_does_not_change_installation_order() {
 #[cfg(target_os = "windows")]
 #[test]
 fn windows_binary_names_include_cmd_and_exe() {
-    assert_eq!(binary_names("codex"), ["codex", "codex.cmd", "codex.exe"]);
+    assert_eq!(
+        binary_names("codex"),
+        ["codex.exe", "codex.cmd", "codex.bat", "codex.com"]
+    );
 }
 
 #[cfg(target_os = "windows")]

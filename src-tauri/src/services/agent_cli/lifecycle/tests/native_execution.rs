@@ -62,10 +62,8 @@ impl LifecycleRunner for NpmFixtureRunner {
             };
         }
         self.calls.fetch_add(1, Ordering::AcqRel);
-        assert!(command
-            .argv
-            .windows(2)
-            .any(|parts| parts == ["--prefix", self.prefix.to_str().unwrap()]));
+        assert!(command.argv.windows(2).any(|parts| parts[0] == "--prefix"
+            && Path::new(&parts[1]).canonicalize().unwrap() == self.prefix));
         assert!(command.argv.contains(&format!(
             "{}@latest",
             agent_cli::definition(self.kind)
@@ -459,7 +457,7 @@ fn native_preparation_pins_exact_vendor_argv_receipts_and_absence() {
             let fixture = Fixture::new();
             let (execution, launcher, receipt, absent) = prepared_vendor(&fixture, kind);
             let preview = execution.command_preview();
-            assert_eq!(Path::new(&preview[0]), launcher);
+            assert_eq!(Path::new(&preview[0]).canonicalize().unwrap(), launcher);
             assert_eq!(&preview[1..], &["update"]);
             execution.revalidate().unwrap();
             let changed = if change_absent { absent } else { receipt };

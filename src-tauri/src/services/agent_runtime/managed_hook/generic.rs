@@ -1064,8 +1064,10 @@ mod tests {
         let (claude_root, claude) = fixture(GenericAgent::ClaudeCode);
         let claude_handler = &claude.definitions()[0].handler;
         assert_eq!(
-            claude_handler["command"],
-            claude.helper_path.to_string_lossy().as_ref()
+            Path::new(claude_handler["command"].as_str().unwrap())
+                .canonicalize()
+                .unwrap(),
+            claude.helper_path
         );
         assert_eq!(claude_handler["timeout"], 3);
         assert!(claude_handler["args"]

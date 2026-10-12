@@ -191,16 +191,21 @@ pub(in crate::services::temporary_cli) fn windows_launch_payload(
         .removed_names()
         .map(str::to_string)
         .collect::<BTreeSet<_>>();
-    let mut set_env = shell_snapshot.variables.clone();
-    let proxy_variables = proxy_environment
-        .variables()
-        .map(|(name, value)| (name.to_string(), value.to_string()))
-        .collect::<Vec<_>>();
-    for (name, _) in &proxy_variables {
+    let mut set_env = BTreeMap::new();
+    for (name, value) in &shell_snapshot.variables {
+        remove_environment_name(&mut set_env, name);
+        set_env.insert(name.clone(), value.clone());
+    }
+    for name in proxy_environment.removed_names() {
         remove_environment_name(&mut set_env, name);
     }
-    for (name, value) in proxy_variables {
-        set_env.insert(name, value);
+    for (name, value) in proxy_environment.variables() {
+        // Windows environment names and PowerShell JSON object properties are
+        // case-insensitive. Keep one spelling when upper/lower proxy pairs
+        // from the common resolver are projected into the launch payload.
+        let name = name.to_ascii_uppercase();
+        remove_environment_name(&mut set_env, &name);
+        set_env.insert(name, value.to_string());
     }
 
     for name in plan.environment.removed_names() {
