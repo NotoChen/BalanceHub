@@ -18,7 +18,7 @@ use macos as platform;
 use windows as platform;
 
 pub(crate) use client::{
-    build_download_client, build_provider_client_with_proxy, build_sync_client,
+    build_download_client, build_mcp_client, build_provider_client_with_proxy, build_sync_client,
     build_webhook_client, configure_updater_builder,
 };
 use proxy::SystemProxyConfig;

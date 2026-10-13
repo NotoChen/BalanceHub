@@ -14,6 +14,16 @@ use std::collections::BTreeMap;
 
 fn export(library: &Library) -> Result<SyncDocuments, String> {
     let mut documents = BTreeMap::new();
+    for (id, scheme) in &library.instructions {
+        documents.insert(
+            format!("instruction/{id}"),
+            SyncDocument {
+                title: scheme.name.clone(),
+                category: "共享指令".to_owned(),
+                value: serde_json::to_value(scheme).map_err(|_| "共享指令格式无效")?,
+            },
+        );
+    }
     for (id, entry) in &library.entries {
         let Some(definition) = entry.current() else {
             continue;
@@ -52,6 +62,22 @@ fn export(library: &Library) -> Result<SyncDocuments, String> {
 }
 
 fn import(library: &mut Library, documents: &SyncDocuments) -> Result<(), String> {
+    let mut instructions = BTreeMap::new();
+    for (key, document) in documents {
+        if let Some(id) = key.strip_prefix("instruction/") {
+            let scheme: crate::models::AgentInstructionSet =
+                serde_json::from_value(document.value.clone()).map_err(|_| "共享指令格式无效")?;
+            super::instructions::validate(&scheme)?;
+            if id != scheme.id || scheme.revision != super::instructions::revision(&scheme) {
+                return Err("共享指令身份或内容校验失败".to_owned());
+            }
+            instructions.insert(id.to_owned(), scheme);
+        }
+    }
+    if instructions.len() > super::instructions::MAX_SETS {
+        return Err("共享指令方案超过 128 个".to_owned());
+    }
+    library.instructions = instructions;
     let mut incoming = BTreeMap::new();
     for (key, document) in documents {
         let Some(id) = key.strip_prefix("asset/") else {
@@ -162,7 +188,9 @@ fn import(library: &mut Library, documents: &SyncDocuments) -> Result<(), String
 pub(crate) fn only_catalog(documents: &SyncDocuments) -> SyncDocuments {
     documents
         .iter()
-        .filter(|(key, _)| key.starts_with("asset/") || key.starts_with("blob/"))
+        .filter(|(key, _)| {
+            key.starts_with("asset/") || key.starts_with("blob/") || key.starts_with("instruction/")
+        })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect()
 }

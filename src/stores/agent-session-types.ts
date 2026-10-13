@@ -23,6 +23,9 @@ export interface AgentSessionWorkspace {
 }
 
 export interface AgentSessionSource {
+  runtimeScope: AgentRuntimeScope;
+  label: string;
+  resumeCli: { path: string; version: string | null } | null;
   id: string;
   agentKind: AgentCliKind;
   configRoot: string;
@@ -43,6 +46,10 @@ export type AgentSessionParent =
   | { kind: "unknown" };
 
 export interface AgentSessionRow {
+  runtimeScope: AgentRuntimeScope;
+  runtimeLabel: string;
+  resumeCli: { path: string; version: string | null } | null;
+  supportsProviderResume: boolean;
   searchHit: SessionSearchHit | null;
   sessionRef: string;
   sourceId: string;
@@ -56,6 +63,7 @@ export interface AgentSessionRow {
 }
 
 export interface AgentSessionQuery {
+  runtimeScope?: AgentRuntimeScope | null;
   consumerId: string;
   requestId: number;
   scopeRevision: string;

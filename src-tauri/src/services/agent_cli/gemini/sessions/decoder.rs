@@ -51,6 +51,27 @@ fn decode_message(value: &Value, result: &mut Vec<SessionIndexMutation>) {
         turn_id: (role == CliSessionMessageRole::User).then(|| id.clone()),
         ..Default::default()
     };
+    if role == CliSessionMessageRole::Assistant {
+        if let Some(usage) = value.get("tokens").filter(|value| value.is_object()) {
+            use crate::services::cli_sessions::usage::{number, record};
+            let thoughts = number(usage, "thoughts");
+            result.push(record(
+                format!("gemini-usage-{}", message.id),
+                base.model.as_deref(),
+                crate::models::SessionTokenCounts {
+                    input_tokens: number(usage, "input"),
+                    output_tokens: number(usage, "output")
+                        .map(|output| output.saturating_add(thoughts.unwrap_or_default())),
+                    cache_read_tokens: number(usage, "cached"),
+                    cache_write_tokens: None,
+                    reasoning_tokens: thoughts,
+                },
+                false,
+                false,
+                Some(&id),
+            ));
+        }
+    }
     if let Some(content) = message.text.filter(|content| !content.trim().is_empty()) {
         let metadata = SessionMessageMetadata {
             injected: role == CliSessionMessageRole::User

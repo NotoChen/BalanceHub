@@ -13,6 +13,7 @@ mod discovery;
 pub(crate) mod environment;
 pub(crate) mod lifecycle;
 mod liveness_support;
+pub(crate) mod mcp_check;
 pub(crate) mod overview;
 
 use crate::models::{

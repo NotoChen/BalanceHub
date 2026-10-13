@@ -18,12 +18,19 @@ mod agent_configuration;
 mod agent_environment;
 #[path = "models/agent_hook.rs"]
 mod agent_hook;
+#[path = "models/agent_instructions.rs"]
+mod agent_instructions;
 #[path = "models/agent_lifecycle.rs"]
 mod agent_lifecycle;
+#[path = "models/agent_mcp_check.rs"]
+mod agent_mcp_check;
 #[path = "models/agent_overview.rs"]
 mod agent_overview;
 #[path = "models/agent_runtime.rs"]
 mod agent_runtime;
+#[path = "models/agent_wsl.rs"]
+mod agent_wsl;
+pub use agent_wsl::*;
 #[path = "models/agent_session_resume.rs"]
 mod agent_session_resume;
 #[path = "models/agent_sessions.rs"]
@@ -37,6 +44,9 @@ mod cli_sessions;
 #[path = "models/session_reader.rs"]
 mod session_reader;
 pub use session_reader::*;
+#[path = "models/session_usage.rs"]
+mod session_usage;
+pub use session_usage::*;
 #[path = "models/cloud_sync.rs"]
 mod cloud_sync;
 #[path = "models/enums.rs"]
@@ -59,6 +69,10 @@ pub use agent_asset_provenance::*;
 pub use agent_catalog::*;
 pub use agent_cli::*;
 pub use agent_configuration::*;
+pub use agent_instructions::*;
+pub use agent_mcp_check::*;
+#[path = "models/model_metadata.rs"]
+mod model_metadata;
 pub use agent_environment::*;
 pub use agent_hook::*;
 pub use agent_lifecycle::*;
@@ -83,6 +97,7 @@ pub use cloud_sync::*;
 pub use enums::*;
 pub use liveness::*;
 pub use login_account::*;
+pub use model_metadata::*;
 pub use provider::*;
 pub(crate) use provider_results::is_full_api_key_value;
 pub use provider_results::*;

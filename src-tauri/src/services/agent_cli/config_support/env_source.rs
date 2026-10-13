@@ -90,7 +90,12 @@ pub(crate) fn assignments(source: &str) -> Vec<EnvAssignment> {
 
 fn parse_assignment(source: &str, line_start: usize, line_end: usize) -> Option<EnvAssignment> {
     let bytes = source.as_bytes();
-    let mut position = skip_space(bytes, line_start, line_end);
+    let start = if line_start == 0 && source.starts_with('\u{feff}') {
+        '\u{feff}'.len_utf8()
+    } else {
+        line_start
+    };
+    let mut position = skip_space(bytes, start, line_end);
     if bytes.get(position) == Some(&b'#') || position >= line_end {
         return None;
     }

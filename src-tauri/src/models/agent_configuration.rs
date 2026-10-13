@@ -103,6 +103,8 @@ pub struct AgentConfigurationEffect {
 pub struct AgentConfigurationListRequest {
     pub agent_kind: AgentCliKind,
     pub workspace: Option<String>,
+    #[serde(default)]
+    pub runtime_scope: super::AgentRuntimeScope,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,6 +112,7 @@ pub struct AgentConfigurationSource {
     pub source_id: String,
     pub context_id: String,
     pub environment_id: String,
+    pub runtime_scope: super::AgentRuntimeScope,
     pub agent_kind: AgentCliKind,
     pub workspace: Option<String>,
     pub native_role: String,

@@ -38,6 +38,8 @@ export function useAgentSessionResume(options: AgentSessionResumeOptions) {
   const cliOptions = computed(() => {
     const kind = options.row.value?.session.cliKind;
     if (!kind) return [];
+    const native = options.row.value?.resumeCli;
+    if (native) return [{ ...native, label: options.row.value?.runtimeLabel || "WSL", preferred: true }];
     const choices = new Map<string, { path: string; label: string; version: string | null; preferred: boolean }>();
     const tool = cli.cliEnvironmentProbe?.tools.find((candidate) => candidate.kind === kind && candidate.available);
     const preferred = tool?.path || settings.settings.agentCliPaths[kind] || "";
@@ -58,6 +60,7 @@ export function useAgentSessionResume(options: AgentSessionResumeOptions) {
     if (tasks.isReserved(row.sessionRef)) return "该会话已有待确认的继续任务，请在后台任务中查看状态";
     if (!cliOptions.value.some((choice) => choice.path === cliPath.value)) return probing.value ? "正在检测可用 CLI" : "没有可用的 Agent CLI；历史仍可查看";
     if (!terminalOptions.value.some((choice) => choice.value === terminalKind.value)) return probing.value ? "正在检测终端" : "没有可用终端，请刷新检测";
+    if (intentKind.value === "provider" && options.row.value?.supportsProviderResume === false) return "此环境请沿用 Agent 当前配置";
     if (intentKind.value === "provider" && !selectedProvider.value) return "请选择要使用的中转站";
     return "";
   });
@@ -93,13 +96,13 @@ export function useAgentSessionResume(options: AgentSessionResumeOptions) {
     const request = revision;
     probing.value = true;
     probeError.value = "";
-    const cliRead = cli.probeCliTools(true);
+    const cliRead = options.row.value?.resumeCli ? Promise.resolve() : cli.probeCliTools(true);
     ownedCliProbe = cli.cliEnvironmentRequestId;
     const terminalRead = cli.probeTerminals();
     ownedTerminalProbe = cli.terminalEnvironmentRequestId;
     try {
       const results = await Promise.allSettled([
-        withTimeout(cliRead, 45_000, "检测 Agent CLI 超时"),
+        withTimeout(cliRead.then(() => {}), 45_000, "检测 Agent CLI 超时"),
         withTimeout(terminalRead, 20_000, "检测终端超时"),
       ]);
       if (disposed || request !== revision || !options.visible.value) return;

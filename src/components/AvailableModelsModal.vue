@@ -3,6 +3,8 @@ import { computed, ref, watch } from "vue";
 import { IconCloud, IconCopy, IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider } from "../stores/providers";
 import { providerDisplayLabel, providerModelScopeLabel } from "../utils/provider-display";
+import { useModelMetadata } from "../composables/useModelMetadata";
+import ModelMetadataLine from "./ModelMetadataLine.vue";
 
 const MODELS_PER_PAGE = 100;
 
@@ -55,6 +57,7 @@ const filteredModels = computed(() => {
 });
 
 const displayedModels = computed(() => filteredModels.value.slice((page.value - 1) * MODELS_PER_PAGE, page.value * MODELS_PER_PAGE));
+const metadata = useModelMetadata(displayedModels, computed(() => props.visible));
 watch(keyword, () => { page.value = 1; });
 watch(() => filteredModels.value.length, (count) => { page.value = Math.min(page.value, Math.max(1, Math.ceil(count / MODELS_PER_PAGE))); });
 watch([page, keyword], () => { if (modelList.value) modelList.value.scrollTop = 0; }, { flush: "post" });
@@ -133,7 +136,7 @@ const canRefresh = computed(() => Boolean(props.provider?.actions.models.canSync
               :title="model"
               @click="emit('copy', model)"
             >
-              <span>{{ model }}</span>
+              <span class="available-model-copy"><span>{{ model }}</span><ModelMetadataLine :model="metadata.models.value.get(model)" /></span>
               <icon-copy />
             </button>
           </div>
@@ -141,8 +144,15 @@ const canRefresh = computed(() => Boolean(props.provider?.actions.models.canSync
             <span>每页 {{ MODELS_PER_PAGE }} 个</span>
             <a-pagination v-model:current="page" :total="filteredModels.length" :page-size="MODELS_PER_PAGE" size="small" simple />
           </div>
+          <p class="available-model-metadata-note"><template v-if="metadata.loading.value">正在补充模型资料…</template><template v-else-if="metadata.error.value">模型资料暂不可用，不影响模型选择。<a-button type="text" size="mini" @click="metadata.refresh">重试</a-button></template><template v-else-if="metadata.snapshot.value?.updatedAt">资料来自 models.dev，实际能力与费用以中转站为准。</template></p>
         </div>
       </a-spin>
     </div>
   </a-modal>
 </template>
+
+<style scoped>
+.available-model-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-align: left; }
+.available-model-copy > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.available-model-metadata-note { color: var(--color-text-3); margin: 8px 0 0; font-size: 11px; }
+</style>

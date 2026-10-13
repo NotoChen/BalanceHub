@@ -35,6 +35,8 @@ pub struct AppState {
     agent_configuration:
         OnceLock<Arc<crate::services::agent_cli::configuration::ConfigurationService>>,
     agent_catalog: OnceLock<Arc<CatalogService>>,
+    pub(crate) mcp_checks: Arc<crate::services::agent_cli::mcp_check::McpCheckService>,
+    model_catalog: OnceLock<Arc<crate::services::model_catalog::ModelCatalogService>>,
     agent_lifecycle: OnceLock<Arc<LifecycleService>>,
     cloud_sync: OnceLock<Arc<crate::services::cloud_sync::CloudSyncService>>,
     pub(crate) cloud_sync_signal: Arc<crate::services::cloud_sync::SyncSignal>,
@@ -45,6 +47,22 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub(crate) fn model_catalog(
+        &self,
+        app: &tauri::AppHandle,
+    ) -> Result<Arc<crate::services::model_catalog::ModelCatalogService>, String> {
+        let path = app
+            .path()
+            .app_data_dir()
+            .map_err(|_| "模型资料缓存目录不可用")?
+            .join("model-catalog.json");
+        Ok(Arc::clone(self.model_catalog.get_or_init(|| {
+            Arc::new(crate::services::model_catalog::ModelCatalogService::new(
+                path,
+            ))
+        })))
+    }
+
     pub fn new(data: AppData) -> Self {
         Self::with_load_error(data, None)
     }
@@ -63,6 +81,8 @@ impl AppState {
             agent_session_resumes: Arc::default(),
             agent_configuration: OnceLock::new(),
             agent_catalog: OnceLock::new(),
+            mcp_checks: Arc::default(),
+            model_catalog: OnceLock::new(),
             agent_lifecycle: OnceLock::new(),
             cloud_sync: OnceLock::new(),
             cloud_sync_signal: Arc::default(),
@@ -180,6 +200,7 @@ impl AppState {
             .unwrap_or_else(|error| error.into_inner())
             .remove(window_label);
         if let Some(actor) = actor {
+            self.mcp_checks.cancel_actor(&actor);
             self.agent_asset_access.remove_actor(&actor);
             if let Some(configuration) = self.agent_configuration.get() {
                 configuration.remove_actor(&actor);

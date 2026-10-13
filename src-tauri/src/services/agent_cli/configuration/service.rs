@@ -213,7 +213,8 @@ impl ConfigurationService {
         let text = std::str::from_utf8(source.file.bytes().unwrap_or_default()).map_err(|_| {
             AgentConfigurationError::new(AgentConfigurationErrorKind::UnsupportedFormat)
         })?;
-        let mut text = text.to_owned();
+        let mut text =
+            crate::services::agent_cli::config_support::text_document::body(text).to_owned();
         let truncated = text.len() > 128 * 1024;
         if truncated {
             let mut end = 128 * 1024;
@@ -252,6 +253,7 @@ impl ConfigurationService {
         let snapshot = self.list_sources(
             actor,
             AgentConfigurationListRequest {
+                runtime_scope: Default::default(),
                 agent_kind: kind,
                 workspace: None,
             },
@@ -308,7 +310,7 @@ impl ConfigurationService {
         }
         self.admit_edit(actor, kind, documents)
     }
-    fn admit_edit(
+    pub(super) fn admit_edit(
         &self,
         actor: &str,
         kind: AgentCliKind,
@@ -549,8 +551,8 @@ impl ConfigurationService {
                 ));
             }
             let source = &document.authority;
-            source.file.revalidate().map_err(|_| conflict())?;
             self.revalidate_context(source)?;
+            source.file.revalidate().map_err(|_| conflict())?;
             let candidate = request
                 .documents
                 .iter()
@@ -705,7 +707,9 @@ impl ConfigurationService {
         Ok(public)
     }
 }
-fn require_edit(source: &ConfigurationSourceAuthority) -> Result<(), AgentConfigurationError> {
+pub(super) fn require_edit(
+    source: &ConfigurationSourceAuthority,
+) -> Result<(), AgentConfigurationError> {
     let action = if source.file.bytes().is_none() {
         AgentConfigurationActionKind::Create
     } else {
@@ -715,9 +719,11 @@ fn require_edit(source: &ConfigurationSourceAuthority) -> Result<(), AgentConfig
 }
 fn initial_text(source: &ConfigurationSourceAuthority) -> Result<String, AgentConfigurationError> {
     if let Some(bytes) = source.file.bytes() {
-        return std::str::from_utf8(bytes).map(str::to_owned).map_err(|_| {
-            AgentConfigurationError::new(AgentConfigurationErrorKind::UnsupportedFormat)
-        });
+        return crate::services::agent_cli::config_support::text_document::decode(bytes)
+            .map(str::to_owned)
+            .map_err(|_| {
+                AgentConfigurationError::new(AgentConfigurationErrorKind::UnsupportedFormat)
+            });
     }
     Ok(source.spec.initial_text.clone().unwrap_or_else(|| {
         if matches!(

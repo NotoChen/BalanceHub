@@ -117,7 +117,7 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
   async function refresh() {
     await Promise.allSettled([
       ...(navigation.page === "overview" || navigation.page === "sessions" ? [overview.check(kinds.value, workspacePath.value, true)] : []),
-      ...(navigation.page !== "sessions" ? [refreshAssets(true)] : []),
+      ...((navigation.page !== "sessions" && navigation.page !== "instructions" && navigation.page !== "environments") ? [refreshAssets(true)] : []),
       ...(historyActive.value ? [history.refresh()] : []),
     ]);
   }
@@ -177,7 +177,7 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     if (!options.active.value) return;
     if (navigation.page === "overview") checkOverview();
     else if (navigation.page === "sessions") void overview.check(kinds.value, workspacePath.value);
-    if (navigation.page !== "sessions") void refreshAssets();
+    if ((navigation.page !== "sessions" && navigation.page !== "instructions" && navigation.page !== "environments")) void refreshAssets();
   }, { immediate: true });
   watch(() => kinds.value.map((kind) => [kind, configurationSources.get(kind, workspacePath.value).value?.revision] as const), (current, previous) => {
     for (const [kind, configurationRevision] of current) {
@@ -202,11 +202,11 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     if (options.active.value) void refreshAssets();
   });
   function checkCatalogSources() {
-    if (disposed || !options.active.value || navigation.page === "sessions" || document.visibilityState === "hidden") return;
+    if (disposed || !options.active.value || navigation.page === "sessions" || navigation.page === "instructions" || navigation.page === "environments" || document.visibilityState === "hidden") return;
     const workspace = workspacePath.value;
     const key = agentEnvironmentKey(workspace);
     void catalogStore.check(workspace).then(() => {
-      if (!disposed && options.active.value && workspacePath.value === workspace && navigation.page !== "sessions"
+      if (!disposed && options.active.value && workspacePath.value === workspace && (navigation.page !== "sessions" && navigation.page !== "instructions" && navigation.page !== "environments")
         && document.visibilityState !== "hidden" && catalogStore.stale[key] && !catalogStore.loading[key]) {
         void catalog.refresh(workspace);
       }

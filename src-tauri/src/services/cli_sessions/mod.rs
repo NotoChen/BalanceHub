@@ -8,6 +8,7 @@ mod search;
 pub(crate) mod source;
 #[cfg(test)]
 mod tests;
+pub(crate) mod usage;
 pub(crate) mod workbench;
 
 #[cfg(test)]

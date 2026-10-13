@@ -63,6 +63,12 @@ pub(super) fn scan_source(
         );
         return outcome;
     }
+    if let crate::models::AgentRuntimeScope::Wsl { distro_id } = &source.runtime_scope {
+        if let Err(error) = crate::services::wsl::require_running(distro_id) {
+            outcome.states = failure(error, AgentSessionSourceStatus::Unavailable);
+            return outcome;
+        }
+    }
     let adapter = match history_adapter(source.agent_kind) {
         Ok(adapter) => adapter,
         Err(error) => {

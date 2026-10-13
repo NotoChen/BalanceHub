@@ -18,6 +18,16 @@ pub struct AgentSessionSource {
     pub agent_kind: AgentCliKind,
     pub config_root: String,
     pub available: bool,
+    pub runtime_scope: super::AgentRuntimeScope,
+    pub label: String,
+    pub resume_cli: Option<AgentSessionCli>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionCli {
+    pub path: String,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -70,6 +80,10 @@ pub enum AgentSessionActivityState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionRow {
+    pub runtime_scope: super::AgentRuntimeScope,
+    pub runtime_label: String,
+    pub resume_cli: Option<AgentSessionCli>,
+    pub supports_provider_resume: bool,
     pub session_ref: String,
     pub source_id: String,
     pub workspace_id: String,
@@ -89,6 +103,8 @@ pub struct AgentSessionQuery {
     pub request_id: u64,
     pub scope_revision: String,
     pub agent_kinds: Vec<AgentCliKind>,
+    #[serde(default)]
+    pub runtime_scope: Option<super::AgentRuntimeScope>,
     pub workspace_ids: Vec<String>,
     #[serde(default)]
     pub role_filter: AgentSessionRoleFilter,

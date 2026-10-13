@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { mcpConnectionFields, mcpOptionFields, mcpTransportLabels } from "../../utils/mcp-form-fields";
 import ContentEditor from "../ContentEditor.vue";
+import AgentMcpCheck from "./AgentMcpCheck.vue";
 import "../../styles/modules/mcp-editor.css";
 const props = defineProps<{ text: string }>();
 const connection = computed<Record<string, unknown> | null>(() => {
@@ -30,5 +31,6 @@ const rows = computed(() => {
     <dl v-if="connection" class="mcp-summary-fields"><div v-for="row in rows" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl>
     <details v-if="connection" class="mcp-extra"><summary>查看连接 JSON<span>高级</span></summary><div class="mcp-extra-body"><ContentEditor :model-value="text" :original-text="text" format="json" readonly /></div></details>
     <ContentEditor v-else :model-value="text" :original-text="text" format="json" readonly />
+    <AgentMcpCheck v-if="connection" :connection="text" />
   </div>
 </template>

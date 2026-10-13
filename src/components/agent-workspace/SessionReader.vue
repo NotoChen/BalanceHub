@@ -27,6 +27,7 @@ import {
 import AgentCliIcon from "../AgentCliIcon.vue";
 import AgentSessionRelation from "./AgentSessionRelation.vue";
 import SessionReaderMessage from "./SessionReaderMessage.vue";
+import SessionUsage from "./SessionUsage.vue";
 import "../../styles/modules/cli-session-detail.css";
 
 const props = withDefaults(
@@ -241,6 +242,7 @@ onScopeDispose(() => {
         <Copy :size="14" />
       </button>
     </header>
+    <SessionUsage v-if="detail?.usage" :usage="detail.usage" />
     <button
       v-if="session?.workdir"
       type="button"

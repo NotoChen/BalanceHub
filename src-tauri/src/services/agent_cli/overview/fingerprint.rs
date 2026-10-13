@@ -8,6 +8,7 @@ pub(super) fn signature(
     settings: &AppSettings,
     paths: &BTreeSet<PathBuf>,
 ) -> String {
+    let _read = cache::ReadScope::fresh();
     let mut digest = Sha256::new();
     digest.update(b"agent-overview-v1");
     digest.update(env!("CARGO_PKG_VERSION"));

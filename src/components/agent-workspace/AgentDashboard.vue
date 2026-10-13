@@ -24,6 +24,8 @@ import AgentOperationPanel from "./AgentOperationPanel.vue";
 import AgentHookPanel from "./AgentHookPanel.vue";
 import AgentLaunchProviderModal from "./AgentLaunchProviderModal.vue";
 import AgentSessionPanel from "./AgentSessionPanel.vue";
+import AgentInstructionsPanel from "./AgentInstructionsPanel.vue";
+import AgentWslPanel from "./AgentWslPanel.vue";
 import AgentWorkspaceScopeSelect from "../settings/agent-environment/AgentWorkspaceScopeSelect.vue";
 import AgentAssetDetailDrawer from "../settings/agent-environment/AgentAssetDetailDrawer.vue";
 import AgentAssetPlanModal from "../settings/agent-environment/AgentAssetPlanModal.vue";
@@ -39,9 +41,14 @@ const emit = defineEmits<{
   refreshing: [loading: boolean]; refreshRuntime: []; activateRuntime: [session: AgentRuntimeSession]; launch: [provider: Provider, kind: AgentCliKind];
 }>();
 const sessionPanel = ref<InstanceType<typeof AgentSessionPanel> | null>(null);
+const instructionsPanel = ref<InstanceType<typeof AgentInstructionsPanel> | null>(null);
+const wslPanel = ref<InstanceType<typeof AgentWslPanel> | null>(null);
 const catalogPanel = ref<InstanceType<typeof AgentCatalogPanel> | null>(null);
 const content = ref<HTMLElement | null>(null);
 const model = reactive(useAgentDashboard({ active: toRef(props, "active"), cliRuntime: toRef(props, "cliRuntime"), runtime: toRef(props, "runtimeSnapshot") }));
+const instructionsOpened = ref(model.navigation.page === "instructions");
+const environmentsOpened = ref(model.navigation.page === "environments");
+watch(() => model.navigation.page, (page) => { if (page === "instructions") instructionsOpened.value = true; if (page === "environments") environmentsOpened.value = true; });
 const sessionOpened = ref(model.navigation.page === "sessions");
 watch(() => model.navigation.page, (page) => { if (page === "sessions") sessionOpened.value = true; });
 const drag = reactive(useCardDragSort({
@@ -114,7 +121,7 @@ function launch(providerId: string) {
   model.launchKind = null;
   if (props.active && kind && provider) emit("launch", provider, kind);
 }
-function refresh() { if (model.navigation.page === "sessions") return sessionPanel.value?.refresh(); emit("refreshRuntime"); return model.refresh(); }
+function refresh() { if (model.navigation.page === "instructions") return instructionsPanel.value?.refresh(); if (model.navigation.page === "environments") return wslPanel.value?.refresh(); if (model.navigation.page === "sessions") return sessionPanel.value?.refresh(); emit("refreshRuntime"); return model.refresh(); }
 function refreshCard(kind: AgentCliKind) { emit("refreshRuntime"); return model.refreshCard(kind); }
 function busyAsset(id: string) { return Boolean(model.catalog.libraryBusy[id] || model.catalogStore.starting[id] || operationIndex.value.busy.has(id)); }
 function assetError(id: string) {
@@ -151,10 +158,10 @@ defineExpose({ refresh });
     <header class="agent-dashboard-navigation">
       <nav aria-label="Agent 管理分类"><button v-for="page in agentWorkspacePages" :key="page.value" type="button" :class="{ active: model.navigation.page === page.value }" :aria-current="model.navigation.page === page.value ? 'page' : undefined" @click="openPage(page.value)"><AgentWorkspaceIcon :page="page.value" /><span>{{ page.label }}</span></button></nav>
       <div class="agent-workspace-context">
-        <a-select :model-value="model.navigation.agentFilter || ''" size="small" class="agent-workspace-agent-select" aria-label="筛选 Agent" @change="selectAgent">
+        <a-select v-if="!['instructions', 'environments'].includes(model.navigation.page)" :model-value="model.navigation.agentFilter || ''" size="small" class="agent-workspace-agent-select" aria-label="筛选 Agent" @change="selectAgent">
           <a-option value="">全部 Agent</a-option><a-option v-for="agent in cliRuntime.agents" :key="agent.kind" :value="agent.kind"><span class="agent-workspace-agent-option"><AgentCliIcon :kind="agent.kind" :size="16" />{{ agent.label }}</span></a-option>
         </a-select>
-        <div v-if="model.navigation.page !== 'sessions'" class="agent-workspace-scope"><AgentWorkspaceScopeSelect :model-value="model.navigation.workspacePath || ''" :options="model.workspaceOptions" @update:model-value="model.navigation.selectWorkspace($event || undefined)" /></div>
+        <div v-if="!['sessions', 'environments'].includes(model.navigation.page)" class="agent-workspace-scope"><AgentWorkspaceScopeSelect :model-value="model.navigation.workspacePath || ''" :options="model.workspaceOptions" @update:model-value="model.navigation.selectWorkspace($event || undefined)" /></div>
       </div>
     </header>
     <div ref="content" class="agent-dashboard-content" :class="{ 'has-catalog': model.navigation.page !== 'overview' && model.navigation.page !== 'sessions', 'has-session-history': model.navigation.page === 'sessions' && model.navigation.sessionView === 'history' }" @scroll="cancelCardDrag">
@@ -176,7 +183,9 @@ defineExpose({ refresh });
         <Teleport to="body"><AgentOverviewCard v-if="drag.draggedItem" v-bind="drag.draggedItem" :loading="model.loading" class="agent-card-sort-preview" :style="drag.dragStyle()" aria-hidden="true" inert /></Teleport>
       </template>
       <AgentHookPanel v-else-if="model.navigation.page === 'hook'" :catalog="model.catalog.catalog" :agents="cliRuntime.agents" :agent-filter="model.navigation.agentFilter" :query="model.navigation.query" :focused-asset-id="model.focusedHookId" :center="model.environment" :hooks="model.hooks" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @installation="openHookInstallation" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
-      <AgentCatalogPanel v-else-if="model.navigation.page !== 'sessions'" ref="catalogPanel" :focused-asset-id="model.navigation.page === 'library' ? model.navigation.libraryAssetId : null" @edit="editLibraryDefinition" :catalog="model.catalog.catalog" :page="model.navigation.page" :query="model.navigation.query" :agent-filter="model.navigation.agentFilter" :agents="cliRuntime.agents" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
+      <AgentCatalogPanel v-else-if="!['sessions', 'instructions', 'environments'].includes(model.navigation.page)" ref="catalogPanel" :focused-asset-id="model.navigation.page === 'library' ? model.navigation.libraryAssetId : null" @edit="editLibraryDefinition" :catalog="model.catalog.catalog" :page="model.navigation.page" :query="model.navigation.query" :agent-filter="model.navigation.agentFilter" :agents="cliRuntime.agents" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
+      <AgentInstructionsPanel v-if="instructionsOpened" v-show="model.navigation.page === 'instructions'" ref="instructionsPanel" :agents="cliRuntime.agents" :workspace="model.navigation.workspacePath" :query="model.navigation.queries.instructions ?? ''" />
+      <AgentWslPanel v-if="environmentsOpened" v-show="model.navigation.page === 'environments'" ref="wslPanel" :active="active && model.navigation.page === 'environments'" :agents="cliRuntime.agents" :query="model.navigation.queries.environments ?? ''" />
       <AgentSessionPanel v-if="sessionOpened" v-show="model.navigation.page === 'sessions'" ref="sessionPanel" :active="active" :providers="providers" :installations="model.installations" :cli-runtime="cliRuntime" :runtime-snapshot="runtimeSnapshot" :runtime-sessions="model.runtimeSessions" :runtime-loading="runtimeLoading" :activating-id="activatingId" @refresh-runtime="emit('refreshRuntime')" @activate-runtime="emit('activateRuntime', $event)" />
     </div>
     <a-drawer :visible="Boolean(model.navigation.operationDetails)" width="min(820px, calc(100vw - 32px))" :footer="false" title="任务详情" class="agent-workspace-drawer" closable mask-closable esc-to-close unmount-on-close @cancel="model.navigation.closeOperation">

@@ -160,6 +160,42 @@ pub(crate) struct ProxyEnvironment {
 }
 
 impl ProxyEnvironment {
+    /// Keep the shared proxy policy; translate only host loopback addresses
+    /// when a WSL guest reaches Windows through its default gateway.
+    pub(crate) fn for_wsl(&self, mirrored: bool, gateway: Option<&str>) -> Result<Self, String> {
+        let mut environment = self.clone();
+        if mirrored {
+            return Ok(environment);
+        }
+        for (name, value) in &mut environment.set {
+            if name.eq_ignore_ascii_case("no_proxy") {
+                continue;
+            }
+            let Ok(mut url) = reqwest::Url::parse(value) else {
+                continue;
+            };
+            let loopback = url.host_str().is_some_and(|host| {
+                host.eq_ignore_ascii_case("localhost")
+                    || host
+                        .trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            });
+            if !loopback {
+                continue;
+            }
+            let gateway = gateway
+                .ok_or("无法确定 WSL 到 Windows 的代理地址，请检查 WSL 网络或使用可达的代理地址")?;
+            gateway
+                .parse::<std::net::Ipv4Addr>()
+                .map_err(|_| "WSL 网关地址无效")?;
+            url.set_host(Some(gateway))
+                .map_err(|_| "无法转换 WSL 代理地址")?;
+            *value = url.to_string();
+        }
+        Ok(environment)
+    }
+
     fn inherited() -> Self {
         Self {
             inherit_environment: true,

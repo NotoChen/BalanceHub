@@ -72,7 +72,7 @@ const entries = computed(() => {
       return {
         row,
         heading,
-        label: labels.get(row.session.cliKind) || row.session.cliKind,
+        label: `${labels.get(row.session.cliKind) || row.session.cliKind}${row.runtimeScope.kind === "wsl" ? ` · ${row.runtimeLabel}` : ""}`,
         terminals: [...new Set(row.runtimeIds)].flatMap((id) => {
           const terminal = terminals.get(id);
           return terminal ? [terminal] : [];

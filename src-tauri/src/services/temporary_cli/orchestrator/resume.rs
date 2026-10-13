@@ -81,6 +81,14 @@ impl ResumeCompletion {
         app: &AppHandle,
         instance: TemporaryCliInstance,
     ) -> AgentSessionResumeResult {
+        // A Linux executable is not a preferred Windows CLI installation.
+        if instance
+            .native_session
+            .as_ref()
+            .is_some_and(|identity| matches!(identity.runtime_scope, AgentRuntimeScope::Wsl { .. }))
+        {
+            return self.pending(instance);
+        }
         let service = ProviderService::new(app);
         let recorded = match &self.preference {
             Some(preference) => service
@@ -120,7 +128,7 @@ pub(crate) fn launch_identity(target: &ResolvedSessionTarget) -> AgentSessionLau
         session_ref: target.session_ref.clone(),
         source_identity: target.source_identity.clone(),
         native_session_id: target.native_session_id.clone(),
-        runtime_scope: AgentRuntimeScope::Native,
+        runtime_scope: target.runtime_scope.clone(),
     }
 }
 
@@ -146,6 +154,9 @@ impl TemporaryCliLaunchService<'_> {
                 provider_id,
                 api_key_local_id,
             } => {
+                if !matches!(target.runtime_scope, AgentRuntimeScope::Native) {
+                    return Err("WSL 会话请沿用发行版内配置；可在环境面板编辑其配置文件".into());
+                }
                 let prepared = self.prepare(TemporaryCliLaunchInput {
                     provider_id: provider_id.clone(),
                     cli_kind: target.cli_kind,
@@ -195,11 +206,33 @@ impl TemporaryCliLaunchService<'_> {
                     .read()
                     .unwrap_or_else(|error| error.into_inner())
                     .clone();
-                let cli = agent_cli::find_at_path(target.cli_kind, request.cli_path.trim())?;
+                let cli = match &target.runtime_scope {
+                    AgentRuntimeScope::Native => {
+                        agent_cli::find_at_path(target.cli_kind, request.cli_path.trim())?
+                    }
+                    AgentRuntimeScope::Wsl { distro_id } => {
+                        let distro = crate::services::wsl::require_running(distro_id)?;
+                        let agent = distro
+                            .agents
+                            .iter()
+                            .find(|agent| agent.agent_kind == target.cli_kind)
+                            .ok_or("WSL Agent 已不可用")?;
+                        let path = agent.executable.as_deref().ok_or("WSL Agent CLI 未安装")?;
+                        if path != request.cli_path {
+                            return Err("WSL CLI 路径已改变，请刷新环境后重试".into());
+                        }
+                        agent_cli::AgentCliExecutable {
+                            path: path.into(),
+                            version: agent.version.clone().unwrap_or_default(),
+                        }
+                    }
+                };
                 let workdir = workspaces::normalize_directory(&target.workdir)?;
                 let mut settings = data.settings;
                 settings.temporary_cli_terminal_kind = request.terminal_kind;
-                settings.set_agent_cli_path(target.cli_kind, cli.path.clone());
+                if matches!(target.runtime_scope, AgentRuntimeScope::Native) {
+                    settings.set_agent_cli_path(target.cli_kind, cli.path.clone());
+                }
                 let launch = prepare_launch(CliLaunchRequest {
                     settings: &settings,
                     target: CliLaunchTarget::Native,

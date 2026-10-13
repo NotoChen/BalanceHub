@@ -31,9 +31,10 @@ pub(super) mod reader;
 mod records;
 #[cfg(test)]
 pub(super) mod test_support;
+mod usage;
 use super::record_stream as stream;
 
-const INDEX_SCHEMA_VERSION: i64 = 7;
+const INDEX_SCHEMA_VERSION: i64 = 8;
 const MESSAGE_CHUNK_CHARS: usize = 32 * 1024;
 const MESSAGE_CHUNK_OVERLAP_CHARS: usize = super::MAX_SEARCH_QUERY_CHARS;
 const INDEX_SQL_BUSY_STEP: Duration = Duration::from_millis(25);
@@ -842,6 +843,7 @@ fn ensure_schema(connection: &mut Connection) -> Result<(), String> {
                  DROP TABLE IF EXISTS message_fts;
                  DROP TABLE IF EXISTS messages;
                  DROP TABLE IF EXISTS session_sources;
+                 DROP TABLE IF EXISTS session_usage;
                  DROP TABLE IF EXISTS message_positions;
                  DROP TABLE IF EXISTS sessions;
                  DROP TABLE IF EXISTS metadata;",
@@ -887,6 +889,15 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
                  priority INTEGER NOT NULL DEFAULT 1,
                  message_order INTEGER NOT NULL DEFAULT 0,
                  searchable INTEGER NOT NULL DEFAULT 1
+             );
+             CREATE TABLE IF NOT EXISTS session_usage (
+                 workspace TEXT NOT NULL,
+                 session_id TEXT NOT NULL,
+                 source_key TEXT NOT NULL,
+                 usage_id TEXT NOT NULL,
+                 message_id TEXT,
+                 facts TEXT NOT NULL,
+                 PRIMARY KEY(workspace,session_id,source_key,usage_id)
              );
              CREATE TABLE IF NOT EXISTS session_sources (
                  workspace TEXT NOT NULL,
@@ -986,7 +997,10 @@ fn delete_session_batch(
     }
     transaction
         .execute_batch(
-            "DELETE FROM session_sources WHERE (workspace, session_id) IN (
+            "DELETE FROM session_usage WHERE (workspace, session_id) IN (
+             SELECT workspace, session_id FROM capacity_evictions
+         );
+         DELETE FROM session_sources WHERE (workspace, session_id) IN (
              SELECT workspace, session_id FROM capacity_evictions
          );
          DELETE FROM message_positions WHERE (workspace, session_id) IN (

@@ -531,6 +531,7 @@ impl HistoryIndex {
                 previous_start -= 1;
             }
             Ok(CliSessionDetail {
+                usage: super::usage::read(connection, workspace, session, indexing)?,
                 session: summary,
                 messages,
                 page: SessionReadPage {

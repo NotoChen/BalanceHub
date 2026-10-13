@@ -23,6 +23,8 @@ const RETAINED_DEFINITION_VERSIONS: usize = 32;
 pub(super) struct Library {
     pub entries: BTreeMap<String, Entry>,
     #[serde(default)]
+    pub instructions: BTreeMap<String, AgentInstructionSet>,
+    #[serde(default)]
     pub relations: super::relations::CatalogRelations,
 }
 

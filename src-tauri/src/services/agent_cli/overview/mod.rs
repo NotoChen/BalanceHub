@@ -119,6 +119,7 @@ impl OverviewService {
         let configuration_result = configuration.list_sources(
             &actor,
             AgentConfigurationListRequest {
+                runtime_scope: Default::default(),
                 agent_kind: kind,
                 workspace: workspace_text,
             },

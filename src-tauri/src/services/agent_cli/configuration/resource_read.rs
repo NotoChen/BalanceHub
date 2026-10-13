@@ -84,7 +84,11 @@ impl ParsedResource {
             format,
             root: native_support::parse(text, format).ok(),
             toml: (format == AgentConfigurationFormat::Toml)
-                .then(|| text.parse().ok())
+                .then(|| {
+                    crate::services::agent_cli::config_support::text_document::body(text)
+                        .parse()
+                        .ok()
+                })
                 .flatten(),
         }
     }

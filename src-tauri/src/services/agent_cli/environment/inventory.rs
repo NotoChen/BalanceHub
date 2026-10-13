@@ -45,6 +45,7 @@ pub(crate) fn display_inventory(
     kinds: Option<&BTreeSet<AgentCliKind>>,
     canceled: Option<Arc<AtomicBool>>,
 ) -> Result<InventoryBuild, String> {
+    let _read = crate::services::agent_cli::cache::ReadScope::enter();
     let home = user_home().ok_or("无法定位用户目录")?;
     let lexical = workspace.map(Path::to_path_buf);
     let workspace = normalize_optional_workspace(workspace)?;

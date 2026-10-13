@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectedModelMetadata from "./SelectedModelMetadata.vue";
 import { computed, ref } from "vue";
 import {
   IconDelete,
@@ -355,6 +356,7 @@ function handleVisibleChange(visible: boolean) {
                   {{ model }}
                 </a-option>
               </a-select>
+              <SelectedModelMetadata :model="selectedModelModel" :active="visible" />
             </div>
           </section>
           <section class="workspace-session-picker" aria-label="会话启动方式">

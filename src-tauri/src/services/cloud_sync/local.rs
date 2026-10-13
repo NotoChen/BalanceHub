@@ -134,7 +134,11 @@ impl Replica for AppReplica {
         let next = projection::apply_app_documents(&data, documents)?;
         let submitted: SyncDocuments = documents
             .iter()
-            .filter(|(key, _)| !key.starts_with("asset/") && !key.starts_with("blob/"))
+            .filter(|(key, _)| {
+                !key.starts_with("asset/")
+                    && !key.starts_with("blob/")
+                    && !key.starts_with("instruction/")
+            })
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
         if projection::app_documents(&next)? != submitted {
@@ -172,7 +176,11 @@ impl Replica for AppReplica {
         let current = state.data.read().map_err(|_| "应用配置不可用")?.clone();
         let expected_app: SyncDocuments = expected
             .iter()
-            .filter(|(key, _)| !key.starts_with("asset/") && !key.starts_with("blob/"))
+            .filter(|(key, _)| {
+                !key.starts_with("asset/")
+                    && !key.starts_with("blob/")
+                    && !key.starts_with("instruction/")
+            })
             .map(|(key, doc)| (key.clone(), doc.clone()))
             .collect();
         if projection::app_documents(&current)? != expected_app {

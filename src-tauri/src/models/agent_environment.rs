@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 #[serde(rename_all = "camelCase")]
 pub enum AgentEnvironmentKind {
     Native,
+    Wsl,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

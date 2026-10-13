@@ -1691,6 +1691,7 @@ type SessionHistoryIndexReader =
 
 #[derive(Clone, Copy)]
 pub(crate) struct SessionHistoryAdapter {
+    pub launch_environment: fn(&Path) -> Result<EnvironmentPatch, &'static str>,
     pub source: SessionHistorySourceResolver,
     pub scan: SessionHistoryScanner,
     pub index: SessionHistoryIndexReader,
@@ -1813,6 +1814,7 @@ pub(crate) struct SessionIndexSource {
 }
 
 pub(crate) enum SessionIndexMutation {
+    Usage(crate::models::SessionUsageRecord),
     Put {
         message: SessionIndexMessage,
         priority: i64,

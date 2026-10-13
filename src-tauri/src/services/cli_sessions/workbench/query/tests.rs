@@ -60,6 +60,9 @@ fn fixture(
         .unwrap();
     }
     let source = AgentSessionSource {
+        label: "本机".into(),
+        resume_cli: None,
+        runtime_scope: Default::default(),
         id: hash(&[&config.to_string_lossy()]),
         agent_kind: AgentCliKind::ClaudeCode,
         config_root: config.to_string_lossy().to_string(),
@@ -678,6 +681,9 @@ fn agent_counts_require_every_expected_source_workspace_pair_and_keep_complete_a
 
 fn count_source(id: &str, kind: AgentCliKind) -> AgentSessionSource {
     AgentSessionSource {
+        label: "本机".into(),
+        resume_cli: None,
+        runtime_scope: Default::default(),
         id: id.into(),
         agent_kind: kind,
         config_root: format!("/fixture/{id}"),
@@ -1584,6 +1590,9 @@ fn codex_metadata_reads_stay_small_and_large_bodies_remain_searchable_and_resuma
     ).unwrap();
     drop(connection);
     let source = AgentSessionSource {
+        label: "本机".into(),
+        resume_cli: None,
+        runtime_scope: Default::default(),
         id: hash(&[&config_root.to_string_lossy()]),
         agent_kind: AgentCliKind::Codex,
         config_root: config_root.to_string_lossy().to_string(),
@@ -1724,6 +1733,9 @@ fn codex_missing_rollouts_keep_indexed_metadata_without_reusing_unavailable_bodi
     }
     drop(connection);
     let source = AgentSessionSource {
+        label: "本机".into(),
+        resume_cli: None,
+        runtime_scope: Default::default(),
         id: hash(&[&config_root.to_string_lossy()]),
         agent_kind: AgentCliKind::Codex,
         config_root: config_root.to_string_lossy().to_string(),

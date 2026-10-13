@@ -246,8 +246,11 @@ fn transcript_identity(value: &Value) -> (Option<String>, Option<std::path::Path
         }),
         ["cwd", "workdir"].into_iter().find_map(|field| {
             let path = value.get(field)?.as_str()?;
-            (Path::new(path).is_absolute() && !path.chars().any(char::is_control))
-                .then(|| std::path::PathBuf::from(path))
+            // This is a log fact, not a filesystem grant. Linux origins are
+            // mapped through the selected WSL source before host IO or resume.
+            ((Path::new(path).is_absolute() || crate::services::wsl::guest_path(path).is_ok())
+                && !path.chars().any(char::is_control))
+            .then(|| std::path::PathBuf::from(path))
         }),
     )
 }

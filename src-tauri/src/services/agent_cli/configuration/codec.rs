@@ -6,6 +6,7 @@ use crate::{
 use serde_json::Value;
 
 pub(super) fn parse_env(text: &str) -> Result<Value, AgentConfigurationError> {
+    let text = crate::services::agent_cli::config_support::text_document::body(text);
     if text.contains('\0') {
         return Err(invalid());
     }

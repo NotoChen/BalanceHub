@@ -12,7 +12,11 @@ pub(crate) enum ConfigDocumentFormat {
 }
 
 pub(crate) fn parse(bytes: &[u8], format: ConfigDocumentFormat) -> Option<Value> {
-    let text = std::str::from_utf8(bytes).ok()?;
+    crate::services::agent_cli::cache::parsed(bytes, format as u8, || parse_uncached(bytes, format))
+}
+
+fn parse_uncached(bytes: &[u8], format: ConfigDocumentFormat) -> Option<Value> {
+    let text = crate::services::agent_cli::config_support::text_document::decode(bytes).ok()?;
     let value = match format {
         ConfigDocumentFormat::Json => {
             let mut decoder = serde_json::Deserializer::from_str(text);

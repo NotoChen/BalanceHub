@@ -115,7 +115,7 @@ export function useAgentConfigurationEditor() {
     invalidatePlan();
     context.value = { ...target };
     draftKey = key;
-    releaseSources ??= sources.hold(target.agentKind);
+    releaseSources ??= sources.forRuntime(target.runtimeScope).hold(target.agentKind);
     currentLoader.value = loader;
     title.value = target.label;
     visible.value = true;
@@ -124,7 +124,7 @@ export function useAgentConfigurationEditor() {
     const isCurrent = () => !disposed && !expiredRequest && currentRequest === requestId;
     const pending = Promise.resolve().then(() => {
       if (!isCurrent()) throw new Error("编辑读取已取消");
-      return sources.transaction(target.agentKind, (publish) => {
+      return sources.forRuntime(target.runtimeScope).transaction(target.agentKind, (publish) => {
         if (!isCurrent()) throw new Error("编辑读取已取消");
         return loader(isCurrent, publish, controller.signal).then((result) => {
           if (!isCurrent()) discard(result.editId);
@@ -158,7 +158,7 @@ export function useAgentConfigurationEditor() {
   }
   function reopenDraft() {
     if (!edit.value || !context.value || disposed) return;
-    releaseSources ??= sources.hold(context.value.agentKind);
+    releaseSources ??= sources.forRuntime(context.value.runtimeScope).hold(context.value.agentKind);
     visible.value = true;
     planVisible.value = false;
     startClock();

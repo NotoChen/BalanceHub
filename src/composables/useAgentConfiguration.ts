@@ -3,16 +3,17 @@ import { Message } from "@arco-design/web-vue";
 import { beginAgentConfigurationEdit, openAgentConfigurationSource, readAgentConfigurationSource } from "../api/agent-configuration";
 import { useAgentConfigurationSourcesStore } from "../stores/agent-configuration-sources";
 import type { AgentConfigurationActionKind, AgentConfigurationReadResult, AgentConfigurationSnapshot, AgentConfigurationSource, AgentConfigurationSourceRequest } from "../stores/agent-configuration-types";
-import type { AgentAssetAccessRisk, AgentCliKind } from "../stores/provider-types";
+import type { AgentAssetAccessRisk, AgentCliKind, AgentRuntimeScope } from "../stores/provider-types";
 import { agentConfigurationErrorMessage, agentConfigurationFileName, agentConfigurationOpenAction } from "../utils/agent-configuration-display";
 import { withTimeout } from "../utils/promise-timeout";
 import { useAgentConfigurationEditor } from "./useAgentConfigurationEditor";
 import type { AgentAssetAccessConfirmation } from "./useAgentAssetConsole";
 
-export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | null>; workspace: Ref<string | undefined> }) {
-  const publications = useAgentConfigurationSourcesStore();
+export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | null>; workspace: Ref<string | undefined>; runtimeScope?: Ref<AgentRuntimeScope> }) {
+  const publicationStore = useAgentConfigurationSourcesStore();
+  const publications = () => publicationStore.forRuntime(options.runtimeScope?.value);
   const editor = reactive(useAgentConfigurationEditor());
-  const entry = computed(() => options.agentKind.value ? publications.get(options.agentKind.value, options.workspace.value) : null);
+  const entry = computed(() => options.agentKind.value ? publications().get(options.agentKind.value, options.workspace.value) : null);
   const snapshot = computed(() => entry.value?.value ?? null);
   const previewVisible = ref(false);
   const previewSource = shallowRef<AgentConfigurationSource | null>(null);
@@ -74,7 +75,7 @@ export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | n
     previewLoading.value = true;
     const isCurrent = () => !disposed && currentRequest === readRequest && currentGeneration === generation;
     try {
-      await publications.transaction(source.agentKind, async (publish) => {
+      await publications().transaction(source.agentKind, async (publish) => {
         if (!isCurrent()) return;
         const result = await publish(source.workspace);
         if (!isCurrent()) return;
@@ -100,7 +101,7 @@ export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | n
     delete openErrors.value[source.sourceId];
     const isCurrent = () => !disposed && currentGeneration === generation && openRequests.get(source.sourceId) === currentRequest;
     try {
-      await publications.transaction(source.agentKind, async (publish) => {
+      await publications().transaction(source.agentKind, async (publish) => {
         if (!isCurrent()) return;
         const result = await publish(source.workspace);
         if (!isCurrent()) return;
@@ -120,7 +121,7 @@ export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | n
     }
   }
   function openFile(sourceId: string, displaySource?: AgentConfigurationSource) {
-    const key = JSON.stringify(["native", options.agentKind.value, options.workspace.value ?? null, sourceId]);
+    const key = JSON.stringify([options.runtimeScope?.value ?? { kind: "native" }, options.agentKind.value, options.workspace.value ?? null, sourceId]);
     if (editor.resumeDraft(key)) return true;
     const source = displaySource ?? sources.value.find((item) => item.sourceId === sourceId);
     const kind = source && agentConfigurationOpenAction(source);
@@ -133,7 +134,7 @@ export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | n
   }
   function editorSource(sourceId: string) {
     const target = editor.context;
-    return target ? publications.get(target.agentKind, target.workspace ?? undefined).value?.sources.find((source) => source.sourceId === sourceId) ?? null : null;
+    return target ? publicationStore.forRuntime(target.runtimeScope).get(target.agentKind, target.workspace ?? undefined).value?.sources.find((source) => source.sourceId === sourceId) ?? null : null;
   }
   function action(sourceId: string, kind: AgentConfigurationActionKind, displaySource?: AgentConfigurationSource) {
     const source = displaySource ?? sources.value.find((item) => item.sourceId === sourceId);
@@ -153,7 +154,7 @@ export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | n
         const request = freshSource && sourceRequest(freshSource);
         if (!request) throw { kind: "sourceUnavailable", diagnostics: [] };
         return beginAgentConfigurationEdit(request);
-      }, { agentKind, workspace, label: agentConfigurationFileName(source) }, JSON.stringify(["native", agentKind, workspace, selectedSourceId]));
+      }, { agentKind, workspace, runtimeScope: source.runtimeScope, label: agentConfigurationFileName(source) }, JSON.stringify([source.runtimeScope, agentKind, workspace, selectedSourceId]));
       return;
     }
     if (capability.risks.length) {
@@ -170,10 +171,10 @@ export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | n
     if (source?.access.kind === "ready" && source.access.accessId === confirmation.accessId) void executeOpen(source, confirmation.action, confirmation.risks);
   }
 
-  watch(() => [options.agentKind.value, options.workspace.value] as const, () => {
+  watch(() => [options.agentKind.value, options.workspace.value, JSON.stringify(options.runtimeScope?.value)] as const, () => {
     unsubscribe?.(); unsubscribe = null;
     invalidate();
-    if (options.agentKind.value) unsubscribe = publications.subscribe(options.agentKind.value, options.workspace.value);
+    if (options.agentKind.value) unsubscribe = publications().subscribe(options.agentKind.value, options.workspace.value);
   }, { immediate: true, flush: "sync" });
   onScopeDispose(() => { disposed = true; unsubscribe?.(); invalidate(); });
   return { editor, previewVisible, previewSource, preview, previewLoading, previewError,

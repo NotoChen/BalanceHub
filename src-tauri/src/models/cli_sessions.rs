@@ -53,6 +53,7 @@ pub struct CliSessionMessage {
 #[serde(rename_all = "camelCase")]
 pub struct CliSessionDetail {
     pub session: CliSessionSummary,
+    pub usage: super::SessionUsageSummary,
     pub messages: Vec<CliSessionMessage>,
     /// 索引中的分页位置与可继续读取的游标。
     pub page: super::SessionReadPage,

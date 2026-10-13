@@ -440,6 +440,11 @@ impl ConfigurationService {
             })?;
         self.phase(cell, AgentAssetOperationPhase::Revalidating, emit)?;
         let deadline = Instant::now() + Duration::from_secs(15);
+        for file in &plan.files {
+            cell.checkpoint(deadline)?;
+            // WSL must be running before any dependency or target UNC access.
+            self.revalidate_context(&file.source)?;
+        }
         for dependency in &plan.dependencies {
             cell.checkpoint(deadline)?;
             dependency.revalidate().map_err(|_| conflict())?;
@@ -447,7 +452,6 @@ impl ConfigurationService {
         for file in &plan.files {
             cell.checkpoint(deadline)?;
             file.source.file.revalidate().map_err(|_| conflict())?;
-            self.revalidate_context(&file.source)?;
             let validation = (agent_cli::definition(plan.kind).configuration().validate)(
                 ConfigurationValidationRequest {
                     source: &file.source.spec,

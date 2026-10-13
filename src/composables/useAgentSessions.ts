@@ -33,6 +33,7 @@ const SCAN_CONTINUE_DELAY_MS = 150;
 interface AgentSessionsOptions {
   active: Ref<boolean>;
   agentKinds: Ref<AgentCliKind[]>;
+  runtimeScope?: Ref<import("../stores/provider-types").AgentRuntimeScope | null>;
   query: Ref<string>;
   /** Optional exact directory scope; null reads all native projects. */
   explicitWorkdir?: Ref<string | null>;
@@ -90,7 +91,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   let scopePromise: Promise<AgentSessionScope | null> | null = null;
   let searchTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
   let scanTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
-  let indexUnlisten: UnlistenFn | null = null;
+  const unlisteners: UnlistenFn[] = [];
   // Per-ref history belongs to the current list snapshot; the sequence stays
   // monotonic so an in-flight detail can detect updates even across a reset.
   const parentUpdates = new Map<string, { revision: number; key: string }>();
@@ -302,6 +303,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
           requestId,
           scopeRevision: currentScope.revision,
           agentKinds: [...options.agentKinds.value],
+          runtimeScope: options.runtimeScope?.value ?? null,
           workspaceIds,
           roleFilter: roleFilter.value,
           query: options.query.value.trim(),
@@ -440,7 +442,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     { immediate: options.autoLoad !== false, flush: "sync" },
   );
   watch(
-    () => options.agentKinds.value.join("|"),
+    () => JSON.stringify([options.agentKinds.value, options.runtimeScope?.value]),
     () => {
       invalidateQuery();
       if (options.active.value && options.autoLoad !== false) void load();
@@ -470,10 +472,21 @@ export function useAgentSessions(options: AgentSessionsOptions) {
     { flush: "sync" },
   );
 
-  if (getCurrentInstance() && options.refreshOnIndexUpdate !== false)
+  if (getCurrentInstance())
     onMounted(async () => {
-      try {
-        const unlisten = await listen<AgentCliKind | null>(
+      const subscriptions: Promise<UnlistenFn>[] = [
+        listen("agent-session-sources-changed", () => {
+          // Source discovery completes in the background. Keep the list visible
+          // while acquiring the new scope; a tab switch alone does not reload it.
+          invalidateQuery(options.active.value);
+          stopScopeRequest();
+          scope.value = null;
+          scopeError.value = "";
+          if (options.active.value && options.autoLoad !== false) void load();
+        }),
+      ];
+      if (options.refreshOnIndexUpdate !== false)
+        subscriptions.push(listen<AgentCliKind | null>(
           "cli-session-index-updated",
           (event) => {
             if (
@@ -485,18 +498,19 @@ export function useAgentSessions(options: AgentSessionsOptions) {
             invalidateQuery();
             if (options.active.value && options.autoLoad !== false) void load();
           },
-        );
-        if (disposed) unlisten();
-        else indexUnlisten = unlisten;
-      } catch {
-        /* The Tauri event bus is optional in isolated component tests. */
+        ));
+      for (const result of await Promise.allSettled(subscriptions)) {
+        // The event bus is optional in isolated component tests.
+        if (result.status !== "fulfilled") continue;
+        if (disposed) result.value();
+        else unlisteners.push(result.value);
       }
     });
   if (getCurrentScope())
     onScopeDispose(() => {
       disposed = true;
       invalidate();
-      indexUnlisten?.();
+      for (const unlisten of unlisteners) unlisten();
     });
 
   return {

@@ -55,23 +55,17 @@ impl ConfigurationService {
         request: AgentConfigurationListRequest,
         settings: Option<&AppSettings>,
     ) -> Result<AgentConfigurationSnapshot, AgentConfigurationError> {
-        let workspace =
-            environment::normalize_optional_workspace(request.workspace.as_deref().map(Path::new))
-                .map_err(|_| {
-                    AgentConfigurationError::new(AgentConfigurationErrorKind::InvalidRequest)
-                })?;
+        let _read = crate::services::agent_cli::cache::ReadScope::enter();
+        let runtime = super::runtime::resolve(&self.home, &request, settings)?;
+        let workspace = runtime.workspace;
+        let contexts = runtime.contexts;
         let ticket = self.access.begin_configuration_publish(
             actor,
             request.agent_kind,
             workspace.as_deref(),
+            contexts.environment.id.clone(),
         )?;
         let deadline = Instant::now() + Duration::from_secs(10);
-        let contexts = self.contexts(
-            workspace.as_deref(),
-            request.workspace.as_deref().map(Path::new),
-            request.agent_kind,
-            settings,
-        );
         let adapter = agent_cli::definition(request.agent_kind).configuration();
         let mut sources = BTreeMap::new();
         let mut authorities = Vec::new();
@@ -86,7 +80,7 @@ impl ConfigurationService {
             (adapter.discover)(
                 AgentSourceDiscoveryRequest {
                     context: &context,
-                    home: &self.home,
+                    home: &runtime.home,
                     workspace: workspace.as_deref(),
                     installations: &contexts.installations,
                 },
@@ -94,6 +88,12 @@ impl ConfigurationService {
             );
             diagnostics.extend(output.diagnostics);
             for spec in output.specs {
+                // Host-level policy files must never appear as WSL configuration.
+                if matches!(request.runtime_scope, AgentRuntimeScope::Wsl { .. })
+                    && crate::services::wsl::split_host_path(&spec.native.path).is_none()
+                {
+                    continue;
+                }
                 if Instant::now() >= deadline {
                     return Err(AgentConfigurationError::new(
                         AgentConfigurationErrorKind::Timeout,
@@ -106,7 +106,7 @@ impl ConfigurationService {
                 let mut source =
                     public_source(&context, &spec, source_id.clone(), workspace.as_deref());
                 let allowed = environment::configuration_source_allowed(
-                    &self.home,
+                    &runtime.home,
                     &context,
                     workspace.as_deref(),
                     &spec.native,
@@ -129,12 +129,30 @@ impl ConfigurationService {
                         source.revision = file.revision();
                         source.revision.observed_at = at_after(Duration::ZERO);
                         let missing = source.revision.is_missing;
-                        let writable = file_permissions_allow_write(&spec.native.path, missing);
+                        let restriction = file.replacement_restriction().err();
+                        let writable = restriction.is_none()
+                            && file_permissions_allow_write(&spec.native.path, missing);
                         source.actions = actions(
                             !missing,
                             writable && !missing,
                             writable && missing && spec.may_create,
                         );
+                        if let Some(reason) = restriction {
+                            for action in source.actions.iter_mut().filter(|action| {
+                                matches!(
+                                    action.action,
+                                    AgentConfigurationActionKind::Edit
+                                        | AgentConfigurationActionKind::Create
+                                )
+                            }) {
+                                action.reason = Some(reason.clone());
+                            }
+                            source.diagnostics.push(diagnostic(
+                                "configurationReplacementRestricted",
+                                &reason,
+                                AgentConfigurationDiagnosticSeverity::Warning,
+                            ));
+                        }
                         authorities.push(Arc::new(ConfigurationSourceAuthority {
                             source: source.clone(),
                             context: context.clone(),
@@ -187,16 +205,6 @@ impl ConfigurationService {
         Ok(snapshot)
     }
 
-    fn contexts(
-        &self,
-        workspace: Option<&Path>,
-        lexical: Option<&Path>,
-        kind: AgentCliKind,
-        settings: Option<&AppSettings>,
-    ) -> environment::ConfigurationContexts {
-        environment::configuration_contexts(&self.home, workspace, lexical, kind, settings)
-    }
-
     pub(super) fn source(
         &self,
         actor: &str,
@@ -206,13 +214,13 @@ impl ConfigurationService {
         if anchor.authority.source.revision.identity != request.expected_revision {
             return Err(super::errors::conflict());
         }
+        // Check the guest before touching its UNC path; metadata reads can wake WSL.
+        self.revalidate_context(&anchor.authority)?;
         anchor
             .authority
             .file
             .revalidate()
             .map_err(|_| super::errors::conflict())?;
-        // Re-resolve native roots/context before reads and planning, not just apply.
-        self.revalidate_context(&anchor.authority)?;
         Ok(anchor)
     }
 
@@ -220,8 +228,24 @@ impl ConfigurationService {
         &self,
         source: &ConfigurationSourceAuthority,
     ) -> Result<(), AgentConfigurationError> {
-        let workspace = source.source.workspace.as_deref().map(Path::new);
-        let current = self.contexts(workspace, workspace, source.source.agent_kind, None);
+        let runtime_scope = source
+            .context
+            .environment_id
+            .strip_prefix("wsl:")
+            .map(|id| AgentRuntimeScope::Wsl {
+                distro_id: id.into(),
+            })
+            .unwrap_or_default();
+        let current = super::runtime::resolve(
+            &self.home,
+            &AgentConfigurationListRequest {
+                agent_kind: source.source.agent_kind,
+                workspace: source.source.workspace.clone(),
+                runtime_scope,
+            },
+            None,
+        )?
+        .contexts;
         if !current.contexts.iter().any(|context| {
             context.id == source.context.id
                 && context.config_root == source.context.config_root
@@ -245,6 +269,13 @@ pub(super) fn public_source(
         source_id: id,
         context_id: context.id.clone(),
         environment_id: context.environment_id.clone(),
+        runtime_scope: context
+            .environment_id
+            .strip_prefix("wsl:")
+            .map(|id| AgentRuntimeScope::Wsl {
+                distro_id: id.into(),
+            })
+            .unwrap_or_default(),
         agent_kind: context.agent_kind,
         workspace: workspace.map(|path| path.to_string_lossy().into_owned()),
         native_role: spec.native.native_source_key.clone(),

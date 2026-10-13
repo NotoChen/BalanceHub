@@ -1,5 +1,6 @@
 //! Compose adapter-prepared node changes against a single captured file. This
 //! keeps unrelated data/comments and rejects overlapping contradictory edits.
+use crate::services::agent_cli::config_support::{rewrite_json_document, text_document};
 use crate::services::agent_cli::environment::config_document::{self, ConfigDocumentFormat};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -45,17 +46,24 @@ pub(super) fn compose(
     for change in deltas.values() {
         apply_json(&mut value, &change.path, &change.before, &change.after)?;
     }
-    if format == ConfigDocumentFormat::Json {
-        return serde_json::to_vec_pretty(&value).map_err(|_| "无法生成合并配置".to_owned());
-    }
     let text = std::str::from_utf8(before).map_err(|_| "配置不是 UTF-8")?;
-    let mut document = text
+    if format == ConfigDocumentFormat::Json {
+        let original = if text_document::body(text).trim().is_empty() {
+            "{}"
+        } else {
+            text
+        };
+        return rewrite_json_document(original, &value, false)
+            .map(String::into_bytes)
+            .map_err(|_| "无法生成合并配置".to_owned());
+    }
+    let mut document = text_document::body(text)
         .parse::<toml_edit::Document>()
         .map_err(|_| "TOML 配置无效")?;
     for change in deltas.values() {
         apply_toml(document.as_item_mut(), &change.path, &change.after)?;
     }
-    let bytes = document.to_string().into_bytes();
+    let bytes = text_document::restore_layout(text, &document.to_string()).into_bytes();
     if config_document::parse(&bytes, format) != Some(value) {
         return Err("合并配置验证失败".to_owned());
     }

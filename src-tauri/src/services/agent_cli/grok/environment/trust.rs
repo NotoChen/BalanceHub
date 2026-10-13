@@ -172,7 +172,7 @@ pub(in crate::services::agent_cli::grok) fn resolve_workspace_trust(
         }
         return AgentTrustState::Unknown;
     };
-    let Some(document) = std::str::from_utf8(bytes)
+    let Some(document) = crate::services::agent_cli::config_support::text_document::decode(bytes)
         .ok()
         .and_then(|text| toml::from_str::<TrustDocument>(text).ok())
     else {

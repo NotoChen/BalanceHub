@@ -51,8 +51,22 @@ pub(super) fn scan_workspaces(
     } else {
         paths.into_iter().collect::<Vec<_>>()
     };
-    let scan = (adapter.scan)(kind, root, &paths, budget, mode)?;
-    for loaded in scan.workspaces {
+    // Guest logs contain Linux paths. Scan their native source once, then map
+    // the workdir before identity, selection and indexing on the Windows host.
+    let guest = crate::services::wsl::split_host_path(root).is_some();
+    let scan = (adapter.scan)(kind, root, if guest { &[] } else { &paths }, budget, mode)?;
+    for mut loaded in scan.workspaces {
+        if guest && !loaded.workdir.as_os_str().is_empty() {
+            match crate::services::wsl::recorded_path(root, &loaded.workdir.to_string_lossy()) {
+                Ok(path) => loaded.workdir = path,
+                Err(error) => {
+                    // One malformed origin cannot hide the other guest sessions.
+                    // Its transcript remains readable without granting resume.
+                    loaded.failed(error);
+                    loaded.workdir = PathBuf::new();
+                }
+            }
+        }
         let identity = path_identity(&loaded.workdir);
         if !workspaces.is_empty() && !merged.contains_key(&identity) {
             continue;

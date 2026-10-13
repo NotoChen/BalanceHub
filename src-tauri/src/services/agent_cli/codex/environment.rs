@@ -131,7 +131,10 @@ pub(super) fn resolve_workspace_trust(
                     emit_trust_malformed(output);
                     return AgentTrustState::Unknown;
                 };
-                let Ok(value) = text.parse::<toml::Value>() else {
+                let Ok(value) =
+                    crate::services::agent_cli::config_support::text_document::body(text)
+                        .parse::<toml::Value>()
+                else {
                     emit_trust_malformed(output);
                     return AgentTrustState::Unknown;
                 };
@@ -255,9 +258,11 @@ pub(super) fn parse_assets(request: AgentAssetParseRequest<'_>, output: &mut dyn
         return;
     }
 
-    let toml = std::str::from_utf8(bytes)
-        .ok()
-        .and_then(|text| text.parse::<toml::Value>().ok());
+    let toml = std::str::from_utf8(bytes).ok().and_then(|text| {
+        crate::services::agent_cli::config_support::text_document::body(text)
+            .parse::<toml::Value>()
+            .ok()
+    });
     let root = toml.as_ref().and_then(toml::Value::as_table);
     if config_source {
         let hook_root = toml
@@ -997,7 +1002,7 @@ fn parse_requirements_snapshot(snapshot: &AgentAssetSnapshot) -> Result<Requirem
             _ => Err(()),
         };
     };
-    let root = std::str::from_utf8(bytes)
+    let root = crate::services::agent_cli::config_support::text_document::decode(bytes)
         .map_err(|_| ())?
         .parse::<toml::Value>()
         .map_err(|_| ())?;

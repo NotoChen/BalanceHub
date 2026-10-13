@@ -89,6 +89,7 @@ pub(crate) fn read_history_detail(
         })
         .collect::<Vec<_>>();
     Ok(CliSessionDetail {
+        usage: Default::default(),
         session: record.summary.clone(),
         page: crate::models::SessionReadPage {
             total_messages: messages.len(),

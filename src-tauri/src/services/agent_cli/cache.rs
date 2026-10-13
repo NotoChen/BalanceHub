@@ -1,4 +1,6 @@
 //! Disposable display/discovery caches. Native files remain the source of truth.
+mod read_scope;
+pub(crate) use read_scope::{parsed, ReadScope};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path, time::UNIX_EPOCH};
@@ -51,9 +53,26 @@ pub(super) fn observe_path_identity(digest: &mut Sha256, path: &Path) {
 }
 
 fn observe_path_metadata(digest: &mut Sha256, path: &Path, contents: bool) {
+    digest.update(read_scope::path(path, contents, || {
+        let mut observation = Sha256::new();
+        read_path_metadata(&mut observation, path, contents);
+        observation.finalize().into()
+    }));
+}
+
+fn read_path_metadata(digest: &mut Sha256, path: &Path, contents: bool) {
     digest.update(path.as_os_str().as_encoded_bytes());
     digest.update([0]);
-    for metadata in [fs::symlink_metadata(path), fs::metadata(path)] {
+    let metadata = fs::symlink_metadata(path);
+    let is_link = metadata
+        .as_ref()
+        .is_ok_and(|metadata| metadata.is_symlink());
+    let target_metadata = if is_link {
+        Some(fs::metadata(path))
+    } else {
+        None
+    };
+    for metadata in std::iter::once(metadata).chain(target_metadata) {
         match metadata {
             Ok(metadata) => {
                 digest.update([
@@ -93,8 +112,10 @@ fn observe_path_metadata(digest: &mut Sha256, path: &Path, contents: bool) {
             }
         }
     }
-    if let Ok(target) = fs::read_link(path) {
-        digest.update(target.as_os_str().as_encoded_bytes());
+    if is_link {
+        if let Ok(target) = fs::read_link(path) {
+            digest.update(target.as_os_str().as_encoded_bytes());
+        }
     }
 }
 

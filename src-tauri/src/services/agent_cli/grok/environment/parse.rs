@@ -58,11 +58,13 @@ pub(in crate::services::agent_cli::grok) fn parse_assets(
     }
     let root = match request.snapshot {
         AgentAssetSnapshot::Missing { .. } => return,
-        AgentAssetSnapshot::File { bytes, .. } => std::str::from_utf8(bytes)
-            .ok()
-            .and_then(|text| text.parse::<toml::Value>().ok())
-            .and_then(|value| serde_json::to_value(value).ok())
-            .and_then(|value| value.as_object().cloned()),
+        AgentAssetSnapshot::File { bytes, .. } => {
+            crate::services::agent_cli::config_support::text_document::decode(bytes)
+                .ok()
+                .and_then(|text| text.parse::<toml::Value>().ok())
+                .and_then(|value| serde_json::to_value(value).ok())
+                .and_then(|value| value.as_object().cloned())
+        }
         _ => None,
     };
     let Some(root) = root else {

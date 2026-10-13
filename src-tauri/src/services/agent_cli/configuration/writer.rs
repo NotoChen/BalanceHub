@@ -39,6 +39,9 @@ impl StagedFile {
     ) -> Result<Self, AgentConfigurationError> {
         checkpoint()?;
         source.revalidate().map_err(|_| conflict())?;
+        source.replacement_restriction().map_err(|message| {
+            super::native_support::error(AgentConfigurationErrorKind::ReadOnly, &message)
+        })?;
         let parent_path = source
             .creation_ancestor()
             .unwrap_or_else(|| source.path().parent().expect("native file parent"));
@@ -61,8 +64,11 @@ impl StagedFile {
             let result = (|| {
                 if let Some(anchor) = source.verified_anchor() {
                     let guard=crate::services::agent_cli::environment::verified_path::reopen_verified_path(anchor).map_err(|_|conflict())?;
-                    file.set_permissions(guard.metadata().map_err(|_| conflict())?.permissions())
-                        .map_err(|_| failed())?;
+                    crate::services::agent_cli::config_support::file_layout::copy_permissions(
+                        guard.source_handle(),
+                        &file,
+                    )
+                    .map_err(|_| failed())?;
                 }
                 for bytes in replacement.chunks(64 * 1024) {
                     checkpoint()?;
@@ -236,6 +242,9 @@ fn commit_staging(
 ) -> Result<CommitResult, AgentConfigurationError> {
     use crate::services::agent_cli::environment::mutation::atomic::{self, AtomicWriteResult};
     let present = stage.source.bytes().is_some();
+    stage.source.replacement_restriction().map_err(|message| {
+        super::native_support::error(AgentConfigurationErrorKind::ReadOnly, &message)
+    })?;
     let target = if present {
         stage.source.reopen_present()
     } else {
@@ -339,6 +348,9 @@ fn commit_staging(
     )
     .map_err(|_| conflict())?;
     stage.source.revalidate().map_err(|_| conflict())?;
+    stage.source.replacement_restriction().map_err(|message| {
+        super::native_support::error(AgentConfigurationErrorKind::ReadOnly, &message)
+    })?;
     let source = stage
         .temporary
         .as_os_str()

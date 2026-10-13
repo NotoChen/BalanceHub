@@ -1,6 +1,7 @@
 import type {
   AgentAssetAccess, AgentAssetAccessRisk, AgentAssetCategory, AgentAssetOpenTarget, AgentAssetOperationOutcome,
   AgentAssetOperationPhase, AgentAssetPlanChange, AgentAssetRevision, AgentAssetScope, AgentCliKind,
+  AgentRuntimeScope,
 } from "./provider-types";
 
 // Wire mirror of models/agent_configuration.rs. Rust owns capabilities and validation.
@@ -24,9 +25,10 @@ export interface AgentConfigurationAction {
 export interface AgentConfigurationEffect {
   kind: AgentConfigurationEffectKind; message: string; relatedSourceIds: string[]; evidence: string[];
 }
-export interface AgentConfigurationListRequest { agentKind: AgentCliKind; workspace: string | null }
+export interface AgentConfigurationListRequest { agentKind: AgentCliKind; workspace: string | null; runtimeScope?: AgentRuntimeScope }
 export interface AgentConfigurationSource {
   sourceId: string; contextId: string; environmentId: string; agentKind: AgentCliKind;
+  runtimeScope: AgentRuntimeScope;
   workspace: string | null; nativeRole: string; scope: AgentAssetScope; profile: string | null;
   label: string; path: string; format: AgentConfigurationFormat; revision: AgentAssetRevision;
   access: AgentAssetAccess; actions: AgentConfigurationAction[]; effect: AgentConfigurationEffect;

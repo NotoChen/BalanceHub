@@ -169,7 +169,12 @@ impl AgentAssetAccessRegistry {
         actor: &str,
         workspace: Option<&Path>,
     ) -> Result<AgentAssetPublishTicket, AgentAssetAccessError> {
-        self.begin_publish_namespace(actor, workspace, PublicationNamespace::Assets)
+        self.begin_publish_namespace(
+            actor,
+            workspace,
+            PublicationNamespace::Assets,
+            super::inventory::native_environment().id,
+        )
     }
 
     pub(crate) fn begin_configuration_publish(
@@ -177,8 +182,14 @@ impl AgentAssetAccessRegistry {
         actor: &str,
         kind: AgentCliKind,
         workspace: Option<&Path>,
+        environment_id: String,
     ) -> Result<AgentAssetPublishTicket, AgentAssetAccessError> {
-        self.begin_publish_namespace(actor, workspace, PublicationNamespace::Configuration(kind))
+        self.begin_publish_namespace(
+            actor,
+            workspace,
+            PublicationNamespace::Configuration(kind),
+            environment_id,
+        )
     }
 
     fn begin_publish_namespace(
@@ -186,6 +197,7 @@ impl AgentAssetAccessRegistry {
         actor: &str,
         workspace: Option<&Path>,
         namespace: PublicationNamespace,
+        environment_id: String,
     ) -> Result<AgentAssetPublishTicket, AgentAssetAccessError> {
         if actor.is_empty() {
             return Err(AgentAssetAccessError::new(
@@ -195,7 +207,7 @@ impl AgentAssetAccessRegistry {
         let key = GenerationKey {
             namespace,
             actor: actor.to_string(),
-            environment_id: super::inventory::native_environment().id,
+            environment_id,
             workspace: workspace_key(workspace)?,
         };
         let sequence = self

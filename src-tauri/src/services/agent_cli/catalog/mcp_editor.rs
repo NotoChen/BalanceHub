@@ -158,7 +158,7 @@ pub(crate) fn render(
         return Ok(text.to_owned());
     }
     let rendered = if format == AgentConfigurationFormat::Toml {
-        let mut document = text
+        let mut document = crate::services::agent_cli::config_support::text_document::body(text)
             .parse::<toml_edit::Document>()
             .map_err(|_| "原 TOML 无法读取")?;
         let desired = toml::to_string(&replacement)
@@ -179,7 +179,10 @@ pub(crate) fn render(
                 document.insert(key, item.clone());
             }
         }
-        document.to_string()
+        crate::services::agent_cli::config_support::text_document::restore_layout(
+            text,
+            &document.to_string(),
+        )
     } else {
         rewrite_json_document(
             text,

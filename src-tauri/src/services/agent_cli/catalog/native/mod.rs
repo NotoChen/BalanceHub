@@ -427,7 +427,7 @@ impl NativeCatalogAdapter {
         // Patch one TOML table with toml_edit, preserving all unrelated comments.
         let text =
             std::str::from_utf8(bytes.unwrap_or_default()).map_err(|_| "目标配置不是 UTF-8")?;
-        let mut document = text
+        let mut document = crate::services::agent_cli::config_support::text_document::body(text)
             .parse::<toml_edit::Document>()
             .map_err(|_| "目标 TOML 无效")?;
         if document.get(self.table).is_none() {
@@ -445,7 +445,13 @@ impl NativeCatalogAdapter {
             .as_table_like_mut()
             .ok_or("目标 MCP 表不能安全修改")?;
         table.insert(name, desired[self.table][name].clone());
-        Ok(document.to_string().into_bytes())
+        Ok(
+            crate::services::agent_cli::config_support::text_document::restore_layout(
+                text,
+                &document.to_string(),
+            )
+            .into_bytes(),
+        )
     }
     pub(super) fn merge_connection(
         &self,

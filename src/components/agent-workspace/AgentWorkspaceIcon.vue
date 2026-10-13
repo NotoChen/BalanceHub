@@ -9,6 +9,8 @@ withDefaults(defineProps<{ page: WorkspaceIcon; size?: number }>(), { size: 15 }
 const icons = {
   overview: IconDashboard,
   library: IconStorage,
+  instructions: IconBook,
+  environments: IconApps,
   skill: IconBook,
   mcp: IconLink,
   extension: IconApps,

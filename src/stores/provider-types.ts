@@ -1547,6 +1547,7 @@ export interface CliSessionMessage {
 }
 
 export interface CliSessionDetail {
+  usage: import("./session-usage-types").SessionUsageSummary;
   session: CliSessionSummary;
   messages: CliSessionMessage[];
   page: SessionReadPage;

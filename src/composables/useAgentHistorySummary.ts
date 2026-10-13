@@ -1,4 +1,5 @@
-import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from "vue";
+import { computed, getCurrentInstance, onMounted, onScopeDispose, ref, shallowRef, watch, type Ref } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { cancelAgentSessionQuery, countAgentSessions } from "../api/agent-sessions";
 import { withTimeout } from "../utils/promise-timeout";
 import type { AgentCliKind } from "../stores/provider-types";
@@ -14,6 +15,7 @@ export function useAgentHistorySummary(active: Ref<boolean>, kinds: Ref<AgentCli
   let revision = 0;
   let disposed = false;
   let lastRead = 0;
+  let sourcesUnlisten: UnlistenFn | null = null;
   let pending: { requestId: number; kinds: AgentCliKind[]; task: Promise<void> } | null = null;
 
   function cancelRequest(requestId: number) {
@@ -71,8 +73,9 @@ export function useAgentHistorySummary(active: Ref<boolean>, kinds: Ref<AgentCli
     if (!previous || agents !== previous[1]) {
       cancel(); agentCounts.value = []; errors.value = {}; lastRead = 0;
     }
-    if (enabled) void refresh();
-    else cancel();
+    if (enabled) {
+      if (Date.now() - lastRead >= 30_000) void refresh();
+    } else cancel();
   }, { immediate: true });
   function revisit() {
     if (!visible()) { cancel(); return; }
@@ -80,8 +83,20 @@ export function useAgentHistorySummary(active: Ref<boolean>, kinds: Ref<AgentCli
   }
   globalThis.addEventListener?.("focus", revisit);
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", revisit);
+  if (getCurrentInstance()) onMounted(async () => {
+    try {
+      const unlisten = await listen("agent-session-sources-changed", () => {
+        cancel();
+        lastRead = 0;
+        void refresh();
+      });
+      if (disposed) unlisten();
+      else sourcesUnlisten = unlisten;
+    } catch { /* No native event bus in isolated component tests. */ }
+  });
   onScopeDispose(() => {
     disposed = true; cancel();
+    sourcesUnlisten?.();
     globalThis.removeEventListener?.("focus", revisit);
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", revisit);
   });

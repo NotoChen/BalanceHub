@@ -11,6 +11,7 @@ use crate::{
 };
 
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
+    launch_environment: super::super::native_context::launch_environment,
     source,
     scan,
     index,
@@ -57,13 +58,16 @@ impl ProjectIndex {
                 Ok(value) => {
                     if let Some(projects) = value.get("projects").and_then(Value::as_object) {
                         for (path, id) in projects {
-                            if let Some(id) = id
-                                .as_str()
-                                .filter(|id| safe_component(id) && Path::new(path).is_absolute())
-                            {
+                            if let Some(id) = id.as_str().filter(|id| {
+                                safe_component(id)
+                                    && (Path::new(path).is_absolute()
+                                        || (crate::services::wsl::split_host_path(config_dir)
+                                            .is_some()
+                                            && crate::services::wsl::guest_path(path).is_ok()))
+                            }) {
                                 index
                                     .projects
-                                    .entry(path_key(Path::new(path)))
+                                    .entry(recorded_project_key(config_dir, path))
                                     .or_default()
                                     .insert(id.into());
                             }
@@ -101,10 +105,14 @@ impl ProjectIndex {
             }
             match read_session_metadata_text_file_limited(&marker, 4096, "读取 Gemini 项目目录标记")
             {
-                Ok(path) if Path::new(path.trim()).is_absolute() => {
+                Ok(path)
+                    if (Path::new(path.trim()).is_absolute()
+                        || (crate::services::wsl::split_host_path(config_dir).is_some()
+                            && crate::services::wsl::guest_path(path.trim()).is_ok())) =>
+                {
                     index
                         .projects
-                        .entry(path_key(Path::new(path.trim())))
+                        .entry(recorded_project_key(config_dir, path.trim()))
                         .or_default()
                         .insert(id);
                 }
@@ -139,6 +147,15 @@ fn safe_component(value: &str) -> bool {
             .chars()
             .any(|value| value.is_control() || value == '/' || value == '\\')
 }
+fn recorded_project_key(root: &Path, path: &str) -> String {
+    if crate::services::wsl::split_host_path(root).is_some() {
+        // Linux paths are case-sensitive and must never be canonicalized on
+        // the Windows drive before their guest-to-host mapping.
+        path.to_owned()
+    } else {
+        path_key(Path::new(path))
+    }
+}
 fn scan(
     kind: AgentCliKind,
     root: &Path,
@@ -159,10 +176,9 @@ fn scan(
         for (path, ids) in &project_index.projects {
             for id in ids {
                 let origin = projects.entry(id.clone()).or_default();
-                if origin
-                    .as_ref()
-                    .is_some_and(|origin| path_key(origin) != *path)
-                {
+                if origin.as_ref().is_some_and(|origin| {
+                    recorded_project_key(root, &origin.to_string_lossy()) != *path
+                }) {
                     conflicting.insert(id.clone());
                 }
                 *origin = Some(PathBuf::from(path));

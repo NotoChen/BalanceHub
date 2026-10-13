@@ -130,6 +130,21 @@ pub(crate) enum WriteObservation {
 }
 
 impl GuardedFile {
+    pub(crate) fn replacement_restriction(&self) -> Result<(), String> {
+        match &self.evidence {
+            FileEvidence::Present(anchor) => {
+                let guard = reopen_verified_path(anchor)
+                    .map_err(|_| "文件已改变，请重新读取".to_owned())?;
+                crate::services::agent_cli::config_support::file_layout::require_single_link(
+                    guard.source_handle(),
+                )
+                .map_err(|error| error.to_string())
+            }
+            FileEvidence::Missing { .. } => Ok(()),
+            FileEvidence::Metadata(_) => Err("此来源只提供文件信息".into()),
+        }
+    }
+
     pub(crate) fn capture_metadata_path(
         root: &Path,
         path: &Path,
@@ -415,6 +430,9 @@ impl GuardedFile {
     }
 
     pub(crate) fn revalidate(&self) -> Result<(), AgentAssetMutationError> {
+        if !crate::services::wsl::can_access_path(&self.path) {
+            return Err(unavailable());
+        }
         match &self.evidence {
             FileEvidence::Metadata(anchor) => reopen_verified_path(anchor)
                 .map(|_| ())

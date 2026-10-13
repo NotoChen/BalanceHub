@@ -11,6 +11,7 @@ mod hook_summary;
 mod hook_targets;
 mod identity;
 pub(crate) mod inputs;
+mod instructions;
 mod library_management;
 pub(crate) mod mcp_editor;
 pub(crate) mod native;

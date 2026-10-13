@@ -13,11 +13,11 @@ use windows_sys::Win32::{
     Foundation::ERROR_NO_MORE_FILES,
     Storage::FileSystem::{
         FileAttributeTagInfo, FileBasicInfo, FileIdBothDirectoryInfo,
-        FileIdBothDirectoryRestartInfo, FileIdInfo, GetFileInformationByHandleEx,
-        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
-        FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_ID_BOTH_DIR_INFO, FILE_ID_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
-        FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FileIdBothDirectoryRestartInfo, FileIdInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO,
+        FILE_ID_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
     },
 };
 
@@ -37,17 +37,51 @@ struct ObjectStamp {
     creation_time: i64,
     last_write_time: i64,
     change_time: i64,
+    links: u32,
 }
 
 impl ObjectStamp {
     fn read(handle: &File) -> Result<Self, VerifiedPathError> {
-        let identity = query_handle_information::<FILE_ID_INFO>(handle, FileIdInfo)?;
+        // WSL's filesystem bridge and some network shares expose the legacy
+        // handle identity without supporting the newer 128-bit information class.
+        let legacy = legacy_information(handle)?;
+        let identity =
+            query_handle_information::<FILE_ID_INFO>(handle, FileIdInfo).unwrap_or_else(|_| {
+                let mut id = [0u8; 16];
+                id[..4].copy_from_slice(&legacy.nFileIndexLow.to_le_bytes());
+                id[4..8].copy_from_slice(&legacy.nFileIndexHigh.to_le_bytes());
+                FILE_ID_INFO {
+                    VolumeSerialNumber: u64::from(legacy.dwVolumeSerialNumber),
+                    FileId: windows_sys::Win32::Storage::FileSystem::FILE_ID_128 { Identifier: id },
+                }
+            });
+        if identity.FileId.Identifier.iter().all(|byte| *byte == 0) {
+            return Err(VerifiedPathError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "文件系统未提供稳定文件标识，无法安全读取或保存此配置",
+            )));
+        }
         let attributes =
-            query_handle_information::<FILE_ATTRIBUTE_TAG_INFO>(handle, FileAttributeTagInfo)?;
+            query_handle_information::<FILE_ATTRIBUTE_TAG_INFO>(handle, FileAttributeTagInfo)
+                .unwrap_or(FILE_ATTRIBUTE_TAG_INFO {
+                    FileAttributes: legacy.dwFileAttributes,
+                    ReparseTag: 0,
+                });
         if attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
             return Err(VerifiedPathError::SymlinkRejected);
         }
-        let basic = query_handle_information::<FILE_BASIC_INFO>(handle, FileBasicInfo)?;
+        let filetime = |time: windows_sys::Win32::Foundation::FILETIME| {
+            (u64::from(time.dwHighDateTime) << 32 | u64::from(time.dwLowDateTime)) as i64
+        };
+        let basic = query_handle_information::<FILE_BASIC_INFO>(handle, FileBasicInfo).unwrap_or(
+            FILE_BASIC_INFO {
+                CreationTime: filetime(legacy.ftCreationTime),
+                LastAccessTime: filetime(legacy.ftLastAccessTime),
+                LastWriteTime: filetime(legacy.ftLastWriteTime),
+                ChangeTime: filetime(legacy.ftLastWriteTime),
+                FileAttributes: legacy.dwFileAttributes,
+            },
+        );
         let metadata = handle.metadata()?;
         let kind = if metadata.is_dir() {
             AgentAssetSourceKind::Directory
@@ -68,6 +102,7 @@ impl ObjectStamp {
             creation_time: basic.CreationTime,
             last_write_time: basic.LastWriteTime,
             change_time: basic.ChangeTime,
+            links: legacy.nNumberOfLinks,
         })
     }
 
@@ -92,6 +127,7 @@ impl ObjectStamp {
         hasher.update(self.creation_time.to_le_bytes());
         hasher.update(self.last_write_time.to_le_bytes());
         hasher.update(self.change_time.to_le_bytes());
+        hasher.update(self.links.to_le_bytes());
     }
 }
 
@@ -302,6 +338,15 @@ fn query_handle_information<T: Default>(handle: &File, class: i32) -> io::Result
         )
     };
     if succeeded == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(information)
+}
+
+fn legacy_information(handle: &File) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the borrowed file handle and output structure remain live.
+    if unsafe { GetFileInformationByHandle(handle.as_raw_handle(), &mut information) } == 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(information)

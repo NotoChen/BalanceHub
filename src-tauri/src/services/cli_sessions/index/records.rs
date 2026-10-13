@@ -36,18 +36,33 @@ pub(super) fn apply_batch(
     let mut delta = 0;
     if batch.reset {
         delta -= truncate(&transaction, &key, None)?;
+        super::usage::clear(&transaction, workspace, &record.record_key, source)?;
     }
     for (order, mutation) in &batch.mutations {
         super::super::workbench::check_read_budget()?;
         delta += match mutation {
+            SessionIndexMutation::Usage(usage) => {
+                super::usage::put(&transaction, workspace, &record.record_key, source, usage)?;
+                0
+            }
             SessionIndexMutation::Put { message, priority } => {
                 put(&transaction, &key, message, *priority, *order, false)?
             }
             SessionIndexMutation::Append { message, priority } => {
                 put(&transaction, &key, message, *priority, *order, true)?
             }
-            SessionIndexMutation::Clear => -truncate(&transaction, &key, None)?,
+            SessionIndexMutation::Clear => {
+                super::usage::clear(&transaction, workspace, &record.record_key, source)?;
+                -truncate(&transaction, &key, None)?
+            }
             SessionIndexMutation::RemoveGroup(id) => {
+                super::usage::remove_message(
+                    &transaction,
+                    workspace,
+                    &record.record_key,
+                    source,
+                    id,
+                )?;
                 remember_position(&transaction, &key, id, *order)?;
                 let mut statement=transaction.prepare("SELECT message_id FROM message_positions WHERE workspace=?1 AND session_id=?2 AND source_key=?3 AND (message_id=?4 OR substr(message_id,1,length(?4)+1)=?4||':')").map_err(|error|error.to_string())?;
                 let ids = statement
@@ -68,6 +83,13 @@ pub(super) fn apply_batch(
                     "SELECT MIN(message_order) FROM message_positions WHERE workspace=?1 AND session_id=?2 AND source_key=?3 AND message_id=?4",
                     params![key.workspace, key.session, key.source, id], |row| row.get(0),
                 ).map_err(|error| error.to_string())?;
+                super::usage::rewind(
+                    &transaction,
+                    workspace,
+                    &record.record_key,
+                    source,
+                    position,
+                )?;
                 -truncate(&transaction, &key, position)?
             }
         };
@@ -110,6 +132,7 @@ pub(super) fn reconcile_sources(
             .map_err(|error| error.to_string())?
     };
     for source in known.into_iter().filter(|source| !sources.contains(source)) {
+        super::usage::clear(&transaction, workspace, session, &source)?;
         let delta = truncate(
             &transaction,
             &MessageKey {

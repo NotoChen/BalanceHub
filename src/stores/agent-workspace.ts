@@ -1,10 +1,10 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { AgentCliKind } from "./provider-types";
+import type { AgentCliKind, AgentRuntimeScope } from "./provider-types";
 import type { AgentSessionRoleFilter } from "./agent-session-types";
 
 export type AppWorkspaceView = "providers" | "agents";
-export type AgentWorkspacePage = "overview" | "library" | "skill" | "mcp" | "extension" | "hook" | "sessions";
+export type AgentWorkspacePage = "overview" | "library" | "instructions" | "environments" | "skill" | "mcp" | "extension" | "hook" | "sessions";
 export type AgentSessionView = "active" | "history";
 export interface AgentOperationSelection { kind: "catalog" | "lifecycle" | "native"; id: string }
 type AgentSearchScope = Exclude<AgentWorkspacePage, "sessions"> | `sessions:${AgentSessionView}`;
@@ -12,6 +12,8 @@ type AgentSearchScope = Exclude<AgentWorkspacePage, "sessions"> | `sessions:${Ag
 export const agentWorkspacePages: { value: AgentWorkspacePage; label: string; searchPlaceholder: string }[] = [
   { value: "overview", label: "总览", searchPlaceholder: "搜索 Agent" },
   { value: "library", label: "共享库", searchPlaceholder: "搜索共享资产名称或摘要" },
+  { value: "environments", label: "环境", searchPlaceholder: "搜索 WSL 发行版" },
+  { value: "instructions", label: "指令", searchPlaceholder: "搜索共享指令方案" },
   { value: "skill", label: "Skill", searchPlaceholder: "搜索 Skill 名称或来源" },
   { value: "mcp", label: "MCP", searchPlaceholder: "搜索 MCP 名称或来源" },
   { value: "extension", label: "插件", searchPlaceholder: "搜索插件名称或来源" },
@@ -25,6 +27,7 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
   const page = ref<AgentWorkspacePage>("overview");
   const sessionView = ref<AgentSessionView>("history");
   const sessionRoleFilter = ref<AgentSessionRoleFilter>("all");
+  const sessionEnvironment = ref<AgentRuntimeScope | null>(null);
   const sessionAgentFilter = ref<AgentCliKind | null>(null);
   const agentFilter = ref<AgentCliKind | null>(null);
   const queries = ref<Partial<Record<AgentSearchScope, string>>>({});
@@ -104,7 +107,7 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
     navigationRevision.value += 1;
   }
 
-  return { view, page, sessionView, sessionRoleFilter, sessionAgentFilter, agentFilter, queries, query, sessionHistoryQuery, searchPlaceholder, workspacePath, navigationRevision,
+  return { view, page, sessionEnvironment, sessionView, sessionRoleFilter, sessionAgentFilter, agentFilter, queries, query, sessionHistoryQuery, searchPlaceholder, workspacePath, navigationRevision,
     operationDetails, libraryAssetId, openOperation, closeOperation, setView, openPage, openLibrary, openSessions, selectSessionView, selectAgent, selectWorkspace };
 });
 

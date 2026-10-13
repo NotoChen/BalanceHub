@@ -14,6 +14,7 @@ mod unindexed;
 const UNAVAILABLE_ROLLOUT_REASON: &str = "原生会话日志不可用，仅能查看索引摘要";
 
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
+    launch_environment: super::super::native_context::launch_environment,
     source,
     scan,
     index,
@@ -90,23 +91,34 @@ fn scan(
                 let (role, parent_native_id) = decode_role(source.as_deref(), parent);
                 record.summary.can_resume = false;
                 record.summary.workdir = workspace.workdir.to_string_lossy().to_string();
+                let metadata_locator = if record.rollout_path.starts_with('/')
+                    && crate::services::wsl::split_host_path(root).is_some()
+                {
+                    crate::services::wsl::recorded_path(root, &record.rollout_path)
+                } else {
+                    Ok(root.join(&record.rollout_path))
+                };
+                let locator_valid = metadata_locator.is_ok();
                 let metadata_record = SessionHistoryRecord {
                     record_key: record.summary.id.clone(),
                     summary: record.summary,
                     // This is the exact native index value, not a fabricated
                     // transcript. Unavailable records never authorize reads.
-                    locator: root.join(&record.rollout_path),
+                    locator: metadata_locator
+                        .unwrap_or_else(|_| PathBuf::from(&record.rollout_path)),
                     role,
                     parent_native_id,
                     resume_reason: Some(UNAVAILABLE_ROLLOUT_REASON.into()),
                     content_unavailable_reason: Some(UNAVAILABLE_ROLLOUT_REASON.into()),
                 };
                 if mode == SessionHistoryReadMode::Identities {
-                    indexed_locators.insert(
-                        crate::services::cli_sessions::source::existing_variant(
-                            &metadata_record.locator,
-                        ),
-                    );
+                    if locator_valid {
+                        indexed_locators.insert(
+                            crate::services::cli_sessions::source::existing_variant(
+                                &metadata_record.locator,
+                            ),
+                        );
+                    }
                     workspace.records.push(metadata_record);
                     return;
                 }
@@ -203,7 +215,12 @@ pub(super) fn resolve_record_locator(
     fallbacks: &mut Option<HashMap<String, PathBuf>>,
     budget: &SessionReadBudget,
 ) -> Result<PathBuf, String> {
-    let indexed = PathBuf::from(indexed);
+    let indexed =
+        if crate::services::wsl::split_host_path(root).is_some() && indexed.starts_with('/') {
+            crate::services::wsl::recorded_path(root, indexed)?
+        } else {
+            PathBuf::from(indexed)
+        };
     let direct = if indexed.is_absolute() {
         indexed.clone()
     } else {

@@ -32,7 +32,7 @@ function keyLabel(key: ProviderApiKeyOption) {
       <div class="agent-session-resume-target"><strong>{{ row.session.title }}</strong><code>{{ row.session.id }}</code><span :title="row.session.workdir">{{ row.session.workdir }}</span></div>
       <div class="agent-session-resume-intents" role="radiogroup" aria-label="继续方式">
         <label><input v-model="model.intentKind" type="radio" value="native" /><span><strong>沿用 Agent 当前配置</strong><small>使用原生配置继续原会话，无需选择中转站。</small></span></label>
-        <label><input v-model="model.intentKind" type="radio" value="provider" /><span><strong>选择中转站继续</strong><small>临时使用所选中转站，继续同一条原生会话。</small></span></label>
+        <label v-if="row.supportsProviderResume"><input v-model="model.intentKind" type="radio" value="provider" /><span><strong>选择中转站继续</strong><small>临时使用所选中转站，继续同一条原生会话。</small></span></label>
       </div>
       <section v-if="model.intentKind === 'provider'" class="agent-session-resume-providers">
         <p v-if="!providers.length" class="agent-workspace-note">尚未添加中转站，可以沿用 Agent 当前配置继续。</p>

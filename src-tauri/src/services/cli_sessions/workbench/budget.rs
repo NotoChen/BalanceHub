@@ -251,13 +251,23 @@ pub(crate) fn with_source_root<T>(root: &Path, read: impl FnOnce() -> T) -> T {
             ACTIVE_SOURCE_ROOT.with(|active| active.replace(self.0.take()));
         }
     }
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let root = if crate::services::wsl::can_access_path(root) {
+        root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
+    } else {
+        root.to_path_buf()
+    };
     let _restore = Restore(ACTIVE_SOURCE_ROOT.with(|active| active.replace(Some(root))));
     read()
 }
 fn verify_source_path(path: &Path) -> io::Result<()> {
     ACTIVE_SOURCE_ROOT.with(|active| {
         if let Some(root) = active.borrow().as_ref() {
+            if !crate::services::wsl::can_access_path(root) {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "WSL 会话来源已停止或不可用",
+                ));
+            }
             let canonical = path.canonicalize()?;
             if !canonical.starts_with(root) {
                 return Err(io::Error::new(

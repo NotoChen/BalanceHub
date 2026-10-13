@@ -13,7 +13,7 @@ import { useAgentOverviewStore } from "./agent-overview";
 import type { AgentConfigurationApplyRequest, AgentConfigurationDiagnostic, AgentConfigurationOperation } from "./agent-configuration-types";
 import type { AgentCliKind } from "./provider-types";
 
-export interface AgentConfigurationTaskContext { agentKind: AgentCliKind; workspace: string | null; label: string }
+export interface AgentConfigurationTaskContext { runtimeScope?: import("./provider-types").AgentRuntimeScope; agentKind: AgentCliKind; workspace: string | null; label: string }
 const SUBMIT_TIMEOUT = "尚未确认配置任务是否已提交，请刷新任务状态；不会自动重试写入";
 
 /** Only opaque references and task state live here. Editable text and secret inputs stay in the local editor. */
@@ -39,14 +39,14 @@ export const useAgentConfigurationStore = defineStore("agent-configuration", () 
     identity: (operation) => JSON.stringify([operation.editId, operation.agentKind, operation.sourceIds]),
     isSettled: (operation) => operation.phase === "completed", timeoutMs: 3 * 60_000,
     accepted(operation) {
-      if (operation.phase !== "completed" && !writeHolds.has(operation.editId)) writeHolds.set(operation.editId, sources.hold(operation.agentKind));
+      if (operation.phase !== "completed" && !writeHolds.has(operation.editId)) writeHolds.set(operation.editId, sources.forRuntime(contexts.value[operation.editId]?.runtimeScope).hold(operation.agentKind));
       ownedEdits.value[operation.editId] = true;
       delete startErrors.value[operation.editId];
       delete startDiagnostics.value[operation.editId];
       delete declined.value[operation.editId];
     },
     completed(operation) {
-      sources.invalidate(operation.agentKind);
+      sources.forRuntime(contexts.value[operation.editId]?.runtimeScope).invalidate(operation.agentKind);
       releaseWrite(operation.editId);
       if (!operation.files.some((file) => file.state === "applied" || file.state === "unknown")) return;
       changesRevision.value += 1;
@@ -70,7 +70,7 @@ export const useAgentConfigurationStore = defineStore("agent-configuration", () 
     ownedEdits.value[request.editId] = true;
     pendingRequests.set(request.editId, { ...request });
     contexts.value[request.editId] = { ...context };
-    writeHolds.set(request.editId, sources.hold(context.agentKind));
+    writeHolds.set(request.editId, sources.forRuntime(context.runtimeScope).hold(context.agentKind));
     starting.value[request.editId] = true;
     startTimes.value[request.editId] = Date.now();
     delete startErrors.value[request.editId];

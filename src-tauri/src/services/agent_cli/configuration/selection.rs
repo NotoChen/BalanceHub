@@ -2,7 +2,7 @@
 use super::native_support;
 use crate::{
     models::{AgentConfigurationError, AgentConfigurationErrorKind, AgentConfigurationFormat},
-    services::agent_cli::config_support::json_source::json_value_range,
+    services::agent_cli::config_support::{json_source::json_value_range, text_document},
 };
 use serde_json::Value;
 
@@ -27,7 +27,7 @@ impl DocumentSelection {
         parsed: Option<&toml_edit::Document>,
     ) -> Result<String, AgentConfigurationError> {
         match self {
-            Self::Whole => Ok(source.to_owned()),
+            Self::Whole => Ok(text_document::body(source).to_owned()),
             Self::Structured { path, format } if *format != AgentConfigurationFormat::Toml => {
                 let range =
                     json_value_range(source, path, *format == AgentConfigurationFormat::Jsonc)
@@ -39,7 +39,7 @@ impl DocumentSelection {
                 let document = match parsed {
                     Some(document) => document,
                     None => {
-                        owned = source
+                        owned = text_document::body(source)
                             .parse::<toml_edit::Document>()
                             .map_err(|_| invalid())?;
                         &owned
@@ -75,7 +75,7 @@ impl DocumentSelection {
         text: &str,
     ) -> Result<String, AgentConfigurationError> {
         match self {
-            Self::Whole => Ok(text.to_owned()),
+            Self::Whole => Ok(text_document::restore_layout(source, text)),
             Self::Structured { path, format } => {
                 let replacement = native_support::parse(text, *format)?;
                 let original = native_support::parse(source, *format)?;
@@ -94,7 +94,7 @@ impl DocumentSelection {
                 if native_support::parse(&output, *format)? != desired {
                     return Err(rejected("保存不能改变其他配置条目".to_owned()));
                 }
-                Ok(output)
+                Ok(text_document::restore_layout(source, &output))
             }
         }
     }
@@ -105,10 +105,12 @@ fn replace_toml_table(
     path: &[String],
     text: &str,
 ) -> Result<String, AgentConfigurationError> {
-    let mut document = source
+    let mut document = text_document::body(source)
         .parse::<toml_edit::Document>()
         .map_err(|_| invalid())?;
-    let replacement = text.parse::<toml_edit::Document>().map_err(|_| invalid())?;
+    let replacement = text_document::body(text)
+        .parse::<toml_edit::Document>()
+        .map_err(|_| invalid())?;
     let mut item = document.as_item_mut();
     for key in path {
         // get_mut on a missing TOML key inserts it; resource paths must already exist.

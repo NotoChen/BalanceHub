@@ -28,6 +28,7 @@ pub(crate) use admission_fixture::ResumeAdmissionFixture;
 
 #[derive(Clone)]
 pub(crate) struct ResolvedSessionTarget {
+    pub runtime_scope: crate::models::AgentRuntimeScope,
     pub cli_kind: AgentCliKind,
     pub workdir: PathBuf,
     pub native_session_id: String,
@@ -55,9 +56,9 @@ pub(super) fn path_identity(path: &Path) -> String {
         return String::new();
     }
     let logical = lexical_path(path).to_string_lossy().to_string();
-    let canonical = path
-        .canonicalize()
-        .ok()
+    let canonical = crate::services::wsl::can_access_path(path)
+        .then(|| path.canonicalize().ok())
+        .flatten()
         .map(|path| path.to_string_lossy().to_string());
     let mut registry = state::registry();
     // Reachable paths are resolved again: a retargeted symlink is a new scope.
@@ -81,7 +82,9 @@ pub(super) fn workspace_for_path(path: &Path) -> AgentSessionWorkspace {
     let identity = path_identity(path);
     AgentSessionWorkspace {
         id: hash(&["workspace", &identity]),
-        exists: !identity.is_empty() && Path::new(&identity).is_dir(),
+        exists: !identity.is_empty()
+            && crate::services::wsl::can_access_path(Path::new(&identity))
+            && Path::new(&identity).is_dir(),
         is_home: cli_paths::user_home().is_some_and(|home| path_identity(&home) == identity),
         path: compatible_path(Path::new(&identity))
             .to_string_lossy()
@@ -139,7 +142,8 @@ pub(super) fn workspace_scope(
             path: compatible_path(Path::new(&identity))
                 .to_string_lossy()
                 .into_owned(),
-            exists: Path::new(&identity).is_dir(),
+            exists: crate::services::wsl::can_access_path(Path::new(&identity))
+                && Path::new(&identity).is_dir(),
             is_home: identity == home_identity,
         });
     }
@@ -175,10 +179,11 @@ pub(super) fn build_scope(
             continue;
         };
         let source = (adapter.source)()?;
-        let identity = source
-            .config_root
-            .canonicalize()
-            .unwrap_or_else(|_| lexical_path(&source.config_root))
+        let accessible = crate::services::wsl::can_access_path(&source.config_root);
+        let identity = accessible
+            .then(|| source.config_root.canonicalize().ok())
+            .flatten()
+            .unwrap_or_else(|| lexical_path(&source.config_root))
             .to_string_lossy()
             .to_string();
         let id = hash(&["native", definition.kind.key(), &identity]);
@@ -186,9 +191,56 @@ pub(super) fn build_scope(
             id: id.clone(),
             agent_kind: definition.kind,
             config_root: source.config_root.to_string_lossy().to_string(),
-            available: source.config_root.is_dir(),
+            available: accessible && source.config_root.is_dir(),
+            runtime_scope: Default::default(),
+            label: "本机".into(),
+            resume_cli: None,
         });
         sources.insert(id, source);
+    }
+    for distro in crate::services::wsl::cached_distributions()
+        .into_iter()
+        .filter(|distro| distro.running && distro.error.is_none())
+    {
+        for agent in &distro.agents {
+            let Ok(root) = crate::services::wsl::host_path(&distro.name, &agent.config_root) else {
+                continue;
+            };
+            let id = hash(&[
+                "wsl",
+                &distro.id,
+                agent.agent_kind.key(),
+                &agent.config_root,
+            ]);
+            public_sources.push(AgentSessionSource {
+                id: id.clone(),
+                agent_kind: agent.agent_kind,
+                config_root: root.to_string_lossy().into_owned(),
+                available: true,
+                runtime_scope: crate::models::AgentRuntimeScope::Wsl {
+                    distro_id: distro.id.clone(),
+                },
+                label: format!("WSL · {}", distro.name),
+                resume_cli: agent
+                    .executable
+                    .as_ref()
+                    .map(|path| crate::models::AgentSessionCli {
+                        path: path.clone(),
+                        version: agent.version.clone(),
+                    }),
+            });
+            sources.insert(
+                id,
+                crate::services::agent_cli::contracts::SessionHistorySource {
+                    config_root: root,
+                    launch_environment: EnvironmentPatch::default(),
+                    resume_reason: agent
+                        .executable
+                        .is_none()
+                        .then(|| "此 WSL 发行版中未检测到 Agent CLI；仍可查看历史".into()),
+                },
+            );
+        }
     }
     // Global scope admits the selected native sources. Bookmarks and newly
     // discovered projects are choices, not grants; they must not expire an
@@ -301,6 +353,9 @@ fn resolve_session_ref_with(
         .get(&(actor_key.into(), scope_revision.into(), session_ref.into()))
         .cloned()
         .ok_or_else(|| "会话引用已失效，请重新查询".to_string())?;
+    if let crate::models::AgentRuntimeScope::Wsl { distro_id } = &entry.row.runtime_scope {
+        crate::services::wsl::require_running(distro_id)?;
+    }
     let source = scope
         .sources
         .get(&entry.row.source_id)
@@ -341,6 +396,13 @@ fn resolve_session_ref_with(
         resume_reason = Some("工作目录不存在或未挂载；仍可查看历史".into());
     }
     Ok(ResolvedSessionTarget {
+        runtime_scope: scope
+            .public
+            .sources
+            .iter()
+            .find(|source| source.id == entry.row.source_id)
+            .map(|source| source.runtime_scope.clone())
+            .ok_or_else(|| "会话运行环境已不可用".to_owned())?,
         cli_kind: entry.record.summary.cli_kind,
         workdir: PathBuf::from(&workspace.path),
         native_session_id: entry.record.summary.id,

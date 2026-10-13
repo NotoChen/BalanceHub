@@ -47,7 +47,11 @@ pub(crate) fn query(
         .sources
         .iter()
         .filter(|source| {
-            request.agent_kinds.is_empty() || request.agent_kinds.contains(&source.agent_kind)
+            (request.agent_kinds.is_empty() || request.agent_kinds.contains(&source.agent_kind))
+                && request
+                    .runtime_scope
+                    .as_ref()
+                    .is_none_or(|scope| scope == &source.runtime_scope)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -391,6 +395,10 @@ fn row_for_record(
         None => AgentSessionParent::Unknown,
     };
     AgentSessionRow {
+        runtime_scope: source.runtime_scope.clone(),
+        runtime_label: source.label.clone(),
+        resume_cli: source.resume_cli.clone(),
+        supports_provider_resume: matches!(source.runtime_scope, AgentRuntimeScope::Native),
         session_ref: super::scope::session_identity(source, workspace, record),
         source_id: source.id.clone(),
         workspace_id: workspace.id.clone(),

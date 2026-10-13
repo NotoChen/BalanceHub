@@ -3,6 +3,7 @@ use super::super::config_support::{
     read_stable_optional,
 };
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
+use crate::services::agent_cli::config_support::text_document;
 use crate::{
     models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::{configured_path, user_home},
@@ -103,7 +104,9 @@ pub(super) fn candidates(
 }
 
 fn parse_codex_config(config: &str, auth: &str) -> Result<Option<(String, String)>, ()> {
-    let config = config.parse::<toml::Value>().map_err(|_| ())?;
+    let config = text_document::body(config)
+        .parse::<toml::Value>()
+        .map_err(|_| ())?;
     let auth = crate::services::agent_cli::environment::config_document::parse(
         auth.as_bytes(),
         crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
@@ -134,7 +137,7 @@ fn rewrite_codex_config(
     base_url: &str,
     api_key: &str,
 ) -> Result<(String, String), String> {
-    let mut document = config
+    let mut document = text_document::body(config)
         .parse::<TomlDocument>()
         .map_err(|_| "Codex 配置文件格式无效".to_string())?;
     let provider_name = document
@@ -160,7 +163,10 @@ fn rewrite_codex_config(
         &[("OPENAI_API_KEY", api_key.trim())],
     )
     .map_err(|_| "Codex 认证文件格式无效".to_owned())?;
-    Ok((document.to_string(), auth))
+    Ok((
+        text_document::restore_layout(config, &document.to_string()),
+        auth,
+    ))
 }
 
 #[cfg(test)]

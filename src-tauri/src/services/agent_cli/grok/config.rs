@@ -3,6 +3,7 @@ use super::super::config_support::{
     read_stable_optional, rewrite_json_string_fields,
 };
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
+use crate::services::agent_cli::config_support::text_document;
 use crate::{
     models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::{configured_path, user_home},
@@ -110,7 +111,9 @@ pub(super) fn candidates(
 }
 
 fn parse_grok_config(config: &str, auth: &str) -> Result<Option<(String, String)>, ()> {
-    let config = config.parse::<toml::Value>().map_err(|_| ())?;
+    let config = text_document::body(config)
+        .parse::<toml::Value>()
+        .map_err(|_| ())?;
     let auth = crate::services::agent_cli::environment::config_document::parse(
         auth.as_bytes(),
         crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
@@ -149,7 +152,7 @@ fn rewrite_grok_config(
     base_url: &str,
     api_key: &str,
 ) -> Result<(String, String), String> {
-    let mut document = config
+    let mut document = text_document::body(config)
         .parse::<TomlDocument>()
         .map_err(|_| "Grok Build 配置文件格式无效".to_string())?;
     if !document.contains_key("endpoints") {
@@ -161,7 +164,10 @@ fn rewrite_grok_config(
         .ok_or_else(|| "Grok Build 配置中的 endpoints 必须是对象".to_string())?;
     endpoints.insert("models_base_url", toml_value(base_url.trim()));
 
-    Ok((document.to_string(), merge_auth_key(auth, api_key)?))
+    Ok((
+        text_document::restore_layout(config, &document.to_string()),
+        merge_auth_key(auth, api_key)?,
+    ))
 }
 
 fn merge_auth_key(auth: &str, api_key: &str) -> Result<String, String> {

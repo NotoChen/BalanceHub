@@ -11,7 +11,7 @@ pub(super) fn render_toml(
     original: &Value,
     desired: &Value,
 ) -> Result<Vec<u8>, String> {
-    let mut document = text
+    let mut document = crate::services::agent_cli::config_support::text_document::body(text)
         .parse::<toml_edit::Document>()
         .map_err(|_| "Hook TOML 配置无效")?;
     let rendered = toml::to_string(desired).map_err(|_| "Hook 定义不能无损表示为 TOML")?;
@@ -24,7 +24,11 @@ pub(super) fn render_toml(
         original,
         desired,
     )?;
-    let bytes = document.to_string().into_bytes();
+    let bytes = crate::services::agent_cli::config_support::text_document::restore_layout(
+        text,
+        &document.to_string(),
+    )
+    .into_bytes();
     if config_document::parse(&bytes, ConfigDocumentFormat::Toml).as_ref() != Some(desired) {
         return Err("Hook TOML 修改未能保留目标结构".to_owned());
     }

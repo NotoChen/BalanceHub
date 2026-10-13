@@ -526,7 +526,7 @@ fn valid_key(key: &str) -> bool {
     key.len() <= 512
         && !key.chars().any(char::is_control)
         && (key == "order/providers"
-            || ["provider/", "asset/", "setting/", "blob/"]
+            || ["provider/", "asset/", "setting/", "blob/", "instruction/"]
                 .iter()
                 .any(|prefix| {
                     key.strip_prefix(prefix)

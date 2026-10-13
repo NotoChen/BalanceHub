@@ -41,17 +41,16 @@ pub(crate) fn replace(
     let temporary = format!(".balancehub-{}.tmp", super::token::opaque_id()?);
     let mut file = create_staging(parent, std::ffi::OsStr::new(&temporary))?;
     let pending = (|| {
-        let mode = if present {
-            guard
-                .metadata()
-                .map_err(|_| conflict())?
-                .permissions()
-                .mode()
-        } else {
-            0o600
-        };
-        file.set_permissions(std::fs::Permissions::from_mode(mode))
+        if present {
+            crate::services::agent_cli::config_support::file_layout::copy_permissions(
+                guard.source_handle(),
+                &file,
+            )
             .map_err(|_| write_failed())?;
+        } else {
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|_| write_failed())?;
+        }
         file.write_all(replacement).map_err(|_| write_failed())?;
         file.sync_all().map_err(|_| write_failed())?;
         source.revalidate()?;

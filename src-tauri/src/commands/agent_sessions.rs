@@ -15,6 +15,7 @@ pub(crate) async fn count_agent_sessions(
     window: WebviewWindow,
     request: AgentSessionCountRequest,
 ) -> Result<AgentSessionCounts, String> {
+    crate::services::wsl::refresh_background(&app);
     let label = window.label().to_string();
     let budget = workbench::begin_request(
         AgentSessionActor {
@@ -50,6 +51,7 @@ pub(crate) async fn get_agent_session_scope(
     window: WebviewWindow,
     explicit_workdir: Option<String>,
 ) -> Result<AgentSessionScope, String> {
+    crate::services::wsl::refresh_background(&app);
     let label = window.label().to_string();
     run_blocking("读取原生会话目录集合", move || {
         workbench::get_scope(

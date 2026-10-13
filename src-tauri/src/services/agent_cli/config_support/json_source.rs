@@ -8,7 +8,7 @@ pub(crate) fn rewrite_json_string_fields(
     fields: &[(&str, &str)],
 ) -> Result<String, String> {
     // An empty object path selects the root object, for example Codex auth.
-    let parsed = serde_json::from_str::<JsonValue>(source_text)
+    let parsed = serde_json::from_str::<JsonValue>(super::text_document::body(source_text))
         .map_err(|_| "JSON 配置格式无效".to_string())?;
     let mut parsed_object = parsed
         .as_object()
@@ -134,7 +134,7 @@ impl<'a> JsonSourceParser<'a> {
         Self {
             source,
             bytes: source.as_bytes(),
-            position: 0,
+            position: if source.starts_with('\u{feff}') { 3 } else { 0 },
             comments: false,
             depth: 0,
         }

@@ -56,6 +56,7 @@ struct ObjectStamp {
     modified_nanoseconds: i64,
     changed_seconds: i64,
     changed_nanoseconds: i64,
+    links: u64,
 }
 
 impl ObjectStamp {
@@ -67,6 +68,7 @@ impl ObjectStamp {
             modified_nanoseconds: metadata.mtime_nsec(),
             changed_seconds: metadata.ctime(),
             changed_nanoseconds: metadata.ctime_nsec(),
+            links: metadata.nlink(),
         })
     }
 
@@ -77,6 +79,7 @@ impl ObjectStamp {
         hasher.update(self.modified_nanoseconds.to_le_bytes());
         hasher.update(self.changed_seconds.to_le_bytes());
         hasher.update(self.changed_nanoseconds.to_le_bytes());
+        hasher.update(self.links.to_le_bytes());
     }
 }
 

@@ -1,15 +1,19 @@
 pub(crate) mod agent_assets;
 pub(crate) mod agent_catalog;
 pub(crate) mod agent_configuration;
+pub(crate) mod agent_instructions;
 pub(crate) mod agent_lifecycle;
+pub(crate) mod agent_mcp_check;
 pub(crate) mod agent_overview;
 pub(crate) mod agent_session_resume;
 pub(crate) mod agent_sessions;
+pub(crate) mod agent_wsl;
 pub(crate) mod app;
 pub(crate) mod browser_runtime;
 pub(crate) mod cli;
 pub(crate) mod cloud_sync;
 pub(crate) mod login_accounts;
+pub(crate) mod model_catalog;
 pub(crate) mod provider;
 pub(crate) mod provider_browser_login;
 

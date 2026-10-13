@@ -70,7 +70,7 @@ fn snapshot_toml(snapshot: &AgentAssetSnapshot) -> Option<toml::value::Table> {
     let AgentAssetSnapshot::File { bytes, .. } = snapshot else {
         return None;
     };
-    std::str::from_utf8(bytes)
+    crate::services::agent_cli::config_support::text_document::decode(bytes)
         .ok()?
         .parse::<toml::Value>()
         .ok()?

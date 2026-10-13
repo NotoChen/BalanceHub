@@ -179,6 +179,7 @@ impl CatalogInputs {
     }
 
     pub(crate) fn changed_agents(&self, settings: &AppSettings) -> BTreeSet<AgentCliKind> {
+        let _read = cache::ReadScope::fresh();
         definitions()
             .iter()
             .filter_map(|definition| {
@@ -208,6 +209,7 @@ impl CatalogInputs {
 }
 
 pub(crate) fn environment_signature(settings: &AppSettings) -> String {
+    let _read = cache::ReadScope::fresh();
     let mut digest = Sha256::new();
     for definition in definitions() {
         digest.update(agent_environment_signature(settings, definition.kind));
@@ -233,6 +235,7 @@ fn agent_environment_signature(settings: &AppSettings, kind: AgentCliKind) -> St
 }
 
 fn path_signature(environment: &str, paths: &BTreeMap<PathBuf, PathWatch>) -> String {
+    let _read = cache::ReadScope::fresh();
     let mut digest = Sha256::new();
     digest.update(environment);
     for (path, watch) in paths {

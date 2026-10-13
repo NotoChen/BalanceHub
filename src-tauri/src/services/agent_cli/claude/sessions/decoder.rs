@@ -65,6 +65,42 @@ pub(super) fn decode(
         ..Default::default()
     };
     let mut result = Vec::new();
+    if role == CliSessionMessageRole::Assistant {
+        if let Some(usage) = message.get("usage").filter(|value| value.is_object()) {
+            use crate::services::cli_sessions::usage::{number, record};
+            let read = number(usage, "cache_read_input_tokens");
+            let write = number(usage, "cache_creation_input_tokens");
+            let message_id = message
+                .get("id")
+                .and_then(Value::as_str)
+                .or_else(|| value.get("uuid").and_then(Value::as_str));
+            let request_id = value
+                .get("requestId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let identity = serde_json::json!([message_id.unwrap_or(&id), request_id]).to_string();
+            result.push(record(
+                format!("claude-usage-{identity}"),
+                base.model.as_deref(),
+                crate::models::SessionTokenCounts {
+                    input_tokens: number(usage, "input_tokens").map(|input| {
+                        input
+                            .saturating_add(read.unwrap_or_default())
+                            .saturating_add(write.unwrap_or_default())
+                    }),
+                    output_tokens: number(usage, "output_tokens"),
+                    cache_read_tokens: read,
+                    cache_write_tokens: write,
+                    reasoning_tokens: usage
+                        .pointer("/output_tokens_details/reasoning_tokens")
+                        .and_then(Value::as_u64),
+                },
+                false,
+                message_id.is_none(),
+                None,
+            ));
+        }
+    }
     for (index, part) in parts.iter().enumerate() {
         let mut metadata = base.clone();
         let mut output_role = role;

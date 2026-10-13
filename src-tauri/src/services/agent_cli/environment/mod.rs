@@ -41,8 +41,8 @@ pub(crate) use identity::source_stable_id;
 pub(crate) use identity::{lexical_identity, stable_id};
 pub(crate) use inventory::{
     configuration_contexts, configuration_source_allowed, display_inventory, installation_contexts,
-    inventory_for_agents_cancellable, inventory_with_access, normalize_optional_workspace,
-    ConfigurationContexts, InventoryBuild,
+    inventory_for_agents_cancellable, inventory_with_access, native_environment,
+    normalize_optional_workspace, ConfigurationContexts, InventoryBuild,
 };
 pub(crate) use path_access::{
     acknowledge_risks, open_asset, open_source, open_verified_source, read_asset, read_source,

@@ -54,6 +54,43 @@ pub(super) fn decode(
             state["turn_id"] = turn.clone();
         }
     }
+    let modern_usage = match family {
+        "token_usage_record" => payload.get("thread_token_usage"),
+        "compacted" => payload.pointer("/latest_token_usage_record/thread_token_usage"),
+        _ => None,
+    };
+    let usage = modern_usage.or_else(|| {
+        (family == "event_msg"
+            && kind == "token_count"
+            && state.get("modern_usage_counter") != Some(&Value::Bool(true)))
+        .then(|| payload.pointer("/info/total_token_usage"))
+        .flatten()
+    });
+    if let Some(usage) = usage {
+        use crate::services::cli_sessions::usage::{number, record};
+        let tokens = crate::models::SessionTokenCounts {
+            input_tokens: number(usage, "input_tokens"),
+            output_tokens: number(usage, "output_tokens"),
+            cache_read_tokens: number(usage, "cached_input_tokens"),
+            cache_write_tokens: number(usage, "cache_write_input_tokens"),
+            reasoning_tokens: number(usage, "reasoning_output_tokens"),
+        };
+        if tokens.input_tokens.is_some() || tokens.output_tokens.is_some() {
+            // Thread totals include compaction calls. Legacy token_count values
+            // must not overwrite that newer counter domain once it is present.
+            if modern_usage.is_some() {
+                state["modern_usage_counter"] = Value::Bool(true);
+            }
+            return vec![record(
+                "codex-native-total".to_owned(),
+                metadata.model.as_deref(),
+                tokens,
+                true,
+                false,
+                None,
+            )];
+        }
+    }
     if family == "event_msg" {
         if let Some(events) = native_tool_event(sequence, payload, &metadata) {
             return events;

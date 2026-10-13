@@ -63,6 +63,10 @@ impl ResumeAdmissionFixture {
             metadata_source: "synthetic-fixture".into(),
         };
         let row = AgentSessionRow {
+            runtime_scope: Default::default(),
+            runtime_label: "本机".into(),
+            resume_cli: None,
+            supports_provider_resume: true,
             search_hit: None,
             session_ref: hash(&["resume-fixture", &actor_prefix]),
             source_id: source_id.clone(),
@@ -84,6 +88,9 @@ impl ResumeAdmissionFixture {
                     is_home: false,
                 }],
                 sources: vec![AgentSessionSource {
+                    label: "本机".into(),
+                    resume_cli: None,
+                    runtime_scope: Default::default(),
                     id: source_id.clone(),
                     agent_kind: AgentCliKind::Codex,
                     config_root: config_root.to_string_lossy().into_owned(),

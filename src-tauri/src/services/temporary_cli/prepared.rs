@@ -190,6 +190,20 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             plan.environment.set(name, value);
         }
     }
+    let wsl_path = if let Some(crate::models::AgentRuntimeScope::Wsl { distro_id }) =
+        native_session.map(|identity| &identity.runtime_scope)
+    {
+        Some(crate::services::wsl::launch::wrap(
+            distro_id,
+            cli_kind,
+            workdir,
+            &cli.path,
+            &mut plan,
+            &proxy.environment(),
+        )?)
+    } else {
+        None
+    };
     let session_title = runtime_session_title(&options, &session_name);
     let account_label = provider
         .map(|provider| provider_account_label(provider, options.api_key_label))
@@ -218,8 +232,12 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         }
         write_launch_script(&LaunchScriptInput {
             script: &prepared.script,
-            cli_path: &cli.path,
-            cli_command_name: definition.executable,
+            cli_path: wsl_path.as_deref().unwrap_or(&cli.path),
+            cli_command_name: if wsl_path.is_some() {
+                "wsl.exe"
+            } else {
+                definition.executable
+            },
             workdir,
             plan: &plan,
             auxiliary_file_path: auxiliary_file_path.as_deref(),

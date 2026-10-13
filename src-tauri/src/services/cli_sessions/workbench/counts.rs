@@ -38,26 +38,33 @@ pub(crate) fn count(
     // An empty selector means all native projects, including unregistered ones.
     let workspaces: &[AgentSessionWorkspace] = &[];
     let results = std::thread::scope(|threads| {
-        let mut handles = Vec::new();
-        for source in &sources {
-            let config = scope.sources.get(&source.id).ok_or("原生会话来源已失效")?;
-            let source_budget =
-                SessionReadBudget::new(budget.deadline, budget.cancelled.clone(), budget.max_bytes);
-            handles.push(threads.spawn(move || {
-                let cache = Default::default();
-                with_read_budget(&source_budget, || {
-                    with_history_cache(&cache, || {
-                        with_source_root(&config.config_root, || {
-                            read_source(source, config, workspaces, &source_budget)
+        let mut results = Vec::new();
+        for batch in sources.chunks(4) {
+            budget.check()?;
+            let mut handles = Vec::new();
+            for source in batch {
+                let config = scope.sources.get(&source.id).ok_or("原生会话来源已失效")?;
+                let source_budget = SessionReadBudget::new(
+                    budget.deadline,
+                    budget.cancelled.clone(),
+                    budget.max_bytes,
+                );
+                handles.push(threads.spawn(move || {
+                    let cache = Default::default();
+                    with_read_budget(&source_budget, || {
+                        with_history_cache(&cache, || {
+                            with_source_root(&config.config_root, || {
+                                read_source(source, config, workspaces, &source_budget)
+                            })
                         })
                     })
-                })
-            }));
+                }));
+            }
+            for handle in handles {
+                results.push(handle.join().map_err(|_| "会话统计线程异常".to_owned())?);
+            }
         }
-        handles
-            .into_iter()
-            .map(|handle| handle.join().map_err(|_| "会话统计线程异常".to_owned()))
-            .collect::<Result<Vec<_>, String>>()
+        Ok::<_, String>(results)
     })?;
     budget.check()?;
     if build_scope(actor, None)?.public.revision != scope.public.revision {
@@ -122,6 +129,14 @@ fn read_source(
                 .collect()
         },
     };
+    if let AgentRuntimeScope::Wsl { distro_id } = &source.runtime_scope {
+        if let Err(error) = crate::services::wsl::require_running(distro_id) {
+            return empty(AgentSessionSourceStatus::Unavailable, Some(error));
+        }
+    }
+    if let Err(error) = budget.check() {
+        return empty(AgentSessionSourceStatus::Partial, Some(error));
+    }
     match std::fs::metadata(&config.config_root) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return empty(AgentSessionSourceStatus::Complete, None)

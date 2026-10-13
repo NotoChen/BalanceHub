@@ -35,6 +35,41 @@ pub(super) fn update(
         turn_id: state.get("turn").and_then(Value::as_str).map(str::to_owned),
         ..Default::default()
     };
+    if kind == "turn_completed" {
+        if let Some(usage) = update.get("usage") {
+            use crate::services::cli_sessions::usage::{number, record};
+            let turn = base.turn_id.clone().unwrap_or_else(|| sequence.to_string());
+            let values = usage.get("modelUsage").and_then(Value::as_object);
+            let entries: Vec<(Option<&str>, &Value)> = values
+                .filter(|values| !values.is_empty())
+                .map(|values| {
+                    values
+                        .iter()
+                        .map(|(model, value)| (Some(model.as_str()), value))
+                        .collect()
+                })
+                .unwrap_or_else(|| vec![(base.model.as_deref(), usage)]);
+            return entries
+                .into_iter()
+                .map(|(model, usage)| {
+                    record(
+                        format!("grok-usage-{turn}-{}", model.unwrap_or_default()),
+                        model,
+                        crate::models::SessionTokenCounts {
+                            input_tokens: number(usage, "inputTokens"),
+                            output_tokens: number(usage, "outputTokens"),
+                            cache_read_tokens: number(usage, "cachedReadTokens"),
+                            cache_write_tokens: number(usage, "cacheCreationTokens"),
+                            reasoning_tokens: None,
+                        },
+                        false,
+                        base.turn_id.is_none(),
+                        None,
+                    )
+                })
+                .collect();
+        }
+    }
     if kind.contains("tool") {
         state["role"] = Value::Null;
         let call = update

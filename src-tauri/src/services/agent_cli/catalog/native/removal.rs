@@ -39,9 +39,10 @@ impl NativeCatalogAdapter {
             .ok_or("所选 MCP 已不存在")?;
         let text = std::str::from_utf8(bytes).map_err(|_| "MCP 文件不是 UTF-8")?;
         let after = if self.format == ConfigDocumentFormat::Toml {
-            let mut document = text
-                .parse::<toml_edit::Document>()
-                .map_err(|_| "TOML 文件无效")?;
+            let mut document =
+                crate::services::agent_cli::config_support::text_document::body(text)
+                    .parse::<toml_edit::Document>()
+                    .map_err(|_| "TOML 文件无效")?;
             document
                 .get_mut(self.table)
                 .and_then(toml_edit::Item::as_table_like_mut)
@@ -55,6 +56,9 @@ impl NativeCatalogAdapter {
         if self.parse_document(after.as_bytes()) != Some(root) {
             return Err("移除后的 MCP 文档验证失败".to_owned());
         }
-        Ok(after.into_bytes())
+        Ok(
+            crate::services::agent_cli::config_support::text_document::restore_layout(text, &after)
+                .into_bytes(),
+        )
     }
 }

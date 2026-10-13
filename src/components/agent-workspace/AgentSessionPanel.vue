@@ -46,7 +46,7 @@ const emit = defineEmits<{
   activateRuntime: [session: AgentRuntimeSession];
 }>();
 const navigation = useAgentWorkspaceStore();
-const { sessionHistoryQuery: query } = storeToRefs(navigation);
+const { sessionHistoryQuery: query, sessionEnvironment } = storeToRefs(navigation);
 const tasks = useAgentSessionResumeStore();
 const historyActive = computed(
   () =>
@@ -61,6 +61,7 @@ const history = reactive(
   useAgentSessions({
     active: historyActive,
     agentKinds: selectedAgentKinds,
+    runtimeScope: sessionEnvironment,
     query,
     initialRoleFilter: navigation.sessionRoleFilter,
   }),
@@ -71,10 +72,13 @@ const listPositionKey = computed(() =>
   JSON.stringify([
     history.scope?.revision,
     navigation.sessionAgentFilter,
+    navigation.sessionEnvironment,
     history.roleFilter,
     query.value.trim(),
   ]),
 );
+const environments = computed(() => [...new Map((history.scope?.sources ?? []).map((source) => [JSON.stringify(source.runtimeScope), { value: JSON.stringify(source.runtimeScope), label: source.label, scope: source.runtimeScope }])).values()]);
+const environmentValue = computed({ get: () => sessionEnvironment.value ? JSON.stringify(sessionEnvironment.value) : "", set: (value: string) => { sessionEnvironment.value = environments.value.find((entry) => entry.value === value)?.scope ?? null; } });
 const resumeRevision = ref("");
 const issueSources = computed(() =>
   history.sourceStates.filter((source) =>
@@ -107,7 +111,7 @@ function sourceLabel(state: AgentSessionSourceState) {
   const workspace = history.scope?.workspaces.find(
     (candidate) => candidate.id === state.workspaceId,
   );
-  return `${agent?.label || source?.agentKind || "原生来源"} · ${workspace?.path || (state.workspaceId === null ? "全部目录" : "未记录目录")}`;
+  return `${source?.label || "本机"} · ${agent?.label || source?.agentKind || "原生来源"} · ${workspace?.path || (state.workspaceId === null ? "全部目录" : "未记录目录")}`;
 }
 function openResume(row: AgentSessionRow) {
   if (
@@ -133,6 +137,7 @@ watch(
     [
       historyActive.value,
       navigation.sessionAgentFilter,
+    navigation.sessionEnvironment,
       query.value,
       history.roleFilter,
       history.scope?.revision,
@@ -211,6 +216,7 @@ defineExpose({ refresh });
     >
       <aside class="agent-session-browser" aria-label="会话检索">
         <div class="agent-session-filters">
+          <a-select v-if="environments.length > 1" v-model="environmentValue" aria-label="会话运行环境"><a-option value="">全部环境</a-option><a-option v-for="environment in environments" :key="environment.value" :value="environment.value">{{ environment.label }}</a-option></a-select>
           <a-select v-model="history.roleFilter" aria-label="会话角色"
             ><a-option value="all">全部会话</a-option
             ><a-option value="main">主会话</a-option
