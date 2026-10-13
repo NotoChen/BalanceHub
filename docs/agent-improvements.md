@@ -93,8 +93,11 @@
 | macOS `cargo clippy --all-targets --all-features -- -D warnings` | 最新改动检查通过 |
 | Windows `cargo xwin check --cross-compiler clang --target x86_64-pc-windows-msvc --all-targets --all-features --locked` | 通过 |
 | `git diff --check` 及新增文件检查 | 通过；改动仅位于前端源码、Rust 源码和文档目录 |
-| 自动测试、配置写入与桌面自动验收 | 按仓库约束未执行，留给用户验收 |
+| Agent 配置本地自动测试、配置写入与桌面自动验收 | 按仓库约束未执行，留给用户验收 |
+| 会话与模型展示聚焦回归 | 对应 CI 失败的 7 个既有用例已修正并通过，不涉及原生 Agent 配置写入 |
 | 隔离开发版 | `tauri dev` 编译完成并启动，窗口标题为“BalanceHub · 会话开发版” |
+
+首次推送后的 CI 已通过五个平台编译，以及 macOS、Windows 质量检查。Linux 前端测试暴露了旧测试契约未同步的问题：共享会话样例缺少运行环境与用量字段，模型分页测试未提供资料模块替身，统计测试仍要求每次切回页面重新读取。现已补齐样例与替身，并将既有缓存用例对齐为“近期结果复用、显式刷新和过期后重新读取”。最新完整 CI 结果以 [main 分支持续集成](https://github.com/NotoChen/BalanceHub/actions/workflows/ci.yml?query=branch%3Amain) 为准。
 
 Windows 交叉检查使用 cargo-xwin 的 MSVC sysroot，并补充安装 keg-only 的 LLVM 20 以提供 `llvm-rc`。LLVM 目录仅追加到该次命令的 PATH，没有改用户 shell 配置或替换系统 clang。资源编译阶段的未使用 `-L` 提示不影响检查通过。
 

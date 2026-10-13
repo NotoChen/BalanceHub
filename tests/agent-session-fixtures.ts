@@ -44,12 +44,18 @@ export function sessionScope(
         ],
     sources: [
       {
+        runtimeScope: { kind: "native" },
+        label: "本机",
+        resumeCli: null,
         id: "source:codex",
         agentKind: "codex",
         configRoot: "/fixture/native/codex",
         available: true,
       },
       {
+        runtimeScope: { kind: "native" },
+        label: "本机",
+        resumeCli: null,
         id: "source:claude",
         agentKind: "claudeCode",
         configRoot: "/fixture/native/claude",
@@ -64,6 +70,10 @@ export function sessionRow(
   overrides: Partial<AgentSessionRow> = {},
 ): AgentSessionRow {
   return {
+    runtimeScope: { kind: "native" },
+    runtimeLabel: "本机",
+    resumeCli: null,
+    supportsProviderResume: true,
     sessionRef: `ref:${id}`,
     searchHit: null,
     sourceId: "source:codex",
@@ -128,6 +138,15 @@ export function sessionDetail(
   return {
     row,
     detail: {
+      usage: {
+        tokens: { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, reasoningTokens: null },
+        models: [],
+        partial: false,
+        nativeCumulative: false,
+        records: 0,
+        estimatedCostMicrousd: null,
+        unpricedRecords: 0,
+      },
       session: row.session,
       messages: [
         sessionMessage("message-1", "合成用户正文", { role: "user" }),
@@ -171,7 +190,7 @@ export function sessionLaunchIdentity(
     sessionRef: row.sessionRef,
     sourceIdentity: row.sourceId,
     nativeSessionId: row.session.id,
-    runtimeScope: { kind: "native" },
+    runtimeScope: row.runtimeScope,
   };
 }
 

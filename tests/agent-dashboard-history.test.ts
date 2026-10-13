@@ -352,7 +352,9 @@ test("one visible overview consumer serves four cards without rescanning for run
   assert.deepEqual(kinds.map(surface.value), ["155", "读取失败", "0", "读取失败"]);
 });
 
-test("overview ignores bookmark changes and refreshes for explicit refresh and reactivation", async (t) => {
+test("overview reuses recent counts and refreshes explicitly or after cache expiry", async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
   const surface = mountDashboard(t); await settle(); assert.equal(countRequests.length, 1);
   surface.workspaces.workspaces = [...surface.workspaces.workspaces].reverse().map((workspace) => ({ ...workspace, useCount: workspace.useCount + 1 }));
   await settle(); assert.equal(countRequests.length, 1, "ordering and use counts do not change the directory set");
@@ -364,9 +366,12 @@ test("overview ignores bookmark changes and refreshes for explicit refresh and r
   await settle(); assert.equal(countRequests.length, 1);
   await surface.exposed.value?.refresh(); await settle(); assert.equal(countRequests.length, 2);
   click(surface.navButton("Skill")); await settle(); assert.equal(countRequests.length, 2);
-  click(surface.navButton("总览")); await settle(); assert.equal(countRequests.length, 3);
-  surface.navigation.setView("providers"); await settle(); assert.equal(countRequests.length, 3);
-  surface.navigation.setView("agents"); await settle(); assert.equal(countRequests.length, 4);
+  click(surface.navButton("总览")); await settle(); assert.equal(countRequests.length, 2, "recent successful counts survive tab changes");
+  surface.navigation.setView("providers"); await settle(); assert.equal(countRequests.length, 2);
+  surface.navigation.setView("agents"); await settle(); assert.equal(countRequests.length, 2, "recent successful counts survive view reactivation");
+  now += 30_000;
+  click(surface.navButton("Skill")); await settle(); assert.equal(countRequests.length, 2);
+  click(surface.navButton("总览")); await settle(); assert.equal(countRequests.length, 3, "expired counts refresh on reactivation");
   assert.equal(new Set(countRequests.map((request) => request.consumerId)).size, 1);
   assert.ok(countRequests.every((request) => request.agentKinds.join("|") === kinds.join("|")));
   assert.equal(queries.length, 0);

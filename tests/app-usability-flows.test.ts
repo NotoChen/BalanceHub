@@ -573,6 +573,10 @@ test("provider order times out, ignores late success, and allows an immediate re
 test("large model lists expose every page and searching resets to the first matching page", async (t) => {
   const component = loadSource<{ default: { setup: (props: object, context: object) => { keyword: Ref<string>; page: Ref<number>; displayedModels: Ref<string[]>; filteredModels: Ref<string[]>; canRefresh: Ref<boolean>; modalTitle: Ref<string> } } }>("components/AvailableModelsModal.vue", {
     "@arco-design/web-vue/es/icon": {}, "../utils/provider-display": providerDisplay,
+    "../composables/useModelMetadata": { useModelMetadata: () => ({
+      models: ref(new Map()), snapshot: ref(null), loading: ref(false), error: ref(""), refresh: async () => {},
+    }) },
+    "./ModelMetadataLine.vue": {},
   }).default;
   const names = Array.from({ length: 620 }, (_, index) => `model-${String(index).padStart(3, "0")}`);
   const props = reactive({ visible: true, provider: { ...modelProvider("a"), capabilities: { ...modelProvider("a").capabilities, availableModels: names } }, loading: false, error: "" });
