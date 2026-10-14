@@ -32,7 +32,10 @@ mod removal;
 mod repository;
 mod selection;
 mod source_index;
+pub(crate) mod tool_policy;
+mod upstream;
 mod usage;
+mod version_history;
 
 use crate::{
     models::*,
@@ -69,6 +72,8 @@ pub(crate) struct CatalogService {
     reading: Mutex<reading::ReadingState>,
     read_slots: Arc<tokio::sync::Semaphore>,
     operations: Mutex<BTreeMap<String, Arc<operations::OperationCell>>>,
+    upstream: upstream::UpstreamCache,
+    tool_rules: tool_policy::Store,
 }
 
 impl CatalogService {
@@ -76,7 +81,8 @@ impl CatalogService {
         Self {
             #[cfg(all(test, unix))]
             after_hook_write: Mutex::new(None),
-            repository: Repository::new(root),
+            repository: Repository::new(root.clone()),
+            tool_rules: tool_policy::Store::new(root),
             display_cache_root: None,
             package_cache: Mutex::new(package_cache::PackageCache::default()),
             publication_slots: Arc::new(tokio::sync::Semaphore::new(1)),
@@ -91,6 +97,7 @@ impl CatalogService {
             reading: Mutex::new(reading::ReadingState::default()),
             read_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             operations: Mutex::new(BTreeMap::new()),
+            upstream: upstream::UpstreamCache::default(),
         }
     }
     pub(crate) fn with_display_cache(mut self, root: PathBuf) -> Self {

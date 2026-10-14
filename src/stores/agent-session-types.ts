@@ -46,6 +46,7 @@ export type AgentSessionParent =
   | { kind: "unknown" };
 
 export interface AgentSessionRow {
+  projectRelocationAvailable: boolean;
   runtimeScope: AgentRuntimeScope;
   runtimeLabel: string;
   resumeCli: { path: string; version: string | null } | null;

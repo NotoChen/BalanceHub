@@ -128,6 +128,23 @@ impl ConfigurationService {
                         captured_bytes += bytes;
                         source.revision = file.revision();
                         source.revision.observed_at = at_after(Duration::ZERO);
+                        // Reuse the captured bytes; counting rules must not trigger a second read.
+                        source.content_state = match file
+                            .bytes()
+                            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                        {
+                            Some(text)
+                                if text
+                                    .strip_prefix('\u{feff}')
+                                    .unwrap_or(text)
+                                    .trim()
+                                    .is_empty() =>
+                            {
+                                AgentConfigurationContentState::Empty
+                            }
+                            Some(_) => AgentConfigurationContentState::NonEmpty,
+                            None => AgentConfigurationContentState::Unknown,
+                        };
                         let missing = source.revision.is_missing;
                         let restriction = file.replacement_restriction().err();
                         let writable = restriction.is_none()
@@ -284,6 +301,7 @@ pub(super) fn public_source(
         label: spec.native.label.clone(),
         path: spec.native.path.to_string_lossy().into_owned(),
         format: spec.format,
+        content_state: AgentConfigurationContentState::Unknown,
         revision: AgentAssetRevision::default(),
         access: AgentAssetAccess::default(),
         actions: actions(false, false, false),

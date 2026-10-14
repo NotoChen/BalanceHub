@@ -22,7 +22,7 @@ use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 type PackageKey = (PathBuf, PathBuf);
@@ -56,7 +56,7 @@ impl<'a> DefinitionReader<'a> {
             package_anchors: Vec::new(),
             package_cache: None,
             document_bytes: 0,
-            deadline: Instant::now() + Duration::from_secs(10),
+            deadline: Instant::now() + package::READ_TIMEOUT,
         }
     }
 
@@ -83,7 +83,7 @@ impl<'a> DefinitionReader<'a> {
         if !self.hooks.contains_key(&key) {
             let result = (|| {
                 if Instant::now() >= self.deadline {
-                    return Err("完整定义读取达到 10 秒预算".to_owned());
+                    return Err("完整定义读取超时".to_owned());
                 }
                 let adapter = definition(kind)
                     .environment
@@ -295,10 +295,7 @@ impl<'a> DefinitionReader<'a> {
                 None,
             )
         } else if Instant::now() >= deadline {
-            (
-                Err("全局比较达到 10 秒预算，部分内容一致性未知".to_owned()),
-                None,
-            )
+            (Err("完整内容比较超时，部分内容一致性未知".to_owned()), None)
         } else if asset.category == AgentAssetCategory::Hook {
             match self.hook(asset) {
                 Ok(rule) => {

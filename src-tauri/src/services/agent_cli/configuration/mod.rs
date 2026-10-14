@@ -14,7 +14,7 @@ mod runtime;
 mod selection;
 mod service;
 pub(crate) mod sources;
-mod writer;
+use super::config_support::file_writer as writer;
 
 pub(crate) use catalog_content::read_catalog_content;
 pub(crate) use service::ConfigurationService;

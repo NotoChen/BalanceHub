@@ -92,7 +92,7 @@ impl ObservationSeed {
     }
 }
 
-const PRIVATE_PREVIEW_LIMIT: usize = 64 * 1024 * 1024;
+const PRIVATE_PREVIEW_LIMIT: usize = 512 * 1024 * 1024;
 
 pub(super) struct PreviewPermit {
     used: Arc<AtomicUsize>,
@@ -111,7 +111,7 @@ pub(super) fn reserve(used: &Arc<AtomicUsize>, bytes: usize) -> Result<PreviewPe
             .checked_add(bytes)
             .filter(|next| *next <= PRIVATE_PREVIEW_LIMIT)
     })
-    .map_err(|_| "预览暂存已达到 64 MiB，请等待现有预览过期后重试".to_owned())?;
+    .map_err(|_| "预览暂存已达到 512 MiB，请关闭其他预览后重试".to_owned())?;
     Ok(PreviewPermit {
         used: Arc::clone(used),
         bytes,

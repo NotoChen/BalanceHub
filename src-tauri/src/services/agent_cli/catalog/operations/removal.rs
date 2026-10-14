@@ -38,6 +38,25 @@ enum RemovalKind {
 }
 
 impl PreparedRemoval {
+    pub(super) fn batch_write(
+        targets: &[(usize, Self)],
+    ) -> Result<Option<crate::services::agent_cli::maintenance::files::FileWrite>, String> {
+        Self::validate_group(targets)?;
+        let (_, first) = targets.first().ok_or("移除目标为空")?;
+        if let RemovalKind::Mcp { file, adapter, .. } = &first.kind {
+            Ok(Some(
+                crate::services::agent_cli::maintenance::files::FileWrite {
+                    id: file.pathname_domain(),
+                    source: file.clone(),
+                    after: Some(Self::compose(targets, file, adapter)?),
+                    executable: None,
+                    mode: None,
+                },
+            ))
+        } else {
+            Ok(None)
+        }
+    }
     pub fn prepare(
         snapshot: &MutationInventory,
         inspector: &dyn MutationInspector,

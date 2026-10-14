@@ -14,6 +14,7 @@ mod unindexed;
 const UNAVAILABLE_ROLLOUT_REASON: &str = "原生会话日志不可用，仅能查看索引摘要";
 
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
+    relocation: None,
     launch_environment: super::super::native_context::launch_environment,
     source,
     scan,

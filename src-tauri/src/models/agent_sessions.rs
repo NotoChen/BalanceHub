@@ -80,6 +80,7 @@ pub enum AgentSessionActivityState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionRow {
+    pub project_relocation_available: bool,
     pub runtime_scope: super::AgentRuntimeScope,
     pub runtime_label: String,
     pub resume_cli: Option<AgentSessionCli>,

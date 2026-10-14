@@ -5,6 +5,7 @@ import { Info, Plus, SlidersHorizontal, X } from "@lucide/vue";
 import AgentCatalogRow from "./AgentCatalogRow.vue";
 import AgentCatalogList from "./AgentCatalogList.vue";
 import AgentWorkspaceIcon from "./AgentWorkspaceIcon.vue";
+import AgentBatchModal from "./AgentBatchModal.vue";
 import type { AgentAssetCatalog, AgentCatalogAction, AgentCatalogAgentPanel } from "../../stores/agent-catalog-types";
 import type { AgentCatalogAgentSelection } from "../../composables/useAgentCatalogAgentPanel";
 import type { AgentAssetCategory, AgentCliDescriptor, AgentCliKind } from "../../stores/provider-types";
@@ -29,6 +30,16 @@ const { state, source, provision, installation, scope, sort, timeField, hasAsset
   library, libraryCategory, libraryAssets, libraryCategories, libraryCounts,
   labels, heading, createCategory, sourceOptions, rows, discoveryNotes, isFocused } = useAgentCatalogView(props);
 const moreFiltersVisible = ref(false);
+const batchMode = ref(false);
+const batchIds = ref<string[]>([]);
+const batchAction = ref<AgentCatalogAction>('applyDefinition');
+const batchVisible = ref(false);
+function selectBatch(id: string, selected: boolean) {
+  if (selected && batchIds.value.length >= 128) return;
+  batchIds.value = selected ? [...new Set([...batchIds.value, id])] : batchIds.value.filter((value) => value !== id);
+}
+function openBatch(action: AgentCatalogAction) { batchAction.value = action; batchVisible.value = true; }
+watch(() => [props.page, props.catalog?.inventory.workspace], () => { batchIds.value = []; batchMode.value = false; batchVisible.value = false; });
 const list = ref<InstanceType<typeof AgentCatalogList> | null>(null);
 const timeDescription = "按来源文件时间排序；多来源取最早创建、最近修改时间。共用配置文件的条目时间相同，未提供时间的条目排在末尾。";
 const activeSourceFilters = computed(() => [
@@ -66,6 +77,7 @@ defineExpose({ clearFilters, revealAsset: (id: string) => list.value?.scrollToAs
       <span v-if="!library || query.trim() || agentFilter" class="agent-catalog-count"><strong>{{ catalog ? rows.length : '—' }}</strong>{{ page === 'hook' ? '条规则' : '项' }}<template v-if="page === 'hook' && hookSourceCount"> · {{ hookSourceCount }} 个来源</template></span>
       </div>
       <div class="agent-catalog-list-actions">
+        <a-button v-if="rows.length" type="text" size="small" @click="batchMode = !batchMode; batchIds = []">{{ batchMode ? '退出多选' : '批量管理' }}</a-button>
         <a-tooltip v-if="timeField" :content="timeDescription" :trigger="['hover', 'focus']"><span class="agent-catalog-sort-help" tabindex="0" role="img" :aria-label="timeDescription"><Info :size="15" aria-hidden="true" /></span></a-tooltip>
         <a-select v-model="sort" size="small" class="agent-catalog-sort" aria-label="资源排序"><a-option v-for="option in agentCatalogSortOptions" :key="option.value" :value="option.value">{{ option.label }}</a-option></a-select>
         <a-button v-if="createCategory" type="primary" size="small" @click="emit('create', createCategory)"><template #icon><Plus :size="14" /></template>新建 {{ agentAssetCategoryLabels[createCategory] }}</a-button>
@@ -75,6 +87,7 @@ defineExpose({ clearFilters, revealAsset: (id: string) => list.value?.scrollToAs
         </a-dropdown>
       </div>
     </header>
+    <div v-if="batchMode" class="agent-section-toolbar"><span>已选 {{ batchIds.length }} 项 · 每批最多 128 项</span><div class="agent-inline-actions"><a-button size="small" @click="batchIds = rows.slice(0, 128).map(asset => asset.id)">{{ rows.length > 128 ? '选择前 128 项' : '选择当前列表' }}</a-button><a-button size="small" :disabled="!batchIds.length" @click="openBatch('applyDefinition')">配置到 Agent</a-button><a-button size="small" :disabled="!batchIds.length" @click="openBatch('disable')">停用</a-button><a-button size="small" status="danger" :disabled="!batchIds.length" @click="openBatch('removeBinding')">移除配置</a-button></div></div>
     <div v-if="!library && moreFiltersVisible" :id="`agent-catalog-${page}-more-filters`" class="agent-catalog-filters agent-catalog-more-filters">
       <a-select v-model="provision" size="small" aria-label="筛选提供方式"><a-option value="all">全部提供方式</a-option><a-option v-for="(label, value) in agentAssetProvisionLabels" :key="value" :value="value">{{ label }}</a-option></a-select>
       <a-select v-model="installation" size="small" aria-label="筛选安装来源"><a-option value="all">全部安装来源</a-option><a-option v-for="(label, value) in agentAssetInstallationLabels" :key="value" :value="value">{{ label }}</a-option></a-select>
@@ -96,8 +109,9 @@ defineExpose({ clearFilters, revealAsset: (id: string) => list.value?.scrollToAs
     </div>
     <AgentCatalogList v-else ref="list" :assets="rows" :revision="`${page}:${catalog?.revision ?? ''}`" :reset-key="listResetKey" :focused-id="focusedAssetId" :estimated-size="(page === 'hook' ? 118 : 80) + (timeField ? 20 : 0)" @scroll="closeAgentPanel">
       <template #default="{ asset, index }">
-        <AgentCatalogRow :key="asset.id" :aria-posinset="index + 1" :aria-setsize="rows.length" :asset="asset" :library="library" :labels="labels" :agent-filter="agentFilter" :busy="busy(asset.id)" :error="rowError?.(asset.id)" :focused="isFocused(asset)" :time-field="timeField" :agent-selection="agentSelection" :agent-panel="agentPanel" :agent-loading="agentLoading" :agent-error="agentError" @edit="emit('edit', $event)" @detail="(id, feature) => emit('detail', id, feature)" @action="(id, action, targets) => emit('action', id, action, targets)" @manage="(id, kind) => emit('manage', id, kind)" @retry="emit('retry')" @native="emit('native', $event)" />
+        <AgentCatalogRow :key="asset.id" :selectable="batchMode" :selected="batchIds.includes(asset.id)" :selection-disabled="batchIds.length >= 128 && !batchIds.includes(asset.id)" @select="selectBatch" :aria-posinset="index + 1" :aria-setsize="rows.length" :asset="asset" :library="library" :labels="labels" :agent-filter="agentFilter" :busy="busy(asset.id)" :error="rowError?.(asset.id)" :focused="isFocused(asset)" :time-field="timeField" :agent-selection="agentSelection" :agent-panel="agentPanel" :agent-loading="agentLoading" :agent-error="agentError" @edit="emit('edit', $event)" @detail="(id, feature) => emit('detail', id, feature)" @action="(id, action, targets) => emit('action', id, action, targets)" @manage="(id, kind) => emit('manage', id, kind)" @retry="emit('retry')" @native="emit('native', $event)" />
       </template>
     </AgentCatalogList>
+    <AgentBatchModal :visible="batchVisible" :asset-ids="batchIds" :action="batchAction" :workspace="catalog?.inventory.workspace ?? undefined" @close="batchVisible = false" />
   </section>
 </template>

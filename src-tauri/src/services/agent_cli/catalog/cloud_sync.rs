@@ -28,7 +28,7 @@ fn export(library: &Library) -> Result<SyncDocuments, String> {
         let Some(definition) = entry.current() else {
             continue;
         };
-        let value = match &definition.payload {
+        let mut value = match &definition.payload {
             DefinitionPayload::Skill(files) => {
                 let mut references = serde_json::Map::new();
                 for (path, file) in files {
@@ -49,6 +49,9 @@ fn export(library: &Library) -> Result<SyncDocuments, String> {
                 json!({ "name": entry.name, "category": entry.category, "definition": payload })
             }
         };
+        if let Some(origin) = &entry.origin {
+            value["origin"] = serde_json::to_value(origin).map_err(|_| "Skill 来源格式无效")?;
+        }
         documents.insert(
             format!("asset/{id}"),
             SyncDocument {
@@ -138,7 +141,13 @@ fn import(library: &mut Library, documents: &SyncDocuments) -> Result<(), String
                     .get("executable")
                     .and_then(|value| value.as_bool())
                     .ok_or("Skill 文件权限标记无效")?;
-                package.insert(path.clone(), PackageFile { bytes, executable });
+                package.insert(
+                    path.clone(),
+                    PackageFile {
+                        bytes: bytes.into(),
+                        executable,
+                    },
+                );
             }
             let manifest = package.get("SKILL.md").ok_or("云端 Skill 缺少 SKILL.md")?;
             super::definition::validate_skill(&manifest.bytes)?;
@@ -165,14 +174,26 @@ fn import(library: &mut Library, documents: &SyncDocuments) -> Result<(), String
             }
             payload
         };
-        incoming.insert(id.to_owned(), (name.to_owned(), category, payload));
+        let origin = document
+            .value
+            .get("origin")
+            .map(|value| {
+                if category != AgentAssetCategory::Skill {
+                    return Err("只有 Skill 可以关联来源仓库".to_owned());
+                }
+                let origin =
+                    serde_json::from_value(value.clone()).map_err(|_| "Skill 来源格式无效")?;
+                super::upstream::normalize(origin)
+            })
+            .transpose()?;
+        incoming.insert(id.to_owned(), (name.to_owned(), category, payload, origin));
     }
     for (id, entry) in &mut library.entries {
         if entry.current().is_some() && !incoming.contains_key(id) {
             entry.shared_deleted = true;
         }
     }
-    for (id, (name, category, payload)) in incoming {
+    for (id, (name, category, payload, origin)) in incoming {
         let entry = library
             .entries
             .entry(id)
@@ -181,6 +202,7 @@ fn import(library: &mut Library, documents: &SyncDocuments) -> Result<(), String
             return Err("共享资产类型发生冲突，未覆盖原定义".to_owned());
         }
         entry.set_definition(&name, payload)?;
+        entry.origin = origin;
     }
     Ok(())
 }
@@ -203,14 +225,7 @@ impl CatalogService {
             if export(&next)? != only_catalog(documents) {
                 return Err("云端共享定义不能无损应用，请核对资源格式与应用版本".to_owned());
             }
-            if next.entries.len() > super::repository::MAX_LIBRARY_ENTRIES
-                || serde_json::to_vec(&next)
-                    .map_err(|_| "共享库格式无效")?
-                    .len()
-                    > super::repository::LIBRARY_LIMIT
-            {
-                return Err("合并后的共享库超过本机存储上限，未提交远端变更".to_owned());
-            }
+            self.repository.validate_capacity(&next)?;
             Ok(())
         })
     }
@@ -263,7 +278,9 @@ impl CatalogService {
                     return Err("共享库在同步期间已变化，请重新同步".to_owned());
                 }
                 import(library, &desired)?;
-                let after_bytes = serde_json::to_vec(&library).map_err(|_| "共享库同步数据无效")?;
+                // The recovery journal must contain exactly the bytes that the
+                // repository checkpoint publishes, including blob references.
+                let after_bytes = self.repository.snapshot_bytes(library)?;
                 commit(original, Some(&after_bytes), &mut || checkpoint(library))
             });
         self.clear_unpersisted_observations();

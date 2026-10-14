@@ -1,7 +1,9 @@
 pub(crate) mod directories;
 pub(crate) mod env_source;
 pub(crate) mod file_layout;
+pub(crate) mod file_writer;
 pub(crate) mod json_source;
+pub(crate) mod native_history;
 pub(crate) mod text_document;
 
 pub(crate) use env_source::{env_value, rewrite_env_values};

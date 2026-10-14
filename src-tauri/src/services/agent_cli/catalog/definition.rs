@@ -17,7 +17,7 @@ pub(crate) enum DefinitionPayload {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct PackageFile {
-    pub bytes: Vec<u8>,
+    pub bytes: std::sync::Arc<[u8]>,
     pub executable: bool,
 }
 
@@ -67,11 +67,24 @@ impl DefinitionPayload {
     }
     pub(super) fn fingerprint(&self) -> String {
         // Private evidence only; never return a credential-derived digest.
-        let bytes = match self {
-            Self::Mcp(value) => serde_json::to_vec(&value.connection_document()),
-            _ => serde_json::to_vec(self),
-        };
-        super::digest(&bytes.unwrap_or_default())
+        use sha2::{Digest, Sha256};
+        struct HashWriter(Sha256);
+        impl std::io::Write for HashWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writer = HashWriter(Sha256::new());
+        match self {
+            Self::Mcp(value) => serde_json::to_writer(&mut writer, &value.connection_document()),
+            _ => serde_json::to_writer(&mut writer, self),
+        }
+        .expect("asset definitions contain only serializable data");
+        format!("{:x}", writer.0.finalize())
     }
 
     pub(super) fn summary(&self) -> Vec<String> {
@@ -157,13 +170,13 @@ pub(super) fn input_payload(
             };
             if let Some(markdown) = &request.skill_markdown {
                 if markdown.is_empty() || markdown.len() > super::package::MAX_FILE_BYTES {
-                    return Err("Skill 内容为空或超过 512 KiB".to_owned());
+                    return Err("Skill 内容为空或超过 16 MiB".to_owned());
                 }
                 validate_skill(markdown.as_bytes())?;
                 files.insert(
                     "SKILL.md".to_owned(),
                     PackageFile {
-                        bytes: markdown.as_bytes().to_vec(),
+                        bytes: markdown.as_bytes().into(),
                         executable: false,
                     },
                 );

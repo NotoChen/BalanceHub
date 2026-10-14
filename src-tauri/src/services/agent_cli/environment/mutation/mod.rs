@@ -14,7 +14,7 @@ mod service;
 pub(crate) mod token;
 
 pub(crate) use execution::ExactCliCommand;
-pub(crate) use files::{GuardedDirectory, GuardedFile, WriteObservation};
+pub(crate) use files::{pathname_domain, GuardedDirectory, GuardedFile, WriteObservation};
 pub(crate) use prepared::{
     prepare_request, AgentAssetMechanismCatalog, AgentAssetMutationPreparer,
     AgentAssetNativeUnavailable, MutationExecution, MutationInspector, MutationInventory,

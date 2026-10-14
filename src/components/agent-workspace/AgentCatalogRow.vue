@@ -16,12 +16,14 @@ const props = defineProps<{
   asset: AgentCatalogAsset; labels: ReadonlyMap<AgentCliKind, string>; busy: boolean; error?: string; focused: boolean;
   agentFilter?: AgentCliKind | null;
   library?: boolean;
+  selectable?: boolean; selected?: boolean; selectionDisabled?: boolean;
   timeField?: "createdAt" | "modifiedAt" | null;
   agentSelection?: AgentCatalogAgentSelection | null; agentPanel?: AgentPanel | null; agentLoading?: boolean; agentError?: string;
 }>();
 const emit = defineEmits<{
   detail: [id: string, feature?: string]; edit: [id: string]; action: [id: string, action: AgentCatalogAction, targets?: string[]];
   manage: [id: string, kind: AgentCliKind | null]; retry: []; native: [id: string];
+  select: [id: string, selected: boolean];
 }>();
 const controls = computed(() => agentCatalogAgentControls(props.asset, props.labels, props.agentFilter));
 const iconPage = computed(() => props.asset.category === "plugin" ? "extension"
@@ -57,6 +59,7 @@ function showPanel(kind: AgentCliKind, visible: boolean) { if (visible || expand
   <div class="agent-catalog-row" :class="{ 'is-focused': focused }" :data-global-asset-id="asset.id" :aria-current="focused ? 'true' : undefined" role="listitem">
     <WorkspaceCard class="agent-catalog-card" :class="`is-${asset.category}`" :fixed-height="false" :interacting="focused || agentSelection?.assetId === asset.id">
       <div class="agent-catalog-identity">
+        <input v-if="selectable" type="checkbox" :checked="selected" :disabled="selectionDisabled" :aria-label="`选择 ${asset.name}`" @change="emit('select', asset.id, ($event.target as HTMLInputElement).checked)" />
         <AgentWorkspaceIcon :page="iconPage" :size="24" />
         <div class="agent-catalog-copy">
           <div class="agent-catalog-title">

@@ -9,7 +9,7 @@ use crate::{models::*, services::agent_cli::environment::mutation::MutationInven
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 const DOCUMENT_BYTES: usize = 64 * 1024;
@@ -32,7 +32,7 @@ pub(super) fn compare(
     AgentCatalogComparisonEquality,
     Vec<AgentCatalogDifference>,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + super::package::READ_TIMEOUT;
     let mut remaining = PRIVATE_BYTES;
     let mut reader = DefinitionReader::new(snapshot);
     let left = side(&mut reader, left, deadline, &mut remaining);

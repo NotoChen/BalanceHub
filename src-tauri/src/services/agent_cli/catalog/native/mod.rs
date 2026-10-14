@@ -9,6 +9,7 @@ mod mcp;
 mod mcp_options;
 mod mcp_variables;
 mod removal;
+pub(crate) mod tool_rules;
 pub(crate) use mcp_variables::validation_url;
 #[cfg(test)]
 mod tests;

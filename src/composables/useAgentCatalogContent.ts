@@ -85,7 +85,7 @@ export function useAgentCatalogContent(options: {
             if (isCurrent() && !finished && partial.assetId === assetId) content.value = partial;
           }),
           interrupted,
-        ]), 15_000, "读取资源内容超时，请重试");
+        ]), 45_000, "读取资源内容超时，请重试");
         finished = true;
         if (!isCurrent()) return;
         if (result.assetId !== assetId) throw new Error("返回的资源不一致，请重新读取");

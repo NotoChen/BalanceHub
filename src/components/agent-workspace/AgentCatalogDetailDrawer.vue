@@ -6,6 +6,8 @@ import AgentCatalogConfigurationActions from "./AgentCatalogConfigurationActions
 import AgentConfigurationEditorBody from "./AgentConfigurationEditorBody.vue";
 import AgentCatalogContent from "./AgentCatalogContent.vue";
 import AgentWorkspaceIcon from "./AgentWorkspaceIcon.vue";
+import AgentSharedHistory from "./AgentSharedHistory.vue";
+import AgentSkillSourcePanel from "./AgentSkillSourcePanel.vue";
 import type { useAgentResourceContent } from "../../composables/useAgentResourceContent";
 import "../../styles/modules/agent-resource-content.css";
 import type { AgentAssetCatalog, AgentCatalogAsset, AgentCatalogAction, AgentCatalogRelationIntent } from "../../stores/agent-catalog-types";
@@ -73,6 +75,8 @@ const separated = computed(() => (props.asset?.separatedAssetIds ?? []).map((id)
     <template #title><div class="agent-resource-title"><span v-if="asset">{{ agentAssetCategoryLabels[asset.category] }}</span><strong>{{ asset?.name || '资源详情' }}</strong><a-button type="text" size="mini" :aria-label="expanded ? '还原面板' : '展开面板'" :title="expanded ? '还原面板' : '展开面板'" @click="expanded = !expanded"><Minimize2 v-if="expanded" :size="16" /><Maximize2 v-else :size="16" /></a-button></div></template>
     <div v-if="asset" :key="asset.id" ref="detailRoot" class="agent-modal-body">
       <div v-if="asset.ownership === 'managed' && resource.reading" class="agent-library-location"><span>已保存到共享库<template v-if="asset.version !== null"> · v{{ asset.version }}</template></span><a-button type="text" size="small" @click="emit('library', asset.id)">在共享库中查看</a-button></div>
+      <AgentSharedHistory v-if="asset.ownership === 'managed' && asset.version !== null && resource.reading" :asset-id="asset.id" :version="asset.version" />
+      <AgentSkillSourcePanel v-if="asset.ownership === 'managed' && asset.category === 'skill' && asset.version !== null && resource.reading" :asset-id="asset.id" :version="asset.version" :workspace="catalog?.inventory.workspace ?? undefined" />
       <header v-if="!resource.reading" class="agent-content-edit-heading"><a-button type="text" size="small" @click="resource.showContent">返回内容</a-button><span v-if="resource.sharedView">编辑共享定义</span><span v-else-if="resource.binding">编辑 <template v-if="editingSource">{{ editingSource.label }} · </template>{{ agentLabel(resource.binding.native.agentKind) }} · {{ agentAssetScopeLabels[resource.binding.native.scope] }}</span></header>
       <div v-for="parent in resource.parents" :key="parent.stableId" class="agent-resource-parent"><span>来自{{ agentAssetCategoryLabels[parent.category] }}</span><a-button type="text" size="small" @click="emit('native', parent.stableId)">{{ parent.label }}</a-button></div>
       <details v-if="candidates.length" class="agent-catalog-advanced" :open="feature === 'same-name'" data-catalog-focus="same-name" tabindex="-1">
@@ -83,7 +87,7 @@ const separated = computed(() => (props.asset?.separatedAssetIds ?? []).map((id)
           <div class="agent-inline-actions"><a-button size="small" @click="emit('detail', candidate.id)">查看资源</a-button><a-button size="small" @click="emit('relation', { kind: 'compare', leftAssetId: asset.id, rightAssetId: candidate.id })">比较内容</a-button></div>
         </div>
       </details>
-      <AgentCatalogContent v-if="resource.reading" :content="resource.reader.content" :loading="resource.reader.loading" :error="resource.reader.error" :agents="agents" @edit="resource.editContent" @retry="resource.reader.reload">
+      <AgentCatalogContent v-if="resource.reading" :content="resource.reader.content" :loading="resource.reader.loading" :error="resource.reader.error" :agents="agents" :workspace="catalog?.inventory.workspace ?? undefined" @edit="resource.editContent" @retry="resource.reader.reload">
         <template #resources>
           <section v-if="resource.children.length" class="agent-resource-children" aria-label="包含的资源"><header>包含的资源 · {{ resource.children.length }}</header><button v-for="child in resource.children" :key="child.stableId" type="button" @click="emit('native', child.stableId)"><AgentWorkspaceIcon :page="child.category === 'plugin' ? 'extension' : child.category === 'statusUi' ? 'overview' : child.category" /><span>{{ child.label }}</span><small>{{ agentAssetCategoryLabels[child.category] }}</small></button></section>
         </template>

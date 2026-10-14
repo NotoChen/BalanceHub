@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, reactive, ref, watch } from "vue";
-import { Plus, RefreshCw } from "@lucide/vue";
+import { BookOpen, Info, Plus, RefreshCw } from "@lucide/vue";
 import { Message } from "@arco-design/web-vue";
 import {
   beginAgentInstructionEdit,
@@ -11,6 +11,7 @@ import {
   type AgentInstructionSet,
 } from "../../api/agent-instructions";
 import { useAgentWslStore } from "../../stores/agent-wsl";
+import { useAgentConfigurationSourcesStore } from "../../stores/agent-configuration-sources";
 import type {
   AgentCliDescriptor,
   AgentCliKind,
@@ -21,17 +22,24 @@ import { useAgentConfigurationEditor } from "../../composables/useAgentConfigura
 import { agentConfigurationErrorMessage } from "../../utils/agent-configuration-display";
 import { withTimeout } from "../../utils/promise-timeout";
 import AgentConfigurationEditorModal from "./AgentConfigurationEditorModal.vue";
+import AgentInstructionEditorModal from "./AgentInstructionEditorModal.vue";
+import AgentInstructionTargetModal from "./AgentInstructionTargetModal.vue";
+import AgentInstructionSources from "./AgentInstructionSources.vue";
 import AgentCliIcon from "../AgentCliIcon.vue";
-import ContentEditor from "../ContentEditor.vue";
-import FileEditorModal from "../FileEditorModal.vue";
 
 const props = defineProps<{
   agents: AgentCliDescriptor[];
+  active: boolean;
   workspace?: string;
   query: string;
 }>();
+const existingRules = ref<InstanceType<typeof AgentInstructionSources> | null>(null);
 const wsl = useAgentWslStore();
+const configurations = useAgentConfigurationSourcesStore();
 const targetEnvironment = ref("");
+watch(() => wsl.supported, (supported) => {
+  if (supported === false) targetEnvironment.value = "";
+});
 const targetScope = computed<AgentRuntimeScope>(() =>
   targetEnvironment.value
     ? { kind: "wsl", distro_id: targetEnvironment.value }
@@ -47,7 +55,8 @@ const saving = ref(false);
 const deleting = ref("");
 const draft = ref<AgentInstructionSet | null>(null);
 const draftOpen = ref(false);
-const section = ref<"common" | AgentCliKind>("common");
+const draftError = ref("");
+const savedTemplate = ref<AgentInstructionSet | null>(null);
 const targetSet = ref<AgentInstructionSet | null>(null);
 const targetKind = ref<AgentCliKind | null>(null);
 const targets = ref<AgentConfigurationSource[]>([]);
@@ -59,9 +68,10 @@ let revision = 0;
 let targetRevision = 0;
 let draftRevision = 0;
 let disposed = false;
+let targetController: AbortController | null = null;
 const visibleSets = computed(() =>
   sets.value.filter((set) =>
-    `${set.name}\n${set.common}`
+    [set.name, set.common, ...Object.values(set.additions)].join("\n")
       .toLocaleLowerCase()
       .includes(props.query.trim().toLocaleLowerCase()),
   ),
@@ -69,56 +79,56 @@ const visibleSets = computed(() =>
 const original = computed(() =>
   sets.value.find((set) => set.id === draft.value?.id),
 );
-const originalText = computed(() =>
-  section.value === "common"
-    ? (original.value?.common ?? "")
-    : (original.value?.additions[section.value] ?? ""),
-);
-const text = computed({
-  get: () =>
-    !draft.value
-      ? ""
-      : section.value === "common"
-        ? draft.value.common
-        : (draft.value.additions[section.value] ?? ""),
-  set: (value: string) => {
-    if (!draft.value) return;
-    if (section.value === "common") draft.value.common = value;
-    else draft.value.additions[section.value] = value;
-  },
-});
 const source = computed(() =>
   targets.value.find((source) => source.sourceId === selectedSource.value),
 );
 const writable = computed(() =>
+  source.value?.access.kind === "ready" &&
   source.value?.actions.some(
     (action) =>
       (action.action === "edit" || action.action === "create") &&
       action.available,
   ),
 );
-function failure(value: unknown) {
-  return agentConfigurationErrorMessage(value, "操作失败，请重试");
+function failure(value: unknown, fallback = "操作失败，请重试") {
+  return agentConfigurationErrorMessage(value, fallback);
 }
-async function refresh() {
+function summary(set: AgentInstructionSet) {
+  return set.common.trim().split(/\r?\n/).filter(Boolean).slice(0, 2)
+    .map((line) => line.replace(/^#{1,6}\s+/, "")).join(" ")
+    || (Object.values(set.additions).some((value) => value?.trim())
+      ? "已填写 Agent 专用补充，通用规则留空。"
+      : "还没有规则内容，编辑后可应用到 Agent。");
+}
+function additions(set: AgentInstructionSet) {
+  return props.agents.filter((agent) => set.additions[agent.kind]?.trim());
+}
+async function refreshTemplates() {
   const current = ++revision;
   loading.value = true;
   error.value = "";
+  savedTemplate.value = null;
   try {
     const result = await withTimeout(
       listAgentInstructionSets(),
       16_000,
-      "读取共享指令超时",
+      "读取规则模板超时",
     );
     if (!disposed && current === revision) sets.value = result;
   } catch (e) {
-    if (!disposed && current === revision) error.value = failure(e);
+    if (!disposed && current === revision)
+      error.value = failure(e, "规则模板读取失败，请刷新重试");
   } finally {
     if (current === revision) loading.value = false;
   }
 }
+function refresh() {
+  return Promise.allSettled([refreshTemplates(), existingRules.value?.refresh()]);
+}
 function edit(set?: AgentInstructionSet) {
   if (draft.value) {
+    if (set && draft.value.id !== set.id)
+      Message.info("请先保存或放弃当前规则草稿，再编辑其他规则");
     draftOpen.value = true;
     return;
   }
@@ -126,15 +136,23 @@ function edit(set?: AgentInstructionSet) {
     ? { ...set, additions: { ...set.additions } }
     : { id: "", revision: "", name: "", common: "", additions: {} };
   draftRevision += 1;
-  section.value = "common";
+  draftError.value = "";
+  savedTemplate.value = null;
   draftOpen.value = true;
+}
+function discardDraft() {
+  if (saving.value) return;
+  draftRevision += 1;
+  draft.value = null;
+  draftOpen.value = false;
+  draftError.value = "";
 }
 async function save() {
   if (!draft.value || saving.value) return;
   const input = { ...draft.value, additions: { ...draft.value.additions } };
   const current = draftRevision;
   saving.value = true;
-  error.value = "";
+  draftError.value = "";
   try {
     const result = await withTimeout(
       saveAgentInstructionSet({
@@ -151,13 +169,15 @@ async function save() {
     revision += 1;
     loading.value = false;
     sets.value = [...sets.value.filter((set) => set.id !== result.id), result];
+    savedTemplate.value = result;
     if (current === draftRevision) {
       draft.value = null;
       draftOpen.value = false;
     }
-    Message.success("指令方案已保存到共享库");
+    Message.success("规则模板已保存，应用到 Agent 后才会写入规则文件");
   } catch (e) {
-    if (!disposed) error.value = failure(e);
+    if (!disposed)
+      draftError.value = failure(e, "规则模板保存未确认，草稿已保留，请刷新后核对");
   } finally {
     saving.value = false;
   }
@@ -175,6 +195,8 @@ async function removeSet(set: AgentInstructionSet) {
       revision += 1;
       loading.value = false;
       sets.value = sets.value.filter((item) => item.id !== set.id);
+      if (savedTemplate.value?.id === set.id) savedTemplate.value = null;
+      Message.success("规则模板已删除，Agent 文件中的内容保留");
     }
   } catch (e) {
     if (!disposed) error.value = failure(e);
@@ -184,6 +206,8 @@ async function removeSet(set: AgentInstructionSet) {
 }
 function closeTargets() {
   targetRevision += 1;
+  targetController?.abort();
+  targetController = null;
   targetSet.value = null;
   targetKind.value = null;
   targets.value = [];
@@ -192,7 +216,11 @@ function closeTargets() {
 }
 async function loadTargets() {
   const kind = targetKind.value;
+  const scope = targetScope.value;
+  const workspace = targetWorkspace.value;
   const current = ++targetRevision;
+  targetController?.abort();
+  targetController = null;
   targets.value = [];
   selectedSource.value = "";
   targetError.value = "";
@@ -200,16 +228,15 @@ async function loadTargets() {
     targetLoading.value = false;
     return;
   }
+  const controller = new AbortController();
+  targetController = controller;
   targetLoading.value = true;
   try {
-    const result = await withTimeout(
-      listAgentInstructionTargets(
-        kind,
-        targetWorkspace.value,
-        targetScope.value,
-      ),
-      16_000,
-      "读取指令文件超时",
+    const result = await configurations.forRuntime(scope).transaction(
+      kind,
+      () => withTimeout(listAgentInstructionTargets(kind, workspace, scope), 16_000, "读取规则文件超时"),
+      20_000,
+      controller.signal,
     );
     if (disposed || current !== targetRevision) return;
     targets.value = result;
@@ -226,8 +253,10 @@ async function loadTargets() {
       result[0]?.sourceId ??
       "";
   } catch (e) {
-    if (!disposed && current === targetRevision) targetError.value = failure(e);
+    if (!disposed && current === targetRevision)
+      targetError.value = failure(e, "规则文件读取失败，请重新读取");
   } finally {
+    if (targetController === controller) targetController = null;
     if (current === targetRevision) targetLoading.value = false;
   }
 }
@@ -237,8 +266,14 @@ watch([targetKind, targetEnvironment], () => {
 watch(() => props.workspace, closeTargets);
 function configure(set: AgentInstructionSet) {
   void wsl.ensure();
+  savedTemplate.value = null;
   targetSet.value = set;
   targetKind.value = props.agents[0]?.kind ?? null;
+}
+function editTarget() {
+  const set = targetSet.value;
+  closeTargets();
+  if (set) edit(set);
 }
 function preview(remove = false) {
   const set = targetSet.value;
@@ -249,12 +284,12 @@ function preview(remove = false) {
   void editor.open(
     async (isCurrent, publish) => {
       const snapshot = await publish(selected.workspace);
-      if (!isCurrent()) throw new Error("指令读取已取消");
+      if (!isCurrent()) throw new Error("规则读取已取消");
       const fresh = snapshot.sources.find(
         (item) => item.sourceId === selected.sourceId,
       );
       if (!fresh || fresh.access.kind !== "ready")
-        throw new Error("指令文件已变化，请重新选择");
+        throw new Error("规则文件已变化，请重新选择");
       return beginAgentInstructionEdit(
         set.id,
         set.revision,
@@ -272,294 +307,146 @@ function preview(remove = false) {
       agentKind: selected.agentKind,
       workspace: selected.workspace,
       runtimeScope: selected.runtimeScope,
-      label: remove ? "移除共享指令" : `配置指令 · ${set.name}`,
+      label: remove ? "移除文件中的共享规则" : `应用规则 · ${set.name}`,
     },
     `instructions:${set.id}:${selected.sourceId}:${remove}`,
   );
 }
 onScopeDispose(() => {
   disposed = true;
+  targetController?.abort();
+  targetController = null;
   revision += 1;
   targetRevision += 1;
 });
-void refresh();
+void refreshTemplates();
 defineExpose({ refresh });
 </script>
 
 <template>
-  <section class="agent-instructions-panel">
-    <header class="agent-section-toolbar">
-      <div>
-        <strong>共享指令</strong>
-        <p>统一公共规则，为各 Agent 保留补充内容。</p>
-      </div>
-      <div class="instruction-actions">
-        <a-button size="small" :loading="loading" @click="refresh"
-          ><template #icon><RefreshCw :size="14" /></template>刷新</a-button
-        ><a-button type="primary" size="small" @click="edit()"
-          ><template #icon><Plus :size="14" /></template>新建方案</a-button
-        >
-      </div>
-    </header>
-    <p v-if="error" class="agent-workspace-error" role="alert">{{ error }}</p>
-    <div v-if="!visibleSets.length" class="agent-workspace-empty">
-      {{
-        loading
-          ? "正在读取共享指令…"
-          : query
-            ? "没有匹配的指令方案"
-            : "还没有指令方案。新建后可分别配置到各 Agent。"
-      }}
-    </div>
-    <article
-      v-for="set in visibleSets"
-      :key="set.id"
-      class="instruction-scheme"
-    >
-      <div>
-        <h3>{{ set.name }}</h3>
-        <p>
-          {{ set.common.trim().split("\n")[0] || "使用各 Agent 的补充正文" }}
-        </p>
-        <small
-          >{{
-            Object.values(set.additions).filter((value) => value?.trim()).length
-          }}
-          个 Agent 有补充内容</small
-        >
-      </div>
-      <div class="instruction-actions">
-        <a-button size="small" @click="edit(set)">编辑</a-button
-        ><a-button size="small" type="primary" @click="configure(set)"
-          >配置到 Agent</a-button
-        ><a-popconfirm
-          content="删除共享方案？已写入 Agent 的指令会保留。"
-          @ok="removeSet(set)"
-          ><a-button
-            size="small"
-            type="text"
-            status="danger"
-            :loading="deleting === set.id"
-            >删除</a-button
-          ></a-popconfirm
-        >
-      </div>
-    </article>
-    <FileEditorModal :visible="draftOpen" fill @close="draftOpen = false">
-      <template #title>编辑共享指令</template>
-      <div v-if="draft" class="instruction-editor">
-        <a-input
-          v-model="draft.name"
-          aria-label="方案名称"
-          placeholder="方案名称"
-          :max-length="100"
-          :disabled="saving"
-        />
-        <div class="instruction-sections" role="group" aria-label="指令正文">
-          <a-button
-            size="small"
-            :type="section === 'common' ? 'primary' : 'text'"
-            @click="section = 'common'"
-            >公共正文</a-button
-          ><a-button
-            v-for="agent in agents"
-            :key="agent.kind"
-            size="small"
-            :type="section === agent.kind ? 'primary' : 'text'"
-            @click="section = agent.kind"
-            ><template #icon
-              ><AgentCliIcon :kind="agent.kind" :size="15" /></template
-            >{{ agent.label }}</a-button
-          >
+  <section class="agent-instructions-panel" aria-label="工作规则">
+    <AgentInstructionSources ref="existingRules" :active="active" :agents="agents" :workspace="workspace" :query="query" />
+    <section class="instruction-library" aria-labelledby="instruction-library-title" :aria-busy="loading || undefined">
+      <header class="instruction-library-header">
+        <div class="instruction-library-heading">
+          <h2 id="instruction-library-title">规则模板</h2>
+          <span v-if="sets.length || !loading" class="instruction-library-count">{{ visibleSets.length }} 份</span>
+          <a-popover trigger="click" position="bottom" title="保存与应用">
+            <a-button type="text" size="mini" shape="circle" class="instruction-help-button" aria-label="了解规则模板的保存与应用"><Info :size="14" /></a-button>
+            <template #content>
+              <div class="instruction-help-copy">
+                <p>模板保存在 BalanceHub 共享库，可随 WebDAV 同步。应用到 Agent 时，选择规则文件，预览差异并确认后才会写入。</p>
+                <p>修改模板后需重新应用；删除模板会保留已写入 Agent 的规则。</p>
+              </div>
+            </template>
+          </a-popover>
         </div>
-        <p>
-          {{
-            section === "common"
-              ? "公共正文会用于每个 Agent。"
-              : "这部分会追加在公共正文后。留空则只使用公共正文。"
-          }}
-        </p>
-        <ContentEditor
-          :key="section"
-          v-model="text"
-          :original-text="originalText"
-          format="markdown"
-          :readonly="saving"
-          label="指令正文"
-        />
-        <p v-if="error" class="agent-workspace-error" role="alert">
-          {{ error }}
-        </p>
-        <footer>
-          <a-button
-            :disabled="saving"
-            @click="
-              draft = null;
-              draftOpen = false;
-            "
-            >放弃草稿</a-button
-          ><a-button @click="draftOpen = false">保留草稿并关闭</a-button
-          ><a-button
-            type="primary"
-            :loading="saving"
-            :disabled="!draft.name.trim()"
-            @click="save"
-            >保存到共享库</a-button
-          >
-        </footer>
+        <div class="instruction-actions">
+          <a-button type="text" size="small" :loading="loading" @click="refreshTemplates"><template #icon><RefreshCw :size="14" /></template>刷新</a-button>
+          <a-button type="primary" size="small" @click="edit()"><template #icon><Plus :size="14" /></template>{{ draft ? '继续编辑草稿' : '新建模板' }}</a-button>
+        </div>
+      </header>
+      <div v-if="savedTemplate" class="instruction-notice" role="status">
+        <div><strong>「{{ savedTemplate.name }}」模板已保存</strong><p>选择 Agent，预览并应用这份规则。</p></div>
+        <a-button size="small" type="primary" @click="configure(savedTemplate)">应用到 Agent</a-button>
       </div>
-    </FileEditorModal>
-    <a-modal
-      :visible="Boolean(targetSet)"
-      title="配置共享指令"
-      :footer="false"
-      closable
-      mask-closable
-      esc-to-close
-      @cancel="closeTargets"
-    >
-      <div class="instruction-target">
-        <a-select
-          v-if="wsl.inventory?.distributions.length"
-          v-model="targetEnvironment"
-          aria-label="目标运行环境"
-          ><a-option value="">本机</a-option
-          ><a-option
-            v-for="distro in wsl.inventory.distributions"
-            :key="distro.id"
-            :value="distro.id"
-            :disabled="!distro.running || Boolean(distro.error)"
-            >WSL · {{ distro.name
-            }}{{ distro.running ? "" : "（已停止）" }}</a-option
-          ></a-select
-        ><a-select
-          :model-value="targetKind ?? undefined"
-          @change="(value) => (targetKind = value as AgentCliKind)"
-          aria-label="目标 Agent"
-          ><a-option
-            v-for="agent in agents"
-            :key="agent.kind"
-            :value="agent.kind"
-            >{{ agent.label }}</a-option
-          ></a-select
-        ><a-select
-          v-model="selectedSource"
-          :loading="targetLoading"
-          aria-label="原生指令文件"
-          placeholder="选择原生指令文件"
-          ><a-option
-            v-for="item in targets"
-            :key="item.sourceId"
-            :value="item.sourceId"
-            >{{ item.label }} · {{ item.path }}</a-option
-          ></a-select
-        >
-        <p v-if="source" class="instruction-path">{{ source.path }}</p>
-        <p v-if="source">{{ source.effect.message }}</p>
-        <p v-if="targetError" class="agent-workspace-error" role="alert">
-          {{ targetError }}
-        </p>
-        <p v-else-if="!targetLoading && !targets.length">
-          当前 Agent 没有可识别的指令文件。
-        </p>
-        <p v-else-if="source && !writable">
-          {{
-            source.actions.find(
-              (action) =>
-                action.action === "edit" || action.action === "create",
-            )?.reason || "此文件当前不能写入。"
-          }}
-        </p>
-        <footer>
-          <a-button
-            :disabled="!writable || targetLoading"
-            @click="preview(true)"
-            >移除共享区块…</a-button
-          ><a-button
-            type="primary"
-            :disabled="!writable || targetLoading"
-            @click="preview()"
-            >预览配置…</a-button
-          >
-        </footer>
+      <div v-if="draft && !draftOpen" class="instruction-notice" role="status">
+        <div>
+          <strong>{{ saving ? '正在保存模板' : '已保留草稿' }} · {{ draft.name || '新规则' }}</strong>
+          <p v-if="draftError" class="agent-workspace-error" role="alert">{{ draftError }}</p>
+          <p v-else>{{ saving ? '保存会在后台完成，结果显示在此处。' : '退出 App 前请保存草稿。' }}</p>
+        </div>
+        <a-button size="small" @click="draftOpen = true">继续编辑</a-button>
       </div>
-    </a-modal>
+      <p v-if="error" class="instruction-library-error agent-workspace-error" role="alert">{{ error }}</p>
+      <div v-if="loading && !sets.length" class="instruction-empty" role="status">正在读取规则模板…</div>
+      <div v-else-if="!error && !visibleSets.length" class="instruction-empty" role="status">
+        <BookOpen :size="22" aria-hidden="true" />
+        <div>
+          <strong>{{ query.trim() ? '没有匹配的规则模板' : '还没有规则模板' }}</strong>
+          <p>{{ query.trim() ? '试试规则名称或内容中的关键词。' : '把常用约定保存下来，按需应用到多个 Agent。' }}</p>
+        </div>
+      </div>
+      <article v-for="set in visibleSets" :key="set.id" class="instruction-scheme">
+        <div class="instruction-scheme-content">
+          <h3>{{ set.name }}</h3>
+          <p class="instruction-scheme-preview">{{ summary(set) }}</p>
+          <div v-if="additions(set).length" class="instruction-addition-labels">
+            <span>专用补充</span>
+            <span v-for="agent in additions(set)" :key="agent.kind"><AgentCliIcon :kind="agent.kind" :size="14" />{{ agent.label }}</span>
+          </div>
+        </div>
+        <div class="instruction-actions">
+          <a-button size="small" :aria-label="`编辑模板 ${set.name}`" @click="edit(set)">编辑</a-button>
+          <a-button size="small" type="outline" @click="configure(set)">应用到 Agent</a-button>
+          <a-popconfirm content="删除这份规则模板？已写入 Agent 文件的规则会保留。" @ok="removeSet(set)">
+            <a-button size="small" type="text" status="danger" :aria-label="`删除模板 ${set.name}`" :loading="deleting === set.id">删除</a-button>
+          </a-popconfirm>
+        </div>
+      </article>
+    </section>
+    <AgentInstructionEditorModal
+      v-model:draft="draft"
+      :visible="draftOpen"
+      :original="original"
+      :agents="agents"
+      :saving="saving"
+      :error="draftError"
+      @close="draftOpen = false"
+      @discard="discardDraft"
+      @save="save"
+    />
+    <AgentInstructionTargetModal
+      :set="targetSet"
+      :agents="agents"
+      :distributions="wsl.supported === true ? wsl.inventory?.distributions : undefined"
+      v-model:environment="targetEnvironment"
+      v-model:agent-kind="targetKind"
+      :targets="targets"
+      :source="source"
+      :loading="targetLoading"
+      :error="targetError"
+      :writable="Boolean(writable)"
+      @update:source-id="selectedSource = $event"
+      @preview="preview"
+      @edit="editTarget"
+      @retry="loadTargets"
+      @close="closeTargets"
+    />
     <AgentConfigurationEditorModal :model="editor" />
   </section>
 </template>
 
 <style scoped>
-.agent-instructions-panel {
-  padding: 16px;
-  min-width: 0;
-}
-.agent-section-toolbar p,
-.instruction-editor > p,
-.instruction-target > p {
-  color: var(--color-text-3);
-  margin: 6px 0;
-  font-size: 12px;
-}
-.instruction-actions,
-.instruction-sections,
-footer {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.instruction-scheme {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 18px 0;
-  border-bottom: 1px solid var(--color-border-2);
-}
-.instruction-scheme > div:first-child {
-  min-width: 0;
-  flex: 1 1 220px;
-}
-.instruction-scheme h3 {
-  margin: 0 0 6px;
-  font-size: 14px;
-  color: var(--color-text-1);
-}
-.instruction-scheme p {
-  color: var(--color-text-2);
-  margin: 0 0 6px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.instruction-scheme small {
-  color: var(--color-text-3);
-}
-.instruction-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-  padding: 16px;
-}
-.instruction-editor :deep(.content-editor) {
-  flex: 1;
-  min-height: 240px;
-}
-.instruction-editor footer,
-.instruction-target footer {
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-.instruction-target {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px 0;
-}
-.instruction-path {
-  overflow-wrap: anywhere;
+.agent-instructions-panel { display: flex; width: 100%; max-width: 1120px; min-width: 0; flex: 0 0 auto; flex-direction: column; gap: 18px; margin: 0 auto; padding: 6px 0 16px; color: var(--surface-ink); container: agent-instructions / inline-size; }
+.instruction-library { min-width: 0; border: 1px solid var(--surface-line); border-radius: 12px; background: var(--surface-panel); }
+.instruction-library-header { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; }
+.instruction-library-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.instruction-library-heading h2 { margin: 0; color: var(--surface-ink); font-size: 15px; font-weight: 650; }
+.instruction-library-count { color: var(--surface-ink-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.instruction-help-button { color: var(--surface-ink-soft); }
+.instruction-help-copy { max-width: min(320px, calc(100vw - 72px)); color: var(--surface-ink-soft); font-size: 12px; line-height: 1.75; overflow-wrap: anywhere; }
+.instruction-help-copy p { margin: 0; }
+.instruction-help-copy p + p { margin-top: 8px; }
+.instruction-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.instruction-scheme { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 24px; border-top: 1px solid var(--surface-line); padding: 16px 18px; }
+.instruction-scheme-content { min-width: 0; }
+.instruction-scheme h3 { margin: 0 0 4px; color: var(--surface-ink); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.instruction-scheme-preview { display: -webkit-box; overflow: hidden; margin: 0; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--surface-ink-soft); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.instruction-addition-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; color: var(--surface-ink-soft); font-size: 12px; }
+.instruction-addition-labels > span { display: inline-flex; align-items: center; gap: 5px; }
+.instruction-notice { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin: 0 18px 14px; border-left: 3px solid var(--surface-accent); border-radius: 5px; padding: 10px 12px; background: var(--surface-accent-soft); }
+.instruction-notice > div { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.instruction-notice strong { font-size: 13px; font-weight: 600; }
+.instruction-notice p { margin: 5px 0 0; color: var(--surface-ink-soft); font-size: 12px; }
+.instruction-library-error { margin: 0 18px 14px; }
+.instruction-empty { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--surface-line); padding: 20px 18px; color: var(--surface-ink-soft); font-size: 12px; }
+.instruction-empty > svg { flex: 0 0 auto; }
+.instruction-empty strong { color: var(--surface-ink); font-size: 13px; font-weight: 500; }
+.instruction-empty p { margin: 4px 0 0; line-height: 1.7; }
+@container agent-instructions (max-width: 640px) {
+  .instruction-library-header, .instruction-scheme, .instruction-empty { padding-right: 14px; padding-left: 14px; }
+  .instruction-scheme { grid-template-columns: minmax(0, 1fr); }
+  .instruction-notice, .instruction-library-error { margin-right: 14px; margin-left: 14px; }
 }
 </style>

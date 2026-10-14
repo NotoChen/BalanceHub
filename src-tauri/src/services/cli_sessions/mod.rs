@@ -3,6 +3,7 @@ mod io;
 mod metadata;
 pub(crate) mod presentation;
 mod record_stream;
+pub(crate) mod relocation;
 pub(crate) mod resume;
 mod search;
 pub(crate) mod source;

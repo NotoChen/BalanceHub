@@ -27,7 +27,17 @@ pub(super) fn compose(
         let desired = config_document::parse(replacement, format).ok_or("原生变更不是有效配置")?;
         let mut changes = Vec::new();
         diff(Some(&base), Some(&desired), &[], &mut changes);
-        for change in changes {
+        for mut change in changes {
+            if let Some(existing) = deltas.get(&change.path) {
+                if existing.after != change.after && is_set_field(&change.path) {
+                    change.after = Some(merge_sets(
+                        &existing.before,
+                        &existing.after,
+                        &change.after,
+                    )?);
+                    deltas.remove(&change.path);
+                }
+            }
             for existing in deltas.values() {
                 if change.path == existing.path {
                     if change.after != existing.after {
@@ -68,6 +78,52 @@ pub(super) fn compose(
         return Err("合并配置验证失败".to_owned());
     }
     Ok(bytes)
+}
+
+fn is_set_field(path: &[String]) -> bool {
+    matches!(
+        path.last().map(String::as_str),
+        Some("disabledMcpServers" | "disabledMcpjsonServers" | "enabledMcpjsonServers")
+    ) || path.ends_with(&["skills".to_owned(), "disabled".to_owned()])
+}
+fn merge_sets(
+    before: &Option<Value>,
+    left: &Option<Value>,
+    right: &Option<Value>,
+) -> Result<Value, String> {
+    fn values(value: &Option<Value>) -> Result<Vec<String>, String> {
+        match value {
+            None => Ok(Vec::new()),
+            Some(Value::Array(values)) => values
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| "集合字段包含非文字值".to_owned())
+                })
+                .collect(),
+            _ => Err("集合字段类型不一致".to_owned()),
+        }
+    }
+    let before = values(before)?;
+    let left = values(left)?;
+    let right = values(right)?;
+    let mut merged = before
+        .iter()
+        .filter(|value| left.contains(value) && right.contains(value))
+        .cloned()
+        .collect::<Vec<_>>();
+    for value in left
+        .iter()
+        .chain(&right)
+        .filter(|value| !before.contains(value))
+    {
+        if !merged.contains(value) {
+            merged.push(value.clone());
+        }
+    }
+    Ok(serde_json::json!(merged))
 }
 
 fn diff(before: Option<&Value>, after: Option<&Value>, path: &[String], changes: &mut Vec<Delta>) {

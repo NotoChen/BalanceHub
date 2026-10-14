@@ -63,6 +63,7 @@ impl ResumeAdmissionFixture {
             metadata_source: "synthetic-fixture".into(),
         };
         let row = AgentSessionRow {
+            project_relocation_available: false,
             runtime_scope: Default::default(),
             runtime_label: "本机".into(),
             resume_cli: None,

@@ -341,6 +341,10 @@ impl ConfigurationService {
             }
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _history = crate::services::agent_cli::config_support::native_history::scope(
+                id,
+                "编辑 Agent 配置",
+            );
             self.execute(&cell, &mut plan, &emit)
         }))
         .unwrap_or_else(|_| Err(internal()));

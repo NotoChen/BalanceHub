@@ -4,7 +4,7 @@ import { listAgentConfigurationSources } from "../api/agent-configuration";
 import { createAgentPublicationCache, type AgentPublicationLoader } from "../utils/agent-publication-cache";
 import { agentConfigurationErrorMessage } from "../utils/agent-configuration-display";
 import type { AgentConfigurationSnapshot } from "./agent-configuration-types";
-import type { AgentRuntimeScope } from "./provider-types";
+import type { AgentCliKind, AgentRuntimeScope } from "./provider-types";
 
 export type AgentConfigurationPublisher = AgentPublicationLoader<AgentConfigurationSnapshot>;
 
@@ -22,6 +22,9 @@ export const useAgentConfigurationSourcesStore = defineStore("agent-configuratio
     return value;
   }
   const cache = forRuntime();
+  function invalidateAllRuntimes(kind: AgentCliKind) {
+    for (const entry of caches.values()) entry.invalidate(kind);
+  }
   onScopeDispose(() => { for (const entry of caches.values()) entry.dispose(); caches.clear(); });
-  return { ...cache, forRuntime };
+  return { ...cache, forRuntime, invalidateAllRuntimes };
 });

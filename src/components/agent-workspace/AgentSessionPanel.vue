@@ -27,6 +27,7 @@ import type { SessionListPosition } from "../../stores/session-reader-types";
 import { agentSessionSourceLabels } from "../../utils/agent-session-display";
 import AgentSessionList from "./AgentSessionList.vue";
 import AgentSessionResumeModal from "./AgentSessionResumeModal.vue";
+import AgentSessionRelocationModal from './AgentSessionRelocationModal.vue';
 import AgentWorkspaceIcon from "./AgentWorkspaceIcon.vue";
 import AgentRuntimeList from "../AgentRuntimeList.vue";
 import SessionReader from "./SessionReader.vue";
@@ -67,6 +68,9 @@ const history = reactive(
   }),
 );
 const resumeRow = ref<AgentSessionRow | null>(null);
+const relocationRow = ref<AgentSessionRow | null>(null);
+const relocationRevision = ref('');
+function openRelocation(row: AgentSessionRow) { if (!history.scope) return; relocationRevision.value = history.scope.revision; relocationRow.value = row; }
 const listPosition = shallowRef<SessionListPosition | null>(null);
 const listPositionKey = computed(() =>
   JSON.stringify([
@@ -144,6 +148,7 @@ watch(
     ] as const,
   () => {
     resumeRow.value = null;
+    relocationRow.value = null;
   },
   { flush: "sync" },
 );
@@ -329,12 +334,14 @@ defineExpose({ refresh });
           :rows="history.rows"
           :agents="cliRuntime.agents"
           allow-resume
+          allow-relocation
           :resume-busy="tasks.isReserved"
           :runtime-sessions="runtimeSnapshot.sessions"
           :activating-id="activatingId"
           @detail="history.openDetail($event.sessionRef)"
           @parent="history.openDetail"
           @resume="openResume"
+          @relocate="openRelocation"
           @activate="emit('activateRuntime', $event)"
           @position="listPosition = $event"
         />
@@ -415,6 +422,7 @@ defineExpose({ refresh });
       >
     </p>
 
+    <AgentSessionRelocationModal :visible="Boolean(relocationRow)" :row="relocationRow" :scope-revision="relocationRevision" @close="relocationRow = null" />
     <AgentSessionResumeModal
       :visible="Boolean(resumeRow)"
       :row="resumeRow"

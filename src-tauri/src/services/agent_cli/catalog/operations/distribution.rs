@@ -247,7 +247,7 @@ impl PreparedDistribution {
                     let target = destination.join(relative);
                     writes.push(DistributionWrite {
                         file: package::capture_file(&root, &target, package::MAX_FILE_BYTES)?,
-                        bytes: file.bytes.clone(),
+                        bytes: file.bytes.to_vec(),
                         executable: Some(file.executable),
                     });
                 }
@@ -418,6 +418,25 @@ impl PreparedDistribution {
         Self::compose(targets).map(|_| ())
     }
 
+    pub(super) fn batch_writes(
+        targets: &[(usize, Self)],
+    ) -> Result<Vec<crate::services::agent_cli::maintenance::files::FileWrite>, String> {
+        Self::compose(targets).map(|writes| {
+            writes
+                .into_iter()
+                .map(
+                    |value| crate::services::agent_cli::maintenance::files::FileWrite {
+                        id: value.write.file.pathname_domain(),
+                        source: value.write.file,
+                        after: Some(value.write.bytes),
+                        executable: value.write.executable,
+                        mode: None,
+                    },
+                )
+                .collect()
+        })
+    }
+
     fn compose(targets: &[(usize, Self)]) -> Result<Vec<ComposedDistributionWrite>, String> {
         let mut groups = BTreeMap::<String, Vec<(&Self, &DistributionWrite)>>::new();
         for (_, target) in targets {
@@ -495,6 +514,12 @@ impl PreparedDistribution {
             if current.bytes() != write.file.bytes() {
                 return Err("提交前目标被外部修改；已完成目标不会回滚".to_owned());
             }
+            if write.executable.is_some() {
+                crate::services::agent_cli::config_support::native_history::record_file(
+                    &current,
+                    Some(&write.bytes),
+                )?;
+            }
             let outcome = atomic::replace(&current, &write.bytes, &before_commit)
                 .map_err(|_| "原生文件写入失败；已完成目标不会回滚")?;
             #[cfg(unix)]
@@ -503,6 +528,7 @@ impl PreparedDistribution {
             }
             #[cfg(not(unix))]
             let _ = outcome;
+            #[cfg(unix)]
             if let Some(executable) = write.executable {
                 set_executable(root, write.file.path(), executable, &before_commit)?;
             }
@@ -604,15 +630,6 @@ fn set_executable(
             .map_err(|_| "资源权限已写入但同步失败")?;
     }
     Ok(())
-}
-#[cfg(not(unix))]
-fn set_executable(
-    _root: &Path,
-    _path: &Path,
-    _executable: bool,
-    _before_commit: impl Fn() -> Result<(), AgentAssetMutationError>,
-) -> Result<(), String> {
-    Err("此平台尚未验证资源权限写入".to_owned())
 }
 
 fn distribution_changes(

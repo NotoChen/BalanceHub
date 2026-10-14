@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, toRef, watch } from "vue";
-import { RefreshCw } from "@lucide/vue";
+import { RefreshCw, History } from "@lucide/vue";
+import { useAgentMaintenanceStore } from "../../stores/agent-maintenance";
+import AgentHistoryDrawer from "./AgentHistoryDrawer.vue";
+import AgentMaintenancePlanModal from "./AgentMaintenancePlanModal.vue";
+import AgentMaintenanceOperation from "./AgentMaintenanceOperation.vue";
 import { Message } from "@arco-design/web-vue";
 import { useAgentDashboard } from "../../composables/useAgentDashboard";
 import { useCardDragSort } from "../../composables/useCardDragSort";
 import { agentWorkspacePages, type AgentWorkspacePage } from "../../stores/agent-workspace";
+import { useAgentWslStore } from "../../stores/agent-wsl";
 import type { AgentCatalogOperation } from "../../stores/agent-catalog-types";
 import type { AgentCliKind, AgentRuntimeSession, AgentRuntimeSnapshot, CliRuntimeSnapshot, Provider } from "../../stores/provider-types";
 import AgentOverviewCard from "./AgentOverviewCard.vue";
@@ -44,8 +49,18 @@ const sessionPanel = ref<InstanceType<typeof AgentSessionPanel> | null>(null);
 const instructionsPanel = ref<InstanceType<typeof AgentInstructionsPanel> | null>(null);
 const wslPanel = ref<InstanceType<typeof AgentWslPanel> | null>(null);
 const catalogPanel = ref<InstanceType<typeof AgentCatalogPanel> | null>(null);
+const historyVisible = ref(false);
+const maintenance = useAgentMaintenanceStore();
+void maintenance.recover();
 const content = ref<HTMLElement | null>(null);
 const model = reactive(useAgentDashboard({ active: toRef(props, "active"), cliRuntime: toRef(props, "cliRuntime"), runtime: toRef(props, "runtimeSnapshot") }));
+const wsl = useAgentWslStore();
+const visiblePages = computed(() => agentWorkspacePages.filter((page) => page.value !== "environments" || wsl.supported === true));
+watch([() => wsl.supported, () => model.navigation.page, () => model.navigation.sessionEnvironment?.kind, () => props.active], ([supported, page, environment, active]) => {
+  if (supported !== false) return;
+  if (active && page === "environments") model.navigation.openPage("overview");
+  if (environment === "wsl") model.navigation.sessionEnvironment = null;
+}, { immediate: true, flush: "sync" });
 const instructionsOpened = ref(model.navigation.page === "instructions");
 const environmentsOpened = ref(model.navigation.page === "environments");
 watch(() => model.navigation.page, (page) => { if (page === "instructions") instructionsOpened.value = true; if (page === "environments") environmentsOpened.value = true; });
@@ -156,8 +171,9 @@ defineExpose({ refresh });
 <template>
   <main class="agent-dashboard" aria-label="Agent 工作台">
     <header class="agent-dashboard-navigation">
-      <nav aria-label="Agent 管理分类"><button v-for="page in agentWorkspacePages" :key="page.value" type="button" :class="{ active: model.navigation.page === page.value }" :aria-current="model.navigation.page === page.value ? 'page' : undefined" @click="openPage(page.value)"><AgentWorkspaceIcon :page="page.value" /><span>{{ page.label }}</span></button></nav>
+      <nav aria-label="Agent 管理分类"><button v-for="page in visiblePages" :key="page.value" type="button" :class="{ active: model.navigation.page === page.value }" :aria-current="model.navigation.page === page.value ? 'page' : undefined" @click="openPage(page.value)"><AgentWorkspaceIcon :page="page.value" /><span>{{ page.label }}</span></button></nav>
       <div class="agent-workspace-context">
+        <a-button type="text" size="small" @click="historyVisible = true"><template #icon><History :size="16" /></template>配置历史</a-button>
         <a-select v-if="!['instructions', 'environments'].includes(model.navigation.page)" :model-value="model.navigation.agentFilter || ''" size="small" class="agent-workspace-agent-select" aria-label="筛选 Agent" @change="selectAgent">
           <a-option value="">全部 Agent</a-option><a-option v-for="agent in cliRuntime.agents" :key="agent.kind" :value="agent.kind"><span class="agent-workspace-agent-option"><AgentCliIcon :kind="agent.kind" :size="16" />{{ agent.label }}</span></a-option>
         </a-select>
@@ -184,16 +200,19 @@ defineExpose({ refresh });
       </template>
       <AgentHookPanel v-else-if="model.navigation.page === 'hook'" :catalog="model.catalog.catalog" :agents="cliRuntime.agents" :agent-filter="model.navigation.agentFilter" :query="model.navigation.query" :focused-asset-id="model.focusedHookId" :center="model.environment" :hooks="model.hooks" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @installation="openHookInstallation" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
       <AgentCatalogPanel v-else-if="!['sessions', 'instructions', 'environments'].includes(model.navigation.page)" ref="catalogPanel" :focused-asset-id="model.navigation.page === 'library' ? model.navigation.libraryAssetId : null" @edit="editLibraryDefinition" :catalog="model.catalog.catalog" :page="model.navigation.page" :query="model.navigation.query" :agent-filter="model.navigation.agentFilter" :agents="cliRuntime.agents" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
-      <AgentInstructionsPanel v-if="instructionsOpened" v-show="model.navigation.page === 'instructions'" ref="instructionsPanel" :agents="cliRuntime.agents" :workspace="model.navigation.workspacePath" :query="model.navigation.queries.instructions ?? ''" />
-      <AgentWslPanel v-if="environmentsOpened" v-show="model.navigation.page === 'environments'" ref="wslPanel" :active="active && model.navigation.page === 'environments'" :agents="cliRuntime.agents" :query="model.navigation.queries.environments ?? ''" />
+      <AgentInstructionsPanel v-if="instructionsOpened" v-show="model.navigation.page === 'instructions'" ref="instructionsPanel" :active="active && model.navigation.page === 'instructions'" :agents="cliRuntime.agents" :workspace="model.navigation.workspacePath" :query="model.navigation.queries.instructions ?? ''" />
+      <AgentWslPanel v-if="wsl.supported === true && environmentsOpened" v-show="model.navigation.page === 'environments'" ref="wslPanel" :active="active && model.navigation.page === 'environments'" :agents="cliRuntime.agents" :query="model.navigation.queries.environments ?? ''" />
       <AgentSessionPanel v-if="sessionOpened" v-show="model.navigation.page === 'sessions'" ref="sessionPanel" :active="active" :providers="providers" :installations="model.installations" :cli-runtime="cliRuntime" :runtime-snapshot="runtimeSnapshot" :runtime-sessions="model.runtimeSessions" :runtime-loading="runtimeLoading" :activating-id="activatingId" @refresh-runtime="emit('refreshRuntime')" @activate-runtime="emit('activateRuntime', $event)" />
     </div>
     <a-drawer :visible="Boolean(model.navigation.operationDetails)" width="min(820px, calc(100vw - 32px))" :footer="false" title="任务详情" class="agent-workspace-drawer" closable mask-closable esc-to-close unmount-on-close @cancel="model.navigation.closeOperation">
       <div v-if="model.navigation.operationDetails" class="agent-modal-body">
         <AgentAssetOperationList v-if="model.navigation.operationDetails.kind === 'native'" :operations="selectedNativeOperations" :asset-labels="operationAssetLabels" :busy="native.operationBusy" :error="native.operationRecoveryError" @cancel="native.cancelOperation" @verify="native.verifyOperation" @refresh="native.recoverOperations" />
+        <AgentMaintenanceOperation v-else-if="model.navigation.operationDetails.kind === 'maintenance'" :id="model.navigation.operationDetails.id" />
         <AgentOperationPanel v-else :selection="model.navigation.operationDetails" :selected-paths="model.installation.selectedPaths" :saving-path="model.installation.savingPath" :path-errors="model.installation.pathErrors" @use-path="model.installation.savePath" />
       </div>
     </a-drawer>
+    <AgentHistoryDrawer :visible="historyVisible" @close="historyVisible = false" />
+    <AgentMaintenancePlanModal />
     <AgentConfigurationEditorModal :model="model.configuration.editor">
       <template #file-actions="{ sourceId }"><AgentConfigurationFileActions :source="model.configuration.editorSource(sourceId)" :busy="model.configuration.opening[sourceId]" @action="(source, action) => model.configuration.action(source.sourceId, action, source)" /></template>
     </AgentConfigurationEditorModal>

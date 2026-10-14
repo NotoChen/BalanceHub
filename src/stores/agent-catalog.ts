@@ -238,7 +238,7 @@ export const useAgentCatalogStore = defineStore("agent-catalog", () => {
 
   return {
     catalogs, loading, loadErrors, stale, invalidate, check, ensureReady, starting, startErrors, startTimes, operationNames, relationTasks, nativeOperationIds, refresh, apply, commitRelation, ...tracking,
-    plan: (request: AgentCatalogPlanRequest, requestId: string) => withTimeout(planAgentCatalog(request, requestId), 15_000, "读取配置或生成预览超时，请重试"),
+    plan: (request: AgentCatalogPlanRequest, requestId: string) => withTimeout(planAgentCatalog(request, requestId), 45_000, "读取配置或生成预览超时，请重试"),
     definition: (id: string) => withTimeout(getAgentCatalogDefinition(id), 15_000, "读取共享定义超时"),
     save: (request: AgentCatalogSaveRequest) => withTimeout(saveAgentCatalogDefinition(request), 30_000, "保存共享定义超时"),
     deleteDefinition: (request: AgentCatalogDeleteRequest) => withTimeout(deleteAgentCatalogDefinition(request), 30_000, "删除结果尚未确认，请刷新共享库核对"),

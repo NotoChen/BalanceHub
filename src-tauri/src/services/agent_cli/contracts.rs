@@ -1695,7 +1695,32 @@ pub(crate) struct SessionHistoryAdapter {
     pub source: SessionHistorySourceResolver,
     pub scan: SessionHistoryScanner,
     pub index: SessionHistoryIndexReader,
+    pub relocation: Option<SessionProjectRelocationAdapter>,
 }
+
+#[derive(Clone)]
+pub(crate) struct SessionProjectRelocationPaths {
+    pub source: PathBuf,
+    pub destination: PathBuf,
+    pub from: String,
+    pub to: String,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionRelocationFileKind {
+    MainTranscript,
+    Transcript,
+    Document,
+    Copy,
+}
+#[derive(Clone, Copy)]
+pub(crate) struct SessionProjectRelocationAdapter {
+    pub paths: fn(&Path, &Path, &str, &str) -> Result<SessionProjectRelocationPaths, String>,
+    pub file_kind: fn(&Path) -> SessionRelocationFileKind,
+    pub transform: SessionRelocationTransform,
+}
+
+pub(crate) type SessionRelocationTransform =
+    fn(&Path, &[u8], &SessionProjectRelocationPaths, bool) -> Result<(Vec<u8>, bool), String>;
 
 pub(crate) type SessionMetadataLookup =
     for<'a> fn(

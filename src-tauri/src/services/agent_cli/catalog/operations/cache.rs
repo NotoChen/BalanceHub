@@ -31,7 +31,7 @@ pub(super) fn work_bytes(work: &[Work]) -> usize {
     })
 }
 
-fn native_bytes(prepared: &PreparedMutation) -> usize {
+pub(super) fn native_bytes(prepared: &PreparedMutation) -> usize {
     let files = prepared.files.iter().fold(0_usize, |total, file| {
         total.saturating_add(file.bytes().map_or(0, <[u8]>::len))
     });

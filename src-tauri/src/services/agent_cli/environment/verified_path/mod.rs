@@ -23,6 +23,7 @@ use windows::{DirectoryReader, PlatformAnchor, PlatformGuard};
 #[cfg(not(any(unix, windows)))]
 compile_error!("Agent asset paths support Unix and Windows desktop targets only");
 
+pub(crate) mod removal;
 pub(crate) mod remove_reference;
 
 const MAX_VERIFIED_COMPONENTS: usize = 256;
@@ -72,6 +73,7 @@ pub(crate) struct VerifiedPathAnchor {
 struct DirectoryLinkEvidence {
     identity: [u8; 32],
     target_text: PathBuf,
+    junction: bool,
 }
 
 #[derive(Debug, Clone)]

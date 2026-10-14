@@ -98,7 +98,7 @@ fn readonly_skill_links_close_all_33_catalog_bindings_and_shared_package_fingerp
             panic!("expected Skill package")
         };
         assert_eq!(files.len(), 2);
-        assert_eq!(files["scripts/run.py"].bytes, SCRIPT.as_bytes());
+        assert_eq!(files["scripts/run.py"].bytes.as_ref(), SCRIPT.as_bytes());
         if claude.native.native_id.starts_with("claude-alias-") {
             assert!(!source.writable);
             assert_eq!(

@@ -8,7 +8,7 @@ use std::{
     time::Instant,
 };
 
-const MAX_BYTES: usize = 64 * 1024 * 1024;
+const MAX_BYTES: usize = 128 * 1024 * 1024;
 const MAX_PACKAGES: usize = 256;
 
 struct Entry {
@@ -41,10 +41,15 @@ impl PackageCache {
                 return Ok(Arc::clone(&entry.snapshot));
             }
         }
-        if let Some(old) = self.entries.remove(&key) {
+        let old = self.entries.remove(&key);
+        if let Some(old) = &old {
             self.bytes -= old.bytes;
         }
-        let snapshot = Arc::new(package::read_package(root, allowed_root)?);
+        let snapshot = Arc::new(package::read_cached_package(
+            root,
+            allowed_root,
+            old.as_ref().map(|old| old.snapshot.as_ref()),
+        )?);
         let bytes = snapshot
             .files
             .values()

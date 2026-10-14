@@ -2,7 +2,6 @@ use super::super::{
     run::{MonotonicClock, SystemMonotonicClock},
     snapshot::now_string,
 };
-#[cfg(unix)]
 use super::atomic::AtomicWriteResult;
 use super::{
     atomic,
@@ -237,7 +236,15 @@ impl MutationService {
             }
             state.started = true;
         }
-        if catch_unwind(AssertUnwindSafe(|| self.run(&cell))).is_err() {
+        if catch_unwind(AssertUnwindSafe(|| {
+            let _history = crate::services::agent_cli::config_support::native_history::scope(
+                operation_id,
+                "更改资产状态",
+            );
+            self.run(&cell)
+        }))
+        .is_err()
+        {
             let committed = cell.state.lock().map_or(true, |state| state.committed);
             cell.complete(if committed {
                 AgentAssetOperationOutcome::OutcomeUnknown
@@ -307,9 +314,7 @@ impl MutationService {
                     prepared.revalidate()?;
                     cell.commit_boundary()
                 }) {
-                    #[cfg(unix)]
                     Ok(AtomicWriteResult::Unchanged) => ApplyEvidence::Noop,
-                    #[cfg(unix)]
                     Ok(AtomicWriteResult::Replaced) => ApplyEvidence::FileReplaced,
                     #[cfg(unix)]
                     Ok(AtomicWriteResult::ReplacedNotSynced) => {
@@ -331,6 +336,21 @@ impl MutationService {
                 }
             }
             MutationExecution::ExactCli(command) => {
+                // Native processes write outside our staged writer. Snapshot the
+                // verified read set while holding the same configuration locks.
+                for file in &prepared.files {
+                    if file.bytes().is_none() && file.verified_anchor().is_some() {
+                        continue;
+                    }
+                    if crate::services::agent_cli::config_support::native_history::record_file(
+                        file, None,
+                    )
+                    .is_err()
+                    {
+                        cell.complete(Outcome::UnchangedFailure);
+                        return;
+                    }
+                }
                 let (evidence, _) = command.run(
                     cell.plan.inspector.settings(),
                     || prepared.revalidate(),
@@ -531,9 +551,7 @@ impl OperationCell {
 
 #[derive(Clone, Copy)]
 pub(crate) enum ApplyEvidence {
-    #[cfg(unix)]
     Noop,
-    #[cfg(unix)]
     FileReplaced,
     #[cfg(unix)]
     FileReplacedNotSynced,
@@ -582,10 +600,9 @@ pub(crate) fn classify_outcome(
         return AppliedVerified;
     }
     match (apply, observation) {
+        (ApplyEvidence::FileReplaced, _) => AppliedUnverified,
         #[cfg(unix)]
-        (ApplyEvidence::FileReplaced | ApplyEvidence::FileReplacedNotSynced, _) => {
-            AppliedUnverified
-        }
+        (ApplyEvidence::FileReplacedNotSynced, _) => AppliedUnverified,
         (_, WriteObservation::Changed) => AppliedUnverified,
         (ApplyEvidence::KnownFailure, WriteObservation::Unchanged) => UnchangedFailure,
         _ => OutcomeUnknown,

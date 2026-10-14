@@ -1,3 +1,4 @@
+mod package_storage;
 mod persistence;
 
 use super::{
@@ -45,6 +46,8 @@ pub(super) struct Entry {
     /// local binding or discarding the historical receipt recovery material.
     #[serde(default)]
     pub shared_deleted: bool,
+    #[serde(default)]
+    pub origin: Option<AgentSkillOrigin>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -82,6 +85,7 @@ impl Entry {
             versions: Vec::new(),
             receipts: BTreeMap::new(),
             shared_deleted: false,
+            origin: None,
         }
     }
     pub fn current(&self) -> Option<&StoredDefinition> {
@@ -205,7 +209,7 @@ impl Repository {
         let _lock = self.lock.lock().map_err(|_| "共享库访问失败")?;
         let guard =
             package::capture_file(&self.root, &self.root.join("library.json"), LIBRARY_LIMIT)?;
-        let library = Self::decode(&guard)?;
+        let library = self.decode(&guard)?;
         Ok(LibrarySnapshot { library, guard })
     }
 
@@ -245,7 +249,7 @@ impl Repository {
         *cache = None;
         let guard =
             package::capture_file(&self.root, &self.root.join("library.json"), LIBRARY_LIMIT)?;
-        let library = Self::decode(&guard)?;
+        let library = self.decode(&guard)?;
         let output = read(&library);
         if guard
             .bytes()
@@ -256,12 +260,16 @@ impl Repository {
         output
     }
 
-    fn decode(file: &GuardedFile) -> Result<Library, String> {
-        match file.bytes() {
-            Some(bytes) => serde_json::from_slice(bytes)
-                .map_err(|_| "共享库损坏，已保留原文件，未覆盖".to_owned()),
-            None => Ok(Library::default()),
-        }
+    fn decode(&self, file: &GuardedFile) -> Result<Library, String> {
+        package_storage::decode(&self.root, file.bytes())
+    }
+
+    pub(super) fn validate_capacity(&self, library: &Library) -> Result<(), String> {
+        self.snapshot_bytes(library).map(|_| ())
+    }
+
+    pub(super) fn snapshot_bytes(&self, library: &Library) -> Result<Vec<u8>, String> {
+        package_storage::encode(&self.root, library, false)
     }
 
     pub fn guarded_transact<T>(
@@ -326,16 +334,16 @@ impl Repository {
         if expected.is_some_and(|expected| expected.bytes() != file.bytes()) {
             return Err("共享库在提交前已变化，未覆盖当前内容".to_owned());
         }
-        let mut library = Self::decode(&file)?;
+        let mut library = self.decode(&file)?;
         let original = file.bytes().map(<[u8]>::to_vec);
-        let mut before = serde_json::to_vec(&library).map_err(|_| "共享库格式无效")?;
+        let mut before = file.bytes().unwrap_or_default().to_vec();
         let mut checkpoint = |library: &Library| -> Result<(), String> {
             file.revalidate()
                 .map_err(|_| "共享库在事务期间被外部修改")?;
             if library.entries.len() > MAX_LIBRARY_ENTRIES {
                 return Err("共享库超过 4096 项上限".to_owned());
             }
-            let after = serde_json::to_vec(library).map_err(|_| "共享库格式无效")?;
+            let after = package_storage::encode(&self.root, library, true)?;
             if after.len() > LIBRARY_LIMIT {
                 return Err("共享库超过 64 MiB，未保存此次变更".to_owned());
             }

@@ -1,6 +1,4 @@
 use super::super::package;
-#[cfg(unix)]
-use crate::services::agent_cli::environment::verified_path::reopen_verified_directory_identity;
 use crate::{
     models::*,
     services::agent_cli::environment::verified_path::{
@@ -116,77 +114,39 @@ impl SkillRemoval {
             return remove_skill_reference(reference, before_commit);
         }
         self.revalidate()?;
-        #[cfg(unix)]
+        let package = self.package.as_ref().ok_or("Skill 包未准备")?;
+        for anchor in package
+            .anchors
+            .iter()
+            .filter(|anchor| anchor.source_kind() == AgentAssetSourceKind::File)
         {
-            use rustix::fs::{unlinkat, AtFlags};
-            let package = self.package.as_ref().ok_or("Skill 包未准备")?;
-            // Delete only previewed members. Never recurse over a new directory
-            // listing; unexpected files make the final empty-directory removal fail.
-            for anchor in package
-                .anchors
-                .iter()
-                .filter(|anchor| anchor.source_kind() == AgentAssetSourceKind::File)
-            {
-                let file = reopen_verified_path(anchor).map_err(|_| "Skill 文件已变化")?;
-                let bytes = file
-                    .read_file_bounded(package::MAX_FILE_BYTES)
-                    .map_err(|_| "Skill 文件不可读取")?;
-                if !anchor.matches_bytes(&bytes) {
-                    return Err("Skill 内容已变化，请重新预览".to_owned());
-                }
-                file.revalidate().map_err(|_| "Skill 文件已变化")?;
-                let parent = file.parent_handle().ok_or("Skill 文件父目录不可用")?;
-                before_commit()?;
-                file.revalidate().map_err(|_| "Skill 文件在提交前已变化")?;
-                unlinkat(
-                    parent,
-                    anchor
-                        .display_path()
-                        .file_name()
-                        .ok_or("Skill 文件名无效")?,
-                    AtFlags::empty(),
-                )
-                .map_err(|_| "Skill 文件移除失败；已完成的移除不会回滚")?;
-                parent
-                    .sync_all()
-                    .map_err(|_| "Skill 文件已移除，但目录同步失败")?;
-            }
-            let mut directories = package
-                .anchors
-                .iter()
-                .filter(|anchor| anchor.source_kind() == AgentAssetSourceKind::Directory)
-                .collect::<Vec<_>>();
-            directories.sort_by_key(|anchor| {
-                std::cmp::Reverse(anchor.display_path().components().count())
-            });
-            for anchor in directories {
-                let directory = reopen_verified_directory_identity(anchor)
-                    .map_err(|_| "Skill 目录对象已变化")?;
-                let parent = directory.parent_handle().ok_or("Skill 父目录不可用")?;
-                before_commit()?;
-                directory
-                    .revalidate_identity()
-                    .map_err(|_| "Skill 目录在提交前已变化")?;
-                unlinkat(
-                    parent,
-                    anchor
-                        .display_path()
-                        .file_name()
-                        .ok_or("Skill 目录名无效")?,
-                    AtFlags::REMOVEDIR,
-                )
-                .map_err(|_| "Skill 目录无法移除，可能存在新文件；未删除未预览的内容")?;
-                parent
-                    .sync_all()
-                    .map_err(|_| "Skill 目录已移除，但同步失败")?;
-            }
-            Ok(())
+            let relative = anchor
+                .physical_path()
+                .strip_prefix(&self.path)
+                .map_err(|_| "Skill 文件越界")?;
+            let key = relative.to_string_lossy().replace('\\', "/");
+            let file = package.files.get(&key).ok_or("Skill 文件不在预览中")?;
+            crate::services::agent_cli::environment::verified_path::removal::remove(
+                anchor,
+                Some(&file.bytes),
+                &before_commit,
+            )?;
         }
-        #[cfg(not(unix))]
-        {
-            let _ = before_commit;
-            Err("当前平台尚未提供目录移除执行器".to_owned())
+        let mut directories = package
+            .anchors
+            .iter()
+            .filter(|anchor| anchor.source_kind() == AgentAssetSourceKind::Directory)
+            .collect::<Vec<_>>();
+        directories
+            .sort_by_key(|anchor| std::cmp::Reverse(anchor.display_path().components().count()));
+        for anchor in directories {
+            crate::services::agent_cli::environment::verified_path::removal::remove(
+                anchor,
+                None,
+                &before_commit,
+            )?;
         }
+        Ok(())
     }
 
     pub fn absent(&self) -> Result<bool, String> {

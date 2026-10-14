@@ -145,9 +145,76 @@ pub(super) struct PlatformAnchor {
 pub(super) struct PlatformGuard {
     nodes: Vec<PathNode>,
     allowed_root_index: usize,
+    path: PathBuf,
 }
 
 impl PlatformGuard {
+    pub(super) fn remove(
+        mut self,
+        path: &Path,
+        expected: Option<&[u8]>,
+        before_commit: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        use std::io::Read;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FileDispositionInfo, SetFileInformationByHandle, DELETE, FILE_DISPOSITION_INFO,
+        };
+        self.revalidate_identity().map_err(|_| "移除目标已变化")?;
+        let source = self.nodes.pop().ok_or("移除文件句柄无效")?;
+        let stamp = source.stamp;
+        // Keep every ancestor pinned. Reopen only the leaf with DELETE access,
+        // then compare the handle identity before allowing any side effect.
+        drop(source);
+        let mut file = OpenOptions::new()
+            .read(true)
+            .access_mode(FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | DELETE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .map_err(|error| format!("无法打开待移除文件：{error}"))?;
+        let current = ObjectStamp::read(&file).map_err(|_| "移除目标不可校验")?;
+        if !stamp.same_object(current) || (expected.is_some() && stamp != current) {
+            return Err("移除目标已被修改或替换，请重新预览".to_owned());
+        }
+        if let Some(expected) = expected {
+            let mut bytes = Vec::with_capacity(expected.len());
+            (&mut file)
+                .take(expected.len() as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "无法校验待移除内容")?;
+            if bytes != expected {
+                return Err("待移除内容已变化".to_owned());
+            }
+        }
+        before_commit()?;
+        for node in &self.nodes {
+            if !node
+                .stamp
+                .same_object(ObjectStamp::read(&node.handle).map_err(|_| "移除父目录已变化")?)
+            {
+                return Err("移除父目录已变化".to_owned());
+            }
+        }
+        if ObjectStamp::read(&file).map_err(|_| "移除目标已变化")? != current {
+            return Err("移除目标在提交前已变化".to_owned());
+        }
+        let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+        // The OS removes this exact handle and refuses nonempty directories.
+        if unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FileDispositionInfo,
+                (&disposition as *const FILE_DISPOSITION_INFO).cast(),
+                size_of::<FILE_DISPOSITION_INFO>() as u32,
+            )
+        } == 0
+        {
+            return Err(format!("移除失败：{}", io::Error::last_os_error()));
+        }
+        drop(file);
+        Ok(())
+    }
+
     pub(super) fn open(
         path: &Path,
         allowed_root: &Path,
@@ -175,6 +242,7 @@ impl PlatformGuard {
         Ok(Self {
             nodes,
             allowed_root_index,
+            path: path.to_path_buf(),
         })
     }
 
@@ -196,10 +264,53 @@ impl PlatformGuard {
 
     pub(super) fn read_directory_link(
         &self,
-        _entry_name: &OsStr,
+        entry_name: &OsStr,
     ) -> Result<DirectoryLinkEvidence, VerifiedPathError> {
-        // Reparse-point traversal has no validated native reference mechanism.
-        Err(VerifiedPathError::SymlinkRejected)
+        self.revalidate_identity()?;
+        let path = self.path.join(entry_name);
+        let file = open_without_delete_share(&path)?;
+        link_evidence(&file, &path)
+    }
+
+    pub(super) fn remove_link(
+        &self,
+        entry_name: &OsStr,
+        expected: &DirectoryLinkEvidence,
+        before_commit: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            FileDispositionInfo, SetFileInformationByHandle, DELETE, FILE_DISPOSITION_INFO,
+        };
+        self.revalidate_identity().map_err(|_| "链接父目录已变化")?;
+        let path = self.path.join(entry_name);
+        let file = OpenOptions::new()
+            .read(true)
+            .access_mode(FILE_READ_ATTRIBUTES | DELETE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&path)
+            .map_err(|error| format!("无法移除 Skill 链接：{error}"))?;
+        if &link_evidence(&file, &path).map_err(|_| "Skill 链接已变化")? != expected {
+            return Err("Skill 链接已变化，请重新预览".to_owned());
+        }
+        before_commit()?;
+        self.revalidate_identity().map_err(|_| "链接父目录已变化")?;
+        if &link_evidence(&file, &path).map_err(|_| "Skill 链接已变化")? != expected {
+            return Err("Skill 链接在提交前已变化".to_owned());
+        }
+        let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+        if unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FileDispositionInfo,
+                (&disposition as *const FILE_DISPOSITION_INFO).cast(),
+                size_of::<FILE_DISPOSITION_INFO>() as u32,
+            )
+        } == 0
+        {
+            return Err(format!("链接移除失败：{}", io::Error::last_os_error()));
+        }
+        Ok(())
     }
 
     pub(super) fn revalidate(&self) -> Result<(), VerifiedPathError> {
@@ -322,6 +433,46 @@ fn open_without_delete_share(path: &Path) -> io::Result<File> {
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
+}
+
+fn link_evidence(file: &File, path: &Path) -> Result<DirectoryLinkEvidence, VerifiedPathError> {
+    let before = legacy_information(file)?;
+    if before.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)
+        != (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)
+    {
+        return Err(VerifiedPathError::SymlinkRejected);
+    }
+    // read_link understands symbolic links and junctions; the reparse handle
+    // prevents replacement, while the parent chain remains pinned.
+    let target = std::fs::read_link(path)?;
+    let target_text = crate::platform::paths::compatible_path(&target).into_owned();
+    let after = legacy_information(file)?;
+    let stamp = |info: &BY_HANDLE_FILE_INFORMATION| {
+        [
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+            info.ftLastWriteTime.dwHighDateTime,
+            info.ftLastWriteTime.dwLowDateTime,
+            info.dwFileAttributes,
+        ]
+    };
+    if stamp(&before) != stamp(&after) {
+        return Err(VerifiedPathError::SourceChanged);
+    }
+    let mut hash = Sha256::new();
+    for part in stamp(&after) {
+        hash.update(part.to_le_bytes());
+    }
+    hash.update(target_text.as_os_str().as_encoded_bytes());
+    let tag = query_handle_information::<FILE_ATTRIBUTE_TAG_INFO>(file, FileAttributeTagInfo)?;
+    // IO_REPARSE_TAG_MOUNT_POINT identifies junctions, which do not require
+    // the symbolic-link privilege when restored on Windows.
+    Ok(DirectoryLinkEvidence {
+        identity: hash.finalize().into(),
+        target_text,
+        junction: tag.ReparseTag == 0xA0000003,
+    })
 }
 
 fn query_handle_information<T: Default>(handle: &File, class: i32) -> io::Result<T> {

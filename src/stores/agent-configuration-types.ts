@@ -6,6 +6,7 @@ import type {
 
 // Wire mirror of models/agent_configuration.rs. Rust owns capabilities and validation.
 export type AgentConfigurationFormat = "toml" | "json" | "jsonc" | "dotenv" | "markdown";
+export type AgentConfigurationContentState = "unknown" | "empty" | "nonEmpty";
 export type AgentConfigurationActionKind = "read" | "edit" | "create" | "open" | "reveal";
 export type AgentConfigurationEffectKind = "contributes" | "overridden" | "inactive" | "unknown";
 export type AgentConfigurationDiagnosticSeverity = "info" | "warning" | "error";
@@ -30,7 +31,8 @@ export interface AgentConfigurationSource {
   sourceId: string; contextId: string; environmentId: string; agentKind: AgentCliKind;
   runtimeScope: AgentRuntimeScope;
   workspace: string | null; nativeRole: string; scope: AgentAssetScope; profile: string | null;
-  label: string; path: string; format: AgentConfigurationFormat; revision: AgentAssetRevision;
+  label: string; path: string; format: AgentConfigurationFormat; contentState: AgentConfigurationContentState;
+  revision: AgentAssetRevision;
   access: AgentAssetAccess; actions: AgentConfigurationAction[]; effect: AgentConfigurationEffect;
   reloadHint: string; diagnostics: AgentConfigurationDiagnostic[];
 }

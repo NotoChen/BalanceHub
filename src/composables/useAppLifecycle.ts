@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted, watch, type Ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { hostPlatform } from "../api/app";
+import { useHostPlatform } from "./useHostPlatform";
 import type { AppSettings } from "../stores/providers";
 
 interface UseAppLifecycleOptions {
@@ -22,21 +22,13 @@ interface UseAppLifecycleOptions {
 }
 
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
+  const host = useHostPlatform();
   let providersChangedUnlisten: UnlistenFn | null = null;
   let disposed = false;
 
-  async function resolveHostPlatform() {
-    try {
-      return await hostPlatform();
-    } catch {
-      // Browser preview has no Tauri backend; keep the default macOS-aligned spacing.
-      return null;
-    }
-  }
-
   onMounted(async () => {
     disposed = false;
-    const platform = await resolveHostPlatform();
+    const platform = await host.ensure();
     if (disposed) return;
     if (platform) {
       document.documentElement.classList.remove(

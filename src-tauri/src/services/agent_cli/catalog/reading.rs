@@ -16,6 +16,17 @@ use std::{
 
 const MAX_PUBLICATIONS: usize = 8;
 
+fn read_timeout(lane: &str) -> Duration {
+    Duration::from_secs(match lane {
+        "batch-plan" => 80,
+        "batch-options" => 30,
+        "skill-update-plan" => 140,
+        "skill-update-check" => 60,
+        "content" | "plan" => 40,
+        _ => 12,
+    })
+}
+
 pub(crate) struct PublishedCatalog {
     pub(crate) catalog: AgentAssetCatalog,
     pub(crate) snapshot: Arc<MutationInventory>,
@@ -171,12 +182,43 @@ impl CatalogService {
             .await
             .map_err(|_| "资源读取任务失败".to_owned())?
         };
-        let result = tokio::time::timeout(Duration::from_secs(13), work)
-            .await
-            .map_err(|_| "读取资源超时，请重试".to_owned());
+        let result = tokio::select! {
+            _ = control.cancellation.notified() => Err("资源读取已取消".to_owned()),
+            result = tokio::time::timeout(read_timeout(lane) + Duration::from_secs(1), work) => result.map_err(|_| "读取资源超时，请重试".to_owned()),
+        };
         control.cancel();
         self.finish_read(actor, lane, id);
         result?
+    }
+
+    /// Dropping a canceled network future also drops its in-flight downloads.
+    pub(crate) async fn run_network_read<T, F, Fut>(
+        &self,
+        actor: &str,
+        lane: &'static str,
+        id: &str,
+        task: F,
+    ) -> Result<T, String>
+    where
+        F: FnOnce(ReadControl) -> Fut,
+        Fut: std::future::Future<Output = Result<T, String>>,
+    {
+        let control = self.begin_read(actor, lane, id)?;
+        let work = async {
+            let _permit = Arc::clone(&self.read_slots)
+                .acquire_owned()
+                .await
+                .map_err(|_| "资源读取服务已关闭")?;
+            control.check()?;
+            task(control.clone()).await
+        };
+        let result = tokio::select! {
+            _ = control.cancellation.notified() => Err("资源读取已取消".to_owned()),
+            result = tokio::time::timeout(read_timeout(lane) + Duration::from_secs(1), work) => result.unwrap_or_else(|_| Err("读取来源仓库超时".to_owned())),
+        };
+        control.cancel();
+        self.finish_read(actor, lane, id);
+        result
     }
 
     pub(crate) fn publish_read_snapshot(
@@ -296,7 +338,7 @@ impl CatalogService {
         let control = ReadControl {
             canceled: Arc::new(AtomicBool::new(false)),
             cancellation: Arc::new(tokio::sync::Notify::new()),
-            deadline: now + Duration::from_secs(12),
+            deadline: now + read_timeout(lane),
         };
         if let Some(previous) = state.active.insert(
             (actor.to_owned(), lane),

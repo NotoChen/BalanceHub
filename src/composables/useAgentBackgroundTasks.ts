@@ -4,6 +4,7 @@ import { useAgentLifecycleStore } from "../stores/agent-lifecycle";
 import { useAgentEnvironmentStore } from "../stores/agent-environment";
 import { useAgentSessionResumeStore } from "../stores/agent-session-resume";
 import { useAgentConfigurationStore } from "../stores/agent-configuration";
+import { useAgentMaintenanceStore } from "../stores/agent-maintenance";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import { useAgentWorkspaceStore } from "../stores/agent-workspace";
 import { agentAssetOperationOutcomeLabels, agentAssetOperationPhaseLabels } from "./useAgentAssetConsole";
@@ -24,10 +25,25 @@ export function useAgentBackgroundTasks() {
   const native = useAgentEnvironmentStore();
   const sessions = useAgentSessionResumeStore();
   const configuration = useAgentConfigurationStore();
+  const maintenance = useAgentMaintenanceStore();
   const cli = useCliRuntimeStore();
   const navigation = useAgentWorkspaceStore();
   return computed<BackgroundTask[]>(() => {
     const tasks: BackgroundTask[] = [];
+    for (const operation of Object.values(maintenance.operations)) {
+      const completed = operation.phase === "completed";
+      tasks.push({ id: `agent-maintenance-${operation.id}`, kind: "sync", title: operation.title,
+        detail: maintenance.errors[operation.id] || operation.message,
+        status: maintenance.errors[operation.id] ? "unconfirmed" : !completed ? "running" : operation.outcome === "succeeded" ? "success" : operation.outcome === "canceled" ? "cancelled" : "failed",
+        progress: operation.total ? operation.completed / operation.total : null, startedAt: Date.parse(operation.createdAt),
+        finishedAt: completed ? Date.parse(operation.updatedAt) : undefined, source: "manual",
+        actions: [{ label: "查看详情", run: () => navigation.openOperation("maintenance", operation.id) }] });
+    }
+    for (const [token, submission] of Object.entries(maintenance.submissions)) {
+      tasks.push({ id: `agent-maintenance-start-${token}`, kind: "sync", title: submission.title,
+        detail: submission.error || "正在提交后台任务", status: submission.pending ? "running" : "unconfirmed", progress: null,
+        startedAt: submission.startedAt, source: "manual", actions: [{ label: "刷新状态", run: () => { void maintenance.recover(); } }] });
+    }
     for (const operation of Object.values(catalog.operations)) {
       const completed = operation.phase === "completed";
       const verified = operation.targets.filter((target) => target.outcome === "appliedVerified").length;

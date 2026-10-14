@@ -183,7 +183,8 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     for (const [kind, configurationRevision] of current) {
       const before = previous?.find((entry) => entry[0] === kind);
       if (configurationRevision && configurationRevision !== before?.[1]) {
-        void overview.refresh(kind, workspacePath.value);
+        // The rules page only needs native files. Refresh the other overview data when it is visible.
+        if (options.active.value && navigation.page === "overview") void overview.refresh(kind, workspacePath.value);
         checkCatalogSources();
       }
     }

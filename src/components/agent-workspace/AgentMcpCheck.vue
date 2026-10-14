@@ -2,7 +2,8 @@
 import { computed, reactive, ref, toRef, watch } from "vue";
 import { Activity, CircleCheck, CircleAlert } from "@lucide/vue";
 import { useMcpConnectionCheck } from "../../composables/useMcpConnectionCheck";
-const props = defineProps<{ connection: string }>();
+import AgentMcpTools from './AgentMcpTools.vue';
+const props = defineProps<{ connection: string; assetId?: string; workspace?: string; bindings?: { id: string; label: string }[] }>();
 const check = reactive(useMcpConnectionCheck(toRef(props, "connection")));
 const TOOLS_PER_PAGE = 50;
 const query = ref("");
@@ -94,7 +95,8 @@ watch(
       @toggle="toggleTools"
     >
       <summary>查看工具 · {{ check.result.tools.length }}</summary>
-      <template v-if="toolsExpanded">
+      <AgentMcpTools v-if="toolsExpanded && assetId && bindings?.length" :asset-id="assetId" :workspace="workspace" :bindings="bindings" :tools="check.result.tools" />
+      <template v-else-if="toolsExpanded">
         <a-input
           v-model="query"
           size="small"

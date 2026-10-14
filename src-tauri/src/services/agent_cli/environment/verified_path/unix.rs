@@ -238,6 +238,7 @@ impl PlatformGuard {
         Ok(DirectoryLinkEvidence {
             identity,
             target_text: PathBuf::from(OsString::from_vec(buffer[..count].to_vec())),
+            junction: false,
         })
     }
 

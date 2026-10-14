@@ -167,6 +167,7 @@ pub(crate) fn query(
         validated_scope(actor, &request.scope_revision)?;
         let refs = merge_source_outcomes(&mut snapshot, outcomes, request.role_filter);
         let mut registry = state::registry();
+        budget.check()?;
         if let Some(saved) = registry
             .scopes
             .get_mut(&(actor.key(), request.scope_revision.clone()))
@@ -395,6 +396,9 @@ fn row_for_record(
         None => AgentSessionParent::Unknown,
     };
     AgentSessionRow {
+        project_relocation_available: record.role == AgentSessionRole::Main
+            && !workspace.path.is_empty()
+            && history_adapter(source.agent_kind).is_ok_and(|adapter| adapter.relocation.is_some()),
         runtime_scope: source.runtime_scope.clone(),
         runtime_label: source.label.clone(),
         resume_cli: source.resume_cli.clone(),

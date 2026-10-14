@@ -14,7 +14,7 @@ use crate::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 pub(super) use super::observation::observe_payload;
@@ -134,7 +134,7 @@ pub(super) fn project_with(
     snapshot: &MutationInventory,
     reader: &mut DefinitionReader<'_>,
 ) -> Result<AgentAssetCatalog, String> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + super::package::READ_TIMEOUT;
     let mut remaining_bytes = 64 * 1024 * 1024;
     let mut items = BTreeMap::<String, AgentCatalogAsset>::new();
     let mut diagnostics = Vec::new();
@@ -581,9 +581,6 @@ pub(super) fn targets(inventory: &AgentEnvironmentInventory) -> Vec<AgentCatalog
                     AgentAssetCategory::Mcp
                 };
                 let mut reason = None;
-                if !cfg!(unix) {
-                    reason = Some("该平台的原子文件分发尚未验证".to_owned());
-                }
                 if adapter.requires_workspace_trust(category, scope)
                     && context.trust_context != AgentTrustState::Trusted
                 {

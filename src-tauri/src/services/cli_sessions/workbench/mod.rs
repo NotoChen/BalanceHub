@@ -21,7 +21,7 @@ pub(crate) use query::query;
 pub(crate) use reader::{detail, message_content};
 #[cfg(test)]
 pub(crate) use scope::ResumeAdmissionFixture;
-pub(crate) use scope::{get_scope, resolve_session_ref, ResolvedSessionTarget};
+pub(crate) use scope::{get_scope, relocation_source, resolve_session_ref, ResolvedSessionTarget};
 use std::{
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
@@ -114,6 +114,44 @@ pub(crate) fn release_window(app: &AppHandle, window_label: &str) {
         .snapshots
         .retain(|_, snapshot| snapshot.actor != actor);
     registry.sources.retain(|(owner, _), _| owner != &actor);
+}
+
+pub(crate) fn invalidate_source(root: &std::path::Path) {
+    let mut registry = state::registry();
+    let source_ids = registry
+        .scopes
+        .values()
+        .flat_map(|scope| {
+            scope
+                .sources
+                .iter()
+                .filter(|(_, source)| source.config_root == root)
+                .map(|(id, _)| id.clone())
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let actors = registry
+        .scopes
+        .iter()
+        .filter(|(_, scope)| scope.sources.keys().any(|id| source_ids.contains(id)))
+        .map(|((actor, _), _)| actor.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    for ((actor, _), request) in &registry.requests {
+        if actors.contains(actor) {
+            request.cancelled.store(true, Ordering::Release);
+        }
+    }
+    registry
+        .sources
+        .retain(|(_, id), _| !source_ids.contains(id));
+    registry
+        .references
+        .retain(|_, reference| !source_ids.contains(&reference.row.source_id));
+    registry.snapshots.retain(|_, snapshot| {
+        !snapshot
+            .rows
+            .iter()
+            .any(|row| source_ids.contains(&row.source_id))
+    });
 }
 
 pub(super) fn hash(parts: &[&str]) -> String {

@@ -7,7 +7,6 @@ use super::{
     hooks::{HookMember, PreparedHookGroup},
     OperationCell,
 };
-#[cfg(unix)]
 use crate::services::agent_cli::environment::mutation::atomic;
 use crate::{
     models::*,
@@ -35,10 +34,7 @@ impl CatalogService {
         let locks = self.native.domain_locks();
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut verified_native = false;
-        #[cfg(unix)]
         let mut replaced = BTreeSet::<usize>::new();
-        #[cfg(not(unix))]
-        let replaced = BTreeSet::<usize>::new();
         #[cfg(unix)]
         let mut not_synced = BTreeSet::<usize>::new();
         #[cfg(not(unix))]
@@ -101,10 +97,6 @@ impl CatalogService {
             before_deadline(deadline)?;
             // Native documents first; auxiliary ownership follows under the
             // same locks. A partial outcome retains the durable complete intent.
-            #[cfg(not(unix))]
-            if !fresh.writes.is_empty() {
-                return Err("当前平台不支持原子写入 Hook 配置".to_owned());
-            }
             fresh.writes.sort_by_key(|write| write.source_id.is_none());
             self.repository.checkpointed(|library, checkpoint| {
                 let entry = library.entries.get(&item.id).ok_or("Hook 全局资产已变化")?;
@@ -150,9 +142,7 @@ impl CatalogService {
                     checkpoint(library)?;
                 }
                 cell.phase(&indexes, AgentAssetOperationPhase::Applying);
-                #[cfg(unix)]
                 let mut completed_domains = BTreeMap::<String, Vec<u8>>::new();
-                #[cfg(unix)]
                 for write in &fresh.writes {
                     before_deadline(deadline)?;
                     revalidate_reads(&fresh, &completed_domains).map_err(|error| error.message)?;
@@ -166,7 +156,7 @@ impl CatalogService {
                         // Committed aliases are checked against their written
                         // bytes, not reinterpreted as still-missing files.
                         if !guard
-                            .domain()
+                            .pathname_domain()
                             .is_some_and(|domain| completed_domains.contains_key(&domain))
                         {
                             guard.reanchor_after_parent_creation(parent)?;
@@ -191,18 +181,18 @@ impl CatalogService {
                         cell.before_commit(&write.indexes)
                     })
                     .map_err(|error| error.message)?;
-                    #[cfg(unix)]
                     {
                         match result {
                             atomic::AtomicWriteResult::Unchanged => {}
                             atomic::AtomicWriteResult::Replaced => replaced.extend(&write.indexes),
+                            #[cfg(unix)]
                             atomic::AtomicWriteResult::ReplacedNotSynced => {
                                 replaced.extend(&write.indexes);
                                 not_synced.extend(&write.indexes);
                             }
                         }
-                        completed_domains.insert(write.file.domain(), write.bytes.clone());
-                        #[cfg(test)]
+                        completed_domains.insert(write.file.pathname_domain(), write.bytes.clone());
+                        #[cfg(all(test, unix))]
                         if let Some(after_write) = self.after_hook_write.lock().unwrap().take() {
                             after_write();
                         }
@@ -295,14 +285,13 @@ impl CatalogService {
     }
 }
 
-#[cfg(unix)]
 fn revalidate_reads(
     group: &PreparedHookGroup,
     completed_domains: &BTreeMap<String, Vec<u8>>,
 ) -> Result<(), AgentAssetMutationError> {
     for guard in group.reads.values() {
         guard
-            .domain()
+            .pathname_domain()
             .as_ref()
             .and_then(|domain| completed_domains.get(domain))
             .map_or_else(
@@ -316,7 +305,7 @@ fn revalidate_reads(
     Ok(())
 }
 
-fn verify(group: &PreparedHookGroup, snapshot: &MutationInventory) -> bool {
+pub(super) fn verify(group: &PreparedHookGroup, snapshot: &MutationInventory) -> bool {
     let mut sources = BTreeMap::new();
     for (kind, expectation) in &group.expectations {
         let key = (*kind, expectation.source_id.clone());

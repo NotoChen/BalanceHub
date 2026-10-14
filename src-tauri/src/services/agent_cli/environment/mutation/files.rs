@@ -130,6 +130,9 @@ pub(crate) enum WriteObservation {
 }
 
 impl GuardedFile {
+    pub(crate) fn allowed_root(&self) -> &Path {
+        &self.allowed_root
+    }
     pub(crate) fn replacement_restriction(&self) -> Result<(), String> {
         match &self.evidence {
             FileEvidence::Present(anchor) => {
@@ -390,11 +393,7 @@ impl GuardedFile {
     /// Fixed pathname identity complements inode domains through atomic replace.
     /// A new generation must still wait for an older writer of the same path.
     pub(crate) fn pathname_domain(&self) -> String {
-        #[cfg(not(windows))]
-        let value = self.path.as_os_str().as_encoded_bytes();
-        #[cfg(windows)]
-        let value = self.path.to_string_lossy().to_lowercase().into_bytes();
-        format!("pathname:{:x}", Sha256::digest(value))
+        pathname_domain(&self.path)
     }
 
     pub(crate) fn lock_domains(&self) -> Vec<String> {
@@ -622,8 +621,23 @@ fn physical_identity(metadata: &fs::Metadata, path: &Path) -> String {
     #[cfg(not(unix))]
     {
         let _ = metadata;
-        path.to_string_lossy().to_lowercase()
+        pathname_domain(path)
     }
+}
+
+pub(crate) fn pathname_domain(path: &Path) -> String {
+    #[cfg(not(windows))]
+    let value = path.as_os_str().as_encoded_bytes();
+    #[cfg(windows)]
+    let value = if let Some((distro, guest)) = crate::services::wsl::split_host_path(path) {
+        format!("wsl:{}:{guest}", distro.to_lowercase()).into_bytes()
+    } else {
+        crate::platform::paths::compatible_path(path)
+            .to_string_lossy()
+            .to_lowercase()
+            .into_bytes()
+    };
+    format!("pathname:{:x}", Sha256::digest(value))
 }
 
 fn require_missing(path: &Path) -> Result<(), AgentAssetMutationError> {

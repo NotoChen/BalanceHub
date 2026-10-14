@@ -9,11 +9,7 @@ use crate::{
 
 #[derive(Clone)]
 pub(super) enum HookReadGuard {
-    File {
-        file: GuardedFile,
-        #[cfg(unix)]
-        root: std::path::PathBuf,
-    },
+    File(GuardedFile),
     Directory(VerifiedPathAnchor),
     MissingDirectory(std::sync::Arc<GuardedDirectory>),
     Reference {
@@ -25,7 +21,7 @@ pub(super) enum HookReadGuard {
 impl HookReadGuard {
     pub(super) fn retained_private_bytes(&self) -> usize {
         match self {
-            Self::File { file, .. } => file.bytes().map_or(0, <[u8]>::len),
+            Self::File(file) => file.bytes().map_or(0, <[u8]>::len),
             Self::Directory(_) | Self::MissingDirectory(_) | Self::Reference { .. } => 0,
         }
     }
@@ -77,17 +73,13 @@ impl HookReadGuard {
             })
         } else {
             GuardedFile::capture(source, &snapshot.source_anchors)
-                .map(|file| Self::File {
-                    file,
-                    #[cfg(unix)]
-                    root: std::path::PathBuf::from(&source.allowed_root),
-                })
+                .map(Self::File)
                 .map_err(|_| "Hook 原生依赖无法安全准备".to_owned())
         }
     }
     pub fn signature(&self) -> String {
         match self {
-            Self::File { file, .. } => file.signature(),
+            Self::File(file) => file.signature(),
             Self::Directory(anchor) => format!("directory:{}", anchor.revision().identity),
             Self::MissingDirectory(guard) => guard.signature(),
             Self::Reference { anchor, digest } => {
@@ -97,21 +89,20 @@ impl HookReadGuard {
     }
     pub fn lock_domains(&self) -> Vec<String> {
         match self {
-            Self::File { file, .. } => file.lock_domains(),
+            Self::File(file) => file.lock_domains(),
             _ => Vec::new(),
         }
     }
 
-    #[cfg(unix)]
-    pub fn domain(&self) -> Option<String> {
+    pub fn pathname_domain(&self) -> Option<String> {
         match self {
-            Self::File { file, .. } => Some(file.domain()),
+            Self::File(file) => Some(file.pathname_domain()),
             Self::Directory(_) | Self::MissingDirectory(_) | Self::Reference { .. } => None,
         }
     }
     pub fn revalidate(&self) -> Result<(), String> {
         match self {
-            Self::File { file, .. } => file
+            Self::File(file) => file
                 .revalidate()
                 .map_err(|_| "Hook 原生依赖已变化".to_owned()),
             Self::Directory(anchor) => reopen_verified_path(anchor)
@@ -141,12 +132,11 @@ impl HookReadGuard {
     /// Advance only missing file evidence along the parent's verified creation
     /// chain. Directory and readonly-reference dependencies keep their original
     /// evidence, and the file's source and lock domain remain unchanged.
-    #[cfg(unix)]
     pub fn reanchor_after_parent_creation(
         &mut self,
         ensured_parent: &std::path::Path,
     ) -> Result<(), String> {
-        if let Self::File { file, .. } = self {
+        if let Self::File(file) = self {
             file.reanchor_after_parent_creation(ensured_parent)
                 .map_err(|_| "Hook 缺失文件的原路径证据在目录创建期间变化".to_owned())?;
         }
@@ -156,12 +146,12 @@ impl HookReadGuard {
     /// The same physical file may have several observed source IDs. Once this
     /// transaction replaces it, every alias checks the committed bytes rather
     /// than comparing an obsolete inode/content snapshot or skipping the read.
-    #[cfg(unix)]
     pub fn revalidate_after_write(&self, expected: &[u8]) -> Result<(), String> {
-        let Self::File { file, root } = self else {
+        let Self::File(file) = self else {
             return self.revalidate();
         };
-        let current = package::capture_file(root, file.path(), package::MAX_FILE_BYTES)?;
+        let current =
+            package::capture_file(file.allowed_root(), file.path(), package::MAX_FILE_BYTES)?;
         if current.bytes() != Some(expected) {
             return Err("已提交的 Hook 文件再次变化".to_owned());
         }

@@ -9,7 +9,7 @@ import ContentEditor from "../ContentEditor.vue";
 import AgentMcpSummary from "./AgentMcpSummary.vue";
 import AgentCatalogContentDiff from "./AgentCatalogContentDiff.vue";
 
-const props = defineProps<{ content: AgentCatalogContent | null; loading: boolean; error: string; agents: AgentCliDescriptor[] }>();
+const props = defineProps<{ content: AgentCatalogContent | null; loading: boolean; error: string; agents: AgentCliDescriptor[]; workspace?: string }>();
 const emit = defineEmits<{ edit: [source: AgentCatalogContentSource, file: AgentCatalogContentFile]; retry: [] }>();
 const sourceViews = ref<Record<string, boolean>>({});
 const choosingTarget = ref(false);
@@ -95,7 +95,7 @@ watch(() => props.content?.assetId, () => { sourceViews.value = {}; choosingTarg
         <p v-if="!editTargets.length && readonlyReasons.length" class="agent-workspace-note">{{ readonlyReasons.join('；') }}</p>
         <section v-for="document in primary.documents" :key="document.key" class="agent-content-document">
           <header v-if="content?.category !== 'mcp' || !primary.complete"><strong v-if="primary.documents.length > 1">{{ document.label }}</strong><span>{{ document.format.toUpperCase() }}</span><a-button v-if="document.format === 'markdown'" size="small" type="text" :aria-pressed="Boolean(sourceViews[document.key])" @click="sourceViews[document.key] = !sourceViews[document.key]">{{ sourceViews[document.key] ? '阅读正文' : '查看原文' }}</a-button></header>
-          <AgentMcpSummary v-if="content?.category === 'mcp' && primary.complete" :text="document.text" />
+          <AgentMcpSummary v-if="content?.category === 'mcp' && primary.complete" :text="document.text" :asset-id="content.assetId" :workspace="workspace" :bindings="primary.sources.filter(source => source.bindingId).map(source => ({ id: source.bindingId!, label: sourceLabel(source) }))" />
           <AgentMarkdownContent v-else-if="document.format === 'markdown' && !sourceViews[document.key]" :text="document.text" />
           <ContentEditor v-else :original-text="document.text" :model-value="document.text" :format="document.format" readonly />
         </section>

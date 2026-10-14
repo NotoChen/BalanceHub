@@ -18,7 +18,7 @@ test("a cloud update reaches an open clean settings window while pending edits s
       {
         name: "cloud-settings-view-fixture",
         resolveId(id, importer) {
-          if (id === "../api/app" && importer?.endsWith("/useAppLifecycle.ts"))
+          if (id === "../api/app" && importer?.endsWith("/useHostPlatform.ts"))
             return "\0cloud-settings-app";
         },
         load(id) {

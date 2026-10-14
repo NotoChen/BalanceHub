@@ -13,10 +13,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(super) const MAX_FILE_BYTES: usize = 512 * 1024;
-pub(super) const MAX_PACKAGE_BYTES: usize = 8 * 1024 * 1024;
-pub(super) const MAX_PACKAGE_FILES: usize = 256;
-const MAX_DEPTH: usize = 8;
+pub(super) const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
+pub(super) const MAX_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_PACKAGE_FILES: usize = 8192;
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_DEPTH: usize = 32;
 
 pub(super) struct PackageSnapshot {
     pub files: BTreeMap<String, PackageFile>,
@@ -41,7 +42,15 @@ impl PackageSnapshot {
 }
 
 pub(super) fn read_package(root: &Path, allowed_root: &Path) -> Result<PackageSnapshot, String> {
-    read_package_contents(root, allowed_root, true, true)
+    read_package_contents(root, allowed_root, true, true, None, true)
+}
+
+pub(super) fn read_cached_package(
+    root: &Path,
+    allowed_root: &Path,
+    previous: Option<&PackageSnapshot>,
+) -> Result<PackageSnapshot, String> {
+    read_package_contents(root, allowed_root, true, true, previous, false)
 }
 
 /// A previously applied package may have lost only SKILL.md. Distribution can
@@ -50,7 +59,7 @@ pub(super) fn read_distribution_package(
     root: &Path,
     allowed_root: &Path,
 ) -> Result<PackageSnapshot, String> {
-    read_package_contents(root, allowed_root, false, true)
+    read_package_contents(root, allowed_root, false, true, None, true)
 }
 
 /// Removal previews the complete file set even when the manifest is malformed.
@@ -58,7 +67,7 @@ pub(super) fn read_removal_package(
     root: &Path,
     allowed_root: &Path,
 ) -> Result<PackageSnapshot, String> {
-    read_package_contents(root, allowed_root, true, false)
+    read_package_contents(root, allowed_root, true, false, None, true)
 }
 
 fn read_package_contents(
@@ -66,6 +75,8 @@ fn read_package_contents(
     allowed_root: &Path,
     require_manifest: bool,
     validate_manifest: bool,
+    previous: Option<&PackageSnapshot>,
+    verify_contents: bool,
 ) -> Result<PackageSnapshot, String> {
     let mut snapshot = PackageSnapshot {
         files: BTreeMap::new(),
@@ -73,7 +84,17 @@ fn read_package_contents(
     };
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     let mut bytes_read = 0usize;
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + READ_TIMEOUT;
+    let previous_files = previous
+        .map(|snapshot| {
+            snapshot
+                .anchors
+                .iter()
+                .filter(|anchor| anchor.source_kind() == AgentAssetSourceKind::File)
+                .map(|anchor| (anchor.display_path(), anchor))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
     while let Some((directory, depth)) = stack.pop() {
         if depth > MAX_DEPTH || Instant::now() >= deadline {
             return Err("Skill 包超过目录深度或读取预算，保留未知状态".to_owned());
@@ -93,7 +114,7 @@ fn read_package_contents(
                 || snapshot.files.len() + stack.len() >= MAX_PACKAGE_FILES
                 || Instant::now() >= deadline
             {
-                return Err("Skill 包超过 256 项读取限制".to_owned());
+                return Err("Skill 包超过 8192 项或 30 秒读取预算".to_owned());
             }
             let entry = entry.map_err(|_| "无法读取 Skill 资源")?;
             if entry.is_symlink {
@@ -101,8 +122,40 @@ fn read_package_contents(
             }
             let path = directory.join(&entry.name);
             if entry.source_kind == AgentAssetSourceKind::Directory {
+                if validate_manifest
+                    && matches!(
+                        entry.name.to_string_lossy().as_ref(),
+                        ".git" | "node_modules" | "__pycache__" | ".venv"
+                    )
+                {
+                    continue;
+                }
                 stack.push((path, depth + 1));
                 continue;
+            }
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| "Skill 资源越界")?
+                .to_str()
+                .ok_or("Skill 资源文件名必须是 UTF-8")?
+                .replace('\\', "/");
+            validate_relative(&relative)?;
+            if let Some((anchor, cached)) = previous_files.get(path.as_path()).and_then(|anchor| {
+                previous
+                    .and_then(|snapshot| snapshot.files.get(&relative))
+                    .map(|file| (*anchor, file))
+            }) {
+                if reopen_verified_path(anchor).is_ok() {
+                    bytes_read = bytes_read
+                        .checked_add(cached.bytes.len())
+                        .ok_or("Skill 大小无效")?;
+                    if bytes_read > MAX_PACKAGE_BYTES {
+                        return Err("Skill 包超过 64 MiB".to_owned());
+                    }
+                    snapshot.files.insert(relative, cached.clone());
+                    snapshot.anchors.push(anchor.clone());
+                    continue;
+                }
             }
             let file = inspect_verified_path(
                 &[allowed_root],
@@ -113,12 +166,12 @@ fn read_package_contents(
             .map_err(|_| "Skill 资源类型或路径不安全")?;
             let bytes = file
                 .read_file_bounded(MAX_FILE_BYTES)
-                .map_err(|_| "Skill 单个文件超过 512 KiB 或无法读取")?;
+                .map_err(|_| "Skill 单个文件超过 16 MiB 或无法读取")?;
             bytes_read = bytes_read
                 .checked_add(bytes.len())
                 .ok_or("Skill 大小无效")?;
             if bytes_read > MAX_PACKAGE_BYTES {
-                return Err("Skill 包超过 8 MiB".to_owned());
+                return Err("Skill 包超过 64 MiB".to_owned());
             }
             let relative = path
                 .strip_prefix(root)
@@ -141,9 +194,13 @@ fn read_package_contents(
             let executable = false;
             let revision = file_revision(&file, Some(&bytes));
             snapshot.anchors.push(file.anchor(&revision, Some(&bytes)));
-            snapshot
-                .files
-                .insert(relative, PackageFile { bytes, executable });
+            snapshot.files.insert(
+                relative,
+                PackageFile {
+                    bytes: bytes.into(),
+                    executable,
+                },
+            );
         }
         let revision = file_revision(&guard, None);
         snapshot.anchors.push(guard.anchor(&revision, None));
@@ -155,7 +212,15 @@ fn read_package_contents(
     } else if require_manifest {
         return Err("Skill 包缺少 SKILL.md".to_owned());
     }
-    snapshot.revalidate()?;
+    // Browsing validates identities/metadata; confirmed write plans above use a
+    // fresh read and a complete byte revalidation at their commit boundary.
+    if !verify_contents {
+        for anchor in &snapshot.anchors {
+            reopen_verified_path(anchor).map_err(|_| "Skill 包在读取期间发生变化")?;
+        }
+    } else {
+        snapshot.revalidate()?;
+    }
     Ok(snapshot)
 }
 

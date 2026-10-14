@@ -36,6 +36,7 @@ pub struct AppState {
         OnceLock<Arc<crate::services::agent_cli::configuration::ConfigurationService>>,
     agent_catalog: OnceLock<Arc<CatalogService>>,
     pub(crate) mcp_checks: Arc<crate::services::agent_cli::mcp_check::McpCheckService>,
+    pub(crate) agent_maintenance: Arc<crate::services::agent_cli::maintenance::MaintenanceService>,
     model_catalog: OnceLock<Arc<crate::services::model_catalog::ModelCatalogService>>,
     agent_lifecycle: OnceLock<Arc<LifecycleService>>,
     cloud_sync: OnceLock<Arc<crate::services::cloud_sync::CloudSyncService>>,
@@ -82,6 +83,7 @@ impl AppState {
             agent_configuration: OnceLock::new(),
             agent_catalog: OnceLock::new(),
             mcp_checks: Arc::default(),
+            agent_maintenance: Arc::default(),
             model_catalog: OnceLock::new(),
             agent_lifecycle: OnceLock::new(),
             cloud_sync: OnceLock::new(),
@@ -201,6 +203,7 @@ impl AppState {
             .remove(window_label);
         if let Some(actor) = actor {
             self.mcp_checks.cancel_actor(&actor);
+            self.agent_maintenance.remove_actor(&actor);
             self.agent_asset_access.remove_actor(&actor);
             if let Some(configuration) = self.agent_configuration.get() {
                 configuration.remove_actor(&actor);

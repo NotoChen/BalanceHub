@@ -9,6 +9,7 @@ use crate::{
 };
 
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
+    relocation: None,
     launch_environment: super::super::native_context::launch_environment,
     source,
     scan,

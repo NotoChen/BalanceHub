@@ -1,9 +1,10 @@
 use crate::{
     commands::{
         agent_assets::*, agent_catalog::*, agent_configuration::*, agent_instructions::*,
-        agent_lifecycle::*, agent_mcp_check::*, agent_overview::*, agent_session_resume::*,
-        agent_sessions::*, agent_wsl::*, app::*, browser_runtime::*, cli::*, cloud_sync::*,
-        login_accounts::*, model_catalog::*, provider::*, provider_browser_login::*,
+        agent_lifecycle::*, agent_maintenance::*, agent_mcp_check::*, agent_overview::*,
+        agent_session_resume::*, agent_sessions::*, agent_wsl::*, app::*, browser_runtime::*,
+        cli::*, cloud_sync::*, login_accounts::*, model_catalog::*, provider::*,
+        provider_browser_login::*,
     },
     models::AppData,
     services::{self, app_updater::AppUpdaterState},
@@ -143,6 +144,25 @@ pub(crate) fn run() {
             read_agent_catalog_content,
             cancel_agent_catalog_read,
             get_agent_catalog_definition,
+            list_agent_history,
+            get_agent_maintenance_change,
+            discard_agent_maintenance_plan,
+            get_agent_mcp_tool_rules,
+            plan_agent_mcp_tools,
+            plan_agent_session_relocation,
+            list_agent_shared_versions,
+            plan_agent_shared_version,
+            get_agent_skill_origin,
+            save_agent_skill_origin,
+            check_agent_skill_update,
+            plan_agent_skill_update,
+            get_agent_batch_options,
+            plan_agent_batch,
+            plan_agent_history_restore,
+            apply_agent_maintenance,
+            get_agent_maintenance_operation,
+            list_agent_maintenance_operations,
+            cancel_agent_maintenance_operation,
             read_agent_mcp_form,
             render_agent_mcp_form,
             save_agent_catalog_definition,
@@ -290,6 +310,9 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
     };
     if let Ok(root) = app.path().app_data_dir() {
+        if let Ok(config_root) = app.path().app_config_dir() {
+            services::agent_cli::config_support::native_history::initialize(&root, &config_root)?;
+        }
         services::agent_cli::initialize_discovery_cache(root.join("agent-discovery-cache"));
         services::agent_cli::lifecycle::initialize_journal(root.join("agent-upgrades"));
     }

@@ -1,6 +1,5 @@
 //! Configuration transaction staging. Every target is prepared before the first
 //! file is replaced; Windows keeps verified ancestors through ReplaceFileW.
-use super::errors::{conflict, internal};
 use crate::{
     models::*,
     services::agent_cli::{
@@ -17,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) struct StagedFile {
+pub(crate) struct StagedFile {
     source: GuardedFile,
     parent: VerifiedPathGuard,
     temporary: PathBuf,
@@ -25,23 +24,23 @@ pub(super) struct StagedFile {
     unchanged: bool,
     removed: bool,
 }
-pub(super) enum CommitResult {
+pub(crate) enum CommitResult {
     Unchanged,
     Applied,
     #[cfg(unix)]
     AppliedNotSynced,
 }
 impl StagedFile {
-    pub(super) fn prepare(
+    pub(crate) fn prepare(
         source: &GuardedFile,
         replacement: &[u8],
         checkpoint: impl Fn() -> Result<(), AgentConfigurationError>,
     ) -> Result<Self, AgentConfigurationError> {
         checkpoint()?;
         source.revalidate().map_err(|_| conflict())?;
-        source.replacement_restriction().map_err(|message| {
-            super::native_support::error(AgentConfigurationErrorKind::ReadOnly, &message)
-        })?;
+        source
+            .replacement_restriction()
+            .map_err(|message| restriction_error(&message))?;
         let parent_path = source
             .creation_ancestor()
             .unwrap_or_else(|| source.path().parent().expect("native file parent"));
@@ -91,7 +90,7 @@ impl StagedFile {
             removed: unchanged,
         })
     }
-    pub(super) fn ensure_parent(
+    pub(crate) fn ensure_parent(
         &mut self,
         before_commit: impl Fn() -> Result<(), AgentConfigurationError>,
         after_create: impl Fn(),
@@ -129,7 +128,7 @@ impl StagedFile {
         self.relocate_staging()?;
         Ok(())
     }
-    pub(super) fn advance_after_creation(
+    pub(crate) fn advance_after_creation(
         &mut self,
         parent: &Path,
     ) -> Result<(), AgentConfigurationError> {
@@ -138,7 +137,7 @@ impl StagedFile {
             .map_err(|_| conflict())?;
         self.relocate_staging()
     }
-    pub(super) fn target_parent(&self) -> Option<&Path> {
+    pub(crate) fn target_parent(&self) -> Option<&Path> {
         self.source.path().parent()
     }
     fn relocate_staging(&mut self) -> Result<(), AgentConfigurationError> {
@@ -161,7 +160,7 @@ impl StagedFile {
         self.parent = parent;
         Ok(())
     }
-    pub(super) fn commit(
+    pub(crate) fn commit(
         &mut self,
         before_commit: impl FnOnce() -> Result<(), AgentConfigurationError>,
     ) -> Result<CommitResult, AgentConfigurationError> {
@@ -170,11 +169,13 @@ impl StagedFile {
         }
         self.source.revalidate().map_err(|_| conflict())?;
         self.parent.revalidate_identity().map_err(|_| conflict())?;
+        super::native_history::record_file(&self.source, Some(&self.replacement))
+            .map_err(|message| restriction_error(&message))?;
         let result = commit_staging(self, before_commit)?;
         self.removed = true;
         Ok(result)
     }
-    pub(super) fn verify(&self) -> Result<(), AgentConfigurationError> {
+    pub(crate) fn verify(&self) -> Result<(), AgentConfigurationError> {
         let parent = self.source.path().parent().ok_or_else(internal)?;
         let guard = inspect_verified_path(
             &[parent],
@@ -184,7 +185,7 @@ impl StagedFile {
         )
         .map_err(|_| conflict())?;
         let bytes = guard
-            .read_file_bounded(super::MAX_DOCUMENT_BYTES)
+            .read_file_bounded(self.replacement.len().max(1))
             .map_err(|_| failed())?;
         if bytes != self.replacement {
             return Err(conflict());
@@ -206,11 +207,7 @@ fn create_staging(
     _path: &Path,
     name: &str,
 ) -> Result<File, AgentConfigurationError> {
-    crate::services::agent_cli::environment::mutation::atomic::create_staging(
-        parent.source_handle(),
-        std::ffi::OsStr::new(name),
-    )
-    .map_err(Into::into)
+    unix::create_staging(parent.source_handle(), std::ffi::OsStr::new(name))
 }
 #[cfg(windows)]
 fn create_staging(
@@ -240,11 +237,11 @@ fn commit_staging(
     stage: &StagedFile,
     before_commit: impl FnOnce() -> Result<(), AgentConfigurationError>,
 ) -> Result<CommitResult, AgentConfigurationError> {
-    use crate::services::agent_cli::environment::mutation::atomic::{self, AtomicWriteResult};
     let present = stage.source.bytes().is_some();
-    stage.source.replacement_restriction().map_err(|message| {
-        super::native_support::error(AgentConfigurationErrorKind::ReadOnly, &message)
-    })?;
+    stage
+        .source
+        .replacement_restriction()
+        .map_err(|message| restriction_error(&message))?;
     let target = if present {
         stage.source.reopen_present()
     } else {
@@ -259,17 +256,13 @@ fn commit_staging(
     let name = stage.source.path().file_name().ok_or_else(internal)?;
     let temporary = stage.temporary.file_name().ok_or_else(internal)?;
     before_commit()?;
-    match atomic::commit_staging(
+    unix::commit_staging(
         stage.parent.source_handle(),
         temporary,
         target_parent,
         name,
         present,
-    )? {
-        AtomicWriteResult::Unchanged => Ok(CommitResult::Unchanged),
-        AtomicWriteResult::Replaced => Ok(CommitResult::Applied),
-        AtomicWriteResult::ReplacedNotSynced => Ok(CommitResult::AppliedNotSynced),
-    }
+    )
 }
 
 #[cfg(unix)]
@@ -348,9 +341,10 @@ fn commit_staging(
     )
     .map_err(|_| conflict())?;
     stage.source.revalidate().map_err(|_| conflict())?;
-    stage.source.replacement_restriction().map_err(|message| {
-        super::native_support::error(AgentConfigurationErrorKind::ReadOnly, &message)
-    })?;
+    stage
+        .source
+        .replacement_restriction()
+        .map_err(|message| restriction_error(&message))?;
     let source = stage
         .temporary
         .as_os_str()
@@ -390,3 +384,20 @@ fn commit_staging(
 fn failed() -> AgentConfigurationError {
     AgentConfigurationError::new(AgentConfigurationErrorKind::WriteFailed)
 }
+
+fn conflict() -> AgentConfigurationError {
+    AgentConfigurationError::new(AgentConfigurationErrorKind::SourceChanged)
+}
+
+fn internal() -> AgentConfigurationError {
+    AgentConfigurationError::new(AgentConfigurationErrorKind::InternalFailure)
+}
+
+fn restriction_error(message: &str) -> AgentConfigurationError {
+    let mut error = AgentConfigurationError::new(AgentConfigurationErrorKind::ReadOnly);
+    error.message = message.to_owned();
+    error
+}
+
+#[cfg(unix)]
+mod unix;

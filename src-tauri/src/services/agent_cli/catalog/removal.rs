@@ -7,9 +7,6 @@ pub(super) fn source<'a>(
     snapshot: &'a MutationInventory,
     asset: &AgentAssetRecord,
 ) -> Result<&'a AgentAssetSource, String> {
-    if !cfg!(unix) {
-        return Err("当前平台尚未提供文件移除执行器".to_owned());
-    }
     if !matches!(
         asset.category,
         AgentAssetCategory::Skill | AgentAssetCategory::Mcp

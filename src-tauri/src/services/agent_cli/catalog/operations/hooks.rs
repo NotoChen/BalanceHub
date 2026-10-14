@@ -781,7 +781,7 @@ impl PreparedHookGroup {
                 let root = writable_root(inspector, source)?;
                 let file = GuardedFile::capture(source, &snapshot.source_anchors)
                     .map_err(|_| "Hook 写入目标无法安全准备")?;
-                let key = file.domain();
+                let key = file.pathname_domain();
                 if let Some(existing) = writes.get_mut(&key) {
                     if existing.file.path() != file.path()
                         || existing.file.bytes() != file.bytes()
@@ -881,7 +881,7 @@ impl PreparedHookGroup {
                 }
             }
             for write in auxiliary {
-                let key = write.file.domain();
+                let key = write.file.pathname_domain();
                 if let Some(existing) = writes.get_mut(&key) {
                     if existing.bytes != write.bytes {
                         return Err("会话接入所有权记录存在冲突".to_owned());
@@ -905,7 +905,7 @@ impl PreparedHookGroup {
                 continue;
             }
             if let Ok(file) = GuardedFile::capture(source, &snapshot.source_anchors) {
-                if writes.contains_key(&file.domain()) {
+                if writes.contains_key(&file.pathname_domain()) {
                     affected.extend(
                         snapshot
                             .inventory

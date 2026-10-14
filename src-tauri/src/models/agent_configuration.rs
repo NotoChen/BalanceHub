@@ -18,6 +18,13 @@ pub enum AgentConfigurationFormat {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum AgentConfigurationContentState {
+    Unknown,
+    Empty,
+    NonEmpty,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum AgentConfigurationActionKind {
     Read,
     Edit,
@@ -122,6 +129,7 @@ pub struct AgentConfigurationSource {
     #[serde(serialize_with = "crate::platform::paths::serialize_path")]
     pub path: String,
     pub format: AgentConfigurationFormat,
+    pub content_state: AgentConfigurationContentState,
     pub revision: AgentAssetRevision,
     pub access: AgentAssetAccess,
     pub actions: Vec<AgentConfigurationAction>,

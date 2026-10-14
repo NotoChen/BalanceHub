@@ -18,6 +18,7 @@ mod decoder;
 mod history;
 mod metadata;
 mod projects;
+mod relocation;
 pub(super) use history::HISTORY;
 
 pub(super) fn metadata_lookup(
@@ -311,10 +312,10 @@ fn path_key(path: &Path) -> String {
 
 fn encode_project_path(path: &Path) -> String {
     path.to_string_lossy()
-        .chars()
+        .encode_utf16()
         .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character
+            if character <= 0x7f && (character as u8).is_ascii_alphanumeric() {
+                char::from(character as u8)
             } else {
                 '-'
             }

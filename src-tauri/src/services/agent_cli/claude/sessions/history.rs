@@ -13,6 +13,7 @@ use crate::{
 use std::path::PathBuf;
 
 pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
+    relocation: Some(super::relocation::ADAPTER),
     launch_environment: super::super::native_context::launch_environment,
     source,
     scan,

@@ -194,7 +194,7 @@ impl CanonicalPlan {
     }
 }
 
-fn signature(work: &[Work]) -> Result<String, String> {
+pub(super) fn signature(work: &[Work]) -> Result<String, String> {
     let parts = work
         .iter()
         .map(|work| match work {

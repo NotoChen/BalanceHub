@@ -87,13 +87,7 @@ defineExpose({ refresh: () => wsl.refresh() });
     <p v-if="wsl.error" class="agent-workspace-error" role="alert">
       {{ wsl.error }}
     </p>
-    <div
-      v-if="wsl.inventory?.supported === false"
-      class="agent-workspace-empty"
-    >
-      WSL 环境管理仅在 Windows 上提供。本机 Agent 可在总览中管理。
-    </div>
-    <div v-else-if="!rows.length" class="agent-workspace-empty">
+    <div v-if="!rows.length" class="agent-workspace-empty">
       {{
         wsl.loading
           ? "正在检测 WSL…"

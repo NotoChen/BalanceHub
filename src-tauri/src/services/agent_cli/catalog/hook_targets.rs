@@ -39,9 +39,6 @@ pub(super) fn structural_reason(
     source: &AgentAssetSource,
     destination: &HookNativeDestination,
 ) -> Option<String> {
-    if !cfg!(unix) {
-        return Some("此平台尚未验证 Hook 原子文件写入".to_owned());
-    }
     if source.context_id != context.id
         || source.environment_id != context.environment_id
         || source.id != destination.source_id

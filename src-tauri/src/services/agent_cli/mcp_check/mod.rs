@@ -20,6 +20,7 @@ use tokio::sync::{Notify, Semaphore};
 
 const PROTOCOL: &str = "2025-06-18";
 const MESSAGE_LIMIT: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_TOOLS: usize = 5_000;
 
 pub(crate) struct McpCheckService {
     jobs: Mutex<BTreeMap<String, Arc<Job>>>,
@@ -336,7 +337,7 @@ async fn run(job: &Job, input: connection::Input, settings: &AppSettings) -> Res
                 });
             }
         }
-        if names.len() > 5000 {
+        if names.len() > MAX_TOOLS {
             return Err(CheckError::failed(
                 "服务工具超过单次检查容量，已保留读取到的部分",
             ));

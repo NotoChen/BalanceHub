@@ -1,3 +1,4 @@
+mod batch;
 pub(super) mod cache;
 mod distribution;
 mod execution;
@@ -447,6 +448,10 @@ impl CatalogService {
             state.started = true;
         }
         if catch_unwind(AssertUnwindSafe(|| {
+            let _history = crate::services::agent_cli::config_support::native_history::scope(
+                id,
+                &format!("{} · 资产配置", cell.plan.source.item.name),
+            );
             if self.commit_plan_source(&cell) {
                 self.run(&cell);
             }

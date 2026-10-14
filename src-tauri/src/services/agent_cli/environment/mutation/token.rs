@@ -65,6 +65,38 @@ impl<T, A: PartialEq> PlanRegistry<T, A> {
             state.pending.retain(|_, plan| plan.actor != actor);
         }
     }
+    pub(crate) fn inspect<R>(
+        &self,
+        actor: &str,
+        token: &str,
+        read: impl FnOnce(&T) -> R,
+    ) -> Result<R, AgentAssetMutationError> {
+        let mut state = self.state.lock().map_err(|_| internal_error())?;
+        state.prune(Instant::now());
+        let plan = state.pending.get(token).ok_or_else(|| {
+            AgentAssetMutationError::new(AgentAssetMutationErrorKind::PlanExpired)
+        })?;
+        if plan.actor != actor {
+            return Err(AgentAssetMutationError::new(
+                AgentAssetMutationErrorKind::ActorMismatch,
+            ));
+        }
+        Ok(read(&plan.value))
+    }
+    pub(crate) fn discard(&self, actor: &str, token: &str) -> Result<(), AgentAssetMutationError> {
+        let mut state = self.state.lock().map_err(|_| internal_error())?;
+        if state
+            .pending
+            .get(token)
+            .is_some_and(|plan| plan.actor != actor)
+        {
+            return Err(AgentAssetMutationError::new(
+                AgentAssetMutationErrorKind::ActorMismatch,
+            ));
+        }
+        state.pending.remove(token);
+        Ok(())
+    }
     pub(crate) fn issue(
         &self,
         actor: &str,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
-import { ArrowRight, Check, FileText, FolderOpen, Terminal } from "@lucide/vue";
+import { ArrowRight, Check, FileText, FolderOpen, MoreHorizontal, Terminal } from "@lucide/vue";
 import { Message } from "@arco-design/web-vue";
 import type {
   AgentCliDescriptor,
@@ -28,6 +28,7 @@ const props = withDefaults(
     selectedSessionRef?: string;
     selectionMode?: boolean;
     allowResume?: boolean;
+    allowRelocation?: boolean;
     resumeBusy?: (sessionRef: string) => boolean;
     runtimeSessions?: AgentRuntimeSession[];
     activatingId?: string | null;
@@ -40,6 +41,7 @@ const props = withDefaults(
     selectedSessionRef: "",
     selectionMode: false,
     allowResume: false,
+    allowRelocation: false,
     runtimeSessions: () => [],
     activatingId: null,
     disabled: false,
@@ -51,6 +53,7 @@ const emit = defineEmits<{
   select: [row: AgentSessionRow];
   detail: [row: AgentSessionRow];
   resume: [row: AgentSessionRow];
+  relocate: [row: AgentSessionRow];
   parent: [sessionRef: string];
   activate: [session: AgentRuntimeSession];
   position: [position: SessionListPosition];
@@ -258,6 +261,7 @@ async function copy(value: string) {
               }}</span>
             </button>
             <div class="agent-session-row-actions">
+              <a-dropdown v-if="allowRelocation && entries[item.index].row.projectRelocationAvailable" trigger="click" position="br"><button type="button" :disabled="disabled" aria-label="更多会话操作"><MoreHorizontal :size="16" /></button><template #content><a-doption :disabled="entries[item.index].row.activityState === 'active'" @click="emit('relocate', entries[item.index].row)">迁移项目会话</a-doption></template></a-dropdown>
               <button
                 type="button"
                 class="agent-session-detail-button"

@@ -203,9 +203,7 @@ impl CatalogService {
                 cell.before_commit(&write.indexes)
             });
             let (evidence, message) = match result {
-                #[cfg(unix)]
                 Ok(atomic::AtomicWriteResult::Unchanged) => (ApplyEvidence::Noop, None),
-                #[cfg(unix)]
                 Ok(atomic::AtomicWriteResult::Replaced) => (ApplyEvidence::FileReplaced, None),
                 #[cfg(unix)]
                 Ok(atomic::AtomicWriteResult::ReplacedNotSynced) => (

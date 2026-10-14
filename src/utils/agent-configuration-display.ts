@@ -28,6 +28,7 @@ export function agentConfigurationReadOnlyReason(source: AgentConfigurationSourc
 export function agentConfigurationSourceStatus(source: AgentConfigurationSource) {
   if (source.access.kind !== "ready") return { presence: "无法访问", access: "来源不可访问" };
   if (!source.revision.identity || !source.revision.observedAt) return { presence: "状态未确认", access: "来源状态未确认" };
+  if (!source.revision.isMissing && source.contentState === "empty") return { presence: "空文件", access: "来源可访问" };
   return { presence: source.revision.isMissing ? "尚未创建" : "已存在", access: "来源可访问" };
 }
 const errorLabels: Record<AgentConfigurationErrorKind, string> = {

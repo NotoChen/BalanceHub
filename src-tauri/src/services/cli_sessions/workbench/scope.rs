@@ -341,6 +341,29 @@ pub(crate) fn resolve_session_ref(
     )
 }
 
+pub(crate) fn relocation_source(
+    actor: AgentSessionActor<'_>,
+    scope_revision: &str,
+    session_ref: &str,
+) -> Result<(ResolvedSessionTarget, PathBuf), String> {
+    let target = resolve_session_ref(actor, scope_revision, session_ref)?;
+    let reference = state::registry()
+        .references
+        .get(&(
+            actor.key(),
+            scope_revision.to_owned(),
+            session_ref.to_owned(),
+        ))
+        .cloned()
+        .ok_or("会话引用已失效")?;
+    if reference.record.role != crate::models::AgentSessionRole::Main
+        || history_adapter(target.cli_kind)?.relocation.is_none()
+    {
+        return Err("此会话没有项目迁移功能，请选择支持迁移的主会话".to_owned());
+    }
+    Ok((target, reference.record.locator))
+}
+
 fn resolve_session_ref_with(
     actor_key: &str,
     scope_revision: &str,

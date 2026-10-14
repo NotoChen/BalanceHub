@@ -6,14 +6,14 @@ import type { AgentSessionRoleFilter } from "./agent-session-types";
 export type AppWorkspaceView = "providers" | "agents";
 export type AgentWorkspacePage = "overview" | "library" | "instructions" | "environments" | "skill" | "mcp" | "extension" | "hook" | "sessions";
 export type AgentSessionView = "active" | "history";
-export interface AgentOperationSelection { kind: "catalog" | "lifecycle" | "native"; id: string }
+export interface AgentOperationSelection { kind: "catalog" | "lifecycle" | "native" | "maintenance"; id: string }
 type AgentSearchScope = Exclude<AgentWorkspacePage, "sessions"> | `sessions:${AgentSessionView}`;
 
 export const agentWorkspacePages: { value: AgentWorkspacePage; label: string; searchPlaceholder: string }[] = [
   { value: "overview", label: "总览", searchPlaceholder: "搜索 Agent" },
   { value: "library", label: "共享库", searchPlaceholder: "搜索共享资产名称或摘要" },
   { value: "environments", label: "环境", searchPlaceholder: "搜索 WSL 发行版" },
-  { value: "instructions", label: "指令", searchPlaceholder: "搜索共享指令方案" },
+  { value: "instructions", label: "工作规则", searchPlaceholder: "搜索规则、Agent 或文件路径" },
   { value: "skill", label: "Skill", searchPlaceholder: "搜索 Skill 名称或来源" },
   { value: "mcp", label: "MCP", searchPlaceholder: "搜索 MCP 名称或来源" },
   { value: "extension", label: "插件", searchPlaceholder: "搜索插件名称或来源" },
