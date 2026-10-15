@@ -3,6 +3,7 @@ mod catalog_content;
 mod codec;
 pub(crate) mod contracts;
 mod errors;
+mod form;
 mod instructions;
 pub(crate) mod native_support;
 mod operations;

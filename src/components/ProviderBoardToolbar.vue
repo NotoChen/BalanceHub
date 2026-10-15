@@ -28,7 +28,7 @@ function reset() {
   emit("reset");
   filtersRef.value
     ?.querySelector<HTMLInputElement>('input[type="radio"]')
-    ?.focus();
+    ?.focus({ preventScroll: true });
 }
 </script>
 

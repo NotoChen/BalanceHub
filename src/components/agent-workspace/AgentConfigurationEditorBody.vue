@@ -2,6 +2,7 @@
 import { computed, ref, watch, type UnwrapNestedRefs } from "vue";
 import type { useAgentConfigurationEditor } from "../../composables/useAgentConfigurationEditor";
 import AgentMcpEditor from "./AgentMcpEditor.vue";
+import AgentSettingsEditor from "./AgentSettingsEditor.vue";
 import ContentEditor from "../ContentEditor.vue";
 import ContextDetails from "../ContextDetails.vue";
 import AgentConfigurationDiagnostics from "./AgentConfigurationDiagnostics.vue";
@@ -62,6 +63,12 @@ async function prepare() {
         <p v-if="activeDocument.readOnlyReason" class="agent-workspace-note">{{ activeDocument.readOnlyReason }}</p>
         <AgentMarkdownContent v-if="markdown && !sourceView" :text="model.textDrafts[activeDocument.sourceId] ?? ''" />
         <AgentMcpEditor v-else-if="mcp" ref="mcpEditor" :draft="model.mcpDrafts[activeDocument.sourceId]" @draft="model.setMcpDraft(activeDocument.sourceId, $event)" :key="activeDocument.sourceId" :original-text="activeDocument.originalText" :model-value="model.textDrafts[activeDocument.sourceId] ?? ''" :format="activeDocument.format" :agent-kind="model.edit.agentKind" :readonly="model.submitted || Boolean(activeDocument.readOnlyReason)" @update:model-value="model.setText(activeDocument.sourceId, $event)" @validation="mcpValidation[activeDocument.sourceId] = $event" />
+        <AgentSettingsEditor v-else-if="activeDocument.visualSettings" :key="`${model.edit.editId}:${activeDocument.sourceId}`"
+          :edit-id="model.edit.editId" :revision="model.edit.revision" :source-id="activeDocument.sourceId"
+          :draft="model.settingsDrafts[activeDocument.sourceId]" :original-text="activeDocument.originalText"
+          :model-value="model.textDrafts[activeDocument.sourceId] ?? ''" :format="activeDocument.format"
+          :readonly="model.submitted || model.preparing || Boolean(activeDocument.readOnlyReason)"
+          @draft="!model.preparing && model.setSettingsDraft(activeDocument.sourceId, $event)" @update:model-value="!model.preparing && model.setText(activeDocument.sourceId, $event)" />
         <ContentEditor v-else :key="activeDocument.sourceId" :original-text="activeDocument.originalText" :model-value="model.textDrafts[activeDocument.sourceId] ?? ''" :format="activeDocument.format" :readonly="model.submitted || Boolean(activeDocument.readOnlyReason)" @update:model-value="model.setText(activeDocument.sourceId, $event)" />
         <p v-if="resourceView" class="agent-resource-path">{{ activeDocument.path }}</p>
       </section>

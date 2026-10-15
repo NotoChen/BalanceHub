@@ -172,24 +172,11 @@ impl<'a> TemporaryCliLaunchService<'a> {
         let saved_model = saved_preference
             .map(|preference| preference.model.trim().to_string())
             .unwrap_or_default();
-        let model = match session_mode {
-            TemporaryCliSessionMode::New => [
-                input.model.trim(),
-                saved_preference
-                    .map(|preference| preference.model.trim())
-                    .unwrap_or_default(),
-                provider.cli.preferred_model.trim(),
-                provider.liveness.model.trim(),
-                data.settings.liveness_model.trim(),
-            ]
-            .into_iter()
-            .find(|value| !value.is_empty())
-            .unwrap_or_default()
-            .to_string(),
-            TemporaryCliSessionMode::History => input.model.trim().to_string(),
-        };
+        // The picker has already presented the saved preference. An explicitly
+        // cleared model means inherit the native Agent, including in previews.
+        let model = input.model.trim().to_string();
         let preference_model = match session_mode {
-            TemporaryCliSessionMode::New if !model.is_empty() => model.clone(),
+            TemporaryCliSessionMode::New => model.clone(),
             _ => saved_model,
         };
 
@@ -221,8 +208,10 @@ impl<'a> TemporaryCliLaunchService<'a> {
 
 fn launch_options(prepared: &PreparedTemporaryCliLaunch) -> LaunchOptions<'_> {
     LaunchOptions {
+        run_settings: Some(&prepared.input.run_settings),
         api_key_override: &prepared.api_key,
         model_override: &prepared.model,
+        inherited_model: &prepared.input.inherited_model,
         session_name_override: &prepared.input.session_name,
         session_title: &prepared.input.session_title,
         resume_id: &prepared.input.resume_id,

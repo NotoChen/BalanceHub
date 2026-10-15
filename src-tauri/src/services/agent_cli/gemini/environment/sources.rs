@@ -7,27 +7,8 @@ use crate::{
 };
 use std::path::{Path, PathBuf};
 
-pub(super) fn managed_root() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        PathBuf::from("/Library/Application Support/GeminiCli")
-    } else if cfg!(target_os = "windows") {
-        PathBuf::from(r"C:\ProgramData\gemini-cli")
-    } else {
-        PathBuf::from("/etc/gemini-cli")
-    }
-}
-
-fn configured_system_file(name: &str, default: PathBuf, workdir: &Path) -> PathBuf {
-    crate::services::cli_paths::configured_path(name)
-        .map(|path| {
-            if path.is_absolute() {
-                path
-            } else {
-                workdir.join(path)
-            }
-        })
-        .unwrap_or(default)
-}
+use config::configured_system_file;
+pub(super) use config::managed_root;
 
 pub(super) fn mcp_participation(
     request: AgentAssetParseRequest<'_>,

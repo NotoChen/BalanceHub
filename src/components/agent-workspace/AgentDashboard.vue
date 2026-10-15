@@ -213,7 +213,7 @@ defineExpose({ refresh });
     </a-drawer>
     <AgentHistoryDrawer :visible="historyVisible" @close="historyVisible = false" />
     <AgentMaintenancePlanModal />
-    <AgentConfigurationEditorModal :model="model.configuration.editor">
+    <AgentConfigurationEditorModal :model="model.configuration.editor" :sources="model.configuration.sources" @open-source="model.configuration.openFile">
       <template #file-actions="{ sourceId }"><AgentConfigurationFileActions :source="model.configuration.editorSource(sourceId)" :busy="model.configuration.opening[sourceId]" @action="(source, action) => model.configuration.action(source.sourceId, action, source)" /></template>
     </AgentConfigurationEditorModal>
     <AgentConfigurationPreviewModal :model="model.configuration" />

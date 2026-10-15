@@ -137,15 +137,14 @@ function clearSearchFilters() {
   history.roleFilter = "all";
 }
 watch(
-  () =>
-    [
-      historyActive.value,
-      navigation.sessionAgentFilter,
-    navigation.sessionEnvironment,
-      query.value,
-      history.roleFilter,
-      history.scope?.revision,
-    ] as const,
+  [
+    historyActive,
+    () => navigation.sessionAgentFilter,
+    () => navigation.sessionEnvironment,
+    query,
+    () => history.roleFilter,
+    () => history.scope?.revision,
+  ],
   () => {
     resumeRow.value = null;
     relocationRow.value = null;

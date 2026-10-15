@@ -15,6 +15,7 @@ import type { AgentCliDescriptor } from "../../stores/provider-types";
 import { agentAssetCategoryLabels, agentAssetScopeLabels, agentAssetStateLabels, agentAssetTrustLabels } from "../../composables/useAgentAssetCatalog";
 import { agentCatalogActionLabels, agentCatalogDriftLabels, agentCatalogSyncLabels, agentCatalogUnresolvedLabel } from "../../utils/agent-catalog-display";
 import { agentAssetFeatureMatches, agentAssetProvenanceEntries, agentAssetProvenanceLabel } from "../../utils/agent-asset-provenance";
+import { revealInScrollContainer } from "../../utils/scroll-container";
 
 const props = defineProps<{
   busy: boolean; visible: boolean; asset: AgentCatalogAsset | null; catalog: AgentAssetCatalog | null;
@@ -31,26 +32,35 @@ const expanded = ref(false);
 watch(() => props.visible, (visible) => { if (!visible) expanded.value = false; });
 const drawerWidth = computed(() => expanded.value ? "calc(100vw - 32px)" : !props.resource.reading ? "min(1280px, calc(100vw - 48px))" : "min(920px, calc(100vw - 32px))");
 const feature = ref<string | null>(null);
+let focusRequest = 0;
+let pendingFeature: string | null = null;
 function focusFeature(value: string | null) {
+  const request = ++focusRequest;
   feature.value = value;
+  pendingFeature = value;
   props.resource.managementExpanded = Boolean(value && value !== "same-name" && value !== "variants");
   if (!value) return;
   const assetId = props.asset?.id;
   void nextTick(() => {
-    if (!props.visible || props.asset?.id !== assetId || feature.value !== value) return;
+    if (request !== focusRequest || !props.visible || props.asset?.id !== assetId || feature.value !== value) return;
     const target = [...(detailRoot.value?.querySelectorAll<HTMLElement>("[data-catalog-focus]") ?? [])].find((node) => node.dataset.catalogFocus === value);
+    if (!target) return;
     let ancestor = target?.parentElement;
     while (ancestor && ancestor !== detailRoot.value) {
       if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
       ancestor = ancestor.parentElement;
     }
-    target?.scrollIntoView({ block: "nearest" });
-    target?.focus({ preventScroll: true });
+    revealInScrollContainer(detailRoot.value?.closest<HTMLElement>(".arco-drawer-body"), target);
+    target.focus({ preventScroll: true });
+    pendingFeature = null;
   });
 }
-watch(() => [props.visible, props.asset?.id, props.focusedFeature] as const, () => { if (props.visible) focusFeature(props.focusedFeature ?? null); }, { immediate: true });
+watch([() => props.visible, () => props.asset?.id, () => props.focusedFeature], () => {
+  if (props.visible) focusFeature(props.focusedFeature ?? null);
+  else { focusRequest++; pendingFeature = null; }
+}, { immediate: true });
 watch(() => props.resource.reader.loading, (loading) => {
-  if (!loading && props.visible && feature.value === "variants") focusFeature("variants");
+  if (!loading && props.visible && pendingFeature) focusFeature(pendingFeature);
 });
 const managementEntries = computed(() => new Map(props.resource.management.panel?.entries.map((entry) => [entry.targetId, entry]) ?? []));
 const batchActions = computed(() => (props.resource.management.panel?.batchActions ?? []).filter((action) => action.available && action.targetIds.length > 1));

@@ -83,7 +83,8 @@ before(async () => {
       if (command === "refresh_agent_overview") return Promise.resolve({ agentKind: args.agentKind, probe: { ...workspaceAgent(args.agentKind as AgentCliKind), available: true, path: "/fixture/bin/agent", version: "1.0.0", message: "fixture" }, configuration: null, configurationError: "", updatedAt: new Date().toISOString() });
       if (command === "get_agent_lifecycle_catalog") return Promise.resolve(lifecycleCatalog());
       if (command === "list_agent_configuration_sources") return Promise.resolve(null);
-      if (["list_agent_catalog_operations", "list_agent_lifecycle_operations", "list_agent_asset_operations", "list_agent_session_resume_operations"].includes(command)) return Promise.resolve([]);
+      if (["list_agent_catalog_operations", "list_agent_lifecycle_operations", "list_agent_asset_operations", "list_agent_session_resume_operations", "list_agent_maintenance_operations"].includes(command)) return Promise.resolve([]);
+      if (command === "host_platform") return Promise.resolve("macos");
       if (command === "inspect_agent_hook" || command === "health_agent_hook") return Promise.resolve(workspaceHook(args.agentKind as AgentCliKind));
       unexpected.push(command);
       return Promise.reject(new Error(`Unexpected Tauri command: ${command}`));

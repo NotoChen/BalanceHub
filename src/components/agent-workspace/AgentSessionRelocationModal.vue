@@ -31,7 +31,7 @@ function cancel() {
     );
 }
 watch(
-  () => [props.visible, props.row?.sessionRef, props.scopeRevision],
+  [() => props.visible, () => props.row?.sessionRef, () => props.scopeRevision],
   () => {
     cancel();
     error.value = "";

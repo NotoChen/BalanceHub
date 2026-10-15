@@ -15,10 +15,6 @@
 .app-update-modal .app-update-release-scroll { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); padding: 13px 15px; }
 .app-update-modal .app-update-footer { padding-top: 0; }
 .workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
-.workspace-picker-modal .workspace-history { background: #edf2f8; padding: 18px 15px; }
-.workspace-picker-modal .workspace-browser { background: var(--surface-panel); padding: 18px; }
-.workspace-picker-modal .workspace-launch-config { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel-soft); padding: 12px; }
-.workspace-picker-modal .workspace-directory-scroll { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); padding: 4px; }
 
 @media (max-width: 980px) {
   .settings-overview-hero { grid-template-columns: minmax(0, 1fr) 130px; padding-right: 20px; padding-left: 20px; }

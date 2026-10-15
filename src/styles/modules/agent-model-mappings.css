@@ -1,0 +1,147 @@
+.cli-native-field.has-model-mappings {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
+}
+.agent-model-mappings {
+  min-width: 0;
+}
+.agent-model-mapping-head,
+.agent-model-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.5fr) 14px minmax(0, 1.4fr) 22px;
+  align-items: center;
+  gap: 9px;
+}
+.agent-model-mappings.has-extra .agent-model-mapping-head,
+.agent-model-mappings.has-extra .agent-model-mapping-row {
+  grid-template-columns: minmax(88px, 0.55fr) 14px minmax(0, 1.4fr) minmax(
+      110px,
+      0.75fr
+    ) 22px;
+}
+.agent-model-mapping-head {
+  padding: 0 0 5px;
+  font-size: 10px;
+  color: var(--surface-muted);
+}
+.agent-model-mapping-row {
+  position: relative;
+  padding: 6px 0;
+}
+.agent-model-mapping-row + .agent-model-mapping-row {
+  border-top: 1px solid var(--surface-line);
+}
+.agent-model-mapping-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+}
+.agent-model-mapping-name > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-model-mapping-arrow {
+  color: var(--surface-muted);
+  font-size: 12px;
+}
+.is-customized > .agent-model-mapping-arrow {
+  color: var(--surface-accent);
+}
+.agent-model-mapping-target,
+.agent-model-mapping-extra {
+  min-width: 0;
+}
+.agent-model-mapping-extra input {
+  font-size: 12px;
+}
+.agent-model-mapping-extra.arco-input-wrapper,
+.agent-model-mapping-extra.arco-select-view {
+  height: 32px;
+}
+.agent-model-mapping-empty-cell {
+  color: var(--surface-muted);
+  text-align: center;
+}
+.agent-model-mapping-effective {
+  display: block;
+  padding: 4px 0 0;
+  font-size: 10px;
+  color: var(--surface-accent);
+  overflow-wrap: anywhere;
+}
+.agent-model-mapping-reset {
+  grid-column: -2;
+}
+.agent-model-mapping-empty {
+  margin: 3px 0 7px;
+  color: var(--surface-muted);
+  font-size: 12px;
+}
+.agent-model-mapping-add {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.6fr) minmax(140px, 1fr) auto auto;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+.agent-model-mapping-add > .cli-native-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.agent-model-mapping-add-button {
+  margin: 6px 0 0;
+  padding-left: 0;
+}
+.model-mapping-enter-active,
+.model-mapping-leave-active,
+.model-mapping-move {
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+.model-mapping-enter-from,
+.model-mapping-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
+}
+@container cli-settings (max-width: 600px) {
+  .cli-native-field.has-model-mappings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agent-model-mappings.has-extra .agent-model-mapping-head,
+  .agent-model-mappings.has-extra .agent-model-mapping-row {
+    grid-template-columns: minmax(72px, 0.55fr) 12px minmax(0, 1.5fr) 22px;
+    gap: 6px;
+  }
+  .agent-model-mappings.has-extra .agent-model-mapping-head > :nth-child(4) {
+    display: none;
+  }
+  .agent-model-mapping-extra {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .agent-model-mapping-empty-cell {
+    display: none;
+  }
+  .agent-model-mapping-reset {
+    grid-column: 4;
+    grid-row: 1;
+  }
+  .agent-model-mapping-add {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .agent-model-mapping-add > .arco-input-wrapper {
+    grid-column: 1 / -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-mapping-enter-active,
+  .model-mapping-leave-active,
+  .model-mapping-move {
+    transition: none;
+  }
+}

@@ -464,13 +464,17 @@ fn hook_receipt_reidentifies_reordered_content_and_refuses_ambiguous_old_slots()
 
 fn pending(bytes: &[u8]) -> bool {
     let value: Value = serde_json::from_slice(bytes).unwrap();
-    value["entries"].as_object().unwrap().values().any(|entry| {
-        entry["receipts"]
-            .as_object()
-            .unwrap()
-            .values()
-            .any(|receipt| receipt["hook"]["pending"].is_object())
-    })
+    value["library"]["entries"]
+        .as_object()
+        .unwrap()
+        .values()
+        .any(|entry| {
+            entry["receipts"]
+                .as_object()
+                .unwrap()
+                .values()
+                .any(|receipt| receipt["hook"]["pending"].is_object())
+        })
 }
 
 #[test]

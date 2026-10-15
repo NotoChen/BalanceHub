@@ -158,6 +158,7 @@ impl LivenessRunner {
         if let Some(path_env) = agent_cli::runtime_path_for(Path::new(&context.cli_path)) {
             command.env("PATH", path_env);
         }
+        command.current_dir(&isolated_home);
         apply_common_isolated_home(&mut command, &isolated_home);
         apply_environment_patch(&mut command, &plan.environment);
         command.args(&plan.args);

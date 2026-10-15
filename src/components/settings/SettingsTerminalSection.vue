@@ -39,10 +39,10 @@ const sessionIndexPending = computed(() =>
   || props.settings.sessionIndexMaxSizeMiB !== savedSettings.settings.sessionIndexMaxSizeMiB,
 );
 
-watch(() => [
-  savedSettings.settings.sessionIndexDirectory,
-  savedSettings.settings.sessionIndexEnabled,
-  savedSettings.settings.sessionIndexMaxSizeMiB,
+watch([
+  () => savedSettings.settings.sessionIndexDirectory,
+  () => savedSettings.settings.sessionIndexEnabled,
+  () => savedSettings.settings.sessionIndexMaxSizeMiB,
 ], () => {
   sessionIndexStatus.value = null;
   void refreshSessionIndexStatus();

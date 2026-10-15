@@ -43,6 +43,24 @@
   border-color: var(--surface-control-line);
 }
 
+/* Arco focuses an absolute, zero-width input before opening a single select.
+ * Give it a local focus rectangle so WebKit does not scroll an ancestor modal
+ * to reveal the input. Keep it focusable for keyboard navigation and search. */
+.arco-select-view-single {
+  position: relative;
+}
+
+.arco-select-view-single > .arco-select-view-input.arco-select-view-input-hidden {
+  top: 0;
+  left: 12px;
+  /* Override Arco's width: 0 !important only while the input is hidden. */
+  width: 1px !important;
+  height: 100%;
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 :root .arco-input::placeholder,
 :root .arco-textarea::placeholder,
 :root .arco-select-view-placeholder {
@@ -124,9 +142,11 @@
   background: var(--surface-panel);
 }
 
-/* These long forms share the available height with their header and actions. */
+/* These long forms share the available height with their header and actions.
+ * Keep the shell inline: Arco centers it beside a full-height pseudo-element;
+ * a block flex shell pushes that spacer onto another line and adds overflow. */
 .surface-modal:is(.settings-modal-v3, .provider-editor-modal-v3) {
-  display: flex;
+  display: inline-flex;
   height: min(840px, calc(100dvh - 48px));
   flex-direction: column;
 }
@@ -199,10 +219,18 @@
 .surface-modal .arco-select-view-value,
 .surface-modal .arco-picker-input,
 .surface-modal .arco-textarea {
-  min-height: 38px;
   background: transparent;
   color: var(--surface-ink);
   font-size: 13px;
+}
+
+/* Select labels and their search input share Arco's size-specific height.
+ * An extra input minimum would grow the whole row when search gains focus. */
+.surface-modal .arco-input,
+.surface-modal .arco-input-number-input,
+.surface-modal .arco-picker-input,
+.surface-modal .arco-textarea {
+  min-height: 38px;
 }
 
 .surface-modal .arco-input::placeholder,

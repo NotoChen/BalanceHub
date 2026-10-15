@@ -109,8 +109,10 @@ button.agent-overview-status:hover { color: var(--surface-accent); }
 
 .agent-overview-card .agent-card-footer { --workspace-card-action-gap: 2px; padding-top: 8px; }
 .agent-card-footer .workspace-card-quick-actions { flex: 1 1 auto; justify-content: space-between; border-left: 0; }
-.agent-card-footer .card-icon-action { width: 28px; height: 30px; flex-basis: 28px; }
-.agent-card-footer .agent-card-launch { display: inline-flex; width: auto; min-width: 68px; height: 32px; flex-basis: auto; align-items: center; justify-content: center; gap: 5px; margin-left: 6px; padding: 0 10px; background: var(--surface-accent-soft); font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.agent-card-footer .workspace-card-action-group { gap: 4px; }
+.agent-card-footer .card-icon-action { width: 28px; height: 32px; flex-basis: 28px; }
+.agent-card-footer .agent-card-labeled-action { display: inline-flex; width: auto; min-width: 68px; height: 32px; flex-basis: auto; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.agent-card-footer .agent-card-launch { margin-left: 6px; background: var(--surface-accent-soft); }
 .agent-card-footer .agent-card-launch:disabled { background: transparent; }
 
 .agent-card-spinning { animation: agent-catalog-spin 1s linear infinite; }

@@ -6,6 +6,7 @@ import type { AgentAssetScope } from "../../stores/provider-types";
 import type { AgentCatalogConfigurationChoice, AgentCatalogConfigurationSelection } from "../../stores/agent-catalog-types";
 import { agentCatalogSyncLabels } from "../../utils/agent-catalog-display";
 import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
+import { revealInScrollContainer } from "../../utils/scroll-container";
 
 const props = defineProps<{ selection: AgentCatalogConfigurationSelection; selected: string[]; canCompare: boolean }>();
 const emit = defineEmits<{ select: [ids: string[]]; compare: [assetId: string] }>();
@@ -35,8 +36,8 @@ async function viewShared(choice: AgentCatalogConfigurationChoice) {
   scope.value = shared.scope;
   await nextTick();
   const row = root.value?.querySelector<HTMLElement>(`[data-choice-id="${CSS.escape(shared.id)}"]`);
+  revealInScrollContainer(root.value?.closest<HTMLElement>(".arco-modal-body, .arco-drawer-body"), row);
   row?.focus({ preventScroll: true });
-  row?.scrollIntoView({ block: "nearest" });
 }
 </script>
 

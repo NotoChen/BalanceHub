@@ -1,5 +1,6 @@
 mod orchestrator;
 mod prepared;
+mod run_settings;
 mod shell_runtime;
 mod terminal;
 #[cfg(test)]
@@ -21,21 +22,27 @@ use crate::{
 };
 use shell_runtime::{
     environment,
-    script::{effective_model, format_cli_command, preview_cli_auxiliary_path},
+    script::{format_cli_command, preview_cli_auxiliary_path},
 };
 use std::path::Path;
 use terminal::activate_terminal_target;
 
 pub(crate) use orchestrator::{launch_identity, ResumeCompletion, TemporaryCliLaunchService};
 pub(crate) use prepared::{prepare_launch, CliLaunchRequest, CliLaunchTarget};
+pub(crate) use run_settings::{
+    asset_options as run_asset_options, capabilities as run_capabilities,
+    validate as validate_run_settings,
+};
 pub use shell_runtime::script::cleanup_stale;
 pub use terminal::{probe_available_terminals, probe_terminal};
 
 /// 本次临时 CLI 启动的调用方覆盖项。配置解析和实例注册仍由本模块统一负责，
 /// 这里只承载 IPC 层已经解析出的单次启动选择。
 pub(crate) struct LaunchOptions<'a> {
+    pub(crate) run_settings: Option<&'a crate::models::TemporaryCliRunSettings>,
     pub(crate) api_key_override: &'a str,
     pub(crate) model_override: &'a str,
+    pub(crate) inherited_model: &'a str,
     pub(crate) session_name_override: &'a str,
     pub(crate) session_title: &'a str,
     pub(crate) resume_id: &'a str,
@@ -76,12 +83,7 @@ pub fn preview(
             format!("所选终端当前不可用，请重新扫描终端：{detail}")
         });
     }
-    let model = resolve_launch_model(
-        settings,
-        provider,
-        options.model_override,
-        options.session_mode,
-    );
+    let model = options.model_override.trim().to_string();
     let session_name = resolve_session_name(
         cli_kind,
         options.session_mode,
@@ -94,7 +96,7 @@ pub fn preview(
     let base_url = agent_cli::provider_base_url(cli_kind, provider);
     let proxy_environment = network::resolve_proxy(settings, provider).environment();
     let auxiliary_file_path = preview_cli_auxiliary_path(launch_adapter.auxiliary_file_name());
-    let plan = launch_adapter.build_plan(TemporaryLaunchRequest {
+    let mut plan = launch_adapter.build_plan(TemporaryLaunchRequest {
         configuration: TemporaryLaunchConfiguration::Provider {
             provider_name: &provider.identity.name,
             api_key: "***",
@@ -106,6 +108,20 @@ pub fn preview(
         session_mode: options.session_mode,
         auxiliary_file_path: auxiliary_file_path.as_deref(),
     })?;
+    let run = run_settings::apply(
+        run_settings::RunSettingsRequest {
+            app_settings: settings,
+            kind: cli_kind,
+            cli_path: &cli.path,
+            workdir,
+            mode: options.session_mode,
+            model: options.model_override,
+            inherited_model: options.inherited_model,
+            directory: &std::env::temp_dir().join("balancehub-launch-preview"),
+            settings: options.run_settings,
+        },
+        &mut plan,
+    )?;
     let mut environment = environment::capture_shell_environment();
     for (name, value) in proxy_environment.variables() {
         environment::insert_environment(&mut environment, name, value);
@@ -142,6 +158,8 @@ pub fn preview(
         environment,
         settings_path: auxiliary_file_path.map(|path| path.to_string_lossy().to_string()),
         settings_content: plan.auxiliary_file_content,
+        run_summary: run.summary,
+        model_selection: run.model_selection,
     })
 }
 
@@ -205,24 +223,6 @@ fn resolve_resume_id(
         return Err("历史会话 ID 不能是命令选项或包含控制字符".to_string());
     }
     Ok(id.to_string())
-}
-
-fn resolve_launch_model(
-    settings: &AppSettings,
-    provider: &Provider,
-    model_override: &str,
-    session_mode: TemporaryCliSessionMode,
-) -> String {
-    if !model_override.trim().is_empty() {
-        return model_override.trim().to_string();
-    }
-    // 恢复已有会话时，CLI 自己会从会话元数据恢复模型；注入测活默认模型
-    // 可能改变原会话的行为。新会话仍沿用现有的全局/中转站回退规则。
-    if !matches!(session_mode, TemporaryCliSessionMode::New) {
-        String::new()
-    } else {
-        effective_model(settings, provider)
-    }
 }
 
 fn resolve_session_name(
@@ -301,6 +301,7 @@ fn validate_launch_options(
 ) -> Result<(), String> {
     let definition = agent_cli::definition(cli_kind);
     let capabilities = definition.capabilities();
+    validate_model_override(options.model_override)?;
     if !options.model_override.trim().is_empty() && !capabilities.model_selection {
         return Err(format!("{} 当前不支持启动时指定模型", definition.label));
     }
@@ -308,6 +309,13 @@ fn validate_launch_options(
         && (!capabilities.session_history || !capabilities.session_resume)
     {
         return Err(format!("{} 当前不支持恢复历史会话", definition.label));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_model_override(model: &str) -> Result<(), String> {
+    if model.len() > 512 || model.chars().any(char::is_control) || model.trim().starts_with('-') {
+        return Err("模型名称无效，请选择模型或输入有效的模型 ID".into());
     }
     Ok(())
 }

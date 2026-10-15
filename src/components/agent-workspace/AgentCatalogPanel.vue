@@ -39,7 +39,16 @@ function selectBatch(id: string, selected: boolean) {
   batchIds.value = selected ? [...new Set([...batchIds.value, id])] : batchIds.value.filter((value) => value !== id);
 }
 function openBatch(action: AgentCatalogAction) { batchAction.value = action; batchVisible.value = true; }
-watch(() => [props.page, props.catalog?.inventory.workspace], () => { batchIds.value = []; batchMode.value = false; batchVisible.value = false; });
+watch([() => props.page, () => props.catalog?.inventory.workspace], () => { batchIds.value = []; batchMode.value = false; batchVisible.value = false; });
+watch(() => props.catalog?.assets, (assets) => {
+  if (!assets || !batchIds.value.length) return;
+  const available = new Set(assets.map((asset) => asset.id));
+  const retained = batchIds.value.filter((id) => available.has(id));
+  if (retained.length !== batchIds.value.length) {
+    batchIds.value = retained;
+    if (!retained.length) batchVisible.value = false;
+  }
+});
 const list = ref<InstanceType<typeof AgentCatalogList> | null>(null);
 const timeDescription = "按来源文件时间排序；多来源取最早创建、最近修改时间。共用配置文件的条目时间相同，未提供时间的条目排在末尾。";
 const activeSourceFilters = computed(() => [

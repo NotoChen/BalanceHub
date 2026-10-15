@@ -4,9 +4,9 @@ use super::shell_runtime::script::{
 };
 use super::terminal::open_script_in_terminal;
 use super::{
-    ensure_temporary_launch_supported, provider_account_label, resolve_launch_model,
-    resolve_resume_id, resolve_session_name, runtime_session_title, validate_full_api_key,
-    validate_launch_options, LaunchOptions,
+    ensure_temporary_launch_supported, provider_account_label, resolve_resume_id,
+    resolve_session_name, runtime_session_title, validate_full_api_key, validate_launch_options,
+    LaunchOptions,
 };
 use crate::{
     models::{
@@ -138,16 +138,7 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             return Err("缺少中转站地址，无法启动临时 CLI".to_owned());
         }
     }
-    let model = provider
-        .map(|provider| {
-            resolve_launch_model(
-                settings,
-                provider,
-                options.model_override,
-                options.session_mode,
-            )
-        })
-        .unwrap_or_default();
+    let model = options.model_override.trim().to_string();
     let session_name = resolve_session_name(
         cli_kind,
         options.session_mode,
@@ -190,6 +181,33 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             plan.environment.set(name, value);
         }
     }
+    let is_wsl = native_session.is_some_and(|identity| {
+        matches!(
+            identity.runtime_scope,
+            crate::models::AgentRuntimeScope::Wsl { .. }
+        )
+    });
+    if is_wsl
+        && options
+            .run_settings
+            .is_some_and(|value| value != &Default::default())
+    {
+        return Err("WSL 历史会话当前使用原生启动配置，请恢复默认的本次设置".into());
+    }
+    let run = super::run_settings::apply(
+        super::run_settings::RunSettingsRequest {
+            app_settings: settings,
+            kind: cli_kind,
+            cli_path: &cli.path,
+            workdir,
+            mode: options.session_mode,
+            model: options.model_override,
+            inherited_model: options.inherited_model,
+            directory: script.parent().ok_or("缺少启动目录")?,
+            settings: options.run_settings,
+        },
+        &mut plan,
+    )?;
     let wsl_path = if let Some(crate::models::AgentRuntimeScope::Wsl { distro_id }) =
         native_session.map(|identity| &identity.runtime_scope)
     {
@@ -230,6 +248,21 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             fs::create_dir_all(parent)
                 .map_err(|err| format!("创建临时 CLI 启动目录失败：{err}"))?;
         }
+        run.materialize()?;
+        cli_runtime::register_launch_directory(
+            &prepared.registered.status_path,
+            prepared.script.parent().ok_or("缺少启动目录")?,
+        )?;
+        if let Some(parent) = prepared.script.parent() {
+            fs::write(
+                parent.join("owner.json"),
+                serde_json::to_vec(
+                    &serde_json::json!({"statusPath": prepared.registered.status_path}),
+                )
+                .map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        }
         write_launch_script(&LaunchScriptInput {
             script: &prepared.script,
             cli_path: wsl_path.as_deref().unwrap_or(&cli.path),
@@ -243,7 +276,10 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             auxiliary_file_path: auxiliary_file_path.as_deref(),
             status_path: &prepared.registered.status_path,
             proxy_environment: &proxy.environment(),
-            prefer_shell_cli: native_session.is_none(),
+            prefer_shell_cli: native_session.is_none()
+                && options
+                    .run_settings
+                    .is_none_or(|value| value == &Default::default()),
         })
     })();
     if let Err(error) = write {

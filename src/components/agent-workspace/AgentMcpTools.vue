@@ -80,12 +80,12 @@ watch(
   { immediate: true },
 );
 watch(
-  () => [
-    props.assetId,
-    props.workspace,
-    bindingId.value,
-    props.tools.map((tool) => tool.name).join("\0"),
-    maintenance.historyRevision,
+  [
+    () => props.assetId,
+    () => props.workspace,
+    bindingId,
+    () => props.tools.map((tool) => tool.name).join("\0"),
+    () => maintenance.historyRevision,
   ],
   () => {
     page.value = 1;

@@ -1,4 +1,9 @@
 import { computed, ref, watch, type Ref } from "vue";
+import {
+  defaultTemporaryCliRunSettings,
+  copyTemporaryCliRunSettings,
+  type TemporaryCliRunSettings,
+} from "../stores/temporary-cli-settings-types";
 import type {
   AgentCliKind,
   CliEnvironmentProbeResult,
@@ -53,8 +58,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspacePickerProvider = ref<Provider | null>(null);
   const workspacePickerCliKind = ref<AgentCliKind>("codex");
   const workspaceSelectedModel = ref("");
-  const workspaceNewSessionModel = ref("");
+  const workspaceNewSessionModels = new Map<AgentCliKind, string>();
   const workspaceSessionName = ref("");
+  const workspaceRunSettings = ref(defaultTemporaryCliRunSettings());
+  const runDrafts = new Map<AgentCliKind, TemporaryCliRunSettings>();
   const workspaceSessionMode = ref<TemporaryCliSessionMode>("new");
   const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(
     options.terminalKind.value,
@@ -111,11 +118,13 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     sessionMode: workspaceSessionMode,
     sessionName: workspaceSessionName,
     canNameSession: workspaceCanNameSession,
+    runSettings: workspaceRunSettings,
     selectedResumeId: sessionHistory.workspaceSelectedResumeId,
     selectedSessionRef: sessionHistory.workspaceSelectedSessionRef,
     sessionScopeRevision: sessionHistory.workspaceSessionScopeRevision,
     selectedSessionTitle: sessionHistory.workspaceSelectedSessionTitle,
     selectedSessionWorkdir: sessionHistory.workspaceSelectedSessionWorkdir,
+    selectedSessionModel: sessionHistory.workspaceSelectedSessionModel,
     error: directoryBrowser.workspaceBrowserError,
     launch: options.launch,
     preview: options.preview,
@@ -137,14 +146,25 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       (item) => item.providerId === provider.identity.id,
     );
     const preferredCliKind = cliKind ?? preference?.cliKind ?? "codex";
+    const initialCliKind = workspaceCliOptions.value.some(
+      (option) => option.value === preferredCliKind,
+    )
+      ? preferredCliKind
+      : (workspaceCliOptions.value[0]?.value ?? preferredCliKind);
     apiKeySelection.resetWorkspaceApiKeys(preference?.apiKeyLocalId ?? "");
-    workspaceNewSessionModel.value =
-      provider.cli.preferredModel?.trim() ||
-      preference?.model ||
-      provider.liveness.model ||
-      "";
-    workspaceSelectedModel.value = workspaceNewSessionModel.value;
+    workspaceNewSessionModels.clear();
+    if (preference) {
+      workspaceNewSessionModels.set(preference.cliKind, preference.model);
+    }
+    workspaceNewSessionModels.set(
+      initialCliKind,
+      preference?.cliKind === initialCliKind
+        ? preference.model
+        : provider.cli.preferredModel?.trim() || "",
+    );
     workspaceSessionName.value = "";
+    runDrafts.clear();
+    workspaceRunSettings.value = defaultTemporaryCliRunSettings();
     workspaceSessionMode.value = "new";
     sessionHistory.resetWorkspaceSessions();
     sessionHistory.workspaceSessionRoleFilter.value = "main";
@@ -152,27 +172,39 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     directoryBrowser.resetWorkspaceDirectory();
     workspacePickerVisible.value = true;
 
-    const probes: Promise<unknown>[] = [
-      // 用户明确打开临时 CLI 时执行深探测，覆盖 shell 初始化脚本、版本管理器和新安装 CLI。
-      options.probeCliTools(true).catch(() => undefined),
-    ];
-    if (!options.terminalEnvironmentProbe.value) {
-      probes.push(options.probeTerminals().catch(() => undefined));
-    }
-    await Promise.all(probes);
-    if (!isCurrentPickerRequest(requestId, provider)) return;
-
-    workspacePickerCliKind.value = workspaceCliOptions.value.some(
-      (option) => option.value === preferredCliKind,
-    )
-      ? preferredCliKind
-      : (workspaceCliOptions.value[0]?.value ?? preferredCliKind);
+    workspacePickerCliKind.value = initialCliKind;
+    workspaceSelectedModel.value =
+      workspaceNewSessionModels.get(initialCliKind) ?? "";
     workspaceTerminalKind.value = workspaceTerminalOptions.value.some(
       (option) => option.value === options.terminalKind.value,
     )
       ? options.terminalKind.value
       : (workspaceTerminalOptions.value[0]?.value ??
         options.terminalKind.value);
+
+    // Opening the picker reuses the current probe. Directory/API-key loading
+    // must not wait for shell startup or installation discovery.
+    if (!options.cliEnvironmentProbe.value) {
+      void options.probeCliTools().catch(() => undefined);
+    }
+    if (!options.terminalEnvironmentProbe.value) {
+      void options
+        .probeTerminals()
+        .then(() => {
+          if (!isCurrentPickerRequest(requestId, provider)) return;
+          if (
+            !workspaceTerminalOptions.value.some(
+              (option) => option.value === workspaceTerminalKind.value,
+            )
+          ) {
+            workspaceTerminalKind.value =
+              workspaceTerminalOptions.value[0]?.value ??
+              options.terminalKind.value;
+          }
+        })
+        .catch(() => undefined);
+    }
+    void apiKeySelection.loadWorkspaceApiKeys(provider);
 
     const initialPath =
       preference?.workspacePath || options.workspaces.value[0]?.path;
@@ -182,7 +214,6 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
       await browseWorkspaceDirectory();
     }
     if (!isCurrentPickerRequest(requestId, provider)) return;
-    void apiKeySelection.loadWorkspaceApiKeys(provider);
   }
 
   function isCurrentPickerRequest(requestId: number, provider: Provider) {
@@ -202,41 +233,62 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     }
   });
 
-  watch(workspacePickerCliKind, () => {
-    sessionHistory.resetWorkspaceSessions();
-    if (
-      workspaceSessionMode.value === "history" &&
-      (!selectedCliTool.value?.capabilities.sessionHistory ||
-        !selectedCliTool.value?.capabilities.sessionResume)
-    ) {
-      workspaceSessionMode.value = "new";
-    }
-    if (workspacePickerVisible.value && workspaceSessionMode.value !== "new") {
-      workspaceSelectedModel.value = "";
-    }
-    if (workspacePickerVisible.value) {
-      void sessionHistory.loadWorkspaceSessions();
-    }
-  });
+  watch(
+    workspacePickerCliKind,
+    (kind, previous) => {
+      runDrafts.set(
+        previous,
+        copyTemporaryCliRunSettings(workspaceRunSettings.value),
+      );
+      workspaceRunSettings.value = copyTemporaryCliRunSettings(
+        runDrafts.get(kind) ?? defaultTemporaryCliRunSettings(),
+      );
+      sessionHistory.resetWorkspaceSessions();
+      if (
+        workspaceSessionMode.value === "history" &&
+        (!selectedCliTool.value?.capabilities.sessionHistory ||
+          !selectedCliTool.value?.capabilities.sessionResume)
+      ) {
+        workspaceSessionMode.value = "new";
+      }
+      workspaceSelectedModel.value =
+        workspaceSessionMode.value === "new"
+          ? (workspaceNewSessionModels.get(kind) ?? "")
+          : "";
+      if (workspacePickerVisible.value) {
+        void sessionHistory.loadWorkspaceSessions();
+      }
+    },
+    { flush: "sync" },
+  );
 
-  watch(workspaceSessionMode, (mode, previousMode) => {
-    if (mode === "new") {
-      workspaceSelectedModel.value = workspaceNewSessionModel.value;
-      sessionHistory.clearWorkspaceSessionSelection();
-      sessionHistory.closeWorkspaceSessionDetail();
-    } else if (previousMode === "new") {
-      workspaceSelectedModel.value = "";
-    }
-    if (workspacePickerVisible.value) {
-      void sessionHistory.loadWorkspaceSessions();
-    }
-  });
+  watch(
+    workspaceSessionMode,
+    (mode, previousMode) => {
+      if (mode === "new") {
+        workspaceSelectedModel.value =
+          workspaceNewSessionModels.get(workspacePickerCliKind.value) ?? "";
+        sessionHistory.clearWorkspaceSessionSelection();
+        sessionHistory.closeWorkspaceSessionDetail();
+      } else if (previousMode === "new") {
+        workspaceSelectedModel.value = "";
+      }
+      if (workspacePickerVisible.value) {
+        void sessionHistory.loadWorkspaceSessions();
+      }
+    },
+    { flush: "sync" },
+  );
 
-  watch(workspaceSelectedModel, (model) => {
-    if (workspaceSessionMode.value === "new") {
-      workspaceNewSessionModel.value = model;
-    }
-  });
+  watch(
+    workspaceSelectedModel,
+    (model) => {
+      if (workspaceSessionMode.value === "new") {
+        workspaceNewSessionModels.set(workspacePickerCliKind.value, model);
+      }
+    },
+    { flush: "sync" },
+  );
 
   watch(workspaceTerminalOptions, (available) => {
     if (
@@ -270,6 +322,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceApiKeyLocalId: apiKeySelection.workspaceApiKeyLocalId,
     workspaceSelectedModel,
     workspaceSessionName,
+    workspaceRunSettings,
     workspaceCanNameSession,
     workspaceSessionMode,
     workspaceSessionQuery: sessionHistory.workspaceSessionQuery,
@@ -285,7 +338,8 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionIndexMessage: sessionHistory.workspaceSessionIndexMessage,
     workspaceSelectedResumeId: sessionHistory.workspaceSelectedResumeId,
     workspaceSelectedSessionTitle: sessionHistory.workspaceSelectedSessionTitle,
-    workspaceSelectedSessionWorkdir: sessionHistory.workspaceSelectedSessionWorkdir,
+    workspaceSelectedSessionWorkdir:
+      sessionHistory.workspaceSelectedSessionWorkdir,
     workspaceSessionDetailVisible: sessionHistory.workspaceSessionDetailVisible,
     workspaceSessionDetailLoading: sessionHistory.workspaceSessionDetailLoading,
     workspaceSessionDetailError: sessionHistory.workspaceSessionDetailError,

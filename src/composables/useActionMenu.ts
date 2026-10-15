@@ -8,6 +8,7 @@ import {
   watch,
   type CSSProperties,
 } from "vue";
+import { revealInScrollContainer } from "../utils/scroll-container";
 
 /** 共用的操作菜单焦点与键盘导航，不等待菜单动作的异步结果。 */
 export function useActionMenu(options: { fitViewport?: boolean } = {}) {
@@ -105,7 +106,9 @@ export function useActionMenu(options: { fitViewport?: boolean } = {}) {
           ? items.length - 1
           : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
             items.length;
-    items[index]?.focus();
+    const item = items[index];
+    revealInScrollContainer(menuRef.value, item);
+    item?.focus({ preventScroll: true });
   }
 
   return { visible, menuId, viewportStyle, select, navigate };

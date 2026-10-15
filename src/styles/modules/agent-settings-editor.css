@@ -1,0 +1,255 @@
+.agent-settings-editor {
+  container: cli-settings / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  color: var(--surface-ink);
+}
+.agent-settings-editor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 2px;
+  flex: 0 0 auto;
+}
+.agent-settings-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+}
+.agent-settings-view-switch button,
+.agent-settings-section-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--surface-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+.agent-settings-view-switch button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 5px;
+}
+.agent-settings-view-switch button[aria-pressed="true"] {
+  color: var(--surface-accent);
+  background: var(--color-bg-2);
+}
+.agent-settings-view-switch button:hover,
+.agent-settings-section-tabs button:hover {
+  color: var(--surface-accent);
+}
+.agent-settings-view-switch button:active,
+.agent-settings-section-tabs button:active {
+  transform: translateY(1px);
+}
+.agent-settings-view-switch button:focus-visible,
+.agent-settings-section-tabs button:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 2px;
+}
+.agent-settings-scope {
+  font-size: 11px;
+  color: var(--surface-muted);
+}
+.agent-settings-coverage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 3px 0;
+  background: transparent;
+  color: var(--surface-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.agent-settings-coverage:hover {
+  color: var(--surface-accent);
+}
+.agent-settings-coverage:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 3px;
+}
+.agent-settings-saving {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--surface-muted);
+}
+.agent-settings-section-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 20px;
+  border-bottom: 1px solid var(--surface-line);
+  padding: 0 12px;
+}
+.agent-settings-section-tabs button {
+  position: relative;
+  min-height: 38px;
+  padding: 4px 0;
+}
+.agent-settings-section-tabs button[aria-pressed="true"] {
+  color: var(--surface-accent);
+  font-weight: 600;
+}
+.agent-settings-section-tabs button::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--surface-accent);
+  transform: scaleX(0);
+  transition: transform 160ms ease;
+}
+.agent-settings-section-tabs button[aria-pressed="true"]::after {
+  transform: scaleX(1);
+}
+.agent-settings-fields {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 16px 18px;
+  min-height: 0;
+  min-width: 0;
+  scrollbar-gutter: stable;
+  animation: agent-settings-enter 180ms ease;
+}
+.agent-settings-fields .cli-native-field {
+  grid-template-columns: minmax(145px, 23%) minmax(0, 1fr);
+}
+.agent-settings-fields .cli-native-field-heading {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.agent-settings-fields .cli-native-field,
+.agent-settings-fields .agent-model-mapping-row {
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.agent-settings-fields .is-source-target {
+  border-radius: 6px;
+  background: var(--surface-accent-soft);
+  box-shadow: inset 3px 0 0 var(--surface-accent);
+  outline: none;
+}
+.agent-settings-source-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 280px;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--surface-accent);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+.agent-settings-source-action:hover:not(:disabled) {
+  background: var(--surface-accent-soft);
+}
+.agent-settings-source-action:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 2px;
+}
+.agent-settings-source-action:disabled {
+  color: var(--surface-muted);
+  cursor: default;
+}
+.agent-settings-location-note {
+  padding: 0 8px;
+}
+.agent-settings-note,
+.agent-settings-error,
+.agent-settings-notices {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.agent-settings-note,
+.agent-settings-notices {
+  color: var(--surface-muted);
+}
+.agent-settings-error {
+  color: rgb(var(--danger-6));
+}
+.agent-settings-notices {
+  padding: 0 16px;
+  flex: 0 0 auto;
+  max-height: min(160px, 20dvh);
+  overflow: auto;
+}
+.agent-settings-notices summary {
+  cursor: pointer;
+}
+.agent-settings-skeleton {
+  display: grid;
+  gap: 24px;
+  padding: 28px 16px;
+}
+.agent-settings-skeleton i {
+  height: 32px;
+  border-radius: 5px;
+  background: var(--surface-panel-soft);
+}
+.agent-settings-editor > .content-editor {
+  flex: 1;
+  min-height: 0;
+}
+@container cli-settings (max-width: 520px) {
+  .agent-settings-fields {
+    padding: 4px 8px 12px;
+  }
+  .agent-settings-fields .cli-native-field:not(.has-slider) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .agent-settings-fields .cli-native-field.has-slider {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+@keyframes agent-settings-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-settings-fields {
+    animation: none;
+  }
+  .agent-settings-view-switch button,
+  .agent-settings-section-tabs button,
+  .agent-settings-section-tabs button::after,
+  .agent-settings-fields .cli-native-field,
+  .agent-settings-fields .agent-model-mapping-row,
+  .agent-settings-source-action {
+    transition: none;
+  }
+}

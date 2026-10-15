@@ -384,7 +384,7 @@ fn unadopted_native_toggle_keeps_durable_partial_ownership_intent_after_restart(
     let policy_after = fs::read(&policy_path).unwrap();
     let library_path = temporary.path().join("library/library.json");
     let library: Value = serde_json::from_slice(&fs::read(&library_path).unwrap()).unwrap();
-    let receipts = library["entries"][&item.id]["receipts"]
+    let receipts = library["library"]["entries"][&item.id]["receipts"]
         .as_object()
         .unwrap();
     assert_eq!(receipts.len(), 1);

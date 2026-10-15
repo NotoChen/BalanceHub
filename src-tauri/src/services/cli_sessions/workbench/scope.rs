@@ -32,6 +32,7 @@ pub(crate) struct ResolvedSessionTarget {
     pub cli_kind: AgentCliKind,
     pub workdir: PathBuf,
     pub native_session_id: String,
+    pub model: String,
     pub session_ref: String,
     pub source_identity: String,
     pub config_root: PathBuf,
@@ -429,6 +430,7 @@ fn resolve_session_ref_with(
         cli_kind: entry.record.summary.cli_kind,
         workdir: PathBuf::from(&workspace.path),
         native_session_id: entry.record.summary.id,
+        model: entry.record.summary.model.unwrap_or_default(),
         session_ref: session_ref.into(),
         source_identity: hash(&[
             "native",

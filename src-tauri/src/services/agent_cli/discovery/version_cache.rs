@@ -36,19 +36,7 @@ pub(super) fn cached(
     digest.update(b"agent-cli-version-v1");
     digest.update(spec.kind.key());
     cache::observe_environment(&mut digest, spec.kind);
-    cache::observe_path(&mut digest, candidate);
-    let canonical = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
-    cache::observe_path(&mut digest, &canonical);
-    // npm wrappers can stay unchanged while their package/native binary changes.
-    for parent in canonical.ancestors().skip(1).take(6) {
-        let manifest = parent.join("package.json");
-        cache::observe_path(&mut digest, &manifest);
-        if manifest.is_file() {
-            cache::observe_path(&mut digest, parent);
-            cache::observe_path(&mut digest, &parent.join("node_modules"));
-            break;
-        }
-    }
+    cache::observe_executable(&mut digest, candidate);
     if let Some(path) = runtime_path.path_for(candidate) {
         digest.update(path.as_encoded_bytes());
         for directory in std::env::split_paths(&path) {

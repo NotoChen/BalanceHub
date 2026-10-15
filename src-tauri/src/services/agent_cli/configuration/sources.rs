@@ -244,7 +244,7 @@ impl ConfigurationService {
     pub(super) fn revalidate_context(
         &self,
         source: &ConfigurationSourceAuthority,
-    ) -> Result<(), AgentConfigurationError> {
+    ) -> Result<super::runtime::ConfigurationRuntime, AgentConfigurationError> {
         let runtime_scope = source
             .context
             .environment_id
@@ -261,9 +261,8 @@ impl ConfigurationService {
                 runtime_scope,
             },
             None,
-        )?
-        .contexts;
-        if !current.contexts.iter().any(|context| {
+        )?;
+        if !current.contexts.contexts.iter().any(|context| {
             context.id == source.context.id
                 && context.config_root == source.context.config_root
                 && context.parser_version == source.context.parser_version
@@ -272,7 +271,7 @@ impl ConfigurationService {
                 AgentConfigurationErrorKind::RootChanged,
             ));
         }
-        Ok(())
+        Ok(current)
     }
 }
 
@@ -283,6 +282,7 @@ pub(super) fn public_source(
     workspace: Option<&Path>,
 ) -> AgentConfigurationSource {
     AgentConfigurationSource {
+        visual_settings: agent_cli::settings::supports_form(context.agent_kind, spec),
         source_id: id,
         context_id: context.id.clone(),
         environment_id: context.environment_id.clone(),

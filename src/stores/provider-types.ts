@@ -1478,6 +1478,8 @@ export interface TemporaryCliPreference {
 }
 
 export interface TemporaryCliLaunchInput {
+  inheritedModel?: string;
+  runSettings?: import("./temporary-cli-settings-types").TemporaryCliRunSettings;
   providerId: string;
   cliKind: AgentCliKind;
   cliPath: string;
@@ -1493,6 +1495,8 @@ export interface TemporaryCliLaunchInput {
 }
 
 export interface TemporaryCliLaunchPreview {
+  modelSelection: import("./agent-settings-types").AgentSettingValueSummary;
+  runSummary: string[];
   providerName: string;
   cliKind: AgentCliKind;
   cliPath: string;

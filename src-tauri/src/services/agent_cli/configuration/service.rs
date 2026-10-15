@@ -376,6 +376,8 @@ impl ConfigurationService {
                 .saturating_add(before.len().saturating_mul(2))
                 .saturating_add(text.len());
             public_documents.push(AgentConfigurationEditableDocument {
+                visual_settings: source.source.visual_settings
+                    && matches!(selection, DocumentSelection::Whole),
                 source_id: source.source.source_id.clone(),
                 label: source.source.label.clone(),
                 path: source.source.path.clone(),

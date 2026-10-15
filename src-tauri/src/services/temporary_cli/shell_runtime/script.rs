@@ -24,7 +24,7 @@ pub(in crate::services::temporary_cli) use windows::{
 };
 
 use crate::{
-    models::{AgentCliKind, AppSettings, Provider},
+    models::{AgentCliKind, Provider},
     network::ProxyEnvironment,
     platform::paths::compatible_path,
     services::agent_cli::{
@@ -51,19 +51,14 @@ pub(in crate::services::temporary_cli) fn cleanup_launch_files(
         let _ = fs::remove_file(settings_path);
     }
     if let Some(parent) = script.parent() {
+        if parent.file_name().is_some_and(|name| {
+            name.to_string_lossy()
+                .starts_with("balancehub-temporary-cli-")
+        }) {
+            let _ = fs::remove_dir_all(parent);
+            return;
+        }
         let _ = fs::remove_dir(parent);
-    }
-}
-
-pub(in crate::services::temporary_cli) fn effective_model(
-    settings: &AppSettings,
-    provider: &Provider,
-) -> String {
-    let provider_model = provider.liveness.model.trim();
-    if provider_model.is_empty() {
-        settings.liveness_model.trim().to_string()
-    } else {
-        provider_model.to_string()
     }
 }
 
@@ -189,12 +184,12 @@ pub(super) fn write_auxiliary_file(
 }
 
 #[cfg(not(target_os = "windows"))]
-fn restrict_to_owner(path: &Path) -> Result<(), String> {
+pub(in crate::services::temporary_cli) fn restrict_to_owner(path: &Path) -> Result<(), String> {
     unix::restrict_to_owner(path)
 }
 
 #[cfg(target_os = "windows")]
-fn restrict_to_owner(path: &Path) -> Result<(), String> {
+pub(in crate::services::temporary_cli) fn restrict_to_owner(path: &Path) -> Result<(), String> {
     windows::restrict_to_owner(path)
 }
 
@@ -216,6 +211,42 @@ pub fn cleanup_stale() {
         };
         if !PREFIXES.iter().any(|prefix| name.starts_with(prefix)) {
             continue;
+        }
+        let path = entry.path();
+        let owner = fs::read(path.join("owner.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        if let Some(status_path) = owner
+            .as_ref()
+            .and_then(|owner| owner.get("statusPath"))
+            .and_then(serde_json::Value::as_str)
+        {
+            let status = fs::read(status_path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+            if let Some(status) = status {
+                if let Some(pid) = status
+                    .get("pid")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|pid| u32::try_from(pid).ok())
+                {
+                    if crate::services::cli_runtime::process_is_alive(pid) {
+                        continue;
+                    }
+                } else if status.get("status").and_then(serde_json::Value::as_str) != Some("exited")
+                {
+                    continue;
+                }
+                if status.get("status").and_then(serde_json::Value::as_str) == Some("exited")
+                    && status
+                        .get("exitCode")
+                        .and_then(serde_json::Value::as_i64)
+                        .is_some()
+                {
+                    let _ = fs::remove_dir_all(&path);
+                    continue;
+                }
+            }
         }
         let stale = entry
             .metadata()

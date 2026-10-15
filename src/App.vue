@@ -109,6 +109,7 @@ useWindowGridSnap();
       v-model:selected-model="app.workspaceSelectedModel"
       v-model:session-name="app.workspaceSessionName"
       v-model:session-mode="app.workspaceSessionMode"
+      v-model:run-settings="app.workspaceRunSettings"
       :selected-resume-id="app.workspaceSelectedResumeId"
       v-model:history-query="app.workspaceSessionQuery"
       v-model:history-role-filter="app.workspaceSessionRoleFilter"

@@ -9,6 +9,9 @@ pub(super) fn build_plan(
     let mut args = Vec::new();
     let mut environment = EnvironmentPatch::default();
     let mut auxiliary_file_content = None;
+    if !request.model.trim().is_empty() {
+        args.extend(["--model".to_string(), request.model.trim().to_string()]);
+    }
     if let TemporaryLaunchConfiguration::Provider {
         api_key, base_url, ..
     } = request.configuration
@@ -16,9 +19,6 @@ pub(super) fn build_plan(
         let settings_path = request
             .auxiliary_file_path
             .ok_or_else(|| "Gemini CLI 临时启动缺少系统配置文件路径".to_string())?;
-        if !request.model.trim().is_empty() {
-            args.extend(["--model".to_string(), request.model.trim().to_string()]);
-        }
         for name in [
             "GEMINI_API_KEY",
             "GOOGLE_API_KEY",

@@ -59,6 +59,7 @@ export interface AppData {
   settings: AppSettings;
   workspaces: Workspace[];
   temporaryCliPreferences: TemporaryCliPreference[];
+  temporaryCliProfiles: import("../stores/temporary-cli-settings-types").TemporaryCliProfile[];
   loginAccounts: import("../stores/provider-types").LoginAccount[];
 }
 

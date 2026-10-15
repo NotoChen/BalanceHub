@@ -61,7 +61,7 @@ const emptyAgentNames = computed(() => selectedGroups.value
 let subscriptions: (() => void)[] = [];
 function release() { for (const unsubscribe of subscriptions) unsubscribe(); subscriptions = []; }
 watch(() => wsl.supported, (supported) => { if (supported === false) environment.value = ""; });
-watch(() => [props.active, workspace.value, environment.value, props.agents.map((agent) => agent.kind).join("|")] as const, () => {
+watch([() => props.active, workspace, environment, () => props.agents.map((agent) => agent.kind).join("|")], () => {
   release();
   if (!props.active) { selectedAgent.value = null; model.invalidate(); return; }
   void wsl.ensure();

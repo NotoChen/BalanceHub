@@ -116,6 +116,7 @@ pub struct AgentConfigurationListRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfigurationSource {
+    pub visual_settings: bool,
     pub source_id: String,
     pub context_id: String,
     pub environment_id: String,
@@ -179,6 +180,7 @@ pub struct AgentConfigurationReadResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfigurationEditableDocument {
+    pub visual_settings: bool,
     pub source_id: String,
     pub label: String,
     #[serde(serialize_with = "crate::platform::paths::serialize_path")]

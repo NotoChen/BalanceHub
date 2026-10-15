@@ -159,6 +159,8 @@ export type AgentSessionResumeIntent =
   | { kind: "provider"; providerId: string; apiKeyLocalId?: string | null };
 
 export interface AgentSessionResumeRequest {
+  modelOverride?: string;
+  runSettings?: import("./temporary-cli-settings-types").TemporaryCliRunSettings;
   requestId: string;
   sessionRef: string;
   scopeRevision: string;

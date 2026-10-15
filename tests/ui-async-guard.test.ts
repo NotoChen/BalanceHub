@@ -72,11 +72,15 @@ function nestedRefIdentityComparisons(text: string) {
   const comparison = new RegExp(`(?<![A-Za-z0-9_$.])(${member})\\s*(?:===|!==)\\s*(${member})(?![A-Za-z0-9_$.])`, "g");
   const nestedRef = new RegExp(`\\.value\\.${identifier}`);
   const scalarKeywords = new Set(["null", "undefined", "true", "false"]);
-  // A length on the other operand must not exempt a ref's nested object comparison.
-  const nestedObject = (operand: string) => nestedRef.test(operand) && !operand.endsWith(".length");
-  return [...text.matchAll(comparison)].filter((match) =>
-    (nestedObject(match[1]) || nestedObject(match[2])) && !scalarKeywords.has(match[1]) && !scalarKeywords.has(match[2]),
-  );
+  // Stable IDs and lengths are scalar guards. A scalar member on the other
+  // operand must not exempt a ref's nested object comparison.
+  const nestedObject = (operand: string) => nestedRef.test(operand) && !/\.(?:length|id)$/.test(operand);
+  return [...text.matchAll(comparison)].filter((match) => {
+    // includes(...) returns a boolean; the regex captures its member name,
+    // not an object operand. Keep comparing a bare includes member guarded.
+    const booleanCall = match[2].endsWith(".includes") && /^\s*\(/.test(text.slice(match.index! + match[0].length));
+    return !booleanCall && (nestedObject(match[1]) || nestedObject(match[2])) && !scalarKeywords.has(match[1]) && !scalarKeywords.has(match[2]);
+  });
 }
 
 test("only explicitly documented critical transactions may lock a modal", () => {

@@ -60,7 +60,7 @@ async function load() {
     if (request === revision) loading.value = false;
   }
 }
-watch(() => [maintenance.preview?.token, index.value], load);
+watch([() => maintenance.preview?.token, index], load);
 onScopeDispose(() => {
   revision += 1;
 });

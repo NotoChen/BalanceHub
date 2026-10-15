@@ -28,6 +28,7 @@ export interface AgentConfigurationEffect {
 }
 export interface AgentConfigurationListRequest { agentKind: AgentCliKind; workspace: string | null; runtimeScope?: AgentRuntimeScope }
 export interface AgentConfigurationSource {
+  visualSettings: boolean;
   sourceId: string; contextId: string; environmentId: string; agentKind: AgentCliKind;
   runtimeScope: AgentRuntimeScope;
   workspace: string | null; nativeRole: string; scope: AgentAssetScope; profile: string | null;
@@ -50,6 +51,7 @@ export interface AgentConfigurationReadResult {
   sourceId: string; revision: string; text: string; truncated: boolean; diagnostics: AgentConfigurationDiagnostic[];
 }
 export interface AgentConfigurationEditableDocument {
+  visualSettings: boolean;
   sourceId: string; label: string; path: string; format: AgentConfigurationFormat; creating: boolean;
   originalText: string; text: string;
   readOnlyReason: string | null;

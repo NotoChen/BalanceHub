@@ -92,7 +92,7 @@ impl ObservationSeed {
     }
 }
 
-const PRIVATE_PREVIEW_LIMIT: usize = 512 * 1024 * 1024;
+pub(super) const PRIVATE_PREVIEW_LIMIT: usize = 512 * 1024 * 1024;
 
 pub(super) struct PreviewPermit {
     used: Arc<AtomicUsize>,

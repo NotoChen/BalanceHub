@@ -1,0 +1,104 @@
+.agent-model-sources {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 2px 0;
+}
+.agent-model-sources button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease;
+}
+.agent-model-sources button[aria-pressed="true"] {
+  border-bottom-color: rgb(var(--primary-6));
+  color: rgb(var(--primary-6));
+  font-weight: 600;
+}
+.agent-model-sources button:hover {
+  color: rgb(var(--primary-6));
+}
+.agent-model-sources .agent-model-refresh {
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 6px;
+}
+.agent-model-refresh:hover {
+  background: var(--color-fill-2);
+}
+.agent-model-refresh.is-loading svg {
+  animation: agent-model-refresh-spin 900ms linear infinite;
+}
+@keyframes agent-model-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.agent-model-sources button:focus-visible {
+  outline: 2px solid rgb(var(--primary-6));
+  outline-offset: 2px;
+}
+.agent-model-sources button > span,
+.agent-model-source-label small {
+  color: var(--color-text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-model-source-label {
+  display: flex;
+  gap: 8px;
+  color: var(--color-text-2);
+  font-size: 12px;
+}
+.agent-model-option {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.agent-model-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-model-option > code,
+.agent-model-option > small {
+  color: var(--color-text-3);
+  font-size: 11px;
+}
+.agent-model-option > small {
+  flex-shrink: 0;
+}
+.agent-model-source-note {
+  max-width: 460px;
+  margin: 0;
+  color: var(--color-text-2);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.agent-model-empty {
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-model-sources button {
+    transition: none;
+  }
+  .agent-model-refresh.is-loading svg {
+    animation: none;
+  }
+}

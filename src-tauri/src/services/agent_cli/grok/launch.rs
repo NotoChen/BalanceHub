@@ -8,13 +8,13 @@ pub(super) fn build_plan(
 ) -> Result<TemporaryLaunchPlan, String> {
     let mut args = Vec::new();
     let mut environment = EnvironmentPatch::default();
+    if !request.model.trim().is_empty() {
+        args.extend(["--model".to_string(), request.model.trim().to_string()]);
+    }
     if let TemporaryLaunchConfiguration::Provider {
         api_key, base_url, ..
     } = request.configuration
     {
-        if !request.model.trim().is_empty() {
-            args.extend(["--model".to_string(), request.model.trim().to_string()]);
-        }
         for name in [
             "GROK_MODELS_BASE_URL",
             "GROK_MODELS_LIST_URL",

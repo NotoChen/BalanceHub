@@ -108,6 +108,11 @@ pub use workspace::*;
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 
+mod agent_settings;
+mod temporary_cli_settings;
+pub use agent_settings::*;
+pub use temporary_cli_settings::*;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
@@ -122,6 +127,8 @@ pub struct AppData {
     pub workspaces: Vec<Workspace>,
     #[serde(default)]
     pub temporary_cli_preferences: Vec<TemporaryCliPreference>,
+    #[serde(default)]
+    pub temporary_cli_profiles: Vec<TemporaryCliProfile>,
     #[serde(default)]
     pub login_accounts: Vec<LoginAccount>,
 }
@@ -143,6 +150,7 @@ impl AppData {
             settings,
             workspaces: Vec::new(),
             temporary_cli_preferences: Vec::new(),
+            temporary_cli_profiles: Vec::new(),
             login_accounts: Vec::new(),
         }
     }

@@ -112,11 +112,11 @@ function selectTargets(assetId: string, targets: string[]) {
   selected.value[assetId] = [...targets];
 }
 watch(
-  () => [
-    props.visible,
-    props.action,
-    props.workspace,
-    props.assetIds.join("\0"),
+  [
+    () => props.visible,
+    () => props.action,
+    () => props.workspace,
+    () => props.assetIds.join("\0"),
   ],
   () => {
     if (props.visible) void load();

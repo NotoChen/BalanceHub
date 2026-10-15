@@ -596,7 +596,7 @@ fn relationship_previews_charge_retained_inspector_settings_and_release_the_budg
     let settings_bytes = serde_json::to_vec(inspector.settings()).unwrap().len();
     let reserved = planning::reserve(
         &service.preview_bytes,
-        64 * 1024 * 1024 - settings_bytes / 2,
+        planning::PRIVATE_PREVIEW_LIMIT - settings_bytes / 2,
     )
     .unwrap();
     let occupied = service.preview_bytes.load(Ordering::Acquire);
@@ -608,7 +608,7 @@ fn relationship_previews_charge_retained_inspector_settings_and_release_the_budg
     let error = service
         .preview_relation("window", request.clone(), inspector.clone())
         .unwrap_err();
-    assert!(error.contains("64 MiB"), "{error}");
+    assert!(error.contains("512 MiB"), "{error}");
     assert_eq!(service.preview_bytes.load(Ordering::Acquire), occupied);
     drop(reserved);
     let relation = service

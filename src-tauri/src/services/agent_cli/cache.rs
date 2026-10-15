@@ -47,6 +47,23 @@ pub(super) fn observe_path(digest: &mut Sha256, path: &Path) {
     observe_path_metadata(digest, path, true);
 }
 
+/// A stable launcher can outlive an npm package or native executable update.
+/// Reuse this observation for version, help and model-directory caches.
+pub(super) fn observe_executable(digest: &mut Sha256, path: &Path) {
+    observe_path(digest, path);
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    observe_path(digest, &canonical);
+    for parent in canonical.ancestors().skip(1).take(6) {
+        let manifest = parent.join("package.json");
+        observe_path(digest, &manifest);
+        if manifest.is_file() {
+            observe_path(digest, parent);
+            observe_path(digest, &parent.join("node_modules"));
+            break;
+        }
+    }
+}
+
 /// Ancestor directory identity matters; unrelated child writes do not.
 pub(super) fn observe_path_identity(digest: &mut Sha256, path: &Path) {
     observe_path_metadata(digest, path, false);

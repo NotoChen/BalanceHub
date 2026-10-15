@@ -8,6 +8,9 @@ pub(super) fn build_plan(
 ) -> Result<TemporaryLaunchPlan, String> {
     let mut args = Vec::new();
     let mut environment = EnvironmentPatch::default();
+    if !request.model.trim().is_empty() {
+        args.extend(["-m".to_string(), request.model.trim().to_string()]);
+    }
     if let TemporaryLaunchConfiguration::Provider {
         provider_name,
         api_key,
@@ -20,9 +23,6 @@ pub(super) fn build_plan(
         } else {
             display_name
         };
-        if !request.model.trim().is_empty() {
-            args.extend(["-m".to_string(), request.model.trim().to_string()]);
-        }
         args.extend([
             "-c".to_string(),
             "model_provider=\"custom\"".to_string(),

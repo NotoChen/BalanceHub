@@ -52,7 +52,7 @@ const selectedSession = computed(
 <template>
   <div class="workspace-session-history" role="region" aria-label="历史会话">
     <div class="workspace-session-history-toolbar">
-      <div class="agent-session-filters workspace-session-filters">
+      <div class="workspace-session-filters">
         <a-select
           v-model="roleModel"
           aria-label="历史会话角色"

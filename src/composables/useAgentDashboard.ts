@@ -173,7 +173,7 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     }
   }
   watch(() => overview.invalidationRevision, checkOverview);
-  watch(() => [options.active.value, navigation.page, workspacePath.value, kinds.value.join("|")] as const, () => {
+  watch([() => options.active.value, () => navigation.page, () => workspacePath.value, () => kinds.value.join("|")], () => {
     if (!options.active.value) return;
     if (navigation.page === "overview") checkOverview();
     else if (navigation.page === "sessions") void overview.check(kinds.value, workspacePath.value);

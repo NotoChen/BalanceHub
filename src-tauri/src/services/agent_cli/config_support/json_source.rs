@@ -92,6 +92,7 @@ struct JsonObjectSpan {
 struct JsonMemberSpan {
     key: String,
     key_start: usize,
+    key_end: usize,
     value_start: usize,
     value_end: usize,
     object: Option<JsonObjectSpan>,
@@ -184,6 +185,7 @@ impl<'a> JsonSourceParser<'a> {
             members.push(JsonMemberSpan {
                 key,
                 key_start,
+                key_end,
                 value_start,
                 value_end,
                 object,
@@ -696,6 +698,57 @@ pub(crate) fn json_value_range(
         }
     }
     Ok(range)
+}
+
+pub(crate) fn json_key_ranges(
+    source: &str,
+    comments: bool,
+) -> Result<super::document_locations::Ranges, String> {
+    use super::document_locations::{KeyRange, Ranges};
+    fn object(value: &JsonObjectSpan, path: &mut Vec<String>, ranges: &mut Ranges) {
+        for member in &value.members {
+            path.push(member.key.clone());
+            ranges.insert(
+                path.clone(),
+                KeyRange {
+                    key: member.key_start..member.key_end,
+                    value: member.value_start..member.value_end,
+                },
+            );
+            if let Some(value) = &member.object {
+                object(value, path, ranges);
+            }
+            if let Some(value) = &member.array {
+                array(value, path, ranges);
+            }
+            path.pop();
+        }
+    }
+    fn array(value: &JsonArraySpan, path: &mut Vec<String>, ranges: &mut Ranges) {
+        for (index, member) in value.members.iter().enumerate() {
+            path.push(index.to_string());
+            ranges.insert(
+                path.clone(),
+                KeyRange {
+                    key: member.start..member.start,
+                    value: member.start..member.end,
+                },
+            );
+            if let Some(value) = &member.object {
+                object(value, path, ranges);
+            }
+            if let Some(value) = &member.array {
+                array(value, path, ranges);
+            }
+            path.pop();
+        }
+    }
+    let mut parser = JsonSourceParser::new(source);
+    parser.comments = comments;
+    let root = parser.parse_root_object()?;
+    let mut ranges = Ranges::new();
+    object(&root, &mut Vec::new(), &mut ranges);
+    Ok(ranges)
 }
 
 /// Rewrite only changed values. Unchanged values retain their exact text, and

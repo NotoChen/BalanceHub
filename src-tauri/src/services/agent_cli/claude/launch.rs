@@ -20,17 +20,6 @@ pub(super) fn build_plan(
             "--settings".to_string(),
             settings_path.to_string_lossy().to_string(),
         ]);
-        if !request.model.trim().is_empty() {
-            args.extend(["--model".to_string(), request.model.trim().to_string()]);
-        }
-        if matches!(request.session_mode, TemporaryCliSessionMode::New)
-            && !request.session_name.trim().is_empty()
-        {
-            args.extend([
-                "--name".to_string(),
-                request.session_name.trim().to_string(),
-            ]);
-        }
         environment.remove("ANTHROPIC_API_KEY");
         environment.remove("ANTHROPIC_AUTH_TOKEN");
         environment.remove("ANTHROPIC_BASE_URL");
@@ -43,6 +32,17 @@ pub(super) fn build_plan(
             }))
             .map_err(|err| format!("生成 Claude Code 临时配置失败: {err}"))?,
         );
+    }
+    if !request.model.trim().is_empty() {
+        args.extend(["--model".to_string(), request.model.trim().to_string()]);
+    }
+    if matches!(request.session_mode, TemporaryCliSessionMode::New)
+        && !request.session_name.trim().is_empty()
+    {
+        args.extend([
+            "--name".to_string(),
+            request.session_name.trim().to_string(),
+        ]);
     }
     if matches!(request.session_mode, TemporaryCliSessionMode::History) {
         args.push("--resume".to_string());

@@ -11,6 +11,7 @@ import WorkspaceCardHeader from "../workspace-card/WorkspaceCardHeader.vue";
 import { agentDocumentationUrls } from "../../api/agent-documentation";
 import { agentCliVisuals } from "../../agent-cli/visuals";
 import { agentCliVersionLabel } from "../../utils/cli-environment";
+import { agentConfigurationOpenAction } from "../../utils/agent-configuration-display";
 import { iconThemeColor } from "../../utils/icon-theme-color";
 import type { AgentCliDescriptor, AgentInstallation } from "../../stores/provider-types";
 import type { AgentLifecycleTarget } from "../../stores/agent-lifecycle-types";
@@ -64,6 +65,15 @@ function readIconTheme(event: Event) {
   const source = agentCliVisuals[props.agent.kind].source;
   if ((icon.currentSrc || icon.src) !== new URL(source, document.baseURI).href) return;
   iconTheme.value = { source, color: iconThemeColor(icon) };
+}
+const visualConfigurationSource = computed(() => (props.configurationSnapshot?.sources ?? [])
+  .filter((source) => source.visualSettings && source.access.kind === "ready"
+    && ["edit", "create"].includes(agentConfigurationOpenAction(source) ?? ""))
+  .sort((left, right) => Number(right.scope === "user") - Number(left.scope === "user")
+    || Number(agentConfigurationOpenAction(right) === "edit") - Number(agentConfigurationOpenAction(left) === "edit"))[0] ?? null);
+function openVisualConfiguration() {
+  const source = visualConfigurationSource.value;
+  if (source) emit("openFile", source.sourceId);
 }
 const installed = computed(() => props.installations.filter((installation) => installation.availability === "available"));
 const currentTarget = computed(() => props.lifecycleTargets.find((target) => target.isCurrent));
@@ -176,8 +186,8 @@ function openStatistic(key: Statistic["key"]) {
     </nav>
     <AgentCardConfigurationSummary :label="agent.label" :snapshot="configurationSnapshot" :loading="configurationLoading" :error="configurationError" :stale="configurationStale"
       @open-file="emit('openFile', $event)" @refresh="emit('refresh')" />
-    <AgentCardActions :label="agent.label" :can-launch="canLaunch" :show-installation-guide="showInstallationGuide" :refreshing="refreshing || configurationLoading"
-      @installation-guide="emit('installationGuide')" @launch="emit('launch')"
+    <AgentCardActions :label="agent.label" :can-configure="Boolean(visualConfigurationSource)" :can-launch="canLaunch" :show-installation-guide="showInstallationGuide" :refreshing="refreshing || configurationLoading"
+      @configure="openVisualConfiguration" @installation-guide="emit('installationGuide')" @launch="emit('launch')"
       @refresh="emit('refresh')" />
   </WorkspaceCard>
 </template>

@@ -11,6 +11,8 @@ use std::sync::{
 
 fn request(id: &str, reference: &str) -> AgentSessionResumeRequest {
     AgentSessionResumeRequest {
+        run_settings: Default::default(),
+        model_override: String::new(),
         request_id: id.to_owned(),
         session_ref: reference.to_owned(),
         scope_revision: "scope-1".to_owned(),

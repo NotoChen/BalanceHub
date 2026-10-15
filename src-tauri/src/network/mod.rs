@@ -22,5 +22,7 @@ pub(crate) use client::{
     build_webhook_client, configure_updater_builder,
 };
 use proxy::SystemProxyConfig;
-pub(crate) use proxy::{apply_proxy_env, resolve_global_proxy, resolve_proxy, ProxyEnvironment};
+pub(crate) use proxy::{
+    apply_proxy_env, resolve_global_proxy, resolve_proxy, EffectiveProxy, ProxyEnvironment,
+};
 pub(crate) use response::{read_http_text, read_webhook_text};

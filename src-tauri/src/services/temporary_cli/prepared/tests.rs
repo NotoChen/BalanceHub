@@ -43,8 +43,10 @@ fn native_preparation_uses_no_provider_and_registers_identity_before_any_hook() 
             cli_kind,
             workdir: &root,
             options: LaunchOptions {
+                run_settings: None,
                 api_key_override: "",
                 model_override: "",
+                inherited_model: "",
                 session_name_override: "",
                 session_title: "",
                 resume_id: &identity.native_session_id,
@@ -126,8 +128,10 @@ fn provider_resume_uses_the_same_preparation_and_exact_native_identity() {
         cli_kind: AgentCliKind::Codex,
         workdir: &root,
         options: LaunchOptions {
+            run_settings: None,
             api_key_override: "",
             model_override: "",
+            inherited_model: "",
             session_name_override: "",
             session_title: "",
             resume_id: &identity.native_session_id,

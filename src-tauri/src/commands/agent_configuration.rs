@@ -67,6 +67,37 @@ pub(crate) async fn begin_agent_configuration_edit(
 }
 
 #[tauri::command]
+pub(crate) async fn read_agent_configuration_form(
+    app: AppHandle,
+    window: Window,
+    request: AgentConfigurationFormRequest,
+) -> Result<AgentConfigurationForm, AgentConfigurationError> {
+    let (actor, service) = actor_and_service(&app, &window)?;
+    let mut settings = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .clone();
+    run_configuration(move || {
+        // Reuse the installed CLI summary. Opening a form must not perform
+        // installation discovery or shell startup again.
+        if let Some(cached) =
+            crate::services::cli_runtime::CliRuntimeService::new(&app).cached_tools()
+        {
+            for tool in cached.tools.into_iter().filter(|tool| tool.available) {
+                if settings.agent_cli_path(tool.descriptor.kind).is_empty() {
+                    settings.set_agent_cli_path(tool.descriptor.kind, tool.path);
+                }
+            }
+        }
+        service.configuration_form(&actor, request, &settings)
+    })
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn begin_agent_resource_edit(
     app: AppHandle,
     window: Window,

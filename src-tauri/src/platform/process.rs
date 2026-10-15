@@ -4,7 +4,7 @@ use output::OutputBuffer;
 pub(crate) use output::OutputEncoding;
 
 use std::{
-    io::Read,
+    io::{Read, Write},
     process::{Child, Command, ExitStatus, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -89,6 +89,8 @@ struct OutputCaptureOptions {
     max_bytes: usize,
     live: Option<Arc<ProcessOutputCapture>>,
     encoding: OutputEncoding,
+    input: Option<Vec<u8>>,
+    response: Option<fn(&str) -> bool>,
 }
 
 struct ProcessLifecycleManager {
@@ -340,6 +342,39 @@ pub(crate) fn run_command_with_output_timeout(
     run_command_with_manager(&manager, command, timeout, max_output_bytes)
 }
 
+/// Send one small metadata request, then close stdin after its response. Share
+/// the deadline, output bounds and process-tree cleanup of other inspections.
+pub(crate) fn run_command_with_input_timeout(
+    command: &mut Command,
+    input: &[u8],
+    timeout: Duration,
+    max_output_bytes: usize,
+    response: fn(&str) -> bool,
+) -> std::io::Result<CommandOutput> {
+    // Stay below the smallest supported pipe buffer; this one write cannot
+    // wait for the child to consume input. This is not a streaming transport.
+    if input.len() > 512 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "metadata request exceeds the input bound",
+        ));
+    }
+    run_observed_with_manager(
+        &ProcessLifecycleManager::global(),
+        command,
+        timeout,
+        OutputCaptureOptions {
+            max_bytes: max_output_bytes,
+            live: Some(Arc::new(ProcessOutputCapture::default())),
+            encoding: OutputEncoding::Utf8,
+            input: Some(input.to_vec()),
+            response: Some(response),
+        },
+        || Ok(()),
+        || Ok(()),
+    )
+}
+
 #[cfg(any(windows, test))]
 pub(crate) fn run_command_with_output_timeout_encoded(
     command: &mut Command,
@@ -355,6 +390,8 @@ pub(crate) fn run_command_with_output_timeout_encoded(
             max_bytes: max_output_bytes,
             live: None,
             encoding,
+            input: None,
+            response: None,
         },
         || Ok(()),
         || Ok(()),
@@ -397,6 +434,8 @@ pub(crate) fn run_command_with_output_observed(
             max_bytes: max_output_bytes,
             live,
             encoding: OutputEncoding::Utf8,
+            input: None,
+            response: None,
         },
         preflight,
         before_spawn,
@@ -435,6 +474,8 @@ fn run_command_with_manager_before_spawn(
             max_bytes: max_output_bytes,
             live: None,
             encoding: OutputEncoding::Utf8,
+            input: None,
+            response: None,
         },
         preflight,
         before_spawn,
@@ -457,13 +498,17 @@ fn run_observed_with_manager(
         drop(permit);
         return Ok(CommandOutput::timed_out_without_starting());
     }
-    let output = OutputCaptureOptions {
+    let mut output = OutputCaptureOptions {
         max_bytes: output.max_bytes.max(1),
         ..output
     };
     configure_process_group(command);
     command
-        .stdin(Stdio::null())
+        .stdin(if output.input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     preflight()?;
@@ -471,10 +516,14 @@ fn run_observed_with_manager(
         return Ok(CommandOutput::timed_out_without_starting());
     }
     before_spawn()?;
-    let child = command.spawn()?;
-    Ok(wait_with_output_until(
-        manager, child, deadline, output, permit,
-    ))
+    let mut child = command.spawn()?;
+    let input_result = match (child.stdin.as_mut(), output.input.take()) {
+        (Some(pipe), Some(input)) => pipe.write_all(&input),
+        _ => Ok(()),
+    };
+    let result = wait_with_output_until(manager, child, deadline, output, permit);
+    input_result?;
+    Ok(result)
 }
 
 fn wait_with_output_until(
@@ -508,11 +557,33 @@ fn wait_with_output_until(
     let mut pending_child = None;
     let mut cleanup_child = None;
     let mut kill_requested = false;
+    let mut response_seen_at: Option<Instant> = None;
     let status = loop {
+        if response_seen_at.is_none()
+            && output
+                .response
+                .zip(output.live.as_ref())
+                .is_some_and(|(response, live)| response(&live.snapshot().stdout))
+        {
+            drop(child.stdin.take());
+            response_seen_at = Some(Instant::now());
+        }
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
             Ok(None) if Instant::now() >= deadline => {
                 timed_out = true;
+                let termination = terminate_child(child, pid);
+                pending_child = termination.child;
+                cleanup_child = termination.cleanup_child;
+                kill_requested = true;
+                break termination.status;
+            }
+            Ok(None)
+                if response_seen_at
+                    .is_some_and(|seen| seen.elapsed() >= Duration::from_millis(250)) =>
+            {
+                // A metadata-only reader has finished. Some CLIs retain an
+                // event loop after EOF; they must not occupy a slot until timeout.
                 let termination = terminate_child(child, pid);
                 pending_child = termination.child;
                 cleanup_child = termination.cleanup_child;

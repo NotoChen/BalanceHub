@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-const CACHE_SCHEMA_VERSION: u32 = 6;
+const CACHE_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Serialize, Deserialize)]
 struct CachedOverview {

@@ -5,6 +5,7 @@ import type {
   AgentConfigurationOperation, AgentConfigurationPlan, AgentConfigurationReadResult, AgentConfigurationSaveRequest,
   AgentConfigurationSnapshot, AgentConfigurationSourceRequest, AgentResourceEditRequest,
 } from "../stores/agent-configuration-types";
+import type { AgentConfigurationForm, AgentConfigurationFormRequest } from "../stores/agent-settings-types";
 
 export function listAgentConfigurationSources(request: AgentConfigurationListRequest) {
   return invoke<AgentConfigurationSnapshot>("list_agent_configuration_sources", { request });
@@ -46,4 +47,7 @@ export function cancelAgentConfigurationOperation(operationId: string) {
 }
 export function openAgentConfigurationSource(request: AgentConfigurationOpenRequest) {
   return invoke<void>("open_agent_configuration_source", { request });
+}
+export function readAgentConfigurationForm(request: AgentConfigurationFormRequest) {
+  return invoke<AgentConfigurationForm>("read_agent_configuration_form", { request });
 }

@@ -733,7 +733,7 @@ fn grok_first_project_hook_refuses_external_parent_or_leaf_before_commit() {
             &fs::read(temporary.path().join("library/library.json")).unwrap(),
         )
         .unwrap();
-        assert!(library["entries"][&saved.asset_id]["receipts"]
+        assert!(library["library"]["entries"][&saved.asset_id]["receipts"]
             .as_object()
             .unwrap()
             .is_empty());

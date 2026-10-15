@@ -17,6 +17,7 @@ pub(crate) mod login_accounts;
 pub(crate) mod model_catalog;
 pub(crate) mod provider;
 pub(crate) mod provider_browser_login;
+pub(crate) mod temporary_cli_settings;
 
 pub(crate) async fn run_blocking<T, F>(label: &'static str, task: F) -> Result<T, String>
 where

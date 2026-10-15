@@ -3,6 +3,7 @@ import { computed, nextTick, ref, useId } from "vue";
 import { useAgentMcpEditor, type AgentMcpEditorDraft, type AgentMcpEditorProps } from "../../composables/useAgentMcpEditor";
 import type { McpAuthMode } from "../../composables/useMcpConnectionDraft";
 import { fieldValue, mcpConnectionFields, type McpField } from "../../utils/mcp-form-fields";
+import { revealInScrollContainer } from "../../utils/scroll-container";
 import RadioChoiceGroup from "../RadioChoiceGroup.vue";
 import ContentEditor from "../ContentEditor.vue";
 import AgentMcpField from "./AgentMcpField.vue";
@@ -38,8 +39,8 @@ async function validate() {
   const field = root.value?.querySelector<HTMLElement>('.mcp-field.has-error');
   let parent = field?.parentElement;
   while (parent && parent !== root.value) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
-  field?.scrollIntoView({ block: "nearest" });
-  field?.querySelector<HTMLElement>("input, textarea, button")?.focus();
+  revealInScrollContainer(root.value?.closest<HTMLElement>(".arco-modal-body, .arco-drawer-body"), field);
+  field?.querySelector<HTMLElement>("input, textarea, button")?.focus({ preventScroll: true });
   return false;
 }
 defineExpose({ validate });

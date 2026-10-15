@@ -10,6 +10,85 @@ use crate::{
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
+pub(super) fn managed_root() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/Library/Application Support/GeminiCli")
+    } else if cfg!(target_os = "windows") {
+        PathBuf::from(r"C:\ProgramData\gemini-cli")
+    } else {
+        PathBuf::from("/etc/gemini-cli")
+    }
+}
+
+pub(super) fn configured_system_file(name: &str, default: PathBuf, workdir: &Path) -> PathBuf {
+    configured_path(name)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                workdir.join(path)
+            }
+        })
+        .unwrap_or(default)
+}
+
+pub(crate) fn merge_temporary_system_settings(
+    workdir: &Path,
+    overrides: JsonValue,
+) -> Result<JsonValue, String> {
+    let path = configured_system_file(
+        "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
+        managed_root().join("settings.json"),
+        workdir,
+    );
+    let mut base = read_stable_optional(&path)?
+        .map(|file| super::super::config_support::parse_jsonc_document(&file.text))
+        .transpose()?
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !base.is_object() {
+        return Err("Gemini 系统设置必须是 JSON 对象".into());
+    }
+    if let (Some(enforced), Some(selected)) = (
+        base.pointer("/security/auth/enforcedType")
+            .and_then(JsonValue::as_str),
+        overrides
+            .pointer("/security/auth/selectedType")
+            .and_then(JsonValue::as_str),
+    ) {
+        if enforced != selected {
+            return Err("Gemini 的组织策略要求使用其他认证方式，无法通过当前中转站启动".into());
+        }
+    }
+    let mut overrides = overrides;
+    for key in ["/skills/disabled", "/mcp/excluded"] {
+        if let (Some(original), Some(selected)) = (
+            base.pointer(key).and_then(JsonValue::as_array),
+            overrides.pointer_mut(key).and_then(JsonValue::as_array_mut),
+        ) {
+            for value in original {
+                if !selected.contains(value) {
+                    selected.push(value.clone());
+                }
+            }
+        }
+    }
+    merge_settings(&mut base, overrides);
+    Ok(base)
+}
+
+fn merge_settings(base: &mut JsonValue, overrides: JsonValue) {
+    if let (Some(base), Some(overrides)) = (base.as_object_mut(), overrides.as_object()) {
+        for (key, value) in overrides {
+            merge_settings(
+                base.entry(key.clone()).or_insert(JsonValue::Null),
+                value.clone(),
+            );
+        }
+    } else {
+        *base = overrides;
+    }
+}
+
 pub(super) fn config_dir() -> Option<PathBuf> {
     configured_config_dir().or_else(|| user_home().map(|home| home.join(".gemini")))
 }

@@ -13,6 +13,7 @@ pub(super) fn build_plan(request: LivenessRequest<'_>) -> Result<LivenessPlan, S
     environment.remove("CODEX_ACCESS_TOKEN");
     environment.set("OPENAI_API_KEY", request.api_key.trim());
     environment.set_path("CODEX_HOME", request.isolated_home);
+    environment.set_path("CODEX_SQLITE_HOME", request.isolated_home);
 
     let mut args = vec![
         "--ask-for-approval".to_string(),
@@ -46,7 +47,9 @@ pub(super) fn build_plan(request: LivenessRequest<'_>) -> Result<LivenessPlan, S
     }
     args.extend([
         "-o".to_string(),
-        crate::platform::paths::compatible_path(request.output_path).to_string_lossy().into_owned(),
+        crate::platform::paths::compatible_path(request.output_path)
+            .to_string_lossy()
+            .into_owned(),
         request.prompt.to_string(),
     ]);
 

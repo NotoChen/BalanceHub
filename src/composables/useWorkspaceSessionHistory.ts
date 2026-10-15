@@ -22,9 +22,7 @@ export function useWorkspaceSessionHistory(
 ) {
   const workspaceSessionQuery = ref("");
   const active = computed(
-    () =>
-      options.visible.value &&
-      options.sessionMode.value === "history",
+    () => options.visible.value && options.sessionMode.value === "history",
   );
   const agentKinds = computed(() => [options.cliKind.value]);
   const sessions = useAgentSessions({
@@ -36,10 +34,21 @@ export function useWorkspaceSessionHistory(
     api: options.sessionApi,
   });
   const selectedSession = shallowRef<AgentSessionRow | null>(null);
-  const workspaceSelectedResumeId = computed(() => selectedSession.value?.session.id ?? "");
-  const workspaceSelectedSessionRef = computed(() => selectedSession.value?.sessionRef ?? "");
-  const workspaceSelectedSessionTitle = computed(() => selectedSession.value?.session.title ?? "");
-  const workspaceSelectedSessionWorkdir = computed(() => selectedSession.value?.session.workdir ?? "");
+  const workspaceSelectedResumeId = computed(
+    () => selectedSession.value?.session.id ?? "",
+  );
+  const workspaceSelectedSessionRef = computed(
+    () => selectedSession.value?.sessionRef ?? "",
+  );
+  const workspaceSelectedSessionTitle = computed(
+    () => selectedSession.value?.session.title ?? "",
+  );
+  const workspaceSelectedSessionWorkdir = computed(
+    () => selectedSession.value?.session.workdir ?? "",
+  );
+  const workspaceSelectedSessionModel = computed(
+    () => selectedSession.value?.session.model ?? "",
+  );
   const workspaceSessionIndexState = computed<CliSessionIndexState>(() => {
     const states = sessions.sourceStates.value;
     if (states.some((state) => state.indexState === "fallback"))
@@ -53,7 +62,11 @@ export function useWorkspaceSessionHistory(
     const messages = sessions.sourceStates.value.flatMap((state) =>
       state.message ? [state.message] : [],
     );
-    if (sessions.sourceStates.value.some((state) => ["partial", "unavailable", "unsupported"].includes(state.state)))
+    if (
+      sessions.sourceStates.value.some((state) =>
+        ["partial", "unavailable", "unsupported"].includes(state.state),
+      )
+    )
       messages.unshift("部分来源读取受限，已保留可读会话");
     if (sessions.cancelled.value) messages.push("本次查询已取消");
     return [...new Set(messages)].join("；");
@@ -73,9 +86,10 @@ export function useWorkspaceSessionHistory(
   }
   function selectWorkspaceSession(row: AgentSessionRow) {
     if (!row.session.canResume) return;
+    const changed = selectedSession.value?.sessionRef !== row.sessionRef;
     selectedSession.value = row;
     options.sessionMode.value = "history";
-    options.selectedModel.value = "";
+    if (changed) options.selectedModel.value = "";
   }
   function clearWorkspaceSessionSelection() {
     selectedSession.value = null;
@@ -89,7 +103,12 @@ export function useWorkspaceSessionHistory(
     sessions.suspend();
   }
   watch(
-    () => [options.cliKind.value, sessions.roleFilter.value, workspaceSessionQuery.value] as const,
+    () =>
+      [
+        options.cliKind.value,
+        sessions.roleFilter.value,
+        workspaceSessionQuery.value,
+      ] as const,
     clearWorkspaceSessionSelection,
     { flush: "sync" },
   );
@@ -119,6 +138,7 @@ export function useWorkspaceSessionHistory(
     ),
     workspaceSelectedSessionTitle,
     workspaceSelectedSessionWorkdir,
+    workspaceSelectedSessionModel,
     workspaceSessionDetailVisible: sessions.detailVisible,
     workspaceSessionDetailLoading: sessions.detailLoading,
     workspaceSessionDetailError: sessions.detailError,

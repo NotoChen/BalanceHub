@@ -11,6 +11,7 @@ withDefaults(
     disabled?: boolean;
     loading?: boolean;
     emptyLabel?: string;
+    showLabels?: boolean;
   }>(),
   {
     disabled: false,
@@ -25,7 +26,13 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="environment-icon-selector" role="radiogroup" aria-label="Agent" :aria-busy="loading">
+  <div
+    class="environment-icon-selector"
+    :class="{ 'with-labels': showLabels }"
+    role="radiogroup"
+    aria-label="Agent"
+    :aria-busy="loading"
+  >
     <button
       v-for="option in options"
       :key="option.value"
@@ -40,6 +47,7 @@ const emit = defineEmits<{
       @click="emit('update:modelValue', option.value)"
     >
       <AgentCliIcon :kind="option.value" :size="20" />
+      <span v-if="showLabels">{{ option.label }}</span>
     </button>
     <span v-if="options.length === 0" class="environment-icon-empty">
       <IconLoading v-if="loading" />
@@ -70,7 +78,10 @@ const emit = defineEmits<{
   color: var(--color-text-2);
   cursor: pointer;
   padding: 0;
-  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
 }
 
 .environment-icon-option:hover:not(:disabled),
@@ -87,6 +98,23 @@ const emit = defineEmits<{
 .environment-icon-option.active {
   border-color: rgb(var(--arcoblue-6));
   background: rgba(var(--arcoblue-1), 0.9);
+}
+
+.with-labels .environment-icon-option {
+  display: inline-flex;
+  width: auto;
+  min-width: 76px;
+  flex: 0 0 auto;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: var(--surface-ink);
+  font-size: 12px;
+}
+
+.with-labels .environment-icon-option.active {
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
 }
 
 .environment-icon-option:active:not(:disabled) {
@@ -112,6 +140,8 @@ const emit = defineEmits<{
 }
 
 @keyframes environment-icon-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

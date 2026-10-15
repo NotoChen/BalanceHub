@@ -1,4 +1,5 @@
 pub(crate) mod directories;
+pub(crate) mod document_locations;
 pub(crate) mod env_source;
 pub(crate) mod file_layout;
 pub(crate) mod file_writer;

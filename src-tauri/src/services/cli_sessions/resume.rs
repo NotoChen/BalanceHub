@@ -422,6 +422,7 @@ fn prune_finished(registry: &mut Registry) {
 }
 
 fn validate_request(request: &AgentSessionResumeRequest) -> Result<(), String> {
+    crate::services::temporary_cli::validate_model_override(&request.model_override)?;
     for (value, limit) in [
         (&request.request_id, 160),
         (&request.session_ref, 512),

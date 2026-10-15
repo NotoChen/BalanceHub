@@ -171,12 +171,12 @@ export function useAgentConfiguration(options: { agentKind: Ref<AgentCliKind | n
     if (source?.access.kind === "ready" && source.access.accessId === confirmation.accessId) void executeOpen(source, confirmation.action, confirmation.risks);
   }
 
-  watch(() => [options.agentKind.value, options.workspace.value, JSON.stringify(options.runtimeScope?.value)] as const, () => {
+  watch([() => options.agentKind.value, () => options.workspace.value, () => JSON.stringify(options.runtimeScope?.value)], () => {
     unsubscribe?.(); unsubscribe = null;
     invalidate();
     if (options.agentKind.value) unsubscribe = publications().subscribe(options.agentKind.value, options.workspace.value);
   }, { immediate: true, flush: "sync" });
   onScopeDispose(() => { disposed = true; unsubscribe?.(); invalidate(); });
-  return { editor, previewVisible, previewSource, preview, previewLoading, previewError,
+  return { editor, sources, previewVisible, previewSource, preview, previewLoading, previewError,
     opening, accessConfirmation, openFile, editorSource, action, closePreview, closeAccessConfirmation, confirmAccess, invalidate };
 }

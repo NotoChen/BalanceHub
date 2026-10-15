@@ -383,7 +383,7 @@ fn cancellation_after_definition_commit_retains_it_and_cancels_unwritten_targets
 #[test]
 fn cache_budget_actor_cleanup_and_all_action_choices_keep_the_read_boundary() {
     let (temp, inspector, service) = fixture();
-    let full = planning::reserve(&service.preview_bytes, 64 * 1024 * 1024).unwrap();
+    let full = planning::reserve(&service.preview_bytes, planning::PRIVATE_PREVIEW_LIMIT).unwrap();
     assert!(planning::reserve(&service.preview_bytes, 1).is_err());
     drop(full);
     let plan = planned(
@@ -493,6 +493,13 @@ fn small_definition_previews_charge_large_target_copies_and_release_on_window_cl
         .unwrap()
         .to_vec();
     assert_eq!(service.preview_bytes.load(Ordering::Acquire), 0);
+    // Occupy the rest of the production budget without allocating buffers,
+    // leaving a bounded amount of real target content for this regression.
+    let occupied = planning::reserve(
+        &service.preview_bytes,
+        planning::PRIVATE_PREVIEW_LIMIT - 64 * 1024 * 1024,
+    )
+    .unwrap();
     let mut issued = 0;
     let mut rejected = None;
     for _ in 0..128 {
@@ -514,10 +521,10 @@ fn small_definition_previews_charge_large_target_copies_and_release_on_window_cl
                 break;
             }
         }
-        assert!(service.preview_bytes.load(Ordering::Acquire) <= 64 * 1024 * 1024);
+        assert!(service.preview_bytes.load(Ordering::Acquire) <= planning::PRIVATE_PREVIEW_LIMIT);
     }
     let error = rejected.expect("target buffers must reach the byte cap before 128 plans");
-    assert!(error.contains("64 MiB"), "{error}");
+    assert!(error.contains("512 MiB"), "{error}");
     assert!(issued > 1 && issued < 128);
     assert_eq!(fs::read(&native_path).unwrap(), native_before);
     assert_eq!(
@@ -530,6 +537,7 @@ fn small_definition_previews_charge_large_target_copies_and_release_on_window_cl
             .unwrap(),
         library_before
     );
+    drop(occupied);
     service.remove_actor("window");
     assert_eq!(service.preview_bytes.load(Ordering::Acquire), 0);
     assert!(service

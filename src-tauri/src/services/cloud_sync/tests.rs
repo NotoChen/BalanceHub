@@ -790,11 +790,14 @@ fn shared_skill_projection_reuses_library_rules_without_native_configuration_wri
         serde_json::from_slice(&std::fs::read(root.path().join("library/library.json")).unwrap())
             .unwrap();
     assert_eq!(
-        history["entries"]["fixture-skill"]["versions"]
+        history["definitions"]["fixture-skill"]
             .as_array()
             .unwrap()
             .len(),
         1
     );
-    assert_eq!(history["entries"]["fixture-skill"]["shared_deleted"], true);
+    assert_eq!(
+        history["library"]["entries"]["fixture-skill"]["shared_deleted"],
+        true
+    );
 }

@@ -5,6 +5,7 @@ import test, { after, before, type TestContext } from "node:test";
 import { compileScript, parse } from "@vue/compiler-sfc";
 import { cloneVNode, createRenderer, defineComponent, h, nextTick, reactive, type Component } from "vue";
 import { createServer, transformWithEsbuild, type ViteDevServer } from "vite";
+import { createPinia, disposePinia } from "pinia";
 import type AgentCatalogPanel from "../src/components/agent-workspace/AgentCatalogPanel.vue";
 import type AgentCatalogRow from "../src/components/agent-workspace/AgentCatalogRow.vue";
 import type { AgentAssetCatalog, AgentCatalogAsset, AgentCatalogAgentPanel, AgentCatalogUnresolvedTarget } from "../src/stores/agent-catalog-types.ts";
@@ -94,6 +95,7 @@ function invoke(element: HostNode, event = "onClick", value?: unknown) {
 function mount(t: TestContext, name: string, props: () => Record<string, unknown>) {
   const component = components.get(name); assert.ok(component);
   const app = renderer.createApp(defineComponent({ setup() { return () => h(component, props()); } }));
+  const pinia = createPinia(); app.use(pinia);
   for (const [name, tag] of [["a-button", "button"], ["a-select", "select"], ["a-option", "option"], ["a-tooltip", "span"]]) {
     app.component(name, defineComponent({ inheritAttrs: false, setup(_, { attrs, slots }) { return () => h(tag, attrs, [slots.icon?.(), slots.default?.()]); } }));
   }
@@ -103,7 +105,7 @@ function mount(t: TestContext, name: string, props: () => Record<string, unknown
       props.popupVisible ? slots.content?.() : null,
     ]);
   } }));
-  const root = node("root"); app.mount(root); t.after(() => app.unmount()); return root;
+  const root = node("root"); app.mount(root); t.after(() => { app.unmount(); disposePinia(pinia); }); return root;
 }
 function mountRow(t: TestContext, asset: AgentCatalogAsset, overrides: Partial<RowProps> = {}) {
   const props = reactive<RowProps>({ asset,

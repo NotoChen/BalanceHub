@@ -64,7 +64,7 @@ fi
 bh_exit_code=$?
 bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
 rm -f "$bh_script_path"
-{cleanup_settings}rmdir {script_dir} 2>/dev/null || true
+{cleanup_settings}rm -rf -- {script_dir}
 exit "$bh_exit_code"
 "#,
         status_path = shell_quote(&input.status_path.to_string_lossy()),

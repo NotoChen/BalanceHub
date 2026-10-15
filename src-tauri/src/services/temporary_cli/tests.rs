@@ -1,10 +1,9 @@
 use super::provider_account_label;
-use super::resolve_launch_model;
 use super::resolve_resume_id;
 use super::resolve_session_name;
 use super::shell_runtime::environment::ShellEnvironmentSnapshot;
 use super::shell_runtime::script::{
-    effective_model, escape_cmd_value, format_cli_command, preview_cli_auxiliary_path,
+    escape_cmd_value, format_cli_command, preview_cli_auxiliary_path,
     runtime_instance_id_from_status_path, temporary_script_path, windows_launch_payload,
     WindowsLaunchPayloadInput, WINDOWS_LAUNCH_PAYLOAD_COMMAND,
 };
@@ -85,7 +84,7 @@ fn native_and_provider_plans_share_exact_resume_arguments_for_all_agents() {
         let native = adapter
             .build_plan(TemporaryLaunchRequest {
                 configuration: TemporaryLaunchConfiguration::Native,
-                model: "must-not-override-native-model",
+                model: "",
                 session_name: "unused",
                 resume_id: "session-123",
                 session_mode: TemporaryCliSessionMode::History,
@@ -151,8 +150,10 @@ fn direct_launch_rejects_raw_history_ids_before_preparing_any_files() {
             cli_kind,
             Path::new("/synthetic/missing-workspace"),
             super::LaunchOptions {
+                run_settings: None,
                 api_key_override: "",
                 model_override: "",
+                inherited_model: "",
                 session_name_override: "",
                 session_title: "",
                 resume_id: "unverified-native-id",
@@ -353,51 +354,6 @@ fn temporary_launch_rejects_empty_and_redacted_api_keys() {
         .expect_err("redacted key must be rejected")
         .contains("脱敏值"));
     assert!(validate_full_api_key("sk-complete-key").is_ok());
-}
-
-#[test]
-fn effective_model_prefers_provider_model() {
-    let settings = AppSettings {
-        liveness_model: "gpt-5.5".to_string(),
-        ..AppSettings::default()
-    };
-    let provider = provider_with_liveness_model("claude-opus-4-6");
-
-    assert_eq!(effective_model(&settings, &provider), "claude-opus-4-6");
-}
-
-#[test]
-fn effective_model_falls_back_to_global_model() {
-    let settings = AppSettings {
-        liveness_model: "gpt-5.5".to_string(),
-        ..AppSettings::default()
-    };
-    let provider = provider_with_liveness_model("");
-
-    assert_eq!(effective_model(&settings, &provider), "gpt-5.5");
-}
-
-#[test]
-fn resumed_session_without_override_preserves_its_model() {
-    let settings = AppSettings {
-        liveness_model: "gpt-5.5".to_string(),
-        ..AppSettings::default()
-    };
-    let provider = provider_with_liveness_model("claude-opus-4-6");
-
-    assert_eq!(
-        resolve_launch_model(&settings, &provider, "", TemporaryCliSessionMode::History),
-        ""
-    );
-    assert_eq!(
-        resolve_launch_model(
-            &settings,
-            &provider,
-            "claude-sonnet-4-5",
-            TemporaryCliSessionMode::History,
-        ),
-        "claude-sonnet-4-5"
-    );
 }
 
 #[test]

@@ -110,7 +110,7 @@ if defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command "[D
 call :BH_WRITE_STATUS exited null %BH_ENDED% %BH_EXIT_CODE%
 if defined BH_PUSHED popd
 del "{launch_payload_path}" 2>nul
-{cleanup_settings}(goto) 2>nul & del "%~f0" 2>nul & rmdir "{script_dir}" 2>nul & cmd /D /C exit %BH_EXIT_CODE%
+{cleanup_settings}(goto) 2>nul & del "%~f0" 2>nul & rmdir /s /q "{script_dir}" 2>nul & cmd /D /C exit %BH_EXIT_CODE%
 :BH_WRITE_STATUS
 set "BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%"
 > "%BH_TMP%" echo {{"status":"%~1","pid":%~2,"endedAt":%~3,"exitCode":%~4}}

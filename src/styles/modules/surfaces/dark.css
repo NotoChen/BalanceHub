@@ -101,7 +101,3 @@ body[arco-theme="dark"] {
 :root.theme-dark .provider-editor-context-progress > div { background: #334155; }
 :root.theme-dark .provider-editor-context-card > header > b { background: var(--surface-panel-soft); color: var(--surface-muted); }
 :root.theme-dark .provider-editor-context-card > header > b.ready { background: #1b3936; color: var(--surface-success); }
-:root.theme-dark .workspace-picker-modal .workspace-history { background: #172231; }
-:root.theme-dark .workspace-picker-modal .workspace-browser { background: var(--surface-panel); }
-:root.theme-dark .workspace-picker-modal .workspace-launch-config,
-:root.theme-dark .workspace-picker-modal .workspace-directory-scroll { background: var(--surface-panel-soft); }

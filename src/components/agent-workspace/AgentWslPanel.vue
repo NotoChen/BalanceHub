@@ -192,7 +192,7 @@ defineExpose({ refresh: () => wsl.refresh() });
         </article>
       </div>
     </a-drawer>
-    <AgentConfigurationEditorModal :model="model.editor"
+    <AgentConfigurationEditorModal :model="model.editor" :sources="model.sources" @open-source="model.openFile"
       ><template #file-actions="{ sourceId }"
         ><AgentConfigurationFileActions
           :source="model.editorSource(sourceId)"

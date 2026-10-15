@@ -158,13 +158,15 @@ impl TemporaryCliLaunchService<'_> {
                     return Err("WSL 会话请沿用发行版内配置；可在环境面板编辑其配置文件".into());
                 }
                 let prepared = self.prepare(TemporaryCliLaunchInput {
+                    run_settings: request.run_settings.clone(),
                     provider_id: provider_id.clone(),
                     cli_kind: target.cli_kind,
                     cli_path: request.cli_path.clone(),
                     workdir: target.workdir.to_string_lossy().into_owned(),
                     api_key: String::new(),
                     api_key_local_id: api_key_local_id.clone().unwrap_or_default(),
-                    model: String::new(),
+                    model: request.model_override.trim().to_string(),
+                    inherited_model: target.model.clone(),
                     session_mode: TemporaryCliSessionMode::History,
                     session_name: String::new(),
                     resume_id: target.native_session_id.clone(),
@@ -240,8 +242,10 @@ impl TemporaryCliLaunchService<'_> {
                     cli_kind: target.cli_kind,
                     workdir: &workdir,
                     options: LaunchOptions {
+                        run_settings: Some(&request.run_settings),
                         api_key_override: "",
-                        model_override: "",
+                        model_override: &request.model_override,
+                        inherited_model: &target.model,
                         session_name_override: "",
                         session_title: "",
                         resume_id: &target.native_session_id,

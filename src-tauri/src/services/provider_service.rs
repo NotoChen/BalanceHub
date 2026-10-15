@@ -14,6 +14,7 @@ mod liveness;
 mod persistence;
 mod quota;
 mod refresh;
+mod temporary_cli_profiles;
 mod transaction;
 mod usage;
 mod workspaces;

@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod launch_cleanup;
 
 use crate::{
     limits,
@@ -18,6 +19,7 @@ use std::{
 };
 
 pub(crate) use app::CliRuntimeService;
+pub(crate) use launch_cleanup::register_launch_directory;
 
 const RUNTIME_DIR_NAME: &str = "balancehub-cli-runtime-v1";
 const INSTANCES_DIR_NAME: &str = "instances";
@@ -336,6 +338,11 @@ fn load_instance(instance_dir: &Path) -> Option<TemporaryCliInstance> {
         read_json::<StoredInstanceMetadata>(&instance_dir.join(METADATA_FILE_NAME)).ok()?;
     let status_path = instance_dir.join(STATUS_FILE_NAME);
     let mut status = read_json::<StoredInstanceStatus>(&status_path).ok()?;
+    // An inferred startup timeout is not proof that a terminal can no longer
+    // execute its script. Eager cleanup requires an explicit exit from it.
+    if status.status == TemporaryCliInstanceStatus::Exited && status.exit_code.is_some() {
+        launch_cleanup::cleanup(instance_dir);
+    }
     if reconcile_status(&metadata, &mut status) {
         let _ = write_json_atomic(&status_path, &status);
     }
@@ -511,7 +518,7 @@ fn numeric_timestamp(value: &str) -> u128 {
 }
 
 #[cfg(unix)]
-fn process_is_alive(pid: u32) -> bool {
+pub(crate) fn process_is_alive(pid: u32) -> bool {
     if pid == 0 || pid > i32::MAX as u32 {
         return false;
     }
@@ -520,7 +527,7 @@ fn process_is_alive(pid: u32) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn process_is_alive(pid: u32) -> bool {
+pub(crate) fn process_is_alive(pid: u32) -> bool {
     use windows_sys::Win32::{
         Foundation::{CloseHandle, GetLastError, ERROR_ACCESS_DENIED, WAIT_FAILED, WAIT_TIMEOUT},
         System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
@@ -541,7 +548,7 @@ fn process_is_alive(pid: u32) -> bool {
 }
 
 #[cfg(not(any(unix, target_os = "windows")))]
-fn process_is_alive(_pid: u32) -> bool {
+pub(crate) fn process_is_alive(_pid: u32) -> bool {
     true
 }
 

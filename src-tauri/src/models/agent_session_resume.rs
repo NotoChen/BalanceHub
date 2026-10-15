@@ -52,6 +52,11 @@ pub struct AgentSessionResumeRequest {
     pub cli_path: String,
     pub terminal_kind: TemporaryCliTerminalKind,
     pub intent: AgentSessionResumeIntent,
+    /// Empty preserves the native session model; a value changes this launch only.
+    #[serde(default)]
+    pub model_override: String,
+    #[serde(default)]
+    pub run_settings: super::TemporaryCliRunSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

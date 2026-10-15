@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use super::{AgentCliKind, TemporaryCliTerminalKind};
+use super::{AgentCliKind, AgentSettingValueSummary, TemporaryCliTerminalKind};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +48,9 @@ pub struct TemporaryCliLaunchInput {
     pub api_key_local_id: String,
     #[serde(default)]
     pub model: String,
+    /// Preview metadata only. Authorized resumes resolve this from the native session.
+    #[serde(default)]
+    pub inherited_model: String,
     #[serde(default)]
     pub session_mode: TemporaryCliSessionMode,
     #[serde(default)]
@@ -60,6 +63,8 @@ pub struct TemporaryCliLaunchInput {
     #[serde(default)]
     pub session_title: String,
     pub terminal_kind: TemporaryCliTerminalKind,
+    #[serde(default)]
+    pub run_settings: super::TemporaryCliRunSettings,
 }
 
 /// 启动前展示给用户确认的实际 CLI 参数。该结构只在当前确认弹窗内存中流转，
@@ -85,6 +90,8 @@ pub struct TemporaryCliLaunchPreview {
     pub environment: BTreeMap<String, String>,
     pub settings_path: Option<String>,
     pub settings_content: Option<String>,
+    pub run_summary: Vec<String>,
+    pub model_selection: AgentSettingValueSummary,
 }
 
 #[derive(Debug, Clone, Serialize)]

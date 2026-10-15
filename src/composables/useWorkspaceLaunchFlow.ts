@@ -1,4 +1,9 @@
 import { computed, ref, type Ref } from "vue";
+import {
+  copyTemporaryCliRunSettings,
+  defaultTemporaryCliRunSettings,
+  type TemporaryCliRunSettings,
+} from "../stores/temporary-cli-settings-types";
 import { Message } from "@arco-design/web-vue";
 import type { SelectOption } from "../utils/liveness-options.ts";
 import type {
@@ -43,14 +48,18 @@ interface UseWorkspaceLaunchFlowOptions {
   sessionMode: Ref<TemporaryCliSessionMode>;
   sessionName: Ref<string>;
   canNameSession: Ref<boolean>;
+  runSettings?: Ref<TemporaryCliRunSettings>;
   selectedResumeId: Ref<string>;
   selectedSessionRef: Ref<string>;
   sessionScopeRevision: Ref<string>;
   selectedSessionTitle: Ref<string>;
   selectedSessionWorkdir: Ref<string>;
+  selectedSessionModel?: Ref<string>;
   error: Ref<string>;
   launch: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchResult>;
-  preview: (input: TemporaryCliLaunchInput) => Promise<TemporaryCliLaunchPreview>;
+  preview: (
+    input: TemporaryCliLaunchInput,
+  ) => Promise<TemporaryCliLaunchPreview>;
   getInstance: (instanceId: string) => Promise<TemporaryCliInstance | null>;
   resume: (input: SessionResumeInput) => Promise<unknown>;
   notify?: Partial<LaunchNotifications>;
@@ -64,8 +73,17 @@ interface LaunchNotifications {
 
 type WorkspaceLaunchState =
   | { phase: "idle" }
-  | { phase: "previewing"; input: TemporaryCliLaunchInput; resume: SessionResumeInput | null }
-  | { phase: "confirming"; input: TemporaryCliLaunchInput; resume: SessionResumeInput | null; preview: TemporaryCliLaunchPreview };
+  | {
+      phase: "previewing";
+      input: TemporaryCliLaunchInput;
+      resume: SessionResumeInput | null;
+    }
+  | {
+      phase: "confirming";
+      input: TemporaryCliLaunchInput;
+      resume: SessionResumeInput | null;
+      preview: TemporaryCliLaunchPreview;
+    };
 
 export interface TemporaryCliLaunchTask {
   id: string;
@@ -110,19 +128,21 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
 
   function buildLaunchInput(path?: string): TemporaryCliLaunchInput | null {
     const provider = options.provider.value;
-    const workdir = (options.sessionMode.value === "history"
-      ? options.selectedSessionWorkdir.value
-      : path || options.directory.value?.currentPath || "").trim();
-    if (
-      !provider
-      || !workdir
-      || workspaceLaunchState.value.phase !== "idle"
-    ) {
+    const workdir = (
+      options.sessionMode.value === "history"
+        ? options.selectedSessionWorkdir.value
+        : path || options.directory.value?.currentPath || ""
+    ).trim();
+    if (!provider || !workdir || workspaceLaunchState.value.phase !== "idle") {
       return null;
     }
     if (
-      !options.cliOptions.value.some((option) => option.value === options.cliKind.value)
-      || !options.terminalOptions.value.some((option) => option.value === options.terminalKind.value)
+      !options.cliOptions.value.some(
+        (option) => option.value === options.cliKind.value,
+      ) ||
+      !options.terminalOptions.value.some(
+        (option) => option.value === options.terminalKind.value,
+      )
     ) {
       return failLaunchInput("未检测到可用的 Agent 或终端");
     }
@@ -131,17 +151,22 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       providerApiKeyOptionMatches(option, options.apiKeyLocalId.value),
     );
     if (selectedKey && !isProviderApiKeyUsable(selectedKey)) {
-      return failLaunchInput("所选 API Key 未读取到完整值，请在 API Key 管理中补全或改选其他 Key");
+      return failLaunchInput(
+        "所选 API Key 未读取到完整值，请在 API Key 管理中补全或改选其他 Key",
+      );
     }
     const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
-    const model = options.cliTool.value?.capabilities.modelSelection && options.sessionMode.value === "new"
-      ? (options.selectedModel.value.trim() || provider.cli.preferredModel.trim())
+    const model = options.cliTool.value?.capabilities.modelSelection
+      ? options.selectedModel.value.trim()
       : "";
-    const sessionName = options.canNameSession.value ? options.sessionName.value.trim() : "";
+    const sessionName = options.canNameSession.value
+      ? options.sessionName.value.trim()
+      : "";
     const cliPath = options.cliTool.value?.path.trim() || "";
-    const resumeId = options.sessionMode.value === "history"
-      ? options.selectedResumeId.value.trim()
-      : "";
+    const resumeId =
+      options.sessionMode.value === "history"
+        ? options.selectedResumeId.value.trim()
+        : "";
     if (!cliPath) {
       return failLaunchInput("所选 Agent CLI 缺少可用路径，请重新扫描后再试");
     }
@@ -153,6 +178,14 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     }
 
     return {
+      runSettings: {
+        ...copyTemporaryCliRunSettings(
+          options.runSettings?.value ?? defaultTemporaryCliRunSettings(),
+        ),
+        ...(options.sessionMode.value === "history"
+          ? { keepSession: true }
+          : {}),
+      },
       providerId: provider.identity.id,
       cliKind: options.cliKind.value,
       cliPath,
@@ -162,12 +195,17 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       // remains in `apiKey`; never send that secret as a local-id selector.
       apiKeyLocalId: selectedKey?.localId || "",
       model,
+      inheritedModel:
+        options.sessionMode.value === "history"
+          ? (options.selectedSessionModel?.value ?? "")
+          : "",
       sessionMode: options.sessionMode.value,
       sessionName,
       resumeId,
-      sessionTitle: options.sessionMode.value === "history"
-        ? options.selectedSessionTitle.value.trim()
-        : sessionName,
+      sessionTitle:
+        options.sessionMode.value === "history"
+          ? options.selectedSessionTitle.value.trim()
+          : sessionName,
       terminalKind: options.terminalKind.value,
     };
   }
@@ -187,9 +225,15 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       resume = {
         sessionRef,
         scopeRevision,
+        modelOverride: input.model,
+        runSettings: input.runSettings,
         cliPath: input.cliPath,
         terminalKind: input.terminalKind,
-        intent: { kind: "provider", providerId: input.providerId, apiKeyLocalId: input.apiKeyLocalId || null },
+        intent: {
+          kind: "provider",
+          providerId: input.providerId,
+          apiKeyLocalId: input.apiKeyLocalId || null,
+        },
       };
     }
 
@@ -203,8 +247,8 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
         "生成临时 CLI 启动预览超时，请检查 Agent CLI 与终端状态",
       );
       if (
-        requestId !== previewRequestId
-        || workspaceLaunchState.value.phase !== "previewing"
+        requestId !== previewRequestId ||
+        workspaceLaunchState.value.phase !== "previewing"
       ) {
         return;
       }
@@ -216,8 +260,8 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       };
     } catch (error) {
       if (
-        requestId !== previewRequestId
-        || workspaceLaunchState.value.phase !== "previewing"
+        requestId !== previewRequestId ||
+        workspaceLaunchState.value.phase !== "previewing"
       ) {
         return;
       }
@@ -270,7 +314,9 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
           "success",
           `${cliLabel} 已启动，但工作空间记录失败：${result.workspaceError}`,
         );
-        notify.warning(`${cliLabel} 已启动，但工作空间记录失败：${result.workspaceError}`);
+        notify.warning(
+          `${cliLabel} 已启动，但工作空间记录失败：${result.workspaceError}`,
+        );
       } else {
         finishLaunchTask(taskId, "success", `${cliLabel} 已启动`);
         notify.success(`已在所选工作空间启动 ${cliLabel}`);
@@ -312,7 +358,10 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     return task;
   }
 
-  function updateLaunchTask(id: string, patch: Partial<TemporaryCliLaunchTask>) {
+  function updateLaunchTask(
+    id: string,
+    patch: Partial<TemporaryCliLaunchTask>,
+  ) {
     temporaryCliLaunchTasks.value = temporaryCliLaunchTasks.value.map((task) =>
       task.id === id ? { ...task, ...patch } : task,
     );
@@ -334,7 +383,9 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
   }
 
   function trimLaunchTasks() {
-    const running = temporaryCliLaunchTasks.value.filter((task) => task.status === "running");
+    const running = temporaryCliLaunchTasks.value.filter(
+      (task) => task.status === "running",
+    );
     const finished = temporaryCliLaunchTasks.value
       .filter((task) => task.status !== "running")
       .sort((left, right) => (right.finishedAt ?? 0) - (left.finishedAt ?? 0))

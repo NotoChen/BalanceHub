@@ -1,13 +1,16 @@
 import { ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type { Workspace, WorkspaceDirectoryListing } from "../stores/providers";
+import { withTimeout } from "../utils/promise-timeout";
 
 interface UseWorkspaceDirectoryBrowserOptions {
   browse: (path?: string) => Promise<WorkspaceDirectoryListing>;
   forget: (path: string) => Promise<Workspace[]>;
 }
 
-export function useWorkspaceDirectoryBrowser(options: UseWorkspaceDirectoryBrowserOptions) {
+export function useWorkspaceDirectoryBrowser(
+  options: UseWorkspaceDirectoryBrowserOptions,
+) {
   const workspaceDirectory = ref<WorkspaceDirectoryListing | null>(null);
   const workspacePathDraft = ref("");
   const workspaceBrowsing = ref(false);
@@ -20,7 +23,11 @@ export function useWorkspaceDirectoryBrowser(options: UseWorkspaceDirectoryBrows
     workspaceBrowsing.value = true;
     workspaceBrowserError.value = "";
     try {
-      const listing = await options.browse(path?.trim() || undefined);
+      const listing = await withTimeout(
+        options.browse(path?.trim() || undefined),
+        12_000,
+        "读取目录超时，请检查磁盘或网络挂载后重试",
+      );
       if (requestId !== browseRequestId) {
         return false;
       }
@@ -45,7 +52,11 @@ export function useWorkspaceDirectoryBrowser(options: UseWorkspaceDirectoryBrows
     }
     workspaceForgettingPath.value = path;
     try {
-      await options.forget(path);
+      await withTimeout(
+        options.forget(path),
+        8_000,
+        "移除常用目录记录超时，请重新打开后确认结果",
+      );
     } catch (error) {
       Message.error(errorMessage(error));
     } finally {

@@ -1,5 +1,7 @@
-.surface-modal.file-editor-modal.arco-modal { display: flex; flex-direction: column; height: min(1040px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px); margin: 24px auto; }
-.surface-modal.file-editor-modal.arco-modal-fullscreen { width: 100vw; height: 100dvh; max-width: 100vw; max-height: 100dvh; margin: 0; border-radius: 0; }
+/* Arco's centered wrapper requires an inline shell; a block adds a second
+ * full-height line that can scroll when a nested control receives focus. */
+.surface-modal.file-editor-modal.arco-modal { display: inline-flex; flex-direction: column; height: min(1040px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px); margin: 24px auto; }
+.surface-modal.file-editor-modal.arco-modal-fullscreen { display: flex; width: 100vw; height: 100dvh; max-width: 100vw; max-height: 100dvh; margin: 0; border-radius: 0; }
 .surface-modal.file-editor-modal .arco-modal-header { flex: 0 0 auto; min-height: 58px; }
 .surface-modal.file-editor-modal .arco-modal-body { flex: 1; min-height: 0; max-height: none; overflow: auto; padding: 18px 22px; background: var(--surface-canvas); }
 .surface-modal.file-editor-modal-fill .arco-modal-body { display: flex; flex-direction: column; }

@@ -62,18 +62,7 @@ pub(super) fn observe_candidates(
         u8::from(collection.collector.budget_exceeded),
     ]);
     for candidate in collection.collector.candidates {
-        super::cache::observe_path(digest, &candidate.runtime_entrypoint);
-        if let Ok(canonical) = std::fs::canonicalize(&candidate.runtime_entrypoint) {
-            super::cache::observe_path(digest, &canonical);
-            for parent in canonical.ancestors().skip(1).take(6) {
-                let manifest = parent.join("package.json");
-                super::cache::observe_path(digest, &manifest);
-                if manifest.is_file() {
-                    super::cache::observe_path(digest, parent);
-                    break;
-                }
-            }
-        }
+        super::cache::observe_executable(digest, &candidate.runtime_entrypoint);
         if let Some(path) = collection
             .runtime_path
             .path_for(&candidate.runtime_entrypoint)

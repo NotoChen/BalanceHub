@@ -16,6 +16,7 @@ mod liveness_support;
 pub(crate) mod maintenance;
 pub(crate) mod mcp_check;
 pub(crate) mod overview;
+pub(crate) mod settings;
 
 use crate::models::{
     AgentCliCapabilities, AgentCliDescriptor, AgentCliKind, AppSettings, CliEnvironmentProbeResult,
@@ -130,6 +131,8 @@ macro_rules! register_agent_clis {
 
 // 枚举身份、模块声明和注册表由同一份目录生成。
 crate::agent_cli_catalog::for_each_agent_cli!(register_agent_clis);
+
+pub(crate) use gemini::merge_temporary_system_settings as merge_gemini_temporary_settings;
 
 pub(crate) fn definitions() -> &'static [AgentCliDefinition] {
     debug_assert!(AgentCliKind::ALL.iter().all(|kind| {

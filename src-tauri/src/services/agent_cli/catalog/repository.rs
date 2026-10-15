@@ -260,7 +260,7 @@ impl Repository {
         output
     }
 
-    fn decode(&self, file: &GuardedFile) -> Result<Library, String> {
+    pub(super) fn decode(&self, file: &GuardedFile) -> Result<Library, String> {
         package_storage::decode(&self.root, file.bytes())
     }
 

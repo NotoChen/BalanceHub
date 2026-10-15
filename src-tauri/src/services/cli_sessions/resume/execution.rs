@@ -171,6 +171,9 @@ impl AgentSessionResumeService {
             if entry.operation.state != AgentSessionResumeState::Running {
                 return Err("继续任务已取消或超时".to_owned());
             }
+            if entry.request.run_settings != Default::default() || !entry.request.model_override.trim().is_empty() {
+                return Err("该会话仍在运行，本次启动设置无法修改已有进程。请先退出该会话，或恢复默认设置后返回已有终端".to_owned());
+            }
             entry.dispatched = true;
             entry.dispatch_finished = true;
             entry.launch_confirmed = running;

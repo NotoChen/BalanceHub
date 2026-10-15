@@ -9,6 +9,8 @@ mod liveness;
 mod native_context;
 mod sessions;
 
+pub(crate) use config::merge_temporary_system_settings;
+
 use super::discovery::paths::{
     node_cli_home_candidates, AgentHomeCandidateScanRequest, AgentHomeCandidateScanResult,
 };

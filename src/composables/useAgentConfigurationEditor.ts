@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, ref, shallowRef } from "vue";
-import { discardAgentConfigurationEdit, planAgentConfigurationSave } from "../api/agent-configuration";
+import { discardAgentConfigurationEdit, planAgentConfigurationSave, readAgentConfigurationForm } from "../api/agent-configuration";
 import { useAgentConfigurationStore, type AgentConfigurationTaskContext } from "../stores/agent-configuration";
 import { useAgentConfigurationSourcesStore, type AgentConfigurationPublisher } from "../stores/agent-configuration-sources";
 import type {
@@ -9,6 +9,7 @@ import { agentConfigurationErrorDiagnostics, agentConfigurationErrorMessage } fr
 import { withTimeout } from "../utils/promise-timeout";
 
 import type { AgentMcpEditorDraft } from "./useAgentMcpEditor";
+import type { AgentSettingsEditorDraft } from "./useAgentSettingsEditor";
 
 type EditLoader = (isCurrent: () => boolean, publish: AgentConfigurationPublisher, signal: AbortSignal) => Promise<AgentConfigurationEdit>;
 interface PendingEdit { loader: EditLoader; context: AgentConfigurationTaskContext; key: string }
@@ -23,6 +24,7 @@ export function useAgentConfigurationEditor() {
   const edit = shallowRef<AgentConfigurationEdit | null>(null);
   const textDrafts = ref<Record<string, string>>({});
   const mcpDrafts = ref<Record<string, AgentMcpEditorDraft>>({});
+  const settingsDrafts = ref<Record<string, AgentSettingsEditorDraft>>({});
   const plan = shallowRef<AgentConfigurationPlan | null>(null);
   const planVisible = ref(false);
   const error = ref("");
@@ -45,7 +47,7 @@ export function useAgentConfigurationEditor() {
   const hasDraft = computed(() => {
     const current = edit.value;
     if (!current || tasks.operationFor(current.editId)?.outcome === "appliedVerified") return false;
-    return current.documents.some((document) => document.creating || mcpDrafts.value[document.sourceId]?.modified || textDrafts.value[document.sourceId] !== document.originalText);
+    return current.documents.some((document) => document.creating || mcpDrafts.value[document.sourceId]?.modified || settingsDrafts.value[document.sourceId]?.modified || textDrafts.value[document.sourceId] !== document.originalText);
   });
   const pendingLabel = computed(() => pendingEdit.value?.context.label ?? "");
   const submissionError = computed(() => edit.value ? tasks.startErrors[edit.value.editId] ?? tasks.operationFor(edit.value.editId)?.message ?? "" : "");
@@ -59,7 +61,7 @@ export function useAgentConfigurationEditor() {
   });
   const editExpired = computed(() => Boolean(edit.value && (!Number.isFinite(Date.parse(edit.value.expiresAt)) || Date.parse(edit.value.expiresAt) <= now.value)));
   const planExpired = computed(() => Boolean(plan.value && (!Number.isFinite(Date.parse(plan.value.expiresAt)) || Date.parse(plan.value.expiresAt) <= now.value)));
-  const canPrepare = computed(() => visible.value && hasDraft.value && Boolean(edit.value?.documents.some((document) => !document.readOnlyReason)) && !submitted.value && !pendingEdit.value && !loading.value && !preparing.value && !editExpired.value);
+  const canPrepare = computed(() => visible.value && hasDraft.value && Boolean(edit.value?.documents.some((document) => !document.readOnlyReason)) && !submitted.value && !pendingEdit.value && !loading.value && !preparing.value && !editExpired.value && !Object.values(settingsDrafts.value).some((draft) => draft.validation));
   const canConfirm = computed(() => visible.value && planVisible.value && Boolean(plan.value) && !submitted.value && !pendingEdit.value && !planExpired.value && !editExpired.value && !loading.value && !preparing.value);
 
   function startClock() {
@@ -84,6 +86,7 @@ export function useAgentConfigurationEditor() {
     edit.value = null;
     textDrafts.value = {};
     mcpDrafts.value = {};
+    settingsDrafts.value = {};
     error.value = "";
     errorDiagnostics.value = [];
     currentLoader.value = null;
@@ -139,6 +142,7 @@ export function useAgentConfigurationEditor() {
       const previousEditId = edit.value?.editId;
       edit.value = result;
       mcpDrafts.value = {};
+      settingsDrafts.value = {};
       textDrafts.value = Object.fromEntries(result.documents.map((document) => [document.sourceId, document.text]));
       draftRevision += 1;
       startClock();
@@ -202,9 +206,16 @@ export function useAgentConfigurationEditor() {
     mcpDrafts.value[sourceId] = draft;
     if (draft.modified || previous?.modified) invalidatePlan();
   }
+  function setSettingsDraft(sourceId: string, draft: AgentSettingsEditorDraft) {
+    if (loading.value || submitted.value || !edit.value?.documents.some((document) => document.sourceId === sourceId)) return;
+    const previous = settingsDrafts.value[sourceId];
+    if (previous && JSON.stringify(previous) === JSON.stringify(draft)) return;
+    settingsDrafts.value[sourceId] = draft;
+    if (draft.modified || previous?.modified) invalidatePlan();
+  }
   async function prepare() {
     const current = edit.value;
-    if (!current || !canPrepare.value || Object.values(mcpDrafts.value).some((draft) => draft.validation)) return;
+    if (!current || !canPrepare.value || Object.values(mcpDrafts.value).some((draft) => draft.validation) || Object.values(settingsDrafts.value).some((draft) => draft.validation)) return;
     const request = ++planRequest;
     const generation = requestId;
     const revision = draftRevision;
@@ -217,6 +228,20 @@ export function useAgentConfigurationEditor() {
     errorDiagnostics.value = [];
     plan.value = null;
     try {
+      // A user can preview immediately after dragging or after switching files.
+      // Materialize every pending form draft before capturing the diff input.
+      for (const document of current.documents) {
+        const draft = settingsDrafts.value[document.sourceId];
+        if (!draft?.pending || draft.rawChanged) continue;
+        const result = await withTimeout(readAgentConfigurationForm({ editId: current.editId,
+          sourceId: document.sourceId, expectedRevision: current.revision, text: draft.sourceText,
+          changes: { ...draft.changes } }), 15_000, "整理可视化草稿超时，修改已保留");
+        if (disposed || generation !== requestId || request !== planRequest || revision !== draftRevision) return;
+        textDrafts.value[document.sourceId] = result.text;
+        input.documents.find((item) => item.sourceId === document.sourceId)!.text = result.text;
+        settingsDrafts.value[document.sourceId] = { ...draft, form: result, sourceText: result.text,
+          changes: {}, pending: false, modified: result.text !== document.originalText, validation: "" };
+      }
       const pending = planAgentConfigurationSave(input);
       const result = await withTimeout(pending, 30_000, "预览更改超时");
       if (disposed || generation !== requestId || request !== planRequest || revision !== draftRevision) return;
@@ -252,7 +277,7 @@ export function useAgentConfigurationEditor() {
   function reload() { if (canReload.value && currentLoader.value && context.value && !pendingEdit.value) return load(currentLoader.value, context.value, draftKey); }
 
   onScopeDispose(() => { disposed = true; discardDraft(); });
-  return { visible, loading, preparing, edit, textDrafts, mcpDrafts, plan, planVisible, error, errorDiagnostics, title,
+  return { visible, loading, preparing, edit, textDrafts, mcpDrafts, settingsDrafts, plan, planVisible, error, errorDiagnostics, title,
     context, hasDraft, pendingLabel, submitted, submissionError, submissionDiagnostics, canReload, editExpired, planExpired, canPrepare, canConfirm,
-    open, close, setText, setMcpDraft, prepare, backToDraft, confirm, resumeDraft, keepDraft, discardDraft, openPending, reload };
+    open, close, setText, setMcpDraft, setSettingsDraft, prepare, backToDraft, confirm, resumeDraft, keepDraft, discardDraft, openPending, reload };
 }

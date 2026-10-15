@@ -602,19 +602,6 @@
 .agent-session-resume-footer > .arco-btn {
   flex: 0 0 auto;
 }
-.workspace-session-filters {
-  flex: 1;
-  min-width: 0;
-  grid-template-columns: 144px minmax(0, 1fr);
-  margin: 0;
-}
-
-.workspace-session-history .agent-session-list {
-  flex: 1 1 auto;
-  min-height: 200px;
-  height: 0;
-  padding: 2px 4px 5px;
-}
 .agent-session-panel button:focus-visible,
 .agent-session-resume-body button:focus-visible,
 .workspace-session-history button:focus-visible {

@@ -158,8 +158,8 @@ impl CatalogService {
         }
         // Preserve pending recovery barriers from disk even when a dry native
         // projection can already observe the likely reconciliation outcome.
-        if let Some(bytes) = base.guard.bytes() {
-            let persisted: Library = serde_json::from_slice(bytes).map_err(|_| "共享库格式无效")?;
+        if base.guard.bytes().is_some() {
+            let persisted = self.repository.decode(&base.guard)?;
             for (id, entry) in &persisted.entries {
                 if entry.receipts.values().any(|receipt| {
                     receipt
