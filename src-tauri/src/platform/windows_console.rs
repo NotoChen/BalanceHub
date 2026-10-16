@@ -30,6 +30,7 @@ impl ConsoleCommand {
         #[cfg(windows)]
         {
             self.spawn_windows()
+                .map(drop)
                 .map_err(|error| format!("无法启动 Windows 交互终端：{error}"))
         }
         #[cfg(not(windows))]
@@ -39,8 +40,17 @@ impl ConsoleCommand {
     }
 
     #[cfg(windows)]
-    fn spawn_windows(&self) -> std::io::Result<()> {
-        use std::{env, ffi::OsString, mem::size_of, os::windows::ffi::OsStrExt, ptr};
+    fn spawn_windows(&self) -> std::io::Result<std::os::windows::io::OwnedHandle> {
+        use std::{
+            env,
+            ffi::OsString,
+            mem::size_of,
+            os::windows::{
+                ffi::OsStrExt,
+                io::{FromRawHandle, OwnedHandle},
+            },
+            ptr,
+        };
         use windows_sys::Win32::{
             Foundation::CloseHandle,
             System::Threading::{
@@ -109,9 +119,8 @@ impl ConsoleCommand {
         }
         unsafe {
             CloseHandle(process.hThread);
-            CloseHandle(process.hProcess);
         }
-        Ok(())
+        Ok(unsafe { OwnedHandle::from_raw_handle(process.hProcess) })
     }
 }
 
@@ -132,36 +141,61 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn new_console_receives_interactive_standard_handles() {
-        use std::{
-            fs, thread,
-            time::{Duration, Instant},
+        use std::{env, fs, os::windows::io::AsRawHandle};
+        use windows_sys::Win32::{
+            Foundation::{WAIT_FAILED, WAIT_OBJECT_0},
+            System::Threading::{GetExitCodeProcess, TerminateProcess, WaitForSingleObject},
         };
+
         let root = tempfile::tempdir().unwrap();
         let output = root.path().join("console-io.json");
-        let script = "[System.IO.File]::WriteAllText($env:BALANCEHUB_TEMPORARY_CLI_SCRIPT, (@{ inputRedirected = [Console]::IsInputRedirected; outputRedirected = [Console]::IsOutputRedirected } | ConvertTo-Json -Compress))";
-        let arguments = format!(
-            "-NoLogo -NoProfile -NonInteractive -EncodedCommand {}",
-            crate::platform::windows_shell::encoded_powershell(script)
-        );
-        ConsoleCommand::new("powershell.exe", &arguments, &output)
+        let executable = env::current_exe().unwrap();
+        let program = executable.file_name().unwrap().to_str().unwrap();
+        let module = module_path!().split_once("::").unwrap().1;
+        // Reuse the native test executable so this console probe does not
+        // depend on PowerShell startup during the parallel Windows test suite.
+        let arguments = format!("--exact {module}::console_handle_probe --ignored --nocapture");
+        let process = ConsoleCommand::new(program, &arguments, &output)
             .unwrap()
-            .spawn()
+            .spawn_windows()
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let value = loop {
-            if let Some(value) = fs::read(&output)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            {
-                break value;
+        let wait = unsafe { WaitForSingleObject(process.as_raw_handle(), 10_000) };
+        if wait != WAIT_OBJECT_0 {
+            let error = (wait == WAIT_FAILED).then(std::io::Error::last_os_error);
+            unsafe {
+                TerminateProcess(process.as_raw_handle(), 1);
+                WaitForSingleObject(process.as_raw_handle(), 1_000);
             }
-            assert!(
-                Instant::now() < deadline,
-                "new console did not publish its handle state"
-            );
-            thread::sleep(Duration::from_millis(20));
-        };
+            panic!("console probe did not exit: wait={wait}, error={error:?}");
+        }
+        let mut exit_code = 0;
+        assert_ne!(
+            unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut exit_code) },
+            0,
+            "could not read console probe exit code: {}",
+            std::io::Error::last_os_error()
+        );
+        assert_eq!(exit_code, 0, "console probe failed");
+        let bytes = fs::read(&output).expect("console probe did not publish its handle state");
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("console probe returned invalid handle state");
         assert_eq!(value["inputRedirected"], false);
         assert_eq!(value["outputRedirected"], false);
+        assert_eq!(value["errorRedirected"], false);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "子进程探针，由 new_console_receives_interactive_standard_handles 显式执行"]
+    fn console_handle_probe() {
+        use std::{env, fs, io::IsTerminal};
+
+        let output = env::var_os(SCRIPT_ENV).expect("console probe output path is missing");
+        let value = serde_json::json!({
+            "inputRedirected": !std::io::stdin().is_terminal(),
+            "outputRedirected": !std::io::stdout().is_terminal(),
+            "errorRedirected": !std::io::stderr().is_terminal(),
+        });
+        fs::write(output, serde_json::to_vec(&value).unwrap()).unwrap();
     }
 }
