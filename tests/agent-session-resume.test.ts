@@ -6,6 +6,7 @@ import { renderToString } from "@vue/server-renderer";
 import { createServer, type ViteDevServer } from "vite";
 import type { AgentSessionResumeRequest, AgentSessionRow } from "../src/stores/agent-session-types.ts";
 import type { CliEnvironmentProbeResult, Provider, TemporaryCliPreference, TerminalEnvironmentProbeResult } from "../src/stores/provider-types.ts";
+import type { TemporaryCliSettingsCapabilities } from "../src/stores/temporary-cli-settings-types.ts";
 import { resumeOperation, runtimeSession, sessionDetail, sessionInstance, sessionRow } from "./agent-session-fixtures.ts";
 import { workspaceAgent } from "./agent-workspace-fixtures.ts";
 
@@ -37,6 +38,16 @@ before(async () => {
       if (["list_agent_session_resume_operations", "list_agent_configuration_operations"].includes(command)) return Promise.resolve([]);
       if (command === "probe_cli_tools") return Promise.resolve(structuredClone(cliProbe));
       if (command === "probe_terminals") return Promise.resolve(structuredClone(terminalProbe));
+      if (command === "get_temporary_cli_settings") return Promise.resolve({
+        canDiscardSession: false, retentionNote: "继续原会话", nativeSettings: [],
+        model: { value: null, label: "原会话模型", source: "会话", state: "unset", detail: "" },
+        defaultModel: { value: null, label: "原会话模型", source: "会话", state: "unset", detail: "" },
+        modelNativeKey: "model", modelChoices: [],
+        modelCatalog: { cliKind: "codex", cliPath: "/fixture/bin/codex", configRoot: "/fixture/codex", catalogPath: null },
+        notices: [], assetControls: [], runReferences: {}, canSkipRules: false, canAddDirectories: false,
+        canDisableSkills: false, canDisableMcp: false, canDisablePlugins: false, canDisableHooks: false,
+      } satisfies TemporaryCliSettingsCapabilities);
+      if (command === "get_agent_model_catalog") return Promise.resolve({ choices: [], source: "fixture", notice: "", stale: false, refreshedAt: null });
       unexpected.push(command);
       return Promise.reject(new Error(`Unexpected Tauri command: ${command}`));
     },
@@ -122,7 +133,8 @@ test("native resume closes before pending IPC, shares reservation, and preserves
   assert.equal(context.store.starting["ref:session-1"], true);
   assert.equal(context.store.isReserved("ref:session-1"), true);
   const request = submitted();
-  assert.deepEqual(Object.keys(request).sort(), ["cliPath", "intent", "requestId", "scopeRevision", "sessionRef", "terminalKind"]);
+  assert.deepEqual(Object.keys(request).sort(), ["cliPath", "intent", "modelOverride", "requestId", "scopeRevision", "sessionRef", "terminalKind"]);
+  assert.equal(request.modelOverride, "");
   assert.deepEqual(request.intent, { kind: "native" });
   assert.equal(request.cliPath, "/fixture/bin/codex");
   assert.equal(request.scopeRevision, "scope:fixture");
@@ -146,10 +158,12 @@ test("Provider continuation sends only stable Provider and local Key IDs", async
   ui.model.intentKind.value = "provider";
   ui.model.selectProvider("fixture-provider");
   ui.model.apiKeyLocalId.value = "fixture-local-key";
+  ui.model.modelOverride.value = "fixture-override-model";
   const reply = pending("resume_agent_session");
   ui.model.confirm();
   const request = submitted();
   assert.deepEqual(request.intent, { kind: "provider", providerId: "fixture-provider", apiKeyLocalId: "fixture-local-key" });
+  assert.equal(request.modelOverride, "fixture-override-model");
   assert.ok(!JSON.stringify(request).includes("fixture-secret"));
   reply.resolve(resumeOperation({ requestId: request.requestId, state: "failed", canCancel: false }));
   await settle();
@@ -286,7 +300,7 @@ test("closing during environment detection releases probe state and ignores late
   assert.equal(ui.visible.value, false);
 });
 
-test("real resume modal remains closable and describes native continuation without a model promise", async (t) => {
+test("real resume modal remains closable and exposes the optional model override", async (t) => {
   const context = fresh(t);
   const row = sessionRow(); row.session.canResume = false; row.resumeReason = "原生子会话只读";
   const html = await renderSurface("/src/components/agent-workspace/AgentSessionResumeModal.vue", {
@@ -295,8 +309,8 @@ test("real resume modal remains closable and describes native continuation witho
   assert.match(html, /data-closable="true"/);
   assert.match(html, /data-mask-closable="true"/);
   assert.match(html, /data-esc-to-close="true"/);
-  assert.match(html, /使用原生配置继续原会话，无需选择中转站。/);
-  assert.doesNotMatch(html, /原会话模型/);
+  assert.match(html, /继续原会话，连接和登录凭据使用 Agent 已有设置。/);
+  assert.match(html, /aria-label="选择继续会话的模型"/);
   assert.match(html, /原生子会话只读/);
   assert.ok(hasDisabledButton(html, "确认继续"));
   await settle();

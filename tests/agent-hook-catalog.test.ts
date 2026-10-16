@@ -23,7 +23,12 @@ type ViewModule = typeof import("../src/composables/useAgentCatalogView.ts");
 type EditorModule = typeof import("../src/composables/useAgentDefinitionEditor.ts");
 type Deferred = { promise: Promise<unknown>; resolve: (value: unknown) => void; reject: (error: unknown) => void };
 type HostNode = { type: string; props: Record<string, unknown>; style: Record<string, string>; text: string; children: HostNode[]; parent: HostNode | null;
-  dataset: { catalogFocus: unknown }; querySelectorAll: (selector: string) => HostNode[]; scrollIntoView: () => void; focus: () => void };
+  dataset: { catalogFocus: unknown }; querySelectorAll: (selector: string) => HostNode[]; scrollIntoView: () => void; focus: () => void;
+  parentElement: HostNode | null; isConnected: boolean; open?: boolean;
+  closest: (selector: string) => HostNode | null; contains: (target: HostNode) => boolean;
+  clientHeight: number; scrollHeight: number; offsetHeight: number; clientTop: number; scrollTop: number;
+  getBoundingClientRect: () => { top: number; bottom: number; height: number };
+  getClientRects: () => { top: number; bottom: number; height: number }[] };
 
 const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
 const agents = [workspaceAgent("claudeCode"), workspaceAgent("gemini"), workspaceAgent("codex"), workspaceAgent("grok")];
@@ -43,6 +48,10 @@ const components = new Map<string, Component>();
 
 before(async () => {
   Object.assign(globalThis, { ResizeObserver: class { observe() {} unobserve() {} disconnect() {} } });
+  Object.assign(globalThis, {
+    HTMLDetailsElement: class { static [Symbol.hasInstance](value: HostNode) { return value?.type === "details"; } },
+    getComputedStyle: () => ({ overflowY: "auto" }),
+  });
   const windowEvents = new EventTarget();
   const documentEvents = new EventTarget();
   Object.assign(globalThis, { addEventListener: windowEvents.addEventListener.bind(windowEvents), removeEventListener: windowEvents.removeEventListener.bind(windowEvents), document: { documentElement: { style: {} }, visibilityState: "visible", addEventListener: documentEvents.addEventListener.bind(documentEvents), removeEventListener: documentEvents.removeEventListener.bind(documentEvents) } });
@@ -200,6 +209,26 @@ function viewProps(snapshot: AgentAssetCatalog) {
 function node(type: string, text = ""): HostNode {
   return { type, props: {}, style: {}, text, children: [], parent: null,
     get dataset() { return { catalogFocus: this.props["data-catalog-focus"] }; },
+    get parentElement() { return this.parent; },
+    get isConnected() { return Boolean(this.parent); },
+    closest(selector) {
+      assert.equal(selector, ".arco-drawer-body");
+      for (let current: HostNode | null = this; current; current = current.parent) {
+        if (String(current.props.class ?? "").split(/\s+/).includes("arco-drawer-body")) return current;
+      }
+      return null;
+    },
+    contains(target) { return descendants(this).includes(target); },
+    get clientHeight() { return this.props.class === "arco-drawer-body" ? 100 : this.type === "root" ? 20 : 0; },
+    get scrollHeight() { return this.clientHeight ? 1000 : 0; },
+    get offsetHeight() { return this.clientHeight; },
+    clientTop: 0, scrollTop: 0,
+    getBoundingClientRect() {
+      if (this.clientHeight) return { top: 0, bottom: this.clientHeight, height: this.clientHeight };
+      const top = 200 - (this.closest(".arco-drawer-body")?.scrollTop ?? 0);
+      return { top, bottom: top + 20, height: 20 };
+    },
+    getClientRects() { return [this.getBoundingClientRect()]; },
     querySelectorAll(selector) {
       assert.ok(["[data-catalog-focus]", "[data-global-asset-id]"].includes(selector));
       const attribute = selector.slice(1, -1);
@@ -265,7 +294,8 @@ function mount(t: TestContext, name: string, pinia: Pinia, props: () => Record<s
   for (const name of ["a-modal", "a-drawer"]) app.component(name, defineComponent({
     inheritAttrs: false, props: { visible: Boolean }, emits: ["cancel"],
     setup(props, { attrs, slots, emit }) { return () => props.visible ? h("section", { ...attrs, role: "dialog" }, [
-      h("button", { "aria-label": "关闭", onClick: () => emit("cancel") }, "关闭"), slots.title?.(), slots.default?.(),
+      h("button", { "aria-label": "关闭", onClick: () => emit("cancel") }, "关闭"), slots.title?.(),
+      name === "a-drawer" ? h("div", { class: "arco-drawer-body" }, slots.default?.()) : slots.default?.(),
     ]) : null; },
   }));
   const root = node("root"); app.mount(root); t.after(() => app.unmount()); return root;
@@ -439,12 +469,17 @@ test("resource detail features focus source evidence and relationship entries pr
   const detailProps = reactive({ visible: true, asset, catalog: snapshot, agents,
     focusedFeature: "provider-unknown", libraryBusy: {}, libraryErrors: {}, onRelation: (intent: unknown) => events.push(intent) });
   const root = mount(t, "AgentCatalogDetailDrawer", context.pinia, () => detailProps);
-  await nextTick();
+  await settle();
   const evidence = descendants(root).filter((item) => item.props["data-catalog-focus"] === "provider-unknown");
   assert.equal(evidence.length, 2); assert.equal(evidence[0].props["data-test-focused"], true);
   assert.match(textContent(evidence[0]), /用户/);
-  detailProps.focusedFeature = "installation-configEntry"; await nextTick();
-  assert.equal(descendants(root).find((item) => item.props["data-catalog-focus"] === "installation-configEntry")?.props["data-test-scrolled"], true);
+  const scroller = byAttribute(root, "class", "arco-drawer-body");
+  assert.ok(scroller.scrollTop > 0); assert.equal(root.scrollTop, 0);
+  scroller.scrollTop = 0;
+  detailProps.focusedFeature = "installation-configEntry"; await settle();
+  assert.equal(descendants(root).find((item) => item.props["data-catalog-focus"] === "installation-configEntry")?.props["data-test-focused"], true);
+  assert.ok(scroller.scrollTop > 0); assert.equal(root.scrollTop, 0);
+  assert.equal(descendants(root).some((item) => item.props["data-test-scrolled"]), false);
   invoke(button(root, "比较内容"), "onClick"); invoke(button(root, "恢复提示"), "onClick");
   const detach = descendants(root).filter((item) => item.type === "button" && textContent(item) === "预览解除");
   assert.equal(detach.length, 2); assert.equal(detach[1].props.disabled, true);

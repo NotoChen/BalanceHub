@@ -75,7 +75,7 @@ fn cleanup_releases_the_batch_context_after_status_is_written() {
         finish.find("call :BH_WRITE_STATUS exited").unwrap() < finish.find("\r\n(goto)").unwrap()
     );
     assert!(cleanup.starts_with(
-        "del \"%~f0\" 2>nul & rmdir \"launch\" 2>nul & cmd /D /C exit %BH_EXIT_CODE%\r\n"
+        "del \"%~f0\" 2>nul & rmdir /s /q \"launch\" 2>nul & cmd /D /C exit %BH_EXIT_CODE%\r\n"
     ));
 }
 

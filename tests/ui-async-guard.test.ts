@@ -3,6 +3,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse } from "@vue/compiler-sfc";
+import { NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-core";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const sourceRoot = join(projectRoot, "src");
@@ -25,7 +27,7 @@ test("async stale-result guards do not compare nested ref values by object ident
   );
 });
 
-test("the identity guard accepts complete length member comparisons and scalar sentinels", () => {
+test("the identity guard accepts stable scalar members, sentinels and boolean calls", () => {
   for (const expression of [
     "preview.value.targets.length === selected.value.length",
     "selected.value.length !== preview.value.targets.length",
@@ -36,6 +38,10 @@ test("the identity guard accepts complete length member comparisons and scalar s
     "undefined !== pending.value.context",
     "pending.value.available === false",
     "true !== pending.value.available",
+    "draft.value.id !== set.id",
+    "profile.cliKind === request.value.cliKind",
+    "request.value.cliKind === profile.cliKind",
+    "rule.disabledHere !== disabled.value.includes(rule.name)",
   ]) {
     assert.deepEqual(nestedRefIdentityComparisons(expression), [], expression);
   }
@@ -57,6 +63,9 @@ test("the identity guard still rejects raw objects in both directions even when 
     "captured.context !== pending.value.context",
     "pending.value.lengthContext === context",
     "pending.value.context === captured.value.context",
+    "pending.value.context === captured.id",
+    "captured.cliKind !== pending.value.context",
+    "pending.value.context === captured.includes",
   ]) {
     const matches = nestedRefIdentityComparisons(`if (${expression}) return;`);
     assert.equal(matches.length, 1, expression);
@@ -72,9 +81,9 @@ function nestedRefIdentityComparisons(text: string) {
   const comparison = new RegExp(`(?<![A-Za-z0-9_$.])(${member})\\s*(?:===|!==)\\s*(${member})(?![A-Za-z0-9_$.])`, "g");
   const nestedRef = new RegExp(`\\.value\\.${identifier}`);
   const scalarKeywords = new Set(["null", "undefined", "true", "false"]);
-  // Stable IDs and lengths are scalar guards. A scalar member on the other
+  // Stable IDs, CLI kind enums and lengths are scalar guards. A scalar member on the other
   // operand must not exempt a ref's nested object comparison.
-  const nestedObject = (operand: string) => nestedRef.test(operand) && !/\.(?:length|id)$/.test(operand);
+  const nestedObject = (operand: string) => nestedRef.test(operand) && !/\.(?:length|id|cliKind)$/.test(operand);
   return [...text.matchAll(comparison)].filter((match) => {
     // includes(...) returns a boolean; the regex captures its member name,
     // not an object operand. Keep comparing a bare includes member guarded.
@@ -85,15 +94,11 @@ function nestedRefIdentityComparisons(text: string) {
 
 test("only explicitly documented critical transactions may lock a modal", () => {
   const findings: string[] = [];
-  const dynamicModalLock = /:(?:closable|mask-closable|esc-to-close)\s*=\s*"[^"]+"/g;
-  const criticalMarker = "balancehub-critical-modal-lock:";
 
   for (const path of sourceFiles(sourceRoot).filter((path) => extname(path) === ".vue")) {
     const text = readFileSync(path, "utf8");
-    for (const match of text.matchAll(dynamicModalLock)) {
-      const contextStart = Math.max(0, (match.index ?? 0) - 500);
-      if (text.slice(contextStart, match.index ?? 0).includes(criticalMarker)) continue;
-      findings.push(finding(path, text, match.index ?? 0, match[0]));
+    for (const lock of modalLocks(text)) {
+      findings.push(finding(path, text, lock.offset, lock.source));
     }
   }
 
@@ -102,7 +107,40 @@ test("only explicitly documented critical transactions may lock a modal", () => 
     [],
     `普通异步操作不得锁死模态窗口；关键事务必须写明 balancehub-critical-modal-lock：\n${findings.join("\n")}`,
   );
+
+  assert.deepEqual(modalLocks(`<template>
+    <a-tag :closable="!disabled" />
+    <a-modal :closable="!saving" />
+    <a-drawer v-bind:mask-closable='!saving' />
+  </template>`).map((lock) => lock.source), [":closable=\"!saving\"", "v-bind:mask-closable='!saving'"]);
+  assert.deepEqual(modalLocks(`<template>
+    <!-- balancehub-critical-modal-lock: installation cannot be interrupted -->
+    <a-modal :closable="!installing" />
+  </template>`), []);
 });
+
+function modalLocks(text: string) {
+  const { descriptor, errors } = parse(text);
+  assert.deepEqual(errors, []);
+  const locks: { offset: number; source: string }[] = [];
+  const modalTags = new Set(["a-modal", "a-drawer", "AModal", "ADrawer"]);
+  const lockProperties = new Set(["closable", "mask-closable", "esc-to-close"]);
+  function visit(node: RootNode | TemplateChildNode) {
+    if (node.type !== NodeTypes.ROOT && node.type !== NodeTypes.ELEMENT) return;
+    if (node.type === NodeTypes.ELEMENT && modalTags.has(node.tag)) {
+      for (const prop of node.props) {
+        if (prop.type !== NodeTypes.DIRECTIVE || prop.name !== "bind" ||
+            prop.arg?.type !== NodeTypes.SIMPLE_EXPRESSION || !lockProperties.has(prop.arg.content)) continue;
+        const offset = prop.loc.start.offset;
+        if (text.slice(Math.max(0, offset - 500), offset).includes("balancehub-critical-modal-lock:")) continue;
+        locks.push({ offset, source: prop.loc.source });
+      }
+    }
+    node.children.forEach(visit);
+  }
+  if (descriptor.template?.ast) visit(descriptor.template.ast);
+  return locks;
+}
 
 function sourceFiles(directory: string): string[] {
   const files: string[] = [];

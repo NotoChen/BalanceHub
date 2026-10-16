@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { before, after } from "node:test";
 import { computed, nextTick, ref } from "vue";
+import { createServer, type ViteDevServer } from "vite";
+import { defaultTemporaryCliRunSettings } from "../src/stores/temporary-cli-settings-types.ts";
 
-import { useWorkspaceApiKeySelection } from "../src/composables/useWorkspaceApiKeySelection.ts";
-import { useWorkspaceDirectoryBrowser } from "../src/composables/useWorkspaceDirectoryBrowser.ts";
-import { useWorkspaceLaunchFlow } from "../src/composables/useWorkspaceLaunchFlow.ts";
-import { useWorkspaceSessionHistory } from "../src/composables/useWorkspaceSessionHistory.ts";
 import type {
   AgentSessionDetail,
   AgentSessionPage,
@@ -26,6 +24,29 @@ import type {
   TemporaryCliLaunchPreview,
   WorkspaceDirectoryListing,
 } from "../src/stores/provider-types.ts";
+
+let useWorkspaceApiKeySelection: typeof import("../src/composables/useWorkspaceApiKeySelection.ts").useWorkspaceApiKeySelection;
+let useWorkspaceDirectoryBrowser: typeof import("../src/composables/useWorkspaceDirectoryBrowser.ts").useWorkspaceDirectoryBrowser;
+let useWorkspaceLaunchFlow: typeof import("../src/composables/useWorkspaceLaunchFlow.ts").useWorkspaceLaunchFlow;
+let useWorkspaceSessionHistory: typeof import("../src/composables/useWorkspaceSessionHistory.ts").useWorkspaceSessionHistory;
+let server: ViteDevServer;
+before(async () => {
+  server = await createServer({
+    configFile: false, optimizeDeps: { noDiscovery: true, include: [] },
+    server: { middlewareMode: true, hmr: false }, appType: "custom", logLevel: "silent",
+    resolve: { alias: [{ find: /^@arco-design\/web-vue$/, replacement: "virtual:workspace-messages" }] },
+    plugins: [{
+      name: "workspace-messages",
+      resolveId(id) { if (id === "virtual:workspace-messages") return "\0workspace-messages"; },
+      load(id) { if (id === "\0workspace-messages") return "export const Message = { success() {}, error() {}, info() {}, warning() {} };"; },
+    }],
+  });
+  ({ useWorkspaceApiKeySelection } = await server.ssrLoadModule("/src/composables/useWorkspaceApiKeySelection.ts"));
+  ({ useWorkspaceDirectoryBrowser } = await server.ssrLoadModule("/src/composables/useWorkspaceDirectoryBrowser.ts"));
+  ({ useWorkspaceLaunchFlow } = await server.ssrLoadModule("/src/composables/useWorkspaceLaunchFlow.ts"));
+  ({ useWorkspaceSessionHistory } = await server.ssrLoadModule("/src/composables/useWorkspaceSessionHistory.ts"));
+});
+after(async () => { await server?.close(); });
 
 test("late directory results cannot replace the latest browsing target", async () => {
   const first = deferred<WorkspaceDirectoryListing>();
@@ -422,7 +443,7 @@ test("history preview confirms through the shared resume request after closing, 
   const visible = ref(true);
   const selectedSessionRef = ref("ref:source-a:native-id");
   const scopeRevision = ref("scope:at-preview");
-  const selectedModel = ref("must-not-override-history");
+  const selectedModel = ref("fixture-selected-model");
   const previewReply = deferred<TemporaryCliLaunchPreview>();
   const resumeReply = deferred<unknown>();
   const previews: TemporaryCliLaunchInput[] = [];
@@ -461,11 +482,13 @@ test("history preview confirms through the shared resume request after closing, 
   assert.equal(previews[0]?.workdir, "/native/original-project", "preview uses the selected session's original directory");
   assert.equal(
     previews[0]?.model,
-    "",
-    "preview cannot claim a model override absent from the resume contract",
+    "fixture-selected-model",
+    "preview includes the explicitly selected history model",
   );
+  assert.equal(previews[0]?.runSettings?.keepSession, true);
   selectedSessionRef.value = "ref:different-selection";
   scopeRevision.value = "scope:new-selection";
+  selectedModel.value = "fixture-later-model";
   previewReply.resolve({
     ...launchPreview(),
     cliPath: "/fixture/verified/codex",
@@ -486,6 +509,8 @@ test("history preview confirms through the shared resume request after closing, 
       scopeRevision: "scope:at-preview",
       cliPath: "/fixture/verified/codex",
       terminalKind: "terminal",
+      modelOverride: "fixture-selected-model",
+      runSettings: defaultTemporaryCliRunSettings(),
       intent: {
         kind: "provider",
         providerId: "provider",
