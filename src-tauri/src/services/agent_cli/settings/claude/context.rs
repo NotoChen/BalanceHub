@@ -15,13 +15,10 @@ pub(super) fn window(snapshot: &NativeSnapshot, model: &str) -> Option<ModelWind
         .map_or((model.as_str(), false), |alias| (alias, true));
     if ["opus", "sonnet", "haiku", "fable"].contains(&alias) {
         let key = format!("ANTHROPIC_DEFAULT_{}_MODEL", alias.to_ascii_uppercase());
-        if let Some(mapped) = snapshot.env(&key, Some(&format!("/env/{key}"))) {
-            model = mapped.text().to_ascii_lowercase();
-            if extended && !model.ends_with("[1m]") {
-                model.push_str("[1m]");
-            }
-        } else {
-            return None;
+        let mapped = snapshot.env(&key, Some(&format!("/env/{key}")))?;
+        model = mapped.text().to_ascii_lowercase();
+        if extended && !model.ends_with("[1m]") {
+            model.push_str("[1m]");
         }
     }
     let native_large = [
