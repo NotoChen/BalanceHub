@@ -98,13 +98,21 @@ npm test
 推荐使用统一自检入口：
 
 ```bash
-npm run doctor:platform  # 只检查平台脚本变量命名和构建缓存体量
-npm run doctor           # 再执行前端与 Rust 的完整质量检查
+npm run doctor:platform  # 只读检查平台脚本变量和构建空间
+npm run doctor           # 任务收尾时按需执行完整质量检查
 ```
 
 生成给平台 shell 执行的脚本时，内部控制变量必须避开宿主解释器的自动变量和保留字，并使用项目命名空间：Unix shell 使用 `bh_` 前缀，Windows 批处理使用 `BH_` 前缀。CLI 协议要求的外部环境变量（例如 `OPENAI_API_KEY`、`TERM`）按其约定名称保留，不属于内部控制变量。重点规避 zsh 的 `status`、`pipestatus`、`argv`、`commands`、`funcstack`、`history`、`options`、`signals`、`words`，POSIX shell 的 `PWD`、`OLDPWD`、`PPID`，PowerShell 的 `$PID`、`$HOME`、`$PWD`、`$?`、`$LASTEXITCODE`，以及 cmd 的 `ERRORLEVEL`、`CD`、`DATE`、`TIME`、`RANDOM`。平台脚本改动后必须运行 `npm run doctor:platform`。
 
-`npm run tauri dev` 和 `npm run tauri build` 会默认把 Cargo target 放到系统开发缓存目录，避免反复开发构建把 `src-tauri/target` 留在仓库并持续膨胀。可以通过 `CARGO_TARGET_DIR` 显式覆盖。自检只读报告缓存，不会自动删除；确认没有运行中的开发构建后，再按提示执行 `cargo clean --target-dir ...`。
+本地 Cargo、Tauri 和 doctor 共用 `scripts/build-cache.mjs` 解析的构建环境。macOS 默认 target 为 `~/Library/Caches/BalanceHub/cargo-target`；Windows 使用 `%LOCALAPPDATA%/BalanceHub/cargo-target`；Linux 使用 XDG 缓存目录。doctor 复用同一目录，不再单独创建 `doctor` target。通过 `CARGO_TARGET_DIR` 可以显式覆盖，相对路径统一以仓库根目录为基准；CI 可以使用自己的工作区目录。
+
+每次命令启动都会注入相同环境，默认 `CARGO_BUILD_JOBS=2`、`CARGO_INCREMENTAL=0`；显式环境设置会被保留。关闭增量编译可以减少磁盘占用，代价是部分重新编译耗时增加。不要依赖上次终端的 `export`，也不要直接执行未配置环境的 Cargo 命令重新生成仓库内 target。
+
+本机可额外在 Git 本地排除列表中登记 `.cargo/config.toml`，使用绝对路径设置相同的 `[build] target-dir`、`jobs=2`、`incremental=false`，为仓库内的原生 Cargo 和 IDE 提供默认值。该文件仅在本机使用，不提交或复制到其他机器；默认目录变更时需同步。原生 Cargo 不执行下面的空间预检，日常任务仍应通过 npm 入口运行。
+
+重型 Rust/Tauri 构建前后都会检查 target 所在磁盘，默认可用空间不足 20 GiB 时阻止新构建。只读信息、格式检查和清理仍可执行。target 超过 8 GiB 时提示复查历史产物，不会自动删除；检查也会提示遗留的仓库或 doctor 目录。阈值分别由 `BALANCEHUB_MIN_FREE_GIB` 和 `BALANCEHUB_TARGET_WARN_GIB` 配置，`npm run doctor -- --strict-cache` 可将缓存超限作为失败。预检或前序步骤失败后，自检停止后续构建。
+
+只有确认没有构建进程或运行中的开发程序占用目标产物时，才执行 `npm run cargo -- clean`。需要清理遗留目录时，可以显式使用 `npm run cargo -- clean --target-dir /absolute/old/target`。不要为等待构建锁另建 target；临时干净构建验证结束后应回收临时目录。诊断结果只输出到终端，不生成报告文件。
 
 ### 异步 UI 与并发状态约束
 
@@ -131,13 +139,12 @@ npm run build
 Rust 检查：
 
 ```bash
-cd src-tauri
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+npm run cargo -- fmt --check
+npm run cargo -- clippy --locked --all-targets --all-features -- -D warnings
+npm run cargo -- test --locked
 ```
 
-日常开发优先运行 `npm run doctor`，它会将 Rust 检查放入隔离 target。上面的 Cargo 命令适用于 CI 或已显式设置 `CARGO_TARGET_DIR` 的环境；不建议在仓库根目录长期保留 Cargo 构建产物。
+按改动范围选择验证：文档改动只执行差异和相关文档检查；前端改动执行相关前端检查；构建脚本改动执行 `npm run doctor:platform` 和相关脚本测试；Rust 迭代先指定相关测试。任务收尾按需运行一次完整 doctor，不重复运行输入未变化、已经通过的全量构建。同一工作区的重型 Rust 检查串行执行。
 
 文档或配置改动也应检查：
 
