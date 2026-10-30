@@ -147,15 +147,20 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
       return failLaunchInput("未检测到可用的 Agent 或终端");
     }
 
+    // An OAuth card hands its own vendor credential to the CLI, so it never
+    // carries an API key and must not be asked for one.
+    const usesOauthCredential = provider.identity.protocol === "oauth";
     const selectedKey = options.apiKeys.value.find((option) =>
       providerApiKeyOptionMatches(option, options.apiKeyLocalId.value),
     );
-    if (selectedKey && !isProviderApiKeyUsable(selectedKey)) {
+    if (!usesOauthCredential && selectedKey && !isProviderApiKeyUsable(selectedKey)) {
       return failLaunchInput(
         "所选 API Key 未读取到完整值，请在 API Key 管理中补全或改选其他 Key",
       );
     }
-    const apiKey = selectedKey?.key || provider.auth.apiKey.trim();
+    const apiKey = usesOauthCredential
+      ? ""
+      : selectedKey?.key || provider.auth.apiKey.trim();
     const model = options.cliTool.value?.capabilities.modelSelection
       ? options.selectedModel.value.trim()
       : "";
@@ -170,7 +175,7 @@ export function useWorkspaceLaunchFlow(options: UseWorkspaceLaunchFlowOptions) {
     if (!cliPath) {
       return failLaunchInput("所选 Agent CLI 缺少可用路径，请重新扫描后再试");
     }
-    if (!apiKey || apiKey.includes("*")) {
+    if (!usesOauthCredential && (!apiKey || apiKey.includes("*"))) {
       return failLaunchInput("请选择一个可用的 API Key");
     }
     if (options.sessionMode.value === "history" && !resumeId) {

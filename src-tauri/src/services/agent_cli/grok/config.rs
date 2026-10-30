@@ -1,11 +1,12 @@
 use super::super::config_support::{
-    cli_target_for_key, config_error, latest_modified_at, match_provider_key, normalize_endpoint,
-    read_stable_optional, rewrite_json_string_fields,
+    cli_config_target, config_error, latest_modified_at, match_native_oauth, match_provider_key,
+    normalize_endpoint, oauth_snapshot, read_stable_optional, relay_snapshot,
+    rewrite_json_string_fields, CliConfigTarget,
 };
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use crate::services::agent_cli::config_support::text_document;
 use crate::{
-    models::{AgentCliKind, CliConfigSnapshot, Provider},
+    models::{AgentCliKind, CliConfigSnapshot, OAuthVendor, Provider},
     services::cli_paths::{configured_path, user_home},
 };
 use chrono::{SecondsFormat, Utc};
@@ -42,36 +43,22 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
         Err(_) => return config_error(cli_kind, "读取 Grok Build 认证文件失败"),
     };
     let modified_at = latest_modified_at([config.as_ref(), auth.as_ref()]);
-    let (Some(config), Some(auth)) = (config, auth) else {
-        return CliConfigSnapshot {
-            cli_kind,
-            configured: false,
-            provider_id: None,
-            api_key_local_id: None,
-            modified_at,
-            error_message: None,
-        };
+    // A login without `config.toml` still counts: Grok reads `auth.json` on its
+    // own, and the relay endpoint simply is not set.
+    let Some(auth) = auth else {
+        return oauth_snapshot(cli_kind, None, modified_at);
     };
-    match parse_grok_config(&config.text, &auth.text) {
+    let config = config.map(|file| file.text).unwrap_or_default();
+    match parse_grok_config(&config, &auth.text) {
         Ok(Some((base_url, api_key))) => {
             let matched = match_provider_key(providers, cli_kind, &base_url, &api_key);
-            CliConfigSnapshot {
-                cli_kind,
-                configured: true,
-                provider_id: matched.as_ref().map(|value| value.provider_id.clone()),
-                api_key_local_id: matched.map(|value| value.api_key_local_id),
-                modified_at,
-                error_message: None,
-            }
+            relay_snapshot(cli_kind, matched, modified_at)
         }
-        Ok(None) => CliConfigSnapshot {
+        Ok(None) => oauth_snapshot(
             cli_kind,
-            configured: false,
-            provider_id: None,
-            api_key_local_id: None,
+            match_native_oauth(providers, OAuthVendor::Grok, &auth.text),
             modified_at,
-            error_message: None,
-        },
+        ),
         Err(()) => CliConfigSnapshot {
             modified_at,
             ..config_error(cli_kind, "Grok Build 配置文件格式无效")
@@ -84,30 +71,116 @@ pub(super) fn candidates(
     provider: &Provider,
     api_key_local_id: &str,
 ) -> Result<Vec<ProviderConfigurationCandidate>, String> {
-    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
     let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
     let config_path = root.join("config.toml");
     let auth_path = root.join("auth.json");
-    let config = read_stable_optional(&config_path)?.map(|value| value.text);
-    let auth = read_stable_optional(&auth_path)?.map(|value| value.text);
-    let (next_config, next_auth) = rewrite_grok_config(
-        config.as_deref().unwrap_or(""),
-        auth.as_deref().unwrap_or(""),
-        &target.base_url,
-        &target.api_key,
-    )?;
-    Ok(vec![
-        ProviderConfigurationCandidate {
-            path: config_path,
-            before: config,
-            after: next_config,
-        },
-        ProviderConfigurationCandidate {
-            path: auth_path,
-            before: auth,
-            after: next_auth,
-        },
-    ])
+    match cli_config_target(provider, cli_kind, api_key_local_id)? {
+        CliConfigTarget::ApiKey {
+            base_url, api_key, ..
+        } => {
+            let config = read_stable_optional(&config_path)?.map(|value| value.text);
+            let auth = read_stable_optional(&auth_path)?.map(|value| value.text);
+            let (next_config, next_auth) = rewrite_grok_config(
+                config.as_deref().unwrap_or(""),
+                auth.as_deref().unwrap_or(""),
+                &base_url,
+                &api_key,
+            )?;
+            Ok(vec![
+                ProviderConfigurationCandidate {
+                    path: config_path,
+                    before: config,
+                    after: next_config,
+                },
+                ProviderConfigurationCandidate {
+                    path: auth_path,
+                    before: auth,
+                    after: next_auth,
+                },
+            ])
+        }
+        CliConfigTarget::OAuth { auth, identity } => {
+            let config = read_stable_optional(&config_path)?.map(|value| value.text);
+            let auth_text = read_stable_optional(&auth_path)?.map(|value| value.text);
+            let mut candidates = Vec::new();
+            if let Some(config) = config.as_deref() {
+                let next = clear_grok_endpoint(config)?;
+                if next != config {
+                    candidates.push(ProviderConfigurationCandidate {
+                        path: config_path,
+                        before: Some(config.to_string()),
+                        after: next,
+                    });
+                }
+            }
+            let after = grok_oauth_document(auth_text.as_deref(), auth, identity)?;
+            candidates.push(ProviderConfigurationCandidate {
+                path: auth_path,
+                before: auth_text,
+                after,
+            });
+            Ok(candidates)
+        }
+    }
+}
+
+/// The xAI login uses the vendor endpoint; a relay override would send it
+/// somewhere else.
+fn clear_grok_endpoint(config: &str) -> Result<String, String> {
+    let mut document = text_document::body(config)
+        .parse::<TomlDocument>()
+        .map_err(|_| "Grok Build 配置文件格式无效".to_string())?;
+    let endpoints = document
+        .get_mut("endpoints")
+        .and_then(Item::as_table_like_mut);
+    if let Some(endpoints) = endpoints {
+        endpoints.remove("models_base_url");
+    }
+    if document
+        .get("endpoints")
+        .and_then(Item::as_table_like)
+        .is_some_and(|table| table.is_empty())
+    {
+        document.remove("endpoints");
+    }
+    Ok(text_document::restore_layout(config, &document.to_string()))
+}
+
+/// Grok keys `auth.json` by issuer and client; the other entries belong to
+/// other authorizations and stay untouched. The relay key record goes, so the
+/// vendor login is the only credential Grok can pick.
+fn grok_oauth_document(
+    auth_text: Option<&str>,
+    auth: &crate::models::ProviderAuth,
+    identity: &crate::models::OAuthCredential,
+) -> Result<String, String> {
+    let source = auth_text.filter(|text| !text.trim().is_empty()).unwrap_or("{}");
+    let mut root = crate::services::agent_cli::environment::config_document::parse(
+        source.as_bytes(),
+        crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
+    )
+    .and_then(|value| value.as_object().cloned())
+    .ok_or_else(|| "Grok Build 认证文件格式无效".to_string())?;
+    root.remove(API_KEY_SCOPE);
+    let scope = format!("https://auth.x.ai::{}", identity.client_id);
+    let credential = crate::services::oauth_accounts::native::document(
+        identity.vendor,
+        auth,
+        identity,
+        true,
+    )
+    .get(&scope)
+    .cloned()
+    .unwrap_or(JsonValue::Null);
+    root.insert(scope, credential);
+    let desired = JsonValue::Object(root);
+    let rendered = serde_json::to_string_pretty(&desired)
+        .map_err(|err| format!("生成 Grok Build 认证配置失败: {err}"))?;
+    if auth_text.filter(|text| !text.trim().is_empty()).is_none() {
+        return Ok(rendered);
+    }
+    crate::services::agent_cli::config_support::rewrite_json_document(source, &desired, false)
+        .map_err(|err| format!("生成 Grok Build 认证配置失败: {err}"))
 }
 
 fn parse_grok_config(config: &str, auth: &str) -> Result<Option<(String, String)>, ()> {

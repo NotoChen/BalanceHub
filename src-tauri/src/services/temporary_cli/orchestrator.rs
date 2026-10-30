@@ -133,9 +133,17 @@ impl<'a> TemporaryCliLaunchService<'a> {
         } else {
             return Err("所选 API Key 已不存在，请重新选择".to_string());
         };
+        // An OAuth card launches with its own vendor credential instead of an
+        // API key, so an empty key only blocks relay cards.
+        let oauth_credential = super::prepared::oauth_launch_credential(&provider, cli_kind)?;
         let api_key_label = selected_local_key
             .as_ref()
             .map(provider_api_key_label)
+            .or_else(|| {
+                oauth_credential.map(|(_, identity)| {
+                    crate::services::agent_cli::config_support::oauth_credential_label(identity)
+                })
+            })
             .unwrap_or_default();
         let api_key_local_id = selected_local_key
             .as_ref()
@@ -162,7 +170,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
         } else {
             input.api_key.trim().to_string()
         };
-        if api_key.is_empty() {
+        if api_key.is_empty() && oauth_credential.is_none() {
             return Err("缺少 API Key，无法启动临时 CLI".to_string());
         }
         let saved_preference = data

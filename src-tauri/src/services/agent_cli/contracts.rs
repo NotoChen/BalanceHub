@@ -7,7 +7,8 @@ use crate::models::{
     AgentAssetResolutionParticipation, AgentAssetResolutionRelation, AgentAssetRevision,
     AgentAssetScope, AgentAssetSourceKind, AgentAssetState, AgentAssetSuppressionReason,
     AgentCliKind, AgentConfigurationContext, AgentInstallation, AgentTrustState, CliConfigSnapshot,
-    CliSessionMessageRole, CliSessionSummary, Provider, TemporaryCliSessionMode,
+    CliSessionMessageRole, CliSessionSummary, OAuthCredential, Provider, ProviderAuth,
+    TemporaryCliSessionMode,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1361,6 +1362,13 @@ pub(crate) enum TemporaryLaunchConfiguration<'a> {
         api_key: &'a str,
         base_url: &'a str,
     },
+    /// OAuth cards carry no API key. The vendor token reaches the CLI through
+    /// the agent's own authorization file inside the launch directory, so the
+    /// user's real login is never read, replaced, or renewed by this launch.
+    OAuth {
+        auth: &'a ProviderAuth,
+        identity: &'a OAuthCredential,
+    },
 }
 
 pub(crate) struct TemporaryLaunchRequest<'a> {
@@ -1369,14 +1377,81 @@ pub(crate) struct TemporaryLaunchRequest<'a> {
     pub session_name: &'a str,
     pub resume_id: &'a str,
     pub session_mode: TemporaryCliSessionMode,
-    pub auxiliary_file_path: Option<&'a Path>,
+    /// Directory owned by this launch. Auxiliary files are written beneath it
+    /// and the whole directory is removed when the launch ends. Preview passes
+    /// a placeholder path.
+    pub launch_directory: &'a Path,
+}
+
+/// A file the agent CLI reads from its own configuration directory. `path` is
+/// relative to the launch directory. `settings` marks the single JSON document
+/// that per-launch run settings merge into.
+pub(crate) struct TemporaryAuxiliaryFile {
+    pub path: &'static str,
+    pub settings: bool,
+    pub content: String,
+}
+
+impl Clone for TemporaryAuxiliaryFile {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path,
+            settings: self.settings,
+            content: self.content.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct TemporaryLaunchPlan {
     pub args: Vec<String>,
     pub environment: EnvironmentPatch,
-    pub auxiliary_file_content: Option<String>,
+    pub auxiliary_files: Vec<TemporaryAuxiliaryFile>,
+    /// The agent's own configuration root inside the launch directory, when the
+    /// adapter already pointed the agent at an isolated home (an OAuth launch).
+    /// Session isolation must reuse that home instead of choosing a second one.
+    pub isolated_home: Option<&'static str>,
+}
+
+impl TemporaryLaunchPlan {
+    pub(crate) fn isolated_home(&self) -> Option<&'static str> {
+        self.isolated_home
+    }
+
+    pub(crate) fn settings_path(&self) -> Option<&str> {
+        self.auxiliary_files
+            .iter()
+            .find(|file| file.settings)
+            .map(|file| file.path)
+    }
+
+    pub(crate) fn settings_document(&self) -> Option<&str> {
+        self.auxiliary_files
+            .iter()
+            .find(|file| file.settings)
+            .map(|file| file.content.as_str())
+    }
+
+    /// Replaces the settings document the adapter placed for this launch.
+    pub(crate) fn write_settings_document(&mut self, content: String) -> Result<(), String> {
+        let file = self
+            .auxiliary_files
+            .iter_mut()
+            .find(|file| file.settings)
+            .ok_or("当前 Agent 临时启动没有可写入的设置文件")?;
+        file.content = content;
+        Ok(())
+    }
+}
+
+impl fmt::Debug for TemporaryAuxiliaryFile {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TemporaryAuxiliaryFile")
+            .field("path", &self.path)
+            .field("settings", &self.settings)
+            .finish_non_exhaustive()
+    }
 }
 
 type TemporaryLaunchBuilder =
@@ -1392,19 +1467,16 @@ pub(crate) struct TemporaryLaunchFeatures {
 #[derive(Clone, Copy)]
 pub(crate) struct TemporaryLaunchAdapter {
     features: TemporaryLaunchFeatures,
-    auxiliary_file_name: Option<&'static str>,
     build_plan: TemporaryLaunchBuilder,
 }
 
 impl TemporaryLaunchAdapter {
     pub(crate) const fn new(
         features: TemporaryLaunchFeatures,
-        auxiliary_file_name: Option<&'static str>,
         build_plan: TemporaryLaunchBuilder,
     ) -> Self {
         Self {
             features,
-            auxiliary_file_name,
             build_plan,
         }
     }
@@ -1419,10 +1491,6 @@ impl TemporaryLaunchAdapter {
 
     pub(crate) const fn supports_session_name(&self) -> bool {
         self.features.session_name
-    }
-
-    pub(crate) const fn auxiliary_file_name(&self) -> Option<&'static str> {
-        self.auxiliary_file_name
     }
 
     pub(crate) fn build_plan(

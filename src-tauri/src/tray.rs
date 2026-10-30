@@ -1,4 +1,4 @@
-use crate::models::{Provider, ProviderQuotaScope};
+use crate::models::{Provider, ProviderProtocol, ProviderQuotaScope};
 use crate::state::AppState;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
@@ -29,33 +29,41 @@ fn build_tooltip(providers: &[Provider]) -> String {
         .iter()
         .filter(|provider| provider.runtime.enabled)
         .collect::<Vec<_>>();
-    let has_unlimited = active_providers
+    let balance_providers = active_providers
+        .iter()
+        .copied()
+        .filter(|provider| {
+            !matches!(
+                provider.identity.protocol,
+                ProviderProtocol::OAuth | ProviderProtocol::CliProxyApi
+            )
+        })
+        .collect::<Vec<_>>();
+    let has_unlimited = balance_providers
         .iter()
         .any(|provider| provider.quota.unlimited);
-    let available = active_providers
+    let available = balance_providers
         .iter()
         .filter(|provider| !provider.quota.unlimited)
         .map(|provider| provider.quota.available)
         .sum::<f64>();
-    let used = active_providers
+    let used = balance_providers
         .iter()
         .map(|provider| provider.quota.used)
         .sum::<f64>();
 
     let provider_lines = active_providers
         .iter()
-        .map(|provider| {
-            format!(
-                "{} · 已用 {} · 可用 {}",
-                full_provider_identity(provider),
-                format_provider_quota(provider, provider.quota.used),
-                format_provider_available(provider)
-            )
-        })
+        .map(|provider| provider_tooltip(provider))
         .collect::<Vec<_>>()
         .join("\n");
     let tooltip = if provider_lines.is_empty() {
         "BalanceHub · 暂无启用中转站".to_string()
+    } else if balance_providers.is_empty() {
+        format!(
+            "BalanceHub · {} 个账号与网关\n{provider_lines}",
+            active_providers.len()
+        )
     } else {
         format!(
             "BalanceHub · 已用 {} · 可用 {}\n{}",
@@ -70,6 +78,62 @@ fn build_tooltip(providers: &[Provider]) -> String {
     };
 
     tooltip
+}
+
+fn provider_tooltip(provider: &Provider) -> String {
+    let name = full_provider_identity(provider);
+    if provider.identity.protocol == ProviderProtocol::OAuth {
+        let subscription = provider.capabilities.subscription.as_ref();
+        let mut parts = vec![name];
+        if let Some(oauth) = &provider.auth.oauth {
+            parts.push(oauth.vendor.label().into());
+            let plan = subscription
+                .map(|value| value.plan.as_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or(&oauth.plan);
+            if !plan.is_empty() {
+                parts.push(plan.into());
+            }
+        }
+        if let Some(subscription) = subscription {
+            parts.extend(subscription.windows.iter().take(2).filter_map(|window| {
+                window
+                    .used_percent
+                    .filter(|value| value.is_finite())
+                    .map(|percent| format!("{}已用 {percent:.2}%", window.label))
+            }));
+        }
+        return parts.join(" · ");
+    }
+    if provider.identity.protocol == ProviderProtocol::CliProxyApi {
+        return match &provider.capabilities.gateway {
+            Some(gateway) => format!(
+                "{name} · CPA · 可用授权 {} / {}",
+                gateway
+                    .accounts
+                    .iter()
+                    .filter(|account| account.available)
+                    .count(),
+                gateway.accounts.len()
+            ),
+            None => format!("{name} · CPA · 尚未同步"),
+        };
+    }
+    let mut parts = vec![
+        name,
+        format!(
+            "已用 {}",
+            format_provider_quota(provider, provider.quota.used)
+        ),
+        format!("可用 {}", format_provider_available(provider)),
+    ];
+    // 订阅窗口才是这类账号的额度来源；托盘只补一句最紧的窗口，避免提示过长。
+    if let Some(window) = provider.quota.tightest_window() {
+        if let Some(percent) = window.percent() {
+            parts.push(format!("{}已用 {percent:.0}%", window.label));
+        }
+    }
+    parts.join(" · ")
 }
 
 /// `TrayIcon::set_tooltip` 必须在主线程执行。把它排入主线程队列后立即返回，
@@ -107,6 +171,20 @@ pub fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// 托盘图标左键「切换」语义：窗口已经在前台就收起，否则唤到前台。
+pub fn toggle_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        show_main_window(app);
+        return;
+    };
+    let active = window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false);
+    if active {
+        hide_main_window(app);
+    } else {
+        show_main_window(app);
+    }
+}
+
 pub fn hide_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
@@ -114,7 +192,24 @@ pub fn hide_main_window(app: &AppHandle) {
     // 关窗即隐藏 Dock 图标，只留菜单栏托盘；Windows/Linux 隐藏窗口后
     // 任务栏本就没有按钮，无需处理。
     #[cfg(target_os = "macos")]
-    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    if hide_dock_icon(app) {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
+}
+
+/// 关窗后是否退成纯菜单栏形态。默认开启，与「隐藏到托盘」的默认行为一致。
+#[cfg(target_os = "macos")]
+fn hide_dock_icon(app: &AppHandle) -> bool {
+    app.try_state::<AppState>()
+        .map(|state| {
+            state
+                .data
+                .read()
+                .unwrap_or_else(|err| err.into_inner())
+                .settings
+                .window_hide_dock_icon
+        })
+        .unwrap_or(true)
 }
 
 fn full_provider_identity(provider: &Provider) -> String {
@@ -238,5 +333,41 @@ mod tests {
             build_tooltip(&[provider("停用站点", false, 1.0)]),
             "BalanceHub · 暂无启用中转站"
         );
+    }
+
+    #[test]
+    fn oauth_and_cpa_show_their_own_metrics_without_a_fabricated_balance() {
+        use crate::models::{
+            AccountQuotaWindow, AccountSubscription, CpaAccountSummary, CpaGatewaySnapshot,
+            OAuthCredential, OAuthVendor, ProviderProtocol,
+        };
+        let mut oauth = provider("演示账号", true, 999.0);
+        oauth.identity.protocol = ProviderProtocol::OAuth;
+        oauth.auth.oauth = Some(OAuthCredential::new(OAuthVendor::Claude));
+        oauth.capabilities.subscription = Some(AccountSubscription {
+            plan: "Pro".into(),
+            windows: vec![AccountQuotaWindow {
+                label: "5 小时".into(),
+                used_percent: Some(12.3456),
+                ..AccountQuotaWindow::default()
+            }],
+            ..AccountSubscription::default()
+        });
+        let mut gateway = provider("演示网关", true, 777.0);
+        gateway.identity.protocol = ProviderProtocol::CliProxyApi;
+        gateway.capabilities.gateway = Some(CpaGatewaySnapshot {
+            accounts: vec![CpaAccountSummary {
+                available: true,
+                ..CpaAccountSummary::default()
+            }],
+            ..CpaGatewaySnapshot::default()
+        });
+        let managed = build_tooltip(&[oauth.clone(), gateway.clone()]);
+        assert!(managed.starts_with("BalanceHub · 2 个账号与网关"));
+        assert!(managed.contains("Claude · Pro · 5 小时已用 12.35%"));
+        assert!(managed.contains("CPA · 可用授权 1 / 1"));
+        assert!(!managed.contains("$"));
+        let mixed = build_tooltip(&[provider("中转站", true, 10.0), oauth, gateway]);
+        assert!(mixed.lines().next().unwrap().ends_with("可用 $10.00"));
     }
 }

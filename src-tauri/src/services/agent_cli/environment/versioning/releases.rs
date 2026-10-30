@@ -102,7 +102,7 @@ fn persist(cache: &VersionCache) {
                 .collect(),
         };
         if let Err(error) = crate::services::agent_cli::cache::write(path, &saved) {
-            eprintln!("Unable to persist release cache: {error}");
+            log::warn!("Unable to persist release cache: {error}");
         }
     }
 }
@@ -254,6 +254,7 @@ async fn fetch(
     source: &ReleaseSource,
 ) -> Result<VersionCacheEntry, String> {
     let client = crate::network::build_provider_client_with_proxy(
+        settings,
         crate::network::resolve_global_proxy(settings),
     )
     .map_err(|_| "无法创建版本检查连接".to_owned())?;

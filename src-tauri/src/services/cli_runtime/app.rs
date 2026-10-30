@@ -22,7 +22,7 @@ impl<'a> CliRuntimeService<'a> {
 
     pub(crate) fn probe_tools(&self, deep: bool) -> CliEnvironmentProbeResult {
         let result = agent_cli::probe_all(&self.data().settings, deep);
-        if let Ok(root) = self.app.path().app_data_dir() {
+        if let Ok(root) = crate::desktop::data_dir(self.app) {
             static SNAPSHOT_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
             let _guard = SNAPSHOT_WRITE
                 .lock()
@@ -34,10 +34,7 @@ impl<'a> CliRuntimeService<'a> {
 
     pub(crate) fn cached_tools(&self) -> Option<CliEnvironmentProbeResult> {
         agent_cli::cache::read(
-            &self
-                .app
-                .path()
-                .app_data_dir()
+            &crate::desktop::data_dir(self.app)
                 .ok()?
                 .join("agent-cli-probe.json"),
         )

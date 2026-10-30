@@ -41,15 +41,9 @@ use std::{
 
 static SCRIPT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub(in crate::services::temporary_cli) fn cleanup_launch_files(
-    script: &Path,
-    auxiliary_file_name: Option<&str>,
-) {
+pub(in crate::services::temporary_cli) fn cleanup_launch_files(script: &Path) {
     let _ = fs::remove_file(script);
     let _ = fs::remove_file(temporary_windows_launch_payload_path(script));
-    if let Some(settings_path) = temporary_cli_auxiliary_path(script, auxiliary_file_name) {
-        let _ = fs::remove_file(settings_path);
-    }
     if let Some(parent) = script.parent() {
         if parent.file_name().is_some_and(|name| {
             name.to_string_lossy()
@@ -88,25 +82,6 @@ fn temporary_script_file_name(kind: &str) -> String {
     } else {
         format!("{kind}.sh")
     }
-}
-
-pub(in crate::services::temporary_cli) fn temporary_cli_auxiliary_path(
-    script: &Path,
-    auxiliary_file_name: Option<&str>,
-) -> Option<PathBuf> {
-    let file_name = auxiliary_file_name?;
-    Some(
-        script
-            .parent()
-            .map(|parent| parent.join(file_name))
-            .unwrap_or_else(|| env::temp_dir().join(file_name)),
-    )
-}
-
-pub(in crate::services::temporary_cli) fn preview_cli_auxiliary_path(
-    auxiliary_file_name: Option<&str>,
-) -> Option<PathBuf> {
-    auxiliary_file_name.map(|name| PathBuf::from(format!("<temporary-{name}>")))
 }
 
 pub(super) fn temporary_windows_launch_payload_path(script: &Path) -> PathBuf {
@@ -161,7 +136,6 @@ pub(in crate::services::temporary_cli) struct LaunchScriptInput<'a> {
     pub(in crate::services::temporary_cli) cli_command_name: &'a str,
     pub(in crate::services::temporary_cli) workdir: &'a Path,
     pub(in crate::services::temporary_cli) plan: &'a TemporaryLaunchPlan,
-    pub(in crate::services::temporary_cli) auxiliary_file_path: Option<&'a Path>,
     pub(in crate::services::temporary_cli) status_path: &'a Path,
     pub(in crate::services::temporary_cli) proxy_environment: &'a ProxyEnvironment,
     /// History source validation binds a specific executable. A shell alias or
@@ -169,18 +143,41 @@ pub(in crate::services::temporary_cli) struct LaunchScriptInput<'a> {
     pub(in crate::services::temporary_cli) prefer_shell_cli: bool,
 }
 
-pub(super) fn write_auxiliary_file(
-    path: Option<&Path>,
-    content: Option<&str>,
+/// Writes the plan's agent-side files beneath the launch directory. Nested
+/// paths (an isolated agent home) are created as needed and every directory
+/// that was created is restricted to the owner, because these files can hold
+/// an authorization token.
+pub(in crate::services::temporary_cli) fn write_auxiliary_files(
+    directory: &Path,
+    files: &[crate::services::agent_cli::contracts::TemporaryAuxiliaryFile],
 ) -> Result<(), String> {
-    match (path, content) {
-        (None, None) => Ok(()),
-        (Some(path), Some(content)) => {
-            fs::write(path, content).map_err(|err| format!("写入临时 CLI 配置失败: {err}"))?;
-            restrict_to_owner(path)
+    for file in files {
+        let path = directory.join(file.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("创建临时 CLI 配置目录失败: {err}"))?;
+            #[cfg(not(target_os = "windows"))]
+            unix::restrict_directory_to_owner(parent)?;
         }
-        _ => Err("Agent CLI 临时配置计划不完整".to_string()),
+        fs::write(&path, &file.content).map_err(|err| format!("写入临时 CLI 配置失败: {err}"))?;
+        restrict_to_owner(&path)?;
     }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(in crate::services::temporary_cli) fn restrict_directory_to_owner(
+    path: &Path,
+) -> Result<(), String> {
+    unix::restrict_directory_to_owner(path)
+}
+
+#[cfg(target_os = "windows")]
+pub(in crate::services::temporary_cli) fn restrict_directory_to_owner(
+    _path: &Path,
+) -> Result<(), String> {
+    // %TEMP% 位于用户目录下，默认 ACL 已限制为本用户可见。
+    Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]

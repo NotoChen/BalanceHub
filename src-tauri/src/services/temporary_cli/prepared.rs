@@ -1,6 +1,5 @@
 use super::shell_runtime::script::{
-    cleanup_launch_files, temporary_cli_auxiliary_path, temporary_script_path, write_launch_script,
-    LaunchScriptInput,
+    cleanup_launch_files, temporary_script_path, write_launch_script, LaunchScriptInput,
 };
 use super::terminal::open_script_in_terminal;
 use super::{
@@ -10,7 +9,8 @@ use super::{
 };
 use crate::{
     models::{
-        AgentCliKind, AgentSessionLaunchIdentity, AppSettings, Provider, TemporaryCliInstance,
+        AgentCliKind, AgentSessionLaunchIdentity, AppSettings, OAuthCredential, Provider,
+        ProviderAuth, ProviderProtocol, TemporaryCliInstance,
     },
     network,
     services::{
@@ -51,8 +51,9 @@ pub(crate) struct PreparedCliLaunch {
     settings: AppSettings,
     script: PathBuf,
     workdir: PathBuf,
-    auxiliary_file_name: Option<&'static str>,
     registered: RegisteredCliInstance,
+    // Retained through dispatch; the persisted Starting record covers the handoff to the terminal.
+    _execution_lease: crate::services::agent_cli::lifecycle::usage::ExecutionLease,
 }
 
 pub(crate) struct CliDispatchOutcome {
@@ -67,7 +68,7 @@ impl PreparedCliLaunch {
 
     pub(crate) fn cancel(self) {
         cli_runtime::mark_instance_exited(&self.registered.status_path, None);
-        cleanup_launch_files(&self.script, self.auxiliary_file_name);
+        cleanup_launch_files(&self.script);
     }
 
     pub(crate) fn dispatch(self) -> CliDispatchOutcome {
@@ -91,7 +92,7 @@ impl PreparedCliLaunch {
                 // command. Resume must retain its identity and status file.
                 if self.registered.instance.native_session.is_none() {
                     cli_runtime::mark_instance_exited(&self.registered.status_path, None);
-                    cleanup_launch_files(&self.script, self.auxiliary_file_name);
+                    cleanup_launch_files(&self.script);
                 }
                 CliDispatchOutcome {
                     instance: self.registered.instance,
@@ -114,6 +115,8 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         source_environment,
     } = request;
     ensure_temporary_launch_supported(cli_kind)?;
+    let execution_lease =
+        crate::services::agent_cli::lifecycle::usage::acquire(Path::new(&cli.path))?;
     validate_launch_options(cli_kind, &options)?;
     if !workdir.is_dir() {
         return Err("工作目录不存在，无法继续会话".to_owned());
@@ -123,19 +126,29 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         CliLaunchTarget::Native => None,
         CliLaunchTarget::Provider(provider) => Some(provider),
     };
-    let api_key = provider
-        .map(|provider| {
-            if options.api_key_override.trim().is_empty() {
-                provider.auth.api_key.trim()
-            } else {
-                options.api_key_override.trim()
-            }
-        })
-        .unwrap_or_default();
+    let oauth = provider
+        .map(|provider| oauth_launch_credential(provider, cli_kind))
+        .transpose()?
+        .flatten();
+    let api_key = if oauth.is_some() {
+        ""
+    } else {
+        provider
+            .map(|provider| {
+                if options.api_key_override.trim().is_empty() {
+                    provider.auth.api_key.trim()
+                } else {
+                    options.api_key_override.trim()
+                }
+            })
+            .unwrap_or_default()
+    };
     if let Some(provider) = provider {
-        validate_full_api_key(api_key)?;
-        if provider.identity.base_url.trim().is_empty() {
-            return Err("缺少中转站地址，无法启动临时 CLI".to_owned());
+        if oauth.is_none() {
+            validate_full_api_key(api_key)?;
+            if provider.identity.base_url.trim().is_empty() {
+                return Err("缺少中转站地址，无法启动临时 CLI".to_owned());
+            }
         }
     }
     let model = options.model_override.trim().to_string();
@@ -151,17 +164,19 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         .map(|provider| network::resolve_proxy(settings, provider))
         .unwrap_or_else(|| network::resolve_global_proxy(settings));
     let script = temporary_script_path(provider, cli_kind);
+    let launch_directory = script.parent().ok_or("缺少启动目录")?;
     let definition = agent_cli::definition(cli_kind);
     let adapter = definition
         .temporary_launch()
         .ok_or_else(|| format!("{} 当前不支持临时启动", definition.label))?;
-    let auxiliary_file_name = provider.and(adapter.auxiliary_file_name());
-    let auxiliary_file_path = temporary_cli_auxiliary_path(&script, auxiliary_file_name);
     let configuration = match provider {
-        Some(provider) => TemporaryLaunchConfiguration::Provider {
-            provider_name: &provider.identity.name,
-            api_key,
-            base_url: &base_url,
+        Some(provider) => match oauth {
+            Some((auth, identity)) => TemporaryLaunchConfiguration::OAuth { auth, identity },
+            None => TemporaryLaunchConfiguration::Provider {
+                provider_name: &provider.identity.name,
+                api_key,
+                base_url: &base_url,
+            },
         },
         None => TemporaryLaunchConfiguration::Native,
     };
@@ -171,7 +186,7 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         session_name: &session_name,
         resume_id: &resume_id,
         session_mode: options.session_mode,
-        auxiliary_file_path: auxiliary_file_path.as_deref(),
+        launch_directory,
     })?;
     if let Some(environment) = source_environment {
         for name in environment.removed_names() {
@@ -240,13 +255,15 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         settings: settings.clone(),
         script,
         workdir: workdir.to_owned(),
-        auxiliary_file_name,
         registered,
+        _execution_lease: execution_lease,
     };
     let write = (|| {
         if let Some(parent) = prepared.script.parent() {
             fs::create_dir_all(parent)
                 .map_err(|err| format!("创建临时 CLI 启动目录失败：{err}"))?;
+            // The launch directory can hold a copy of an OAuth authorization.
+            super::shell_runtime::script::restrict_directory_to_owner(parent)?;
         }
         run.materialize()?;
         cli_runtime::register_launch_directory(
@@ -273,7 +290,6 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             },
             workdir,
             plan: &plan,
-            auxiliary_file_path: auxiliary_file_path.as_deref(),
             status_path: &prepared.registered.status_path,
             proxy_environment: &proxy.environment(),
             prefer_shell_cli: native_session.is_none()
@@ -287,4 +303,17 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         return Err(error);
     }
     Ok(prepared)
+}
+
+/// Resolves the credential an OAuth card hands to its agent CLI, or `None` for
+/// a relay card. The vendor is fixed by the card, so a Codex authorization can
+/// never be offered to Gemini or written where another agent would read it.
+pub(super) fn oauth_launch_credential(
+    provider: &Provider,
+    cli_kind: AgentCliKind,
+) -> Result<Option<(&ProviderAuth, &OAuthCredential)>, String> {
+    if provider.identity.protocol != ProviderProtocol::OAuth {
+        return Ok(None);
+    }
+    agent_cli::config_support::oauth_credential(provider, cli_kind).map(Some)
 }

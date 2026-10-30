@@ -60,6 +60,9 @@ mod liveness;
 mod login_account;
 #[path = "models/provider.rs"]
 mod provider;
+#[path = "models/provider_app_import.rs"]
+mod provider_app_import;
+pub use provider_app_import::*;
 #[path = "models/provider_domain.rs"]
 pub mod provider_domain;
 #[path = "models/provider_results.rs"]
@@ -161,3 +164,8 @@ impl Default for AppData {
         Self::new_current(Vec::new(), AppSettings::default())
     }
 }
+mod oauth_account;
+pub use oauth_account::*;
+#[path = "models/cpa_gateway.rs"]
+mod cpa_gateway;
+pub use cpa_gateway::*;

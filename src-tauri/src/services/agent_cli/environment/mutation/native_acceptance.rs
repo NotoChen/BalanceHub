@@ -110,7 +110,7 @@ fn production_native_mutation_acceptance_eight_cells() {
                 .actions
                 .iter()
                 .any(|entry| entry.action == action && entry.available));
-            eprintln!(
+            log::debug!(
                 "production native acceptance: {kind:?}/{category:?}/{action:?} {}",
                 asset.native_id
             );

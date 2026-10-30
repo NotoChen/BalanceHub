@@ -57,15 +57,20 @@ tar = "0.4"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-window-state = "2"
+# 日志走 `log` 门面 + 自带的文件写入实现：级别可以在设置里即时切换。
+log = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 async-trait = "0.1"
 futures-util = "0.3"
 lru = "0.16.3"
+# Automatic Agent upgrades inspect executable paths and arguments only when an update is due.
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["native-tls", "zip"] }
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
-tokio = { version = "1", features = ["time", "sync", "macros", "process", "io-util", "fs"] }
+tokio = { version = "1", features = ["time", "sync", "macros", "process", "io-util", "fs", "net"] }
 
 [target.'cfg(unix)'.dependencies]
 # Unix 进程组操作与配置文件的当前用户写入权限查询。

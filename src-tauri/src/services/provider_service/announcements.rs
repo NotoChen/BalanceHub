@@ -167,17 +167,11 @@ fn announcement_source_groups(providers: &[Provider]) -> Vec<AnnouncementSourceG
 }
 
 fn announcement_source_key(provider: &Provider) -> String {
-    match provider.identity.protocol {
-        // 公告入口按「协议 + 站点 origin」分组。Sub2API 仍需从一个可用账号
-        // 读取受保护接口，但同站点的多个账号只呈现一份公告入口。
-        ProviderProtocol::NewApi => {
-            format!("newApi:{}", normalized_source(&provider.identity.base_url))
-        }
-        ProviderProtocol::Sub2Api => {
-            format!("sub2Api:{}", normalized_source(&provider.identity.base_url))
-        }
-        ProviderProtocol::Api => format!("api:{}", normalized_source(&provider.identity.base_url)),
-    }
+    format!(
+        "{}:{}",
+        provider.identity.protocol.key(),
+        normalized_source(&provider.identity.base_url)
+    )
 }
 
 fn announcement_provider_priority(provider: &Provider) -> u8 {

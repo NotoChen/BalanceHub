@@ -48,7 +48,7 @@ const rows = computed(() => props.result?.logs ?? []);
 
 const statCards = computed(() => {
   const stats = props.result?.stats;
-  return [
+  const cards = [
     {
       label: "消耗",
       value: stats ? formatLogQuotaValue(stats.quota, props.result?.quotaDisplay) : "—",
@@ -70,7 +70,20 @@ const statCards = computed(() => {
       tone: "count",
     },
   ];
+  // 只有站点真的给了平均耗时才多一格；凑满四格放一个「—」没有意义。
+  if (stats?.avgDurationMs != null) {
+    cards.splice(3, 0, {
+      label: "平均耗时",
+      value: formatDuration(stats.avgDurationMs),
+      tone: "duration",
+    });
+  }
+  return cards;
 });
+
+function formatDuration(value: number) {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`;
+}
 
 const canPrevious = computed(() => props.page > 0);
 

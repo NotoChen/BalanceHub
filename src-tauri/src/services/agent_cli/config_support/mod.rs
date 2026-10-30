@@ -7,7 +7,7 @@ pub(crate) mod json_source;
 pub(crate) mod native_history;
 pub(crate) mod text_document;
 
-pub(crate) use env_source::{env_value, rewrite_env_values};
+pub(crate) use env_source::{env_value, remove_env_keys, rewrite_env_values};
 pub(crate) use json_source::{
     align_array as align_json_array, parse_jsonc_document, rewrite_json_document,
     rewrite_json_string_fields,
@@ -17,19 +17,35 @@ use crate::{
     limits,
     models::{
         is_full_api_key_value, normalize_api_key_for_protocol, AgentCliKind, CliConfigSnapshot,
-        Provider, ProviderApiKeyOption,
+        OAuthCredential, OAuthVendor, Provider, ProviderAuth, ProviderProtocol,
     },
-    services::agent_cli,
+    services::{agent_cli, oauth_accounts::native},
     util::read_text_file_limited,
 };
 use std::{fs, path::Path, time::SystemTime};
 
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct CliConfigTarget {
-    pub base_url: String,
-    pub api_key: String,
-    pub api_key_local_id: String,
-    pub api_key_label: String,
+/// What a switch writes into the agent's own configuration: a relay address
+/// and key, or the OAuth account's vendor authorization.
+pub(crate) enum CliConfigTarget<'a> {
+    ApiKey {
+        base_url: String,
+        api_key: String,
+    },
+    OAuth {
+        auth: &'a ProviderAuth,
+        identity: &'a OAuthCredential,
+    },
+}
+
+/// How a switch names the OAuth credential it hands over: the account's email,
+/// falling back to the vendor name.
+pub(crate) fn oauth_credential_label(identity: &OAuthCredential) -> String {
+    let label = if identity.email.trim().is_empty() {
+        identity.vendor.label()
+    } else {
+        identity.email.trim()
+    };
+    label.chars().take(160).collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,11 +103,17 @@ pub(crate) fn read_cli_config(path: &Path, context: &str) -> Result<String, Stri
     read_text_file_limited(path, limits::MAX_CLI_CONFIG_FILE_BYTES, context)
 }
 
-pub(crate) fn cli_target_for_key(
-    provider: &Provider,
+/// The credential a native switch hands to the agent. An OAuth card switches
+/// the agent's own vendor login; a relay card switches its address and key.
+pub(crate) fn cli_config_target<'a>(
+    provider: &'a Provider,
     cli_kind: AgentCliKind,
     api_key_local_id: &str,
-) -> Result<CliConfigTarget, String> {
+) -> Result<CliConfigTarget<'a>, String> {
+    if provider.identity.protocol == ProviderProtocol::OAuth {
+        let (auth, identity) = oauth_credential(provider, cli_kind)?;
+        return Ok(CliConfigTarget::OAuth { auth, identity });
+    }
     let requested_local_id = api_key_local_id.trim();
     let selected_option = if requested_local_id.is_empty() {
         provider.auth.api_key_options.iter().find(|option| {
@@ -126,16 +148,32 @@ pub(crate) fn cli_target_for_key(
     if normalize_endpoint(&base_url).is_none() {
         return Err("中转站地址无效，无法切换 CLI 配置".to_string());
     }
-    Ok(CliConfigTarget {
-        base_url,
-        api_key,
-        api_key_local_id: selected_option
-            .map(|option| option.local_id.clone())
-            .unwrap_or_default(),
-        api_key_label: selected_option
-            .map(api_key_label)
-            .unwrap_or_else(|| "当前配置 API Key".to_string()),
-    })
+    Ok(CliConfigTarget::ApiKey { base_url, api_key })
+}
+
+/// An OAuth card can only hand its credential to the vendor's own CLI, and
+/// only when the stored authorization is usable for that CLI.
+pub(crate) fn oauth_credential(
+    provider: &Provider,
+    cli_kind: AgentCliKind,
+) -> Result<(&ProviderAuth, &OAuthCredential), String> {
+    let identity = provider
+        .auth
+        .oauth
+        .as_ref()
+        .ok_or("OAuth 账号缺少授权信息，请重新授权")?;
+    let vendor_cli = identity.vendor.agent_cli();
+    if vendor_cli != cli_kind {
+        return Err(format!(
+            "{} 授权只能用于 {}",
+            identity.vendor.label(),
+            agent_cli::definition(vendor_cli).label
+        ));
+    }
+    if let Some(reason) = native::unavailable_reason(identity.vendor, &provider.auth, identity) {
+        return Err(reason.to_string());
+    }
+    Ok((&provider.auth, identity))
 }
 
 pub(crate) fn match_provider_key(
@@ -171,18 +209,70 @@ pub(crate) fn match_provider_key(
     None
 }
 
-fn api_key_label(option: &ProviderApiKeyOption) -> String {
-    let label = if !option.local_name.trim().is_empty() {
-        option.local_name.trim()
-    } else if !option.name.trim().is_empty()
-        && option.name.trim() != "当前 API Key"
-        && option.name.trim() != "当前配置 API Key"
-    {
-        option.name.trim()
-    } else {
-        "未命名 API Key"
-    };
-    label.chars().take(160).collect()
+/// Recognizes a native authorization switch: the agent's own config holds the
+/// OAuth account's access token, so that card is what the CLI runs with. The
+/// match carries no key id — an OAuth card has no relay key.
+pub(crate) fn match_native_oauth(
+    providers: &[Provider],
+    vendor: OAuthVendor,
+    document: &str,
+) -> Option<CliConfigProviderMatch> {
+    let document = crate::services::agent_cli::environment::config_document::parse(
+        document.as_bytes(),
+        crate::services::agent_cli::environment::config_document::ConfigDocumentFormat::Json,
+    )?;
+    let tokens = native::stored_access_tokens(vendor, &document);
+    providers.iter().find_map(|provider| {
+        let identity = provider.auth.oauth.as_ref()?;
+        if provider.identity.protocol != ProviderProtocol::OAuth || identity.vendor != vendor {
+            return None;
+        }
+        let access_token = provider.auth.access_token.trim();
+        if access_token.is_empty() || !tokens.contains(&access_token) {
+            return None;
+        }
+        Some(CliConfigProviderMatch {
+            provider_id: provider.identity.id.clone(),
+            api_key_local_id: String::new(),
+        })
+    })
+}
+
+/// A relay route is active whether or not its card still exists; the card is
+/// only what the snapshot points at.
+pub(crate) fn relay_snapshot(
+    cli_kind: AgentCliKind,
+    matched: Option<CliConfigProviderMatch>,
+    modified_at: Option<String>,
+) -> CliConfigSnapshot {
+    snapshot(cli_kind, true, matched, modified_at)
+}
+
+/// A vendor login counts as a BalanceHub configuration only when it is one of
+/// the cards' authorizations; another installer's login is not this card's.
+pub(crate) fn oauth_snapshot(
+    cli_kind: AgentCliKind,
+    matched: Option<CliConfigProviderMatch>,
+    modified_at: Option<String>,
+) -> CliConfigSnapshot {
+    let configured = matched.is_some();
+    snapshot(cli_kind, configured, matched, modified_at)
+}
+
+fn snapshot(
+    cli_kind: AgentCliKind,
+    configured: bool,
+    matched: Option<CliConfigProviderMatch>,
+    modified_at: Option<String>,
+) -> CliConfigSnapshot {
+    CliConfigSnapshot {
+        cli_kind,
+        configured,
+        provider_id: matched.as_ref().map(|value| value.provider_id.clone()),
+        api_key_local_id: matched.map(|value| value.api_key_local_id),
+        modified_at,
+        error_message: None,
+    }
 }
 
 pub(crate) fn normalize_endpoint(value: &str) -> Option<String> {

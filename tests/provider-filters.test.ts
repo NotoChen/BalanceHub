@@ -168,6 +168,8 @@ test("status filters exclude disabled stations and distinguish unavailable, unli
       newApi: 8,
       sub2Api: 0,
       api: 0,
+      oauth: 0,
+      cliProxyApi: 0,
     },
   );
 });
@@ -205,6 +207,8 @@ test("attention includes exhausted balances even when the card prioritizes pendi
     newApi: 1,
     sub2Api: 0,
     api: 0,
+    oauth: 0,
+    cliProxyApi: 0,
   });
 });
 
@@ -251,6 +255,8 @@ test("protocol presets keep API Key credentials under their declared protocol an
     newApi: 2,
     sub2Api: 2,
     api: 2,
+    oauth: 0,
+    cliProxyApi: 0,
   });
 });
 
@@ -282,6 +288,8 @@ test("one preset combines with search while counts describe every available pres
     newApi: 1,
     sub2Api: 0,
     api: 1,
+    oauth: 0,
+    cliProxyApi: 0,
   });
   for (const filter of ["newApi", "checkIn", "attention"] as const) {
     assert.deepEqual(

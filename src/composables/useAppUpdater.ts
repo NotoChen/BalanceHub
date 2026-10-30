@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { Channel } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Message } from "@arco-design/web-vue";
@@ -11,13 +11,15 @@ import {
   type AppUpdateDownloadEvent,
   type AppUpdateInfo,
 } from "../api/app";
+import type { AppSettings } from "../stores/provider-types";
 
+/// 启动后先等主界面加载完再安静检查一次；之后按设置里的间隔轮询。
 const STARTUP_UPDATE_CHECK_DELAY_MS = 30 * 1000;
-const PERIODIC_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const MIN_CHECK_INTERVAL_HOURS = 1;
 
 type UpdateInstallPhase = "idle" | "downloading" | "verifying" | "installing" | "restarting";
 
-export function useAppUpdater() {
+export function useAppUpdater(options: { settings: Ref<AppSettings> }) {
   const checkingForUpdate = ref(false);
   const updateCheckError = ref("");
   const updateDialogVisible = ref(false);
@@ -233,23 +235,52 @@ export function useAppUpdater() {
     }
   }
 
-  onMounted(() => {
-    disposed = false;
-    startupCheckTimer = window.setTimeout(() => {
-      startupCheckTimer = null;
-      void performUpdateCheck(true);
-    }, STARTUP_UPDATE_CHECK_DELAY_MS);
+  function clearStartupCheck() {
+    if (startupCheckTimer === null) return;
+    window.clearTimeout(startupCheckTimer);
+    startupCheckTimer = null;
+  }
+
+  /// 间隔改完立刻按新节奏重排；关掉开关时连已经排上的启动检查一起撤掉，
+  /// 否则「关闭自动检查」后仍会静默弹一次。
+  function schedulePeriodicCheck() {
+    if (periodicCheckTimer !== null) {
+      window.clearInterval(periodicCheckTimer);
+      periodicCheckTimer = null;
+    }
+    if (!options.settings.value.updateAutoCheck) {
+      clearStartupCheck();
+      return;
+    }
+    const intervalMs =
+      Math.max(MIN_CHECK_INTERVAL_HOURS, options.settings.value.updateCheckIntervalHours) *
+      60 *
+      60 *
+      1000;
     periodicCheckTimer = window.setInterval(() => {
       void performUpdateCheck(true);
-    }, PERIODIC_UPDATE_CHECK_INTERVAL_MS);
+    }, intervalMs);
+  }
+
+  onMounted(() => {
+    disposed = false;
+    if (options.settings.value.updateAutoCheck) {
+      startupCheckTimer = window.setTimeout(() => {
+        startupCheckTimer = null;
+        void performUpdateCheck(true);
+      }, STARTUP_UPDATE_CHECK_DELAY_MS);
+    }
+    schedulePeriodicCheck();
   });
+
+  watch(
+    () => [options.settings.value.updateAutoCheck, options.settings.value.updateCheckIntervalHours],
+    schedulePeriodicCheck,
+  );
 
   onUnmounted(() => {
     disposed = true;
-    if (startupCheckTimer !== null) {
-      window.clearTimeout(startupCheckTimer);
-      startupCheckTimer = null;
-    }
+    clearStartupCheck();
     if (periodicCheckTimer !== null) {
       window.clearInterval(periodicCheckTimer);
       periodicCheckTimer = null;

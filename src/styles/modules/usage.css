@@ -15,6 +15,20 @@
   gap: 14px;
 }
 
+/* 一行就够了：订阅窗口的数量和最近一次重置，不抢趋势图的注意力。 */
+.usage-subscription-note {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--surface-muted);
+  font-size: 12px;
+}
+
+.usage-subscription-note span:first-child {
+  color: var(--surface-ink-soft);
+  font-weight: 600;
+}
+
 .usage-summary-cards {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -34,6 +48,11 @@
 
 .usage-summary-card:last-child {
   border-right: 0;
+}
+
+/* 汇总视图只有 4 张卡，按内容分列，不留下第五个空位。 */
+.usage-summary-cards.is-overview {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .usage-summary-cards span {
@@ -232,6 +251,33 @@
   gap: 14px;
 }
 
+/* 响应质量单独一块：它和额度排行/调用分析并排会挤成三列，而且读的是另一件事
+   （稳不稳，而不是花了多少），所以整行铺开。 */
+.usage-health-panel {
+  grid-column: 1 / -1;
+}
+
+.usage-health-panel .usage-model-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 24px;
+}
+
+/* 覆盖 .usage-model-row-head span 的弱化色：成功率是要被读的数字。 */
+.usage-model-row-head span.usage-health-ok {
+  color: #00a870;
+  font-weight: 650;
+}
+
+.usage-model-row-head span.usage-health-warning {
+  color: #d25f00;
+  font-weight: 650;
+}
+
+.usage-model-row-head span.usage-health-error {
+  color: #e34d59;
+  font-weight: 650;
+}
+
 .usage-model-panel {
   display: grid;
   min-width: 0;
@@ -323,7 +369,8 @@
 }
 
 @media (max-width: 860px) {
-  .usage-summary-cards {
+  .usage-summary-cards,
+  .usage-summary-cards.is-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -384,4 +431,35 @@
 
 :root.theme-dark .usage-model-bar-track {
   background: #343743;
+}
+
+/* 汇总视图没有单个站点的配额条和趋势图，只列前三站排行之外的剩余站点失败原因。 */
+.usage-overview-errors {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 14px;
+  list-style: none;
+  border-radius: 10px;
+  background: var(--surface-subtle, rgba(0, 0, 0, 0.03));
+  font-size: 12px;
+}
+
+.usage-overview-errors li {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  color: var(--surface-muted);
+}
+
+.usage-overview-errors strong {
+  flex: none;
+  color: var(--surface-ink-soft);
+  font-weight: 600;
+}
+
+.usage-overview-errors span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

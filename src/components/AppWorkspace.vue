@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch, type CSSProperties } from "vue";
+import OAuthWorkspace from "./oauth/OAuthWorkspace.vue";
+import { useOAuthAccountStore } from "../stores/oauth-accounts";
+import type { ProviderProtocol } from "../stores/provider-types";
 import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
 import AgentDashboard from "./agent-workspace/AgentDashboard.vue";
@@ -12,7 +15,7 @@ import type {
   Provider,
   ProviderApiKeyOption,
 } from "../stores/providers";
-import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
+import type { ProviderAppImportTarget } from "../stores/provider-types";
 import type { ProviderCardTone } from "../utils/provider-display";
 import { providerMatchesSearch } from "../utils/provider-filters";
 import type { BackgroundTask } from "../composables/useBackgroundTaskCenter";
@@ -34,6 +37,7 @@ const props = defineProps<{
   runtimeLoading: boolean;
   activatingRuntimeId: string | null;
   announcementsLoaded: boolean;
+  announcementsAvailable: boolean;
   announcementsLoading: boolean;
   announcementTotalCount: number;
   announcementUnreadCount: number;
@@ -57,6 +61,7 @@ const props = defineProps<{
   showLivenessTimeline: (provider: Provider) => boolean;
 }>();
 
+const oauth = useOAuthAccountStore();
 const searchQuery = ref("");
 const agentWorkspace = useAgentWorkspaceStore();
 const agentOpened = ref(agentWorkspace.view === "agents");
@@ -86,17 +91,24 @@ function matchesSearch(provider: Provider) {
 
 const filteredLivenessProviders = computed(() => props.livenessProviders.filter(matchesSearch));
 const filteredRegularProviders = computed(() => props.regularProviders.filter(matchesSearch));
+function openProvider(provider: Provider, editing: boolean) {
+  if (!editing) emit("cardClick", provider);
+  else if (provider.actions.oauthAccount || provider.actions.cpaGateway) oauth.openAccount(provider.identity.id, provider.actions.cpaGateway);
+  else emit("edit", provider);
+}
 function clearSearch() {
   searchQuery.value = "";
 }
 
 const emit = defineEmits<{
   startDrag: [event: MouseEvent];
-  add: [];
+  add: [protocol?: ProviderProtocol];
   importData: [];
   retryLoad: [];
   checkForUpdate: [];
   openGithub: [];
+  /// 顶栏的全局用量趋势：不带中转站，面板按全部站点汇总。
+  openUsageSummary: [];
   refreshAll: [];
   checkInAll: [];
   settings: [];
@@ -106,6 +118,8 @@ const emit = defineEmits<{
   refresh: [provider: Provider];
   probeCapabilities: [provider: Provider];
   launchTemporaryCli: [provider: Provider, cliKind?: AgentCliKind];
+  cpaRenewAll: [provider: Provider];
+  reauthorizeOauthCard: [provider: Provider];
   edit: [provider: Provider];
   checkIn: [provider: Provider];
   openApiKeyManager: [provider: Provider];
@@ -116,7 +130,7 @@ const emit = defineEmits<{
   openPasswordChange: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
-  addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
+  addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
@@ -143,6 +157,7 @@ const emit = defineEmits<{
     :cli-runtime="cliRuntime"
     :agent-runtime-snapshot="agentRuntimeSnapshot"
     :announcements-loaded="announcementsLoaded"
+    :announcements-available="announcementsAvailable"
     :announcements-loading="announcementsLoading"
     :announcement-total-count="announcementTotalCount"
     :announcement-unread-count="announcementUnreadCount"
@@ -154,9 +169,13 @@ const emit = defineEmits<{
     @set-search-query="updateSearch"
     @set-workspace-view="agentWorkspace.setView"
     @add="emit('add')"
+    @add-oauth="oauth.openAdd()"
+    @import-oauth="oauth.openImport()"
+    @add-cpa="emit('add', 'cliProxyApi')"
     @import-data="emit('importData')"
     @check-for-update="emit('checkForUpdate')"
     @open-github="emit('openGithub')"
+    @open-usage="emit('openUsageSummary')"
     @refresh="refreshCurrentView"
     @check-in="emit('checkInAll')"
     @open-cli="openRuntime"
@@ -189,13 +208,15 @@ const emit = defineEmits<{
     @add="emit('add')"
     @import-data="emit('importData')"
     @retry-load="emit('retryLoad')"
-    @card-click="emit('cardClick', $event)"
+    @card-click="openProvider($event, false)"
     @card-pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
     @toggle="emit('toggle', $event)"
     @refresh="emit('refresh', $event)"
     @probe-capabilities="emit('probeCapabilities', $event)"
     @launch-temporary-cli="(provider, cliKind) => emit('launchTemporaryCli', provider, cliKind)"
-    @edit="emit('edit', $event)"
+    @cpa-renew-all="emit('cpaRenewAll', $event)"
+    @reauthorize-oauth-card="emit('reauthorizeOauthCard', $event)"
+    @edit="openProvider($event, true)"
     @check-in="emit('checkIn', $event)"
     @open-api-key-manager="emit('openApiKeyManager', $event)"
     @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
@@ -205,7 +226,7 @@ const emit = defineEmits<{
     @open-password-change="emit('openPasswordChange', $event)"
     @open-liveness-details="emit('openLivenessDetails', $event)"
     @open-check-in-records="emit('openCheckInRecords', $event)"
-    @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"
+    @add-provider-to-app="(provider: Provider, target: ProviderAppImportTarget) => emit('addProviderToApp', provider, target)"
     @copy-url="emit('copyUrl', $event)"
     @copy-invite="emit('copyInvite', $event)"
     @copy-secret="(provider, field) => emit('copySecret', provider, field)"
@@ -214,6 +235,7 @@ const emit = defineEmits<{
     @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
     @clear-search="clearSearch"
   />
+  <OAuthWorkspace @edit="emit('edit', $event)" @models="emit('openAvailableModels', $event)" />
   <AgentDashboard
     v-if="agentOpened"
     v-show="agentWorkspace.view === 'agents'"

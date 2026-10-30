@@ -85,7 +85,6 @@ fn native_preparation_uses_no_provider_and_registers_identity_before_any_hook() 
                 "{cli_kind:?}: {provider_override}"
             );
         }
-        assert!(prepared.auxiliary_file_name.is_none());
         let script_path = prepared.script.clone();
         let metadata_dir = prepared.registered.status_path.parent().unwrap().to_owned();
         prepared.cancel();

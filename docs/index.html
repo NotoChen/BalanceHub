@@ -284,7 +284,7 @@ page_class: landing-page
         与站点配置默认由当前设备保存。启用 WebDAV 后，在本机加密并同步到你指定的服务；带认证的站点请求由本机 Rust 后端直接执行。
       </p>
       <p class="boundary-note">
-        当前只支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 按 NewAPI 方言兼容。
+        支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 按 NewAPI 方言兼容。当前源码还提供官方 OAuth 账号与 CPA 网关卡片。
         不提供 Web 自部署版本，通用 API Key 也不等同于完整账号登录态。
       </p>
     </div>
@@ -378,6 +378,12 @@ page_class: landing-page
       </a>
       <a class="doc-link" href="{{ '/webdav-sync.html' | relative_url }}">
         <span class="doc-number">09</span><div><h3>WebDAV 同步</h3><p>加密与增量同步、冲突差异和本机恢复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="doc-link" href="{{ '/oauth-accounts.html' | relative_url }}">
+        <span class="doc-number">10</span><div><h3>OAuth 账号与 CPA</h3><p>套餐额度、授权文件互通、续期交接与网关。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+      </a>
+      <a class="doc-link" href="{{ '/agent-updates.html' | relative_url }}">
+        <span class="doc-number">11</span><div><h3>Agent 自动更新</h3><p>按安装渠道更新、空闲检查与任务记录。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
     </div>
   </div>

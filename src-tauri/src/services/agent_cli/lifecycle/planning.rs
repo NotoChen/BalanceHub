@@ -31,6 +31,7 @@ pub(super) struct PreparedLifecycle {
     pub(super) public: AgentLifecyclePlan,
     pub(super) lock_keys: Vec<String>,
     pub(super) execution: Arc<dyn LifecycleExecution>,
+    pub(super) automatic_scope: Option<super::usage::UpdateScope>,
 }
 
 pub(super) trait LifecycleExecution: Send + Sync {
@@ -120,6 +121,8 @@ impl LifecyclePlanner for NativePlanner {
                 .min()
                 .map(|value| value.to_rfc3339());
             Ok(AgentLifecycleCatalog {
+                revision: 0,
+                automatic_updates: Vec::new(),
                 targets,
                 refreshed_at: now_string(),
                 next_check_at,
@@ -416,6 +419,18 @@ fn target_record(
     }).to_string();
     let evidence_revision = environment::stable_id("lifecycle-evidence", &[&fingerprint]);
     let available = mechanism.is_some() && reason.is_none();
+    let update_key = available.then(|| {
+        environment::stable_id(
+            "lifecycle-update",
+            &[
+                definition.kind.key(),
+                &installation.environment_id,
+                directory_text.as_deref().unwrap_or_default(),
+                &serde_json::to_string(&channel).expect("channel is serializable"),
+                &serde_json::to_string(&release_source).expect("release source is serializable"),
+            ],
+        )
+    });
     let reason = if available {
         None
     } else {
@@ -424,6 +439,7 @@ fn target_record(
     InspectedTarget {
         public: AgentLifecycleTarget {
             id,
+            update_key,
             agent_kind: definition.kind,
             label: definition.label.to_owned(),
             installation,
@@ -512,6 +528,7 @@ fn prepare(
     action: AgentLifecycleActionKind,
     version: String,
 ) -> Result<PreparedLifecycle, AgentLifecycleError> {
+    let automatic_scope = super::usage::UpdateScope::from_target(&target.public);
     let mechanism = target
         .mechanism
         .ok_or_else(|| unavailable(AgentLifecycleUnavailableReason::ProvenanceUnverified))?;
@@ -552,6 +569,7 @@ fn prepare(
         public: AgentLifecyclePlan {
             plan_token: String::new(), agent_kind: target.public.agent_kind, target_id: target.public.id,
             installation_id: target.public.installation.id, action,
+            update_key: target.public.update_key,
             channel: target.public.channel, channel_label: target.public.channel_label, directory,
             from_version, to_version: version,
             mechanism_id: match target.public.channel {
@@ -568,6 +586,7 @@ fn prepare(
         },
         lock_keys: target.lock_keys,
         execution: Arc::new(execution),
+        automatic_scope,
     })
 }
 
@@ -579,6 +598,7 @@ async fn validate_npm_release(
 ) -> Result<(), AgentLifecycleError> {
     let package = agent_cli::definition(kind).environment().package_name();
     let client = crate::network::build_provider_client_with_proxy(
+        &context.settings,
         crate::network::resolve_global_proxy(&context.settings),
     )
     .map_err(|_| version_failed())?;

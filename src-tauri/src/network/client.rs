@@ -25,14 +25,27 @@ enum ProxyKind {
     All,
 }
 
-pub(crate) fn build_provider_client_with_proxy(proxy: EffectiveProxy) -> Result<Client, String> {
-    build_cached_client(HttpClientProfile::Business, proxy)
+/// 业务请求的超时与代理都来自设置：改设置后下一次取客户端即生效，
+/// 缓存键里带上超时值，避免旧超时的客户端被继续复用。
+pub(crate) fn build_provider_client_with_proxy(
+    settings: &AppSettings,
+    proxy: EffectiveProxy,
+) -> Result<Client, String> {
+    build_cached_client(
+        HttpClientProfile::Business,
+        proxy,
+        settings.http_timeout_secs,
+    )
 }
 
 pub(crate) async fn build_webhook_client(settings: &AppSettings) -> Result<Client, String> {
     let settings = settings.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        build_cached_client(HttpClientProfile::Webhook, resolve_global_proxy(&settings))
+        build_cached_client(
+            HttpClientProfile::Webhook,
+            resolve_global_proxy(&settings),
+            settings.http_timeout_secs,
+        )
     })
     .await
     .map_err(|err| format!("初始化 Webhook 网络客户端任务异常: {err}"))?
@@ -78,9 +91,14 @@ pub(crate) fn build_mcp_client(settings: &AppSettings) -> Result<Client, String>
 fn build_cached_client(
     profile: HttpClientProfile,
     proxy: EffectiveProxy,
+    http_timeout_secs: u64,
 ) -> Result<Client, String> {
+    let timeout_secs = match profile {
+        HttpClientProfile::Business => http_timeout_secs,
+        HttpClientProfile::Webhook => 10,
+    };
     let cache_key = format!(
-        "{profile:?}|{:?}|{}|{}|{}|{}|{}",
+        "{profile:?}|{timeout_secs}|{:?}|{}|{}|{}|{}|{}",
         proxy.mode,
         proxy.http_url.trim(),
         proxy.https_url.trim(),
@@ -98,10 +116,10 @@ fn build_cached_client(
 
     let mut builder = match profile {
         HttpClientProfile::Business => Client::builder()
-            .timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(timeout_secs))
             .redirect(Policy::none()),
         HttpClientProfile::Webhook => Client::builder()
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(timeout_secs))
             .connect_timeout(Duration::from_secs(5)),
     };
     builder = configure_reqwest_builder(builder, &proxy)?;

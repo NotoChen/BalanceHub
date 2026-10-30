@@ -127,7 +127,7 @@
 
 BalanceHub、[All API Hub](https://github.com/qixing-jk/all-api-hub) 和 [CC Switch](https://github.com/farion1231/cc-switch) 常被放在一起,但它们解决的是不同层面的问题:
 
-- **CC Switch** 管"CLI 用哪个 Provider" — 给 Claude Code、Codex CLI、Gemini CLI 等切换 API 配置、本地代理。它与 BalanceHub **互补**:BalanceHub 可以把配置直接写入 CC Switch。
+- **CC Switch** 管"CLI 用哪个 Provider" — 给 Claude Code、Codex CLI、Gemini CLI 等切换 API 配置、本地代理。它与 BalanceHub **互补**:BalanceHub 可以将中转站配置交给 CC Switch，由用户确认导入。
 - **All API Hub** 是同类账号管理工具,以浏览器扩展形态运行,长于余额看板与模型价格比对。
 
 BalanceHub 的定位更进一步:**面向真正在用 Agent CLI 打中转站的人,把"这个账号到底能不能用"和"立刻切进去用"连成一条线。** 它的差异化集中在:
@@ -183,7 +183,9 @@ BalanceHub 处理的是账号密码、Cookie、Token 和 API Key,所以在设计
 | --- | --- |
 | [快速开始](docs/getting-started.md) | 安装、添加第一个中转站、日常使用与配置迁移 |
 | [中转站配置](docs/provider-config.md) | NewAPI / Sub2API / 通用 API 的认证方式、协议边界与连接测试 |
+| [OAuth 账号与 CPA](docs/oauth-accounts.md) | 官方账号套餐与额度、授权文件互通、续期交接与 CPA 网关 |
 | [Agent 工作台](docs/agent-workbench.md) | 双视角、全局资产绑定、共享定义应用、CLI 升级、路径与配置入口 |
+| [Agent 自动更新](docs/agent-updates.md) | 按原安装渠道更新、空闲检查、进度与失败恢复 |
 | [WebDAV 配置同步](docs/webdav-sync.md) | 连接、加密与增量同步、冲突 diff、删除传播和本机恢复 |
 | [测活配置](docs/liveness.md) | 全局与单站测活、CLI 路径查找、模型与凭据、常见错误排查 |
 | [功能与架构参考](docs/reference.md) | 完整功能清单、技术框架、架构分层、目录说明与关键边界 |
@@ -196,6 +198,8 @@ BalanceHub 处理的是账号密码、Cookie、Token 和 API Key,所以在设计
 <summary>支持哪些中转站?</summary>
 
 当前支持 NewAPI、Sub2API 和通用 API Key。AnyRouter 按 NewAPI 接口方言兼容处理,不在界面上作为独立中转站类型展示;通用 API 只提供 API Key 与 OpenAI 兼容 `/v1/models` 相关能力,不含账号、签到或站点密钥管理。
+
+当前源码还提供 Codex、Claude、Gemini CLI、Grok 的 OAuth 账号卡片与 CPA 网关卡片，详情见 [OAuth 账号与 CPA](docs/oauth-accounts.md)。
 </details>
 
 <details>
@@ -243,7 +247,8 @@ BalanceHub 通过 [Issues](https://github.com/NotoChen/BalanceHub/issues) 收集
 ## 相关项目与致谢
 
 - [NewAPI](https://github.com/QuantumNous/new-api) · [Sub2API](https://github.com/Wei-Shaw/sub2api) —— BalanceHub 适配的中转站协议。
-- [CC Switch](https://github.com/farion1231/cc-switch) —— CLI Provider 配置切换;BalanceHub 可把兼容配置写入它。
+- [CC Switch](https://github.com/farion1231/cc-switch) —— CLI Provider 配置切换，可从中转站卡片打开导入确认页。
+- [Magpie](https://github.com/yetone/magpie) —— 本地 AI 网关，可从中转站卡片导入；使用方式见[把中转站导出到其他应用](docs/app-import.md)。
 - [All API Hub](https://github.com/qixing-jk/all-api-hub) —— 浏览器扩展形态的同类账号管理工具。
 - [Tauri](https://tauri.app) · [Vue](https://vuejs.org) · [Arco Design Vue](https://arco.design) —— BalanceHub 依赖的开源框架,一并致谢。
 

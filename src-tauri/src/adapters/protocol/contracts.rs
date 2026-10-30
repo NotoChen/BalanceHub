@@ -21,6 +21,7 @@ pub(crate) struct ProviderCredentialPatch {
     access_token_expires_at: Option<Option<i64>>,
     login_username: Option<String>,
     new_api_session: Option<Option<crate::models::NewApiSession>>,
+    oauth: Option<Option<crate::models::OAuthCredential>>,
 }
 
 impl ProviderCredentialPatch {
@@ -56,7 +57,14 @@ impl ProviderCredentialPatch {
                     patch.login_username = Some(authenticated.auth.login_username.clone());
                 }
             }
-            crate::models::ProviderProtocol::Api => {}
+            crate::models::ProviderProtocol::OAuth => {
+                patch.access_token = Some(authenticated.auth.access_token.clone());
+                patch.refresh_token = Some(authenticated.auth.refresh_token.clone());
+                patch.access_token_expires_at = Some(authenticated.auth.access_token_expires_at);
+                patch.oauth = Some(authenticated.auth.oauth.clone());
+            }
+            crate::models::ProviderProtocol::Api | crate::models::ProviderProtocol::CliProxyApi => {
+            }
         }
         patch
     }
@@ -78,7 +86,13 @@ impl ProviderCredentialPatch {
         if let Some(session) = &self.new_api_session {
             provider.auth.new_api_session = session.clone();
         }
+        if let Some(oauth) = &self.oauth {
+            provider.auth.oauth = oauth.clone();
+        }
         let changed = provider.auth != previous;
+        if changed && provider.auth.oauth.is_some() {
+            provider.auth.credential_revision = provider.auth.credential_revision.saturating_add(1);
+        }
         if changed
             && (provider.auth.new_api_session != previous.new_api_session
                 || provider.auth.session_cookie != previous.session_cookie
@@ -99,6 +113,8 @@ fn apply_string(target: &mut String, value: &Option<String>) {
 /// 刷新流程拥有的远端观察数据，不包含用户配置。
 #[derive(Debug, Clone)]
 pub(crate) struct ProviderObservationPatch {
+    subscription: Option<crate::models::AccountSubscription>,
+    gateway: Option<crate::models::CpaGatewaySnapshot>,
     identity_name: String,
     display_name: String,
     username: String,
@@ -115,6 +131,8 @@ pub(crate) struct ProviderObservationPatch {
 impl ProviderObservationPatch {
     fn from_refreshed(refreshed: &Provider) -> Self {
         Self {
+            subscription: refreshed.capabilities.subscription.clone(),
+            gateway: refreshed.capabilities.gateway.clone(),
             identity_name: refreshed.identity.name.clone(),
             display_name: refreshed.identity.display_name.clone(),
             username: refreshed.identity.username.clone(),
@@ -132,6 +150,8 @@ impl ProviderObservationPatch {
     }
 
     pub(crate) fn apply(&self, provider: &mut Provider) {
+        provider.capabilities.subscription = self.subscription.clone();
+        provider.capabilities.gateway = self.gateway.clone();
         provider.identity.name.clone_from(&self.identity_name);
         provider
             .identity

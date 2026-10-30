@@ -18,6 +18,7 @@ import type {
   ProviderCheckInRecordsResult,
   ProviderProtocolDescriptor,
   ProviderRequestLogsResult,
+  ProviderUsageOverview,
   ProviderUsageSummary,
   AgentRuntimeSession,
   SiteAnnouncement,
@@ -40,6 +41,7 @@ defineProps<{
   usageLoading: boolean;
   usageError: string;
   usageSummary: ProviderUsageSummary | null;
+  usageOverview: ProviderUsageOverview | null;
   requestLogsProvider: Provider | null;
   requestLogsLoading: boolean;
   requestLogsError: string;
@@ -90,7 +92,6 @@ defineProps<{
   siteAnnouncementsFatalError: string;
   siteAnnouncements: SiteAnnouncement[];
   siteAnnouncementErrors: SiteAnnouncementSourceError[];
-  selectedSiteAnnouncement: SiteAnnouncement | null;
   unreadSiteAnnouncementCount: number;
   markingAnnouncementFingerprints: Set<string>;
   siteAnnouncementIsRead: (item: SiteAnnouncement) => boolean;
@@ -121,7 +122,7 @@ const emit = defineEmits<{
   cancelUpdate: [];
   installUpdate: [];
   refreshSiteAnnouncements: [];
-  selectSiteAnnouncement: [item: SiteAnnouncement];
+  markSiteAnnouncementRead: [item: SiteAnnouncement];
   markAllSiteAnnouncementsRead: [];
 }>();
 
@@ -203,6 +204,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :loading="usageLoading"
     :error="usageError"
     :summary="usageSummary"
+    :overview="usageOverview"
     @refresh="emit('refreshUsageSummary')"
   />
 
@@ -262,13 +264,12 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :fatal-error="siteAnnouncementsFatalError"
     :announcements="siteAnnouncements"
     :errors="siteAnnouncementErrors"
-    :selected="selectedSiteAnnouncement"
     :unread-count="unreadSiteAnnouncementCount"
     :marking-fingerprints="markingAnnouncementFingerprints"
     :provider-protocols="providerProtocols"
     :is-read="siteAnnouncementIsRead"
     @refresh="emit('refreshSiteAnnouncements')"
-    @select="emit('selectSiteAnnouncement', $event)"
+    @mark-read="emit('markSiteAnnouncementRead', $event)"
     @mark-all-read="emit('markAllSiteAnnouncementsRead')"
   />
 

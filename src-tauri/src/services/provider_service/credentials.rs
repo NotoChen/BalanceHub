@@ -22,6 +22,9 @@ impl<'a> ProviderService<'a> {
         settings: &AppSettings,
         provider: &Provider,
     ) -> Result<(Provider, Result<(), String>), String> {
+        if provider.identity.protocol == ProviderProtocol::OAuth {
+            return self.prepare_oauth_account(settings, provider).await;
+        }
         if provider.identity.protocol != ProviderProtocol::NewApi
             || !matches!(provider.auth.mode, AuthMode::Session | AuthMode::Password)
             || (provider.auth.mode != AuthMode::Password

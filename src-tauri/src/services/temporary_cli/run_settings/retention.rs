@@ -12,23 +12,31 @@ pub(super) struct IsolatedHome {
     source: PathBuf,
     target: PathBuf,
     kind: AgentCliKind,
+    /// Files this launch already placed itself, as absolute paths. Copying the
+    /// user's own copy over them would replace an OAuth credential or the
+    /// authorization type that selects it.
+    seeded: Vec<PathBuf>,
 }
 
 impl IsolatedHome {
+    /// `isolated_home` is the configuration root an adapter already pointed the
+    /// agent at. Reusing it keeps a single isolated home per launch.
     pub(super) fn plan(
         kind: AgentCliKind,
         directory: &Path,
         environment: &mut EnvironmentPatch,
+        isolated_home: Option<&str>,
+        seeded: &[String],
     ) -> Result<Self, String> {
         let adapter = agent_cli::definition(kind)
             .sessions()
             .ok_or("Agent 未提供原生会话目录")?
             .history();
         let source = (adapter.source)()?.config_root;
-        let target = if kind == AgentCliKind::Gemini {
-            directory.join("run-home/.gemini")
-        } else {
-            directory.join("run-home")
+        let target = match isolated_home {
+            Some(home) => directory.join(home),
+            None if kind == AgentCliKind::Gemini => directory.join("run-home/.gemini"),
+            None => directory.join("run-home"),
         };
         let patch = (agent_cli::definition(kind)
             .sessions()
@@ -46,6 +54,7 @@ impl IsolatedHome {
             source,
             target,
             kind,
+            seeded: seeded.iter().map(|path| directory.join(path)).collect(),
         })
     }
 
@@ -92,7 +101,11 @@ impl IsolatedHome {
             ]
             .contains(&name_text.as_ref())
             {
-                copy_file(&path, &self.target.join(&name), &mut budget)?;
+                let destination = self.target.join(&name);
+                if self.seeded.contains(&destination) {
+                    continue;
+                }
+                copy_file(&path, &destination, &mut budget)?;
                 if self.kind == AgentCliKind::Codex && name_text == "config.toml" {
                     rebase_codex_paths(&self.source, &self.target.join(&name))?;
                 }

@@ -30,6 +30,14 @@ pub struct ProviderView {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderActions {
+    pub temporary_cli: bool,
+    /// Whether the card's own credential can be written as an agent's native
+    /// authorization: the stored login for an OAuth card, a complete key for a
+    /// relay card.
+    pub default_cli_config: bool,
+    pub oauth_account: bool,
+    pub cpa_gateway: bool,
+    pub app_imports: Vec<crate::models::ProviderAppImportOption>,
     pub account_management: bool,
     pub check_in: bool,
     pub checked_in_today: bool,
@@ -37,6 +45,26 @@ pub struct ProviderActions {
     pub invitation: bool,
     pub refresh_models_only: bool,
     pub models: provider_domain::model_list::ProviderModelListAction,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthAccountDetails {
+    pub provider: ProviderView,
+    pub refreshable: bool,
+    pub renewal_enabled_here: bool,
+    pub renewal_elsewhere: bool,
+    pub export_options: Vec<crate::models::OAuthExportOption>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthExportResult {
+    pub provider: ProviderView,
+    pub file_name: String,
+    pub instructions: String,
+    pub renewal_paused: bool,
+    pub warning: Option<String>,
 }
 
 impl From<Provider> for ProviderView {
@@ -59,7 +87,31 @@ impl From<Provider> for ProviderView {
             .auth_schemas
             .iter()
             .find(|schema| schema.mode == provider.auth.mode);
+        let oauth_credential_ready =
+            provider.auth.oauth.as_ref().is_some_and(|oauth| {
+                !provider.auth.access_token.is_empty() && !oauth.refresh_pending
+            });
         let actions = ProviderActions {
+            // An OAuth card hands its own vendor token to that vendor's CLI; a
+            // relay card needs a complete API key. Either way the launch itself
+            // decides whether the stored credential is usable.
+            temporary_cli: match provider.identity.protocol {
+                ProviderProtocol::OAuth => oauth_credential_ready,
+                _ => crate::models::provider_domain::auth::has_api_key(&provider),
+            },
+            default_cli_config: match provider.identity.protocol {
+                ProviderProtocol::OAuth => oauth_credential_ready,
+                _ => {
+                    crate::models::provider_domain::auth::has_api_key(&provider)
+                        || provider.auth.api_key_options.iter().any(|option| {
+                            option.key_available
+                                && crate::models::is_full_api_key_value(&option.key)
+                        })
+                }
+            },
+            oauth_account: provider.identity.protocol == ProviderProtocol::OAuth,
+            cpa_gateway: provider.identity.protocol == ProviderProtocol::CliProxyApi,
+            app_imports: crate::services::provider_app_import::options(&provider),
             account_management: provider_domain::capabilities::supports_account_management(
                 &provider,
             ),
@@ -69,9 +121,19 @@ impl From<Provider> for ProviderView {
                 &provider,
             ),
             invitation: provider_domain::capabilities::supports_invitation(&provider),
-            refresh_models_only: !protocol_definition.capabilities().account,
+            refresh_models_only: provider.identity.protocol == ProviderProtocol::Api,
             models: provider_domain::model_list::action(&provider),
         };
+        if provider.identity.protocol == ProviderProtocol::OAuth {
+            // Account credentials only leave Rust through the explicit export path.
+            provider.auth.access_token.clear();
+            provider.auth.refresh_token.clear();
+            if let Some(oauth) = &mut provider.auth.oauth {
+                oauth.id_token.clear();
+                oauth.client_secret.clear();
+                oauth.refresh_owner = None;
+            }
+        }
         Self {
             provider,
             revision,
@@ -148,6 +210,7 @@ pub struct ProviderCredentialAssistantDescriptorView {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderProtocolDescriptorView {
+    pub form_creation: bool,
     pub kind: ProviderProtocol,
     pub label: &'static str,
     pub description: &'static str,
@@ -165,6 +228,7 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
         .map(|definition| {
             let capabilities = definition.capabilities();
             ProviderProtocolDescriptorView {
+                form_creation: definition.kind != ProviderProtocol::OAuth,
                 kind: definition.kind,
                 label: definition.label,
                 description: definition.description,

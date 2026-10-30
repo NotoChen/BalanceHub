@@ -1,8 +1,10 @@
 pub(crate) mod announcements;
 pub(crate) mod api;
 pub(crate) mod browser;
+pub(crate) mod cli_proxy_api;
 pub(crate) mod detector;
 pub(crate) mod new_api;
+pub(crate) mod oauth;
 pub(crate) mod protocol;
 pub(crate) mod sub2_api;
 #[cfg(test)]

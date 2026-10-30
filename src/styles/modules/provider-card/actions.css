@@ -136,90 +136,6 @@
   outline: none;
 }
 
-.provider-card-cli-config-list {
-  display: grid;
-  gap: 3px;
-}
-
-.provider-card-cli-config-list button {
-  display: grid;
-  width: 100%;
-  min-height: 42px;
-  grid-template-columns: 18px minmax(0, 1fr) 14px;
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--surface-ink-soft);
-  cursor: pointer;
-  padding: 6px 8px;
-  text-align: left;
-  transition:
-    background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.provider-card-cli-config-list button:hover,
-.provider-card-cli-config-list button:focus-visible {
-  background: rgba(22, 93, 255, 0.07);
-  outline: none;
-}
-
-.provider-card-cli-config-list button:active {
-  transform: translateY(1px);
-}
-
-.provider-card-cli-config-list button:disabled:not(.provider-card-cli-switch-option-current) {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.provider-card-cli-config-list button > svg {
-  width: 15px;
-  height: 15px;
-  color: var(--surface-muted);
-}
-
-.provider-card-cli-config-list button > img {
-  width: 15px;
-  height: 15px;
-  object-fit: contain;
-}
-
-.provider-card-cli-config-list button > span {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.provider-card-cli-config-list button strong,
-.provider-card-cli-config-list button small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-card-cli-config-list button strong {
-  color: var(--surface-ink);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.provider-card-cli-config-list button small {
-  color: var(--surface-muted);
-  font-size: 10px;
-}
-
-.provider-card-cli-switch-option-current {
-  background: rgba(22, 93, 255, 0.07) !important;
-  cursor: default !important;
-}
-
-.provider-card-cli-switch-option-current > svg:last-child {
-  color: var(--surface-accent);
-}
-
 .provider-card-header-meta,
 .provider-card-cli-signals {
   display: flex;
@@ -236,11 +152,6 @@
   gap: 4px;
   border-right: 1px solid var(--glass-border);
   padding-right: 6px;
-}
-
-.provider-card-cli-signals-standalone {
-  border-right: 0;
-  padding-right: 0;
 }
 
 .provider-card-cli-signal {
@@ -326,8 +237,113 @@ button.provider-card-cli-signal:active {
   color: currentColor;
 }
 
+/* 四类卡片共用同一条底栏：左边一句说明（凭据图标、续期状态或绑定），右边
+   一排图标动作，再后面是分组菜单。动作多到一行放不下就整组换行，卡型不
+   决定布局。 */
+.provider-card .workspace-card-footer {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 9px;
+  row-gap: 4px;
+}
+
+/* 图标按钮之间的间距由底栏自身控制，动作组内不再额外留缝。 */
 .provider-card .workspace-card-quick-actions {
+  border-left: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
   gap: 0;
+  justify-content: flex-end;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.provider-card .workspace-card-action-group {
+  --workspace-card-action-gap: 0px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  overflow: visible;
+}
+
+/* 续期状态是这张卡片当前最重要的一句话，独占一行；动作行因此保持整行宽度，
+   不必为了 20px 的胶囊把一排图标折成两排。 */
+.provider-card .provider-card-footer-state .workspace-card-footer-meta {
+  flex: 0 0 100%;
+}
+
+/* 底栏的状态胶囊：形状固定，颜色只表达严重程度。 */
+.provider-card-footer-note {
+  display: inline-flex;
+  max-width: 6em;
+  height: 20px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--glass-border);
+  color: var(--color-text-3);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-footer-note.is-warning {
+  background: rgba(217, 138, 0, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(217, 138, 0, 0.3);
+  color: #b26a00;
+}
+
+.provider-card-footer-note.is-error {
+  background: rgba(227, 77, 89, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(227, 77, 89, 0.28);
+  color: #cb2634;
+}
+
+/* 「这张卡的凭据就是那个 Agent 正在用的」是卡片自己推不出来的事实，所以
+   绑定胶囊沿用卡片自己的强调色，和切换按钮的高亮同源。 */
+.provider-card-footer-bound {
+  display: inline-flex;
+  max-width: 108px;
+  height: 20px;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--managed-accent-soft, transparent);
+  box-shadow: inset 0 0 0 1px var(--managed-accent-line, var(--glass-border));
+  color: var(--managed-accent-ink, var(--color-text-3));
+  font-size: 10px;
+  font-weight: 500;
+  gap: 5px;
+  padding: 0 8px 0 5px;
+}
+
+.provider-card-footer-bound .brand-icon {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+}
+
+.provider-card-footer-bound > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root.theme-dark .provider-card-footer-note.is-warning {
+  background: rgba(217, 138, 0, 0.16);
+  color: #f0c078;
+}
+
+:root.theme-dark .provider-card-footer-note.is-error {
+  background: rgba(227, 77, 89, 0.16);
+  color: #ff8b94;
 }
 
 .provider-card-action-panel-title {
@@ -339,6 +355,8 @@ button.provider-card-cli-signal:active {
   padding: 0 8px;
 }
 
+/* 「导出到其他应用」面板比动作列表宽一档：一行要写下应用名和它要写入的
+   内容，窄面板会把两者都截成残句。 */
 .provider-card-action-panel.provider-card-cli-panel {
   display: grid;
   width: 244px;
@@ -360,6 +378,16 @@ button.provider-card-cli-signal:active {
   font-weight: 650;
 }
 
+/* 面板顶部一句说明动作到底是什么：只写「导出到其他应用」，用户还得猜
+   导出了什么、对方会不会直接改配置。 */
+.provider-card-panel-hint {
+  margin: 0;
+  padding: 0 8px 6px;
+  color: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .provider-card-action-panel {
   display: grid;
   width: 208px;
@@ -368,20 +396,6 @@ button.provider-card-cli-signal:active {
   max-height: var(--action-menu-available-height, calc(100dvh - 80px));
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.provider-card-action-panel-section-title {
-  color: var(--surface-muted);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 24px;
-  padding: 0 8px;
-}
-
-.provider-card .card-action-integration > img {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
 }
 
 .provider-card-action-list {
@@ -427,7 +441,6 @@ button.provider-card-cli-signal:active {
 .provider-card-action-list button svg {
   width: 14px;
   height: 14px;
-  color: var(--surface-muted);
 }
 
 .provider-card-action-list button .provider-auth-icon-session {
@@ -476,8 +489,8 @@ button.provider-card-cli-signal:active {
   color: #e34d59;
 }
 
-.provider-card-cli-config-list button .provider-card-action-icon-switch {
-  color: #218a68;
+.provider-card-action-list button .provider-card-action-icon-models {
+  color: var(--card-icon-models);
 }
 
 .provider-card-action-list button span {
@@ -493,15 +506,13 @@ button.provider-card-cli-signal:active {
 @media (prefers-reduced-motion: reduce) {
   .provider-card,
 .provider-card-cli-signal,
-.provider-card-action-list button,
-.provider-card-cli-config-list button {
+.provider-card-action-list button {
     transition: none;
   }
 
   .provider-card:hover,
 .provider-card:focus-visible,
-.provider-card-action-list button:active,
-.provider-card-cli-config-list button:active {
+.provider-card-action-list button:active {
     transform: none;
   }
 }
@@ -509,8 +520,4 @@ button.provider-card-cli-signal:active {
 .provider-card-action-panel button[role="menuitem"]:focus-visible {
   outline: 2px solid var(--surface-accent);
   outline-offset: -2px;
-}
-
-.provider-card-action-list button .provider-card-action-icon-models {
-  color: var(--card-icon-models);
 }

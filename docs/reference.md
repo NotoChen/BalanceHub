@@ -16,32 +16,37 @@ Agent 工作台相关条目描述当前仓库源码，操作步骤见 [Agent 工
 | 功能 | 定义 | 实现位置 | 说明 |
 | --- | --- | --- | --- |
 | WebDAV 配置同步 | 加密同步中转站、可移植偏好与共享 Skill、MCP、Hook。 | `src-tauri/src/services/cloud_sync/`、`src/components/settings/SettingsCloudSyncSection.vue` | 按条目与文件增量同步，首次差异和冲突使用 diff 确认；[连接与恢复说明](webdav-sync.html)。 |
-| 中转站账号管理 | 把 NewAPI、Sub2API 和通用 OpenAI 兼容 API 集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`src-tauri/src/services/provider_service/` | AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
+| 中转站账号管理 | 把 NewAPI、Sub2API 和通用 OpenAI 兼容 API 集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`src-tauri/src/services/provider_service/` | 卡片按账号或 API Key 口径显示余额：Key 卡展示该 Key 的可用额度、无限额度与同步时间，剩余额度与 OAuth 额度窗口共用 70% / 90% 告警分级；账号卡在站点报告订阅进度时，用每个窗口一条进度条（已用比例）替代钱包比例条。AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
+| OAuth 账号与 CPA | 在独立卡片查看 Codex、Claude、Gemini CLI、Grok 的套餐、额度和动态模型，并连接 CPA 管理授权。 | `src-tauri/src/adapters/oauth/`、`src-tauri/src/adapters/cli_proxy_api.rs`、`src-tauri/src/services/oauth_accounts/`、`src/components/oauth/` | 浏览器授权、单账号续期、文件预览与互通；[支持范围与使用方式](oauth-accounts.html)。 |
 | 认证方式管理 | 按协议保存账号密码、Cookie、访问令牌、Refresh Token、API Key 等认证信息。 | `src/stores/provider-types.ts`、`src-tauri/src/models/`、`src-tauri/src/adapters/` | NewAPI / Sub2API 默认账号密码；通用 API 只使用 API Key。 |
 | 操作能力契约 | 由 Rust 统一判断账号管理、签到、密钥管理和邀请等操作是否可用。 | `src-tauri/src/models/provider_domain/capabilities.rs`、`src-tauri/src/contracts.rs`、`src/utils/provider-actions.ts` | 不引入类型生成工具；TypeScript 只声明 IPC 结构并读取 Rust 返回结果。 |
 | 协议探测 | 并发探测 NewAPI、Sub2API，并在 API Key 模式下通过模型接口识别通用 API。 | `src-tauri/src/adapters/detector.rs`、`src-tauri/src/adapters/protocol/registry/` | 识别冲突或失败时允许用户手动选择协议。 |
 | 站点探测 | 从中转站读取名称、图标、额度单位和货币符号。 | `src-tauri/src/adapters/new_api/site.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs`、`src-tauri/src/adapters/api.rs` | 用于减少手动填写，并保证余额、日志、签到记录单位显示一致。 |
 | 余额刷新 | 查询账号或 API Key 当前额度、已用额度和可用额度。 | `src-tauri/src/adapters/new_api/quota.rs`、`src-tauri/src/adapters/sub2_api/`、`src-tauri/src/services/provider_service/quota.rs` | API Key 查询明确按 Key 维度展示；无限额度按无限状态处理。 |
+| 订阅额度窗口 | 读取订阅制账号的周期额度（NewAPI 订阅、Sub2API 日 / 周 / 月窗口），在卡片与托盘展示已用比例。 | `src-tauri/src/adapters/new_api/quota/subscription.rs`、`src-tauri/src/adapters/sub2_api/subscriptions.rs`、`src/utils/provider-display.ts` | 订阅窗口是该类账号真正的额度来源，钱包只作为溢出；接口不存在或读取失败时保持钱包余额，不伪造窗口。 |
+| Key 级额度 | 只用 API Key 读取该 Key 自己的额度与消费限额，不需要账号登录。 | `src-tauri/src/adapters/sub2_api/key_usage.rs`、`src/utils/provider-display.ts` | Sub2API 的 `GET /v1/usage` 返回 Key 总额度（已用 / 剩余 / 上限）、5 小时 / 每日 / 每周限额，或订阅分组的日 / 周 / 月限额与钱包余额；限额为 0 表示该窗口未启用。读取失败只让额度区块显示未公开，模型列表照常刷新。 |
 | 自动刷新 | 按用户配置周期刷新中转站状态。 | `src-tauri/src/services/scheduler.rs` | 适合多站点长期挂后台观察余额和异常状态。 |
 | 签到 | 对支持签到的 NewAPI 兼容站点执行每日签到。 | `src-tauri/src/adapters/new_api/check_in.rs`、`src-tauri/src/adapters/new_api/anyrouter.rs`、`src-tauri/src/services/provider_service/check_in.rs` | 签到结果会结合接口返回和余额变化展示，避免把无余额变化误判为有效收益。 |
 | 签到记录 | 展示每日签到结果和余额增量。 | `src/components/CheckInCalendarModal.vue`、`src-tauri/src/adapters/new_api/check_in/records.rs` | 兼容站点返回的显示额度和 NewAPI 原始额度单位转换。 |
-| 用量趋势 | 查看周期内请求量和额度消耗趋势。 | `src/components/UsageTrendModal.vue`、`src/composables/useUsageTrendChart.ts`、`src-tauri/src/adapters/new_api/usage.rs`、`src-tauri/src/adapters/sub2_api/usage.rs` | 用于判断站点消耗变化、请求峰值和账户使用节奏。 |
-| 请求日志 | 查看模型请求记录、状态、Token 和消耗。 | `src/components/RequestLogsModal.vue`、`src-tauri/src/adapters/new_api/logs.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 消耗金额沿用站点元数据中的额度单位、货币符号和换算规则。 |
+| 用量趋势 | 查看周期内请求量、额度消耗趋势和模型响应质量。 | `src/components/UsageTrendModal.vue`、`src/composables/useUsageTrendChart.ts`、`src-tauri/src/adapters/new_api/usage.rs`、`src-tauri/src/adapters/sub2_api/usage.rs` | 用于判断站点消耗变化、请求峰值和账户使用节奏。NewAPI 站点开启性能采样时，面板额外列出各模型近 24 小时的成功率、平均耗时与吞吐，成功率低的排在前；没有该接口或未采样的站点不显示这一块。周期选项中的「24 小时」指今天零点到现在，两种协议取同一段时间；Sub2API 返回小时桶，NewAPI 的用量接口只按天归档，图表副标题按实际返回的桶标注汇总粒度。顶栏的用量按钮不带中转站：并发读取全部 NewAPI 与 Sub2API 站点并合并请求次数、模型排行和响应质量，没有单一配额单位，读取失败的站点单独列出原因；只能读 Key 自身额度的 API Key 卡片和账户状态异常的站点不参与汇总，也不会被当成失败。 |
+| 请求日志 | 查看模型请求记录、状态、Token 和消耗。 | `src/components/RequestLogsModal.vue`、`src-tauri/src/adapters/new_api/logs.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 消耗金额沿用站点元数据中的额度单位、货币符号和换算规则；两个协议都按 30 天窗口取日志，统计数字与列表使用同一段筛选（Sub2API 的 RPM / TPM 取自站点近 5 分钟指标）。 |
 | API Key 管理 | 从卡片快捷入口进入“编辑中转站 → 认证凭据”，在同一页维护全部 Key、选择当前调用 Key 并查看 Agent 独立绑定；具备账号管理凭据时才同步、创建或删除站点 Key。 | `src/components/provider-editor/ProviderApiKeyVault.vue`、`src-tauri/src/adapters/new_api/keys.rs`、`src-tauri/src/adapters/sub2_api/keys.rs` | Key 操作即时保存，不再叠加第二个管理弹窗；纯 API Key 卡片不会提供无来源的站点刷新，被 Agent 使用的 Key 不能直接删除。 |
 | 修改密码 | 在支持的账号协议上发起密码修改流程。 | `src/components/PasswordChangeModal.vue`、`src-tauri/src/adapters/new_api/account.rs`、`src-tauri/src/adapters/sub2_api/adapter.rs` | 仅在协议、站点能力和认证信息满足要求时展示操作入口。 |
 | 可用模型 | 读取中转站可用模型清单。 | `src/components/AvailableModelsModal.vue`、`src/composables/useAvailableModels.ts` | 用于确认当前站点是否支持目标模型。 |
 | CLI 测活 | 使用已注册的 Agent CLI 对中转站执行真实请求验证。 | `src-tauri/src/services/liveness.rs`、`src-tauri/src/services/agent_cli/<agent>/liveness.rs` | 当前内置 Codex CLI、Claude Code、Gemini CLI、Grok Build；测活会消耗真实额度，首次开启自动测活前会要求确认。 |
 | CLI 候选扫描 | 扫描本机已注册 Agent CLI 的可执行文件。 | `src-tauri/src/services/agent_cli/discovery.rs`、`src/components/agent-workspace/AgentInstallationModal.vue` | 在 Agent 卡片“版本与路径”中查看候选、按需深度扫描并采用路径；不扫描 Codex Desktop App 内置二进制。 |
-| Agent 工作台 | 在主面板切换中转站和 Agent 视角，按总览、Skill、MCP、插件、Hook、运行中进入管理。 | `src/components/agent-workspace/AgentDashboard.vue`、`src/stores/agent-workspace.ts` | Agent 卡片展示原生图标、名称、版本、资源和活动会话数量；卡片筛选复用同一全局资产列表。 |
+| Agent 工作台 | 在主面板切换中转站和 Agent 视角，按总览、Skill、MCP、插件、Hook、运行中进入管理。 | `src/components/agent-workspace/AgentDashboard.vue`、`src/stores/agent-workspace.ts` | Agent 卡片展示原生图标、名称、版本、资源、活动会话数量，并按 BalanceHub 观测到的会话给出最近活动时间；卡片筛选复用同一全局资产列表。 |
 | 全局资产与绑定 | 按逻辑资产汇总各 Agent 的原生绑定、配置来源、变体和差异。 | `src-tauri/src/services/agent_cli/catalog/`、`src/components/agent-workspace/AgentCatalogPanel.vue` | 同名不直接视为同一资产；待确认的对应关系由用户关联，保留不同配置变体。 |
 | 共享定义与应用 | 新建或收录 Skill / MCP / Hook 共享定义，保存版本后选择目标并预览、确认应用。 | `src-tauri/src/commands/agent_catalog.rs`、`src/components/agent-workspace/AgentCatalogDefinitionModal.vue`、`src/components/agent-workspace/AgentCatalogPlanModal.vue` | 保存共享库与写入原生配置是独立动作；后台逐目标展示执行和验证结果。Hook 保留各 Agent 的原生变体，插件不作为跨生态安装分发包。 |
 | 统一 Hook 管理 | 管理已有用户规则及所支持范围的新建、编辑、启停、恢复和移除。 | `src-tauri/src/services/agent_cli/catalog/`、`src/components/agent-workspace/AgentCatalogPanel.vue` | 来源、父插件关系和原生策略分别表达；BalanceHub 会话状态接入只是可选辅助项，不限制通用规则管理。 |
 | CLI 版本与升级 | 检查本机已有安装的版本，预览后沿用原渠道和目录升级；未安装时打开官方安装说明。 | `src-tauri/src/services/agent_cli/lifecycle/`、`src/components/agent-workspace/AgentInstallationModal.vue` | 确认后进入后台任务；可用动作受来源、平台和依赖约束，改用新路径时需显式采用已验证的启动路径。 |
+| Agent 自动更新 | 每个安装独立开启，后台检测原渠道版本并在空闲时升级。 | `src-tauri/src/services/agent_cli/lifecycle/automation/`、`src/components/agent-workspace/AgentAutomaticUpdateControl.vue` | 复用手动升级计划、进程占用检查和任务记录；失败暂停，设置仅保存在本机。[使用说明](agent-updates.html)。 |
 | 版本与路径 | 从 Agent 卡片版本号或安装状态查看本机已有安装、启动路径、版本更新、深度扫描和就地诊断；会话 Hook 操作位于 Hook 分类。 | `src/components/agent-workspace/AgentInstallationModal.vue`、`src/composables/useAgentHookConsole.ts` | 原生生态没有开关、来源不明或条件不足时保留具体原因，不显示虚假的成功状态。 |
 | 原生配置管理 | 从四个 Agent 的卡片文件名直接编辑或预览已有配置，显示实际路径和加载说明；定位和系统打开位于文件编辑器中。 | `src-tauri/src/services/agent_cli/configuration/`、`src/components/agent-workspace/AgentConfigurationEditorModal.vue` | 普通配置不依赖中转站或 CLI 安装，使用完整原文编辑。关闭后在内存中保留未保存草稿，重新打开同一文件可继续；切换文件先处理当前草稿。确认计划后后台写入，冲突和部分结果按文件展示。中转站默认 CLI 配置切换复用此流程，需要创建文件时在保存预览中明确展示。 |
-| 临时 CLI 启动 | 使用当前中转站临时启动已注册的 Agent CLI。 | `src-tauri/src/services/temporary_cli/`、`src-tauri/src/services/agent_cli/<agent>/launch.rs`、`src/components/AgentRuntimeModal.vue` | 覆盖 API Key、Base URL、模型和当前中转站的有效代理；工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
+| 临时 CLI 启动 | 使用当前中转站或 OAuth 账号临时启动已注册的 Agent CLI。 | `src-tauri/src/services/temporary_cli/`、`src-tauri/src/services/agent_cli/<agent>/launch.rs`、`src/components/AgentRuntimeModal.vue` | 中转站覆盖 API Key、Base URL、模型和有效代理；OAuth 卡片改用账号自己的授权。工作目录由用户选择，其他 CLI 配置继续沿用默认配置。 |
+| Agent 默认配置切换 | 把中转站的地址与 Key，或 OAuth 账号的授权写到对应 Agent 的原生配置文件。 | `src-tauri/src/services/agent_cli/config_support/`、`src-tauri/src/services/agent_cli/<agent>/config.rs`、`src/components/AgentConfigurationEditorModal.vue` | 预览后保存，保留文件原有排版和其他字段；切到 OAuth 账号时同时清理会抢先生效的中转字段，不保留备份。Codex 凭据存储不是 `file` 时拒绝切换并给出原因。 |
 | 统一代理 | 为业务请求、Webhook、updater、测活 CLI 和临时 CLI 解析同一套代理语义。 | `src-tauri/src/network/` | 支持无代理、自定义 HTTP/SOCKS 代理及系统手工 HTTP/HTTPS/SOCKS 配置；PAC/WPAD 或无法静态读取的桌面配置保留运行环境，不虚构已解析结果。 |
-| CC Switch 导入 | 将当前中转站地址、API Key 和已设置的默认模型通过深链交给 CC Switch。 | `src/utils/ccswitch-deeplink.ts`、`src-tauri/src/commands/app.rs`、`src-tauri/src/platform/cc_switch.rs` | 按 CC Switch v4.0.8 的 V1 深链协议核对，支持 Codex CLI、Claude Code、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes。各目标沿用对应 Agent 的接口地址；macOS 优先定位 CC Switch bundle，其他情况交给系统处理器，导入由 CC Switch 确认。 |
+| 导出到其他应用 | 从卡片把中转站的接口地址和 API Key 写入 Magpie 或 CC Switch，由目标应用确认添加或替换。 | `src-tauri/src/services/provider_app_import.rs`、`src-tauri/src/platform/provider_app.rs`、`src/components/provider-card/ProviderAppImportList.vue` | Magpie 使用原生导入协议，支持中文名称和缺少 Key 后补填；模型由目标应用按 Key 获取。CC Switch 保留七种 Agent 和默认模型。地址、凭据约束与可用状态统一由 Rust 决定，打开失败时支持主动复制链接。详见[应用导入](app-import.md)。 |
 | 测活时间线 | 保存并展示每个中转站最近的测活结果。 | `src/components/ProviderLivenessTimeline.vue`、`src/utils/provider-liveness.ts` | 用于区分余额正常但 CLI 不可用、模型不可用或网络异常。 |
 | 系统通知 | 对自动刷新、自动签到等结果发出系统通知。 | `src-tauri/src/services/notifications/adapters/system.rs` | 系统通知使用纯文本内容，避免显示 Markdown 语法。 |
 | Webhook 通知 | 通过钉钉、企业微信、飞书、Slack 或通用 Webhook 推送消息。 | `src-tauri/src/services/notifications/adapters/` | 不同渠道按各自消息格式发送，并处理签名和返回校验。 |
@@ -84,6 +89,9 @@ Vue 3 UI
             -> adapters/new_api
             -> adapters/sub2_api
             -> adapters/api
+            -> adapters/oauth
+            -> adapters/cli_proxy_api
+          -> services/oauth_accounts 授权任务与文件互通
           -> services/agent_cli 注册 Agent 能力 Adapter
             -> catalog 汇总全局资产与共享定义分发
             -> lifecycle 规划与执行 已有 CLI 升级

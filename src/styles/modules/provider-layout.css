@@ -42,10 +42,41 @@
   pointer-events: none;
 }
 
-.overview-provider-grid {
+/* 分组横排：每类一张卡片宽的列，OAuth、CPA、账户认证、API Key 一屏并排，
+   不用为了看另一类先向下滚过一整排卡片。列内卡片按原顺序纵向排列；窄窗口
+   退回单列纵向堆叠，和旧的滚动路径一致。 */
+.provider-board-groups {
   display: grid;
   min-width: 0;
   align-items: start;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--provider-grid-card-max);
+  column-gap: 16px;
+}
+
+.provider-board-groups > .provider-board-section {
+  width: var(--provider-grid-card-max);
+  max-width: 100%;
+}
+
+@media (max-width: 760px) {
+  .provider-board-groups {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    row-gap: 24px;
+  }
+
+  .provider-board-groups > .provider-board-section {
+    width: 100%;
+  }
+}
+
+.overview-provider-grid {
+  display: grid;
+  min-width: 0;
+  /* 同一排卡片等高：卡片高度仍由内容决定（最高的那张算），但页脚是卡片
+     的最后一层，一排卡片页脚各在各的高度上就会错位。 */
+  align-items: stretch;
   align-content: start;
   justify-content: start;
   grid-auto-rows: max-content;
@@ -59,7 +90,8 @@
 }
 
 .overview-provider-grid > * {
-  align-self: start;
+  /* 卡片跟着网格行高拉伸，页脚靠自身的 margin-top: auto 落到同一条线。 */
+  align-self: stretch;
   width: 100%;
   min-width: 0;
   justify-self: start;

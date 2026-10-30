@@ -7,17 +7,21 @@ use crate::{
                 needs_token_refresh, refresh_tokens,
             },
             json::string_field,
+            key_usage::fetch_key_quota,
             profile::{apply_user, fetch_site, quota_display},
+            response::{api_url, request_json_with_timeout, Credential},
+            subscriptions::subscription_windows,
         },
         transport::{build_client, ProviderTransport},
     },
     limits,
     models::{
         AppSettings, AuthMode, Provider, ProviderConnectionTestResult, ProviderConnectionTestStep,
-        ProviderQuotaDisplay, ProviderSiteProbeResult, ProviderStatus,
+        ProviderQuotaDisplay, ProviderQuotaWindow, ProviderSiteProbeResult, ProviderStatus,
     },
 };
 use serde_json::Value;
+use std::time::Duration;
 
 impl Sub2ApiAdapter {
     pub(crate) async fn test_connection(
@@ -167,24 +171,22 @@ impl Sub2ApiAdapter {
 
         match authentication {
             Ok((authenticated, user)) => {
-                if !authenticated.auth.access_token.trim().is_empty() {
-                    next.auth.access_token = authenticated.auth.access_token.clone();
-                }
-                if !authenticated.auth.refresh_token.trim().is_empty() {
-                    next.auth.refresh_token = authenticated.auth.refresh_token.clone();
-                }
-                if authenticated.auth.access_token_expires_at.is_some() {
-                    next.auth.access_token_expires_at = authenticated.auth.access_token_expires_at;
-                }
+                apply_rotated_tokens(&mut next, &authenticated);
                 apply_user(&mut next, &user);
+                // 订阅窗口是 Sub2API 账号真正的额度来源，钱包余额只是溢出账户；
+                // 接口不存在（旧版站点）时保持为空，卡片仍显示钱包余额。
+                next.quota.windows = fetch_subscription_windows(client, &next).await;
                 if !next.auth.api_key.trim().is_empty() {
                     // The independent model state retains failures without losing a valid quota.
                     let _ = refresh_models_if_available(client, &mut next).await;
                 }
-                next.runtime.status = if next.quota.available <= 0.0 {
-                    ProviderStatus::Warning
-                } else {
-                    ProviderStatus::Ok
+                // 有窗口上限时由窗口决定状态：订阅账号的钱包只装溢出额度，
+                // 余额为 0 并不代表额度用尽。
+                next.runtime.status = match next.quota.windows_exhausted() {
+                    Some(true) => ProviderStatus::Warning,
+                    Some(false) => ProviderStatus::Ok,
+                    None if next.quota.available <= 0.0 => ProviderStatus::Warning,
+                    None => ProviderStatus::Ok,
                 };
                 next.quota.known = true;
                 next.quota.total_known = false;
@@ -194,25 +196,78 @@ impl Sub2ApiAdapter {
                 next
             }
             Err(_message) if matches!(provider.auth.mode, AuthMode::ApiKey) => {
-                match refresh_models_if_available(client, &mut next).await {
-                    Ok(()) => {
-                        next.quota.known = false;
-                        next.quota.total_known = false;
-                        next.quota.available = 0.0;
-                        next.quota.used = 0.0;
-                        next.quota.unlimited = false;
-                        next.quota.scope = crate::models::ProviderQuotaScope::Token;
-                        next.runtime.status = ProviderStatus::Ok;
-                        next.runtime.error_message = None;
-                        next.automation.last_synced_at = Some(crate::util::unix_secs().to_string());
-                        next
+                // Key 的额度与模型列表是两条独立的读取：扣了额度但模型接口
+                // 短暂失败时，卡片仍应显示刚读到的余额。
+                let model_result = refresh_models_if_available(client, &mut next).await;
+                let key_quota = fetch_key_quota(client, &next).await;
+                next.quota.known = key_quota.is_some();
+                next.quota.total_known = key_quota.as_ref().is_some_and(|quota| quota.total_known);
+                next.quota.available = key_quota.as_ref().map_or(0.0, |quota| quota.available);
+                next.quota.used = key_quota.as_ref().map_or(0.0, |quota| quota.used);
+                next.quota.unlimited = false;
+                next.quota.scope = crate::models::ProviderQuotaScope::Token;
+                next.quota.windows = key_quota.map(|quota| quota.windows).unwrap_or_default();
+                next.runtime.status = match next.quota.windows_exhausted() {
+                    Some(true) => ProviderStatus::Warning,
+                    Some(false) => ProviderStatus::Ok,
+                    // 有 Key 总额度时余额为 0 才代表用完；额度未公开时不做判断。
+                    None if next.quota.total_known && next.quota.available <= 0.0 => {
+                        ProviderStatus::Warning
                     }
+                    None => ProviderStatus::Ok,
+                };
+                next.automation.last_synced_at = Some(crate::util::unix_secs().to_string());
+                next.runtime.error_message = None;
+                match model_result {
+                    Ok(()) => next,
+                    Err(_) if next.quota.known => next,
                     Err(model_error) => provider_with_error(&next, model_error),
                 }
             }
             Err(message) => provider_with_error(&next, message),
         }
     }
+}
+
+/// Sub2API 的登录/刷新都会轮换令牌；任何一次账号请求拿到的新令牌都必须写回
+/// provider，否则下一次提交旧令牌会触发服务端的重用检测。
+fn apply_rotated_tokens(next: &mut Provider, authenticated: &Provider) {
+    if !authenticated.auth.access_token.trim().is_empty() {
+        next.auth.access_token = authenticated.auth.access_token.clone();
+    }
+    if !authenticated.auth.refresh_token.trim().is_empty() {
+        next.auth.refresh_token = authenticated.auth.refresh_token.clone();
+    }
+    if authenticated.auth.access_token_expires_at.is_some() {
+        next.auth.access_token_expires_at = authenticated.auth.access_token_expires_at;
+    }
+}
+
+/// 订阅进度是账号维度的补充信息：接口失败不影响已读到的余额，因此所有错误都
+/// 收口成空列表。这里刻意只带当前访问令牌、不走账号重登流程——一次补充请求
+/// 不该触发令牌子链轮换，更不该在失败时丢掉刚轮换出来的刷新令牌。
+async fn fetch_subscription_windows(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Vec<ProviderQuotaWindow> {
+    let Ok(url) = api_url(&provider.identity.base_url, "/subscriptions/progress") else {
+        return Vec::new();
+    };
+    let Ok(data) = request_json_with_timeout(
+        client,
+        reqwest::Method::GET,
+        url,
+        Some(Credential::Jwt(provider.auth.access_token.clone())),
+        None,
+        "读取订阅额度",
+        Duration::from_secs(8),
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+    let items = data.as_array().cloned().unwrap_or_default();
+    subscription_windows(&items)
 }
 
 async fn authenticate_account_with_refresh(

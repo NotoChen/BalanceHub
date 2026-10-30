@@ -1,6 +1,7 @@
 import { computed, type Ref } from "vue";
 import type { Provider } from "../stores/providers";
 import {
+  providerCardStatusTitle,
   providerCardStatusTone,
   type ProviderCardTone,
 } from "../utils/provider-display.ts";
@@ -55,11 +56,11 @@ export function useProviderCardTone(options: UseProviderCardToneOptions) {
     return providerToneMap.value.get(provider.identity.id) ?? computeProviderCardTone(provider);
   }
 
+  /// 整卡和状态标共用同一条说明：只有异常消息值得补，状态词本身已经写在卡上。
   function cardStatusTooltip(provider: Provider) {
-    if (providerCardTone(provider) === "error") {
-      return provider.runtime.errorMessage || "接口访问异常";
-    }
-    return "";
+    const tone = providerCardTone(provider);
+    if (tone !== "warning" && tone !== "error") return "";
+    return providerCardStatusTitle(provider);
   }
 
   return {

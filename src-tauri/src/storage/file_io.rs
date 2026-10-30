@@ -4,16 +4,14 @@ use std::{
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const DATA_FILE_NAME: &str = "data.json";
 const BACKUP_FILE_NAME: &str = "data.json.bak";
 const TMP_FILE_NAME: &str = "data.json.tmp";
 
 pub(super) fn data_file_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let config_dir = app
-        .path()
-        .app_config_dir()
+    let config_dir = crate::desktop::config_dir(app)
         .map_err(|error| format!("获取应用配置目录失败: {error}"))?;
     Ok(config_dir.join(DATA_FILE_NAME))
 }

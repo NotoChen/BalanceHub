@@ -1,15 +1,11 @@
 import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
-import { openCcSwitchDeeplink } from "../api/app";
 import type { AgentCliKind, Provider } from "../stores/providers";
+import { refreshAllCpa, startOAuthLogin } from "../api/oauth-accounts";
+import { useOAuthAccountStore } from "../stores/oauth-accounts";
 import { hasUsableProviderApiKey } from "../utils/provider-api-key-options";
 import { useProviderCopyActions } from "./useProviderCopyActions";
-import {
-  buildCcSwitchProviderDeeplink,
-  canBuildCcSwitchDeeplink,
-  ccSwitchTargetLabels,
-  type CcSwitchAppTarget,
-} from "../utils/ccswitch-deeplink";
+import { useProviderAppImport } from "./useProviderAppImport";
 import { providerDisplayLabel } from "../utils/provider-display";
 
 interface UseProviderActionsOptions {
@@ -32,6 +28,8 @@ interface UseProviderActionsOptions {
 }
 
 export function useProviderActions(options: UseProviderActionsOptions) {
+  const { addProviderToApp } = useProviderAppImport();
+  const oauthAccounts = useOAuthAccountStore();
   const probingCapabilitiesProviderId = ref<string | null>(null);
   const capabilityProbeVisible = ref(false);
   const capabilityProbeProviderId = ref<string | null>(null);
@@ -43,6 +41,8 @@ export function useProviderActions(options: UseProviderActionsOptions) {
   const inviteCopyingProviderId = ref<string | null>(null);
   const livenessDetailsVisible = ref(false);
   const livenessDetailsProviderId = ref<string | null>(null);
+  /// One card-level authorization action runs at a time; the id doubles as the
+  /// guard so a second click cannot start a parallel export or hand-off.
   const {
     copyProviderUrl,
     copyProviderSecret,
@@ -74,13 +74,21 @@ export function useProviderActions(options: UseProviderActionsOptions) {
   }
 
   function launchTemporaryCli(provider: Provider, cliKind?: AgentCliKind) {
-    if (!provider.identity.baseUrl.trim()) {
-      Message.warning("临时启动 CLI 需要中转站地址");
+    // Rust decides whether the stored credential can start a CLI; the relay
+    // address and API key checks only apply to relay cards.
+    if (!provider.actions.temporaryCli) {
+      Message.warning("当前账号缺少可用的授权，请先刷新或重新授权");
       return;
     }
-    if (!hasUsableProviderApiKey(provider.auth.apiKey, provider.auth.apiKeyOptions)) {
-      Message.warning("临时启动 CLI 需要可用的 API Key");
-      return;
+    if (provider.identity.protocol !== "oauth") {
+      if (!provider.identity.baseUrl.trim()) {
+        Message.warning("临时启动 CLI 需要中转站地址");
+        return;
+      }
+      if (!hasUsableProviderApiKey(provider.auth.apiKey, provider.auth.apiKeyOptions)) {
+        Message.warning("临时启动 CLI 需要可用的 API Key");
+        return;
+      }
     }
     options.openWorkspacePicker(provider, cliKind);
   }
@@ -90,6 +98,43 @@ export function useProviderActions(options: UseProviderActionsOptions) {
       return;
     }
     void options.checkInProviderAction(provider);
+  }
+
+  /// The gateway refreshes every authorization in turn and invalidates the old
+  /// tokens, so this stays behind the same confirmation the panel uses.
+  function renewAllCpaAccounts(provider: Provider) {
+    if (!provider.actions.cpaGateway || !provider.runtime.enabled) return;
+    const revision = provider.auth.credentialRevision || 0;
+    Modal.confirm({
+      title: "请求 CPA 更新全部授权",
+      content:
+        "CPA 会依次为所有授权换取新令牌，旧令牌立即失效。仅当 CPA 是这些账号唯一的续期方时执行。",
+      okText: "全部续期",
+      cancelText: "取消",
+      okButtonProps: { status: "warning" },
+      onOk: async () => {
+        await refreshAllCpa(provider.identity.id, revision);
+        Message.success("已向 CPA 请求全部续期，稍后刷新核对");
+        await options.reload();
+      },
+    });
+  }
+
+  /// A failed or unconfirmed renewal is only resolved by authorizing again, so
+  /// the card can restart the same login flow the account panel uses and hand
+  /// the task to the task center instead of keeping the card busy.
+  async function reauthorizeOAuthCard(provider: Provider) {
+    const account = provider.auth.oauth;
+    if (!account) return;
+    try {
+      const task = await startOAuthLogin(account.vendor, provider.identity.id);
+      oauthAccounts.accept(task);
+      // 授权进度本身就是这次操作的结果，直接在被授权的同一个面板里看，
+      // 不再让用户自己去任务中心找。
+      oauthAccounts.openTask(task.id);
+    } catch (cause) {
+      Message.error(String(cause));
+    }
   }
 
   async function copyProviderUrlAction(provider: Provider) {
@@ -192,26 +237,6 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     options.openCheckInRecords(provider);
   }
 
-  async function addCcSwitchConfig(provider: Provider, target: CcSwitchAppTarget) {
-    if (!canBuildCcSwitchDeeplink(provider)) {
-      Message.warning("添加到 CC Switch 需要中转站地址和 API Key");
-      return;
-    }
-
-    const deeplink = buildCcSwitchProviderDeeplink(provider, target);
-    try {
-      await openCcSwitchDeeplink(deeplink);
-      Message.success(`已请求打开 CC Switch：${ccSwitchTargetLabels[target]}`);
-    } catch (error) {
-      try {
-        await navigator.clipboard.writeText(deeplink);
-      } catch {
-        // Ignore clipboard failures; the original open error is more useful.
-      }
-      Message.error(`无法打开 CC Switch，已尝试复制深链：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
   function toggleProviderAction(provider: Provider) {
     void options.toggleProvider(provider, !provider.runtime.enabled);
   }
@@ -243,6 +268,8 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     refreshProvider,
     launchTemporaryCli,
     checkInProvider,
+    renewAllCpaAccounts,
+    reauthorizeOAuthCard,
     copyProviderUrlAction,
     copyProviderSecretAction,
     probeProviderCapabilities,
@@ -254,7 +281,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     openPasswordChange,
     openLivenessDetails,
     openCheckInRecords,
-    addCcSwitchConfig,
+    addProviderToApp,
     toggleProviderAction,
     removeProviderAction,
   };

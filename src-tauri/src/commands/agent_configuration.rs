@@ -168,24 +168,6 @@ fn resource_read_error(message: String) -> AgentConfigurationError {
 }
 
 #[tauri::command]
-pub(crate) async fn open_agent_resource_link(app: AppHandle, url: String) -> Result<(), String> {
-    let parsed = reqwest::Url::parse(&url).map_err(|_| "文档链接无效")?;
-    if !matches!(parsed.scheme(), "https" | "http")
-        || parsed.host_str().is_none()
-        || !parsed.username().is_empty()
-        || parsed.password().is_some()
-    {
-        return Err("仅支持 HTTP 或 HTTPS 文档链接".to_owned());
-    }
-    super::run_blocking("打开资源文档", move || {
-        app.opener()
-            .open_url(parsed.as_str(), None::<&str>)
-            .map_err(|_| "无法打开文档链接".to_owned())
-    })
-    .await
-}
-
-#[tauri::command]
 pub(crate) async fn plan_agent_configuration_save(
     app: AppHandle,
     window: Window,

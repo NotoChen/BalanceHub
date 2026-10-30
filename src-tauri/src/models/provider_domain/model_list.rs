@@ -13,12 +13,25 @@ pub struct ProviderModelListAction {
 }
 
 pub fn can_use_account_models(provider: &Provider) -> bool {
+    if matches!(
+        provider.identity.protocol,
+        ProviderProtocol::OAuth | ProviderProtocol::CliProxyApi
+    ) {
+        return !provider.auth.access_token.trim().is_empty()
+            || !provider.auth.refresh_token.trim().is_empty();
+    }
     provider.identity.protocol == ProviderProtocol::NewApi
         && capabilities::supports_account_management(provider)
 }
 
 /// 计划优先使用的来源。实际来源以每次请求返回的模型快照为准。
 pub fn scope(provider: &Provider) -> ProviderModelScope {
+    if provider.identity.protocol == ProviderProtocol::OAuth
+        || (provider.identity.protocol == ProviderProtocol::CliProxyApi
+            && !auth::has_api_key(provider))
+    {
+        return ProviderModelScope::Account;
+    }
     if !auth::has_api_key(provider)
         && provider.identity.protocol == ProviderProtocol::NewApi
         && provider.auth.mode != AuthMode::ApiKey

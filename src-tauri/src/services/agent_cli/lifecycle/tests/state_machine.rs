@@ -27,7 +27,7 @@ use std::{
 const ACTOR: &str = "lifecycle-fixture-window";
 
 struct FixturePlanner {
-    target: AgentLifecycleTarget,
+    targets: Vec<AgentLifecycleTarget>,
     execution: Arc<ControlledExecution>,
     keys: Vec<String>,
 }
@@ -38,10 +38,12 @@ impl LifecyclePlanner for FixturePlanner {
         _context: LifecycleContext,
         _request: AgentLifecycleCatalogRequest,
     ) -> BoxFuture<'static, Result<AgentLifecycleCatalog, AgentLifecycleError>> {
-        let target = self.target.clone();
+        let targets = self.targets.clone();
         async move {
             Ok(AgentLifecycleCatalog {
-                targets: vec![target],
+                revision: 0,
+                automatic_updates: Vec::new(),
+                targets,
                 refreshed_at: String::new(),
                 next_check_at: None,
             })
@@ -54,16 +56,26 @@ impl LifecyclePlanner for FixturePlanner {
         _context: LifecycleContext,
         request: AgentLifecyclePlanRequest,
     ) -> BoxFuture<'static, Result<PreparedLifecycle, AgentLifecycleError>> {
-        let target = self.target.clone();
+        let target = self
+            .targets
+            .iter()
+            .find(|target| target.id == request.target_id)
+            .cloned();
         let execution = self.execution.clone();
         let keys = self.keys.clone();
         async move {
+            let Some(target) = target else {
+                return Err(AgentLifecycleError::new(
+                    AgentLifecycleErrorKind::TargetChanged,
+                ));
+            };
             if request.expected_evidence_revision != target.evidence_revision {
                 return Err(AgentLifecycleError::new(
                     AgentLifecycleErrorKind::TargetChanged,
                 ));
             }
             Ok(PreparedLifecycle {
+                automatic_scope: None,
                 public: public_plan(&target, "2.0.0"),
                 lock_keys: keys,
                 execution,
@@ -168,6 +180,7 @@ impl LifecycleExecution for ControlledExecution {
 struct ServiceFixture {
     files: Fixture,
     target: AgentLifecycleTarget,
+    targets: Vec<AgentLifecycleTarget>,
     execution: Arc<ControlledExecution>,
     locks: Arc<MutationLocks>,
     service: Arc<LifecycleService>,
@@ -175,15 +188,32 @@ struct ServiceFixture {
 
 impl ServiceFixture {
     fn new(execution: ControlledExecution) -> Self {
+        Self::with_targets(execution, 1)
+    }
+
+    /// Each extra target stands in for a separate installation so concurrent
+    /// starts exercise the capacity limit rather than the one-in-flight guard.
+    fn with_targets(execution: ControlledExecution, count: usize) -> Self {
         let files = Fixture::new();
         let kind = AgentCliKind::Codex;
         let prefix = files.prefix(kind);
         let executable = write_package(&prefix, kind, "1.0.0");
-        let target = target(kind, &prefix, installation(kind, &executable, "1.0.0"));
+        let base = target(kind, &prefix, installation(kind, &executable, "1.0.0"));
+        let targets: Vec<_> = (0..count)
+            .map(|index| {
+                if index == 0 {
+                    return base.clone();
+                }
+                let mut extra = base.clone();
+                extra.id = format!("{}-{index}", base.id);
+                extra.installation.id = format!("{}-{index}", base.installation.id);
+                extra
+            })
+            .collect();
         let locks = Arc::new(MutationLocks::default());
         let execution = Arc::new(execution);
         let planner = FixturePlanner {
-            target: target.clone(),
+            targets: targets.clone(),
             execution: execution.clone(),
             keys: vec![
                 "installation:fixture-codex".to_owned(),
@@ -196,7 +226,8 @@ impl ServiceFixture {
         ));
         Self {
             files,
-            target,
+            target: base,
+            targets,
             execution,
             locks,
             service,
@@ -204,20 +235,28 @@ impl ServiceFixture {
     }
 
     async fn plan(&self) -> AgentLifecyclePlan {
+        self.plan_for(&self.target).await
+    }
+
+    async fn plan_for(&self, target: &AgentLifecycleTarget) -> AgentLifecyclePlan {
         self.service
             .plan(
                 ACTOR,
                 AppSettings::default(),
                 self.files.home.clone(),
-                plan_request(&self.target),
+                plan_request(target),
             )
             .await
             .unwrap()
     }
 
     async fn start(&self) -> AgentLifecycleOperation {
+        self.start_for(&self.target).await
+    }
+
+    async fn start_for(&self, target: &AgentLifecycleTarget) -> AgentLifecycleOperation {
         self.service
-            .start(ACTOR, &apply_request(&self.plan().await))
+            .start(ACTOR, &apply_request(&self.plan_for(target).await))
             .unwrap()
     }
 }
@@ -383,7 +422,7 @@ async fn a_committed_task_remains_independent_and_cannot_be_canceled() {
         release: Mutex::new(Some(release_rx)),
         ..ControlledExecution::default()
     };
-    let fixture = ServiceFixture::new(execution);
+    let fixture = ServiceFixture::with_targets(execution, 2);
     let operation = fixture.start().await;
     let service = fixture.service.clone();
     let id = operation.id.clone();
@@ -395,7 +434,7 @@ async fn a_committed_task_remains_independent_and_cannot_be_canceled() {
     // Listing, another plan and another start stay available while this promise
     // is pending. They never wait for the external process or held domain lock.
     assert_eq!(fixture.service.operations(ACTOR).unwrap().len(), 1);
-    let another = fixture.start().await;
+    let another = fixture.start_for(&fixture.targets[1]).await;
     fixture.service.cancel(ACTOR, &another.id).unwrap();
     fixture.service.remove_actor(ACTOR);
     release_tx.send(()).unwrap();
@@ -533,12 +572,12 @@ async fn panic_paths_complete_and_release_the_shared_domains() {
 
 #[tokio::test]
 async fn capacity_rejection_preserves_the_plan_for_after_a_task_finishes() {
-    let fixture = ServiceFixture::new(ControlledExecution::default());
+    let fixture = ServiceFixture::with_targets(ControlledExecution::default(), 9);
     let mut operations = Vec::new();
-    for _ in 0..8 {
-        operations.push(fixture.start().await);
+    for target in &fixture.targets[..8] {
+        operations.push(fixture.start_for(target).await);
     }
-    let request = apply_request(&fixture.plan().await);
+    let request = apply_request(&fixture.plan_for(&fixture.targets[8]).await);
     assert_eq!(
         fixture.service.start(ACTOR, &request).unwrap_err().kind,
         AgentLifecycleErrorKind::CapacityExceeded

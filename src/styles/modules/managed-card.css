@@ -1,0 +1,75 @@
+/* Managed cards (OAuth accounts and CPA gateways): vendor accent, quota meters and gateway summary. */
+
+.provider-card-managed {
+  --managed-accent: #165dff;
+  --managed-accent-soft: color-mix(in srgb, var(--managed-accent) 9%, transparent);
+  --managed-accent-line: color-mix(in srgb, var(--managed-accent) 26%, transparent);
+  --managed-accent-ink: color-mix(in srgb, var(--managed-accent) 76%, #1d2129);
+  --managed-surface: color-mix(in srgb, var(--glass-card) 74%, var(--glass-canvas));
+}
+
+.provider-card-vendor-codex {
+  --managed-accent: #0a9b78;
+}
+
+.provider-card-vendor-claude {
+  --managed-accent: #c2703d;
+}
+
+.provider-card-vendor-gemini {
+  --managed-accent: #4669d9;
+}
+
+.provider-card-vendor-grok {
+  --managed-accent: #59616e;
+}
+
+.provider-card-cpa {
+  --managed-accent: #3f5efb;
+}
+
+/* 分隔线本身由卡片通用规则给出，这里只负责定位厂商色的那一层。 */
+.provider-card-managed .workspace-card-header {
+  position: relative;
+}
+
+/* The divider carries the vendor accent so each account reads as one family
+   while the card surface stays neutral. */
+.provider-card-managed .workspace-card-header::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 1px;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--managed-accent-line) 0%,
+    transparent 62%
+  );
+}
+
+/* 授权卡片的图标和四类卡片共用同一个尺寸与无框画法：厂商 logo 是透明图形，
+   网关图标自带方形底，两者都不再套一层背景框。 */
+.provider-card-managed .workspace-card-logo > .cpa-gateway-mark {
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.provider-card-managed .workspace-card-title-row {
+  gap: 8px;
+}
+
+.provider-card-managed .workspace-card-subtitle {
+  font-size: 11px;
+}
+
+/* 授权卡片和中转站卡片共用 provider-card/actions.css 里的底栏、动作组换行
+   和状态胶囊规则；这里只保留卡片外观（强调色、厂商图标、分隔线）。 */
+
+:root.theme-dark .provider-card-managed {
+  --managed-accent-ink: color-mix(in srgb, var(--managed-accent) 62%, #f2f3f5);
+  --managed-surface: rgba(255, 255, 255, 0.035);
+}
+

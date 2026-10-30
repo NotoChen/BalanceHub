@@ -117,6 +117,8 @@ pub struct NewApiSession {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAuth {
+    #[serde(default)]
+    pub oauth: Option<crate::models::OAuthCredential>,
     pub mode: AuthMode,
     /// 主凭据的来源：手动 / 账号密码 / OAuth。与 mode（凭据种类）正交。
     #[serde(default)]
@@ -171,11 +173,67 @@ pub struct ProviderQuota {
     pub currency_symbol: String,
     #[serde(default = "defaults::currency_exchange_rate")]
     pub currency_exchange_rate: f64,
+    /// Subscription-billed relays (NewAPI 订阅、Sub2API 订阅分组) keep their real
+    /// quota in period windows while the wallet only holds overflow, so the card
+    /// needs those windows to answer "还有多少" for such an account.
+    #[serde(default)]
+    pub windows: Vec<ProviderQuotaWindow>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderQuotaWindow {
+    pub label: String,
+    pub used: f64,
+    /// 0 表示不限量：NewAPI 订阅把 0 作为“不限额度”，Sub2API 不给出窗口上限时同样如此。
+    #[serde(default)]
+    pub limit: f64,
+    /// 窗口下一次重置的 unix 秒；窗口不重置时为空。
+    #[serde(default)]
+    pub resets_at: Option<i64>,
+}
+
+impl ProviderQuotaWindow {
+    /// 已用比例；不限量窗口没有可比的比例，因此返回 None 而不是 0。
+    pub fn percent(&self) -> Option<f64> {
+        (self.limit > 0.0).then(|| self.used / self.limit * 100.0)
+    }
+}
+
+impl ProviderQuota {
+    /// 压力最大的窗口决定账号是否还有余量，卡片据此给窗口着色。
+    pub fn tightest_window(&self) -> Option<&ProviderQuotaWindow> {
+        self.windows
+            .iter()
+            .filter_map(|window| window.percent().map(|percent| (percent, window)))
+            .max_by(|left, right| left.0.total_cmp(&right.0))
+            .map(|(_, window)| window)
+    }
+
+    /// 订阅窗口有上限时才代表账户真实余量：任一窗口还有空间就不是用尽。
+    /// 没有窗口或窗口全部不限量时返回 None，调用方继续按钱包余额判断。
+    pub fn windows_exhausted(&self) -> Option<bool> {
+        let mut limited = false;
+        for window in &self.windows {
+            let Some(percent) = window.percent() else {
+                continue;
+            };
+            limited = true;
+            if percent < 100.0 {
+                return Some(false);
+            }
+        }
+        limited.then_some(true)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCapabilities {
+    #[serde(default)]
+    pub subscription: Option<crate::models::AccountSubscription>,
+    #[serde(default)]
+    pub gateway: Option<crate::models::CpaGatewaySnapshot>,
     #[serde(default)]
     pub check_in_known: bool,
     #[serde(default)]

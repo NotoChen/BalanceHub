@@ -45,3 +45,6 @@ docs/.jekyll-cache/
 *.njsproj
 *.sln
 *.sw?
+
+# 开发会话的隔离根目录（安装版配置副本 + 演示数据落点）
+target/

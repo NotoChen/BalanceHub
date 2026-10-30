@@ -121,16 +121,14 @@ pub(crate) async fn get_agent_asset_catalog(
         if mode == "来源更新" {
             service.persist_display(&catalog, &inputs);
         }
-        if cfg!(debug_assertions) {
-            eprintln!(
-                "Agent 资源目录：方式={}，耗时={}ms，来源={}，原生条目={}，资源={}",
-                mode,
-                started.elapsed().as_millis(),
-                catalog.inventory.sources.len(),
-                catalog.inventory.assets.len(),
-                catalog.assets.len()
-            );
-        }
+        log::debug!(
+            "Agent 资源目录：方式={}，耗时={}ms，来源={}，原生条目={}，资源={}",
+            mode,
+            started.elapsed().as_millis(),
+            catalog.inventory.sources.len(),
+            catalog.inventory.assets.len(),
+            catalog.assets.len()
+        );
         Ok(catalog)
     })
     .await
@@ -219,13 +217,11 @@ pub(crate) async fn read_agent_catalog_content(
                         .map_err(|_| "资源读取窗口已关闭".to_owned())
                 },
             );
-            if cfg!(debug_assertions) {
-                eprintln!(
-                    "Agent 资源正文：耗时={}ms，成功={}",
-                    started.elapsed().as_millis(),
-                    result.is_ok()
-                );
-            }
+            log::debug!(
+                "Agent 资源正文：耗时={}ms，成功={}",
+                started.elapsed().as_millis(),
+                result.is_ok()
+            );
             result
         })
         .await

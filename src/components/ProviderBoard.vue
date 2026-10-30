@@ -3,6 +3,7 @@ import { computed, ref, watch, type CSSProperties } from "vue";
 import { SearchX, ServerPlus } from "@lucide/vue";
 import ProviderCard from "./ProviderCard.vue";
 import ProviderBoardToolbar from "./ProviderBoardToolbar.vue";
+import ProviderSectionCards from "./ProviderSectionCards.vue";
 import type {
   CliRuntimeSnapshot,
   AgentRuntimeSnapshot,
@@ -10,7 +11,7 @@ import type {
   Provider,
   ProviderApiKeyOption,
 } from "../stores/providers";
-import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
+import type { ProviderAppImportTarget } from "../stores/provider-types";
 import type { ProviderCardTone } from "../utils/provider-display";
 import {
   providerCardCliOrbitSpec,
@@ -79,7 +80,9 @@ const emit = defineEmits<{
   openPasswordChange: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
-  addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
+  addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
+  cpaRenewAll: [provider: Provider];
+  reauthorizeOauthCard: [provider: Provider];
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
@@ -170,11 +173,12 @@ function providerSwitchingCliKind(provider: Provider) {
       @select="activeFilter = $event"
       @reset="clearFilters"
     />
-    <section v-for="section in providerSections" :key="section.key" class="provider-board-section">
-      <div class="provider-board-section-header">
-        <h2>{{ section.label }}</h2>
-        <span>{{ section.providers.length }}</span>
-      </div>
+    <ProviderSectionCards
+      v-for="section in providerSections"
+      :key="section.key"
+      :label="section.label"
+      :count="section.providers.length"
+    >
       <TransitionGroup name="provider-grid" tag="div" class="overview-provider-grid">
         <ProviderCard
           v-for="provider in section.providers"
@@ -205,7 +209,9 @@ function providerSwitchingCliKind(provider: Provider) {
           @open-password-change="emit('openPasswordChange', $event)"
           @open-liveness-details="emit('openLivenessDetails', $event)"
           @open-check-in-records="emit('openCheckInRecords', $event)"
-          @add-cc-switch-config="(provider, target) => emit('addCcSwitchConfig', provider, target)"
+          @add-provider-to-app="(provider, target) => emit('addProviderToApp', provider, target)"
+          @cpa-renew-all="emit('cpaRenewAll', $event)"
+          @reauthorize-oauth-card="emit('reauthorizeOauthCard', $event)"
           @launch-temporary-cli="emit('launchTemporaryCli', $event)"
           @copy-url="emit('copyUrl', $event)"
           @copy-invite="emit('copyInvite', $event)"
@@ -217,7 +223,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @remove="emit('remove', $event)"
         />
       </TransitionGroup>
-    </section>
+      </ProviderSectionCards>
     </template>
 
     <div v-if="!loadError && providers.length === 0 && !loading" class="empty-state provider-board-empty">

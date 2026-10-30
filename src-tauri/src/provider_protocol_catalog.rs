@@ -10,6 +10,8 @@ macro_rules! for_each_provider_protocol {
             NewApi => { key: "newApi", module: new_api },
             Sub2Api => { key: "sub2Api", module: sub2_api },
             Api => { key: "api", module: api },
+            OAuth => { key: "oauth", module: oauth },
+            CliProxyApi => { key: "cliProxyApi", module: cli_proxy_api },
         }
     };
 }

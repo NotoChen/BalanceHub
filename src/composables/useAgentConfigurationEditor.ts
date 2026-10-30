@@ -27,6 +27,7 @@ export function useAgentConfigurationEditor() {
   const settingsDrafts = ref<Record<string, AgentSettingsEditorDraft>>({});
   const plan = shallowRef<AgentConfigurationPlan | null>(null);
   const planVisible = ref(false);
+  const applyVisible = ref(false);
   const error = ref("");
   const errorDiagnostics = ref<AgentConfigurationDiagnostic[]>([]);
   const title = ref("原生配置");
@@ -44,6 +45,11 @@ export function useAgentConfigurationEditor() {
   let loadController: AbortController | null = null;
   function releaseSourceHold() { releaseSources?.(); releaseSources = null; }
   const submitted = computed(() => Boolean(edit.value && tasks.ownsEdit(edit.value.editId)));
+  /// The accepted save follows the same edit, so its per-file progress can be
+  /// shown in the panel that started it instead of only in the task center.
+  const operation = computed(() =>
+    edit.value ? tasks.operationFor(edit.value.editId) : null,
+  );
   const hasDraft = computed(() => {
     const current = edit.value;
     if (!current || tasks.operationFor(current.editId)?.outcome === "appliedVerified") return false;
@@ -52,6 +58,12 @@ export function useAgentConfigurationEditor() {
   const pendingLabel = computed(() => pendingEdit.value?.context.label ?? "");
   const submissionError = computed(() => edit.value ? tasks.startErrors[edit.value.editId] ?? tasks.operationFor(edit.value.editId)?.message ?? "" : "");
   const submissionDiagnostics = computed(() => edit.value ? tasks.startDiagnostics[edit.value.editId] ?? [] : []);
+  /// The applied save is shown in place until the user closes the panel: the
+  /// write is committed either way, and the panel is never a lock — closing it
+  /// leaves the same operation running in the task center.
+  const applying = computed(() => applyVisible.value && submitted.value);
+  const applyDone = computed(() => !applying.value || Boolean(submissionError.value) || operation.value?.phase === "completed");
+  const startingSubmission = computed(() => Boolean(edit.value && tasks.starting[edit.value.editId]));
   const canReload = computed(() => {
     const current = edit.value;
     if (!currentLoader.value || loading.value) return false;
@@ -77,6 +89,7 @@ export function useAgentConfigurationEditor() {
     planRequest += 1;
     plan.value = null;
     planVisible.value = false;
+    applyVisible.value = false;
     preparing.value = false;
     error.value = "";
     errorDiagnostics.value = [];
@@ -101,6 +114,7 @@ export function useAgentConfigurationEditor() {
     loading.value = false;
     preparing.value = false;
     planVisible.value = false;
+    applyVisible.value = false;
     plan.value = null;
     pendingEdit.value = null;
     stopClock();
@@ -165,6 +179,9 @@ export function useAgentConfigurationEditor() {
     releaseSources ??= sources.forRuntime(context.value.runtimeScope).hold(context.value.agentKind);
     visible.value = true;
     planVisible.value = false;
+    // A draft whose save was already handed to the store has nothing left to
+    // edit; reopening it shows that save's progress again.
+    applyVisible.value = submitted.value;
     startClock();
   }
   function resumeDraft(key: string) {
@@ -264,20 +281,28 @@ export function useAgentConfigurationEditor() {
     const current = plan.value;
     if (!current || !context.value || !canConfirm.value) return;
     if (!tasks.reserve({ editId: current.editId, planToken: current.token }, context.value)) return;
-    // Do not call close(): the store owns the consumed edit and its plan now.
+    // The store owns the consumed edit and its plan now, but the panel stays
+    // open so the user watches the same files being written and verified.
     requestId += 1;
     planRequest += 1;
-    visible.value = false;
     planVisible.value = false;
+    applyVisible.value = true;
     preparing.value = false;
     stopClock();
     releaseSourceHold();
     void tasks.submit(current.editId);
   }
+  /// Leaving the panel mid-write is allowed: the operation continues in the
+  /// store and in the task center. Nothing here cancels or retries a write.
+  function closeApply() { close(); }
+  function cancelApply() {
+    const current = operation.value;
+    if (current) void tasks.cancel(current.id);
+  }
   function reload() { if (canReload.value && currentLoader.value && context.value && !pendingEdit.value) return load(currentLoader.value, context.value, draftKey); }
 
   onScopeDispose(() => { disposed = true; discardDraft(); });
-  return { visible, loading, preparing, edit, textDrafts, mcpDrafts, settingsDrafts, plan, planVisible, error, errorDiagnostics, title,
+  return { visible, loading, preparing, edit, textDrafts, mcpDrafts, settingsDrafts, plan, planVisible, applyVisible, operation, applying, applyDone, startingSubmission, error, errorDiagnostics, title,
     context, hasDraft, pendingLabel, submitted, submissionError, submissionDiagnostics, canReload, editExpired, planExpired, canPrepare, canConfirm,
-    open, close, setText, setMcpDraft, setSettingsDraft, prepare, backToDraft, confirm, resumeDraft, keepDraft, discardDraft, openPending, reload };
+    open, close, setText, setMcpDraft, setSettingsDraft, prepare, backToDraft, confirm, closeApply, cancelApply, resumeDraft, keepDraft, discardDraft, openPending, reload };
 }

@@ -11,6 +11,7 @@ import { agentAssetOperationOutcomeLabels, agentAssetOperationPhaseLabels } from
 import type { BackgroundTask, BackgroundTaskStatus } from "./useBackgroundTaskCenter";
 import type { AgentAssetOperationOutcome } from "../stores/provider-types";
 import { agentCatalogActionLabels, agentCatalogOperationDetail, agentCatalogRelationActionLabels } from "../utils/agent-catalog-display";
+import { agentCliLabel } from "../utils/cli-environment";
 
 const outcomeText = (outcome: AgentAssetOperationOutcome | null) => outcome ? agentAssetOperationOutcomeLabels[outcome] : "结果待确认";
 const outcomeStatuses: Record<AgentAssetOperationOutcome, BackgroundTaskStatus> = {
@@ -30,6 +31,11 @@ export function useAgentBackgroundTasks() {
   const navigation = useAgentWorkspaceStore();
   return computed<BackgroundTask[]>(() => {
     const tasks: BackgroundTask[] = [];
+    if (lifecycle.eventError) {
+      tasks.push({ id: "agent-lifecycle-connection", kind: "update", title: "Agent 更新状态", detail: lifecycle.eventError,
+        status: "unconfirmed", progress: null, startedAt: 0, source: "automatic",
+        actions: [{ label: "刷新状态", run: () => { void lifecycle.recover(); void lifecycle.refresh("cached"); } }] });
+    }
     for (const operation of Object.values(maintenance.operations)) {
       const completed = operation.phase === "completed";
       tasks.push({ id: `agent-maintenance-${operation.id}`, kind: "sync", title: operation.title,
@@ -65,11 +71,26 @@ export function useAgentBackgroundTasks() {
     }
     for (const operation of Object.values(lifecycle.operations)) {
       const completed = operation.phase === "completed";
-      tasks.push({ id: `agent-lifecycle-${operation.id}`, kind: "update", title: `${operation.agentKind} · 升级`,
+      tasks.push({ id: `agent-lifecycle-${operation.id}`, kind: "update", title: `${agentCliLabel(cli.cliEnvironmentProbe, operation.agentKind)} · ${operation.origin === "automatic" ? "自动更新" : "升级"}`,
         detail: lifecycle.errors[operation.id] || operation.message || (completed ? `${outcomeText(operation.outcome)}${operation.observedVersion ? ` · ${operation.observedVersion}` : ""}` : agentAssetOperationPhaseLabels[operation.phase]),
         status: lifecycle.errors[operation.id] ? "unconfirmed" : completed ? outcomeStatus(operation.outcome) : "running", progress: null,
-        startedAt: Date.parse(operation.createdAt), finishedAt: completed ? Date.parse(operation.updatedAt) : undefined, source: "manual",
-        actions: [{ label: "查看详情", run: () => navigation.openOperation("lifecycle", operation.id) }] });
+        startedAt: Date.parse(operation.createdAt), finishedAt: completed ? Date.parse(operation.updatedAt) : undefined, source: operation.origin,
+        actions: [{ label: "查看详情", run: () => navigation.openOperation("lifecycle", operation.id) },
+          ...(operation.canCancel ? [{ label: "取消", disabled: Boolean(lifecycle.canceling[operation.id]), run: () => { void lifecycle.cancel(operation.id); } }] : [])] });
+    }
+    for (const entry of lifecycle.catalog?.automaticUpdates ?? []) {
+      if (!entry.enabled || !entry.key || !["waitingForIdle", "paused", "unavailable"].includes(entry.state)) continue;
+      const operation = entry.operationId ? lifecycle.operations[entry.operationId] : undefined;
+      if (operation && operation.phase !== "completed") continue;
+      const target = lifecycle.catalog?.targets.find((target) => target.id === entry.targetId);
+      tasks.push({ id: `agent-auto-policy-${entry.key}`, kind: "update", title: `${agentCliLabel(cli.cliEnvironmentProbe, entry.agentKind)} · 自动更新`,
+        detail: lifecycle.automaticErrors[entry.key] || entry.message, status: entry.state === "waitingForIdle" ? "waiting" : "unconfirmed", progress: null,
+        startedAt: Date.parse(entry.lastAttemptAt ?? lifecycle.catalog!.refreshedAt), source: "automatic",
+        actions: [
+          ...(entry.operationId ? [{ label: "更新记录", run: () => navigation.openOperation("lifecycle", entry.operationId!) }] : []),
+          ...(entry.canResume ? [{ label: "恢复自动更新", disabled: Boolean(lifecycle.automaticSaving[entry.key]), run: () => { void lifecycle.setAutomatic(entry, true, target); } }] : []),
+          { label: "关闭自动更新", disabled: Boolean(lifecycle.automaticSaving[entry.key]), run: () => { void lifecycle.setAutomatic(entry, false); } },
+        ] });
     }
     for (const operation of Object.values(native.operations)) {
       if (catalog.nativeOperationIds.has(operation.id)) continue;

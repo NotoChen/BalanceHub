@@ -1,4 +1,4 @@
-//! Window-bound upgrade contracts for existing Agent CLI installations.
+//! Upgrade contracts for existing Agent CLI installations and local automation.
 
 use super::{
     AgentAssetOperationOutcome, AgentAssetOperationPhase, AgentCliKind, AgentInstallation,
@@ -82,6 +82,8 @@ pub struct AgentLifecycleVersion {
 #[serde(rename_all = "camelCase")]
 pub struct AgentLifecycleTarget {
     pub id: String,
+    /// Stable installation/channel identity, independent from a versioned executable path.
+    pub update_key: Option<String>,
     pub agent_kind: AgentCliKind,
     pub label: String,
     pub installation: AgentInstallation,
@@ -115,7 +117,9 @@ pub struct AgentLifecycleCatalogRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentLifecycleCatalog {
+    pub revision: u64,
     pub targets: Vec<AgentLifecycleTarget>,
+    pub automatic_updates: Vec<AgentAutomaticUpdate>,
     pub refreshed_at: String,
     pub next_check_at: Option<String>,
 }
@@ -136,6 +140,7 @@ pub struct AgentLifecyclePlan {
     pub agent_kind: AgentCliKind,
     pub target_id: String,
     pub installation_id: String,
+    pub update_key: Option<String>,
     pub action: AgentLifecycleActionKind,
     pub channel: AgentLifecycleChannel,
     pub channel_label: String,
@@ -188,6 +193,10 @@ pub struct AgentLifecycleOperation {
     pub agent_kind: AgentCliKind,
     pub target_id: String,
     pub installation_id: String,
+    #[serde(default)]
+    pub update_key: Option<String>,
+    #[serde(default)]
+    pub origin: AgentLifecycleOrigin,
     pub action: AgentLifecycleActionKind,
     pub channel: AgentLifecycleChannel,
     pub channel_label: String,
@@ -214,6 +223,52 @@ pub struct AgentLifecycleOperation {
     pub output_truncated: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentLifecycleOrigin {
+    #[default]
+    Manual,
+    Automatic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentAutomaticUpdateState {
+    Disabled,
+    Scheduled,
+    WaitingForIdle,
+    Updating,
+    Paused,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAutomaticUpdate {
+    pub key: Option<String>,
+    pub target_id: Option<String>,
+    pub agent_kind: AgentCliKind,
+    pub channel_label: String,
+    pub directory: Option<String>,
+    pub enabled: bool,
+    pub can_enable: bool,
+    pub can_resume: bool,
+    pub state: AgentAutomaticUpdateState,
+    pub message: String,
+    pub operation_id: Option<String>,
+    pub last_attempt_at: Option<String>,
+    pub next_check_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetAgentAutomaticUpdateRequest {
+    pub key: String,
+    pub enabled: bool,
+    pub target_id: Option<String>,
+    pub expected_evidence_revision: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentLifecycleErrorKind {
@@ -228,6 +283,7 @@ pub enum AgentLifecycleErrorKind {
     VersionCheckFailed,
     OperationNotFound,
     CapacityExceeded,
+    OperationInProgress,
     InternalFailure,
 }
 
@@ -254,6 +310,7 @@ impl AgentLifecycleError {
             VersionCheckFailed => "无法确认该安装渠道的最新版本，请稍后重试",
             OperationNotFound => "未找到当前窗口的升级任务",
             CapacityExceeded => "升级任务数量已达上限，请等待已有任务完成",
+            OperationInProgress => "该安装已有升级任务，请在任务中心查看进度",
             InternalFailure => "Agent 升级服务暂时不可用",
         };
         Self {

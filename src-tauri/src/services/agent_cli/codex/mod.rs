@@ -41,7 +41,6 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
                 session_resume: true,
                 session_name: false,
             },
-            None,
             launch::build_plan,
         )),
         sessions: Some(SessionAdapter::new(

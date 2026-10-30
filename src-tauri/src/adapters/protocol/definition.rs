@@ -7,6 +7,7 @@ use crate::models::{AuthMode, Provider, ProviderProtocol};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProtocolDetectionRole {
+    Explicit,
     Primary,
     ApiKeyFallback,
 }
@@ -170,6 +171,7 @@ impl ProviderProtocolDefinition {
 
     pub(crate) fn detection_enabled(&self, provider: &Provider) -> bool {
         match self.detection_role {
+            ProtocolDetectionRole::Explicit => provider.identity.protocol == self.kind,
             ProtocolDetectionRole::Primary => true,
             ProtocolDetectionRole::ApiKeyFallback => {
                 matches!(provider.auth.mode, AuthMode::ApiKey)

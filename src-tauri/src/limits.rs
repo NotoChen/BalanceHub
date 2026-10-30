@@ -25,8 +25,23 @@ pub const MAX_SITE_LOGO_BYTES: usize = 256 * 1024;
 pub const MAX_PROVIDER_REMARK_CHARS: usize = 160;
 pub const MAX_API_KEY_REMARK_CHARS: usize = MAX_PROVIDER_REMARK_CHARS;
 pub const MAX_LIVENESS_TIMEOUT_SECS: u64 = 600;
-pub const MAX_LIVENESS_RECORDS: usize = 40;
-pub const MAX_CHECK_IN_RECORDS: usize = 730;
+/// 设置项的可取值范围。超出范围一律夹到边界，而不是拒绝保存整份设置。
+pub const MIN_UPDATE_CHECK_INTERVAL_HOURS: u64 = 1;
+pub const MAX_UPDATE_CHECK_INTERVAL_HOURS: u64 = 168;
+pub const MAX_NOTIFY_RETRY_COUNT: u64 = 3;
+pub const MAX_NOTIFY_MERGE_WINDOW_SECS: u64 = 3_600;
+pub const MAX_REFRESH_RETRY_COUNT: u64 = 3;
+pub const MIN_LIVENESS_FAILURE_THRESHOLD: u64 = 1;
+pub const MAX_LIVENESS_FAILURE_THRESHOLD: u64 = 10;
+pub const MIN_LIVENESS_RECORD_LIMIT: u64 = 10;
+pub const MAX_LIVENESS_RECORD_LIMIT: u64 = 500;
+pub const MIN_CHECK_IN_RECORD_LIMIT: u64 = 30;
+pub const MAX_CHECK_IN_RECORD_LIMIT: u64 = 3_650;
+pub const MIN_HTTP_TIMEOUT_SECS: u64 = 5;
+pub const MAX_HTTP_TIMEOUT_SECS: u64 = 300;
+pub const MIN_LOG_RETENTION_DAYS: u64 = 1;
+pub const MAX_LOG_RETENTION_DAYS: u64 = 90;
+pub const MAX_PROXY_BYPASS_CHARS: usize = 2_048;
 pub const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 16;
 pub const MAX_SITE_METADATA_CACHE_ENTRIES: usize = 128;
 pub const MAX_SHIELD_CACHE_ENTRIES: usize = 64;
@@ -36,7 +51,10 @@ pub const MIN_SESSION_INDEX_SIZE_MIB: u64 = 8;
 pub const MAX_SESSION_INDEX_SIZE_MIB: u64 = 4_096;
 pub const MAX_ANNOUNCEMENTS_PER_SOURCE: usize = 50;
 pub const MAX_ANNOUNCEMENT_TITLE_CHARS: usize = 160;
-pub const MAX_ANNOUNCEMENT_CONTENT_CHARS: usize = 20_000;
+/// 公告正文要能放下内嵌 base64 海报：一条 data URI 图片动辄几十万字符，
+/// 20k 的上限会把 `<img src="data:…` 从中间截断，图片和后面的正文一起丢。
+pub const MAX_ANNOUNCEMENT_CONTENT_CHARS: usize = 1_000_000;
+pub const MAX_ANNOUNCEMENT_EXTRA_CHARS: usize = 2_000;
 
 pub fn normalize_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
@@ -86,12 +104,123 @@ pub fn normalize_settings(settings: &mut AppSettings) -> bool {
         pool.values.truncate(MAX_PLACEHOLDER_VALUES);
         changed |= value_count != pool.values.len();
     }
+    changed |= clamp_numeric_settings(settings);
     changed
 }
 
-pub fn normalize_provider(provider: &mut Provider) -> bool {
+/// 数值型设置统一夹取，返回值表示是否被改动。
+fn clamp_numeric_settings(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+    macro_rules! clamp {
+        ($field:ident, $min:expr, $max:expr) => {{
+            let bounded = settings.$field.clamp($min, $max);
+            if settings.$field != bounded {
+                settings.$field = bounded;
+                changed = true;
+            }
+        }};
+    }
+    clamp!(
+        update_check_interval_hours,
+        MIN_UPDATE_CHECK_INTERVAL_HOURS,
+        MAX_UPDATE_CHECK_INTERVAL_HOURS
+    );
+    clamp!(notify_retry_count, 0, MAX_NOTIFY_RETRY_COUNT);
+    clamp!(notify_merge_window_secs, 0, MAX_NOTIFY_MERGE_WINDOW_SECS);
+    clamp!(refresh_retry_count, 0, MAX_REFRESH_RETRY_COUNT);
+    clamp!(
+        liveness_failure_threshold,
+        MIN_LIVENESS_FAILURE_THRESHOLD,
+        MAX_LIVENESS_FAILURE_THRESHOLD
+    );
+    clamp!(
+        liveness_record_limit,
+        MIN_LIVENESS_RECORD_LIMIT,
+        MAX_LIVENESS_RECORD_LIMIT
+    );
+    clamp!(
+        check_in_record_limit,
+        MIN_CHECK_IN_RECORD_LIMIT,
+        MAX_CHECK_IN_RECORD_LIMIT
+    );
+    clamp!(
+        http_timeout_secs,
+        MIN_HTTP_TIMEOUT_SECS,
+        MAX_HTTP_TIMEOUT_SECS
+    );
+    clamp!(
+        log_retention_days,
+        MIN_LOG_RETENTION_DAYS,
+        MAX_LOG_RETENTION_DAYS
+    );
+    for (field, fallback) in [
+        (&mut settings.notify_quiet_start, "22:00"),
+        (&mut settings.notify_quiet_end, "08:00"),
+    ] {
+        let normalized = normalize_clock_time(field, fallback);
+        changed |= *field != normalized;
+        *field = normalized;
+    }
+    let bypass = settings
+        .proxy_bypass
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(MAX_PROXY_BYPASS_CHARS)
+        .collect::<String>();
+    changed |= settings.proxy_bypass != bypass;
+    settings.proxy_bypass = bypass;
+    changed
+}
+
+/// 静默时段只接受 `HH:MM`；无法解析时退回默认值，避免整份设置因一个时间串失效。
+fn normalize_clock_time(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    let Some((hour, minute)) = trimmed.split_once(':') else {
+        return fallback.to_string();
+    };
+    if trimmed.len() != 5 {
+        return fallback.to_string();
+    }
+    let (Ok(hour), Ok(minute)) = (hour.parse::<u32>(), minute.parse::<u32>()) else {
+        return fallback.to_string();
+    };
+    if hour > 23 || minute > 59 {
+        return fallback.to_string();
+    }
+    format!("{hour:02}:{minute:02}")
+}
+
+pub fn normalize_provider(provider: &mut Provider, settings: &AppSettings) -> bool {
     let mut changed = false;
 
+    if provider.identity.protocol == crate::models::ProviderProtocol::OAuth {
+        changed |= provider.liveness.use_global
+            || provider.liveness.enabled
+            || provider.automation.auto_shield
+            || provider.quota.known
+            || provider.quota.total_known;
+        provider.liveness.use_global = false;
+        provider.liveness.enabled = false;
+        provider.automation.auto_shield = false;
+        provider.quota.known = false;
+        provider.quota.total_known = false;
+        if let Some(oauth) = &provider.auth.oauth {
+            changed |= provider.identity.base_url != oauth.vendor.base_url();
+            provider.identity.base_url = oauth.vendor.base_url().into();
+        }
+    }
+    if provider.identity.protocol == crate::models::ProviderProtocol::CliProxyApi {
+        if let Ok(base_url) = crate::models::normalize_cpa_base_url(&provider.identity.base_url) {
+            changed |= provider.identity.base_url != base_url;
+            provider.identity.base_url = base_url;
+        }
+        changed |=
+            provider.automation.auto_shield || provider.quota.known || provider.quota.total_known;
+        provider.automation.auto_shield = false;
+        provider.quota.known = false;
+        provider.quota.total_known = false;
+    }
     let remark = normalize_provider_remark(&provider.identity.remark);
     changed |= provider.identity.remark != remark;
     provider.identity.remark = remark;
@@ -142,14 +271,17 @@ pub fn normalize_provider(provider: &mut Provider) -> bool {
         changed = true;
     }
 
-    if provider.liveness.records.len() > MAX_LIVENESS_RECORDS {
-        let keep_from = provider.liveness.records.len() - MAX_LIVENESS_RECORDS;
+    // 历史记录的保留条数由设置决定，加载时同步裁剪，避免设置调小后旧数据仍占着空间。
+    let liveness_limit = settings.liveness_record_limit as usize;
+    if provider.liveness.records.len() > liveness_limit {
+        let keep_from = provider.liveness.records.len() - liveness_limit;
         provider.liveness.records.drain(0..keep_from);
         changed = true;
     }
 
-    if provider.automation.check_in_records.len() > MAX_CHECK_IN_RECORDS {
-        let keep_from = provider.automation.check_in_records.len() - MAX_CHECK_IN_RECORDS;
+    let check_in_limit = settings.check_in_record_limit as usize;
+    if provider.automation.check_in_records.len() > check_in_limit {
+        let keep_from = provider.automation.check_in_records.len() - check_in_limit;
         provider.automation.check_in_records.drain(0..keep_from);
         changed = true;
     }
@@ -160,7 +292,7 @@ pub fn normalize_provider(provider: &mut Provider) -> bool {
 pub fn normalize_app_data(data: &mut AppData) -> bool {
     let mut changed = normalize_settings(&mut data.settings);
     for provider in &mut data.providers {
-        changed |= normalize_provider(provider);
+        changed |= normalize_provider(provider, &data.settings);
     }
     for path in data
         .workspaces
@@ -327,7 +459,7 @@ mod tests {
             .collect();
         provider.identity.site_logo = "x".repeat(MAX_SITE_LOGO_BYTES + 1);
 
-        assert!(normalize_provider(&mut provider));
+        assert!(normalize_provider(&mut provider, &AppSettings::default()));
         assert_eq!(provider.liveness.timeout, MAX_LIVENESS_TIMEOUT_SECS);
         assert_eq!(
             provider.capabilities.available_models.len(),

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconCommand } from "@arco-design/web-vue/es/icon";
-import { agentCliVisuals, hasAgentCliVisual } from "../agent-cli/visuals";
+import { brandSource } from "../agent-cli/visuals";
 
 const props = withDefaults(
   defineProps<{
@@ -17,7 +17,7 @@ const props = withDefaults(
   },
 );
 
-const source = computed(() => hasAgentCliVisual(props.kind) ? agentCliVisuals[props.kind].source : null);
+const source = computed(() => brandSource(props.kind));
 </script>
 
 <template>

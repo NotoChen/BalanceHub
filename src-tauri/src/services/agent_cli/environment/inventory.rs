@@ -74,17 +74,15 @@ pub(crate) fn display_inventory(
         lexical.as_deref(),
         canceled,
     );
-    if cfg!(debug_assertions) {
-        let (hits, reads, bytes) = snapshots.metrics();
-        eprintln!(
-            "Agent 展示扫描：Agent数={}，缓存命中={}，文件读取={}，读取字节={}，耗时={}ms",
-            registered.len(),
-            hits,
-            reads,
-            bytes,
-            started.elapsed().as_millis()
-        );
-    }
+    let (hits, reads, bytes) = snapshots.metrics();
+    log::debug!(
+        "Agent 展示扫描：Agent数={}，缓存命中={}，文件读取={}，读取字节={}，耗时={}ms",
+        registered.len(),
+        hits,
+        reads,
+        bytes,
+        started.elapsed().as_millis()
+    );
     result
 }
 

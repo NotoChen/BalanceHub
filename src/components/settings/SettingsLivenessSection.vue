@@ -94,6 +94,11 @@ const minimumRandomMaxInterval = computed(() =>
       <a-form-item label="超时（秒）">
         <a-input-number v-model="settings.livenessTimeout" :min="10" :max="600" :step="5" />
       </a-form-item>
+      <a-form-item label="连续失败提醒">
+        <a-input-number v-model="settings.livenessFailureThreshold" :min="1" :max="10" :step="1">
+          <template #suffix>次</template>
+        </a-input-number>
+      </a-form-item>
     </div>
 
     <div class="settings-liveness-prompt">

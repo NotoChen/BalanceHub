@@ -133,10 +133,22 @@ body.workspace-card-drag-active * {
 .workspace-card-header {
   display: flex;
   min-width: 0;
-  align-items: center;
+  align-items: flex-start;
   min-height: 34px;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* 头部右侧和标题首行对齐：副标题行数由卡型的数据决定（中转站两行、Key 三
+   行），居中对齐会把状态点推到副标题那一行，四类卡片看起来不在同一个位置。 */
+.workspace-card-meta {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-top: calc(
+    (var(--workspace-card-icon-box-size) - var(--workspace-card-title-size) * 1.25) / 2
+  );
 }
 
 .workspace-card-footer {
@@ -152,12 +164,25 @@ body.workspace-card-drag-active * {
   margin-top: auto;
 }
 
+/* 图标按顶对齐：四类卡片的副标题行数不同（中转站两行、Key 三行），
+   居中对齐会让图标在 Key 卡上落到最后一行，标题看起来浮在图标上方。 */
 .workspace-card-brand {
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
+}
+
+/* 图标与标题首行同心中线：图标盒和标题行高都由各自卡片的变量决定（中转站
+   32px / 15px，Agent 卡 40px / 17px），偏移量按变量算，不写死像素。 */
+.workspace-card-brand-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+  padding-top: calc(
+    (var(--workspace-card-icon-box-size) - var(--workspace-card-title-size) * 1.25) / 2
+  );
 }
 
 .workspace-card-logo {
@@ -166,19 +191,6 @@ body.workspace-card-drag-active * {
   width: var(--workspace-card-icon-box-size);
   height: var(--workspace-card-icon-box-size);
   place-items: center;
-}
-
-.workspace-card-logo-framed {
-  border-radius: var(--workspace-card-radius);
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px var(--glass-border);
-  overflow: hidden;
-}
-
-.workspace-card-brand-copy {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
 }
 
 .workspace-card-title-row {
@@ -216,6 +228,9 @@ body.workspace-card-drag-active * {
   flex: 1;
   flex-direction: column;
   gap: 13px;
+  /* 正文吃掉页脚以外的高度，页脚自然钉在卡片底部，不需要再为页脚预留一块
+     空白；内容超出时裁在正文里，不会压到页脚上。 */
+  overflow: hidden;
 }
 
 .workspace-card-quick-actions {
@@ -285,7 +300,11 @@ body.workspace-card-drag-active * {
   white-space: nowrap;
 }
 
+/* 「+N」和芯片同一套几何，只换颜色：它是计数，不是另一项内容，也不参与
+   压缩。 */
 .workspace-card-chip-more {
+  flex: 0 0 auto;
   border-color: rgba(22, 93, 255, 0.24);
   color: #165dff;
+  font-variant-numeric: tabular-nums;
 }

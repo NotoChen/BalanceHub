@@ -153,9 +153,11 @@ pub(crate) fn credential_cache(
     describe(
         native,
         AgentConfigurationFormat::Json,
-        false,
+        // Switching a card writes this file itself: a CLI that keeps its login
+        // in the keychain, or was never logged in, has no cache file yet.
+        true,
         "原生 CLI 使用的认证文件，登录或退出时也可能更新此文件",
-        "认证缓存由原生登录或退出流程维护",
+        "认证缓存由原生登录、退出或默认 CLI 切换写入",
     )
 }
 

@@ -25,11 +25,6 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
-:root.theme-dark .workspace-card-logo-framed {
-  background: rgba(39, 42, 51, 0.42);
-  box-shadow: inset 0 0 0 1px var(--glass-border);
-}
-
 :root.theme-dark .workspace-card:hover {
   border-color: transparent;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);

@@ -48,6 +48,7 @@ export interface AgentLifecycleVersion {
 
 export interface AgentLifecycleTarget {
   id: string;
+  updateKey: string | null;
   agentKind: AgentCliKind;
   label: string;
   installation: AgentInstallation;
@@ -69,7 +70,9 @@ export interface AgentLifecycleCatalogRequest {
 }
 
 export interface AgentLifecycleCatalog {
+  revision: number;
   targets: AgentLifecycleTarget[];
+  automaticUpdates: AgentAutomaticUpdate[];
   refreshedAt: string;
   nextCheckAt: string | null;
 }
@@ -86,6 +89,7 @@ export interface AgentLifecyclePlan {
   agentKind: AgentCliKind;
   targetId: string;
   installationId: string;
+  updateKey: string | null;
   action: AgentLifecycleActionKind;
   channel: AgentLifecycleChannel;
   channelLabel: string;
@@ -115,6 +119,8 @@ export interface AgentLifecycleOperation {
   agentKind: AgentCliKind;
   targetId: string;
   installationId: string;
+  updateKey: string | null;
+  origin: "manual" | "automatic";
   action: AgentLifecycleActionKind;
   channel: AgentLifecycleChannel;
   channelLabel: string;
@@ -139,6 +145,29 @@ export interface AgentLifecycleOperation {
   diagnostics: { stdout: string; stderr: string; exitCode: number | null; error: string | null; truncated: boolean } | null;
 }
 
+export interface AgentAutomaticUpdate {
+  key: string | null;
+  targetId: string | null;
+  agentKind: AgentCliKind;
+  channelLabel: string;
+  directory: string | null;
+  enabled: boolean;
+  canEnable: boolean;
+  canResume: boolean;
+  state: "disabled" | "scheduled" | "waitingForIdle" | "updating" | "paused" | "unavailable";
+  message: string;
+  operationId: string | null;
+  lastAttemptAt: string | null;
+  nextCheckAt: string | null;
+}
+
+export interface SetAgentAutomaticUpdateRequest {
+  key: string;
+  enabled: boolean;
+  targetId: string | null;
+  expectedEvidenceRevision: string | null;
+}
+
 export type AgentLifecycleErrorKind =
   | "invalidRequest"
   | "planExpired"
@@ -151,6 +180,7 @@ export type AgentLifecycleErrorKind =
   | "versionCheckFailed"
   | "operationNotFound"
   | "capacityExceeded"
+  | "operationInProgress"
   | "internalFailure";
 
 export interface AgentLifecycleError {

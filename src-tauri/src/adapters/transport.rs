@@ -72,7 +72,7 @@ fn build_client_blocking(
     provider: &Provider,
 ) -> Result<ProviderTransport, String> {
     let proxy = network::resolve_proxy(settings, provider);
-    let client = network::build_provider_client_with_proxy(proxy.clone())?;
+    let client = network::build_provider_client_with_proxy(settings, proxy.clone())?;
     let shield_context =
         shield::ShieldContext::new(provider.identity.id.clone(), proxy.fingerprint());
     Ok(ProviderTransport {
@@ -92,6 +92,11 @@ pub(crate) struct TransportResponse {
 }
 
 impl ProviderTransport {
+    /// OAuth account APIs must not replay rotating credentials or start automatic
+    /// WAF interactions. The client still shares the provider proxy resolution.
+    pub(crate) fn non_replaying_client(&self) -> &Client {
+        &self.client
+    }
     pub(crate) fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder {
         self.client.get(url)
     }

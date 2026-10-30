@@ -166,6 +166,7 @@ pub(super) fn target(
 ) -> AgentLifecycleTarget {
     AgentLifecycleTarget {
         id: format!("fixture-target-{}", kind.key()),
+        update_key: None,
         agent_kind: kind,
         label: agent_cli::definition(kind).label.to_owned(),
         actions: vec![AgentLifecycleAction {
@@ -200,6 +201,7 @@ pub(super) fn public_plan(target: &AgentLifecycleTarget, to_version: &str) -> Ag
         agent_kind: target.agent_kind,
         target_id: target.id.clone(),
         installation_id: target.installation.id.clone(),
+        update_key: target.update_key.clone(),
         action: target.actions[0].kind,
         channel: target.channel,
         channel_label: target.channel_label.clone(),

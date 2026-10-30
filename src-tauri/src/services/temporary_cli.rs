@@ -20,10 +20,7 @@ use crate::{
         cli_runtime,
     },
 };
-use shell_runtime::{
-    environment,
-    script::{format_cli_command, preview_cli_auxiliary_path},
-};
+use shell_runtime::{environment, script::format_cli_command};
 use std::path::Path;
 use terminal::activate_terminal_target;
 
@@ -64,14 +61,17 @@ pub fn preview(
     if !workdir.is_dir() {
         return Err("工作目录不存在".to_string());
     }
-    let api_key = if options.api_key_override.trim().is_empty() {
-        provider.auth.api_key.trim().to_string()
-    } else {
-        options.api_key_override.trim().to_string()
-    };
-    validate_full_api_key(&api_key)?;
-    if provider.identity.base_url.trim().is_empty() {
-        return Err("缺少中转站地址，无法启动临时 CLI".to_string());
+    let oauth = prepared::oauth_launch_credential(provider, cli_kind)?;
+    if oauth.is_none() {
+        let api_key = if options.api_key_override.trim().is_empty() {
+            provider.auth.api_key.trim().to_string()
+        } else {
+            options.api_key_override.trim().to_string()
+        };
+        validate_full_api_key(&api_key)?;
+        if provider.identity.base_url.trim().is_empty() {
+            return Err("缺少中转站地址，无法启动临时 CLI".to_string());
+        }
     }
     let resume_id = resolve_resume_id(options.session_mode, options.resume_id)?;
     let terminal = probe_terminal(settings.temporary_cli_terminal_kind);
@@ -95,18 +95,34 @@ pub fn preview(
         .ok_or_else(|| format!("{} 当前不支持临时启动", definition.label))?;
     let base_url = agent_cli::provider_base_url(cli_kind, provider);
     let proxy_environment = network::resolve_proxy(settings, provider).environment();
-    let auxiliary_file_path = preview_cli_auxiliary_path(launch_adapter.auxiliary_file_name());
-    let mut plan = launch_adapter.build_plan(TemporaryLaunchRequest {
-        configuration: TemporaryLaunchConfiguration::Provider {
+    // The preview is shown in the UI, so an OAuth credential reaches the plan
+    // with its tokens replaced. The launch path builds the same plan from the
+    // real stored credential.
+    let masked = oauth.map(|(auth, identity)| {
+        let mut auth = auth.clone();
+        auth.access_token = "***".into();
+        auth.refresh_token = "***".into();
+        let mut identity = identity.clone();
+        identity.id_token = "***".into();
+        identity.client_secret.clear();
+        (auth, identity)
+    });
+    let configuration = match &masked {
+        Some((auth, identity)) => TemporaryLaunchConfiguration::OAuth { auth, identity },
+        None => TemporaryLaunchConfiguration::Provider {
             provider_name: &provider.identity.name,
             api_key: "***",
             base_url: &base_url,
         },
+    };
+    let launch_directory = std::path::Path::new("<temporary-cli>");
+    let mut plan = launch_adapter.build_plan(TemporaryLaunchRequest {
+        configuration,
         model: &model,
         session_name: &session_name,
         resume_id: &resume_id,
         session_mode: options.session_mode,
-        auxiliary_file_path: auxiliary_file_path.as_deref(),
+        launch_directory,
     })?;
     let run = run_settings::apply(
         run_settings::RunSettingsRequest {
@@ -130,6 +146,13 @@ pub fn preview(
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect::<Vec<_>>();
+    // The settings document is the one the agent reads for the selected
+    // configuration; it is not always the first file in the plan, because an
+    // OAuth launch also writes the vendor's own credential document.
+    let settings_path = plan
+        .settings_path()
+        .map(|path| format!("<temporary-cli>/{path}"));
+    let settings_content = plan.settings_document().map(str::to_owned);
     Ok(TemporaryCliLaunchPreview {
         provider_name: provider.display_label(),
         cli_kind,
@@ -156,8 +179,8 @@ pub fn preview(
         session_name,
         resume_id,
         environment,
-        settings_path: auxiliary_file_path.map(|path| path.to_string_lossy().to_string()),
-        settings_content: plan.auxiliary_file_content,
+        settings_path,
+        settings_content,
         run_summary: run.summary,
         model_selection: run.model_selection,
     })
@@ -274,6 +297,19 @@ fn provider_account_label(provider: &Provider, api_key_label: &str) -> String {
 
     if let Some(label) = label {
         return label.chars().take(160).collect();
+    }
+
+    if let Some(oauth) = &provider.auth.oauth {
+        let label = [
+            oauth.email.trim(),
+            oauth.organization_name.trim(),
+            oauth.subject.trim(),
+        ]
+        .into_iter()
+        .find(|value| !value.is_empty());
+        if let Some(label) = label {
+            return label.chars().take(160).collect();
+        }
     }
 
     if matches!(provider.auth.mode, AuthMode::ApiKey) {

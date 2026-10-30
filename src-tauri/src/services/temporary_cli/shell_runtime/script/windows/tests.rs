@@ -5,11 +5,12 @@ use crate::{
     services::agent_cli::contracts::EnvironmentPatch,
 };
 
-fn render_fixture(workdir: &Path, script: &Path, status: &Path, auxiliary: &Path) -> String {
+fn render_fixture(workdir: &Path, script: &Path, status: &Path) -> String {
     let plan = TemporaryLaunchPlan {
         args: Vec::new(),
         environment: EnvironmentPatch::default(),
-        auxiliary_file_content: None,
+        auxiliary_files: Vec::new(),
+        isolated_home: None,
     };
     let proxy = network::resolve_global_proxy(&AppSettings {
         proxy_mode: ProxyMode::NoProxy,
@@ -22,7 +23,6 @@ fn render_fixture(workdir: &Path, script: &Path, status: &Path, auxiliary: &Path
             cli_command_name: "fixture",
             workdir,
             plan: &plan,
-            auxiliary_file_path: Some(auxiliary),
             status_path: status,
             proxy_environment: &proxy.environment(),
             prefer_shell_cli: false,
@@ -38,7 +38,6 @@ fn batch_paths_are_literal_and_local_directories_remain_selected() {
         Path::new(r"C:\项目 (demo) & 100% !"),
         Path::new("launch/fixture.cmd"),
         Path::new("status.json"),
-        Path::new("launch/auxiliary.json"),
     );
     assert!(script.starts_with(
         "@echo off\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\nchcp 65001 >nul 2>nul\r\n"
@@ -55,7 +54,6 @@ fn shared_directories_use_pushd_and_release_the_temporary_drive() {
         Path::new(r"\\server\share\project"),
         Path::new("launch/fixture.cmd"),
         Path::new("status.json"),
-        Path::new("launch/auxiliary.json"),
     );
     assert!(script.contains("pushd \"\\\\server\\share\\project\"\r\nif errorlevel 1 goto BH_WORKDIR_ERROR\r\nset \"BH_PUSHED=1\""));
     assert!(script.contains("if defined BH_PUSHED popd\r\n"));
@@ -67,7 +65,6 @@ fn cleanup_releases_the_batch_context_after_status_is_written() {
         Path::new("workdir"),
         Path::new("launch/fixture.cmd"),
         Path::new("status.json"),
-        Path::new("launch/auxiliary.json"),
     );
     let finish = script.split(":BH_FINISH\r\n").nth(1).unwrap();
     let cleanup = finish.split("\r\n(goto) 2>nul & ").nth(1).unwrap();
@@ -86,7 +83,6 @@ fn canonical_workdir_is_not_embedded_as_a_verbatim_path() {
         Path::new(r"\\?\C:\Users\demo"),
         Path::new(r"\\?\C:\Temp\launch\fixture.cmd"),
         Path::new(r"\\?\C:\Temp\status.json"),
-        Path::new(r"\\?\C:\Temp\launch\auxiliary.json"),
     );
     assert!(!script.contains(r"\\?\"));
     assert!(script.contains(r#"cd /d "C:\Users\demo""#));
@@ -146,7 +142,8 @@ fn run_windows_fixture(cli_exit_code: i32, create_workdir: bool) {
     let plan = TemporaryLaunchPlan {
         args: Vec::new(),
         environment: EnvironmentPatch::default(),
-        auxiliary_file_content: None,
+        auxiliary_files: Vec::new(),
+        isolated_home: None,
     };
     let proxy = network::resolve_global_proxy(&AppSettings {
         proxy_mode: ProxyMode::NoProxy,
@@ -167,7 +164,7 @@ fn run_windows_fixture(cli_exit_code: i32, create_workdir: bool) {
     .unwrap();
     fs::write(
         &script,
-        render_fixture(&canonical_workdir, &script, &status, &auxiliary),
+        render_fixture(&canonical_workdir, &script, &status),
     )
     .unwrap();
 

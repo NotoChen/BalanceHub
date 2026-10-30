@@ -40,7 +40,7 @@ test("CLI default configuration remains editable for the currently bound API Key
   assert.doesNotMatch(picker, /:disabled="isCurrentAgentKey\(option\)"/);
   assert.match(
     runtime,
-    /cliConfigKeyPickerVisible\.value = false;\s*await previewProviderCliConfig\(provider, cliKind, option\);/s,
+    /cliConfigKeyPickerVisible\.value = false;\s*await previewProviderCliConfig\(provider, cliKind, option\.localId\.trim\(\)\);/s,
   );
   assert.match(runtime, /cliConfigRequestRevision \+= 1;/);
   assert.doesNotMatch(runtime, /已在使用这把 API Key/);

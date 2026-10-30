@@ -26,6 +26,7 @@ import {
   availableTerminalOptions,
   canNameSessionAtLaunch,
 } from "../utils/cli-environment";
+import { oauthAgentCliKind } from "../utils/oauth-cli";
 import { useWorkspaceApiKeySelection } from "./useWorkspaceApiKeySelection";
 import { useWorkspaceDirectoryBrowser } from "./useWorkspaceDirectoryBrowser";
 import { useWorkspaceLaunchFlow } from "./useWorkspaceLaunchFlow";
@@ -66,9 +67,17 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   const workspaceTerminalKind = ref<TemporaryCliTerminalKind>(
     options.terminalKind.value,
   );
-  const workspaceCliOptions = computed(() =>
-    availableCliOptions(options.cliEnvironmentProbe.value, "temporaryLaunch"),
-  );
+  const workspaceCliOptions = computed(() => {
+    const available = availableCliOptions(
+      options.cliEnvironmentProbe.value,
+      "temporaryLaunch",
+    );
+    const provider = workspacePickerProvider.value;
+    const vendor = provider?.identity.protocol === "oauth" ? provider.auth.oauth?.vendor : undefined;
+    return vendor
+      ? available.filter((option) => option.value === oauthAgentCliKind(vendor))
+      : available;
+  });
   const workspaceTerminalOptions = computed(() =>
     availableTerminalOptions(options.terminalEnvironmentProbe.value),
   );
@@ -204,7 +213,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
         })
         .catch(() => undefined);
     }
-    void apiKeySelection.loadWorkspaceApiKeys(provider);
+    // An OAuth card launches with its own vendor credential, not an API key.
+    if (provider.identity.protocol !== "oauth") {
+      void apiKeySelection.loadWorkspaceApiKeys(provider);
+    }
 
     const initialPath =
       preference?.workspacePath || options.workspaces.value[0]?.path;

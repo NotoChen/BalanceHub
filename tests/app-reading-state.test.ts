@@ -8,7 +8,7 @@ import { useCheckInRecords } from "../src/composables/useCheckInRecords.ts";
 import { useProviderConnectionTest } from "../src/composables/useProviderConnectionTest.ts";
 import { useUsageTrendChart } from "../src/composables/useUsageTrendChart.ts";
 import { emptyDraft } from "../src/utils/provider-input.ts";
-import type { Provider, ProviderRequestLogsResult, ProviderUsageSummary, ProviderCheckInRecordsResult, ProviderConnectionTestResult } from "../src/stores/provider-types.ts";
+import type { Provider, ProviderRequestLogsResult, ProviderUsageSummary, ProviderUsageOverview, ProviderCheckInRecordsResult, ProviderConnectionTestResult } from "../src/stores/provider-types.ts";
 
 function scoped<T>(t: TestContext, create: () => T) {
   const scope = effectScope();
@@ -25,7 +25,7 @@ async function settle() { for (let index = 0; index < 12; index++) await Promise
 const provider = (id: string) => ({ identity: { id } }) as Provider;
 const quotaDisplay = { quotaDisplayType: "currency", currencySymbol: "$" };
 const logs = (id: string, page = 0): ProviderRequestLogsResult => ({ providerId: id, providerName: id, page, pageSize: 20, total: 1, quotaDisplay, stats: { quota: 0, rpm: 0, tpm: 0 }, logs: [], message: "" });
-const usage = (id: string, used = 0.005): ProviderUsageSummary => ({ providerId: id, providerName: id, quotaDisplay, points: [{ date: "2026-09-26", used, requestCount: 1, tokenUsed: 2 }], modelStats: [], modelPoints: [] });
+const usage = (id: string, used = 0.005): ProviderUsageSummary => ({ providerId: id, providerName: id, quotaDisplay, points: [{ date: "2026-09-26", used, requestCount: 1, tokenUsed: 2 }], modelStats: [], modelPoints: [], modelHealth: [], requestCount: 1 });
 const record = (month: string): ProviderCheckInRecordsResult => ({ providerId: "a", month, records: [], quotaDisplay, message: "" });
 
 test("closing a view releases its busy state before the IPC settles and old work cannot finish a new request", async (t) => {
@@ -91,7 +91,10 @@ test("request log pages and errors stay with their provider and requested page",
 test("changing usage periods cannot label a late 24-hour response as seven-day data", async (t) => {
   const old = deferred<ProviderUsageSummary>();
   const fresh = deferred<ProviderUsageSummary>();
-  const panel = scoped(t, () => useUsageSummary({ loadUsage: (_id, period) => period === "24h" ? old.promise : fresh.promise }));
+  const panel = scoped(t, () => useUsageSummary({
+    loadUsage: (_id, period) => period === "24h" ? old.promise : fresh.promise,
+    loadOverview: async () => assert.fail("卡片入口不应读取全部站点汇总"),
+  }));
   panel.openUsage(provider("a"));
   panel.usagePeriod.value = "7d";
   fresh.resolve(usage("a", 7));
@@ -99,6 +102,32 @@ test("changing usage periods cannot label a late 24-hour response as seven-day d
   old.resolve(usage("a", 24));
   await settle();
   assert.equal(panel.usageSummary.value?.points[0].used, 7);
+  assert.equal(panel.usageLoading.value, false);
+});
+
+test("the toolbar overview reads every site once and a late card read cannot replace it", async (t) => {
+  const overview = deferred<ProviderUsageOverview>();
+  const cardRead = deferred<ProviderUsageSummary>();
+  const periods: string[] = [];
+  const panel = scoped(t, () => useUsageSummary({
+    loadUsage: () => cardRead.promise,
+    loadOverview: (period) => { periods.push(period); return overview.promise; },
+  }));
+  panel.openUsageSummary();
+  await settle();
+  assert.equal(panel.usageProvider.value, null, "汇总视图不绑定单个中转站");
+  assert.equal(panel.usageVisible.value, true);
+  assert.ok(periods.length >= 1 && periods.every((period) => period === "24h"), `读取了 ${JSON.stringify(periods)}`);
+  overview.resolve({ requestCount: 12, modelStats: [], modelHealth: [], errors: [{ providerId: "a", providerName: "A", message: "离线" }] });
+  await settle();
+  assert.equal(panel.usageOverview.value?.requestCount, 12);
+  // 打开另一张卡片的用量：汇总结果和卡片结果不能互相顶替。
+  panel.openUsage(provider("a"));
+  assert.equal(panel.usageOverview.value, null);
+  cardRead.resolve(usage("a", 3));
+  await settle();
+  assert.equal(panel.usageSummary.value?.points[0].used, 3);
+  assert.equal(panel.usageOverview.value, null);
   assert.equal(panel.usageLoading.value, false);
 });
 
@@ -151,4 +180,37 @@ test("small usage amounts retain chart contrast and zero-only data does not inve
   const empty = useUsageTrendChart({ summary: usage("a", 0), period: "24h" });
   assert.equal(empty.usagePeakPoint.value, null);
   assert.ok(Number.isFinite(empty.usageChartPoints.value[0].y));
+});
+
+test("response quality lists the least reliable routes first and drops unsampled models", () => {
+  const summary = usage("a");
+  summary.modelHealth = [
+    { modelName: "steady", successRate: 99.8, avgLatencyMs: 900, avgTps: 42 },
+    { modelName: "flaky", successRate: 88.5, avgLatencyMs: 2100, avgTps: 12 },
+    { modelName: "unsampled", successRate: null, avgLatencyMs: null, avgTps: null },
+    { modelName: "no-tps", successRate: 97, avgLatencyMs: null, avgTps: null },
+  ];
+  summary.modelStats = [{ modelName: "flaky", used: 1, requestCount: 7, tokenUsed: 90 }];
+  const chart = useUsageTrendChart({ summary, period: "24h" });
+  assert.deepEqual(
+    chart.usageModelHealth.value.map((item) => item.modelName),
+    ["flaky", "no-tps", "steady"],
+  );
+  // 请求次数按模型名从用量统计里对齐，用来提示采样覆盖面。
+  assert.equal(chart.usageModelHealth.value[0].requestCount, 7);
+  assert.equal(chart.usageModelHealth.value[1].requestCount, 0);
+});
+
+test("the granularity note follows the buckets the site actually returned", () => {
+  const hourly = usage("a");
+  hourly.points = [
+    { date: "10-23 08:00", used: 1, requestCount: 1, tokenUsed: 1 },
+    { date: "10-23 09:00", used: 2, requestCount: 1, tokenUsed: 1 },
+  ];
+  assert.equal(useUsageTrendChart({ summary: hourly, period: "24h" }).usagePeriodGranularity.value, "按小时汇总");
+  const daily = usage("a");
+  daily.points = [{ date: "10-23", used: 1, requestCount: 1, tokenUsed: 1 }];
+  // NewAPI 的 24 小时视图只有日桶，不能标成小时数据。
+  assert.equal(useUsageTrendChart({ summary: daily, period: "24h" }).usagePeriodGranularity.value, "按天汇总");
+  assert.equal(useUsageTrendChart({ summary: hourly, period: "7d" }).usagePeriodGranularity.value, "按天汇总");
 });

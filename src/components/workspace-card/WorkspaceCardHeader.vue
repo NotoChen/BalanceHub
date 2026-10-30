@@ -2,15 +2,14 @@
 withDefaults(defineProps<{
   title: string;
   headingTag?: "h2" | "h3";
-  framedIcon?: boolean;
-}>(), { headingTag: "h3", framedIcon: true });
+}>(), { headingTag: "h3" });
 </script>
 
 <template>
   <header class="workspace-card-header">
     <slot>
       <div class="workspace-card-brand">
-        <div class="workspace-card-logo" :class="{ 'workspace-card-logo-framed': framedIcon }">
+        <div class="workspace-card-logo">
           <slot name="icon" />
         </div>
         <div class="workspace-card-brand-copy">
@@ -22,6 +21,8 @@ withDefaults(defineProps<{
         </div>
       </div>
     </slot>
-    <slot name="meta" />
+    <div v-if="$slots.meta" class="workspace-card-meta">
+      <slot name="meta" />
+    </div>
   </header>
 </template>

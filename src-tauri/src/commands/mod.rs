@@ -15,7 +15,9 @@ pub(crate) mod cli;
 pub(crate) mod cloud_sync;
 pub(crate) mod login_accounts;
 pub(crate) mod model_catalog;
+pub(crate) mod oauth_accounts;
 pub(crate) mod provider;
+pub(crate) mod provider_app_import;
 pub(crate) mod provider_browser_login;
 pub(crate) mod temporary_cli_settings;
 

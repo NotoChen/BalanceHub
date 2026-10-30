@@ -142,7 +142,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         api_keys: Some("GET /api/token/"),
         invitation: Some("GET /api/user/aff"),
         models: "账号模型列表 / API Key 模型列表",
-        announcements: Some("GET /api/notice"),
+        announcements: Some("GET /api/notice + GET /api/status"),
     },
     credential_assistant: ProviderCredentialAssistantDefinition {
         enabled: true,

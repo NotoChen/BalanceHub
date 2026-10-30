@@ -44,12 +44,19 @@ function label(source: AgentConfigurationSource) {
           v-if="model.edit"
           :kind="model.edit.agentKind"
           :size="20"
-        /><strong>{{ model.planVisible ? "确认保存" : model.title }}</strong>
+        /><strong>{{
+          model.applying
+            ? "保存进度"
+            : model.planVisible
+              ? "确认保存"
+              : model.title
+        }}</strong>
       </div></template
     >
     <nav
       v-if="
         !model.planVisible &&
+        !model.applying &&
         model.edit?.documents.some((document) => document.visualSettings) &&
         choices.length > 1
       "

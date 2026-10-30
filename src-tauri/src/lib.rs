@@ -4,6 +4,8 @@ mod app_events;
 mod commands;
 mod contracts;
 mod desktop;
+#[cfg(debug_assertions)]
+mod dev_sample;
 mod limits;
 mod models;
 mod network;

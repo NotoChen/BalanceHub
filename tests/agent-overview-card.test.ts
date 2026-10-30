@@ -391,3 +391,18 @@ test("long native version text remains available from the compact version entry"
   click(entry);
   assert.deepEqual(card.events, ["installation"]);
 });
+
+test("the card names the last observed activity and stays quiet without evidence", async (t) => {
+  const card = mountCard(t, { lastActivityAt: Date.now() - 90 * 60_000 });
+  assert.match(card.text(), /最近活动 1 小时前/);
+  const active = card.button(/^查看 Codex CLI 的 活跃会话，.*最近活动 1 小时前/);
+  assert.match(String(active.props.title), /最近活动 1 小时前/);
+  await card.update({ lastActivityAt: null });
+  assert.doesNotMatch(card.text(), /最近活动/);
+  const clean = card.button(/^查看 Codex CLI 的 活跃会话，/);
+  assert.doesNotMatch(String(clean.props.title), /最近活动/);
+  // 一天以前的活动不再写在卡片上：和同步时间同一条规则，过期的「3 天前」
+  // 只占位置，不促成任何操作。
+  await card.update({ lastActivityAt: Date.now() - 3 * 24 * 60 * 60_000 });
+  assert.doesNotMatch(card.text(), /最近活动|天前/);
+});

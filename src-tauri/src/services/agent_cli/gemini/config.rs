@@ -1,10 +1,11 @@
 use super::super::config_support::{
-    cli_target_for_key, config_error, env_value, latest_modified_at, match_provider_key,
-    read_stable_optional, rewrite_env_values,
+    cli_config_target, config_error, env_value, latest_modified_at, match_native_oauth,
+    match_provider_key, oauth_snapshot, read_stable_optional, relay_snapshot,
+    rewrite_env_values, CliConfigTarget,
 };
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use crate::{
-    models::{AgentCliKind, CliConfigSnapshot, Provider},
+    models::{AgentCliKind, CliConfigSnapshot, OAuthVendor, Provider},
     services::cli_paths::{configured_path, user_home},
 };
 use serde_json::Value as JsonValue;
@@ -108,6 +109,7 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
     };
     let settings_path = config_dir.join("settings.json");
     let env_path = config_dir.join(".env");
+    let credentials_path = config_dir.join("oauth_creds.json");
     let settings = match read_stable_optional(&settings_path) {
         Ok(value) => value,
         Err(_) => return config_error(cli_kind, "读取 Gemini CLI 配置文件失败"),
@@ -116,38 +118,36 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
         Ok(value) => value,
         Err(_) => return config_error(cli_kind, "读取 Gemini CLI 环境配置失败"),
     };
-    let modified_at = latest_modified_at([settings.as_ref(), env.as_ref()]);
+    // The native login cache is only evidence for the personal-login case; an
+    // unreadable cache must not hide a working relay configuration.
+    let credentials = read_stable_optional(&credentials_path).ok().flatten();
+    let modified_at =
+        latest_modified_at([settings.as_ref(), env.as_ref(), credentials.as_ref()]);
+    let native_oauth = credentials
+        .as_ref()
+        .and_then(|file| match_native_oauth(providers, OAuthVendor::Gemini, &file.text));
     let Some(settings) = settings else {
-        return CliConfigSnapshot {
-            cli_kind,
-            configured: false,
-            provider_id: None,
-            api_key_local_id: None,
-            modified_at,
-            error_message: None,
-        };
+        return oauth_snapshot(cli_kind, None, modified_at);
     };
     let env = env.as_ref().map(|file| file.text.as_str()).unwrap_or("");
     match parse_gemini_config(&settings.text, env) {
         Ok(Some((base_url, api_key))) => {
             let matched = match_provider_key(providers, cli_kind, &base_url, &api_key);
-            CliConfigSnapshot {
-                cli_kind,
-                configured: true,
-                provider_id: matched.as_ref().map(|value| value.provider_id.clone()),
-                api_key_local_id: matched.map(|value| value.api_key_local_id),
-                modified_at,
-                error_message: None,
-            }
+            relay_snapshot(cli_kind, matched, modified_at)
         }
-        Ok(None) => CliConfigSnapshot {
+        // The personal login only counts when it is the selected auth type; a
+        // leftover cache file must not look active.
+        Ok(None) => oauth_snapshot(
             cli_kind,
-            configured: false,
-            provider_id: None,
-            api_key_local_id: None,
+            if gemini_selected_type(&settings.text).ok().flatten().as_deref()
+                == Some("oauth-personal")
+            {
+                native_oauth
+            } else {
+                None
+            },
             modified_at,
-            error_message: None,
-        },
+        ),
         Err(()) => CliConfigSnapshot {
             modified_at,
             ..config_error(cli_kind, "Gemini CLI 配置文件格式无效")
@@ -160,48 +160,93 @@ pub(super) fn candidates(
     provider: &Provider,
     api_key_local_id: &str,
 ) -> Result<Vec<ProviderConfigurationCandidate>, String> {
-    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
     let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
     let settings_path = root.join("settings.json");
     let env_path = root.join(".env");
-    let settings = read_stable_optional(&settings_path)?.map(|value| value.text);
-    let env = read_stable_optional(&env_path)?.map(|value| value.text);
-    let settings_source = settings
-        .as_deref()
-        .filter(|text| !text.trim().is_empty())
-        .unwrap_or("{}\n");
-    let next_settings = rewrite_gemini_settings(settings_source)?;
-    let next_env = rewrite_gemini_env(
-        env.as_deref().unwrap_or(""),
-        &target.base_url,
-        &target.api_key,
-    )?;
-    Ok(vec![
-        ProviderConfigurationCandidate {
-            path: settings_path,
-            before: settings,
-            after: next_settings,
-        },
-        ProviderConfigurationCandidate {
-            path: env_path,
-            before: env,
-            after: next_env,
-        },
-    ])
+    match cli_config_target(provider, cli_kind, api_key_local_id)? {
+        CliConfigTarget::ApiKey {
+            base_url, api_key, ..
+        } => {
+            let settings = read_stable_optional(&settings_path)?.map(|value| value.text);
+            let env = read_stable_optional(&env_path)?.map(|value| value.text);
+            let settings_source = settings
+                .as_deref()
+                .filter(|text| !text.trim().is_empty())
+                .unwrap_or("{}\n");
+            let next_settings = rewrite_gemini_settings(settings_source, "gemini-api-key")?;
+            let next_env = rewrite_gemini_env(env.as_deref().unwrap_or(""), &base_url, &api_key)?;
+            Ok(vec![
+                ProviderConfigurationCandidate {
+                    path: settings_path,
+                    before: settings,
+                    after: next_settings,
+                },
+                ProviderConfigurationCandidate {
+                    path: env_path,
+                    before: env,
+                    after: next_env,
+                },
+            ])
+        }
+        CliConfigTarget::OAuth { auth, identity } => {
+            let credentials_path = root.join("oauth_creds.json");
+            let credentials = read_stable_optional(&credentials_path)?.map(|value| value.text);
+            let settings = read_stable_optional(&settings_path)?.map(|value| value.text);
+            let env = read_stable_optional(&env_path)?.map(|value| value.text);
+            let settings_source = settings
+                .as_deref()
+                .filter(|text| !text.trim().is_empty())
+                .unwrap_or("{}\n");
+            let mut candidates = Vec::new();
+            let next_settings = rewrite_gemini_settings(settings_source, "oauth-personal")?;
+            if settings.as_deref() != Some(next_settings.as_str()) {
+                candidates.push(ProviderConfigurationCandidate {
+                    path: settings_path,
+                    before: settings,
+                    after: next_settings,
+                });
+            }
+            // The official personal login uses Google's own endpoint, so relay
+            // overrides in `.env` have to go with the key.
+            if let Some(env) = env.as_deref() {
+                let next_env = crate::services::agent_cli::config_support::remove_env_keys(
+                    env,
+                    &["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL"],
+                );
+                if next_env != env {
+                    candidates.push(ProviderConfigurationCandidate {
+                        path: env_path.clone(),
+                        before: Some(env.to_string()),
+                        after: next_env,
+                    });
+                }
+            }
+            candidates.push(ProviderConfigurationCandidate {
+                path: credentials_path,
+                before: credentials,
+                after: gemini_oauth_document(auth, identity)?,
+            });
+            Ok(candidates)
+        }
+    }
+}
+
+fn gemini_oauth_document(
+    auth: &crate::models::ProviderAuth,
+    identity: &crate::models::OAuthCredential,
+) -> Result<String, String> {
+    let document = crate::services::oauth_accounts::native::document(
+        identity.vendor,
+        auth,
+        identity,
+        true,
+    );
+    serde_json::to_string_pretty(&document)
+        .map_err(|err| format!("生成 Gemini 授权缓存失败: {err}"))
 }
 
 fn parse_gemini_config(settings: &str, env: &str) -> Result<Option<(String, String)>, ()> {
-    let settings = crate::services::agent_cli::config_support::parse_jsonc_document(settings)
-        .map_err(|_| ())?;
-    if !settings.is_object() {
-        return Err(());
-    }
-    let selected_type = settings
-        .get("security")
-        .and_then(|security| security.get("auth"))
-        .and_then(|auth| auth.get("selectedType"))
-        .and_then(JsonValue::as_str);
-    if selected_type != Some("gemini-api-key") {
+    if gemini_selected_type(settings)?.as_deref() != Some("gemini-api-key") {
         return Ok(None);
     }
     let base_url = env_value(env, "GOOGLE_GEMINI_BASE_URL");
@@ -212,7 +257,21 @@ fn parse_gemini_config(settings: &str, env: &str) -> Result<Option<(String, Stri
     })
 }
 
-fn rewrite_gemini_settings(settings: &str) -> Result<String, String> {
+fn gemini_selected_type(settings: &str) -> Result<Option<String>, ()> {
+    let settings = crate::services::agent_cli::config_support::parse_jsonc_document(settings)
+        .map_err(|_| ())?;
+    if !settings.is_object() {
+        return Err(());
+    }
+    Ok(settings
+        .get("security")
+        .and_then(|security| security.get("auth"))
+        .and_then(|auth| auth.get("selectedType"))
+        .and_then(JsonValue::as_str)
+        .map(str::to_string))
+}
+
+fn rewrite_gemini_settings(settings: &str, auth_type: &str) -> Result<String, String> {
     let mut value = crate::services::agent_cli::config_support::parse_jsonc_document(settings)?;
     let invalid = || "Gemini security.auth 必须是对象".to_owned();
     let root = value.as_object_mut().ok_or_else(invalid)?;
@@ -228,7 +287,7 @@ fn rewrite_gemini_settings(settings: &str) -> Result<String, String> {
         .ok_or_else(invalid)?;
     auth.insert(
         "selectedType".to_owned(),
-        JsonValue::String("gemini-api-key".to_owned()),
+        JsonValue::String(auth_type.to_owned()),
     );
     crate::services::agent_cli::config_support::rewrite_json_document(settings, &value, true)
         .map_err(|_| "生成 Gemini CLI 配置失败".to_owned())
@@ -286,7 +345,7 @@ mod tests {
   }
 }"#;
 
-        let rewritten = rewrite_gemini_settings(settings).unwrap();
+        let rewritten = rewrite_gemini_settings(settings, "gemini-api-key").unwrap();
 
         assert_eq!(
             rewritten,
@@ -304,7 +363,7 @@ mod tests {
 
     #[test]
     fn settings_rewrite_adds_nested_auth_without_reformatting_root() {
-        let rewritten = rewrite_gemini_settings(r#"{"theme":"dark"}"#).unwrap();
+        let rewritten = rewrite_gemini_settings(r#"{"theme":"dark"}"#, "gemini-api-key").unwrap();
 
         assert_eq!(
             rewritten,
@@ -314,7 +373,7 @@ mod tests {
 
     #[test]
     fn settings_rewrite_uses_existing_multiline_indentation() {
-        let rewritten = rewrite_gemini_settings("{\r\n    \"theme\": \"dark\"\r\n}").unwrap();
+        let rewritten = rewrite_gemini_settings("{\r\n    \"theme\": \"dark\"\r\n}", "gemini-api-key").unwrap();
 
         assert_eq!(
             rewritten,

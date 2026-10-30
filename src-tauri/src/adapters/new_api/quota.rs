@@ -1,7 +1,11 @@
-use crate::models::{AuthMode, Provider, ProviderQuotaDisplay, ProviderQuotaScope, ProviderStatus};
+use crate::models::{
+    AuthMode, Provider, ProviderQuotaDisplay, ProviderQuotaScope, ProviderQuotaWindow,
+    ProviderStatus,
+};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use serde::Deserialize;
 use serde_json::Value;
+use std::time::Duration;
 
 use super::http::{
     access_token_fallback_provider, apply_auth_headers, apply_session_cookie,
@@ -18,6 +22,8 @@ use super::site::{
 
 #[path = "quota/connection.rs"]
 mod connection;
+#[path = "quota/subscription.rs"]
+mod subscription;
 
 pub use connection::test_connection;
 
@@ -119,15 +125,27 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
             {
                 next.auth.login_username = profile.login_username;
             }
+            // 订阅窗口是账号维度的额度来源；API Key 认证没有账号身份，读不到也
+            // 不该伪造，因此只在账号认证下探测。旧站点没有该接口时留空。
+            next.quota.windows = if matches!(provider.auth.mode, AuthMode::ApiKey) {
+                Vec::new()
+            } else {
+                fetch_subscription_windows(client, &effective_provider, &profile.site).await
+            };
             apply_site_metadata(&mut next, profile.site);
             if matches!(provider.auth.mode, AuthMode::Password) {
                 next.auth.session_cookie = effective_provider.auth.session_cookie;
                 next.auth.api_user = effective_provider.auth.api_user;
             }
-            next.runtime.status = if !next.quota.unlimited && next.quota.available <= 20.0 {
-                ProviderStatus::Warning
-            } else {
-                ProviderStatus::Ok
+            // 订阅窗口才是这类账号的额度来源：有窗口上限时按窗口判断是否即将用尽，
+            // 钱包余额只作为溢出账户，不再单独触发低余额提醒。
+            next.runtime.status = match next.quota.windows_exhausted() {
+                Some(true) => ProviderStatus::Warning,
+                Some(false) => ProviderStatus::Ok,
+                None if !next.quota.unlimited && next.quota.available <= 20.0 => {
+                    ProviderStatus::Warning
+                }
+                None => ProviderStatus::Ok,
             };
             next.automation.last_synced_at = Some(crate::util::unix_secs().to_string());
             next.runtime.error_message = None;
@@ -283,6 +301,46 @@ async fn fetch_token_quota(
         user_id: String::new(),
         login_username: String::new(),
     })
+}
+
+/// 订阅接口是 NewAPI 后来才有的能力，旧站点会 404 或返回空列表。订阅窗口
+/// 只补充信息，失败时保持钱包余额可用，因此这里把每个错误都收口成空列表。
+async fn fetch_subscription_windows(
+    client: &ProviderTransport,
+    provider: &Provider,
+    site: &SiteMetadata,
+) -> Vec<ProviderQuotaWindow> {
+    let Ok(url) = build_url(
+        &normalize_base_url(&provider.identity.base_url),
+        "/api/subscription/self",
+    ) else {
+        return Vec::new();
+    };
+    let mut request = client
+        .get(url)
+        .timeout(Duration::from_secs(8))
+        .header(USER_AGENT, USER_AGENT_VALUE)
+        .header(CONTENT_TYPE, "application/json")
+        .header(ACCEPT, "application/json, text/plain, */*")
+        .header(ORIGIN, provider.identity.base_url.trim())
+        .header(REFERER, format!("{}/", provider.identity.base_url.trim()));
+    request = apply_auth_headers(request, provider);
+    request = apply_session_cookie(request, provider);
+
+    let Ok(response) = client.send(request, "请求订阅额度").await else {
+        return Vec::new();
+    };
+    if !response.status.is_success() {
+        return Vec::new();
+    }
+    let Ok(decoded) = serde_json::from_str::<Value>(&response.body) else {
+        return Vec::new();
+    };
+    if decoded.get("success").and_then(Value::as_bool) != Some(true) {
+        return Vec::new();
+    }
+    let data = decoded.get("data").cloned().unwrap_or(decoded);
+    subscription::subscription_windows(&data, site)
 }
 
 fn preferred_login_username(username: Option<&str>, email: Option<&str>) -> String {

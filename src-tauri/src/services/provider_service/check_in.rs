@@ -1,7 +1,6 @@
 use crate::services::check_in_tasks::{CheckInContext, HTTP_SLOTS};
 use crate::{
     adapters::protocol::ProtocolAdapter,
-    limits,
     models::{
         check_in_message_indicates_disabled, provider_domain, AppSettings, CheckInError,
         CheckInPhase, Provider, ProviderCheckInRecord, ProviderCheckInRecordsResult,
@@ -246,7 +245,11 @@ impl<'a> ProviderService<'a> {
                         stored_provider.automation.last_checked_in_at =
                             Some(checked_in_at_for_mutation);
                         stored_provider.automation.last_check_in_user = check_in_user_for_mutation;
-                        upsert_local_check_in_record(stored_provider, stored_record);
+                        upsert_local_check_in_record(
+                            stored_provider,
+                            stored_record,
+                            data.settings.check_in_record_limit as usize,
+                        );
                         if stored_provider
                             .runtime
                             .error_message
@@ -358,7 +361,11 @@ fn local_check_in_record(
     }
 }
 
-fn upsert_local_check_in_record(provider: &mut Provider, record: ProviderCheckInRecord) {
+fn upsert_local_check_in_record(
+    provider: &mut Provider,
+    record: ProviderCheckInRecord,
+    record_limit: usize,
+) {
     let previous_quota_delta = provider
         .automation
         .check_in_records
@@ -380,9 +387,8 @@ fn upsert_local_check_in_record(provider: &mut Provider, record: ProviderCheckIn
         .check_in_records
         .sort_by(|left, right| left.date.cmp(&right.date));
 
-    if provider.automation.check_in_records.len() > limits::MAX_CHECK_IN_RECORDS {
-        let remove_count =
-            provider.automation.check_in_records.len() - limits::MAX_CHECK_IN_RECORDS;
+    if provider.automation.check_in_records.len() > record_limit {
+        let remove_count = provider.automation.check_in_records.len() - record_limit;
         provider.automation.check_in_records.drain(0..remove_count);
     }
 }
@@ -455,11 +461,11 @@ mod tests {
         let mut provider = provider_with_available(10.0);
         let mut first = local_check_in_record("1782460800000", "签到成功", Some(5.0));
         first.date = "2026-06-26".to_string();
-        upsert_local_check_in_record(&mut provider, first);
+        upsert_local_check_in_record(&mut provider, first, 730);
 
         let mut repeated = local_check_in_record("1782460900000", "今日已签到", None);
         repeated.date = "2026-06-26".to_string();
-        upsert_local_check_in_record(&mut provider, repeated);
+        upsert_local_check_in_record(&mut provider, repeated, 730);
 
         assert_eq!(provider.automation.check_in_records.len(), 1);
         assert_eq!(

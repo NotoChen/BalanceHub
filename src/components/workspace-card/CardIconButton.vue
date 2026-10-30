@@ -2,7 +2,7 @@
 defineProps<{
   tone?: "copy" | "data" | "site" | "configuration" | "integration" | "launch"
     | "success" | "edit" | "warning" | "danger" | "link" | "refresh"
-    | "models" | "key" | "automation";
+    | "models" | "key" | "automation" | "more";
 }>();
 </script>
 

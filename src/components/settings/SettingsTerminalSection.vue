@@ -10,6 +10,7 @@ import { useCliRuntimeStore } from "../../stores/cli-runtime";
 import { useSettingsStore } from "../../stores/settings";
 import { useLatestRequest } from "../../composables/useLatestRequest";
 import { withTimeout } from "../../utils/promise-timeout";
+import { formatFileSize } from "../../utils/file-size";
 import type { AppSettings, CliSessionIndexStatus } from "../../stores/providers";
 
 const props = defineProps<{
@@ -31,7 +32,7 @@ const sessionIndexUsageLabel = computed(() => {
   if (sessionIndexError.value) return "读取失败";
   const status = sessionIndexStatus.value;
   if (!status) return sessionIndexStatusLoading.value ? "读取中…" : "未读取";
-  return `${formatBytes(status.sizeBytes)} / ${status.maxSizeMiB} MiB`;
+  return `${formatFileSize(status.sizeBytes)} / ${status.maxSizeMiB} MiB`;
 });
 const sessionIndexPending = computed(() =>
   props.settings.sessionIndexDirectory !== savedSettings.settings.sessionIndexDirectory
@@ -103,13 +104,6 @@ async function clearSessionIndex() {
   } finally {
     clearingSessionIndex.value = false;
   }
-}
-
-function formatBytes(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "0 B";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MiB`;
 }
 
 onMounted(async () => {
@@ -200,7 +194,7 @@ onUnmounted(() => {
           </a-form-item>
           <div class="settings-session-index-actions">
             <span v-if="sessionIndexStatus">
-              {{ sessionIndexStatus.agents.reduce((sum, item) => sum + item.sessionCount, 0) }} 个会话 · {{ formatBytes(sessionIndexStatus.sizeBytes) }}
+              {{ sessionIndexStatus.agents.reduce((sum, item) => sum + item.sessionCount, 0) }} 个会话 · {{ formatFileSize(sessionIndexStatus.sizeBytes) }}
             </span>
             <a-button
               size="small"
@@ -216,7 +210,7 @@ onUnmounted(() => {
         <div v-if="sessionIndexAgentStats.length > 0" class="settings-session-index-agent-stats">
           <span v-for="item in sessionIndexAgentStats" :key="item.cliKind">
             <strong>{{ sessionIndexAgentLabel(item.cliKind) }}</strong>
-            {{ item.sessionCount }} 个 · {{ formatBytes(item.sizeBytes) }}
+            {{ item.sessionCount }} 个 · {{ formatFileSize(item.sizeBytes) }}
           </span>
         </div>
       </div>

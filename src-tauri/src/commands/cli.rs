@@ -7,9 +7,7 @@ use crate::{
         Workspace, WorkspaceDirectoryListing,
     },
     services::{
-        self,
-        agent_runtime::{repository::AgentRuntimeSnapshot, service::AgentRuntimeServiceStatus},
-        provider_service::ProviderService,
+        self, agent_runtime::repository::AgentRuntimeSnapshot, provider_service::ProviderService,
     },
     state::AppState,
 };
@@ -90,18 +88,6 @@ pub(crate) async fn get_agent_runtime_snapshot(
     run_blocking("读取 Agent runtime 快照", move || {
         app.state::<services::agent_runtime::service::AgentRuntimeService>()
             .snapshot()
-    })
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn get_agent_runtime_status(
-    app: AppHandle,
-) -> Result<AgentRuntimeServiceStatus, String> {
-    run_blocking("读取 Agent runtime 状态", move || {
-        Ok(app
-            .state::<services::agent_runtime::service::AgentRuntimeService>()
-            .status())
     })
     .await
 }

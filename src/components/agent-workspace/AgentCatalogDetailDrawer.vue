@@ -122,7 +122,7 @@ const separated = computed(() => (props.asset?.separatedAssetIds ?? []).map((id)
           <div v-else-if="resource.management.error" class="agent-workspace-error" role="alert"><p>{{ resource.management.error }}</p><a-button size="mini" @click="resource.management.retry">重新读取</a-button></div>
           <section v-if="batchActions.length" class="agent-catalog-batch-actions" aria-label="批量管理配置">
             <span class="agent-workspace-note">批量管理</span>
-            <AgentCatalogConfigurationActions :actions="batchActions" :busy="busy" @action="(action, targets) => emit('action', action, targets)" />
+            <AgentCatalogConfigurationActions :actions="batchActions" :busy="busy" @action="(action, targets) => emit('action', action, targets)" @native="emit('native', $event)" />
           </section>
           <section v-for="{ binding, management, provenance, source } in bindingDetails" :key="binding.id" class="agent-binding-detail" :class="{ 'is-focused': feature === 'binding:' + binding.id }" :data-binding-id="binding.id" :data-catalog-focus="'binding:' + binding.id" tabindex="-1">
             <header><AgentCliIcon :kind="binding.native.agentKind" :size="20" /><strong>{{ agentLabel(binding.native.agentKind) }}</strong><span>{{ agentAssetScopeLabels[binding.native.scope] }}</span><span class="agent-binding-state">{{ agentAssetStateLabels[binding.native.effectiveState] }}</span><span v-if="management?.syncState === 'different'" class="agent-binding-difference">内容不同</span></header>

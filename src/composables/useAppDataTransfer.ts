@@ -8,12 +8,14 @@ import { withTimeout } from "../utils/promise-timeout";
 interface UseAppDataTransferOptions {
   exportAppData: (path: string) => Promise<AppDataTransferResult>;
   importAppData: (path: string) => Promise<AppDataTransferResult>;
+  installDevSampleData: () => Promise<void>;
   beforeTransfer: () => Promise<boolean>;
 }
 
 export function useAppDataTransfer(options: UseAppDataTransferOptions) {
   const exportingAppData = ref(false);
   const importingAppData = ref(false);
+  const installingDevSample = ref(false);
   let disposed = false;
   onScopeDispose(() => { disposed = true; });
 
@@ -63,10 +65,30 @@ export function useAppDataTransfer(options: UseAppDataTransferOptions) {
     }
   }
 
+  /**
+   * 开发版专用入口：把编造的演示中转站追加进隔离的开发配置，用来检查卡片
+   * 渲染；真实站点原样保留，重复点击只覆盖同 ID 的演示卡片。只在开发构建
+   * 出现，单击即生效，不再弹确认框——改动只落在开发版自己的数据上。
+   */
+  async function installDevSampleData() {
+    if (disposed || installingDevSample.value || exportingAppData.value || importingAppData.value) return;
+    installingDevSample.value = true;
+    try {
+      await withTimeout(options.installDevSampleData(), 30_000, "追加演示数据超时，请确认开发版进程仍在运行");
+      if (!disposed) Message.success("已追加演示中转站，自动刷新、签到与测活保持关闭");
+    } catch (error) {
+      if (!disposed) Message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      installingDevSample.value = false;
+    }
+  }
+
   return {
     exportingAppData,
     importingAppData,
+    installingDevSample,
     exportAppData,
     importAppData,
+    installDevSampleData,
   };
 }

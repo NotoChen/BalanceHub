@@ -3,18 +3,19 @@ use crate::{
         agent_assets::*, agent_catalog::*, agent_configuration::*, agent_instructions::*,
         agent_lifecycle::*, agent_maintenance::*, agent_mcp_check::*, agent_overview::*,
         agent_session_resume::*, agent_sessions::*, agent_wsl::*, app::*, browser_runtime::*,
-        cli::*, cloud_sync::*, login_accounts::*, model_catalog::*, provider::*,
-        provider_browser_login::*, temporary_cli_settings::*,
+        cli::*, cloud_sync::*, login_accounts::*, model_catalog::*, oauth_accounts::*, provider::*,
+        provider_app_import::*, provider_browser_login::*, temporary_cli_settings::*,
     },
-    models::AppData,
-    services::{self, app_updater::AppUpdaterState},
+    models::{AppData, TrayClickAction, WindowCloseAction},
+    services::{self, app_updater::AppUpdaterState, provider_service::ProviderService},
     state::AppState,
     storage, tray,
 };
+use std::path::PathBuf;
 use tauri::{
     menu::{MenuBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, Manager, WindowEvent,
+    App, AppHandle, Manager, WindowEvent,
 };
 
 pub(crate) fn run() {
@@ -25,6 +26,7 @@ pub(crate) fn run() {
         }))
         .manage(AppUpdaterState::default())
         .manage(tray::TrayAvailability::default())
+        .manage(services::notifications::NotificationThrottle::default())
         // 自启动项固定携带 --silent-start 标记启动来源；是否真的静默由
         // launch_at_login_minimized 设置决定。前端每次保存设置调用 enable()
         // 时都会按这里的参数重写系统启动项。
@@ -36,6 +38,7 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(window_state_plugin())
         .plugin(updater_plugin())
         .menu(build_app_menu)
         .setup(setup_app)
@@ -60,8 +63,10 @@ pub(crate) fn run() {
             cloud_sync_cancel,
             cloud_sync_compare,
             host_platform,
-            open_ccswitch_deeplink,
+            install_dev_sample_data,
             open_project_repository,
+            open_log_directory,
+            open_data_directory,
             launch_temporary_cli,
             preview_temporary_cli_launch,
             get_temporary_cli_settings,
@@ -83,7 +88,6 @@ pub(crate) fn run() {
             clear_cli_session_index,
             get_cli_runtime_snapshot,
             get_agent_runtime_snapshot,
-            get_agent_runtime_status,
             activate_agent_runtime,
             get_temporary_cli_instance,
             forget_workspace,
@@ -104,7 +108,7 @@ pub(crate) fn run() {
             begin_agent_configuration_edit,
             read_agent_configuration_form,
             begin_agent_resource_edit,
-            open_agent_resource_link,
+            open_external_link,
             plan_agent_configuration_save,
             apply_agent_configuration_plan,
             discard_agent_configuration_edit,
@@ -114,6 +118,7 @@ pub(crate) fn run() {
             open_agent_configuration_source,
             load_app_data,
             save_provider,
+            set_provider_enabled,
             preview_provider_check_in_policy,
             remove_provider,
             reorder_providers,
@@ -189,6 +194,7 @@ pub(crate) fn run() {
             get_agent_lifecycle_operation,
             list_agent_lifecycle_operations,
             cancel_agent_lifecycle_operation,
+            set_agent_automatic_update,
             probe_terminals,
             preview_liveness_prompts,
             detect_provider_protocol,
@@ -207,6 +213,7 @@ pub(crate) fn run() {
             generate_provider_access_token_for_input,
             delete_provider_api_key,
             get_provider_usage,
+            get_usage_overview,
             get_provider_request_logs,
             change_provider_password,
             get_provider_check_in_records,
@@ -221,6 +228,7 @@ pub(crate) fn run() {
             refresh_providers,
             check_in_provider,
             open_provider_site,
+            open_provider_app_import,
             list_check_in_tasks,
             cancel_check_in_task,
             resume_check_in_task,
@@ -237,6 +245,63 @@ pub(crate) fn run() {
             open_login_account,
             list_login_account_cookies,
             read_login_account_cookie,
+            start_oauth_login,
+            list_oauth_logins,
+            cancel_oauth_login,
+            submit_oauth_callback,
+            retry_oauth_login_save,
+            open_oauth_login_page,
+            preview_oauth_import,
+            discard_oauth_import,
+            apply_oauth_import,
+            get_oauth_account,
+            set_oauth_renewal,
+            update_oauth_account,
+            get_oauth_credential,
+            replace_oauth_credential,
+            export_oauth_account,
+            preview_cpa_oauth_import,
+            send_oauth_to_cpa,
+            set_cpa_oauth_disabled,
+            update_cpa_oauth_fields,
+            refresh_cpa_oauth,
+            reset_cpa_oauth_cooldown,
+            refresh_all_cpa_oauth,
+            list_cpa_error_logs,
+            read_cpa_error_log,
+            view_cpa_oauth_file,
+            delete_cpa_oauth,
+            list_cpa_plugins,
+            list_cpa_plugin_store,
+            install_cpa_plugin,
+            check_cpa_version,
+            get_cpa_plugin_config,
+            set_cpa_plugin_enabled,
+            update_cpa_plugin_config,
+            remove_cpa_plugin,
+            list_cpa_login_providers,
+            start_cpa_login,
+            get_cpa_login_status,
+            submit_cpa_login_callback,
+            cancel_cpa_login,
+            get_cpa_account_quota,
+            open_cpa_login_url,
+            get_cpa_model_rules,
+            get_cpa_model_definitions,
+            update_cpa_model_rules,
+            get_cpa_gateway_settings,
+            update_cpa_gateway_settings,
+            list_cpa_client_keys,
+            add_cpa_client_key,
+            remove_cpa_client_key,
+            read_cpa_request_logs,
+            read_cpa_request_log,
+            read_cpa_api_key_usage,
+            clear_cpa_logs,
+            read_cpa_gateway_config,
+            update_cpa_gateway_config,
+            get_cpa_log_settings,
+            set_cpa_log_settings,
             get_provider_credentials,
             read_provider_credential,
             clear_provider_credential,
@@ -255,6 +320,21 @@ pub(crate) fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// 主窗口的位置/大小由设置决定是否恢复。插件必须先跳过主窗口的自动恢复，
+/// 才能在 setup 里按设置决定——插件初始化早于设置加载完成。
+fn window_state_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri_plugin_window_state::Builder::default()
+        .with_state_flags(window_state_flags())
+        .skip_initial_state("main")
+        .build()
+}
+
+fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    // 不恢复可见性：启动可见性是 launch_at_login_minimized 的职责，
+    // 让上一次退出时的隐藏状态覆盖它会和「启动时最小化」互相打脸。
+    tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE
 }
 
 fn updater_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R, tauri_plugin_updater::Config>
@@ -307,36 +387,49 @@ fn build_app_menu<R: tauri::Runtime>(
 }
 
 fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    let recovery = app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "无法获取应用配置目录".to_owned())
-        .and_then(|root| services::cloud_sync::recover(&root));
+    // 开发版的配置与数据始终落在临时根目录，不碰安装版目录。
+    let config_root =
+        config_dir(app.app_handle()).map_err(|_| "无法获取应用配置目录".to_owned())?;
+    let data_root = data_dir(app.app_handle()).map_err(|_| "无法获取应用数据目录".to_owned())?;
+    let recovery = services::cloud_sync::recover(&config_root);
     let app_state = match recovery.and_then(|_| storage::load_app_data(app.app_handle())) {
         Ok(data) => AppState::new(data),
         Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
     };
-    if let Ok(root) = app.path().app_data_dir() {
-        if let Ok(config_root) = app.path().app_config_dir() {
-            services::agent_cli::config_support::native_history::initialize(&root, &config_root)?;
-        }
-        services::agent_cli::initialize_discovery_cache(root.join("agent-discovery-cache"));
-        services::agent_cli::lifecycle::initialize_journal(root.join("agent-upgrades"));
-    }
+    services::agent_cli::config_support::native_history::initialize(&data_root, &config_root)?;
+    services::agent_cli::initialize_discovery_cache(data_root.join("agent-discovery-cache"));
+    services::agent_cli::lifecycle::initialize_journal(data_root.join("agent-upgrades"));
     // updater/手动可见重启会继承原进程参数；一次性环境标记用于覆盖继承的
     // --silent-start，读取后立即删除，避免污染后续普通启动。
     let force_visible_start = services::app_updater::consume_visible_relaunch();
+    let startup_settings = app_state
+        .data
+        .read()
+        .unwrap_or_else(|err| err.into_inner())
+        .settings
+        .clone();
     let silent_start = should_start_silently(
         force_visible_start,
         std::env::args().any(|arg| arg == "--silent-start"),
-        app_state
-            .data
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .settings
-            .launch_at_login_minimized,
+        startup_settings.launch_at_login_minimized,
     );
     app.manage(app_state);
+    // 日志要先于其余后台服务安装：它们的告警都往这里写。
+    if let Ok(directory) = log_dir(app.app_handle()) {
+        services::logging::init(&directory, &startup_settings);
+        // 每次启动留一行锚点：用户发来的日志能对上版本和目录。
+        log::info!(
+            "BalanceHub {} 启动（{}），日志目录 {}",
+            app.package_info().version,
+            if cfg!(debug_assertions) {
+                "开发版"
+            } else {
+                "安装版"
+            },
+            directory.display()
+        );
+    }
+    restore_window_state(app, &startup_settings);
     if let Ok(sync) = app.state::<AppState>().cloud_sync(app.app_handle()) {
         sync.start_worker(app.app_handle().clone());
     }
@@ -350,6 +443,8 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
     // 单实例插件已在 setup 前完成仲裁，只有主实例会启动后台调度。
     services::scheduler::start(app.app_handle());
+    // Agent 自动更新策略的执行者：核对升级记录、按设置扫描新版本并逐个安装。
+    services::agent_cli::lifecycle::start_worker(app.app_handle());
 
     // 清扫历史残留的临时 CLI 目录/测活隔离 HOME（可能含明文凭据）。
     std::thread::spawn(services::temporary_cli::cleanup_stale);
@@ -371,20 +466,93 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn restore_window_state(app: &App, settings: &crate::models::AppSettings) {
+    if !settings.window_restore_state {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    use tauri_plugin_window_state::WindowExt;
+    if let Err(err) = window.restore_state(window_state_flags()) {
+        log::warn!("恢复上次窗口位置失败：{err}");
+    }
+}
+
 fn install_close_behavior(app: &App) {
     if let Some(window) = app.get_webview_window("main") {
         let app_handle = window.app_handle().clone();
         window.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if tray::is_available(&app_handle) {
-                    api.prevent_close();
-                    tray::hide_main_window(&app_handle);
-                } else {
+                // 后台刷新、签到和测活都依赖进程存活；只有用户明确选择「退出」
+                // 或者根本没有托盘可回退时才真的结束进程。
+                let stays_in_background = tray::is_available(&app_handle)
+                    && current_close_action(&app_handle) == WindowCloseAction::HideToTray;
+                if !stays_in_background {
                     app_handle.exit(0);
+                    return;
                 }
+                api.prevent_close();
+                tray::hide_main_window(&app_handle);
+                hint_background_running(&app_handle);
             }
         });
     }
+}
+
+/// 第一次关窗时说明进程还在跑；之后只留托盘入口，不再打扰。
+fn hint_background_running(app: &AppHandle) {
+    let first_time = app.try_state::<AppState>().is_some_and(|state| {
+        !state
+            .data
+            .read()
+            .unwrap_or_else(|err| err.into_inner())
+            .settings
+            .window_close_hint_shown
+    });
+    if !first_time {
+        return;
+    }
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("BalanceHub 仍在后台运行")
+        .body("刷新、签到和测活会继续；点菜单栏图标重新打开，托盘菜单里可以退出。")
+        .show();
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = ProviderService::new(&handle).mark_close_hint_shown().await {
+            log::warn!("记录关窗提示状态失败：{error}");
+        }
+    });
+}
+
+/// 关闭行为每次关窗时现读设置，设置页改完立即生效，不需要重装监听。
+fn current_close_action(app: &AppHandle) -> WindowCloseAction {
+    app.try_state::<AppState>()
+        .map(|state| {
+            state
+                .data
+                .read()
+                .unwrap_or_else(|err| err.into_inner())
+                .settings
+                .window_close_action
+        })
+        .unwrap_or(WindowCloseAction::HideToTray)
+}
+
+fn current_tray_click_action(app: &AppHandle) -> TrayClickAction {
+    app.try_state::<AppState>()
+        .map(|state| {
+            state
+                .data
+                .read()
+                .unwrap_or_else(|err| err.into_inner())
+                .settings
+                .window_tray_click_action
+        })
+        .unwrap_or_default()
 }
 
 fn build_tray_with_linux_fallback(app: &App) -> Result<bool, Box<dyn std::error::Error>> {
@@ -393,7 +561,7 @@ fn build_tray_with_linux_fallback(app: &App) -> Result<bool, Box<dyn std::error:
         Err(err) => {
             #[cfg(target_os = "linux")]
             {
-                eprintln!("BalanceHub 托盘初始化失败，回退为普通窗口模式: {err}");
+                log::warn!("BalanceHub 托盘初始化失败，回退为普通窗口模式: {err}");
                 Ok(false)
             }
             #[cfg(not(target_os = "linux"))]
@@ -427,7 +595,11 @@ fn build_tray(app: &App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                tray::show_main_window(tray_icon.app_handle());
+                let app = tray_icon.app_handle();
+                match current_tray_click_action(app) {
+                    TrayClickAction::ShowWindow => tray::show_main_window(app),
+                    TrayClickAction::ToggleWindow => tray::toggle_main_window(app),
+                }
             }
         });
 
@@ -445,6 +617,71 @@ fn build_tray(app: &App) -> tauri::Result<()> {
 
     tray_builder.build(app)?;
     Ok(())
+}
+
+/// 开发版的隔离根目录。钉在临时目录是因为设置页没有入口，用环境变量
+/// BALANCEHUB_DEV_ROOT 覆盖即可清空；配置与数据分成两个子目录，避免原生
+/// 配置扫描把备份或日志当成用户的真实配置文件。
+fn development_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(value) = std::env::var_os(BALANCEHUB_DEV_ROOT_ENV) {
+        let root = PathBuf::from(value);
+        return Ok(root.canonicalize().unwrap_or(root));
+    }
+    app.path()
+        .temp_dir()
+        .map_err(|_| "无法获取临时目录".to_string())
+        .map(|dir| dir.join(format!("balancehub-dev-{}", app.config().identifier)))
+}
+
+const BALANCEHUB_DEV_ROOT_ENV: &str = "BALANCEHUB_DEV_ROOT";
+const DEV_CONFIG_DIR: &str = "config";
+const DEV_DATA_DIR: &str = "data";
+const DEV_LOG_DIR: &str = "logs";
+
+/// 应用配置目录。开发构建在前台设置页里也不存在开发版入口，直接用临时根目录，
+/// 让配置写入、备份、WebDAV 同步全部落在可随手删除的位置。
+pub(crate) fn config_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        return development_root(app).map(|root| root.join(DEV_CONFIG_DIR));
+    }
+    app.path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())
+}
+
+/// 应用数据目录。临时 CLI、测活隔离 HOME、Agent 运行目录都以它为基准。
+pub(crate) fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        return development_root(app).map(|root| root.join(DEV_DATA_DIR));
+    }
+    app.path().app_data_dir().map_err(|error| error.to_string())
+}
+
+/// 日志目录。开发版同样落在隔离根目录下，不和安装版的日志文件混在一起。
+pub(crate) fn log_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        return development_root(app).map(|root| root.join(DEV_LOG_DIR));
+    }
+    app.path().app_log_dir().map_err(|error| error.to_string())
+}
+
+/// 开发版专用：把演示卡片追加到隔离的开发版配置里，真实站点与设置原样保留。
+/// 发布构建里这个 command 只返回错误，前端只在开发版显示入口，因此安装版
+/// 永远拿不到演示数据。
+#[tauri::command]
+async fn install_dev_sample_data(app: AppHandle) -> Result<usize, String> {
+    #[cfg(debug_assertions)]
+    {
+        crate::commands::run_blocking("写入演示数据", move || {
+            ProviderService::new(&app).merge_dev_sample()
+        })
+        .await
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = app;
+        Err("发布构建不提供演示数据".to_string())
+    }
 }
 
 fn should_start_silently(

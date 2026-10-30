@@ -26,6 +26,7 @@ import type {
   ProviderRequestLogsQuery,
   ProviderRequestLogsResult,
   ProviderSiteProbeResult,
+  ProviderUsageOverview,
   ProviderUsageSummary,
   TemporaryCliInstance,
   TemporaryCliLaunchInput,
@@ -114,12 +115,21 @@ export function hostPlatform() {
   return invoke<string>("host_platform");
 }
 
-export function openCcSwitchDeeplink(url: string) {
-  return invoke<void>("open_ccswitch_deeplink", { url });
-}
-
 export function openProjectRepository() {
   return invoke<void>("open_project_repository");
+}
+
+/** 打开 Agent 文档、站点公告等外部内容里的链接，由 Rust 校验并交给系统浏览器。 */
+export function openExternalLink(url: string) {
+  return invoke<void>("open_external_link", { url });
+}
+
+export function openLogDirectory() {
+  return invoke<void>("open_log_directory");
+}
+
+export function openDataDirectory() {
+  return invoke<void>("open_data_directory");
 }
 
 export function checkAppUpdate() {
@@ -184,6 +194,11 @@ export function exportAppData(path: string) {
 
 export function importAppData(path: string) {
   return invoke<AppDataImportResult>("import_app_data", { path });
+}
+
+/** 开发版专用：用隔离目录里的演示数据覆盖本地配置，仅开发构建提供。 */
+export function installDevSampleData() {
+  return invoke<number>("install_dev_sample_data");
 }
 
 export function completeProviderCredentials(input: ProviderInput) {
@@ -416,6 +431,10 @@ export function getProviderUsage(id: string, period: string) {
   return invoke<ProviderUsageSummary>("get_provider_usage", { id, period });
 }
 
+export function getUsageOverview(period: string) {
+  return invoke<ProviderUsageOverview>("get_usage_overview", { period });
+}
+
 export function getProviderRequestLogs(id: string, query: ProviderRequestLogsQuery) {
   return invoke<ProviderRequestLogsResult>("get_provider_request_logs", { id, query });
 }
@@ -446,4 +465,8 @@ export function markSiteAnnouncementRead(providerId: string, announcementId: str
 
 export function refreshProviders(ids: string[]) {
   return invoke<RefreshResult>("refresh_providers", { ids });
+}
+
+export function setProviderEnabled(id: string, enabled: boolean) {
+  return invoke<Provider>("set_provider_enabled", { id, enabled });
 }

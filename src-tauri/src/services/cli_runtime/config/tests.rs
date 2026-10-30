@@ -1,7 +1,8 @@
 use super::*;
 use crate::models::{AuthMode, ProviderInput, ProviderProtocol};
 use crate::services::agent_cli::config_support::{
-    cli_target_for_key, match_provider_key, normalize_endpoint, CliConfigProviderMatch,
+    cli_config_target, match_provider_key, normalize_endpoint, CliConfigProviderMatch,
+    CliConfigTarget,
 };
 
 fn relay_provider() -> Provider {
@@ -90,7 +91,7 @@ fn provider_match_requires_the_effective_url_and_api_key() {
 }
 
 #[test]
-fn cli_target_for_key_selects_a_non_default_key_by_stable_local_id() {
+fn cli_config_target_selects_a_non_default_key_by_stable_local_id() {
     let mut provider = relay_provider();
     provider
         .add_named_api_key("sk-second", "备用 Key")
@@ -103,15 +104,16 @@ fn cli_target_for_key_selects_a_non_default_key_by_stable_local_id() {
         .expect("second key option")
         .clone();
 
-    let target = cli_target_for_key(&provider, AgentCliKind::Codex, &second.local_id)
+    let target = cli_config_target(&provider, AgentCliKind::Codex, &second.local_id)
         .expect("second key should be selected");
-    assert_eq!(target.api_key, "sk-second");
-    assert_eq!(target.api_key_local_id, second.local_id);
-    assert_eq!(target.api_key_label, "备用 Key");
+    let CliConfigTarget::ApiKey { api_key, .. } = target else {
+        panic!("a relay card should target an API key");
+    };
+    assert_eq!(api_key, "sk-second");
 }
 
 #[test]
-fn cli_target_for_key_rejects_missing_or_unreadable_selected_keys() {
+fn cli_config_target_rejects_missing_or_unreadable_selected_keys() {
     let mut provider = relay_provider();
     provider
         .add_named_api_key("sk-second", "备用 Key")
@@ -125,7 +127,7 @@ fn cli_target_for_key_rejects_missing_or_unreadable_selected_keys() {
         .local_id
         .clone();
 
-    let missing = cli_target_for_key(&provider, AgentCliKind::Codex, "does-not-exist")
+    let missing = cli_config_target(&provider, AgentCliKind::Codex, "does-not-exist")
         .err()
         .expect("unknown key should fail");
     assert_eq!(missing, "所选 API Key 已不存在，请重新选择");
@@ -138,7 +140,7 @@ fn cli_target_for_key_rejects_missing_or_unreadable_selected_keys() {
         .expect("second key option");
     option.key = "sk-****".to_string();
     option.key_available = false;
-    let unreadable = cli_target_for_key(&provider, AgentCliKind::Codex, &second_local_id)
+    let unreadable = cli_config_target(&provider, AgentCliKind::Codex, &second_local_id)
         .err()
         .expect("masked key should fail");
     assert_eq!(unreadable, "所选 API Key 未读取到完整值，无法切换 CLI 配置");
@@ -153,8 +155,11 @@ fn generic_provider_keeps_an_arbitrary_api_key_for_cli_config() {
     input.auth.api_key = "gsk_custom-key".to_string();
     let provider = Provider::from_input(input, "generic-provider".to_string());
 
-    let target = cli_target_for_key(&provider, AgentCliKind::Codex, "").unwrap();
-    assert_eq!(target.api_key, "gsk_custom-key");
+    let target = cli_config_target(&provider, AgentCliKind::Codex, "").unwrap();
+    let CliConfigTarget::ApiKey { api_key, .. } = target else {
+        panic!("a relay card should target an API key");
+    };
+    assert_eq!(api_key, "gsk_custom-key");
     assert_eq!(
         match_provider_key(
             std::slice::from_ref(&provider),

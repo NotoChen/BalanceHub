@@ -244,9 +244,11 @@ pub(crate) fn runtime_path_for(cli_path: &Path) -> Option<std::ffi::OsString> {
 }
 
 pub(crate) fn provider_base_url(kind: AgentCliKind, provider: &Provider) -> String {
-    definition(kind)
-        .endpoint
-        .normalize_base_url(provider_raw_base_url(kind, provider))
+    normalize_base_url(kind, provider_raw_base_url(kind, provider))
+}
+
+pub(crate) fn normalize_base_url(kind: AgentCliKind, base_url: &str) -> String {
+    definition(kind).endpoint.normalize_base_url(base_url)
 }
 
 pub(crate) fn provider_raw_base_url(kind: AgentCliKind, provider: &Provider) -> &str {

@@ -35,6 +35,7 @@ defineProps<{
   selectedLivenessModelProviders: { id: string; name: string }[];
   exportingAppData: boolean;
   importingAppData: boolean;
+  installingDevSample: boolean;
   appVersion: string;
   checkingForUpdate: boolean;
   providerEditorTitle: string;
@@ -76,6 +77,7 @@ const emit = defineEmits<{
   testNotification: [];
   exportAppData: [];
   importAppData: [];
+  installDevSampleData: [];
   checkForUpdate: [];
   copyApiKey: [];
   syncRemoteApiKeys: [];
@@ -119,11 +121,13 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     :selected-liveness-model-providers="selectedLivenessModelProviders"
     :exporting-app-data="exportingAppData"
     :importing-app-data="importingAppData"
+    :installing-dev-sample="installingDevSample"
     :app-version="appVersion"
     :checking-for-update="checkingForUpdate"
     @test-notification="emit('testNotification')"
     @export-app-data="emit('exportAppData')"
     @import-app-data="emit('importAppData')"
+    @install-dev-sample-data="emit('installDevSampleData')"
     @check-for-update="emit('checkForUpdate')"
   />
 

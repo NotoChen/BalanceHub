@@ -6,6 +6,7 @@ import {
   IconNotification,
   IconPlus,
 } from "@arco-design/web-vue/es/icon";
+import DurationInput from "../DurationInput.vue";
 import type {
   AppSettings,
   NotificationChannel,
@@ -120,6 +121,130 @@ function channelNeedsSecret(kind: NotificationChannelKind) {
       <div v-for="result in testResult.results" :key="result.channelId" class="notification-test-row" :class="{ 'is-error': !result.ok }">
         <strong>{{ result.channelName }}</strong><span>{{ result.ok ? '已发送' : '发送失败' }}</span>
         <p v-if="result.message">{{ result.message }}</p>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <header class="settings-card-header">
+        <div>
+          <strong>通知哪些事件</strong>
+          <span>手动发送和「发送测试」始终放行，不受这里的开关影响。</span>
+        </div>
+      </header>
+      <div class="settings-setting-list">
+        <div class="settings-setting-row" :class="{ disabled: !settings.notificationEnabled }">
+          <div class="settings-setting-copy">
+            <strong>刷新失败</strong>
+            <span>额度刷新多次重试后仍失败时提醒。</span>
+          </div>
+          <a-switch
+            v-model="settings.notifyRefreshFailure"
+            :disabled="!settings.notificationEnabled"
+            aria-label="刷新失败通知"
+          />
+        </div>
+        <div class="settings-setting-row" :class="{ disabled: !settings.notificationEnabled }">
+          <div class="settings-setting-copy">
+            <strong>测活失败</strong>
+            <span>连续失败达到阈值时提醒一次，恢复不再重复通知。</span>
+          </div>
+          <a-switch
+            v-model="settings.notifyLivenessFailure"
+            :disabled="!settings.notificationEnabled"
+            aria-label="测活失败通知"
+          />
+        </div>
+        <div class="settings-setting-row" :class="{ disabled: !settings.notificationEnabled }">
+          <div class="settings-setting-copy">
+            <strong>签到结果</strong>
+            <span>自动签到成功或未完成时提醒。</span>
+          </div>
+          <a-switch
+            v-model="settings.notifyCheckIn"
+            :disabled="!settings.notificationEnabled"
+            aria-label="签到结果通知"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <header class="settings-card-header">
+        <div>
+          <strong>静默时段与去重</strong>
+          <span>静默期内不发送，恢复后也不补发；去重让同一站点的连续失败只提醒一次。</span>
+        </div>
+      </header>
+      <div class="settings-setting-list">
+        <div class="settings-setting-row" :class="{ disabled: !settings.notificationEnabled }">
+          <div class="settings-setting-copy">
+            <strong>启用静默时段</strong>
+            <span>适合夜间不希望被打扰的场景，跨零点也能正确计算。</span>
+          </div>
+          <a-switch
+            v-model="settings.notifyQuietHours"
+            :disabled="!settings.notificationEnabled"
+            aria-label="启用静默时段"
+          />
+        </div>
+        <div
+          class="settings-setting-row settings-setting-row-field"
+          :class="{ disabled: !settings.notificationEnabled || !settings.notifyQuietHours }"
+        >
+          <div class="settings-setting-copy">
+            <strong>静默起止</strong>
+            <span>开始时间晚于结束时间即视为跨天。</span>
+          </div>
+          <div class="settings-duration-control">
+            <a-time-picker
+              v-model="settings.notifyQuietStart"
+              format="HH:mm"
+              value-format="HH:mm"
+              placeholder="22:00"
+              disable-confirm
+              :disabled="!settings.notificationEnabled || !settings.notifyQuietHours"
+              aria-label="静默开始时间"
+            />
+            <a-time-picker
+              v-model="settings.notifyQuietEnd"
+              format="HH:mm"
+              value-format="HH:mm"
+              placeholder="08:00"
+              disable-confirm
+              :disabled="!settings.notificationEnabled || !settings.notifyQuietHours"
+              aria-label="静默结束时间"
+            />
+          </div>
+        </div>
+        <div class="settings-setting-row settings-setting-row-field" :class="{ disabled: !settings.notificationEnabled }">
+          <div class="settings-setting-copy">
+            <strong>同一站点提醒间隔</strong>
+            <span>同一站点的同类事件在这个窗口内只发一条；0 表示不去重。</span>
+          </div>
+          <DurationInput
+            v-model="settings.notifyMergeWindowSecs"
+            :min="0"
+            :max="3600"
+            :disabled="!settings.notificationEnabled"
+            label="同一站点提醒间隔"
+          />
+        </div>
+        <div class="settings-setting-row settings-setting-row-field" :class="{ disabled: !settings.notificationEnabled }">
+          <div class="settings-setting-copy">
+            <strong>发送失败重试</strong>
+            <span>Webhook 发送失败后按递增间隔重试的次数。</span>
+          </div>
+          <a-input-number
+            v-model="settings.notifyRetryCount"
+            :min="0"
+            :max="3"
+            :step="1"
+            :disabled="!settings.notificationEnabled"
+            aria-label="通知发送失败重试次数"
+          >
+            <template #suffix>次</template>
+          </a-input-number>
+        </div>
       </div>
     </section>
 

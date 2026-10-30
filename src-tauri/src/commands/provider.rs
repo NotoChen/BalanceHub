@@ -9,7 +9,7 @@ use crate::{
         ProviderCheckInRecordsResult, ProviderConnectionTestResult,
         ProviderCredentialCompletionResult, ProviderInput, ProviderProtocolDetectionResult,
         ProviderRemovalResult, ProviderRequestLogsQuery, ProviderRequestLogsResult,
-        ProviderSaveOptions, ProviderSiteProbeResult, ProviderUsageSummary,
+        ProviderSaveOptions, ProviderSiteProbeResult, ProviderUsageOverview, ProviderUsageSummary,
         SiteAnnouncementsSnapshot,
     },
     services::provider_service::ProviderService,
@@ -69,6 +69,18 @@ pub(crate) async fn save_provider(
         tray::refresh_from_state(&app);
     }
     Ok(result.into())
+}
+
+#[tauri::command]
+pub(crate) async fn set_provider_enabled(
+    app: AppHandle,
+    id: String,
+    enabled: bool,
+) -> Result<ProviderView, String> {
+    let provider = ProviderService::new(&app).set_enabled(id, enabled).await?;
+    crate::services::check_in_tasks::cancel_outdated(&app);
+    tray::refresh_from_state(&app);
+    Ok(provider.into())
 }
 
 #[tauri::command]
@@ -326,6 +338,17 @@ pub(crate) async fn get_provider_usage(
     period: String,
 ) -> Result<ProviderUsageSummary, String> {
     ProviderService::new(&app).usage_summary(id, period).await
+}
+
+/// 顶栏的全局用量趋势：不带中转站时聚合全部可读取的站点。
+#[tauri::command]
+pub(crate) async fn get_usage_overview(
+    app: AppHandle,
+    period: String,
+) -> Result<ProviderUsageOverview, String> {
+    ProviderService::new(&app)
+        .usage_summary_overview(&period)
+        .await
 }
 
 #[tauri::command]

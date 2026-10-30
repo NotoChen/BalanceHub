@@ -3,6 +3,7 @@ import { computed, type UnwrapNestedRefs } from "vue";
 import { ChevronRight, RefreshCw, Search } from "@lucide/vue";
 import AgentCliIcon from "../AgentCliIcon.vue";
 import AgentInstallationTarget from "./AgentInstallationTarget.vue";
+import AgentAutomaticUpdateControl from "./AgentAutomaticUpdateControl.vue";
 import type { useAgentInstallationManager } from "../../composables/useAgentInstallationManager";
 import type { useAgentEnvironmentCenter } from "../../composables/useAgentEnvironmentCenter";
 import type { useAgentHookConsole } from "../../composables/useAgentHookConsole";
@@ -21,6 +22,7 @@ const otherCount = computed(() => targets.value.filter((target) => !target.isCur
 const commandPreview = computed(() => props.model.lifecycle.plan?.commandPreview.map((argument) => /^[a-zA-Z0-9_./:@=+-]+$/.test(argument) ? argument : JSON.stringify(argument)).join(" ") ?? "");
 const scanning = computed(() => props.center.deepScanState === "scanning");
 const candidates = computed(() => props.center.deepScanCandidates.filter((tool) => tool.kind === props.model.lifecycle.agentKind));
+const detachedAutomaticUpdates = computed(() => props.model.store.catalog?.automaticUpdates.filter((entry) => entry.agentKind === props.model.lifecycle.agentKind && !entry.targetId) ?? []);
 </script>
 
 <template>
@@ -64,6 +66,13 @@ const candidates = computed(() => props.center.deepScanCandidates.filter((tool) 
           <p class="agent-workspace-note">留空时自动查找。<template v-if="model.launchPath">当前使用：<code>{{ model.launchPath }}</code></template></p>
           <p v-if="model.pathError" class="agent-workspace-error" role="alert">{{ model.pathError }}</p>
         </details>
+        <section v-if="detachedAutomaticUpdates.length" class="agent-installation-sources" aria-label="原安装的自动更新">
+          <h3>原安装的自动更新</h3>
+          <article v-for="entry in detachedAutomaticUpdates" :key="entry.key ?? entry.directory ?? ''" class="agent-installation-target">
+            <strong>{{ entry.channelLabel }}</strong><code>{{ entry.directory }}</code>
+            <AgentAutomaticUpdateControl :entry="entry" />
+          </article>
+        </section>
         <details class="agent-environment-deep-scan">
           <summary class="agent-deep-scan-summary"><strong>没有找到安装？</strong><ChevronRight :size="16" class="agent-deep-scan-chevron" aria-hidden="true" /></summary>
           <div class="agent-deep-scan-content">

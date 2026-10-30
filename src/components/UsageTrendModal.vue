@@ -7,9 +7,15 @@ import {
   IconRefresh,
   IconThunderbolt,
 } from "@arco-design/web-vue/es/icon";
-import type { Provider, ProviderUsageModelStat, ProviderUsageSummary } from "../stores/providers";
+import type {
+  Provider,
+  ProviderUsageModelStat,
+  ProviderUsageOverview,
+  ProviderUsageSummary,
+} from "../stores/providers";
 import { useUsageTrendChart } from "../composables/useUsageTrendChart";
-import { formatNumberCompact, formatQuotaValue, providerDisplayLabel } from "../utils/provider-display";
+import { formatNumberCompact, formatQuotaValue, providerDisplayLabel, providerQuotaWindowRows } from "../utils/provider-display";
+import { quotaResetLabel } from "../utils/oauth-display";
 import {
   usagePeriodOptions,
   type UsagePeriod,
@@ -21,6 +27,8 @@ const props = defineProps<{
   loading: boolean;
   error: string;
   summary: ProviderUsageSummary | null;
+  /// 不带中转站时由顶栏打开，展示全部站点的汇总。
+  overview?: ProviderUsageOverview | null;
   period: UsagePeriod;
 }>();
 
@@ -40,7 +48,9 @@ const {
   usageLinePath,
   usageMaxModelCalls,
   usageMaxModelQuota,
+  usageModelHealth,
   usagePeakPoint,
+  usagePeriodGranularity,
   usageRequestTotal,
   usageTokenTotal,
   usageTopCallModels,
@@ -51,12 +61,30 @@ const {
 } = useUsageTrendChart(props);
 
 const modalTitle = computed(() =>
-  props.provider ? `${providerDisplayLabel(props.provider)} · ${usagePeriodTitle.value}` : "用量趋势",
+  props.provider
+    ? `${providerDisplayLabel(props.provider)} · ${usagePeriodTitle.value}`
+    : `全部中转站 · ${usagePeriodTitle.value}`,
 );
 
 const periodModel = computed({
   get: () => props.period,
   set: (value: UsagePeriod) => emit("update:period", value),
+});
+
+/// 订阅制中转站的额度在周期窗口里，趋势面板说清最近一次额度重置，
+/// 读者才不会把“本月已用”当成钱包扣费。
+const subscriptionNote = computed(() => {
+  const provider = props.provider;
+  if (!provider) return null;
+  const rows = providerQuotaWindowRows(provider);
+  if (rows.length === 0) return null;
+  const reset = (provider.quota.windows ?? [])
+    .map((window) => window.resetsAt)
+    .find((value) => value && value * 1000 > Date.now());
+  return {
+    label: rows.length > 1 ? `${rows.length} 个订阅窗口` : "订阅额度",
+    detail: reset ? quotaResetLabel(reset) : "",
+  };
 });
 
 const usageStatCards = computed(() => [
@@ -94,6 +122,28 @@ const usageStatCards = computed(() => [
   },
 ]);
 
+/// 汇总视图没有单一配额单位，能说的是次数、模型排行和响应质量；
+/// 站点读数失败时照常展示其余站点，并把失败站点列在底部。
+const overviewStats = computed(() => {
+  const overview = props.overview;
+  const minutes = props.period === "24h" ? 24 * 60 : props.period === "7d" ? 7 * 24 * 60 : 30 * 24 * 60;
+  const modelStats = overview?.modelStats ?? [];
+  return {
+    requests: overview?.requestCount ?? 0,
+    models: modelStats.length,
+    rpm: (overview?.requestCount ?? 0) / minutes,
+    modelStats,
+    /// 排行条以汇总列表里最大的次数为满格，和单站的模型排行同一口径。
+    maxCalls: Math.max(1, ...modelStats.map((item) => item.requestCount)),
+    modelHealth: overview?.modelHealth ?? [],
+    errors: overview?.errors ?? [],
+  };
+});
+
+function overviewCallPercent(item: ProviderUsageModelStat) {
+  return barPercent(item.requestCount, overviewStats.value.maxCalls);
+}
+
 function modelName(item: ProviderUsageModelStat) {
   return item.modelName.trim() || "未知模型";
 }
@@ -109,6 +159,17 @@ function modelCallPercent(item: ProviderUsageModelStat) {
 function barPercent(value: number, max: number) {
   if (!Number.isFinite(value) || value <= 0) return "0%";
   return `${Math.max(4, Math.min(100, (value / (max > 0 ? max : 1)) * 100))}%`;
+}
+
+function formatPercent(value: number) {
+  return `${value.toFixed(value >= 99 ? 1 : 0)}%`;
+}
+
+/// 失败率是真正要看的数字，所以按成功率给颜色，而不是按耗时。
+function healthTone(successRate: number) {
+  if (successRate >= 99) return "usage-health-ok";
+  if (successRate >= 95) return "usage-health-warning";
+  return "usage-health-error";
 }
 
 function formatRate(value: number) {
@@ -130,6 +191,7 @@ function formatRate(value: number) {
         <span class="surface-modal-title-icon"><icon-bar-chart /></span>
         <span class="surface-modal-title-copy">
           <strong>{{ modalTitle }}</strong>
+          <small v-if="!provider">全部中转站 · 次数与模型口径，不含配额单位</small>
         </span>
       </div>
     </template>
@@ -141,10 +203,87 @@ function formatRate(value: number) {
           刷新趋势
         </a-button>
       </div>
+      <div v-if="subscriptionNote" class="usage-subscription-note">
+        <span>订阅额度 · {{ subscriptionNote.label }}</span>
+        <span v-if="subscriptionNote.detail">{{ subscriptionNote.detail }}</span>
+      </div>
       <a-alert v-if="error" type="error" show-icon>
         <div class="panel-load-error"><span>{{ error }}{{ summary ? '；当前保留上次读取的结果' : '' }}</span><a-button size="small" @click="emit('refresh')">重试</a-button></div>
       </a-alert>
-      <a-spin :loading="loading">
+      <a-spin v-if="!provider" :loading="loading">
+        <div v-if="!overview || (error && overview.requestCount === 0 && overview.errors.length === 0)" class="api-key-empty" role="status">
+          {{ loading ? '正在读取各站点的用量…' : error ? '用量数据未能加载' : '暂无用量数据' }}
+        </div>
+        <div v-else class="usage-dashboard">
+          <div class="usage-summary-cards is-overview">
+            <div class="usage-summary-card" :title="`${usagePeriodTitle}内全部中转站的请求合计`">
+              <!-- 读取失败时上方已经有错误提示，这里只保留可读的数字。 -->
+              <span><IconBarChart /> 总请求</span>
+              <strong>{{ formatNumberCompact(overviewStats.requests, 0) }}</strong>
+            </div>
+            <div class="usage-summary-card" title="参与汇总的模型数量">
+              <span><IconLayers /> 涉及模型</span>
+              <strong>{{ overviewStats.models }}</strong>
+            </div>
+            <div class="usage-summary-card" title="所选时段内，平均每分钟的请求次数">
+              <span><IconThunderbolt /> 平均 RPM</span>
+              <strong>{{ formatRate(overviewStats.rpm) }}</strong>
+            </div>
+            <div class="usage-summary-card" title="读取失败的站点">
+              <span><IconFire /> 未读取站点</span>
+              <strong>{{ overviewStats.errors.length }}</strong>
+            </div>
+          </div>
+          <div v-if="overviewStats.modelStats.length || overviewStats.modelHealth.length" class="usage-model-dashboard">
+            <section v-if="overviewStats.modelStats.length" class="usage-model-panel">
+              <div class="usage-model-panel-header">
+                <strong>模型调用排行</strong>
+                <span>全部中转站合计 · 前 {{ overviewStats.modelStats.length }} 个</span>
+              </div>
+              <div class="usage-model-list">
+                <div v-for="item in overviewStats.modelStats" :key="`overview-${modelName(item)}`" class="usage-model-row">
+                  <div class="usage-model-row-head">
+                    <strong :title="modelName(item)">{{ modelName(item) }}</strong>
+                    <span>{{ formatNumberCompact(item.requestCount, 0) }} 次</span>
+                  </div>
+                  <div class="usage-model-bar-track">
+                    <div class="usage-model-bar usage-model-bar-call" :style="{ width: overviewCallPercent(item) }" />
+                  </div>
+                  <small>{{ formatNumberCompact(item.tokenUsed, 0) }} tokens</small>
+                </div>
+              </div>
+            </section>
+            <section v-if="overviewStats.modelHealth.length" class="usage-model-panel usage-health-panel">
+              <div class="usage-model-panel-header">
+                <strong>响应质量</strong>
+                <span>站点近 24 小时采样 · 成功率低的在前</span>
+              </div>
+              <div class="usage-model-list">
+                <div v-for="item in overviewStats.modelHealth" :key="`overview-health-${item.modelName}`" class="usage-model-row">
+                  <div class="usage-model-row-head">
+                    <strong :title="item.modelName">{{ item.modelName }}</strong>
+                    <span v-if="item.successRate !== null" :class="healthTone(item.successRate)">
+                      成功率 {{ formatPercent(item.successRate) }}
+                    </span>
+                    <span v-else>成功率未采样</span>
+                  </div>
+                  <small>
+                    <template v-if="item.avgLatencyMs !== null">平均耗时 {{ item.avgLatencyMs }} ms</template>
+                    <template v-if="item.avgTps !== null"> · {{ item.avgTps.toFixed(1) }} tok/s</template>
+                  </small>
+                </div>
+              </div>
+            </section>
+          </div>
+          <ul v-if="overviewStats.errors.length" class="usage-overview-errors">
+            <li v-for="item in overviewStats.errors" :key="item.providerId">
+              <strong>{{ item.providerName }}</strong>
+              <span>{{ item.message }}</span>
+            </li>
+          </ul>
+        </div>
+      </a-spin>
+      <a-spin v-else :loading="loading">
         <div v-if="!summary || summary.points.length === 0" class="api-key-empty" role="status">
           {{ loading ? '正在读取用量趋势…' : error ? '用量数据未能加载' : '所选时段暂无用量数据' }}
         </div>
@@ -162,7 +301,7 @@ function formatRate(value: number) {
             <div class="usage-chart-header">
               <div>
                 <strong>额度消耗趋势</strong>
-                <span>{{ usagePeriodTitle }} · {{ period === '24h' ? '按小时汇总' : '按天汇总' }}</span>
+                <span>{{ usagePeriodTitle }} · {{ usagePeriodGranularity }}</span>
               </div>
               <div class="usage-chart-legend">
                 <i />
@@ -224,6 +363,28 @@ function formatRate(value: number) {
               </div>
             </details>
           </div>
+          <section v-if="usageModelHealth.length" class="usage-model-panel usage-health-panel">
+            <div class="usage-model-panel-header">
+              <strong>响应质量</strong>
+              <span>站点近 24 小时采样 · 成功率低的在前</span>
+            </div>
+            <div class="usage-model-list">
+              <div v-for="item in usageModelHealth" :key="`health-${item.modelName}`" class="usage-model-row">
+                <div class="usage-model-row-head">
+                  <strong :title="item.modelName">{{ item.modelName }}</strong>
+                  <span v-if="item.successRate !== null" :class="healthTone(item.successRate)">
+                    成功率 {{ formatPercent(item.successRate) }}
+                  </span>
+                  <span v-else>成功率未采样</span>
+                </div>
+                <small>
+                  <template v-if="item.avgLatencyMs !== null">平均耗时 {{ item.avgLatencyMs }} ms</template>
+                  <template v-if="item.avgTps !== null"> · {{ item.avgTps.toFixed(1) }} tok/s</template>
+                  <template v-if="item.requestCount > 0"> · 同一周期 {{ formatNumberCompact(item.requestCount, 0) }} 次</template>
+                </small>
+              </div>
+            </div>
+          </section>
           <div v-if="usageTopQuotaModels.length || usageTopCallModels.length" class="usage-model-dashboard">
             <section v-if="usageTopQuotaModels.length" class="usage-model-panel">
               <div class="usage-model-panel-header">

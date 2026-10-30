@@ -16,6 +16,7 @@ import {
   getProviderRequestLogs as getProviderRequestLogsCommand,
   getProviderUsage as getProviderUsageCommand,
   importAppData as importAppDataCommand,
+  installDevSampleData,
   addLocalProviderApiKey as addLocalProviderApiKeyCommand,
   listLocalProviderApiKeys as listLocalProviderApiKeysCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
@@ -28,13 +29,14 @@ import {
   removeLocalProviderApiKey as removeLocalProviderApiKeyCommand,
   setLocalProviderApiKeyRemark as setLocalProviderApiKeyRemarkCommand,
   saveProvider as saveProviderCommand,
+  setProviderEnabled,
   setDefaultLocalProviderApiKey as setDefaultLocalProviderApiKeyCommand,
   syncAvailableModels as syncAvailableModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
   testProviderConnection as testProviderConnectionCommand,
   type AppData,
+  type AppDataImportResult,
 } from "../api/app";
-import { providerToInput } from "../utils/provider-input";
 import { withTimeout } from "../utils/promise-timeout";
 import {
   mergeProvidersByRevision,
@@ -171,13 +173,24 @@ export const useProviderStore = defineStore("providers", {
         return;
       }
 
-      await this.saveProvider(providerToInput(provider, { runtime: { enabled } }));
+      this.upsertProvider(await withTimeout(setProviderEnabled(id, enabled), 15_000, "更新卡片状态超时，请刷新后核对"));
     },
     async exportAppData(path: string) {
       return exportAppDataCommand(path);
     },
     async importAppData(path: string) {
-      const result = await importAppDataCommand(path);
+      return this.applyImportedData(() => importAppDataCommand(path));
+    },
+    /** 开发版演示数据与导入走同一条水合路径，避免两种写法各自维护状态合并。 */
+    async installDevSampleData() {
+      const providerCount = await installDevSampleData();
+      await this.applyImportedData(async () => ({
+        data: await loadAppData(),
+        transfer: { path: "", schemaVersion: 0, providerCount },
+      }));
+    },
+    async applyImportedData(request: () => Promise<AppDataImportResult>) {
+      const result = await request();
       if (!this.hydrateAppData(result.data)) {
         // 另一个后端事务可能在导入命令返回到 WebView 前已经产生了更新版本。
         // 只接受再次读取到的最新完整快照，绝不把旧 settings/workspaces 灌回前端。

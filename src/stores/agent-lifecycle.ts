@@ -1,10 +1,11 @@
 import { defineStore } from "pinia";
-import { computed, ref, shallowRef } from "vue";
+import { ref, shallowRef } from "vue";
 import {
   getAgentLifecycleCatalog, planAgentLifecycle, applyAgentLifecycle,
   getAgentLifecycleOperation, listAgentLifecycleOperations, cancelAgentLifecycleOperation,
+  setAgentAutomaticUpdate,
 } from "../api/agent-lifecycle";
-import type { AgentLifecycleCatalog, AgentLifecycleOperation, AgentLifecyclePlan, AgentLifecyclePlanRequest, AgentLifecycleVersionRefresh } from "./agent-lifecycle-types";
+import type { AgentAutomaticUpdate, AgentLifecycleCatalog, AgentLifecycleOperation, AgentLifecyclePlan, AgentLifecyclePlanRequest, AgentLifecycleTarget, AgentLifecycleVersionRefresh } from "./agent-lifecycle-types";
 import { agentEnvironmentErrorMessage } from "./agent-environment";
 import { useAgentCatalogStore } from "./agent-catalog";
 import { useAgentOverviewStore } from "./agent-overview";
@@ -18,28 +19,48 @@ export const useAgentLifecycleStore = defineStore("agent-lifecycle", () => {
   const loading = ref(false);
   const checkingVersions = ref(false);
   const error = ref("");
+  const eventError = ref("");
   const starting = ref<Record<string, boolean>>({});
   const startErrors = ref<Record<string, string>>({});
   const startTimes = ref<Record<string, number>>({});
+  const automaticSaving = ref<Record<string, boolean>>({});
+  const automaticErrors = ref<Record<string, string>>({});
+  let catalogRevision = 0;
   const assets = useAgentCatalogStore();
   const requestRevision = ref(0);
-  const retryAt = ref<number | null>(null);
-  const nextVersionCheckAt = computed(() => {
-    if (retryAt.value !== null) return retryAt.value;
-    if (!catalog.value) return 0;
-    const next = catalog.value.nextCheckAt;
-    return next && Number.isFinite(Date.parse(next)) ? Date.parse(next) : null;
-  });
   let inputRevision = 0;
   let pendingInputRevision = 0;
   let pendingMode: AgentLifecycleVersionRefresh = "cached";
   let pendingRefresh: Promise<AgentLifecycleCatalog | null> | null = null;
   const refreshPriority: Record<AgentLifecycleVersionRefresh, number> = { cached: 0, ifStale: 1, force: 2 };
 
+  function acceptCatalog(value: AgentLifecycleCatalog) {
+    if (value.revision <= catalogRevision) return;
+    catalogRevision = value.revision;
+    catalog.value = value;
+    error.value = "";
+  }
+
+  async function setAutomatic(entry: AgentAutomaticUpdate, enabled: boolean, target?: AgentLifecycleTarget) {
+    const key = entry.key;
+    if (!key || automaticSaving.value[key]) return;
+    automaticSaving.value[key] = true;
+    delete automaticErrors.value[key];
+    try {
+      const result = await withTimeout(setAgentAutomaticUpdate({ key, enabled, targetId: target?.id ?? null,
+        expectedEvidenceRevision: target?.evidenceRevision ?? null }), 70_000, "保存自动更新设置超时，请刷新确认结果");
+      acceptCatalog(result);
+    } catch (failure) {
+      automaticErrors.value[key] = agentEnvironmentErrorMessage(failure);
+      void refresh("cached");
+    } finally {
+      automaticSaving.value[key] = false;
+    }
+  }
+
   function invalidate() {
     inputRevision += 1;
     catalog.value = null;
-    retryAt.value = null;
     error.value = "";
   }
 
@@ -64,18 +85,15 @@ export const useAgentLifecycleStore = defineStore("agent-lifecycle", () => {
       if (!catalog.value && mode !== "cached") {
         const cached = await withTimeout(getAgentLifecycleCatalog({ versionRefresh: "cached" }), 65_000, "读取安装缓存超时");
         if (request !== requestRevision.value || inputs !== inputRevision) return null;
-        catalog.value = cached;
+        acceptCatalog(cached);
       }
       const result = await withTimeout(getAgentLifecycleCatalog({ versionRefresh: mode }), 65_000, "读取安装与版本信息超时");
       if (request !== requestRevision.value || inputs !== inputRevision) return null;
-      catalog.value = result;
-      retryAt.value = null;
+      acceptCatalog(result);
       return result;
     } catch (failure) {
       if (request === requestRevision.value && inputs === inputRevision) {
         error.value = agentEnvironmentErrorMessage(failure);
-        // IPC/inventory failures also need a retry delay; release-source backoff is owned by Rust.
-        retryAt.value = Date.now() + 30_000;
       }
       return null;
     } finally {
@@ -92,12 +110,16 @@ export const useAgentLifecycleStore = defineStore("agent-lifecycle", () => {
     completed(operation) {
       if (operation.recovered || completedTasks.has(operation.id)) return;
       completedTasks.add(operation.id);
-      const hadCatalog = Boolean(catalog.value);
-      invalidate();
-      if (hadCatalog) void refresh("ifStale");
+      if (operation.origin !== "automatic") {
+        const hadCatalog = Boolean(catalog.value);
+        invalidate();
+        if (hadCatalog) void refresh("ifStale");
+      }
       void useAgentOverviewStore().invalidate(operation.agentKind);
       void useCliRuntimeStore().probeCliTools(false).catch(() => undefined);
-      for (const key of Object.keys(assets.catalogs)) assets.invalidate(key === "__native__" ? undefined : key);
+      for (const [key, snapshot] of Object.entries(assets.catalogs)) {
+        if (snapshot.targets.some((target) => target.agentKind === operation.agentKind)) assets.invalidate(key === "__native__" ? undefined : key);
+      }
     },
   });
 
@@ -121,7 +143,8 @@ export const useAgentLifecycleStore = defineStore("agent-lifecycle", () => {
   }
 
   return {
-    catalog, loading, checkingVersions, error, requestRevision, nextVersionCheckAt, starting, startErrors, startTimes, refresh, invalidate, apply, ...tracking,
+    catalog, loading, checkingVersions, error, eventError, requestRevision, starting, startErrors, startTimes, refresh, invalidate, apply, ...tracking,
+    acceptCatalog, automaticSaving, automaticErrors, setAutomatic,
     plan: (request: AgentLifecyclePlanRequest) => withTimeout(planAgentLifecycle(request), 65_000, "生成升级计划超时"),
   };
 });

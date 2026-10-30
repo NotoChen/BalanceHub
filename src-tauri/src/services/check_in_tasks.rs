@@ -6,7 +6,7 @@ use crate::{
     app_events::PROVIDERS_CHANGED_EVENT,
     models::{
         provider_domain, CheckInBatch, CheckInError, CheckInPhase, CheckInSource, CheckInTask,
-        Provider,
+        NotificationEvent, Provider,
     },
     services::{
         notifications,
@@ -497,6 +497,7 @@ fn spawn(
                 &app,
                 &data.settings,
                 provider,
+                NotificationEvent::CheckIn,
                 title,
                 markdown,
                 false,

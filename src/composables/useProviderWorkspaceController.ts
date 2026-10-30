@@ -5,6 +5,8 @@ import { providerNeedsCheckIn } from "../utils/provider-actions";
 import { providerLivenessEnabled } from "../utils/provider-liveness";
 import { useProviderCardTone } from "./useProviderCardTone";
 import { useCardDragSort } from "./useCardDragSort";
+import { providerBoardSection } from "../utils/provider-board-sections";
+import { useOAuthAccountStore } from "../stores/oauth-accounts";
 
 interface UseProviderWorkspaceControllerOptions {
   providers: Ref<Provider[]>;
@@ -23,6 +25,7 @@ interface UseProviderWorkspaceControllerOptions {
 }
 
 export function useProviderWorkspaceController(options: UseProviderWorkspaceControllerOptions) {
+  const oauth = useOAuthAccountStore();
   function showProviderLivenessTimeline(provider: Provider) {
     return providerLivenessEnabled(provider, options.settings.value);
   }
@@ -32,13 +35,13 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
     getId: (provider) => provider.identity.id,
     gridSelector: ".overview-provider-grid",
     dataId: "providerId",
-    dragGroup: (provider) => (showProviderLivenessTimeline(provider) ? "liveness" : "regular"),
+    dragGroup: (provider) => providerBoardSection(provider, showProviderLivenessTimeline(provider)),
     reorder: options.reorderProviders,
     onError: (error) => Message.error(error instanceof Error ? error.message : String(error)),
   });
 
   const livenessProviders = computed(() => dragSort.orderedGroups.value.get("liveness") ?? []);
-  const regularProviders = computed(() => dragSort.orderedGroups.value.get("regular") ?? []);
+  const regularProviders = computed(() => [...dragSort.orderedGroups.value.entries()].filter(([key]) => key !== "liveness").flatMap(([, providers]) => providers));
 
   const cardTone = useProviderCardTone({
     providers: options.providers,
@@ -61,6 +64,11 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
   async function handleProviderCardClick(provider: Provider) {
     if (dragSort.clickSuppressed.value) {
       dragSort.clickSuppressed.value = false;
+      return;
+    }
+
+    if (provider.actions.oauthAccount || provider.actions.cpaGateway) {
+      oauth.openAccount(provider.identity.id, provider.actions.cpaGateway);
       return;
     }
 

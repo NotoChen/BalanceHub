@@ -7,7 +7,7 @@ use crate::{
             profile::quota_display,
             usage::{normalize_log, urlencoding, usage_dates},
         },
-        transport::build_client,
+        transport::{build_client, ProviderTransport},
     },
     models::{
         AppSettings, Provider, ProviderRequestLogStats, ProviderRequestLogsQuery,
@@ -71,11 +71,13 @@ impl Sub2ApiAdapter {
                 provider_id: provider.identity.id.clone(),
                 provider_name: provider.display_label(),
                 quota_display: quota_display(provider),
+                request_count: points.iter().map(|point| point.request_count).sum(),
                 points,
                 model_stats,
                 // Sub2API only exposes aggregate daily trend and aggregate model
                 // statistics. Do not fabricate per-model daily zero points.
                 model_points: Vec::new(),
+                model_health: Vec::new(),
             },
         ))
     }
@@ -88,10 +90,17 @@ impl Sub2ApiAdapter {
     ) -> Result<(Provider, ProviderRequestLogsResult), String> {
         let client = build_client(settings, provider).await?;
         let page = query.page + 1;
-        let mut path = format!("/usage?page={page}&page_size={}", query.page_size.max(1));
-        if !query.keyword.trim().is_empty() {
+        // 统计接口必须带时间范围，且要和列表使用同一段窗口，否则“消耗”会和
+        // 列表里的记录对不上；30 天与 NewAPI 的请求日志窗口一致。
+        let (start_date, end_date) = usage_dates("30d");
+        let keyword = query.keyword.trim();
+        let mut path = format!(
+            "/usage?page={page}&page_size={}&start_date={start_date}&end_date={end_date}",
+            query.page_size.max(1)
+        );
+        if !keyword.is_empty() {
             path.push_str("&model=");
-            path.push_str(&urlencoding(query.keyword.trim()));
+            path.push_str(&urlencoding(keyword));
         }
         let (authenticated, data) =
             request_account_json(&client, provider, Method::GET, &path, None, "读取请求日志")
@@ -101,6 +110,8 @@ impl Sub2ApiAdapter {
             .map(normalize_log)
             .collect::<Vec<_>>();
         let total = data.get("total").map(|_| integer_field(&data, &["total"]));
+        let (authenticated, stats) =
+            fetch_request_log_stats(&client, &authenticated, keyword, &start_date, &end_date).await;
         Ok((
             authenticated,
             ProviderRequestLogsResult {
@@ -110,10 +121,76 @@ impl Sub2ApiAdapter {
                 page_size: query.page_size,
                 total,
                 quota_display: quota_display(provider),
-                stats: ProviderRequestLogStats::default(),
+                stats,
                 logs,
                 message: "请求日志已加载".to_string(),
             },
         ))
     }
+}
+
+/// 统计是日志列表的补充：Sub2API 把它拆在 `/usage/stats`（按同一筛选汇总消耗）
+/// 与 `/usage/dashboard/stats`（近 5 分钟 RPM / TPM）。任一接口失败只让对应数字
+/// 归零，不影响已经读到的日志列表；每次调用返回的 provider 都要继续传下去，
+/// 否则中途轮换的令牌会被丢掉。
+async fn fetch_request_log_stats(
+    client: &ProviderTransport,
+    provider: &Provider,
+    keyword: &str,
+    start_date: &str,
+    end_date: &str,
+) -> (Provider, ProviderRequestLogStats) {
+    let mut current = provider.clone();
+    let mut stats_path = format!("/usage/stats?start_date={start_date}&end_date={end_date}");
+    if !keyword.is_empty() {
+        stats_path.push_str("&model=");
+        stats_path.push_str(&urlencoding(keyword));
+    }
+    let quota = match request_account_json(
+        client,
+        &current,
+        Method::GET,
+        &stats_path,
+        None,
+        "读取日志消耗",
+    )
+    .await
+    {
+        Ok((next, data)) => {
+            current = next;
+            number_field(&data, &["total_actual_cost", "totalActualCost"])
+        }
+        Err(_) => 0.0,
+    };
+    let (rpm, tpm, avg_duration_ms) = match request_account_json(
+        client,
+        &current,
+        Method::GET,
+        "/usage/dashboard/stats",
+        None,
+        "读取日志指标",
+    )
+    .await
+    {
+        Ok((next, data)) => {
+            current = next;
+            let duration =
+                number_field(&data, &["average_duration_ms", "averageDurationMs"]).max(0.0);
+            (
+                number_field(&data, &["rpm"]),
+                number_field(&data, &["tpm"]),
+                (duration > 0.0).then_some(duration),
+            )
+        }
+        Err(_) => (0.0, 0.0, None),
+    };
+    (
+        current,
+        ProviderRequestLogStats {
+            quota,
+            rpm,
+            tpm,
+            avg_duration_ms,
+        },
+    )
 }

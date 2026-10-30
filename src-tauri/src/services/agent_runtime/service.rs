@@ -9,13 +9,12 @@ use super::{
     repository::{AgentRuntimeRefreshOutcome, AgentRuntimeRepository, AgentRuntimeSnapshot},
 };
 use crate::services::cli_runtime;
-use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 pub const AGENT_RUNTIME_UPDATED_EVENT: &str = "agent-runtime-updated";
 pub const AGENT_RUNTIME_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -36,17 +35,6 @@ impl Drop for RefreshInFlightGuard {
     }
 }
 
-/// A small, serializable status surface lets the UI explain initialization or
-/// refresh failures without turning them into a startup failure or a stream of
-/// notifications.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRuntimeServiceStatus {
-    pub initialized: bool,
-    pub revision: Option<u64>,
-    pub error: Option<String>,
-}
-
 #[derive(Clone)]
 pub struct AgentRuntimeService {
     repository: Option<Arc<AgentRuntimeRepository>>,
@@ -65,9 +53,7 @@ impl AgentRuntimeService {
     /// Initializes from the Tauri-owned App data directory. Failure is kept as
     /// data so the desktop application can continue starting in fail-open mode.
     pub fn from_app(app: &AppHandle) -> Self {
-        let result = app
-            .path()
-            .app_data_dir()
+        let result = crate::desktop::data_dir(app)
             .map_err(|error| format!("获取 Agent runtime App data 目录失败: {error}"))
             .and_then(|path| {
                 AgentRuntimeRepository::new(path)
@@ -151,23 +137,6 @@ impl AgentRuntimeService {
             started: Arc::new(AtomicBool::new(false)),
             activator,
             enrichment,
-        }
-    }
-
-    pub fn status(&self) -> AgentRuntimeServiceStatus {
-        let error = self.initialization_error.clone().or_else(|| {
-            self.last_error
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .clone()
-        });
-        AgentRuntimeServiceStatus {
-            initialized: self.repository.is_some(),
-            revision: self
-                .repository
-                .as_ref()
-                .map(|_| self.last_successful_revision.load(Ordering::Acquire)),
-            error,
         }
     }
 
@@ -476,9 +445,9 @@ mod tests {
     #[test]
     fn initialization_failure_is_fail_open_and_readable() {
         let service = AgentRuntimeService::from_repository_result(Err("permission denied".into()));
-        assert!(!service.status().initialized);
-        assert_eq!(service.status().error.as_deref(), Some("permission denied"));
-        assert!(service.snapshot().is_err());
+        // 初始化失败不能让 App 起不来：错误留到第一次读取时原样交给界面。
+        let error = service.snapshot().expect_err("初始化失败时必须报错");
+        assert!(error.contains("permission denied"));
     }
 
     #[test]

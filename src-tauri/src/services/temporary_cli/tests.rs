@@ -3,9 +3,9 @@ use super::resolve_resume_id;
 use super::resolve_session_name;
 use super::shell_runtime::environment::ShellEnvironmentSnapshot;
 use super::shell_runtime::script::{
-    escape_cmd_value, format_cli_command, preview_cli_auxiliary_path,
-    runtime_instance_id_from_status_path, temporary_script_path, windows_launch_payload,
-    WindowsLaunchPayloadInput, WINDOWS_LAUNCH_PAYLOAD_COMMAND,
+    escape_cmd_value, format_cli_command, runtime_instance_id_from_status_path,
+    temporary_script_path, windows_launch_payload, WindowsLaunchPayloadInput,
+    WINDOWS_LAUNCH_PAYLOAD_COMMAND,
 };
 #[cfg(not(target_os = "windows"))]
 use super::shell_runtime::script::{
@@ -88,7 +88,7 @@ fn native_and_provider_plans_share_exact_resume_arguments_for_all_agents() {
                 session_name: "unused",
                 resume_id: "session-123",
                 session_mode: TemporaryCliSessionMode::History,
-                auxiliary_file_path: None,
+                launch_directory: preview_directory(),
             })
             .unwrap();
         let expected = if cli_kind == AgentCliKind::Codex {
@@ -99,8 +99,7 @@ fn native_and_provider_plans_share_exact_resume_arguments_for_all_agents() {
         assert_eq!(native.args, expected);
         assert_eq!(native.environment.set_values().count(), 0);
         assert_eq!(native.environment.removed_names().count(), 0);
-        assert!(native.auxiliary_file_content.is_none());
-        let path = preview_cli_auxiliary_path(adapter.auxiliary_file_name());
+        assert!(native.auxiliary_files.is_empty());
         let provider = adapter
             .build_plan(TemporaryLaunchRequest {
                 configuration: TemporaryLaunchConfiguration::Provider {
@@ -112,7 +111,7 @@ fn native_and_provider_plans_share_exact_resume_arguments_for_all_agents() {
                 session_name: "",
                 resume_id: "session-123",
                 session_mode: TemporaryCliSessionMode::History,
-                auxiliary_file_path: path.as_deref(),
+                launch_directory: preview_directory(),
             })
             .unwrap();
         assert!(provider.args.ends_with(&native.args));
@@ -188,7 +187,8 @@ fn exact_windows_resume_keeps_the_verified_executable_selection() {
     let plan = TemporaryLaunchPlan {
         args: vec!["resume".to_owned(), "session-123".to_owned()],
         environment: EnvironmentPatch::default(),
-        auxiliary_file_content: None,
+        auxiliary_files: Vec::new(),
+        isolated_home: None,
     };
     let mut shell = ShellEnvironmentSnapshot::default();
     shell
@@ -219,22 +219,15 @@ fn exact_windows_resume_keeps_the_verified_executable_selection() {
     );
 }
 
+fn preview_directory() -> &'static Path {
+    Path::new("<temporary-cli>")
+}
+
 fn launch_plan(cli_kind: AgentCliKind, request: TemporaryLaunchRequest<'_>) -> TemporaryLaunchPlan {
-    let adapter = agent_cli::definition(cli_kind)
+    agent_cli::definition(cli_kind)
         .temporary_launch()
-        .expect("test Agent supports temporary launch");
-    let owned_preview_path;
-    let auxiliary_file_path = if request.auxiliary_file_path.is_some() {
-        request.auxiliary_file_path
-    } else {
-        owned_preview_path = preview_cli_auxiliary_path(adapter.auxiliary_file_name());
-        owned_preview_path.as_deref()
-    };
-    adapter
-        .build_plan(TemporaryLaunchRequest {
-            auxiliary_file_path,
-            ..request
-        })
+        .expect("test Agent supports temporary launch")
+        .build_plan(request)
         .unwrap()
 }
 
@@ -245,7 +238,6 @@ fn cli_args(
     model: &str,
     session_name: &str,
     session_mode: TemporaryCliSessionMode,
-    auxiliary_file_path: Option<&Path>,
 ) -> Vec<String> {
     launch_plan(
         cli_kind,
@@ -259,7 +251,7 @@ fn cli_args(
             session_name,
             resume_id: "",
             session_mode,
-            auxiliary_file_path,
+            launch_directory: preview_directory(),
         },
     )
     .args
@@ -272,7 +264,6 @@ fn cli_args_with_resume(
     model: &str,
     session_name: &str,
     resume_id: &str,
-    auxiliary_file_path: Option<&Path>,
 ) -> Vec<String> {
     launch_plan(
         cli_kind,
@@ -286,7 +277,7 @@ fn cli_args_with_resume(
             session_name,
             resume_id,
             session_mode: TemporaryCliSessionMode::History,
-            auxiliary_file_path,
+            launch_directory: preview_directory(),
         },
     )
     .args
@@ -294,7 +285,22 @@ fn cli_args_with_resume(
 
 fn preview_cli_settings_path(cli_kind: AgentCliKind) -> Option<std::path::PathBuf> {
     let adapter = agent_cli::definition(cli_kind).temporary_launch()?;
-    preview_cli_auxiliary_path(adapter.auxiliary_file_name())
+    let plan = adapter
+        .build_plan(TemporaryLaunchRequest {
+            configuration: TemporaryLaunchConfiguration::Provider {
+                provider_name: "Relay",
+                api_key: "***",
+                base_url: "https://relay.example.com",
+            },
+            model: "",
+            session_name: "",
+            resume_id: "",
+            session_mode: TemporaryCliSessionMode::New,
+            launch_directory: preview_directory(),
+        })
+        .ok()?;
+    plan.settings_path()
+        .map(|path| preview_directory().join(path))
 }
 
 fn cli_settings_content(
@@ -305,7 +311,6 @@ fn cli_settings_content(
     let adapter = agent_cli::definition(cli_kind)
         .temporary_launch()
         .ok_or_else(|| "test Agent does not support launch".to_string())?;
-    let path = preview_cli_auxiliary_path(adapter.auxiliary_file_name());
     adapter
         .build_plan(TemporaryLaunchRequest {
             configuration: TemporaryLaunchConfiguration::Provider {
@@ -317,9 +322,9 @@ fn cli_settings_content(
             session_name: "",
             resume_id: "",
             session_mode: TemporaryCliSessionMode::New,
-            auxiliary_file_path: path.as_deref(),
+            launch_directory: preview_directory(),
         })
-        .map(|plan| plan.auxiliary_file_content)
+        .map(|plan| plan.settings_document().map(str::to_owned))
 }
 
 fn provider_with_liveness_model(model: &str) -> Provider {
@@ -427,7 +432,6 @@ fn codex_args_override_provider_without_ignoring_user_config() {
         "gpt-5.5",
         "",
         TemporaryCliSessionMode::New,
-        None,
     );
 
     assert!(args.windows(2).any(|pair| pair == ["-m", "gpt-5.5"]));
@@ -452,7 +456,6 @@ fn codex_args_escape_toml_values() {
         "",
         "",
         TemporaryCliSessionMode::New,
-        None,
     );
 
     assert!(!args.contains(&"-m".to_string()));
@@ -478,7 +481,7 @@ fn launch_preview_command_redacts_codex_credentials() {
             session_name: "",
             resume_id: "",
             session_mode: TemporaryCliSessionMode::New,
-            auxiliary_file_path: None,
+            launch_directory: preview_directory(),
         })
         .unwrap();
     let command = format_cli_command(
@@ -514,7 +517,7 @@ fn launch_preview_redacts_claude_settings_credentials() {
         preview_cli_settings_path(AgentCliKind::ClaudeCode)
             .unwrap()
             .to_string_lossy(),
-        "<temporary-claude-settings.json>"
+        "<temporary-cli>/claude-settings.json"
     );
     assert!(preview_cli_settings_path(AgentCliKind::Codex).is_none());
 }
@@ -528,7 +531,6 @@ fn gemini_args_and_system_settings_follow_official_cli_contract() {
         "gemini-2.5-pro",
         "ignored title",
         "gemini-session-id",
-        preview_cli_settings_path(AgentCliKind::Gemini).as_deref(),
     );
     assert_eq!(
         args,
@@ -553,7 +555,7 @@ fn gemini_args_and_system_settings_follow_official_cli_contract() {
         preview_cli_settings_path(AgentCliKind::Gemini)
             .unwrap()
             .to_string_lossy(),
-        "<temporary-gemini-system-settings.json>"
+        "<temporary-cli>/gemini-system-settings.json"
     );
 }
 
@@ -571,7 +573,7 @@ fn grok_launch_plan_flows_through_the_agent_registry() {
             session_name: "ignored title",
             resume_id: "019c-grok-session",
             session_mode: TemporaryCliSessionMode::History,
-            auxiliary_file_path: None,
+            launch_directory: preview_directory(),
         },
     );
 
@@ -595,7 +597,7 @@ fn grok_launch_plan_flows_through_the_agent_registry() {
         .environment
         .set_values()
         .any(|(name, value)| name == "GROK_DISABLE_AUTOUPDATER" && value == "1"));
-    assert!(plan.auxiliary_file_content.is_none());
+    assert!(plan.auxiliary_files.is_empty());
     assert!(preview_cli_settings_path(AgentCliKind::Grok).is_none());
 }
 
@@ -608,7 +610,6 @@ fn official_session_modes_are_appended_after_provider_overrides() {
         "",
         "",
         TemporaryCliSessionMode::History,
-        None,
     );
     assert_eq!(codex_history.last().map(String::as_str), Some("resume"));
     assert!(!codex_history.contains(&"-m".to_string()));
@@ -620,7 +621,6 @@ fn official_session_modes_are_appended_after_provider_overrides() {
         "claude-sonnet-4-5",
         "",
         TemporaryCliSessionMode::History,
-        None,
     );
     assert_eq!(claude_history.last().map(String::as_str), Some("--resume"));
     assert!(claude_history
@@ -634,7 +634,6 @@ fn official_session_modes_are_appended_after_provider_overrides() {
         "",
         "",
         "019facdb-session",
-        None,
     );
     assert_eq!(
         &codex_resume[codex_resume.len() - 2..],
@@ -648,7 +647,6 @@ fn official_session_modes_are_appended_after_provider_overrides() {
         "",
         "",
         "019facdb-session",
-        None,
     );
     assert_eq!(
         &claude_resume[claude_resume.len() - 2..],
@@ -658,7 +656,9 @@ fn official_session_modes_are_appended_after_provider_overrides() {
 
 #[test]
 fn claude_args_include_settings_and_model_when_configured() {
-    let settings_path = Path::new("/tmp/claude settings.json");
+    // The settings file lives beside the generated launch script, so the CLI is
+    // pointed at the launch directory's copy rather than a shared temp path.
+    let settings_path = "<temporary-cli>/claude-settings.json";
 
     assert_eq!(
         cli_args(
@@ -668,11 +668,10 @@ fn claude_args_include_settings_and_model_when_configured() {
             "claude-sonnet-4-5",
             "",
             TemporaryCliSessionMode::New,
-            Some(settings_path)
         ),
         vec![
             "--settings".to_string(),
-            "/tmp/claude settings.json".to_string(),
+            settings_path.to_string(),
             "--model".to_string(),
             "claude-sonnet-4-5".to_string(),
         ]
@@ -685,12 +684,8 @@ fn claude_args_include_settings_and_model_when_configured() {
             "",
             "",
             TemporaryCliSessionMode::New,
-            Some(settings_path)
         ),
-        vec![
-            "--settings".to_string(),
-            "/tmp/claude settings.json".to_string(),
-        ]
+        vec!["--settings".to_string(), settings_path.to_string()]
     );
 }
 
@@ -703,13 +698,12 @@ fn claude_args_include_name_only_for_new_sessions() {
         "",
         "Billing refactor",
         TemporaryCliSessionMode::New,
-        None,
     );
     assert_eq!(
         named,
         vec![
             "--settings".to_string(),
-            "<temporary-claude-settings.json>".to_string(),
+            "<temporary-cli>/claude-settings.json".to_string(),
             "--name".to_string(),
             "Billing refactor".to_string(),
         ]
@@ -722,13 +716,12 @@ fn claude_args_include_name_only_for_new_sessions() {
         "",
         "Billing refactor",
         TemporaryCliSessionMode::History,
-        None,
     );
     assert_eq!(
         resumed,
         vec![
             "--settings".to_string(),
-            "<temporary-claude-settings.json>".to_string(),
+            "<temporary-cli>/claude-settings.json".to_string(),
             "--resume".to_string(),
         ]
     );
@@ -846,7 +839,7 @@ fi
             session_name: "",
             resume_id: "",
             session_mode: TemporaryCliSessionMode::New,
-            auxiliary_file_path: None,
+            launch_directory: preview_directory(),
         },
     );
     write_launch_script(&LaunchScriptInput {
@@ -855,7 +848,6 @@ fi
         cli_command_name: "codex",
         workdir: &workdir,
         plan: &plan,
-        auxiliary_file_path: None,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
         prefer_shell_cli: true,
@@ -921,7 +913,7 @@ fn generated_launch_script_can_be_sourced_by_zsh() {
             session_name: "",
             resume_id: "",
             session_mode: TemporaryCliSessionMode::New,
-            auxiliary_file_path: None,
+            launch_directory: preview_directory(),
         },
     );
     write_launch_script(&LaunchScriptInput {
@@ -930,7 +922,6 @@ fn generated_launch_script_can_be_sourced_by_zsh() {
         cli_command_name: "codex",
         workdir: &workdir,
         plan: &plan,
-        auxiliary_file_path: None,
         status_path: &status_path,
         proxy_environment: &proxy_environment,
         prefer_shell_cli: true,
@@ -1014,7 +1005,6 @@ cat "$settings_path"
         ..AppSettings::default()
     });
     let proxy_environment = proxy.environment();
-    let auxiliary_file_path = script_dir.join("claude-settings.json");
     let base_url = agent_cli::provider_base_url(AgentCliKind::ClaudeCode, &provider);
     let plan = launch_plan(
         AgentCliKind::ClaudeCode,
@@ -1028,7 +1018,7 @@ cat "$settings_path"
             session_name: "Release smoke test",
             resume_id: "",
             session_mode: TemporaryCliSessionMode::New,
-            auxiliary_file_path: Some(&auxiliary_file_path),
+            launch_directory: &script_dir,
         },
     );
     write_launch_script(&LaunchScriptInput {
@@ -1037,7 +1027,6 @@ cat "$settings_path"
         cli_command_name: "claude",
         workdir: &workdir,
         plan: &plan,
-        auxiliary_file_path: Some(&auxiliary_file_path),
         status_path: &status_path,
         proxy_environment: &proxy_environment,
         prefer_shell_cli: true,
@@ -1144,7 +1133,8 @@ fn windows_launch_payload_preserves_cli_arguments_and_credentials() {
     let plan = TemporaryLaunchPlan {
         args: args.clone(),
         environment: agent_environment,
-        auxiliary_file_content: None,
+        auxiliary_files: Vec::new(),
+        isolated_home: None,
     };
     let payload = windows_launch_payload(WindowsLaunchPayloadInput {
         cli_path: r#"C:\Program Files\Codex\codex.cmd"#,
@@ -1214,7 +1204,8 @@ fn windows_launch_payload_does_not_restore_disabled_inherited_proxies() {
         plan: &TemporaryLaunchPlan {
             args: Vec::new(),
             environment: EnvironmentPatch::default(),
-            auxiliary_file_content: None,
+            auxiliary_files: Vec::new(),
+            isolated_home: None,
         },
         proxy_environment: &proxy_environment,
         shell_snapshot: &shell_snapshot,
@@ -1225,7 +1216,8 @@ fn windows_launch_payload_does_not_restore_disabled_inherited_proxies() {
 
 #[test]
 fn windows_gemini_launch_payload_isolates_google_authentication() {
-    let settings_path = std::path::Path::new(r#"C:\Temp\gemini-system-settings.json"#);
+    let launch_directory = std::path::Path::new(r"C:\Temp");
+    let settings_path = launch_directory.join("gemini-system-settings.json");
     let proxy_environment = network::resolve_global_proxy(&AppSettings::default()).environment();
     let shell_snapshot = ShellEnvironmentSnapshot {
         variables: std::collections::BTreeMap::from([
@@ -1252,7 +1244,7 @@ fn windows_gemini_launch_payload_isolates_google_authentication() {
             session_name: "",
             resume_id: "",
             session_mode: TemporaryCliSessionMode::New,
-            auxiliary_file_path: Some(settings_path),
+            launch_directory,
         })
         .unwrap();
     let payload = windows_launch_payload(WindowsLaunchPayloadInput {

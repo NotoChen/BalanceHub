@@ -1,11 +1,11 @@
 use super::super::config_support::{
-    cli_target_for_key, config_error, latest_modified_at, match_provider_key, read_cli_config,
-    read_stable_optional,
+    cli_config_target, config_error, latest_modified_at, match_native_oauth, match_provider_key,
+    oauth_snapshot, read_cli_config, read_stable_optional, relay_snapshot, CliConfigTarget,
 };
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use crate::services::agent_cli::config_support::text_document;
 use crate::{
-    models::{AgentCliKind, CliConfigSnapshot, Provider},
+    models::{AgentCliKind, CliConfigSnapshot, OAuthVendor, Provider},
     services::cli_paths::{configured_path, user_home},
 };
 use serde_json::Value as JsonValue;
@@ -39,36 +39,22 @@ pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliCon
         Err(_) => return config_error(cli_kind, "读取 Codex 认证文件失败"),
     };
     let modified_at = latest_modified_at([config.as_ref(), auth.as_ref()]);
-    let (Some(config), Some(auth)) = (config, auth) else {
-        return CliConfigSnapshot {
-            cli_kind,
-            configured: false,
-            provider_id: None,
-            api_key_local_id: None,
-            modified_at,
-            error_message: None,
-        };
+    // A login without `config.toml` still counts: Codex reads `auth.json` on
+    // its own, and the relay route simply is not set.
+    let Some(auth) = auth else {
+        return oauth_snapshot(cli_kind, None, modified_at);
     };
-    match parse_codex_config(&config.text, &auth.text) {
+    let config = config.map(|file| file.text).unwrap_or_default();
+    match parse_codex_config(&config, &auth.text) {
         Ok(Some((base_url, api_key))) => {
             let matched = match_provider_key(providers, cli_kind, &base_url, &api_key);
-            CliConfigSnapshot {
-                cli_kind,
-                configured: true,
-                provider_id: matched.as_ref().map(|value| value.provider_id.clone()),
-                api_key_local_id: matched.map(|value| value.api_key_local_id),
-                modified_at,
-                error_message: None,
-            }
+            relay_snapshot(cli_kind, matched, modified_at)
         }
-        Ok(None) => CliConfigSnapshot {
+        Ok(None) => oauth_snapshot(
             cli_kind,
-            configured: false,
-            provider_id: None,
-            api_key_local_id: None,
+            match_native_oauth(providers, OAuthVendor::Codex, &auth.text),
             modified_at,
-            error_message: None,
-        },
+        ),
         Err(()) => CliConfigSnapshot {
             modified_at,
             ..config_error(cli_kind, "Codex 配置文件格式无效")
@@ -81,26 +67,89 @@ pub(super) fn candidates(
     provider: &Provider,
     api_key_local_id: &str,
 ) -> Result<Vec<ProviderConfigurationCandidate>, String> {
-    let target = cli_target_for_key(provider, cli_kind, api_key_local_id)?;
-    let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let config_path = root.join("config.toml");
-    let auth_path = root.join("auth.json");
-    let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
-    let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
-    let (config, auth) =
-        rewrite_codex_config(&config_text, &auth_text, &target.base_url, &target.api_key)?;
-    Ok(vec![
-        ProviderConfigurationCandidate {
-            path: config_path,
-            before: Some(config_text),
-            after: config,
-        },
-        ProviderConfigurationCandidate {
-            path: auth_path,
-            before: Some(auth_text),
-            after: auth,
-        },
-    ])
+    match cli_config_target(provider, cli_kind, api_key_local_id)? {
+        CliConfigTarget::ApiKey {
+            base_url, api_key, ..
+        } => {
+            let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+            let config_path = root.join("config.toml");
+            let auth_path = root.join("auth.json");
+            let config_text = read_cli_config(&config_path, "读取 Codex 配置文件")?;
+            let auth_text = read_cli_config(&auth_path, "读取 Codex 认证文件")?;
+            let (config, auth) =
+                rewrite_codex_config(&config_text, &auth_text, &base_url, &api_key)?;
+            Ok(vec![
+                ProviderConfigurationCandidate {
+                    path: config_path,
+                    before: Some(config_text),
+                    after: config,
+                },
+                ProviderConfigurationCandidate {
+                    path: auth_path,
+                    before: Some(auth_text),
+                    after: auth,
+                },
+            ])
+        }
+        CliConfigTarget::OAuth { auth, identity } => {
+            let root = config_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
+            let config_path = root.join("config.toml");
+            let auth_path = root.join("auth.json");
+            let config_text = read_stable_optional(&config_path)?.map(|file| file.text);
+            let auth_text = read_stable_optional(&auth_path)?.map(|file| file.text);
+            let mut candidates = Vec::new();
+            if let Some(config) = config_text.as_deref() {
+                let next = rewrite_codex_official_config(config)?;
+                if next != config {
+                    candidates.push(ProviderConfigurationCandidate {
+                        path: config_path,
+                        before: Some(config.to_string()),
+                        after: next,
+                    });
+                }
+            }
+            candidates.push(ProviderConfigurationCandidate {
+                path: auth_path,
+                before: auth_text,
+                after: codex_oauth_document(auth, identity)?,
+            });
+            Ok(candidates)
+        }
+    }
+}
+
+/// Switching to a ChatGPT login removes the relay route the API key used: the
+/// built-in `openai` provider is what reads `auth.json`.
+fn rewrite_codex_official_config(config: &str) -> Result<String, String> {
+    let mut document = text_document::body(config)
+        .parse::<TomlDocument>()
+        .map_err(|_| "Codex 配置文件格式无效".to_string())?;
+    let store = document
+        .get("cli_auth_credentials_store")
+        .and_then(toml_edit::Item::as_str);
+    if let Some(store) = store {
+        if store != "file" {
+            return Err(format!(
+                "Codex 设置了 cli_auth_credentials_store = \"{store}\"，登录不会保存在 auth.json；请先在 Codex 配置中改回 file 再切换"
+            ));
+        }
+    }
+    document.remove("model_provider");
+    document.remove("openai_base_url");
+    Ok(text_document::restore_layout(config, &document.to_string()))
+}
+
+fn codex_oauth_document(
+    auth: &crate::models::ProviderAuth,
+    identity: &crate::models::OAuthCredential,
+) -> Result<String, String> {
+    let document = crate::services::oauth_accounts::native::document(
+        identity.vendor,
+        auth,
+        identity,
+        true,
+    );
+    serde_json::to_string_pretty(&document).map_err(|err| format!("生成 Codex 认证文件失败: {err}"))
 }
 
 fn parse_codex_config(config: &str, auth: &str) -> Result<Option<(String, String)>, ()> {

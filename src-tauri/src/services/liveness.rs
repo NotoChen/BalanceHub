@@ -24,6 +24,10 @@ use std::{
 
 pub struct LivenessRunner;
 
+pub(crate) fn waits_for_agent_update(settings: &AppSettings, provider: &Provider) -> bool {
+    agent_cli::lifecycle::usage::is_updating_kind(effective_cli_kind(settings, provider))
+}
+
 #[derive(Debug, Clone)]
 pub struct LivenessContext {
     pub cli_kind: AgentCliKind,
@@ -92,15 +96,40 @@ impl LivenessRunner {
         provider: &Provider,
         prompt_override: Option<String>,
         automatic: bool,
-    ) -> LivenessRecord {
+    ) -> Result<LivenessRecord, String> {
+        if waits_for_agent_update(settings, provider) {
+            return Err("测活 Agent 正在自动更新，完成后再检测".into());
+        }
         let checked_at = now_millis().to_string();
         let source = if automatic { "automatic" } else { "manual" }.to_string();
         let context = match Self::build_context(settings, provider, prompt_override) {
             Ok(context) => context,
             Err(message) => {
-                return failure_record(checked_at, source, message, String::new(), String::new());
+                if waits_for_agent_update(settings, provider) {
+                    return Err("测活 Agent 正在自动更新，完成后再检测".into());
+                }
+                return Ok(failure_record(
+                    checked_at,
+                    source,
+                    message,
+                    String::new(),
+                    String::new(),
+                ));
             }
         };
+        let _execution_lease = agent_cli::lifecycle::usage::acquire(Path::new(&context.cli_path))?;
+        Ok(Self::run_context(
+            settings, provider, context, checked_at, source,
+        ))
+    }
+
+    fn run_context(
+        settings: &AppSettings,
+        provider: &Provider,
+        context: LivenessContext,
+        checked_at: String,
+        source: String,
+    ) -> LivenessRecord {
         let definition = agent_cli::definition(context.cli_kind);
         let Some(adapter) = definition.liveness() else {
             return failure_record(

@@ -28,7 +28,7 @@ function formatDotenv(text: string): string {
   return formatted && !formatted.endsWith("\n") ? formatted + (text.includes("\r\n") ? "\r\n" : "\n") : formatted;
 }
 
-export async function formatConfigurationText(format: AgentConfigurationFormat, text: string): Promise<string> {
+export async function formatConfigurationText(format: AgentConfigurationFormat | "yaml", text: string): Promise<string> {
   if (format === "dotenv") return formatDotenv(text);
   if (format === "toml") {
     const { Taplo } = await import("@taplo/lib");
@@ -36,6 +36,15 @@ export async function formatConfigurationText(format: AgentConfigurationFormat, 
     return taplo.format(text, { options: { reorderKeys: false, indentString: "  ", columnWidth: 100, trailingNewline: true } });
   }
   const { format: formatText } = await import("prettier/standalone");
+  if (format === "yaml") {
+    return formatText(text, {
+      parser: "yaml",
+      plugins: [await import("prettier/plugins/yaml")],
+      tabWidth: 2,
+      printWidth: 100,
+      endOfLine: "auto",
+    });
+  }
   const plugins = format === "markdown"
     ? [await import("prettier/plugins/markdown")]
     : await Promise.all([import("prettier/plugins/babel"), import("prettier/plugins/estree")]);

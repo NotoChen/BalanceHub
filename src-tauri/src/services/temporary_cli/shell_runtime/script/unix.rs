@@ -1,4 +1,4 @@
-use super::{runtime_instance_id_from_status_path, write_auxiliary_file, LaunchScriptInput};
+use super::{runtime_instance_id_from_status_path, write_auxiliary_files, LaunchScriptInput};
 use crate::{
     network::ProxyEnvironment,
     services::agent_cli::{self, contracts::EnvironmentPatch},
@@ -8,10 +8,6 @@ use std::{env, fs, path::Path};
 pub(in crate::services::temporary_cli) fn write_launch_script(
     input: &LaunchScriptInput<'_>,
 ) -> Result<(), String> {
-    write_auxiliary_file(
-        input.auxiliary_file_path,
-        input.plan.auxiliary_file_content.as_deref(),
-    )?;
     let path_export = agent_cli::runtime_path_for(Path::new(input.cli_path))
         .map(|path| format!("export PATH={}\n", shell_quote(&path.to_string_lossy())))
         .unwrap_or_default();
@@ -20,13 +16,9 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
+    write_auxiliary_files(&script_dir, &input.plan.auxiliary_files)?;
 
     let agent_environment_block = unix_environment_block(&input.plan.environment);
-    let cleanup_settings = input
-        .auxiliary_file_path
-        .as_ref()
-        .map(|path| format!("rm -f {}\n", shell_quote(&path.to_string_lossy())))
-        .unwrap_or_default();
     let script_path = shell_quote(&input.script.to_string_lossy());
     let login_shell_bootstrap = login_shell_bootstrap(input.script);
     let cli_invocation = unix_cli_invocation(
@@ -64,7 +56,7 @@ fi
 bh_exit_code=$?
 bh_write_status exited null "$(bh_now_ms)" "$bh_exit_code"
 rm -f "$bh_script_path"
-{cleanup_settings}rm -rf -- {script_dir}
+rm -rf -- {script_dir}
 exit "$bh_exit_code"
 "#,
         status_path = shell_quote(&input.status_path.to_string_lossy()),
@@ -135,6 +127,16 @@ pub(super) fn restrict_to_owner(path: &Path) -> Result<(), String> {
     permissions.set_mode(0o600);
     fs::set_permissions(path, permissions)
         .map_err(|err| format!("设置临时 CLI 配置权限失败: {err}"))
+}
+
+pub(super) fn restrict_directory_to_owner(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = fs::metadata(path)
+        .map_err(|err| format!("读取临时 CLI 配置目录权限失败: {err}"))?
+        .permissions();
+    permissions.set_mode(0o700);
+    fs::set_permissions(path, permissions)
+        .map_err(|err| format!("设置临时 CLI 配置目录权限失败: {err}"))
 }
 
 pub(in crate::services::temporary_cli) fn set_executable(path: &Path) -> Result<(), String> {

@@ -136,18 +136,19 @@ export function catalogRelationPreview(fields: Partial<AgentCatalogRelationPrevi
 }
 
 export function lifecycleTarget(fields: Partial<AgentLifecycleTarget> = {}): AgentLifecycleTarget {
-  return { id: "npm-codex", agentKind: "codex", label: "Codex CLI", installation: assetInstallation("installation-codex"), isCurrent: true, channel: "npm", channelLabel: "npm 全局安装",
+  return { id: "npm-codex", updateKey: null, agentKind: "codex", label: "Codex CLI", installation: assetInstallation("installation-codex"), isCurrent: true, channel: "npm", channelLabel: "npm 全局安装",
     releaseTrack: "latest", directory: "/fixture/npm", evidenceRevision: "lifecycle-evidence",
     version: { state: "updateAvailable", source: "npmRegistry", latestVersion: "1.1.0", checkedAt: null, lastSuccessAt: null, nextCheckAt: null, stale: false, message: null },
     actions: [{ kind: "upgrade", available: true, reason: null, reasonMessage: null }], ...fields };
 }
 
+let lifecycleCatalogRevision = 0;
 export function lifecycleCatalog(targets = [lifecycleTarget()]): AgentLifecycleCatalog {
-  return { targets, refreshedAt: new Date().toISOString(), nextCheckAt: null };
+  return { revision: ++lifecycleCatalogRevision, automaticUpdates: [], targets, refreshedAt: new Date().toISOString(), nextCheckAt: null };
 }
 
 export function lifecyclePlan(fields: Partial<AgentLifecyclePlan> = {}): AgentLifecyclePlan {
-  return { planToken: "lifecycle-plan", agentKind: "codex", targetId: "npm-codex", installationId: "installation-codex", action: "upgrade",
+  return { planToken: "lifecycle-plan", updateKey: null, agentKind: "codex", targetId: "npm-codex", installationId: "installation-codex", action: "upgrade",
     channel: "npm", channelLabel: "npm 全局安装", directory: "/fixture/npm", fromVersion: "1.0.0", toVersion: "1.1.0",
     mechanismId: "fixture-upgrade", changes: ["升级已有 npm 安装"], commandPreview: ["fixture-npm install --global fixture@1.1.0"],
     affectedInstallationIds: ["installation-codex"], confirmationMessage: "确认升级", cancellationBoundary: "写入前可取消", timeoutSeconds: 60,
@@ -156,10 +157,10 @@ export function lifecyclePlan(fields: Partial<AgentLifecyclePlan> = {}): AgentLi
 
 export function lifecycleOperation(fields: Partial<AgentLifecycleOperation> = {}): AgentLifecycleOperation {
   const timestamp = new Date().toISOString();
-  return { id: "lifecycle-operation", agentKind: "codex", targetId: "npm-codex", installationId: "installation-codex", action: "upgrade",
+  return { id: "lifecycle-operation", updateKey: null, origin: "manual", agentKind: "codex", targetId: "npm-codex", installationId: "installation-codex", action: "upgrade",
     channel: "npm", channelLabel: "npm 全局安装", directory: "/fixture/npm", fromVersion: "1.0.0", toVersion: "1.1.0",
     observedVersion: null, recovered: false, nextLaunch: null, verifiedExecutablePath: null, phase: "applying", canCancel: true, revision: 1,
-    createdAt: timestamp, updatedAt: timestamp, outcome: null, message: null, timedOut: false, outputTruncated: false, ...fields };
+    createdAt: timestamp, updatedAt: timestamp, outcome: null, message: null, timedOut: false, outputTruncated: false, commandPreview: [], diagnostics: null, ...fields };
 }
 
 export function workspaceHook(agentKind: AgentCliKind): AgentHookInspection {

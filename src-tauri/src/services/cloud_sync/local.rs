@@ -192,11 +192,7 @@ impl Replica for AppReplica {
         for provider in &mut next.providers {
             provider.revision = revision;
         }
-        let root = self
-            .app
-            .path()
-            .app_config_dir()
-            .map_err(|_| "无法获取配置目录")?;
+        let root = crate::desktop::config_dir(&self.app).map_err(|_| "无法获取配置目录")?;
         let journal_path = root.join("cloud-sync/apply-journal.json");
         let catalog = state.agent_catalog(&self.app)?;
         let result =

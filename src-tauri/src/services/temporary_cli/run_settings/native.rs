@@ -50,10 +50,11 @@ pub(super) fn preserve_gemini_settings(
     workdir: &Path,
     plan: &mut TemporaryLaunchPlan,
 ) -> Result<(), String> {
-    if plan.auxiliary_file_content.is_some() {
+    if plan.settings_document().is_some() {
         let value = agent_cli::merge_gemini_temporary_settings(workdir, json_config(plan)?)?;
-        plan.auxiliary_file_content =
-            Some(serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?);
+        plan.write_settings_document(
+            serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?,
+        )?;
     }
     Ok(())
 }
@@ -263,8 +264,9 @@ fn claude(
         plan.args.push("--strict-mcp-config".into());
         pair(&mut plan.args, "--mcp-config", &path.to_string_lossy());
     }
-    plan.auxiliary_file_content =
-        Some(serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?);
+    plan.write_settings_document(
+        serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
+    )?;
     Ok(())
 }
 
@@ -324,8 +326,9 @@ fn gemini(
             }
         }
     }
-    plan.auxiliary_file_content =
-        Some(serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?);
+    plan.write_settings_document(
+        serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
+    )?;
     Ok(())
 }
 

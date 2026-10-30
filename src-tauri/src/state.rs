@@ -52,9 +52,7 @@ impl AppState {
         &self,
         app: &tauri::AppHandle,
     ) -> Result<Arc<crate::services::model_catalog::ModelCatalogService>, String> {
-        let path = app
-            .path()
-            .app_data_dir()
+        let path = crate::desktop::data_dir(app)
             .map_err(|_| "模型资料缓存目录不可用")?
             .join("model-catalog.json");
         Ok(Arc::clone(self.model_catalog.get_or_init(|| {
@@ -108,15 +106,11 @@ impl AppState {
         &self,
         app: &tauri::AppHandle,
     ) -> Result<Arc<CatalogService>, String> {
-        let root = app
-            .path()
-            .app_config_dir()
+        let root = crate::desktop::config_dir(app)
             .map_err(|_| "无法获取应用资产库目录".to_owned())?
             .join("agent-asset-library");
-        let managed_hook_root = app
-            .path()
-            .app_data_dir()
-            .map_err(|_| "无法获取会话接入目录".to_owned())?;
+        let managed_hook_root =
+            crate::desktop::data_dir(app).map_err(|_| "无法获取会话接入目录".to_owned())?;
         let display_cache_root = app
             .path()
             .app_cache_dir()
@@ -143,7 +137,7 @@ impl AppState {
         let home = crate::services::cli_paths::user_home().ok_or_else(|| {
             AgentConfigurationError::new(AgentConfigurationErrorKind::SourceUnavailable)
         })?;
-        let root = app.path().app_data_dir().map_err(|_| {
+        let root = crate::desktop::data_dir(app).map_err(|_| {
             AgentConfigurationError::new(AgentConfigurationErrorKind::InternalFailure)
         })?;
         Ok(Arc::clone(self.agent_configuration.get_or_init(|| {
@@ -169,9 +163,7 @@ impl AppState {
         &self,
         app: &tauri::AppHandle,
     ) -> Result<Arc<crate::services::agent_cli::overview::OverviewService>, String> {
-        let root = app
-            .path()
-            .app_data_dir()
+        let root = crate::desktop::data_dir(app)
             .map_err(|_| "无法获取 Agent 摘要目录")?
             .join("agent-overview");
         Ok(Arc::clone(self.agent_overview.get_or_init(|| {
@@ -236,9 +228,7 @@ impl AppState {
         &self,
         app: &tauri::AppHandle,
     ) -> Result<Arc<crate::services::cloud_sync::CloudSyncService>, String> {
-        let root = app
-            .path()
-            .app_config_dir()
+        let root = crate::desktop::config_dir(app)
             .map_err(|_| "无法获取同步配置目录")?
             .join("cloud-sync");
         Ok(Arc::clone(self.cloud_sync.get_or_init(|| {

@@ -18,6 +18,23 @@ impl ProtocolDetector {
         settings: &AppSettings,
         provider: &Provider,
     ) -> ProviderProtocolDetectionResult {
+        let explicit = super::protocol::definition(provider.identity.protocol);
+        if explicit.detection_role == ProtocolDetectionRole::Explicit {
+            return match explicit.connection().probe_site(settings, provider).await {
+                Ok(site) => ProviderProtocolDetectionResult {
+                    detected_protocol: site.ok.then_some(explicit.kind),
+                    message: site.message.clone(),
+                    site: Some(site),
+                    ambiguous: false,
+                },
+                Err(message) => ProviderProtocolDetectionResult {
+                    detected_protocol: None,
+                    message,
+                    site: None,
+                    ambiguous: false,
+                },
+            };
+        }
         let probes = join_all(
             definitions()
                 .iter()

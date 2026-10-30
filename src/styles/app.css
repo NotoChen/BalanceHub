@@ -2,6 +2,7 @@
 @import "./modules/topbar.css";
 @import "./modules/card-actions.css";
 @import "./modules/workspace-card.css";
+@import "./modules/managed-card.css";
 @import "./modules/provider-layout.css";
 @import "./modules/provider-filters.css";
 @import "./modules/provider-card/base.css";

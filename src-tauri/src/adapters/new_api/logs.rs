@@ -106,6 +106,7 @@ async fn fetch_request_log_stats(
         quota: convert_quota_value(raw_quota, context.site).0,
         rpm: extract_f64_field(&data, &["rpm", "RPM"]).unwrap_or_default(),
         tpm: extract_f64_field(&data, &["tpm", "TPM"]).unwrap_or_default(),
+        avg_duration_ms: None,
     })
 }
 

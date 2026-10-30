@@ -1,5 +1,7 @@
 use super::journal::{Journal, Record};
 use super::planning::{LifecycleContext, LifecyclePlanner, NativePlanner, PreparedLifecycle};
+mod background;
+use super::automation::AUTOMATIC_ACTOR;
 use crate::{
     models::*,
     services::agent_cli::environment::mutation::{
@@ -8,6 +10,7 @@ use crate::{
         token::{opaque_id, PlanRegistry, DEFAULT_PLAN_TTL},
     },
 };
+use background::BackgroundState;
 use chrono::Local;
 use std::{
     collections::BTreeMap,
@@ -30,6 +33,7 @@ pub(crate) struct LifecycleService {
     operations: Mutex<BTreeMap<String, Arc<OperationCell>>>,
     journal: Arc<Journal>,
     history: Mutex<Result<Vec<Record>, String>>,
+    background: BackgroundState,
 }
 
 struct OperationCell {
@@ -63,6 +67,7 @@ impl LifecycleService {
             records
         }));
         Self {
+            background: BackgroundState::new(&journal),
             locks,
             planner,
             plans: PlanRegistry::default(),
@@ -78,9 +83,7 @@ impl LifecycleService {
         home: PathBuf,
         request: AgentLifecycleCatalogRequest,
     ) -> Result<AgentLifecycleCatalog, AgentLifecycleError> {
-        self.planner
-            .catalog(self.context(settings, home), request)
-            .await
+        self.catalog_live(settings, home, request).await
     }
 
     pub(crate) async fn plan(
@@ -154,12 +157,31 @@ impl LifecycleService {
             .map_err(map_mutation_error)?;
         let plan = bound.value;
         let public = &plan.public;
+        if operations.values().any(|cell| {
+            let current = cell.snapshot();
+            current.outcome.is_none()
+                && (current.target_id == public.target_id
+                    || public
+                        .update_key
+                        .as_ref()
+                        .is_some_and(|key| current.update_key.as_ref() == Some(key)))
+        }) {
+            return Err(AgentLifecycleError::new(
+                AgentLifecycleErrorKind::OperationInProgress,
+            ));
+        }
         let timestamp = now_string();
         let operation = AgentLifecycleOperation {
             id: opaque_id().map_err(map_mutation_error)?,
             agent_kind: public.agent_kind,
             target_id: public.target_id.clone(),
             installation_id: public.installation_id.clone(),
+            update_key: public.update_key.clone(),
+            origin: if actor == AUTOMATIC_ACTOR {
+                AgentLifecycleOrigin::Automatic
+            } else {
+                AgentLifecycleOrigin::Manual
+            },
             action: public.action,
             channel: public.channel,
             channel_label: public.channel_label.clone(),
@@ -213,10 +235,11 @@ impl LifecycleService {
                 .map(|(id, _)| id);
             let Some(oldest) = oldest else { break };
             if let Err(error) = self.journal.remove(&oldest) {
-                eprintln!("Unable to prune upgrade history: {error}");
+                log::warn!("Unable to prune upgrade history: {error}");
             }
             operations.remove(&oldest);
         }
+        self.emit_operation(&operation);
         Ok(operation)
     }
 
@@ -252,6 +275,10 @@ impl LifecycleService {
                 "升级任务异常，请刷新核对实际安装和版本",
             );
         }
+        let completed = self.annotate_completed(&cell.actor, cell.snapshot());
+        self.emit_operation(&completed);
+        self.invalidate_installations();
+        self.background.wake.notify_one();
     }
 
     fn run(&self, cell: &OperationCell) {
@@ -298,7 +325,31 @@ impl LifecycleService {
             );
             return;
         }
-        let evidence = cell.plan.execution.run(&mut || cell.commit());
+        if cell.actor == AUTOMATIC_ACTOR {
+            let idle = cell
+                .plan
+                .automatic_scope
+                .as_ref()
+                .ok_or_else(|| "未取得安装占用检查范围".to_owned())
+                .and_then(super::usage::UpdateScope::check_processes);
+            if let Err(message) = idle {
+                cell.finish(AgentAssetOperationOutcome::UnchangedConflict, &message);
+                return;
+            }
+        }
+        let evidence =
+            cell.plan.execution.run(&mut || {
+                if cell.actor == AUTOMATIC_ACTOR
+                    && !cell.plan.public.update_key.as_deref().is_some_and(|key| {
+                        self.background.automatic.may_run(key, &cell.snapshot().id)
+                    })
+                {
+                    return Err(AgentAssetMutationError::new(
+                        AgentAssetMutationErrorKind::PreparationFailed,
+                    ));
+                }
+                cell.commit()
+            });
         {
             let mut state = cell.state.lock().unwrap_or_else(|error| error.into_inner());
             state.public.diagnostics = cell.plan.execution.diagnostics();
@@ -407,7 +458,7 @@ impl LifecycleService {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .values()
-            .filter(|cell| cell.actor == actor)
+            .filter(|cell| cell.actor == actor || cell.actor == AUTOMATIC_ACTOR)
             .map(|cell| cell.snapshot())
             .collect::<Vec<_>>();
         result.extend(
@@ -538,7 +589,11 @@ impl LifecycleService {
             bump(&mut state.public);
             persist_state(&self.journal, &mut state);
         }
-        Ok(state.public.clone())
+        let operation = state.public.clone();
+        drop(state);
+        self.emit_operation(&operation);
+        self.background.wake.notify_one();
+        Ok(operation)
     }
 
     pub(crate) fn remove_actor(&self, actor: &str) {
@@ -552,7 +607,7 @@ impl LifecycleService {
             .lock()
             .map_err(|_| internal())?
             .get(id)
-            .filter(|cell| cell.actor == actor)
+            .filter(|cell| cell.actor == actor || cell.actor == AUTOMATIC_ACTOR)
             .cloned()
             .ok_or_else(|| AgentLifecycleError::new(AgentLifecycleErrorKind::OperationNotFound))
     }
@@ -636,7 +691,7 @@ fn persist_state(journal: &Journal, state: &mut OperationState) {
         operation: state.public.clone(),
         installer_started: state.committed,
     }) {
-        eprintln!("Unable to persist upgrade task: {error}");
+        log::warn!("Unable to persist upgrade task: {error}");
         let message = state.public.message.get_or_insert_with(String::new);
         message.push_str("；任务记录保存失败，重启后需重新核对");
     }

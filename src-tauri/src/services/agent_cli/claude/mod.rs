@@ -42,7 +42,6 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
                 session_resume: true,
                 session_name: true,
             },
-            Some("claude-settings.json"),
             launch::build_plan,
         )),
         sessions: Some(SessionAdapter::new(

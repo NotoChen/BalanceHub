@@ -1,9 +1,11 @@
+import { providerNeedsCheckIn } from "./provider-actions.ts";
 import type { Provider } from "../stores/provider-types";
 import {
   providerCardStatusTone,
   providerHasNoAvailableBalance,
   providerProtocolLabel,
 } from "./provider-display.ts";
+import { planLabel } from "./oauth-display.ts";
 
 export const providerFilters = [
   { value: "all", label: "全部", description: "全部中转站" },
@@ -20,6 +22,8 @@ export const providerFilters = [
     description: "Sub2API 中转站",
   },
   { value: "api", label: "API Key", description: "通用 API Key 中转站" },
+  { value: "oauth", label: "OAuth 账号", description: "官方账号授权" },
+  { value: "cliProxyApi", label: "CPA", description: "CLIProxyAPI 网关" },
 ] as const;
 
 export type ProviderFilter = (typeof providerFilters)[number]["value"];
@@ -35,9 +39,11 @@ export function providerMatchesFilter(
     case "newApi":
     case "sub2Api":
     case "api":
+    case "oauth":
+    case "cliProxyApi":
       return provider.identity.protocol === filter;
     case "checkIn":
-      return providerCardStatusTone(provider) === "warning";
+      return providerCardStatusTone(provider) === "warning" && providerNeedsCheckIn(provider);
     case "attention": {
       const tone = providerCardStatusTone(provider);
       // 待签到和需关注可以重叠，不能让卡片的签到提示掩盖无余额。
@@ -45,6 +51,7 @@ export function providerMatchesFilter(
         tone !== "disabled" &&
         (tone === "error" ||
           tone === "pending" ||
+          (provider.runtime.status === "warning" && Boolean(provider.runtime.errorMessage)) ||
           providerHasNoAvailableBalance(provider))
       );
     }
@@ -61,6 +68,8 @@ export function countProviderFilters(
     newApi: 0,
     sub2Api: 0,
     api: 0,
+    oauth: 0,
+    cliProxyApi: 0,
   };
   for (const provider of providers) {
     for (const filter of providerFilters) {
@@ -90,6 +99,14 @@ export function providerMatchesSearch(provider: Provider, query: string) {
     ...provider.identity.backupUrls,
     provider.identity.username,
     provider.identity.userId,
+    provider.auth.oauth?.email,
+    provider.auth.oauth?.plan,
+    provider.auth.oauth?.organizationName,
+    provider.capabilities.subscription?.plan,
+    /// The card shows the translated tier, so searching what is on screen has
+    /// to match too.
+    planLabel(provider.auth.oauth?.plan),
+    planLabel(provider.capabilities.subscription?.plan),
     provider.auth.apiUser,
     ...provider.auth.apiKeyOptions.flatMap((option) => [
       option.localName,

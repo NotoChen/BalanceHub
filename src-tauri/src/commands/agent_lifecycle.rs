@@ -4,6 +4,39 @@ use crate::{models::*, services::cli_paths::user_home, state::AppState};
 use tauri::{AppHandle, Manager, Window};
 
 #[tauri::command]
+pub(crate) async fn set_agent_automatic_update(
+    app: AppHandle,
+    request: SetAgentAutomaticUpdateRequest,
+) -> Result<AgentLifecycleCatalog, AgentLifecycleError> {
+    let state = app.state::<AppState>();
+    if state.load_error().is_some() {
+        let mut error = internal();
+        error.message = "应用配置处于保护状态，自动更新设置暂时不可修改".into();
+        return Err(error);
+    }
+    let service = state.agent_lifecycle();
+    let settings = state
+        .data
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .clone();
+    let home = user_home()
+        .and_then(|home| home.canonicalize().ok())
+        .ok_or_else(internal)?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(65),
+        service.set_automatic(settings, home, request),
+    )
+    .await
+    .map_err(|_| {
+        let mut error = internal();
+        error.message = "保存自动更新设置超时，请刷新安装状态确认结果".into();
+        error
+    })?
+}
+
+#[tauri::command]
 pub(crate) async fn get_agent_lifecycle_catalog(
     app: AppHandle,
     request: AgentLifecycleCatalogRequest,

@@ -245,7 +245,7 @@ impl HistoryIndex {
                 // large-file search into repeated full scans. Keep a temporary
                 // index for the lifetime of this query instead.
                 self.memory_only.store(true, Ordering::Release);
-                eprintln!("会话索引缓存暂不可用，本次查询使用临时索引：{error}");
+                log::warn!("会话索引缓存暂不可用，本次查询使用临时索引：{error}");
                 drop(_guard);
                 return self.connection(budget, apply);
             }
@@ -531,7 +531,7 @@ pub(crate) fn reconfigure(app: &AppHandle, previous: &AppSettings, current: &App
             )
         };
         if let Err(error) = result {
-            eprintln!("会话派生索引维护未完成：{error}");
+            log::warn!("会话派生索引维护未完成：{error}");
         }
         let _ = app.emit(SESSION_INDEX_UPDATED_EVENT, ());
     });

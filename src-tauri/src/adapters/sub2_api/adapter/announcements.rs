@@ -10,7 +10,7 @@ use crate::{
         transport::build_client,
     },
     limits,
-    models::{AppSettings, Provider, SiteAnnouncement},
+    models::{AppSettings, Provider, SiteAnnouncement, SiteAnnouncementSource},
 };
 use reqwest::Method;
 
@@ -43,8 +43,12 @@ impl Sub2ApiAdapter {
                     &authenticated,
                     SiteAnnouncementDraft {
                         id: &id,
+                        source: SiteAnnouncementSource::Announcement,
                         title: &title,
                         content: &content,
+                        // Sub2API 的公告没有级别和附加说明字段。
+                        level: "",
+                        extra: "",
                         published_at: string_field(
                             &item,
                             &["published_at", "publishedAt", "created_at", "createdAt"],

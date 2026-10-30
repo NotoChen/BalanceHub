@@ -1,6 +1,6 @@
-pub(crate) mod cc_switch;
 pub(crate) mod paths;
 pub(crate) mod process;
+pub(crate) mod provider_app;
 #[cfg(any(windows, test))]
 pub(crate) mod windows_console;
 #[cfg(windows)]

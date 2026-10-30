@@ -98,6 +98,16 @@ impl ProviderService<'_> {
         self.mutate_decided(|data| Ok(MutationDecision::changed(apply(data))))
     }
 
+    /// 开发版演示卡片：在串行事务里把演示卡片并入当前配置，真实站点原样保留。
+    #[cfg(debug_assertions)]
+    pub fn merge_dev_sample(&self) -> Result<usize, String> {
+        self.mutate_decided(|data| {
+            Ok(MutationDecision::changed(crate::dev_sample::merge_into(
+                data,
+            )))
+        })
+    }
+
     /// 在串行事务锁下基于克隆状态修改并原子落盘，落盘成功后才提交到内存。
     ///
     /// 闭包内严禁 `.await`：持锁跨越 await 会序列化所有网络请求并有死锁风险。

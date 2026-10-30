@@ -69,7 +69,10 @@ pub fn normalize_api_key_for_protocol(raw: &str, protocol: ProviderProtocol) -> 
         ProviderProtocol::NewApi => normalize_api_key(raw),
         // Sub2API 的 Key 前缀由服务端配置决定，且允许无 sk- 的自定义 Key；通用
         // OpenAI 兼容接口同样不能假设前缀格式，因此两者都保留完整原值。
-        ProviderProtocol::Sub2Api | ProviderProtocol::Api => normalize_api_key_literal(raw),
+        ProviderProtocol::Sub2Api | ProviderProtocol::Api | ProviderProtocol::CliProxyApi => {
+            normalize_api_key_literal(raw)
+        }
+        ProviderProtocol::OAuth => String::new(),
     }
 }
 
@@ -228,7 +231,7 @@ fn provider_duplicate_key_parts(
     format!(
         "{}|{}|{}|{}",
         normalize_provider_endpoint(base_url),
-        protocol_key(protocol),
+        protocol.key(),
         auth_mode_key(mode),
         credential
     )
@@ -264,14 +267,6 @@ fn first_non_empty(values: &[&str]) -> String {
         .find(|value| !value.is_empty())
         .unwrap_or_default()
         .to_string()
-}
-
-fn protocol_key(protocol: ProviderProtocol) -> &'static str {
-    match protocol {
-        ProviderProtocol::NewApi => "newApi",
-        ProviderProtocol::Sub2Api => "sub2Api",
-        ProviderProtocol::Api => "api",
-    }
 }
 
 fn auth_mode_key(mode: AuthMode) -> &'static str {
@@ -413,6 +408,33 @@ pub(super) fn session_value(raw: &str) -> String {
     }
 
     text.to_string()
+}
+
+pub(crate) fn normalize_cpa_base_url(value: &str) -> Result<String, String> {
+    let mut url = reqwest::Url::parse(value.trim()).map_err(|_| "CPA 地址无效")?;
+    if !matches!(url.scheme(), "https" | "http")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.host_str().is_none()
+    {
+        return Err("CPA 地址必须是 HTTP 或 HTTPS 地址，密钥请填写在认证栏".into());
+    }
+    let mut path = url.path().trim_end_matches('/').to_owned();
+    for suffix in [
+        "/v8/management",
+        "/v0/management",
+        "/management.html",
+        "/v1",
+    ] {
+        if let Some(root) = path.strip_suffix(suffix) {
+            path = root.to_string();
+            break;
+        }
+    }
+    url.set_path(&path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
 #[cfg(test)]

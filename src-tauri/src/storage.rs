@@ -29,8 +29,11 @@ pub fn load_app_data(app: &AppHandle) -> Result<AppData, String> {
         return Ok(AppData::default());
     };
     validate_app_data_schema(&data)?;
-    let normalized =
+    let mut normalized =
         normalize_provider_cached_values(&mut data) | limits::normalize_app_data(&mut data);
+    if !migrated && !normalized {
+        normalized = merge_dev_sample_on_load(app, &path, &mut data)?;
+    }
     if migrated || normalized {
         save_app_data(app, &data)?;
     }
@@ -79,6 +82,29 @@ pub fn export_app_data(target: &Path, data: &AppData) -> Result<(), String> {
         limits::MAX_APP_DATA_FILE_BYTES,
         "导出配置",
     )
+}
+
+/// 开发版演示卡片：只在开发脚本开启 `BALANCEHUB_DEV_SAMPLE`、且盘上还没有演示卡片
+/// 时并入一次，之后和普通配置一样只读不写。
+#[cfg(debug_assertions)]
+fn merge_dev_sample_on_load(
+    _app: &AppHandle,
+    path: &Path,
+    data: &mut AppData,
+) -> Result<bool, String> {
+    if crate::dev_sample::samples_present(path) {
+        return Ok(false);
+    }
+    Ok(crate::dev_sample::merge_on_load(data).is_some())
+}
+
+#[cfg(not(debug_assertions))]
+fn merge_dev_sample_on_load(
+    _app: &AppHandle,
+    _path: &Path,
+    _data: &mut AppData,
+) -> Result<bool, String> {
+    Ok(false)
 }
 
 fn recover_missing_app_data_file(path: &Path) -> Result<Option<(AppData, bool)>, String> {

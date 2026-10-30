@@ -286,6 +286,8 @@ async fn card_refresh_retains_cached_models_and_reports_an_account_model_failure
     let (mut provider, requests, server) = serve(vec![
         Reply(200, SITE),
         Reply(200, QUOTA),
+        // 卡片刷新会顺带读取订阅窗口；旧站点返回空列表即可。
+        Reply(200, r#"{"success":true,"data":{"subscriptions":[]}}"#),
         Reply(
             503,
             r#"{"success":false,"message":"model service unavailable"}"#,
@@ -327,7 +329,7 @@ async fn card_refresh_retains_cached_models_and_reports_an_account_model_failure
         ProviderStatus::Warning
     ));
     let requests = requests.iter().collect::<Vec<_>>();
-    assert!(requests[2].starts_with("GET /relay/api/user/models "));
+    assert!(requests[3].starts_with("GET /relay/api/user/models "));
 }
 
 #[tokio::test]
@@ -335,6 +337,7 @@ async fn card_refresh_records_a_successful_empty_account_list() {
     let (mut provider, _requests, server) = serve(vec![
         Reply(200, SITE),
         Reply(200, QUOTA),
+        Reply(200, r#"{"success":true,"data":{"subscriptions":[]}}"#),
         Reply(200, r#"{"success":true,"data":[]}"#),
     ]);
     provider

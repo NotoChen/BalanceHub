@@ -1,31 +1,64 @@
 use super::super::contracts::{
-    EnvironmentPatch, TemporaryLaunchConfiguration, TemporaryLaunchPlan, TemporaryLaunchRequest,
+    EnvironmentPatch, TemporaryAuxiliaryFile, TemporaryLaunchConfiguration, TemporaryLaunchPlan,
+    TemporaryLaunchRequest,
 };
-use crate::models::TemporaryCliSessionMode;
+use crate::{
+    models::TemporaryCliSessionMode, services::oauth_accounts::native,
+};
 
 pub(super) fn build_plan(
     request: TemporaryLaunchRequest<'_>,
 ) -> Result<TemporaryLaunchPlan, String> {
     let mut args = Vec::new();
     let mut environment = EnvironmentPatch::default();
+    let mut auxiliary_files = Vec::new();
+    let mut isolated_home = None;
     if !request.model.trim().is_empty() {
         args.extend(["--model".to_string(), request.model.trim().to_string()]);
     }
-    if let TemporaryLaunchConfiguration::Provider {
-        api_key, base_url, ..
-    } = request.configuration
-    {
-        for name in [
-            "GROK_MODELS_BASE_URL",
-            "GROK_MODELS_LIST_URL",
-            "XAI_API_KEY",
-            "GROK_DISABLE_AUTOUPDATER",
-        ] {
-            environment.remove(name);
+    match request.configuration {
+        TemporaryLaunchConfiguration::Native => {}
+        TemporaryLaunchConfiguration::Provider {
+            api_key, base_url, ..
+        } => {
+            for name in [
+                "GROK_MODELS_BASE_URL",
+                "GROK_MODELS_LIST_URL",
+                "XAI_API_KEY",
+                "GROK_DISABLE_AUTOUPDATER",
+                "GROK_HOME",
+            ] {
+                environment.remove(name);
+            }
+            environment.set("GROK_MODELS_BASE_URL", base_url.trim());
+            environment.set("XAI_API_KEY", api_key.trim());
+            environment.set("GROK_DISABLE_AUTOUPDATER", "1");
         }
-        environment.set("GROK_MODELS_BASE_URL", base_url.trim());
-        environment.set("XAI_API_KEY", api_key.trim());
-        environment.set("GROK_DISABLE_AUTOUPDATER", "1");
+        TemporaryLaunchConfiguration::OAuth { auth, identity, .. } => {
+            // Grok reads its OAuth entry from auth.json in GROK_HOME. Pointing
+            // that home at the launch directory keeps the user's own login and
+            // its other issuer entries untouched.
+            let home = request.launch_directory.join("grok-home");
+            let document = native::document(identity.vendor, auth, identity, false);
+            auxiliary_files.push(TemporaryAuxiliaryFile {
+                path: "grok-home/auth.json",
+                settings: false,
+                content: serde_json::to_string_pretty(&document)
+                    .map_err(|err| format!("生成 Grok 临时授权失败: {err}"))?,
+            });
+            for name in [
+                "GROK_MODELS_BASE_URL",
+                "GROK_MODELS_LIST_URL",
+                "XAI_API_KEY",
+                "GROK_HOME",
+                "BALANCEHUB_GROK_HOME",
+            ] {
+                environment.remove(name);
+            }
+            environment.set("GROK_DISABLE_AUTOUPDATER", "1");
+            environment.set_path("GROK_HOME", &home);
+            isolated_home = Some("grok-home");
+        }
     }
     if matches!(request.session_mode, TemporaryCliSessionMode::History) {
         args.extend(["--resume".to_string(), request.resume_id.trim().to_string()]);
@@ -34,7 +67,8 @@ pub(super) fn build_plan(
     Ok(TemporaryLaunchPlan {
         args,
         environment,
-        auxiliary_file_content: None,
+        auxiliary_files,
+        isolated_home,
     })
 }
 
@@ -54,7 +88,7 @@ mod tests {
             session_name: "ignored",
             resume_id: "019c-grok-session",
             session_mode: TemporaryCliSessionMode::History,
-            auxiliary_file_path: None,
+            launch_directory: std::path::Path::new("<launch>"),
         })
         .unwrap();
 

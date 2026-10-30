@@ -70,6 +70,23 @@ pub(crate) fn rewrite_env_values(source: &str, fields: &[(&str, &str)]) -> Resul
     Ok(output)
 }
 
+/// Drops the lines that assign `keys`, keeping every other line byte for byte.
+/// Switching back to the vendor's own login must not leave a relay key behind.
+pub(crate) fn remove_env_keys(source: &str, keys: &[&str]) -> String {
+    let mut output = String::with_capacity(source.len());
+    let mut line_start = 0;
+    for line in source.split_inclusive('\n') {
+        let line_end = line_start + line.trim_end_matches('\n').len();
+        let removed = parse_assignment(source, line_start, line_end)
+            .is_some_and(|assignment| keys.contains(&assignment.key.as_str()));
+        if !removed {
+            output.push_str(line);
+        }
+        line_start += line.len();
+    }
+    output
+}
+
 pub(crate) fn assignments(source: &str) -> Vec<EnvAssignment> {
     let mut output = Vec::new();
     let mut line_start = 0;

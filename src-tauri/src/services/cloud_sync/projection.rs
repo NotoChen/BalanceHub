@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod oauth;
+use oauth::PortableOAuthIdentity;
+
+#[cfg(test)]
+mod oauth_tests;
+
 /// Only portable user preferences enter the wire format. Automatic execution,
 /// local paths, proxies and browser sessions remain owned by each device.
 const SETTINGS: &[(&str, &str)] = &[
@@ -36,6 +42,8 @@ struct PortableProvider {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PortableAuth {
+    #[serde(default)]
+    oauth: Option<PortableOAuthIdentity>,
     mode: AuthMode,
     source: AuthSource,
     api_key: String,
@@ -61,13 +69,16 @@ struct PortableKey {
 
 fn portable_auth(auth: &ProviderAuth) -> PortableAuth {
     PortableAuth {
+        // OAuth sessions rotate independently. Sync account identity, not a second
+        // copy of the refresh token that another device could consume.
+        oauth: auth.oauth.as_ref().map(PortableOAuthIdentity::from),
         mode: auth.mode,
         source: auth.source,
         api_key: auth.api_key.clone(),
         api_key_token_id: auth.api_key_token_id.clone(),
         api_user: auth.api_user.clone(),
         // Expiring tokens and rotating refresh tokens are device sessions.
-        access_token: if auth.access_token_expires_at.is_none() {
+        access_token: if auth.oauth.is_none() && auth.access_token_expires_at.is_none() {
             auth.access_token.clone()
         } else {
             String::new()
@@ -182,6 +193,19 @@ pub(super) fn apply_app_documents(
             if !matches!(parsed_url.scheme(), "http" | "https") {
                 return Err("云端中转站地址不支持".to_owned());
             }
+            match (value.identity.protocol, &value.auth.oauth) {
+                (ProviderProtocol::OAuth, Some(identity))
+                    if value.identity.base_url != identity.vendor.base_url()
+                        || !value.auth.access_token.is_empty() =>
+                {
+                    return Err("云端 OAuth 数据只能包含官方账号身份，不能包含授权令牌".into());
+                }
+                (ProviderProtocol::OAuth, Some(_)) => {}
+                (ProviderProtocol::OAuth, None) | (_, Some(_)) => {
+                    return Err("云端 OAuth 账号类型与身份信息不一致".into());
+                }
+                _ => {}
+            }
             let old = existing.get(id).copied();
             let mut provider = old.cloned().unwrap_or_else(|| {
                 Provider::from_input(
@@ -205,9 +229,19 @@ pub(super) fn apply_app_documents(
                     || provider.auth.login_password != auth.login_password
                     || provider.auth.api_user != auth.api_user
                     || portable_auth(&provider.auth).session_cookie != auth.session_cookie;
-                let retain_expiring_token = !session_changed
-                    && auth.access_token.is_empty()
-                    && provider.auth.access_token_expires_at.is_some();
+                let retain_oauth = !identity_changed
+                    && provider
+                        .auth
+                        .oauth
+                        .as_ref()
+                        .zip(auth.oauth.as_ref())
+                        .is_some_and(|(local, remote)| remote.matches(local));
+                let retain_expiring_token = retain_oauth
+                    || (provider.auth.oauth.is_none()
+                        && auth.oauth.is_none()
+                        && !session_changed
+                        && auth.access_token.is_empty()
+                        && provider.auth.access_token_expires_at.is_some());
                 let local_auth = provider.auth.clone();
                 let previous_keys: BTreeMap<_, _> = provider
                     .auth
@@ -235,6 +269,14 @@ pub(super) fn apply_app_documents(
                     .collect();
                 provider.auth = normalize_provider_auth(
                     ProviderAuth {
+                        oauth: if retain_oauth {
+                            local_auth
+                                .oauth
+                                .zip(auth.oauth)
+                                .map(|(local, remote)| remote.with_local_session(local))
+                        } else {
+                            auth.oauth.map(OAuthCredential::from)
+                        },
                         mode: auth.mode,
                         source: auth.source,
                         api_key: auth.api_key,

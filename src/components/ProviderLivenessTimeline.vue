@@ -47,9 +47,11 @@ const latestRecord = computed(() => {
   return [...livenessRecords.value].sort((a, b) => Number(b.checkedAt) - Number(a.checkedAt))[0] || null;
 });
 
+/// 延迟是最近一次自动测活的耗时：单写一个「3125 ms」读者无法判断这是延迟、
+/// 超时时间还是别的；加两个字说清它是什么，仍然只占同一行。
 const latestLatencyLabel = computed(() => {
   const latency = latestRecord.value?.latencyMs;
-  return Number.isFinite(latency) ? `${latency} ms` : "";
+  return Number.isFinite(latency) ? `延迟 ${latency} ms` : "";
 });
 
 const summaryLabel = computed(() => {
@@ -60,7 +62,7 @@ const summaryLabel = computed(() => {
 });
 
 const ariaLabel = computed(() => {
-  const latest = latestLatencyLabel.value ? `，最近延迟 ${latestLatencyLabel.value}` : "";
+  const latest = latestLatencyLabel.value ? `，最近一次${latestLatencyLabel.value}` : "";
   return `近24小时自动测活：${summaryLabel.value}${latest}`;
 });
 

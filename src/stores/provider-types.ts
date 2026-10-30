@@ -1,3 +1,4 @@
+import type { OAuthCredential, AccountSubscription, CpaGatewaySnapshot } from "./oauth-types";
 import type {
   SessionMessageMetadata,
   SessionFileChange,
@@ -14,7 +15,7 @@ export type * from "./agent-session-types";
 
 export type AuthMode = "apiKey" | "accessToken" | "session" | "password";
 export type AuthSource = "manual" | "password" | "oauth";
-export type ProviderProtocol = "newApi" | "sub2Api" | "api";
+export type ProviderProtocol = "newApi" | "sub2Api" | "api" | "oauth" | "cliProxyApi";
 
 export interface ProviderAuthModeDescriptor {
   mode: AuthMode;
@@ -63,6 +64,7 @@ export interface ProviderCredentialAssistantDescriptor {
 }
 
 export interface ProviderProtocolDescriptor {
+  formCreation: boolean;
   kind: ProviderProtocol;
   label: string;
   description: string;
@@ -79,6 +81,9 @@ export type ProxyMode = "system" | "noProxy" | "custom";
 export type ProviderProxyMode = "inherit" | "system" | "noProxy" | "custom";
 export type ProviderNotificationMode = "inherit" | "custom" | "disabled";
 export type ThemeMode = "system" | "light" | "dark";
+export type WindowCloseAction = "hideToTray" | "quit";
+export type TrayClickAction = "showWindow" | "toggleWindow";
+export type LogLevel = "error" | "warn" | "info" | "debug";
 export type LivenessIntervalMode = "fixed" | "random";
 export type LivenessPromptMode = "fixed" | "random" | "roundRobin";
 export type TemporaryCliInstanceStatus = "starting" | "running" | "exited";
@@ -119,6 +124,11 @@ export interface Provider {
 }
 
 export interface ProviderActions {
+  temporaryCli: boolean;
+  defaultCliConfig: boolean;
+  oauthAccount: boolean;
+  cpaGateway: boolean;
+  appImports: ProviderAppImportOption[];
   accountManagement: boolean;
   checkIn: boolean;
   checkedInToday: boolean;
@@ -130,6 +140,26 @@ export interface ProviderActions {
     scope: ProviderModelScope;
     unavailableReason: string | null;
   };
+}
+
+export type CcSwitchAgent = "codex" | "claude" | "gemini" | "grokbuild" | "opencode" | "openclaw" | "hermes";
+
+export type ProviderAppImportTarget =
+  | { app: "magpie" }
+  | { app: "ccSwitch"; agent: CcSwitchAgent };
+
+export interface ProviderAppImportOption {
+  target: ProviderAppImportTarget;
+  label: string;
+  unavailableReason: string | null;
+  note: string | null;
+}
+
+export interface ProviderAppImportResult {
+  appLabel: string;
+  targetLabel: string;
+  launchError: string | null;
+  importUrl: string | null;
 }
 
 export interface ProviderIdentity {
@@ -170,6 +200,7 @@ export interface NewApiSession {
 }
 
 export interface ProviderAuth {
+  oauth: OAuthCredential | null;
   mode: AuthMode;
   source?: AuthSource;
   apiKey: string;
@@ -264,9 +295,22 @@ export interface ProviderQuota {
   displayType: string;
   currencySymbol: string;
   currencyExchangeRate: number;
+  /** 订阅制中转站的周期额度窗口；钱包在这里只是溢出账户。 */
+  windows?: ProviderQuotaWindow[];
+}
+
+export interface ProviderQuotaWindow {
+  label: string;
+  used: number;
+  /** 0 表示不限量。 */
+  limit: number;
+  /** unix 秒。 */
+  resetsAt?: number | null;
 }
 
 export interface ProviderCapabilities {
+  subscription: AccountSubscription | null;
+  gateway: CpaGatewaySnapshot | null;
   checkInKnown: boolean;
   checkInSupported: boolean;
   checkInAuthModes: AuthMode[];
@@ -1349,6 +1393,13 @@ export interface ProviderUsageModelPoint {
   tokenUsed: number;
 }
 
+export interface ProviderModelHealth {
+  modelName: string;
+  successRate: number | null;
+  avgLatencyMs: number | null;
+  avgTps: number | null;
+}
+
 export interface ProviderUsageSummary {
   providerId: string;
   providerName: string;
@@ -1356,6 +1407,25 @@ export interface ProviderUsageSummary {
   points: ProviderUsagePoint[];
   modelStats: ProviderUsageModelStat[];
   modelPoints: ProviderUsageModelPoint[];
+  /** 站点没有性能采样能力时为空数组。 */
+  modelHealth: ProviderModelHealth[];
+  /** 周期内请求总数；站点只给前三站模型明细时仍由这里给出完整次数。 */
+  requestCount: number;
+}
+
+/** 顶栏的全局用量趋势：多个站点合并结果，因此没有单一配额单位。 */
+export interface ProviderUsageOverview {
+  requestCount: number;
+  modelStats: ProviderUsageModelStat[];
+  modelHealth: ProviderModelHealth[];
+  /** 读取失败的站点；单个站点失败不影响其余站点的汇总。 */
+  errors: ProviderUsageSourceError[];
+}
+
+export interface ProviderUsageSourceError {
+  providerId: string;
+  providerName: string;
+  message: string;
 }
 
 export interface ProviderRequestLogsQuery {
@@ -1385,6 +1455,8 @@ export interface ProviderRequestLogStats {
   quota: number;
   rpm: number;
   tpm: number;
+  /** 站点不提供平均耗时统计时为 null。 */
+  avgDurationMs: number | null;
 }
 
 export interface ProviderRequestLogsResult {
@@ -1603,14 +1675,24 @@ export interface CliRuntimeSnapshot {
   configs: CliConfigSnapshot[];
 }
 
+/** 公告在站点上属于哪一类来源：NewAPI 站点总公告 / 控制台公告，Sub2API 公告。 */
+export type SiteAnnouncementSource = "siteNotice" | "console" | "announcement";
+
 export interface SiteAnnouncement {
   id: string;
   fingerprint: string;
   providerId: string;
   providerName: string;
   providerProtocol: ProviderProtocol;
+  source: SiteAnnouncementSource;
   title: string;
+  /** 标题由后端从正文第一行提取：只用于本地识别，界面上不再单独渲染。 */
+  titleIsDerived: boolean;
   content: string;
+  /** 协议给出的公告级别（NewAPI: default/ongoing/success/warning/error）。 */
+  level: string;
+  /** 公告正文之外的附加说明。 */
+  extra: string;
   publishedAt: string | null;
   updatedAt: string | null;
   readAt: string | null;
@@ -1662,6 +1744,30 @@ export interface AppSettings {
   livenessPlaceholderPools: LivenessPlaceholderPool[];
   livenessNumberMin: number;
   livenessNumberMax: number;
+  windowCloseAction: WindowCloseAction;
+  windowHideDockIcon: boolean;
+  windowTrayClickAction: TrayClickAction;
+  windowRestoreState: boolean;
+  windowCloseHintShown: boolean;
+  updateAutoCheck: boolean;
+  updateCheckIntervalHours: number;
+  notifyRefreshFailure: boolean;
+  notifyLivenessFailure: boolean;
+  notifyCheckIn: boolean;
+  notifyQuietHours: boolean;
+  notifyQuietStart: string;
+  notifyQuietEnd: string;
+  notifyRetryCount: number;
+  notifyMergeWindowSecs: number;
+  refreshRetryCount: number;
+  refreshJitter: boolean;
+  livenessFailureThreshold: number;
+  livenessRecordLimit: number;
+  checkInRecordLimit: number;
+  httpTimeoutSecs: number;
+  proxyBypass: string;
+  logLevel: LogLevel;
+  logRetentionDays: number;
 }
 
 export interface LivenessPlaceholderPool {

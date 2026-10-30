@@ -189,6 +189,13 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       return;
     }
 
+    // An OAuth card hands its own account authorization to the vendor CLI, so
+    // there is no relay key to choose.
+    if (provider.identity.protocol === "oauth") {
+      await previewProviderCliConfig(provider, cliKind, "");
+      return;
+    }
+
     const keys = effectiveProviderApiKeyOptions(
       provider.auth.apiKey,
       provider.auth.apiKeyOptions || [],
@@ -198,7 +205,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       return;
     }
     if (keys.length === 1) {
-      await previewProviderCliConfig(provider, cliKind, keys[0]);
+      await previewProviderCliConfig(provider, cliKind, keys[0].localId.trim());
       return;
     }
 
@@ -213,16 +220,15 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     const cliKind = cliConfigKeyPickerKind.value;
     if (!provider || !cliKind || switchingCliConfig.value) return;
     cliConfigKeyPickerVisible.value = false;
-    await previewProviderCliConfig(provider, cliKind, option);
+    await previewProviderCliConfig(provider, cliKind, option.localId.trim());
   }
 
   async function previewProviderCliConfig(
     provider: Provider,
     cliKind: AgentCliKind,
-    apiKey: ProviderApiKeyOption,
+    apiKeyLocalId: string,
   ) {
     const providerId = provider.identity.id;
-    const apiKeyLocalId = apiKey.localId.trim();
     cliConfigurationEditor.close();
     const requestRevision = ++cliConfigRequestRevision;
     switchingCliConfig.value = { providerId, cliKind };

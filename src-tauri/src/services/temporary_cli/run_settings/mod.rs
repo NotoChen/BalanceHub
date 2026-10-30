@@ -184,13 +184,20 @@ pub(super) fn apply(
         }
     }
     if !settings.keep_session {
+        let isolated_home = plan.isolated_home();
+        let seeded = plan
+            .auxiliary_files
+            .iter()
+            .map(|file| file.path.to_string())
+            .collect::<Vec<_>>();
         prepared.isolation = Some(retention::IsolatedHome::plan(
             kind,
             directory,
             &mut plan.environment,
+            isolated_home,
+            &seeded,
         )?);
     }
-    let had_auxiliary = plan.auxiliary_file_content.is_some();
     native::apply(
         kind,
         settings,
@@ -203,20 +210,6 @@ pub(super) fn apply(
     options::apply(settings, &resolved, plan)?;
     if kind == AgentCliKind::Gemini {
         native::preserve_gemini_settings(workdir, plan)?;
-    }
-    if !had_auxiliary {
-        if let Some(content) = plan.auxiliary_file_content.take() {
-            let path = directory.join("launch-settings.json");
-            if kind == AgentCliKind::ClaudeCode {
-                plan.args
-                    .extend(["--settings".into(), path.to_string_lossy().into_owned()]);
-            }
-            if kind == AgentCliKind::Gemini {
-                plan.environment
-                    .set_path("GEMINI_CLI_SYSTEM_SETTINGS_PATH", &path);
-            }
-            prepared.files.push(AgentFilePlan { path, content });
-        }
     }
     native::append_prompt(kind, settings, mode, plan);
     validate_argument_size(cli_path, &plan.args)?;

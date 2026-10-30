@@ -33,6 +33,7 @@ pub struct NotificationContext<'a> {
     pub client: &'a reqwest::Client,
 }
 
+#[derive(Clone)]
 pub struct NotificationMessage {
     pub title: String,
     pub markdown: String,

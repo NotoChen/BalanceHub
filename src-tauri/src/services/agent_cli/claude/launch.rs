@@ -1,5 +1,6 @@
 use super::super::contracts::{
-    EnvironmentPatch, TemporaryLaunchConfiguration, TemporaryLaunchPlan, TemporaryLaunchRequest,
+    EnvironmentPatch, TemporaryAuxiliaryFile, TemporaryLaunchConfiguration, TemporaryLaunchPlan,
+    TemporaryLaunchRequest,
 };
 use crate::models::TemporaryCliSessionMode;
 
@@ -8,29 +9,61 @@ pub(super) fn build_plan(
 ) -> Result<TemporaryLaunchPlan, String> {
     let mut args = Vec::new();
     let mut environment = EnvironmentPatch::default();
-    let mut auxiliary_file_content = None;
-    if let TemporaryLaunchConfiguration::Provider {
-        api_key, base_url, ..
-    } = request.configuration
-    {
-        let settings_path = request
-            .auxiliary_file_path
-            .ok_or_else(|| "Claude Code 临时启动缺少配置文件路径".to_string())?;
-        args.extend([
-            "--settings".to_string(),
-            settings_path.to_string_lossy().to_string(),
-        ]);
-        environment.remove("ANTHROPIC_API_KEY");
-        environment.remove("ANTHROPIC_AUTH_TOKEN");
-        environment.remove("ANTHROPIC_BASE_URL");
-        auxiliary_file_content = Some(
-            serde_json::to_string_pretty(&serde_json::json!({
-                "env": {
-                    "ANTHROPIC_AUTH_TOKEN": api_key.trim(),
-                    "ANTHROPIC_BASE_URL": base_url.trim(),
-                }
-            }))
-            .map_err(|err| format!("生成 Claude Code 临时配置失败: {err}"))?,
+    let mut auxiliary_files = Vec::new();
+    let isolated_home = None;
+    match request.configuration {
+        TemporaryLaunchConfiguration::Native => {}
+        TemporaryLaunchConfiguration::Provider {
+            api_key, base_url, ..
+        } => {
+            environment.remove("ANTHROPIC_API_KEY");
+            environment.remove("ANTHROPIC_AUTH_TOKEN");
+            environment.remove("ANTHROPIC_BASE_URL");
+            auxiliary_files.push(TemporaryAuxiliaryFile {
+                path: "claude-settings.json",
+                settings: true,
+                content: serde_json::to_string_pretty(&serde_json::json!({
+                    "env": {
+                        "ANTHROPIC_AUTH_TOKEN": api_key.trim(),
+                        "ANTHROPIC_BASE_URL": base_url.trim(),
+                    }
+                }))
+                .map_err(|err| format!("生成 Claude Code 临时配置失败: {err}"))?,
+            });
+        }
+        TemporaryLaunchConfiguration::OAuth { auth, .. } => {
+            // Claude Code accepts a subscription access token directly from
+            // CLAUDE_CODE_OAUTH_TOKEN, which outranks stored sign-ins, so the
+            // account's own keychain entry and .credentials.json stay as they
+            // are. The settings file stays empty and exists only so per-launch
+            // run settings have somewhere to merge.
+            for name in [
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_BASE_URL",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+            ] {
+                environment.remove(name);
+            }
+            environment.set("CLAUDE_CODE_OAUTH_TOKEN", auth.access_token.trim());
+            auxiliary_files.push(TemporaryAuxiliaryFile {
+                path: "claude-settings.json",
+                settings: true,
+                content: "{}".to_string(),
+            });
+        }
+    }
+    if let Some(file) = auxiliary_files.iter().find(|file| file.settings) {
+        args.splice(
+            0..0,
+            [
+                "--settings".to_string(),
+                request
+                    .launch_directory
+                    .join(file.path)
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
         );
     }
     if !request.model.trim().is_empty() {
@@ -54,6 +87,7 @@ pub(super) fn build_plan(
     Ok(TemporaryLaunchPlan {
         args,
         environment,
-        auxiliary_file_content,
+        auxiliary_files,
+        isolated_home,
     })
 }

@@ -37,6 +37,19 @@ export function agentCliLabel(
   return agentCliTool(probe, cliKind)?.label || cliKind;
 }
 
+/// 底栏按钮只有一行宽，短徽标（codex / claudeCode）放进按钮里会读成「切换 co…」，
+/// 所以按钮取中文产品名，再按宽度截断。
+const AGENT_CLI_PRODUCT_NAMES: Record<AgentCliKind, string> = {
+  codex: "Codex",
+  claudeCode: "Claude Code",
+  gemini: "Gemini",
+  grok: "Grok",
+};
+
+export function fullAgentCliLabel(cliKind: AgentCliKind) {
+  return AGENT_CLI_PRODUCT_NAMES[cliKind] ?? cliKind;
+}
+
 export function agentCliVersionLabel(value: string) {
   const version = value.trim();
   if (!version) return "";

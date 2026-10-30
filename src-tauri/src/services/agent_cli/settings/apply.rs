@@ -158,8 +158,9 @@ pub(crate) fn apply(
         changed_json = true;
     }
     if changed_json {
-        plan.auxiliary_file_content =
-            Some(serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?);
+        plan.write_settings_document(
+            serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
+        )?;
     }
     Ok(())
 }
@@ -198,8 +199,7 @@ pub(super) fn merge(target: &mut Value, overlay: &Value) {
 }
 
 pub(crate) fn json_config(plan: &TemporaryLaunchPlan) -> Result<Value, String> {
-    plan.auxiliary_file_content
-        .as_deref()
+    plan.settings_document()
         .map(serde_json::from_str)
         .transpose()
         .map(|v| v.unwrap_or_else(|| json!({})))

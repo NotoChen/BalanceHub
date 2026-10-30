@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from "vue";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-import { openAgentResourceLink } from "../../api/agent-configuration";
+import { openExternalLink } from "../../api/app";
 import { withTimeout } from "../../utils/promise-timeout";
+import { documentMarkdownToHtml } from "../../utils/markdown-html";
 import "../../styles/modules/agent-resource-content.css";
 import { sessionHighlight } from "../../utils/session-highlight";
 
@@ -28,43 +27,7 @@ const rendered = computed(() => {
             ? ""
             : frontmatter,
       );
-  const safe = DOMPurify.sanitize(
-    marked.parse(body, { async: false, gfm: true }),
-    {
-      ALLOWED_TAGS: [
-        "p",
-        "br",
-        "hr",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "strong",
-        "em",
-        "del",
-        "blockquote",
-        "ul",
-        "ol",
-        "li",
-        "pre",
-        "code",
-        "table",
-        "thead",
-        "tbody",
-        "tr",
-        "th",
-        "td",
-        "a",
-        "details",
-        "summary",
-        "kbd",
-      ],
-      ALLOWED_ATTR: ["href", "title", "start", "colspan", "rowspan"],
-      ALLOWED_URI_REGEXP: /^https?:\/\//i,
-    },
-  );
+  const safe = documentMarkdownToHtml(body);
   const terms = [
     ...new Set(props.query.trim().split(/\s+/).filter(Boolean)),
   ].slice(0, 8);
@@ -112,7 +75,7 @@ async function openLink(event: MouseEvent) {
   const request = ++requestId;
   linkError.value = "";
   try {
-    await withTimeout(openAgentResourceLink(url), 10_000, "打开链接超时");
+    await withTimeout(openExternalLink(url), 10_000, "打开链接超时");
   } catch {
     if (request === requestId) linkError.value = "无法打开链接，请稍后重试";
   }

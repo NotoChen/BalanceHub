@@ -69,7 +69,7 @@ const detectionLabel = computed(() => {
   return "待识别";
 });
 
-const protocolOptions = computed(() => props.providerProtocols.map((descriptor) => ({
+const protocolOptions = computed(() => props.providerProtocols.filter((descriptor) => descriptor.formCreation).map((descriptor) => ({
   value: descriptor.kind,
   label: descriptor.label,
 })));

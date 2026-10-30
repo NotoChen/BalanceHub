@@ -2,15 +2,31 @@
   max-height: calc(100dvh - 44px);
 }
 
-.site-announcements-modal .arco-modal-body {
+/* 公告面板自己管内边距：吸顶工具栏要横跨整个滚动区，不能让弹窗主体的
+   左右内边距把两侧留出缝让公告透出来。 */
+.surface-modal.site-announcements-modal .arco-modal-body {
   max-height: calc(100dvh - 132px);
   overflow: auto;
+  padding: 0;
 }
 
 .site-announcements-content {
   display: grid;
-  min-height: 32rem;
+  min-height: 16rem;
   gap: 14px;
+  padding: 0 22px 22px;
+}
+
+/* 面板工具栏 + 站点切换条固定贴在滚动区顶部：翻到任何一条公告都能直接换站。
+   背景必须不透明，否则下面的公告会从缝隙里透出来。 */
+.site-announcements-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  margin: 0 -22px;
+  background: var(--surface-panel);
+  padding: 18px 22px 0;
 }
 
 .site-announcements-toolbar {
@@ -36,14 +52,6 @@
   gap: 8px;
 }
 
-.site-announcements-toolbar strong {
-  color: var(--surface-ink);
-  font-size: 24px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 740;
-  line-height: 1;
-}
-
 .site-announcements-toolbar span,
 .site-announcements-toolbar i {
   color: var(--surface-ink-soft);
@@ -54,6 +62,95 @@
 
 .site-announcements-toolbar i {
   color: var(--surface-warning);
+}
+
+/* 站点切换条：一行横排，站点多了横向滚动，不折成两行挤掉公告区高度。 */
+.site-announcement-switcher {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 9px 0 10px;
+  scrollbar-width: none;
+}
+
+.site-announcement-switcher::-webkit-scrollbar {
+  display: none;
+}
+
+.site-announcement-switcher-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 15rem;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--surface-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--surface-ink-soft);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1;
+  padding: 6px 11px;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.site-announcement-switcher-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-announcement-switcher-chip b {
+  flex: none;
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.site-announcement-switcher-chip em {
+  flex: none;
+  min-width: 16px;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 720;
+  text-align: center;
+}
+
+.site-announcement-switcher-chip:hover {
+  border-color: var(--surface-line-strong);
+  background: var(--surface-panel-soft);
+  color: var(--surface-ink);
+}
+
+.site-announcement-switcher-chip.active {
+  border-color: color-mix(in srgb, var(--surface-accent) 42%, var(--surface-line) 58%);
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
+.site-announcement-switcher-chip.active b {
+  color: var(--surface-accent);
+}
+
+.site-announcement-switcher-chip.active em {
+  background: var(--surface-accent);
+  color: var(--surface-panel);
+}
+
+.site-announcement-switcher-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--surface-accent) 55%, transparent);
+  outline-offset: 1px;
 }
 
 .site-announcements-spin {
@@ -77,210 +174,404 @@
   padding: 8px 0 16px;
 }
 
-.site-announcements-layout {
-  display: grid;
-  min-height: 29rem;
-  grid-template-columns: minmax(14rem, 17.5rem) minmax(0, 1fr);
-  gap: 0;
-  overflow: hidden;
+/* 线性时间线：站点分组，组内按发布时间从上到下完整展开，由弹窗主体统一滚动。 */
+.site-announcements-timeline {
   border: 1px solid var(--surface-line);
   border-radius: 10px;
   background: var(--surface-panel);
+  padding: 0 10px 6px 4px;
 }
 
-.site-announcements-list {
-  min-width: 0;
-  max-height: 29rem;
-  border-right: 1px solid var(--surface-line);
-  background: var(--surface-panel-soft);
-  overflow: auto;
-  padding: 8px;
-}
-
-.site-announcement-list-item {
-  position: relative;
-  display: grid;
-  width: 100%;
-  min-width: 0;
-  grid-template-columns: 8px minmax(0, 1fr);
-  gap: 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  padding: 10px 9px;
-  text-align: left;
-  transition:
-    background 180ms var(--surface-ease),
-    transform 180ms var(--surface-ease);
-}
-
-.site-announcement-list-item:hover,
-.site-announcement-list-item:focus-visible {
-  background: var(--surface-accent-soft);
-  outline: none;
-}
-
-.site-announcement-list-item:active {
-  transform: scale(0.99);
-}
-
-.site-announcement-list-item.is-selected {
-  background: color-mix(in srgb, var(--surface-accent-soft) 78%, var(--surface-panel) 22%);
-}
-
-.site-announcement-unread-dot {
-  width: 6px;
-  height: 6px;
-  margin-top: 17px;
-  border-radius: 50%;
-  background: transparent;
-}
-
-.site-announcement-list-item.is-unread .site-announcement-unread-dot {
-  background: var(--surface-accent);
-  box-shadow: 0 0 0 3px var(--surface-accent-soft);
-}
-
-.site-announcement-list-copy {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.site-announcement-list-copy small,
-.site-announcement-list-copy time {
-  overflow: hidden;
-  color: var(--surface-muted);
-  font-size: 10px;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.site-announcement-list-copy strong {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--surface-ink);
-  font-size: 12px;
-  font-weight: 680;
-  line-height: 1.45;
-  text-wrap: pretty;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.site-announcement-detail,
-.site-announcement-detail-empty {
-  min-width: 0;
-  max-height: 29rem;
-  overflow: auto;
-}
-
-.site-announcement-detail {
-  display: grid;
-  align-content: start;
-  gap: 18px;
-  padding: 22px 24px 28px;
-}
-
-.site-announcement-detail > header {
-  display: grid;
-  gap: 9px;
-  border-bottom: 1px solid var(--surface-line);
-  padding-bottom: 17px;
-}
-
-.site-announcement-source,
-.site-announcement-time-row {
+/* 站点头不再吸顶：上面已经有一层固定的工具栏和站点切换条，两层吸顶会互相遮挡。 */
+.site-announcement-group-header {
   display: flex;
+  align-items: baseline;
+  gap: 7px;
+  border-bottom: 1px solid var(--surface-line);
+  background: var(--surface-panel);
+  padding: 11px 4px 8px 14px;
+}
+
+/* 分组之间留一点空白，站点一多也看得出换站了。 */
+.site-announcement-group + .site-announcement-group {
+  margin-top: 6px;
+}
+
+/* 同一站点两种来源（NewAPI 站点公告 / 控制台公告）：左右分栏。
+   站点公告通常只有一条长期内容，控制台公告是一串更新；上下叠在一起就得先
+   翻过前者才能看后者，分栏后一眼能同时看到两边。 */
+.site-announcement-sections.is-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 0 6px 6px 2px;
+}
+
+.site-announcement-sections.is-split > .site-announcement-section {
   min-width: 0;
-  align-items: center;
-  gap: 8px;
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+  padding-bottom: 4px;
 }
 
-.site-announcement-source span,
-.site-announcement-source i {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* 分栏后每一栏都要写清自己是哪一类公告。 */
+.site-announcement-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  border-bottom: 1px solid var(--surface-line);
+  background: color-mix(in srgb, var(--surface-panel) 72%, transparent);
+  padding: 9px 8px 7px 16px;
 }
 
-.site-announcement-source span {
-  color: var(--surface-accent);
+.site-announcement-section-header span {
+  color: var(--surface-ink-soft);
   font-size: 11px;
   font-weight: 700;
 }
 
-.site-announcement-source i {
+.site-announcement-section-header i,
+.site-announcement-section-header em {
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.site-announcement-section-header em {
+  color: var(--surface-accent);
+  font-weight: 700;
+}
+
+.site-announcement-group-name {
+  overflow: hidden;
+  color: var(--surface-ink);
+  font-size: 12px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-announcement-group-header i {
   border-left: 1px solid var(--surface-line-strong);
   color: var(--surface-muted);
   font-size: 10px;
   font-style: normal;
-  padding-left: 8px;
+  padding-left: 7px;
 }
 
-.site-announcement-detail h3 {
-  margin: 0;
-  color: var(--surface-ink);
-  font-size: 20px;
-  font-weight: 740;
-  letter-spacing: -0.02em;
-  line-height: 1.35;
-  text-wrap: balance;
-}
-
-.site-announcement-time-row {
-  justify-content: space-between;
+.site-announcement-group-count,
+.site-announcement-group-header em {
   color: var(--surface-muted);
   font-size: 10px;
+  font-style: normal;
 }
 
-.site-announcement-read-sync {
+.site-announcement-group-header em {
   color: var(--surface-accent);
-  font-weight: 620;
+  font-weight: 700;
 }
 
-.site-announcement-body {
-  max-width: 68ch;
+.site-announcement-entry {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+/* 公告之间用一条淡分隔线收口，避免长正文堆在一起读不出边界。 */
+.site-announcement-entry + .site-announcement-entry .site-announcement-entry-main {
+  border-top: 1px solid color-mix(in srgb, var(--surface-line) 62%, transparent);
+}
+
+/* 轨道列自己画竖线，上一条的线段和下一条首尾相接。 */
+.site-announcement-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.site-announcement-rail::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--surface-line);
+}
+
+.site-announcement-entry:first-of-type .site-announcement-rail::before {
+  top: 17px;
+}
+
+.site-announcement-entry:last-of-type .site-announcement-rail::before {
+  bottom: calc(100% - 17px);
+}
+
+.site-announcement-rail-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  margin-top: 13px;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  box-shadow: 0 0 0 3px var(--surface-panel);
+}
+
+.site-announcement-rail-dot[data-level="ongoing"] {
+  background: var(--surface-accent);
+}
+.site-announcement-rail-dot[data-level="success"] {
+  background: var(--surface-success);
+}
+.site-announcement-rail-dot[data-level="warning"] {
+  background: var(--surface-warning);
+}
+.site-announcement-rail-dot[data-level="error"] {
+  background: var(--surface-danger);
+}
+
+.site-announcement-entry-main {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 10px 16px 14px 10px;
+}
+
+.site-announcement-entry-head {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.site-announcement-entry-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.site-announcement-entry-meta time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.site-announcement-unread-tag {
+  border: 0;
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--surface-accent);
+  background: var(--surface-accent-soft);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.site-announcement-unread-tag:hover,
+.site-announcement-unread-tag:focus-visible {
+  background: color-mix(in srgb, var(--surface-accent) 22%, transparent);
+  outline: none;
+}
+
+.site-announcement-entry-title {
+  overflow: hidden;
+  color: var(--surface-ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  text-wrap: pretty;
+  white-space: nowrap;
+}
+
+.site-announcement-entry-body {
+  max-width: 70ch;
+  overflow-wrap: anywhere;
   color: var(--surface-ink-soft);
   font-size: 13px;
-  line-height: 1.8;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  line-height: 1.75;
 }
 
-.site-announcement-body.is-empty {
+.site-announcement-entry-empty {
+  margin: 0;
   color: var(--surface-muted);
   font-style: italic;
 }
 
-.site-announcement-detail-empty {
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 7px;
+.site-announcement-level {
+  flex: none;
+  border-radius: 999px;
+  padding: 1px 8px;
   color: var(--surface-muted);
-  padding: 28px;
-  text-align: center;
+  background: var(--surface-panel-soft);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
-.site-announcement-detail-empty strong {
-  color: var(--surface-ink-soft);
+.site-announcement-level[data-level="ongoing"] {
+  color: var(--surface-accent);
+  background: color-mix(in srgb, var(--surface-accent) 12%, transparent);
+}
+.site-announcement-level[data-level="success"] {
+  color: var(--surface-success);
+  background: color-mix(in srgb, var(--surface-success) 12%, transparent);
+}
+.site-announcement-level[data-level="warning"] {
+  color: var(--surface-warning);
+  background: color-mix(in srgb, var(--surface-warning) 12%, transparent);
+}
+.site-announcement-level[data-level="error"] {
+  color: var(--surface-danger);
+  background: color-mix(in srgb, var(--surface-danger) 12%, transparent);
+}
+
+/* 公告正文由站点后台以 Markdown / 受限 HTML 维护，按读文档的方式排版。 */
+.site-announcement-markdown article {
+  display: grid;
+  gap: 8px;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.site-announcement-markdown p,
+.site-announcement-markdown ul,
+.site-announcement-markdown ol,
+.site-announcement-markdown blockquote,
+.site-announcement-markdown pre {
+  margin: 0;
+}
+
+.site-announcement-markdown h1,
+.site-announcement-markdown h2,
+.site-announcement-markdown h3,
+.site-announcement-markdown h4,
+.site-announcement-markdown h5,
+.site-announcement-markdown h6 {
+  margin: 2px 0 0;
+  color: var(--surface-ink);
   font-size: 13px;
+  font-weight: 720;
+  line-height: 1.5;
 }
 
-.site-announcement-detail-empty span {
-  max-width: 28ch;
-  font-size: 11px;
-  line-height: 1.55;
+.site-announcement-markdown ul,
+.site-announcement-markdown ol {
+  display: grid;
+  gap: 3px;
+  padding-left: 18px;
+}
+
+.site-announcement-markdown a {
+  color: var(--surface-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.site-announcement-markdown code {
+  border-radius: 4px;
+  background: var(--surface-panel-soft);
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+.site-announcement-markdown pre {
+  overflow: auto;
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+  padding: 9px 11px;
+}
+
+.site-announcement-markdown pre code {
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+.site-announcement-markdown blockquote {
+  border-left: 2px solid var(--surface-line-strong);
+  color: var(--surface-muted);
+  padding-left: 10px;
+}
+
+.site-announcement-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--surface-line);
+  margin: 2px 0;
+}
+
+.site-announcement-markdown img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+}
+
+.site-announcement-markdown table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.site-announcement-markdown th,
+.site-announcement-markdown td {
+  border: 1px solid var(--surface-line);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.site-announcement-markdown th {
+  background: var(--surface-panel-soft);
+  color: var(--surface-ink);
+}
+
+.site-announcement-link-error {
+  color: var(--surface-danger);
+  font-size: 10px;
+}
+
+.site-announcement-extra {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  border-left: 2px solid var(--surface-line-strong);
+  padding: 2px 0 2px 12px;
+}
+
+.site-announcement-extra strong {
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.site-announcement-extra .site-announcement-markdown article {
+  color: var(--surface-ink-soft);
+  font-size: 12px;
+}
+
+.site-announcement-read-sync {
+  padding-left: 10px;
+  color: var(--surface-accent);
+  font-size: 10px;
+  font-weight: 620;
 }
 
 .site-announcement-errors {
   display: grid;
   gap: 8px;
-  margin: 10px 2px 2px;
+  margin: 2px;
   border-top: 1px solid var(--surface-line);
   padding: 12px 8px 4px;
 }
@@ -322,19 +613,41 @@
   overflow-wrap: anywhere;
 }
 
+@media (max-width: 900px) {
+  /* 两栏都窄到读不下去时退回单栏，仍然按来源分节。 */
+  .site-announcement-sections.is-split {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+  }
+
+  .site-announcement-sections.is-split > .site-announcement-section {
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .site-announcement-section-header {
+    background: none;
+    border-bottom: 1px dashed var(--surface-line);
+    padding: 9px 4px 6px 16px;
+  }
+}
+
 @media (max-width: 760px) {
-  .site-announcements-layout {
-    grid-template-columns: 1fr;
+  .site-announcements-content {
+    padding: 0 14px 16px;
   }
 
-  .site-announcements-list {
-    max-height: 14rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--surface-line);
+  .site-announcements-head {
+    margin: 0 -14px;
+    padding: 14px 14px 0;
   }
 
-  .site-announcement-detail,
-  .site-announcement-detail-empty {
-    max-height: 18rem;
+  .site-announcements-timeline {
+    padding: 0 6px 6px 2px;
+  }
+
+  .site-announcement-entry-meta time {
+    margin-left: 0;
   }
 }

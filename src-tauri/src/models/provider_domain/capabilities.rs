@@ -6,8 +6,10 @@ use crate::models::{
 };
 
 pub fn supports_account_management(provider: &Provider) -> bool {
-    if matches!(provider.identity.protocol, ProviderProtocol::Api)
-        || matches!(provider.auth.mode, AuthMode::ApiKey)
+    if matches!(
+        provider.identity.protocol,
+        ProviderProtocol::Api | ProviderProtocol::OAuth | ProviderProtocol::CliProxyApi
+    ) || matches!(provider.auth.mode, AuthMode::ApiKey)
     {
         return false;
     }

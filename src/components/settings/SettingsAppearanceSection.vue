@@ -1,23 +1,29 @@
 <script setup lang="ts">
+import { computed, onMounted } from "vue";
 import {
   IconDesktop,
   IconLaunch,
   IconMoon,
-  IconRefresh,
   IconSun,
 } from "@arco-design/web-vue/es/icon";
-import type { AppSettings, ThemeMode } from "../../stores/providers";
-import { formatAppVersionLabel } from "../../utils/app-version";
+import type {
+  AppSettings,
+  ThemeMode,
+  TrayClickAction,
+  WindowCloseAction,
+} from "../../stores/providers";
+import { useHostPlatform } from "../../composables/useHostPlatform";
 import RadioChoiceGroup from "../RadioChoiceGroup.vue";
 
 defineProps<{
   settings: AppSettings;
-  appVersion: string;
-  checkingForUpdate: boolean;
   disabled?: boolean;
 }>();
 
-const emit = defineEmits<{ "check-for-update": [] }>();
+const host = useHostPlatform();
+onMounted(() => void host.ensure());
+/// Dock 图标是 macOS 独有的概念，其他平台不显示这一行。
+const showsDockOption = computed(() => host.platform.value === "macos");
 
 const themeOptions: {
   value: ThemeMode;
@@ -29,6 +35,15 @@ const themeOptions: {
   { value: "dark", label: "深色", icon: IconMoon },
 ];
 
+const closeActionOptions: { label: string; value: WindowCloseAction }[] = [
+  { label: "隐藏到托盘", value: "hideToTray" },
+  { label: "退出应用", value: "quit" },
+];
+
+const trayClickOptions: { label: string; value: TrayClickAction }[] = [
+  { label: "显示窗口", value: "showWindow" },
+  { label: "显示 / 收起切换", value: "toggleWindow" },
+];
 </script>
 
 <template>
@@ -95,15 +110,50 @@ const themeOptions: {
 
     <section class="settings-card">
       <header class="settings-card-header">
-        <span class="settings-card-icon settings-card-icon-green"><IconRefresh /></span>
-        <div><strong>版本更新</strong></div>
-        <span class="settings-version-badge">{{ formatAppVersionLabel(appVersion) }}</span>
+        <span class="settings-card-icon"><IconDesktop /></span>
+        <div>
+          <strong>窗口与托盘</strong>
+          <span>后台刷新、签到和测活依赖进程存活。</span>
+        </div>
       </header>
-      <div class="settings-setting-row">
-        <div class="settings-setting-copy"><strong>检查新版本</strong></div>
-        <a-button :loading="checkingForUpdate" @click="emit('check-for-update')">
-          <template #icon><IconRefresh /></template>检查更新
-        </a-button>
+
+      <div class="settings-setting-list">
+        <div class="settings-setting-row settings-setting-row-field">
+          <div class="settings-setting-copy">
+            <strong>关闭按钮</strong>
+            <span>选择「退出应用」后，关闭窗口即结束后台任务。</span>
+          </div>
+          <a-radio-group v-model="settings.windowCloseAction" type="button" size="small">
+            <a-radio v-for="option in closeActionOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </a-radio>
+          </a-radio-group>
+        </div>
+        <div class="settings-setting-row settings-setting-row-field">
+          <div class="settings-setting-copy">
+            <strong>点击托盘图标</strong>
+            <span>「显示 / 收起切换」适合把窗口当作随手开关的用户。</span>
+          </div>
+          <a-radio-group v-model="settings.windowTrayClickAction" type="button" size="small">
+            <a-radio v-for="option in trayClickOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </a-radio>
+          </a-radio-group>
+        </div>
+        <div v-if="showsDockOption" class="settings-setting-row">
+          <div class="settings-setting-copy">
+            <strong>隐藏时移除 Dock 图标</strong>
+            <span>窗口隐藏后只保留菜单栏图标，不在 Dock 留驻。</span>
+          </div>
+          <a-switch v-model="settings.windowHideDockIcon" aria-label="隐藏时移除 Dock 图标" />
+        </div>
+        <div class="settings-setting-row">
+          <div class="settings-setting-copy">
+            <strong>记住窗口位置与大小</strong>
+            <span>关闭后记住上次的位置；关掉则每次用默认尺寸打开。</span>
+          </div>
+          <a-switch v-model="settings.windowRestoreState" aria-label="记住窗口位置与大小" />
+        </div>
       </div>
     </section>
   </div>

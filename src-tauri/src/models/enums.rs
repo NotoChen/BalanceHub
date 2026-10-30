@@ -104,6 +104,57 @@ pub enum ThemeMode {
     Dark,
 }
 
+/// 主窗口关闭按钮的行为。默认隐藏到托盘：后台刷新、签到和测活依赖进程存活，
+/// 直接退出会让这些自动化静默停摆。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WindowCloseAction {
+    #[default]
+    HideToTray,
+    Quit,
+}
+
+/// 单击托盘图标的行为。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayClickAction {
+    #[default]
+    ShowWindow,
+    ToggleWindow,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+}
+
+impl LogLevel {
+    pub fn as_filter(self) -> log::LevelFilter {
+        match self {
+            LogLevel::Error => log::LevelFilter::Error,
+            LogLevel::Warn => log::LevelFilter::Warn,
+            LogLevel::Info => log::LevelFilter::Info,
+            LogLevel::Debug => log::LevelFilter::Debug,
+        }
+    }
+}
+
+/// 通知事件类别。既用于「逐类开关」，也作为合并窗口的去重键。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NotificationEvent {
+    RefreshFailure,
+    LivenessFailure,
+    CheckIn,
+    /// 用户手动触发（含设置里的「发送测试」）：不参与开关与合并。
+    Manual,
+}
+
 macro_rules! define_agent_cli_kinds {
     (
         $default_variant:ident => { key: $default_key:literal, module: $default_module:ident }

@@ -9,6 +9,8 @@ mod capabilities;
 mod check_in;
 mod credential_details;
 mod credentials;
+mod oauth_accounts;
+mod oauth_operations;
 pub(crate) use credential_details::{CredentialKind, ProviderCredentialDetails};
 mod liveness;
 mod persistence;
@@ -39,6 +41,7 @@ pub struct ProviderService<'a> {
 /// 浏览器绑定由签到额外校验；解绑登录环境不应丢弃既有站点会话的续期结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ProviderRequestContext {
+    oauth: Option<crate::models::OAuthCredential>,
     provider_id: String,
     base_url: String,
     protocol: ProviderProtocol,
@@ -64,6 +67,7 @@ pub(super) struct ProviderRequestContext {
 impl ProviderRequestContext {
     pub(super) fn capture(provider: &Provider) -> Self {
         Self {
+            oauth: provider.auth.oauth.clone(),
             provider_id: provider.identity.id.clone(),
             base_url: provider.identity.base_url.clone(),
             protocol: provider.identity.protocol,
@@ -88,7 +92,8 @@ impl ProviderRequestContext {
     }
 
     pub(super) fn matches(&self, provider: &Provider) -> bool {
-        self.provider_id == provider.identity.id
+        self.oauth == provider.auth.oauth
+            && self.provider_id == provider.identity.id
             && self.base_url == provider.identity.base_url
             && self.protocol == provider.identity.protocol
             && self.auth_mode == provider.auth.mode

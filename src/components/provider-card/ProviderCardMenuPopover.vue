@@ -8,9 +8,14 @@ const props = withDefaults(
     label: string;
     tone: InstanceType<typeof CardIconButton>["$props"]["tone"];
     panelClass?: string;
+    contentClass?: string;
     disabled?: boolean;
   }>(),
-  { panelClass: "", disabled: false },
+  {
+    panelClass: "",
+    contentClass: "workspace-card-action-popover provider-card-action-popover",
+    disabled: false,
+  },
 );
 
 const emit = defineEmits<{ interaction: [active: boolean] }>();
@@ -34,7 +39,7 @@ onBeforeUnmount(() => emit("interaction", false));
     :disabled="disabled"
     trigger="click"
     position="rt"
-    content-class="workspace-card-action-popover provider-card-action-popover"
+    :content-class="contentClass"
   >
     <button
       ref="actionMenuTrigger"

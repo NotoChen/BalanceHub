@@ -33,6 +33,7 @@ const stages = [
     <div class="upgrade-progress" role="status">
       <a-spin v-if="running" :size="16" />
       <strong>{{ agentAssetOperationPhaseLabels[operation.phase] }}</strong>
+      <span v-if="operation.origin === 'automatic'">自动更新</span>
       <span>耗时 {{ elapsed }}</span>
       <span v-if="operation.diagnostics?.exitCode != null">退出码 {{ operation.diagnostics.exitCode }}</span>
     </div>

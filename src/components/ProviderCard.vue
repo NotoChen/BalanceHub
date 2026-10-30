@@ -2,14 +2,16 @@
 import { computed, ref, type CSSProperties } from "vue";
 import type { AgentCliKind, Provider, ProviderApiKeyOption } from "../stores/providers";
 import type { ProviderCardTone } from "../utils/provider-display";
-import type { CcSwitchAppTarget } from "../utils/ccswitch-deeplink";
+import type { ProviderAppImportTarget } from "../stores/provider-types";
+import ManagedProviderHeader from "./provider-card/ManagedProviderHeader.vue";
+import ManagedProviderBody from "./provider-card/ManagedProviderBody.vue";
 import ProviderCardHeader from "./provider-card/ProviderCardHeader.vue";
 import ProviderCardBody from "./provider-card/ProviderCardBody.vue";
 import ProviderCardActions from "./provider-card/ProviderCardActions.vue";
 import ProviderCardCliOrbits from "./provider-card/ProviderCardCliOrbits.vue";
 import WorkspaceCard from "./workspace-card/WorkspaceCard.vue";
 import type { ProviderCardCliOrbitSpec } from "../utils/provider-card-cli-orbit";
-import { providerCardTitle } from "../utils/provider-display";
+import { providerCardScopeNoun, providerCardTitle } from "../utils/provider-display";
 
 const props = withDefaults(
   defineProps<{
@@ -63,8 +65,10 @@ const emit = defineEmits<{
   openPasswordChange: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
-  addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
+  addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
   launchTemporaryCli: [provider: Provider];
+  cpaRenewAll: [provider: Provider];
+  reauthorizeOauthCard: [provider: Provider];
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
@@ -76,8 +80,16 @@ const emit = defineEmits<{
   interaction: [active: boolean];
 }>();
 
+const managed = computed(() => props.provider.actions.oauthAccount || props.provider.actions.cpaGateway);
+const managedAccent = computed(() => {
+  if (props.provider.actions.cpaGateway) return "provider-card-cpa";
+  const vendor = props.provider.auth.oauth?.vendor;
+  return vendor ? `provider-card-vendor-${vendor}` : "";
+});
 const isApiKeyAuth = computed(() => props.provider.auth.mode === "apiKey");
 const isGenericApi = computed(() => props.provider.identity.protocol === "api");
+/// 卡片在无障碍树里的自我介绍走和底栏、菜单同一份称呼：中转站 / 账号 / 网关。
+const noun = computed(() => providerCardScopeNoun(props.provider));
 const interactionActive = ref(false);
 
 const actionListeners = {
@@ -91,9 +103,12 @@ const actionListeners = {
   openPasswordChange: (provider: Provider) => emit("openPasswordChange", provider),
   openLivenessDetails: (provider: Provider) => emit("openLivenessDetails", provider),
   openCheckInRecords: (provider: Provider) => emit("openCheckInRecords", provider),
-  addCcSwitchConfig: (provider: Provider, target: CcSwitchAppTarget) =>
-    emit("addCcSwitchConfig", provider, target),
+  addProviderToApp: (provider: Provider, target: ProviderAppImportTarget) =>
+    emit("addProviderToApp", provider, target),
   launchTemporaryCli: (provider: Provider) => emit("launchTemporaryCli", provider),
+  cpaRenewAll: (provider: Provider) => emit("cpaRenewAll", provider),
+  reauthorizeOauthCard: (provider: Provider) =>
+    emit("reauthorizeOauthCard", provider),
   copyUrl: (provider: Provider) => emit("copyUrl", provider),
   copyInvite: (provider: Provider) => emit("copyInvite", provider),
   copySecret: (
@@ -147,14 +162,16 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
         'provider-card-dragging': dragging,
         'provider-card-api-key': isApiKeyAuth,
         'provider-card-generic-api': isGenericApi,
+        'provider-card-managed': managed,
         'provider-card-has-cli-orbits': cliOrbits.length > 0,
       },
+      managedAccent,
     ]"
     :fixed-height="!showLivenessTimeline"
     :interacting="interactionActive"
     :role="interactive ? 'group' : undefined"
     :aria-hidden="ariaHidden || undefined"
-    :aria-label="interactive ? `${providerCardTitle(provider)} 中转站卡片${provider.runtime.enabled ? '' : '，已停用'}` : undefined"
+    :aria-label="interactive ? `${providerCardTitle(provider)} ${noun}卡片${provider.runtime.enabled ? '' : '，已停用'}` : undefined"
     :tabindex="interactive ? 0 : undefined"
     :title="title"
     :style="dragStyle"
@@ -167,10 +184,18 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
       <ProviderCardCliOrbits :orbits="cliOrbits" />
     </template>
     <template #header>
-      <ProviderCardHeader
+      <ManagedProviderHeader
+        v-if="managed"
         :provider="provider"
         :tone="tone"
-        :title="title"
+        :interactive="interactive"
+        :active-cli-counts="activeCliCounts"
+        @open-cli-instances="forwardOpenCliInstances"
+      />
+      <ProviderCardHeader
+        v-else
+        :provider="provider"
+        :tone="tone"
         :interactive="interactive"
         :active-cli-counts="activeCliCounts"
         @open-cli-instances="forwardOpenCliInstances"
@@ -179,9 +204,13 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
         @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
       />
     </template>
+    <ManagedProviderBody v-if="managed" :provider="provider" :interactive="interactive" @details="emit('edit', provider)" @models="emit('openAvailableModels', provider)" />
     <ProviderCardBody
+      v-else
       :provider="provider"
       :show-liveness-timeline="showLivenessTimeline"
+      :interactive="interactive"
+      @models="emit('openAvailableModels', provider)"
     />
     <ProviderCardActions
       :provider="provider"

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import type { UnwrapNestedRefs } from "vue";
+import { computed, type UnwrapNestedRefs } from "vue";
 import { Download } from "@lucide/vue";
 import AgentVersionStatus from "./AgentVersionStatus.vue";
+import AgentAutomaticUpdateControl from "./AgentAutomaticUpdateControl.vue";
 import AgentInstallationDetail from "../settings/agent-environment/AgentInstallationDetail.vue";
 import type { useAgentInstallationManager } from "../../composables/useAgentInstallationManager";
 import type { useAgentHookConsole } from "../../composables/useAgentHookConsole";
 import type { AgentLifecycleTarget } from "../../stores/agent-lifecycle-types";
 import type { AgentCliKind } from "../../stores/provider-types";
 import { agentCliVersionLabel } from "../../utils/cli-environment";
-defineProps<{ target: AgentLifecycleTarget; model: UnwrapNestedRefs<ReturnType<typeof useAgentInstallationManager>>; hooks: UnwrapNestedRefs<ReturnType<typeof useAgentHookConsole>> }>();
+const props = defineProps<{ target: AgentLifecycleTarget; model: UnwrapNestedRefs<ReturnType<typeof useAgentInstallationManager>>; hooks: UnwrapNestedRefs<ReturnType<typeof useAgentHookConsole>> }>();
+const automatic = computed(() => props.model.store.catalog?.automaticUpdates.find((entry) => entry.targetId === props.target.id));
 const emit = defineEmits<{ hooks: [kind: AgentCliKind] }>();
 </script>
 
@@ -29,6 +31,7 @@ const emit = defineEmits<{ hooks: [kind: AgentCliKind] }>();
         <small v-if="!action.available && target.version.state !== 'upToDate' && target.version.state !== 'aheadOfLatest'">{{ action.reasonMessage || '当前不可升级' }}</small>
       </div>
     </div>
+    <AgentAutomaticUpdateControl v-if="automatic" :entry="automatic" :target="target" />
     <AgentInstallationDetail v-if="model.diagnosticInstallationId === target.installation.id" :installation="target.installation" :hook-inspection="hooks.inspectionFor(target.agentKind)" @hooks="emit('hooks', target.agentKind)" />
   </article>
 </template>

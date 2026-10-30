@@ -1,3 +1,4 @@
+import { useOAuthTasks } from "./useOAuthTasks";
 import { computed, onMounted, reactive, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { Message } from "@arco-design/web-vue";
@@ -20,6 +21,7 @@ import { useAgentCatalogStore } from "../stores/agent-catalog";
 import { useLoginAccounts } from "./useLoginAccounts";
 import { useProviderCredentials } from "./useProviderCredentials";
 import { useAgentBackgroundTasks } from "./useAgentBackgroundTasks";
+import { useAgentLifecycleEvents } from "./useAgentLifecycleEvents";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
@@ -35,10 +37,14 @@ import { useSystemNotification } from "./useSystemNotification";
 import { useUsageSummary } from "./useUsageSummary";
 import { useWindowDrag } from "./useWindowDrag";
 import { useWorkspacePicker } from "./useWorkspacePicker";
-import { openProjectRepository as openProjectRepositoryCommand } from "../api/app";
+import {
+  getUsageOverview as getUsageOverviewCommand,
+  openProjectRepository as openProjectRepositoryCommand,
+} from "../api/app";
 import { agentCliLabel } from "../utils/cli-environment";
 
 export function useAppController() {
+  useAgentLifecycleEvents();
   const providerStore = useProviderStore();
   const settingsStore = useSettingsStore();
   const workspaceStore = useWorkspaceStore();
@@ -75,11 +81,15 @@ export function useAppController() {
 
   const systemNotification = useSystemNotification(settingsController.settingsForm);
   const { appVersion } = useAppVersion();
-  const appUpdater = useAppUpdater();
+  const appUpdater = useAppUpdater({ settings });
 
   const appDataTransfer = useAppDataTransfer({
     exportAppData: (path) => providerStore.exportAppData(path),
     importAppData: (path) => settingsController.replaceSettings(() => providerStore.importAppData(path)),
+    installDevSampleData: async () => {
+      await providerStore.installDevSampleData();
+      settingsController.syncFromSettings();
+    },
     beforeTransfer: settingsController.flushSettingsSave,
   });
 
@@ -118,6 +128,7 @@ export function useAppController() {
 
   const usage = useUsageSummary({
     loadUsage: (providerId, period) => providerStore.getUsage(providerId, period),
+    loadOverview: (period) => getUsageOverviewCommand(period),
   });
 
   const requestLogs = useRequestLogs({
@@ -342,9 +353,10 @@ export function useAppController() {
 
   const globalCheckInInProgress = checkIn.globalCheckInInProgress;
   const agentTasks = useAgentBackgroundTasks();
+  const oauthTasks = useOAuthTasks();
 
   const backgroundTaskCenter = useBackgroundTaskCenter({
-    domainTasks: computed(() => [...agentTasks.value, ...cloudSync.tasks.value]),
+    domainTasks: computed(() => [...agentTasks.value, ...cloudSync.tasks.value, ...oauthTasks.value]),
     providers,
     openLoginAccount: loginAccounts.open,
     openProviderCredentials: providerCredentials.open,

@@ -24,9 +24,6 @@ export function beginAgentResourceEdit(request: AgentResourceEditRequest, signal
   return invoke<AgentConfigurationEdit>("begin_agent_resource_edit", { request, requestId })
     .finally(() => signal.removeEventListener("abort", cancel));
 }
-export function openAgentResourceLink(url: string) {
-  return invoke<void>("open_agent_resource_link", { url });
-}
 export function planAgentConfigurationSave(request: AgentConfigurationSaveRequest) {
   return invoke<AgentConfigurationPlan>("plan_agent_configuration_save", { request });
 }

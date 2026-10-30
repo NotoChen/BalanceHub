@@ -5,7 +5,7 @@
   "identifier": "com.zangbai.balancehub",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -37,12 +37,12 @@
         "frame-ancestors": ["'none'"]
       },
       "devCsp": {
-        "default-src": ["'self'", "ipc:", "http://ipc.localhost", "http://localhost:1420"],
-        "script-src": ["'self'", "'unsafe-eval'", "http://localhost:1420"],
-        "style-src": ["'self'", "'unsafe-inline'", "http://localhost:1420"],
+        "default-src": ["'self'", "ipc:", "http://ipc.localhost", "http://127.0.0.1:1420"],
+        "script-src": ["'self'", "'unsafe-eval'", "http://127.0.0.1:1420"],
+        "style-src": ["'self'", "'unsafe-inline'", "http://127.0.0.1:1420"],
         "img-src": ["'self'", "data:", "asset:", "http://asset.localhost", "https:", "http:"],
         "font-src": ["'self'", "data:"],
-        "connect-src": ["ipc:", "http://ipc.localhost", "http://localhost:1420", "ws://localhost:1420"],
+        "connect-src": ["ipc:", "http://ipc.localhost", "http://127.0.0.1:1420", "ws://127.0.0.1:1420"],
         "object-src": ["'none'"],
         "base-uri": ["'self'"],
         "frame-ancestors": ["'none'"]

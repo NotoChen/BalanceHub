@@ -17,6 +17,7 @@ export function emptyDraft(): ProviderInput {
       backupUrls: [],
     },
     auth: {
+      oauth: null,
       mode: "password",
       apiKey: "",
       apiKeyTokenId: "",

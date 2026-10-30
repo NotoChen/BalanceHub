@@ -12,6 +12,7 @@ import { agentDocumentationUrls } from "../../api/agent-documentation";
 import { agentCliVisuals } from "../../agent-cli/visuals";
 import { agentCliVersionLabel } from "../../utils/cli-environment";
 import { agentConfigurationOpenAction } from "../../utils/agent-configuration-display";
+import { elapsedLabel } from "../../utils/relative-time";
 import { iconThemeColor } from "../../utils/icon-theme-color";
 import type { AgentCliDescriptor, AgentInstallation } from "../../stores/provider-types";
 import type { AgentLifecycleTarget } from "../../stores/agent-lifecycle-types";
@@ -32,6 +33,7 @@ const props = withDefaults(defineProps<{
   historyLoading?: boolean;
   historyError?: string;
   runningCount: number;
+  lastActivityAt?: number | null;
   canLaunch: boolean;
   loading: boolean;
   refreshing?: boolean;
@@ -41,7 +43,7 @@ const props = withDefaults(defineProps<{
   configurationLoading?: boolean;
   configurationError?: string;
   configurationStale?: boolean;
-}>(), { configurationSnapshot: null, configurationLoading: false, configurationError: "", configurationStale: true });
+}>(), { configurationSnapshot: null, configurationLoading: false, configurationError: "", configurationStale: true, lastActivityAt: null });
 const emit = defineEmits<{
   assets: [category: "skill" | "mcp" | "extension"];
   hooks: [];
@@ -107,7 +109,28 @@ const historySummary = computed(() => {
     : count?.total != null ? `共 ${count.total} 条历史会话` : "数量尚未读取";
   return `全部目录，${summary}${props.historyLoading ? "，正在统计" : ""}`;
 });
-const runtimeSummary = computed(() => `已观测并确认的活跃会话，共 ${props.runningCount} 个；未确认状态不计入`);
+/// Sessions that already ended still answer "when did I last use this CLI",
+/// so the card reports the newest observed activity it has evidence for.
+/// 只有一天以内的活动值得写在卡片上：「最近活动 3 天前」既不能促成任何操作，
+/// 又要读者自己换算；和卡片上的同步时间同一条规则。
+const ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const activityLabel = computed(() =>
+  props.lastActivityAt != null &&
+  Date.now() - props.lastActivityAt <= ACTIVITY_WINDOW_MS
+    ? elapsedLabel(props.lastActivityAt)
+    : "",
+);
+const activityTitle = computed(() =>
+  activityLabel.value
+    ? `BalanceHub 最近观测到的 ${props.agent.label} 会话活动：${activityLabel.value}`
+    : "",
+);
+const runningSummary = computed(() =>
+  `共 ${props.runningCount} 个${activityLabel.value ? `，最近活动 ${activityLabel.value}` : ""}`,
+);
+const runtimeSummary = computed(
+  () => `已观测并确认的活跃会话，${runningSummary.value}；未确认状态不计入`,
+);
 const assetLinks = [
   { value: "skill", label: "Skill" },
   { value: "mcp", label: "MCP" },
@@ -143,7 +166,7 @@ const statistics = computed<Statistic[]>(() => [
   },
   {
     key: "activeSessions", label: "活跃会话", displayLabel: "活跃", value: props.runningCount,
-    summary: `共 ${props.runningCount} 个`, title: runtimeSummary.value,
+    summary: runningSummary.value, title: runtimeSummary.value,
   },
 ]);
 function openStatistic(key: Statistic["key"]) {
@@ -159,7 +182,7 @@ function openStatistic(key: Statistic["key"]) {
 <template>
   <WorkspaceCard class="agent-overview-card" :fixed-height="false" :data-agent-kind="agent.kind" :aria-label="agent.label" :style="{ '--workspace-card-state': cardAccent }">
     <template #header>
-      <WorkspaceCardHeader :title="agent.label" heading-tag="h2" :framed-icon="false">
+      <WorkspaceCardHeader :title="agent.label" heading-tag="h2">
         <template #title><a class="agent-overview-name" :href="agentDocumentationUrls[agent.kind]" title="打开官方文档" :aria-label="`打开 ${agent.label} 官方文档`" @click.prevent="emit('documentation')">{{ agent.label }}</a></template>
         <template #icon>
           <AgentCliIcon :kind="agent.kind" :label="agent.label" :decorative="false" @load="readIconTheme" />
@@ -168,6 +191,7 @@ function openStatistic(key: Statistic["key"]) {
           <button v-if="versionSummary" type="button" class="agent-overview-version" title="版本与路径：查看本机安装、检查更新" :aria-label="`${agent.label} 版本与路径，${versionSummary}`" @click="emit('installation')"><span>{{ versionSummary }}</span><IconDown :size="10" aria-hidden="true" /></button>
           <button v-if="installationStatus?.action" type="button" class="agent-overview-status" :class="{ 'is-warning': installationStatus.warning }" :aria-label="`${agent.label} 安装状态，${installationStatus.label}`" :title="showInstallationGuide ? '打开官方安装说明' : '查看版本与路径'" @click="showInstallationGuide ? emit('installationGuide') : emit('installation')">{{ installationStatus.label }}</button>
           <span v-else-if="installationStatus" class="agent-overview-status" role="status">{{ installationStatus.label }}</span>
+          <span v-if="activityLabel" class="agent-overview-activity" role="status" :title="activityTitle">最近活动 {{ activityLabel }}</span>
         </template>
         <template v-if="versionSummary" #meta>
           <button type="button" class="agent-overview-status" :aria-label="`查看 ${agent.label} 当前使用安装的版本状态`" @click="emit('installation')"><AgentVersionStatus :version="currentTarget?.version ?? null" :checking="versionChecking" :error="versionCheckError" compact /></button>

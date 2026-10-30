@@ -47,11 +47,8 @@ pub(super) struct HookDefinition {
 
 impl CodexHookService {
     pub fn from_app(app: &tauri::AppHandle) -> Result<Self, String> {
-        use tauri::Manager;
         let home = ownership::home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-        let app_data = app
-            .path()
-            .app_data_dir()
+        let app_data = crate::desktop::data_dir(app)
             .map_err(|error| format!("无法定位 BalanceHub 数据目录: {error}"))?;
         let managed_dir = app_data.join("agent-hooks").join("codex");
         Ok(Self::new(

@@ -1,4 +1,4 @@
-/* Settings use one continuous document with a single scrolling body. */
+/* Settings use a left rail for sections and a single scrolling content panel. */
 .settings-modal-title {
   width: 100%;
 }
@@ -41,7 +41,7 @@
 .settings-save-error { width: auto; flex: 0 0 auto; margin: 14px 24px 0; overflow-wrap: anywhere; }
 
 .settings-workspace-v3 {
-  --settings-content-width: 920px;
+  --settings-content-width: 820px;
   display: flex;
   width: 100%;
   min-width: 0;
@@ -49,6 +49,83 @@
   flex: 1;
   overflow: hidden;
   background: var(--surface-canvas);
+}
+
+.settings-nav {
+  display: flex;
+  width: 236px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  border-right: 1px solid var(--surface-line);
+  background: var(--surface-panel);
+  padding: 12px 10px;
+}
+
+.settings-nav-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 9px 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-nav-item:hover {
+  background: var(--surface-panel-soft);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: -2px;
+}
+
+.settings-nav-item.is-active {
+  background: var(--surface-accent-soft);
+}
+
+.settings-nav-item.is-hit .settings-nav-index {
+  color: var(--surface-accent);
+}
+
+.settings-nav-index {
+  color: var(--surface-muted);
+  font: 650 11px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+
+.settings-nav-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-nav-copy > strong {
+  color: var(--surface-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-nav-item.is-active .settings-nav-copy > strong {
+  color: var(--surface-accent);
+}
+
+.settings-nav-copy > small {
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-workspace-v3 .settings-panel {
@@ -129,66 +206,60 @@
 
 .settings-panel-content > .arco-form {
   display: grid;
-  gap: 36px;
+  gap: 30px;
 }
 
-.settings-flow-section {
+.settings-section {
   display: grid;
   min-width: 0;
-  grid-template-columns: 148px minmax(0, 1fr);
-  align-items: start;
-  gap: 28px;
+  gap: 14px;
 }
 
-.settings-flow-section-separated {
-  border-top: 1px solid var(--surface-line);
-  padding-top: 32px;
-}
-
-.settings-flow-heading {
-  position: sticky;
-  top: 4px;
+.settings-section-heading {
   display: grid;
-  gap: 10px;
-  padding-top: 4px;
+  gap: 3px;
 }
 
-.settings-flow-heading > span {
-  color: var(--surface-accent);
-  font: 650 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.06em;
-}
-
-.settings-flow-heading > div {
-  display: grid;
-  gap: 7px;
-}
-
-.settings-flow-heading h2 {
+.settings-section-heading h2 {
   margin: 0;
   color: var(--surface-ink);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
 }
 
-@media (max-width: 900px) {
-  .settings-flow-section {
+.settings-section-heading p {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1000px) {
+  .settings-workspace-v3 {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    width: auto;
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--surface-line);
+    padding: 10px 12px;
+  }
+
+  .settings-nav-item {
+    width: auto;
+    min-width: 132px;
+    flex: 0 0 auto;
     grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
   }
 
-  .settings-flow-heading {
-    position: static;
-    grid-template-columns: 24px minmax(0, 1fr);
-    gap: 12px;
-  }
-
-  .settings-flow-heading > span {
-    padding-top: 4px;
-  }
-
-  .settings-flow-heading > div {
-    gap: 3px;
+  .settings-nav-index,
+  .settings-nav-copy > small {
+    display: none;
   }
 }
 

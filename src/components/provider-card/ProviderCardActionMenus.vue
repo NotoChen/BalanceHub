@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, watch } from "vue";
-import CardIconButton from "../workspace-card/CardIconButton.vue";
 import WorkspaceCardActionGroup from "../workspace-card/WorkspaceCardActionGroup.vue";
 import ProviderCardMenuPopover from "./ProviderCardMenuPopover.vue";
+import ProviderAppImportList from "./ProviderAppImportList.vue";
 import {
   IconApps,
   IconBarChart,
@@ -14,50 +14,32 @@ import {
   IconLock,
   IconSettings,
   IconSync,
-  IconSwap,
   IconThunderbolt,
 } from "@arco-design/web-vue/es/icon";
-import { Bot, GitCompareArrows } from "@lucide/vue";
-import BrandIcon from "../BrandIcon.vue";
-import AgentCliIcon from "../AgentCliIcon.vue";
+import { PackagePlus } from "@lucide/vue";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
-import { useCliRuntimeStore } from "../../stores/cli-runtime";
-import type { AgentCliKind, Provider } from "../../stores/providers";
-import { agentCliLabel, availableCliKinds } from "../../utils/cli-environment";
+import type { Provider } from "../../stores/providers";
 import {
   supportsAccountManagement,
   supportsCheckIn,
   supportsInvitation,
 } from "../../utils/provider-actions";
-import { hasUsableProviderApiKey } from "../../utils/provider-api-key-options";
-import {
-  providerApiKeyDisplayName,
-  providerDefaultApiKeyOption,
-} from "../../utils/provider-display";
-import {
-  canBuildCcSwitchDeeplink,
-  ccSwitchTargetLabels,
-  ccSwitchTargets,
-  type CcSwitchAppTarget,
-} from "../../utils/ccswitch-deeplink";
-import ccSwitchLogo from "../../assets/logos/cc-switch.png";
+import { providerCardScopeNoun } from "../../utils/provider-display";
+import type { ProviderAppImportTarget } from "../../stores/provider-types";
 
+/// 四类卡片的二级菜单是同一套：复制 / 数据 / 站点 / 导出。菜单名按卡片自己的
+/// 称呼（中转站、账号、网关）读，但分组的数量、顺序和图标不随卡型改变。
 const props = withDefaults(
   defineProps<{
     provider: Provider;
-    switchingCliKind?: AgentCliKind | null;
-    cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
   }>(),
   {
-    switchingCliKind: null,
-    cliConfigSwitching: false,
     probingCapabilities: false,
   },
 );
 
 const emit = defineEmits<{
-  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
   probeCapabilities: [provider: Provider];
   openApiKeyManager: [provider: Provider];
   openAvailableModels: [provider: Provider];
@@ -66,8 +48,7 @@ const emit = defineEmits<{
   openPasswordChange: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
-  addCcSwitchConfig: [provider: Provider, target: CcSwitchAppTarget];
-  launchTemporaryCli: [provider: Provider];
+  addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [
@@ -77,39 +58,21 @@ const emit = defineEmits<{
   interaction: [active: boolean];
 }>();
 
-const store = useCliRuntimeStore();
+/// 每个「…」各自记录展开状态：同时只开一个菜单，但关闭一个不影响另一个
+/// 触发器的视觉状态。
 const menuInteractions = reactive({
   copy: false,
   data: false,
   site: false,
-  cli: false,
-  ccSwitch: false,
+  apps: false,
 });
-const temporaryCliKinds = computed(() =>
-  availableCliKinds(store.cliEnvironmentProbe, "temporaryLaunch"),
-);
-const switchableCliKinds = computed(() =>
-  availableCliKinds(store.cliEnvironmentProbe, "defaultConfig"),
-);
-const canSwitchCliConfig = computed(() =>
-  Boolean(
-    props.provider.identity.baseUrl.trim() &&
-    hasUsableProviderApiKey(
-      props.provider.auth.apiKey,
-      props.provider.auth.apiKeyOptions,
-    ),
-  ),
-);
-const canLaunchTemporaryCli = computed(() =>
-  Boolean(
-    temporaryCliKinds.value.length > 0 &&
-    props.provider.identity.baseUrl.trim() &&
-    hasUsableProviderApiKey(
-      props.provider.auth.apiKey,
-      props.provider.auth.apiKeyOptions,
-    ),
-  ),
-);
+const noun = computed(() => providerCardScopeNoun(props.provider));
+const groupLabel = computed(() => `${noun.value}功能`);
+const copyMenuLabel = computed(() => `复制${noun.value}信息`);
+const dataMenuLabel = computed(() => `查看${noun.value}数据`);
+const siteMenuLabel = computed(() => `管理${noun.value}能力`);
+const urlLabel = computed(() => `${noun.value} URL`);
+const appImportOptions = computed(() => props.provider.actions.appImports);
 const hasCopyActions = computed(() =>
   Boolean(
     props.provider.identity.baseUrl.trim() ||
@@ -125,9 +88,6 @@ const canViewAvailableModels = computed(() =>
     props.provider.actions.models.canSync ||
     (props.provider.capabilities.availableModels || []).length > 0,
   ),
-);
-const canAddCcSwitchConfig = computed(() =>
-  canBuildCcSwitchDeeplink(props.provider),
 );
 const accountManagementAvailable = computed(() =>
   supportsAccountManagement(props.provider),
@@ -178,17 +138,12 @@ const hasSiteActions = computed(
     canViewAvailableModels.value ||
     canChangePassword.value,
 );
-const showCliConfigAction = computed(
-  () => canSwitchCliConfig.value && switchableCliKinds.value.length > 0,
-);
 const hasSecondaryActions = computed(
   () =>
     hasCopyActions.value ||
     hasDataActions.value ||
     hasSiteActions.value ||
-    showCliConfigAction.value ||
-    canAddCcSwitchConfig.value ||
-    canLaunchTemporaryCli.value,
+    appImportOptions.value.length > 0,
 );
 watch(
   () => Object.values(menuInteractions).some(Boolean),
@@ -197,30 +152,6 @@ watch(
 );
 
 onBeforeUnmount(() => emit("interaction", false));
-
-function switchCliConfig(cliKind: AgentCliKind) {
-  if (!props.cliConfigSwitching) {
-    emit("switchCliConfig", props.provider, cliKind);
-  }
-}
-
-function defaultCliKeyLabel(cliKind: AgentCliKind) {
-  const snapshot = store.cliRuntime.configs.find(
-    (item) =>
-      item.cliKind === cliKind &&
-      item.providerId === props.provider.identity.id,
-  );
-  if (!snapshot) return "切换到此中转站";
-  const localId = snapshot.apiKeyLocalId?.trim() || "";
-  const option = localId
-    ? props.provider.auth.apiKeyOptions.find(
-        (item) => item.localId.trim() === localId,
-      )
-    : providerDefaultApiKeyOption(props.provider);
-  return option
-    ? `当前绑定：${providerApiKeyDisplayName(option)}`
-    : "当前使用本卡片调用 Key";
-}
 
 function openDataAction(
   action: "usage" | "requestLogs" | "liveness" | "checkInRecords",
@@ -251,14 +182,8 @@ function openSiteAction(action: "probe" | "keys" | "models" | "password") {
   }
 }
 
-function addCcSwitchConfig(target: CcSwitchAppTarget) {
-  emit("addCcSwitchConfig", props.provider, target);
-}
-
-function launchTemporaryCli() {
-  if (canLaunchTemporaryCli.value) {
-    emit("launchTemporaryCli", props.provider);
-  }
+function addProviderToApp(target: ProviderAppImportTarget) {
+  emit("addProviderToApp", props.provider, target);
 }
 
 function copyProviderUrl() {
@@ -277,13 +202,13 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
 <template>
   <WorkspaceCardActionGroup
     v-if="hasSecondaryActions"
-    label="中转站功能"
+    :label="groupLabel"
     divided
   >
     <ProviderCardMenuPopover
       v-if="hasCopyActions"
       tone="copy"
-      label="复制中转站信息"
+      :label="copyMenuLabel"
       @interaction="menuInteractions.copy = $event"
     >
       <template #icon><icon-copy /></template>
@@ -299,7 +224,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
           <icon-link
             class="provider-card-action-icon provider-card-action-icon-url"
           />
-          <span>中转站 URL</span>
+          <span>{{ urlLabel }}</span>
         </button>
         <button
           role="menuitem"
@@ -354,7 +279,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
     <ProviderCardMenuPopover
       v-if="hasDataActions"
       tone="data"
-      label="查看中转站数据"
+      :label="dataMenuLabel"
       @interaction="menuInteractions.data = $event"
     >
       <template #icon><icon-bar-chart /></template>
@@ -414,7 +339,7 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
     <ProviderCardMenuPopover
       v-if="hasSiteActions"
       tone="site"
-      label="管理中转站能力"
+      :label="siteMenuLabel"
       @interaction="menuInteractions.site = $event"
     >
       <template #icon><icon-settings /></template>
@@ -479,95 +404,23 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
     </ProviderCardMenuPopover>
 
     <ProviderCardMenuPopover
-      v-if="showCliConfigAction"
-      tone="configuration"
-      label="预览并切换默认 CLI 配置"
-      panel-class="provider-card-cli-panel"
-      :disabled="cliConfigSwitching || !canSwitchCliConfig"
-      @interaction="menuInteractions.cli = $event"
-    >
-      <template #icon
-        ><icon-loading
-          v-if="switchingCliKind"
-          class="provider-card-action-icon provider-card-action-icon-switch" />
-        <GitCompareArrows v-else :size="16" :stroke-width="1.8"
-      /></template>
-      <header class="provider-card-cli-panel-header">
-        <strong>配置</strong>
-      </header>
-      <div class="provider-card-action-panel-section-title">默认 CLI</div>
-      <div class="provider-card-cli-config-list">
-        <button
-          role="menuitem"
-          tabindex="-1"
-          v-for="cliKind in switchableCliKinds"
-          :key="cliKind"
-          type="button"
-          :disabled="cliConfigSwitching || !canSwitchCliConfig"
-          @click="switchCliConfig(cliKind)"
-        >
-          <AgentCliIcon :kind="cliKind" :size="16" />
-          <span>
-            <strong>{{
-              agentCliLabel(store.cliEnvironmentProbe, cliKind)
-            }}</strong>
-            <small>{{ defaultCliKeyLabel(cliKind) }}</small>
-          </span>
-          <icon-loading
-            v-if="switchingCliKind === cliKind"
-            class="provider-card-action-icon provider-card-action-icon-switch"
-          />
-          <icon-swap
-            v-else
-            class="provider-card-action-icon provider-card-action-icon-switch"
-          />
-        </button>
-      </div>
-    </ProviderCardMenuPopover>
-
-    <ProviderCardMenuPopover
-      v-if="canAddCcSwitchConfig"
+      v-if="appImportOptions.length"
       tone="integration"
-      label="添加到 CC Switch"
+      label="导出到其他应用"
       panel-class="provider-card-cli-panel"
-      @interaction="menuInteractions.ccSwitch = $event"
+      @interaction="menuInteractions.apps = $event"
     >
-      <template #icon
-        ><img :src="ccSwitchLogo" alt="" aria-hidden="true"
-      /></template>
+      <template #icon><PackagePlus :size="16" :stroke-width="1.8" /></template>
       <header class="provider-card-cli-panel-header">
-        <strong>添加到 CC Switch</strong>
+        <strong>导出到其他应用</strong>
       </header>
-      <div class="provider-card-cli-config-list">
-        <button
-          role="menuitem"
-          tabindex="-1"
-          v-for="target in ccSwitchTargets"
-          :key="target"
-          type="button"
-          :disabled="!canAddCcSwitchConfig"
-          @click="addCcSwitchConfig(target)"
-        >
-          <BrandIcon :brand="target" :size="18" />
-          <span>
-            <strong>导入到 {{ ccSwitchTargetLabels[target] }}</strong>
-            <small>{{ provider.cli.preferredModel ? "地址、API Key 与默认模型" : "地址与 API Key" }}</small>
-          </span>
-          <icon-link
-            class="provider-card-action-icon provider-card-action-icon-link"
-          />
-        </button>
-      </div>
+      <p class="provider-card-panel-hint">
+        把这张卡的接口地址和 API Key 写入目标应用，由它确认导入。
+      </p>
+      <ProviderAppImportList
+        :options="appImportOptions"
+        @select="addProviderToApp"
+      />
     </ProviderCardMenuPopover>
-    <CardIconButton
-      v-if="canLaunchTemporaryCli"
-      tone="launch"
-      title="启动临时 CLI"
-      aria-label="启动临时 CLI"
-      @click="launchTemporaryCli"
-      @pointerdown.stop
-    >
-      <Bot :size="16" :stroke-width="1.8" />
-    </CardIconButton>
   </WorkspaceCardActionGroup>
 </template>

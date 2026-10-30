@@ -6,6 +6,7 @@ import AgentSettingsEditor from "./AgentSettingsEditor.vue";
 import ContentEditor from "../ContentEditor.vue";
 import ContextDetails from "../ContextDetails.vue";
 import AgentConfigurationDiagnostics from "./AgentConfigurationDiagnostics.vue";
+import AgentConfigurationApplyPanel from "./AgentConfigurationApplyPanel.vue";
 import AgentConfigurationPlan from "./AgentConfigurationPlan.vue";
 import AgentMarkdownContent from "./AgentMarkdownContent.vue";
 import { agentConfigurationFileName } from "../../utils/agent-configuration-display";
@@ -49,6 +50,10 @@ async function prepare() {
       <dl v-if="model.edit.resource.facts.length" class="agent-resource-facts"><div v-for="fact in model.edit.resource.facts" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl>
     </ContextDetails>
     <div v-if="model.loading" class="agent-resource-loading" role="status"><span>正在读取内容…</span><i /><i /><i /></div>
+    <AgentConfigurationApplyPanel v-else-if="model.applying && model.edit"
+      :documents="model.edit.documents" :operation="model.operation" :starting="model.startingSubmission"
+      :error="model.submissionError" :diagnostics="model.submissionDiagnostics"
+      @close="emit('close')" @cancel="model.cancelApply" />
     <AgentConfigurationPlan v-else-if="model.planVisible && model.plan" :plan="model.plan" />
     <template v-else-if="model.edit">
       <nav v-if="model.edit.documents.length > 1" class="agent-configuration-file-tabs" aria-label="资源文件"><button v-for="document in model.edit.documents" :key="document.sourceId" type="button" :class="{ active: activeDocument?.sourceId === document.sourceId }" :aria-pressed="activeDocument?.sourceId === document.sourceId" :title="document.path" @click="selectedId = document.sourceId">{{ agentConfigurationFileName(document) }}{{ document.creating ? ' · 新建' : '' }}</button></nav>
@@ -75,15 +80,17 @@ async function prepare() {
       <p v-else class="agent-workspace-error" role="alert">所选文件已不可用，请返回内容重新读取。</p>
       <AgentConfigurationDiagnostics :diagnostics="model.edit.diagnostics" />
     </template>
-    <p v-if="model.submitted" class="agent-workspace-note">已提交保存。查看任务结果后，可重新读取文件继续编辑。</p>
-    <p v-else-if="model.editExpired" class="agent-workspace-error" role="alert">编辑会话已过期，草稿已保留。重新读取会替换当前修改。</p>
-    <p v-else-if="model.planExpired" class="agent-workspace-error" role="alert">更改预览已过期，请返回编辑后重新预览。</p>
+    <template v-if="!model.applying">
+      <p v-if="model.submitted" class="agent-workspace-note">已提交保存。查看任务结果后，可重新读取文件继续编辑。</p>
+      <p v-else-if="model.editExpired" class="agent-workspace-error" role="alert">编辑会话已过期，草稿已保留。重新读取会替换当前修改。</p>
+      <p v-else-if="model.planExpired" class="agent-workspace-error" role="alert">更改预览已过期，请返回编辑后重新预览。</p>
+    </template>
     <p v-if="model.error" class="agent-workspace-error" role="alert">{{ model.error }}</p>
     <AgentConfigurationDiagnostics :diagnostics="model.errorDiagnostics" />
-    <template v-if="model.submitted"><p v-if="model.submissionError" class="agent-workspace-error" role="status">{{ model.submissionError }}</p><AgentConfigurationDiagnostics :diagnostics="model.submissionDiagnostics" /></template>
-    <p v-if="model.canReload && model.hasDraft && (model.submitted || model.editExpired || model.error)" class="agent-workspace-note">重新读取成功后会替换草稿，失败时保留现有文本。</p>
+    <template v-if="model.submitted && !model.applying"><p v-if="model.submissionError" class="agent-workspace-error" role="status">{{ model.submissionError }}</p><AgentConfigurationDiagnostics :diagnostics="model.submissionDiagnostics" /></template>
+    <p v-if="!model.applying && model.canReload && model.hasDraft && (model.submitted || model.editExpired || model.error)" class="agent-workspace-note">重新读取成功后会替换草稿，失败时保留现有文本。</p>
     <p v-else-if="model.hasDraft && !model.submitted && !model.planVisible && !model.pendingLabel" class="agent-workspace-note">未保存的修改暂存在内存中，关闭后再点同一资源可继续编辑；退出 App 后不保留。</p>
-    <footer class="agent-configuration-editor-footer">
+    <footer v-if="!model.applying" class="agent-configuration-editor-footer">
       <a-button v-if="model.hasDraft && !model.submitted && !model.pendingLabel" type="text" @click="model.discardDraft">放弃修改</a-button>
       <a-button @click="emit('close')">关闭</a-button>
       <a-button v-if="model.canReload && !model.pendingLabel && (model.submitted || model.editExpired || model.error)" @click="model.reload">{{ model.hasDraft ? '重新读取并替换草稿' : '重新读取' }}</a-button>

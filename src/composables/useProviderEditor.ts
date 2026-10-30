@@ -4,7 +4,7 @@ import type { LoginAccountsController } from "./useLoginAccounts";
 import { createProviderLoginFlow } from "../utils/provider-login-flow";
 import { startProviderBrowserLogin, cancelProviderBrowserLogin } from "../api/provider-browser-login";
 import { Message } from "@arco-design/web-vue";
-import type { Provider, ProviderInput } from "../stores/providers";
+import type { Provider, ProviderInput, ProviderProtocol } from "../stores/providers";
 import { copyText } from "./useClipboard";
 import {
   normalizeProviderBaseUrl,
@@ -130,9 +130,17 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
   watch(drawerVisible, (visible) => { if (!visible) loginFlow.invalidate(); });
   onUnmounted(loginFlow.invalidate);
 
-  function openAddProvider() {
+  function openAddProvider(protocol?: ProviderProtocol) {
     state.openAddProvider();
     credentialAssistant.resetCredentialAssistant();
+    if (protocol && protocol !== "oauth") {
+      const descriptor = options.store.providerProtocols.find((entry) => entry.kind === protocol);
+      if (descriptor?.formCreation) {
+        draftProvider.identity.protocol = protocol;
+        draftProvider.auth.mode = descriptor.defaultAuthMode;
+        protocolSelectionSource.value = "manual";
+      }
+    }
   }
 
   function openEditProvider(provider: Provider, initialSection: ProviderEditorSection = "basics") {

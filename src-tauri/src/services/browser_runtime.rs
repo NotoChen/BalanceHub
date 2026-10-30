@@ -72,8 +72,7 @@ fn access() -> Arc<RwLock<()>> {
 }
 
 fn root_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
+    crate::desktop::data_dir(app)
         .map(|path| path.join("components/checkin-browser"))
         .map_err(|_| "无法定位浏览器组件目录".to_string())
 }

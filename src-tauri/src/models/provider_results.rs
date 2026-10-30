@@ -582,6 +582,17 @@ pub struct ProviderUsageModelPoint {
     pub token_used: i64,
 }
 
+/// 模型的服务质量，来自站点自己的性能采样（如 NewAPI 性能指标）。和用量分开，
+/// 因为用量是账单口径，这里说的是“这条路快不快、稳不稳”。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelHealth {
+    pub model_name: String,
+    pub success_rate: Option<f64>,
+    pub avg_latency_ms: Option<i64>,
+    pub avg_tps: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsageSummary {
@@ -591,6 +602,13 @@ pub struct ProviderUsageSummary {
     pub points: Vec<ProviderUsagePoint>,
     pub model_stats: Vec<ProviderUsageModelStat>,
     pub model_points: Vec<ProviderUsageModelPoint>,
+    /// 站点未提供性能采样时为空，卡片据此不展示响应质量。
+    #[serde(default)]
+    pub model_health: Vec<ProviderModelHealth>,
+    /// 汇总视图里逐站相加后的请求数，`model_stats` 只有前三站，
+    /// 因此这个数不能由模型统计推出。
+    #[serde(default)]
+    pub request_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -658,6 +676,8 @@ pub struct ProviderRequestLogStats {
     pub quota: f64,
     pub rpm: f64,
     pub tpm: f64,
+    /// 站点统计的平均响应耗时（毫秒）；站点不提供时为 None，而不是 0。
+    pub avg_duration_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -729,6 +749,30 @@ pub struct CliRuntimeSnapshot {
     pub configs: Vec<CliConfigSnapshot>,
 }
 
+/// 公告在站点上属于哪一类来源。NewAPI 把站点总公告和控制台公告拆成两个接口，
+/// 两者内容和生命周期都不同，界面上分开呈现，不合并成一条时间线。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SiteAnnouncementSource {
+    /// NewAPI `/api/notice`：站点级总公告，一条，长期有效。
+    SiteNotice,
+    /// NewAPI `/api/status` 的 announcements：控制台公告面板里的多条公告。
+    Console,
+    /// Sub2API `/api/v1/announcements`。
+    Announcement,
+}
+
+impl SiteAnnouncementSource {
+    /// 参与指纹计算，保证同一站点两个接口里恰好同名的公告不会互相顶掉。
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::SiteNotice => "siteNotice",
+            Self::Console => "console",
+            Self::Announcement => "announcement",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteAnnouncement {
@@ -739,12 +783,45 @@ pub struct SiteAnnouncement {
     pub provider_id: String,
     pub provider_name: String,
     pub provider_protocol: ProviderProtocol,
+    /// 公告来源（NewAPI 站点总公告 / 控制台公告，Sub2API 公告）。
+    pub source: SiteAnnouncementSource,
     pub title: String,
+    /// 标题是不是从正文第一行提取出来的。NewAPI 控制台公告多数没有单独标题，
+    /// 标题只用于本地标识和已读状态，界面上不能再单独渲染一次，否则与正文重复。
+    #[serde(default)]
+    pub title_is_derived: bool,
     pub content: String,
+    /// 协议给出的公告级别（NewAPI 为 default / ongoing / success / warning /
+    /// error）。未知取值原样透传，前端只按已知级别着色。
+    #[serde(default)]
+    pub level: String,
+    /// 公告正文之外的附加说明，NewAPI 控制台公告单独维护这一段。
+    #[serde(default)]
+    pub extra: String,
     pub published_at: Option<String>,
     pub updated_at: Option<String>,
     pub read_at: Option<String>,
     pub can_mark_read: bool,
+}
+
+/// 顶栏“用量趋势”不带中转站：一次读取所有支持用量统计的站点并合并，
+/// 因此没有单一配额单位，只给次数、模型排行和响应质量。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUsageOverview {
+    pub request_count: i64,
+    pub model_stats: Vec<ProviderUsageModelStat>,
+    pub model_health: Vec<ProviderModelHealth>,
+    pub errors: Vec<ProviderUsageSourceError>,
+}
+
+/// 汇总时某个站点没读到：单个站点失败不让整张面板变空。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUsageSourceError {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

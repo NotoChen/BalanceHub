@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::{
     app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
-    models::{provider_domain, AppSettings, Provider, ProviderStatus},
+    models::{provider_domain, AppSettings, NotificationEvent, Provider, ProviderStatus},
     services::{notifications, provider_service::ProviderService},
     tray,
     util::{unix_millis, unix_secs},
@@ -74,6 +74,11 @@ const INITIAL_DELAY_SECS: u64 = 5;
 const CHECK_IN_MAX_ATTEMPTS_PER_DAY: u32 = 3;
 /// 自动签到两次尝试之间的退避间隔。
 const CHECK_IN_RETRY_BACKOFF_SECS: u64 = 30 * 60;
+/// 刷新失败后的提前重试间隔：两个 tick 足够让一次网络抖动过去，
+/// 又远小于最短的刷新间隔（30 秒）。
+const REFRESH_RETRY_BACKOFF_SECS: u64 = 60;
+/// 刷新抖动上限：刷新间隔的十分之一，且不超过 5 分钟。
+const REFRESH_JITTER_MAX_SECS: u64 = 300;
 /// 单个中转站当日自动签到的尝试记录。
 ///
 /// 「失败后何时重试、何时放弃」的状态只活在调度器内存里，与展示用的
@@ -92,6 +97,10 @@ struct CheckInAttemptState {
 struct SchedulerState {
     /// 每个中转站「上次发起刷新」的时刻（秒），避免刷新失败时每 tick 重试。
     refresh_attempts: HashMap<String, u64>,
+    /// 失败后的提前重试到点时间；命中时优先于按间隔计算的到期判定。
+    refresh_retry_at: HashMap<String, u64>,
+    /// 当前这轮失败已经用掉的额外重试次数，刷新成功后清零。
+    refresh_retries: HashMap<String, u32>,
     check_in_attempts: HashMap<String, CheckInAttemptState>,
 }
 
@@ -140,12 +149,16 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
             .iter()
             .filter(|provider| provider.runtime.enabled)
             .filter(|provider| {
-                provider_domain::automation::refresh_due(
-                    provider,
-                    settings,
-                    now_secs,
-                    &state.refresh_attempts,
-                )
+                // 失败后的提前重试优先于按间隔计算的到期判定。
+                match state.refresh_retry_at.get(&provider.identity.id) {
+                    Some(retry_at) => now_secs >= *retry_at,
+                    None => provider_domain::automation::refresh_due(
+                        provider,
+                        settings,
+                        now_secs,
+                        &state.refresh_attempts,
+                    ),
+                }
             })
             .map(|provider| provider.identity.id.clone())
             .collect();
@@ -174,15 +187,22 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
                     );
                 }
                 Some(Ok(result)) => {
-                    for id in &due {
-                        state.refresh_attempts.insert(id.clone(), now_secs);
-                    }
-                    changed = true;
-                    let failed = result
+                    let failed_ids = result
                         .updated_providers
                         .iter()
                         .filter(|provider| matches!(provider.runtime.status, ProviderStatus::Error))
-                        .count();
+                        .map(|provider| provider.identity.id.clone())
+                        .collect::<Vec<_>>();
+                    record_refresh_outcome(
+                        state,
+                        settings,
+                        &data.providers,
+                        &due,
+                        &failed_ids,
+                        now_secs,
+                    );
+                    changed = true;
+                    let failed = failed_ids.len();
                     emit_background_task(
                         app,
                         &AUTO_REFRESH_TASK,
@@ -206,9 +226,8 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
                     .await;
                 }
                 Some(Err(error)) => {
-                    for id in &due {
-                        state.refresh_attempts.insert(id.clone(), now_secs);
-                    }
+                    // 整批请求失败：所有站点都算一次失败，同样享受提前重试。
+                    record_refresh_outcome(state, settings, &data.providers, &due, &due, now_secs);
                     emit_background_task(
                         app,
                         &AUTO_REFRESH_TASK,
@@ -264,6 +283,7 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
         .filter(|provider| {
             provider_domain::liveness::automatic_enabled(provider, settings)
                 && provider_domain::liveness::is_due(provider, now_millis)
+                && !super::liveness::waits_for_agent_update(settings, provider)
         })
         .cloned()
         .collect();
@@ -312,9 +332,71 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
 fn prune_state(state: &mut SchedulerState, providers: &[Provider], today: &str) {
     let exists = |id: &str| providers.iter().any(|provider| provider.identity.id == id);
     state.refresh_attempts.retain(|id, _| exists(id));
+    state.refresh_retry_at.retain(|id, _| exists(id));
+    state.refresh_retries.retain(|id, _| exists(id));
     state
         .check_in_attempts
         .retain(|id, attempt| exists(id) && attempt.date == today);
+}
+
+/// 记录本轮刷新的去向：失败且有剩余重试额度的站点提前再试一次，
+/// 其余站点按「刷新间隔 + 抖动」排下一次。
+///
+/// 抖动通过把记录的尝试时刻整体后移实现：各站点按 ID 与轮次哈希得到不同偏移，
+/// 原本同一秒打出去的整批刷新就此散开，之后也各自保持错峰。
+fn record_refresh_outcome(
+    state: &mut SchedulerState,
+    settings: &AppSettings,
+    providers: &[Provider],
+    attempted: &[String],
+    failed: &[String],
+    now_secs: u64,
+) {
+    for id in attempted {
+        state.refresh_attempts.insert(id.clone(), now_secs);
+        if failed.contains(id) {
+            let used = state.refresh_retries.get(id).copied().unwrap_or(0);
+            if used < settings.refresh_retry_count as u32 {
+                state.refresh_retries.insert(id.clone(), used + 1);
+                state
+                    .refresh_retry_at
+                    .insert(id.clone(), now_secs + REFRESH_RETRY_BACKOFF_SECS);
+                continue;
+            }
+        }
+        state.refresh_retries.remove(id);
+        state.refresh_retry_at.remove(id);
+        if !settings.refresh_jitter {
+            continue;
+        }
+        let interval = providers
+            .iter()
+            .find(|provider| provider.identity.id == *id)
+            .map(|provider| provider_domain::automation::refresh_interval(provider, settings))
+            .unwrap_or(settings.refresh_interval);
+        let span = (interval / 10).min(REFRESH_JITTER_MAX_SECS);
+        if span > 0 {
+            state
+                .refresh_attempts
+                .insert(id.clone(), now_secs + jitter_offset(id, now_secs, span));
+        }
+    }
+}
+
+/// 稳定的伪随机偏移：对「中转站 ID + 当前轮次」做 FNV-1a 哈希。
+/// 不引入随机数依赖，同一轮里各站点也会拿到不同偏移。
+fn jitter_offset(id: &str, seed: u64, span: u64) -> u64 {
+    if span == 0 {
+        return 0;
+    }
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in id.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash ^= seed;
+    hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    hash % span
 }
 
 /// 是否允许发起（又一次）自动签到尝试：当日未达上限，且距上次尝试已过退避间隔。
@@ -386,7 +468,15 @@ async fn notify_refresh_failures(
                 .error_message
                 .as_deref()
                 .unwrap_or("刷新失败");
-            notify_provider_event(app, settings, current, "BalanceHub 刷新失败", message).await;
+            notify_provider_event(
+                app,
+                settings,
+                current,
+                NotificationEvent::RefreshFailure,
+                "BalanceHub 刷新失败",
+                message,
+            )
+            .await;
         }
     }
 }
@@ -423,21 +513,27 @@ async fn run_due_liveness(
                 if !result.ok {
                     summary.failed += 1;
                 }
-                let previously_ok = provider
-                    .liveness
-                    .records
-                    .last()
-                    .map(|record| record.ok)
-                    .unwrap_or(true);
-                if previously_ok && !result.ok {
-                    notify_provider_event(
-                        app,
-                        settings,
-                        provider,
-                        "BalanceHub 测活失败",
-                        non_empty(&result.message, "测活失败"),
-                    )
-                    .await;
+                if !result.ok {
+                    // 单次失败可能只是一次抖动：只在恰好跨过连续失败阈值的那一次通知，
+                    // 阈值设成 1 就退化为「首次失败即通知」。
+                    let trailing_failures = provider
+                        .liveness
+                        .records
+                        .iter()
+                        .rev()
+                        .take_while(|record| !record.ok)
+                        .count() as u64;
+                    if trailing_failures + 1 == settings.liveness_failure_threshold {
+                        notify_provider_event(
+                            app,
+                            settings,
+                            provider,
+                            NotificationEvent::LivenessFailure,
+                            "BalanceHub 测活失败",
+                            non_empty(&result.message, "测活失败"),
+                        )
+                        .await;
+                    }
                 }
             }
             Ok(Err(_)) | Err(_) => summary.failed += 1,
@@ -450,6 +546,7 @@ async fn notify_provider_event(
     app: &AppHandle,
     settings: &AppSettings,
     provider: &Provider,
+    event: NotificationEvent,
     title: &str,
     message: &str,
 ) {
@@ -457,13 +554,17 @@ async fn notify_provider_event(
         "**中转站**：{}\n\n**结果**：{message}",
         provider.display_label()
     );
-    let result =
-        notifications::send_provider_notification(app, settings, provider, title, markdown, false)
-            .await;
+    let result = notifications::send_provider_notification(
+        app, settings, provider, event, title, markdown, false,
+    )
+    .await;
     for delivery in result.results.iter().filter(|delivery| !delivery.ok) {
-        eprintln!(
-            "BalanceHub 后台通知发送失败: provider={}, channel={}({:?}), error={}",
-            provider.identity.id, delivery.channel_name, delivery.channel_kind, delivery.message
+        log::warn!(
+            "后台通知发送失败: provider={}, channel={}({:?}), error={}",
+            provider.identity.id,
+            delivery.channel_name,
+            delivery.channel_kind,
+            delivery.message
         );
     }
 }

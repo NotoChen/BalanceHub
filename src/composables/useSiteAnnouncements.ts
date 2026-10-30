@@ -38,7 +38,6 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
   const siteAnnouncementsLoading = ref(false);
   const siteAnnouncementsFatalError = ref("");
   const siteAnnouncementsSnapshot = ref<SiteAnnouncementsSnapshot | null>(null);
-  const selectedAnnouncementFingerprint = ref("");
   const markingAnnouncementFingerprints = ref<Set<string>>(new Set());
   const readFingerprints = ref<Set<string>>(loadReadFingerprints());
   let lastRefreshAt = 0;
@@ -57,11 +56,12 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
     () => siteAnnouncementsSnapshot.value?.errors ?? [],
   );
   const siteAnnouncementsLoaded = computed(() => siteAnnouncementsSnapshot.value !== null);
-  const selectedSiteAnnouncement = computed(
+  /// 没有 NewAPI / Sub2API 站点时公告入口不会发起读取；顶栏用它在提示里
+  /// 说明原因，而不是一直写着“将在后台读取”。
+  const siteAnnouncementSourcesAvailable = computed(
     () =>
-      siteAnnouncements.value.find(
-        (item) => item.fingerprint === selectedAnnouncementFingerprint.value,
-      ) ?? null,
+      options.initialized.value &&
+      Boolean(providerAnnouncementSourceSignature(options.providers.value)),
   );
   const unreadSiteAnnouncementCount = computed(
     () => siteAnnouncements.value.filter((item) => !announcementIsRead(item)).length,
@@ -71,12 +71,11 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
     return Boolean(item.readAt) || readFingerprints.value.has(item.fingerprint);
   }
 
+  /// 面板一打开就完整展示所有公告正文，因此打开本身不代表读过：
+  /// 已读只由用户点单条的“未读”标记或“全部已读”产生。
   function openSiteAnnouncements() {
     if (disposed) return;
     siteAnnouncementsVisible.value = true;
-    const unread = siteAnnouncements.value.find((item) => !announcementIsRead(item));
-    if (unread) selectSiteAnnouncement(unread);
-    else selectInitialAnnouncement();
     if (isStale()) {
       void refreshSiteAnnouncements();
     }
@@ -98,15 +97,6 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
         }
         siteAnnouncementsSnapshot.value = snapshot;
         lastRefreshAt = Date.now();
-        if (
-          selectedAnnouncementFingerprint.value &&
-          !snapshot.announcements.some(
-            (item) => item.fingerprint === selectedAnnouncementFingerprint.value,
-          )
-        ) {
-          selectedAnnouncementFingerprint.value = "";
-        }
-        selectInitialAnnouncement();
         // Sub2API 的公告读取可能滚动更新令牌。先结束公告加载，让顶部入口及时
         // 可用，再异步同步 Provider 快照，避免一次公告请求把弹窗拖成“卡住”。
         void options.reloadProviders().catch(() => {});
@@ -127,20 +117,6 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
       refreshPromise = null;
     });
     return refreshPromise;
-  }
-
-  function selectSiteAnnouncement(item: SiteAnnouncement) {
-    if (disposed) return;
-    selectedAnnouncementFingerprint.value = item.fingerprint;
-    if (!announcementIsRead(item)) {
-      void markSiteAnnouncementRead(item);
-    }
-  }
-
-  function selectInitialAnnouncement() {
-    if (!siteAnnouncementsVisible.value || selectedSiteAnnouncement.value) return;
-    const first = siteAnnouncements.value.find((item) => !announcementIsRead(item)) ?? siteAnnouncements.value[0];
-    if (first) selectSiteAnnouncement(first);
   }
 
   /**
@@ -250,7 +226,6 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
 
   function clearAnnouncementCache() {
     siteAnnouncementsSnapshot.value = null;
-    selectedAnnouncementFingerprint.value = "";
     siteAnnouncementsFatalError.value = "";
     lastRefreshAt = 0;
     if (refreshTimer) {
@@ -305,14 +280,13 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
     siteAnnouncements,
     siteAnnouncementErrors,
     siteAnnouncementsLoaded,
-    selectedSiteAnnouncement,
-    selectedAnnouncementFingerprint,
+    siteAnnouncementSourcesAvailable,
     markingAnnouncementFingerprints,
     unreadSiteAnnouncementCount,
     announcementIsRead,
     openSiteAnnouncements,
     refreshSiteAnnouncements,
-    selectSiteAnnouncement,
+    markSiteAnnouncementRead,
     markAllSiteAnnouncementsRead,
   };
 }

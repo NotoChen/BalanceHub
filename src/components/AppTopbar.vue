@@ -2,6 +2,8 @@
 import { computed } from "vue";
 import {
   CalendarCheck2,
+  ChartLine,
+  ChevronDown,
   CloudDownload,
   Ellipsis,
   LoaderCircle,
@@ -34,6 +36,7 @@ const props = withDefaults(defineProps<{
   cliRuntime: CliRuntimeSnapshot;
   agentRuntimeSnapshot: AgentRuntimeSnapshot;
   announcementsLoaded: boolean;
+  announcementsAvailable: boolean;
   announcementsLoading: boolean;
   announcementTotalCount: number;
   announcementUnreadCount: number;
@@ -45,8 +48,13 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   add: [];
+  addOauth: [];
+  importOauth: [];
+  addCpa: [];
   checkForUpdate: [];
   openGithub: [];
+  /// 卡片上的“用量趋势”只管单个中转站；这里打开的是全部站点的汇总视图。
+  openUsage: [];
   refresh: [];
   checkIn: [];
   openCli: [kind: AgentCliKind];
@@ -87,7 +95,11 @@ const announcementTooltip = computed(() => {
       ? `站点公告：${props.announcementTotalCount} 条，${props.announcementErrorCount} 个站点读取失败`
       : `站点公告：${props.announcementErrorCount} 个站点读取失败`;
   }
-  if (!props.announcementsLoaded) return "站点公告将在后台读取";
+  if (!props.announcementsLoaded) {
+    return props.announcementsAvailable
+      ? "站点公告将在后台读取"
+      : "没有支持站点公告的中转站";
+  }
   return props.announcementTotalCount > 0
     ? `站点公告：${props.announcementTotalCount} 条`
     : "暂无站点公告";
@@ -126,12 +138,18 @@ const announcementTooltip = computed(() => {
     <div class="topbar-drag-region" data-tauri-drag-region />
 
     <div class="topbar-actions" @mousedown.stop>
-      <a-tooltip v-if="workspaceView === 'providers'" content="新建中转站">
-        <a-button class="topbar-add-button" type="primary" aria-label="新建中转站" @click="emit('add')">
+      <a-dropdown v-if="workspaceView === 'providers'" trigger="click" position="br">
+        <a-button class="topbar-add-button" type="primary" aria-label="添加中转站或账号">
           <template #icon><ServerPlus :size="17" :stroke-width="1.9" /></template>
-          <span>添加中转站</span>
+          <span>添加</span><ChevronDown :size="13" />
         </a-button>
-      </a-tooltip>
+        <template #content>
+          <a-doption @click="emit('add')">中转站 / API Key</a-doption>
+          <a-doption @click="emit('addOauth')">OAuth 账号</a-doption>
+          <a-doption @click="emit('importOauth')">导入授权文件</a-doption>
+          <a-doption @click="emit('addCpa')">CPA 网关</a-doption>
+        </template>
+      </a-dropdown>
       <span v-if="workspaceView === 'providers'" class="topbar-action-divider" aria-hidden="true" />
       <a-tooltip :content="workspaceView === 'agents' ? '刷新 Agent 环境与资产' : '刷新全部中转站和模型列表'">
         <a-button
@@ -155,6 +173,16 @@ const announcementTooltip = computed(() => {
           @click="emit('checkIn')"
         >
           <template #icon><CalendarCheck2 :size="20" :stroke-width="1.8" /></template>
+        </a-button>
+      </a-tooltip>
+      <a-tooltip v-if="workspaceView === 'providers'" content="用量趋势">
+        <a-button
+          class="topbar-icon-button topbar-icon-usage"
+          shape="circle"
+          aria-label="查看用量趋势"
+          @click="emit('openUsage')"
+        >
+          <template #icon><ChartLine :size="20" :stroke-width="1.8" /></template>
         </a-button>
       </a-tooltip>
       <BackgroundTaskIndicator

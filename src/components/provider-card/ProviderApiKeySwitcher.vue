@@ -70,6 +70,8 @@ function openApiKeyManager() {
       @pointerdown.stop
     >
       <IconSwap />
+      <!-- 底栏按钮靠文字认领功能，这里也给一个短标签，避免每次都要悬停。 -->
+      <span class="provider-card-api-key-switcher-label">切换 Key</span>
       <span v-if="options.length > 1" class="provider-card-api-key-count-badge">
         {{ options.length }}
       </span>

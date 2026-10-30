@@ -2,7 +2,7 @@ use super::LaunchScriptInput;
 #[cfg(target_os = "windows")]
 use super::{
     runtime_instance_id_from_status_path, temporary_windows_launch_payload_path,
-    write_auxiliary_file,
+    write_auxiliary_files,
 };
 #[cfg(target_os = "windows")]
 use crate::services::temporary_cli::shell_runtime::environment::capture_shell_snapshot;
@@ -28,9 +28,9 @@ pub(in crate::services::temporary_cli) fn write_launch_script(
 ) -> Result<(), String> {
     let launch_payload_path = temporary_windows_launch_payload_path(input.script);
     let text = render_launch_script(input, &launch_payload_path)?;
-    write_auxiliary_file(
-        input.auxiliary_file_path,
-        input.plan.auxiliary_file_content.as_deref(),
+    write_auxiliary_files(
+        input.script.parent().ok_or("缺少临时 CLI 启动目录")?,
+        &input.plan.auxiliary_files,
     )?;
     let shell_snapshot = capture_shell_snapshot();
     let launch_payload = windows_launch_payload(WindowsLaunchPayloadInput {
@@ -71,11 +71,6 @@ fn render_launch_script(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(env::temp_dir);
-    let cleanup_settings = input
-        .auxiliary_file_path
-        .map(|path| escape_cmd_path(path).map(|path| format!("del \"{path}\" 2>nul\n")))
-        .transpose()?
-        .unwrap_or_default();
     let workdir = escape_cmd_path(input.workdir)?;
     let network_directory = workdir.starts_with(r"\\");
     // `exit /b` still consults the batch file. Leave the batch context before
@@ -110,7 +105,7 @@ if defined BH_POWERSHELL for /f %%T in ('%BH_POWERSHELL% -NoProfile -Command "[D
 call :BH_WRITE_STATUS exited null %BH_ENDED% %BH_EXIT_CODE%
 if defined BH_PUSHED popd
 del "{launch_payload_path}" 2>nul
-{cleanup_settings}(goto) 2>nul & del "%~f0" 2>nul & rmdir /s /q "{script_dir}" 2>nul & cmd /D /C exit %BH_EXIT_CODE%
+(goto) 2>nul & del "%~f0" 2>nul & rmdir /s /q "{script_dir}" 2>nul & cmd /D /C exit %BH_EXIT_CODE%
 :BH_WRITE_STATUS
 set "BH_TMP=%BH_STATUS_FILE%.tmp.%RANDOM%"
 > "%BH_TMP%" echo {{"status":"%~1","pid":%~2,"endedAt":%~3,"exitCode":%~4}}

@@ -60,6 +60,7 @@
 button.agent-overview-status { cursor: pointer; }
 button.agent-overview-status:hover { color: var(--surface-accent); }
 .agent-overview-status.is-warning { color: var(--surface-warning); }
+.agent-overview-activity { flex: 0 0 auto; color: var(--color-text-3); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 18px; white-space: nowrap; }
 
 .agent-card-statistics {
   display: grid;

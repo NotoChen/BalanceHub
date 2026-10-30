@@ -16,7 +16,9 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // 固定监听 IPv4：macOS 上 localhost 可能优先解析到 ::1，而代理或网络栈
+    // 不保证两端都可达，devUrl 与监听地址必须落在同一个协议族。
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

@@ -6,7 +6,12 @@ import type {
   AgentLifecycleOperation,
   AgentLifecyclePlan,
   AgentLifecyclePlanRequest,
+  SetAgentAutomaticUpdateRequest,
 } from "../stores/agent-lifecycle-types";
+
+export function setAgentAutomaticUpdate(request: SetAgentAutomaticUpdateRequest) {
+  return invoke<AgentLifecycleCatalog>("set_agent_automatic_update", { request });
+}
 
 export function getAgentLifecycleCatalog(request: AgentLifecycleCatalogRequest = {}) {
   return invoke<AgentLifecycleCatalog>("get_agent_lifecycle_catalog", { request });

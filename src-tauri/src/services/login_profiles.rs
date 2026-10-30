@@ -5,15 +5,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 pub(crate) fn directory(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     if !valid_login_account_id(id) {
         return Err("登录账号标识无效".into());
     }
-    Ok(app
-        .path()
-        .app_data_dir()
+    Ok(crate::desktop::data_dir(app)
         .map_err(|_| "无法定位登录数据目录")?
         .join("login-browser")
         .join(id))

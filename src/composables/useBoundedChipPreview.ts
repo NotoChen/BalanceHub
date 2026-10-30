@@ -14,7 +14,7 @@ export function chipsFitRows(widths: readonly number[], availableWidth: number, 
 }
 
 export function useBoundedChipPreview(options: {
-  count: Ref<number>; total: Ref<number>; rows: Ref<number>; revision: Ref<unknown>;
+  count: Ref<number>; total: Ref<number>; rows: number; revision: Ref<unknown>;
   listRef: Ref<HTMLElement | null>; measureRef: Ref<HTMLElement | null>; moreRef: Ref<HTMLElement | null>;
 }) {
   const { listRef, measureRef, moreRef } = options;
@@ -32,7 +32,7 @@ export function useBoundedChipPreview(options: {
       const candidate = widths.slice(0, count);
       const hidden = Math.max(0, options.total.value - count);
       if (hidden) { more.textContent = `+${hidden}`; candidate.push(more.offsetWidth); }
-      if (chipsFitRows(candidate, list.clientWidth, options.rows.value)) { visibleCount.value = count; return; }
+      if (chipsFitRows(candidate, list.clientWidth, options.rows)) { visibleCount.value = count; return; }
     }
     visibleCount.value = 0;
   }
@@ -50,7 +50,7 @@ export function useBoundedChipPreview(options: {
     if (typeof ResizeObserver !== "undefined" && listRef.value) { observer = new ResizeObserver(schedule); observer.observe(listRef.value); }
     schedule();
   }
-  watch([options.revision, options.count, options.total, options.rows], () => { void reset(); });
+  watch([options.revision, options.count, options.total], () => { void reset(); });
   onMounted(() => {
     void reset();
     if (typeof window !== "undefined") window.addEventListener?.("focus", schedule);

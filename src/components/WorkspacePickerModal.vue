@@ -22,6 +22,7 @@ import {
   IconInfoCircle,
   IconLaunch,
   IconRefresh,
+  IconUser,
 } from "@arco-design/web-vue/es/icon";
 import {
   type AgentCliKind,
@@ -231,6 +232,11 @@ const usableApiKeys = computed(() =>
 );
 const hasSingleApiKey = computed(() => usableApiKeys.value.length === 1);
 const singleApiKey = computed(() => usableApiKeys.value[0] ?? null);
+// An OAuth card launches with its own vendor credential, so this picker never
+// asks for an API key or blocks the launch when none exists.
+const oauthAccount = computed(() =>
+  props.provider?.identity.protocol === "oauth" ? props.provider.auth.oauth : null,
+);
 const cliKindModel = computed({
   get: () => props.cliKind,
   set: (value: AgentCliKind) => emit("update:cliKind", value),
@@ -454,10 +460,25 @@ function handleVisibleChange(visible: boolean) {
               </div>
               <div class="cli-runtime-key">
                 <div class="cli-runtime-field-heading">
-                  <label for="cli-launcher-key">API Key</label>
+                  <label for="cli-launcher-key">{{
+                    oauthAccount ? "账号授权" : "API Key"
+                  }}</label>
                 </div>
                 <div
-                  v-if="hasSingleApiKey && singleApiKey"
+                  v-if="oauthAccount"
+                  class="cli-runtime-readonly cli-runtime-single-key"
+                >
+                  <IconUser /><span
+                    :title="oauthAccount.email || provider?.displayLabel"
+                    >{{
+                      oauthAccount.email ||
+                      provider?.displayLabel ||
+                      oauthAccount.vendor
+                    }}</span
+                  >
+                </div>
+                <div
+                  v-else-if="hasSingleApiKey && singleApiKey"
                   class="cli-runtime-readonly cli-runtime-single-key"
                 >
                   <ProviderAuthIcon mode="apiKey" /><span
@@ -549,7 +570,7 @@ function handleVisibleChange(visible: boolean) {
               launchLocked ||
               !launchWorkdir ||
               apiKeyLoading ||
-              usableApiKeys.length === 0 ||
+              (!oauthAccount && usableApiKeys.length === 0) ||
               cliOptions.length === 0 ||
               terminalOptions.length === 0 ||
               historySelectionMissing

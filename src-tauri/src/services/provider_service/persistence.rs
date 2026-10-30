@@ -15,11 +15,52 @@ use tauri::Manager;
 use super::{find_provider, MutationDecision, ProviderService};
 
 impl ProviderService<'_> {
+    pub async fn set_enabled(&self, id: String, enabled: bool) -> Result<Provider, String> {
+        let result_id = id.clone();
+        self.mutate_decided_async(move |data| {
+            let provider = data
+                .providers
+                .iter_mut()
+                .find(|p| p.identity.id == id)
+                .ok_or("中转站已移除")?;
+            if provider.runtime.enabled == enabled {
+                return Ok(MutationDecision::unchanged(()));
+            }
+            provider.runtime.enabled = enabled;
+            Ok(MutationDecision::changed(()))
+        })
+        .await?;
+        self.providers_by_ids_async(&[result_id])
+            .await?
+            .into_iter()
+            .next()
+            .ok_or("中转站已移除".into())
+    }
+
     pub fn save_provider(
         &self,
-        input: ProviderInput,
+        mut input: ProviderInput,
         options: ProviderSaveOptions,
     ) -> Result<ProviderSaveResult, String> {
+        if input.identity.protocol == crate::models::ProviderProtocol::OAuth
+            || input.id.as_ref().is_some_and(|id| {
+                self.snapshot().providers.iter().any(|p| {
+                    &p.identity.id == id
+                        && p.identity.protocol == crate::models::ProviderProtocol::OAuth
+                })
+            })
+        {
+            return Err("OAuth 账号请通过账号详情管理或重新授权".into());
+        }
+        if input.identity.protocol == crate::models::ProviderProtocol::CliProxyApi {
+            input.identity.base_url =
+                crate::models::normalize_cpa_base_url(&input.identity.base_url)?;
+            if input.auth.access_token.trim().is_empty() {
+                return Err("请填写 CPA 管理密钥".into());
+            }
+            input.auth.mode = crate::models::AuthMode::AccessToken;
+            input.automation.auto_shield = false;
+        }
         let (saved, saved_provider_id, conflict) = self.mutate_decided(|data| {
             if let Some(stored) = input
                 .id
@@ -228,6 +269,20 @@ impl ProviderService<'_> {
         })?;
         crate::services::cli_sessions::reconfigure_index(self.app, &previous, &saved);
         Ok(saved)
+    }
+
+    /// 首次关窗提示只置位这一个字段：走完整的设置保存会和设置页面的草稿
+    /// 互相覆盖，而这里并不代表用户改过设置。
+    pub async fn mark_close_hint_shown(&self) -> Result<(), String> {
+        self.mutate_decided_async(|data| {
+            if data.settings.window_close_hint_shown {
+                return Ok(MutationDecision::unchanged(()));
+            }
+            data.settings.window_close_hint_shown = true;
+            Ok(MutationDecision::changed(()))
+        })
+        .await
+        .map(|_| ())
     }
 
     pub fn export_app_data(&self, path: String) -> Result<AppDataTransferResult, String> {

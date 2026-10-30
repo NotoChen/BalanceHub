@@ -19,6 +19,22 @@
   -webkit-user-drag: none;
 }
 
+/* 卡片分三层：标题、正文、页脚。两条分隔线把正文夹在中间，四类卡片
+   （中转站、API Key、OAuth 账号、CPA 网关）读起来是同一张卡片。 */
+.provider-card > .workspace-card-header {
+  border-bottom: 1px solid var(--glass-border);
+  padding-bottom: 10px;
+}
+
+/* 卡片高度跟着内容走：额度窗口和模型芯片的数量每张卡都不同，固定 312px
+   会把第三行模型裁掉，或者把页脚挤到卡片边缘。同一列的卡片各自完整，
+   页脚仍然由 margin-top: auto 钉在卡片底部。 */
+.provider-card.workspace-card-standard {
+  height: auto;
+  max-height: none;
+  min-height: 312px;
+}
+
 .provider-card-cli-orbits {
   position: absolute !important;
   z-index: 2 !important;
@@ -150,31 +166,36 @@
 
 .provider-card-disabled .workspace-card-logo,
 .provider-card-disabled .workspace-card-title,
-.provider-card-disabled .provider-card-api-remark,
 .provider-card-disabled .workspace-card-subtitle,
 .provider-card-disabled .provider-card-api-endpoint-value,
 .provider-card-disabled .provider-card-api-endpoint-row,
 .provider-card-disabled .provider-card-api-key-name,
 .provider-card-disabled .provider-card-api-summary code,
 .provider-card-disabled .provider-card-status,
-.provider-card-disabled .provider-card-user-name,
 .provider-card-disabled .provider-card-user-meta,
 .provider-card-disabled .provider-card-balance span,
 .provider-card-disabled .provider-card-balance strong,
 .provider-card-disabled .provider-card-progress-row > span,
+.provider-card-disabled .provider-card-quota-window,
 .provider-card-disabled .provider-card-unlimited,
 .provider-card-disabled .provider-card-section-heading,
-.provider-card-disabled .provider-card-model,
-.provider-card-disabled .provider-card-model-more,
+.provider-card-disabled .workspace-card-chip,
 .provider-card-disabled .provider-card-model-empty,
 .provider-card-disabled .provider-card-auth-summary {
   color: var(--surface-muted);
 }
 
-.provider-card-disabled .provider-card-auth-summary > svg,
-.provider-card-disabled .provider-card-auth-summary strong,
-.provider-card-disabled .provider-card-auth-summary span {
-  color: var(--surface-muted);
+/* 量宽层只排版不显示：它和可见芯片同尺寸，但不能占位，也不能被看见。 */
+.provider-card-model-measure {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  display: flex;
+  width: max-content;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .provider-card-disabled .workspace-card-logo img {
@@ -216,36 +237,14 @@
   align-items: center;
 }
 
+/* Key 卡的副标题是与账号卡同一个副标题槽里的两行：接口地址与当前 Key。
+   两行在所有 Key 卡上都在：地址是卡片的第二身份，不只是标题的回声。 */
 .provider-card-api-summary {
   display: grid;
   min-width: 0;
-  flex: 1 1 auto;
+  align-content: start;
   gap: 7px;
   margin: 0;
-}
-
-.provider-card-api-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-}
-
-.provider-card-api-heading .provider-card-api-remark {
-  flex: 0 1 auto;
-  max-width: 100%;
-}
-
-.provider-card-api-remark {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--surface-ink);
-  font-size: var(--workspace-card-title-size);
-  font-weight: 650;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .provider-card-api-endpoint-row {
@@ -255,15 +254,17 @@
   white-space: nowrap;
 }
 
+/* 地址行是副标题的第二行，字号和颜色跟账号卡的「协议 · 账号」同一级：
+   它是标题的说明，不是第二个标题。 */
 .provider-card-api-endpoint-value {
   display: flex;
   min-width: 0;
   width: 100%;
   align-items: center;
   gap: 6px;
-  color: var(--surface-ink);
-  font-size: 13px;
-  font-weight: 620;
+  color: var(--surface-ink-soft);
+  font-size: 11px;
+  font-weight: 550;
   line-height: 1.35;
 }
 
@@ -280,15 +281,6 @@
   font-weight: 650;
   letter-spacing: 0.02em;
   line-height: 1.2;
-  white-space: nowrap;
-}
-
-.provider-card-api-protocol-group {
-  display: inline-flex;
-  min-width: 0;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
   white-space: nowrap;
 }
 
@@ -369,14 +361,26 @@
   transition: background 160ms var(--surface-ease), color 160ms var(--surface-ease), transform 160ms var(--surface-ease);
 }
 
+/* 切换 Key 是这一行唯一的动作，带文字后和底栏动作同一套几何。 */
 .provider-card-api-key-inline-actions .provider-card-api-key-switcher-trigger {
   position: relative;
   z-index: 1;
-  width: 24px;
-  min-width: 24px;
+  width: auto;
   height: 24px;
   overflow: visible;
-  padding: 0;
+  padding: 0 6px;
+  color: var(--card-action-data);
+  font-size: 11px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.provider-card-api-key-switcher-label {
+  color: var(--surface-ink-soft);
+}
+
+.provider-card-api-key-switcher-trigger:is(:hover, :focus-visible) .provider-card-api-key-switcher-label {
+  color: inherit;
 }
 
 .provider-card-api-key-count-badge {
@@ -488,25 +492,29 @@
   gap: 4px;
 }
 
-.provider-card-user-name {
-  display: block;
+/* 副标题一行放「协议 · 账号」：标题只留站点名，协议和账号不再各占一行。 */
+.provider-card-header-subtitle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.provider-card-header-identity {
   min-width: 0;
   overflow: hidden;
-  color: var(--surface-ink);
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 1.25;
+  color: var(--surface-ink-soft);
+  font-size: 11px;
+  font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.provider-card-user-name-muted {
-  color: var(--surface-muted);
-  font-weight: 500;
-}
-
-.provider-card-api-url {
-  font-size: 13px;
+.provider-card-header-subtitle .provider-card-header-identity::before {
+  content: "·";
+  margin-right: 4px;
+  color: #c9cdd4;
 }
 
 .provider-card-user-meta {
@@ -553,6 +561,10 @@
   --provider-quota-color: #d99000;
 }
 
+.provider-card-quota-high {
+  --provider-quota-color: #e34d59;
+}
+
 .provider-card-quota-empty {
   --provider-quota-color: #e34d59;
 }
@@ -586,25 +598,74 @@
   white-space: nowrap;
 }
 
+/* 主数字后面的分母（如「3 / 5」）和主数字同一行，字号跟说明文字走。 */
+.provider-card-balance strong small {
+  margin-left: 3px;
+  color: var(--surface-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
 .provider-card-quota-warning .provider-card-balance strong,
+.provider-card-quota-high .provider-card-balance strong,
 .provider-card-quota-empty .provider-card-balance strong,
 .provider-card-quota-unlimited .provider-card-balance strong {
   color: var(--provider-quota-color);
 }
 
-.provider-card-progress-row {
-  gap: 9px;
+/* Key-scoped cards show the same balance with tighter spacing, because the
+   key card already spends its header on endpoint and key rows. */
+.provider-card-quota-compact {
+  gap: 5px;
 }
 
-.provider-card-progress-row > span {
+.provider-card-balance-labels {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.provider-card-balance-labels > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 过期提示只在数据需要重取时占一行：新鲜时卡片不写同步时间。 */
+.provider-card-stale {
+  color: #b26a00;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* 钱包余额的比例条独占一行，条右端才写已用比例；条长本身就是数据，左边
+   不再立一列文字。窗口条沿用同一排法：标签和比例一行，条在下。 */
+.provider-card-progress-row {
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+/* 「已用」跟在比例后面，和窗口条的「70% 已用」同一读法：卡片上两个百分比
+   不能被读成两个方向。比例标签不参与压缩，条可以变短，标签不能被挤成两行。 */
+.provider-card-quota-meter {
   flex: 0 0 auto;
-  min-width: 52px;
-  text-align: right;
+  white-space: nowrap;
+}
+
+.provider-card-quota-meter small {
+  margin-left: 3px;
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 400;
 }
 
 .provider-card .provider-quota-progress {
   min-width: 0;
   flex: 1 1 auto;
+  order: 1;
 }
 
 .provider-card .provider-quota-progress .arco-progress-line {
@@ -619,24 +680,65 @@
   background-color: var(--provider-quota-color);
 }
 
-.provider-card-unlimited {
-  color: var(--provider-quota-color);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.provider-card-unknown {
-  color: var(--surface-muted, #7b8797);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.provider-card-models {
-  display: grid;
+/* 正文自己是一列：同排卡片被拉到同一高度时，多余的高度落在额度区块和
+   模型行之间。正文接管高度后，页脚不再靠自己的 margin-top: auto 抢这段
+   空白，模型行才能贴着页脚分界线。 */
+.provider-card-body {
+  display: flex;
   min-width: 0;
-  gap: 7px;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 13px;
+}
+
+/* 模型行是正文的最后一层，上方用一条分隔线收口：标题一行、芯片最多三行。
+   四类卡片（中转站、API Key、账号授权、CPA 网关）都走这一块，卡型只决定
+   数据，不再决定长相。 */
+.provider-card-models {
+  display: block;
+  min-width: 0;
+  flex: 0 0 auto;
   border-top: 1px solid var(--glass-border);
   padding-top: 10px;
+}
+
+/* 整块模型区就是模型列表的入口：标题、芯片、空态都能点，和中转站卡片的页脚
+   图标打开同一个面板。 */
+.provider-card-model-entry {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  align-content: start;
+  gap: 7px;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.provider-card-model-entry:disabled {
+  cursor: default;
+}
+
+.provider-card-model-entry:hover:not(:disabled) .workspace-card-chip {
+  border-color: color-mix(in srgb, var(--surface-ink) 12%, transparent);
+  color: var(--surface-ink);
+}
+
+/* 同一排的卡片被拉到同一高度时，多出来的高度留在额度区块和模型行之间：
+   模型行是正文最后一层，紧贴页脚分界线。否则芯片浮在正文中间，下面出现
+   一块没有归属的空白。 */
+.provider-card-models-tail {
+  margin-top: auto;
+}
+
+/* 额度区块按自身内容高度排布，不参与拉伸。 */
+.provider-card-quota,
+.provider-card-identity {
+  flex: 0 0 auto;
 }
 
 .provider-card-section-heading {
@@ -647,109 +749,42 @@
   font-weight: 650;
 }
 
-.provider-card-section-heading span:last-child {
+/* 有芯片时标题右侧什么都不写，所以这里按状态位本身的类名取，不再用
+   :last-child ——没有状态时第一个 span 就是 last-child，标签会被当成状态。 */
+.provider-card-section-heading-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   color: var(--surface-muted);
+  font-variant-numeric: tabular-nums;
   font-weight: 500;
 }
 
-.provider-card-model-sync-time {
-  color: var(--surface-muted);
-  font-size: 10px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
+/* 模型名排成浅底芯片：名字长短不一，芯片把每个名字圈成一项，
+   gpt-5.6-sol 和 deepseek-v3 一眼能分开。
+   模型区和页脚一样是卡片的固定层：恒定三行高，芯片少了也不收缩，卡片之间
+   的数字、模型和按钮始终对齐在同一水平线上。每行 20px（18px 行高 + 上下
+   描边），行间 5px，三行即 3 × 20 + 2 × 5 = 70px。 */
 .provider-card-model-list {
   display: flex;
+  width: 100%;
   min-width: 0;
-  min-height: 45px;
-  max-height: 45px;
+  height: 70px;
   flex-wrap: wrap;
-  align-items: center;
   align-content: flex-start;
+  align-items: center;
   gap: 5px;
+  /* 首帧和窗口缩放中途量宽层还没有宽度，不能因为「都放得下」把芯片铺开、
+     把页脚顶出卡片。 */
   overflow: hidden;
 }
 
-.provider-card-model-list-five-rows {
-  min-height: 120px;
-  max-height: 120px;
-}
-
+/* 没有模型时说明文字占住同样的三行，卡片高度不随同步状态跳动。 */
 .provider-card-model-empty {
   display: flex;
-  min-height: 45px;
+  height: 70px;
   align-items: center;
   color: #a9aeb8;
   font-size: 10px;
   line-height: 21px;
-}
-
-.provider-card-model-empty-five-rows {
-  min-height: 120px;
-}
-
-.provider-card-model-measure {
-  position: absolute;
-  top: 0;
-  left: -10000px;
-  display: flex;
-  width: max-content;
-  align-items: center;
-  gap: 5px;
-  pointer-events: none;
-  visibility: hidden;
-}
-
-.provider-card-auth-summary {
-  display: inline-flex;
-  min-width: 0;
-  grid-area: auth;
-  overflow: hidden;
-  align-items: center;
-  gap: 5px;
-  color: var(--surface-muted);
-}
-
-.provider-card-auth-summary > svg {
-  width: 13px;
-  height: 13px;
-  flex: 0 0 auto;
-  color: var(--surface-muted);
-}
-
-.provider-card-auth-summary > .provider-auth-icon-session,
-.provider-auth-icon-session {
-  color: var(--card-icon-automation);
-}
-
-.provider-card-auth-summary > .provider-auth-icon-access-token,
-.provider-auth-icon-access-token {
-  color: #0e7490;
-}
-
-.provider-card-auth-summary > .provider-auth-icon-api-key,
-.provider-auth-icon-api-key {
-  color: var(--card-icon-key);
-}
-
-.provider-card-auth-summary strong {
-  flex: 0 0 auto;
-  color: var(--surface-ink-soft);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
-.provider-card-auth-summary span {
-  min-width: 0;
-  overflow: hidden;
-  border-left: 1px solid var(--glass-border);
-  color: var(--surface-muted);
-  font-size: 10px;
-  line-height: 1.25;
-  padding-left: 6px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

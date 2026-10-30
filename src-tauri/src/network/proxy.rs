@@ -280,18 +280,36 @@ impl ProxyEnvironment {
 pub(crate) fn resolve_proxy(settings: &AppSettings, provider: &Provider) -> EffectiveProxy {
     match provider.proxy.mode {
         ProviderProxyMode::Inherit => resolve_global_proxy(settings),
-        ProviderProxyMode::System => resolve_system_proxy(),
+        ProviderProxyMode::System => with_bypass(resolve_system_proxy(), &settings.proxy_bypass),
         ProviderProxyMode::NoProxy => EffectiveProxy::none(),
-        ProviderProxyMode::Custom => EffectiveProxy::custom(provider.proxy.url.clone()),
+        ProviderProxyMode::Custom => with_bypass(
+            EffectiveProxy::custom(provider.proxy.url.clone()),
+            &settings.proxy_bypass,
+        ),
     }
 }
 
 pub(crate) fn resolve_global_proxy(settings: &AppSettings) -> EffectiveProxy {
-    match settings.proxy_mode {
+    let proxy = match settings.proxy_mode {
         ProxyMode::System => resolve_system_proxy(),
         ProxyMode::NoProxy => EffectiveProxy::none(),
         ProxyMode::Custom => EffectiveProxy::custom(settings.proxy_url.clone()),
+    };
+    with_bypass(proxy, &settings.proxy_bypass)
+}
+
+/// 设置里的「直连地址」对所有解析结果生效，不只对自定义代理生效：
+/// 用户维护这份列表的意图就是这些主机永远不走代理。
+fn with_bypass(mut proxy: EffectiveProxy, bypass: &str) -> EffectiveProxy {
+    let bypass = bypass.trim();
+    if bypass.is_empty() || proxy.no_proxy.trim() == "*" {
+        return proxy;
     }
+    if !proxy.no_proxy.is_empty() {
+        proxy.no_proxy.push(',');
+    }
+    proxy.no_proxy.push_str(bypass);
+    proxy
 }
 
 fn resolve_system_proxy() -> EffectiveProxy {

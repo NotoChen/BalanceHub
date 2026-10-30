@@ -12,7 +12,7 @@ const props = withDefaults(
   defineProps<{
     originalText: string;
     modelValue: string;
-    format?: AgentConfigurationFormat;
+    format?: AgentConfigurationFormat | "yaml";
     readonly?: boolean;
     label?: string;
   }>(),

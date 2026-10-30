@@ -27,6 +27,14 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
     (options.summary?.points ?? []).reduce((total, point) => total + point.tokenUsed, 0),
   );
 
+  /// 24 小时视图只有 Sub2API 能给到小时桶，NewAPI 的用量接口按整天归档；
+  /// 写死“按小时汇总”会让后者的日桶柱子被当成小时数据读。
+  const usagePeriodGranularity = computed(() => {
+    if (options.period !== "24h") return "按天汇总";
+    const points = options.summary?.points ?? [];
+    return points.some((point) => /^\d{2}-\d{2} \d{2}:00$/.test(point.date)) ? "按小时汇总" : "按天汇总";
+  });
+
   const usageTimeRangeMinutes = computed(() => {
     if (options.period === "24h") return 24 * 60;
     if (options.period === "7d") return 7 * 24 * 60;
@@ -55,6 +63,31 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
       .filter((item) => item.requestCount > 0)
       .slice(0, 8),
   );
+
+  /// 站点自带的性能采样：成功率和耗时说的是“这条路稳不稳”，和消耗额度无关。
+  /// 按成功率从低到高排，最该避开的路由排在最前。
+  const usageModelHealth = computed(() => {
+    const requests = new Map(
+      (options.summary?.modelStats ?? []).map((item) => [item.modelName, item.requestCount]),
+    );
+    return (options.summary?.modelHealth ?? [])
+      .filter(
+        (item) =>
+          item.successRate !== null ||
+          item.avgLatencyMs !== null ||
+          item.avgTps !== null,
+      )
+      .map((item) => ({
+        ...item,
+        requestCount: requests.get(item.modelName) ?? 0,
+      }))
+      .sort(
+        (left, right) =>
+          (left.successRate ?? 101) - (right.successRate ?? 101) ||
+          (right.avgLatencyMs ?? 0) - (left.avgLatencyMs ?? 0),
+      )
+      .slice(0, 8);
+  });
 
   const usageMaxModelQuota = computed(() => Math.max(0, ...usageTopQuotaModels.value.map((item) => item.used)) || 1);
 
@@ -127,7 +160,9 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
     usageLinePath,
     usageMaxModelCalls,
     usageMaxModelQuota,
+    usageModelHealth,
     usagePeakPoint,
+    usagePeriodGranularity,
     usageRequestTotal,
     usageTokenTotal,
     usageTopCallModels,

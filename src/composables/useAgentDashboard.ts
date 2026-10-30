@@ -17,7 +17,6 @@ import { useAgentHookConsole } from "./useAgentHookConsole";
 import { useAgentCatalogConsole } from "./useAgentCatalogConsole";
 import { useAgentResourceContent } from "./useAgentResourceContent";
 import { useAgentInstallationManager } from "./useAgentInstallationManager";
-import { useAgentVersionChecks } from "./useAgentVersionChecks";
 import { useAgentHistorySummary } from "./useAgentHistorySummary";
 import { useAgentConfiguration } from "./useAgentConfiguration";
 import { activeAgentRuntimeSessions, isConfirmedAgentRuntimeSession } from "../utils/agent-runtime";
@@ -70,6 +69,18 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     ? kinds.value.map((kind) => overview.errors[overview.key(kind, workspacePath.value)]).find(Boolean) : "")
     || catalogStore.loadErrors[agentEnvironmentKey(workspacePath.value)] || "");
   const activeSessions = computed(() => activeAgentRuntimeSessions(options.runtime.value));
+  /// The newest activity BalanceHub observed per CLI, including sessions that
+  /// already ended: the card answers "when did I last use this" without
+  /// rescanning native history. Unverified records have no trustworthy clock.
+  const lastActivity = computed(() => {
+    const newest = new Map<AgentCliKind, number>();
+    for (const session of options.runtime.value.sessions) {
+      const at = session.lastActivityAt ?? session.endedAt ?? session.startedAt;
+      if (session.state === "unknown" || at == null) continue;
+      newest.set(session.agentKind, Math.max(newest.get(session.agentKind) ?? 0, at));
+    }
+    return newest;
+  });
   const runtimeSessions = computed(() => {
     const needle = navigation.query.trim().toLocaleLowerCase();
     return activeSessions.value.filter((session) => (!navigation.agentFilter || session.agentKind === navigation.agentFilter)
@@ -100,6 +111,7 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
       historyError: history.errorFor(agent.kind),
       refreshing: Boolean(overview.rescanning[overview.key(agent.kind, workspacePath.value)]) || catalogLoading.value,
       runningCount: activeSessions.value.filter((session) => session.agentKind === agent.kind && isConfirmedAgentRuntimeSession(session)).length,
+      lastActivityAt: lastActivity.value.get(agent.kind) ?? null,
       canLaunch: probe ? availableCliKinds({ tools: [probe] }, "temporaryLaunch").includes(agent.kind) : false,
       configurationSnapshot: saved?.configuration ?? null,
       configurationLoading: !saved?.configuration && refreshing,
@@ -189,14 +201,15 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
       }
     }
   });
-  const versionCheckActive = computed(() => options.active.value && kinds.value.length > 0 && navigation.page === "overview"
-    && !kinds.value.some((kind) => overview.refreshing[overview.key(kind, workspacePath.value)]));
   const localVersionRevision = computed(() => JSON.stringify(kinds.value.map((kind) => {
     const saved = overview.get(kind, workspacePath.value);
     return [kind, settings.settings.agentCliPaths[kind], saved?.probe.path, saved?.probe.version,
       installations.value.filter((installation) => installation.agentKind === kind).map((installation) => [installation.id, installation.executableRevision, installation.installedVersion])];
   })));
-  useAgentVersionChecks(versionCheckActive, localVersionRevision);
+  watch(localVersionRevision, () => {
+    lifecycleStore.invalidate();
+    if (options.active.value && navigation.page === "overview") void lifecycleStore.refresh("cached");
+  });
   watch(() => settings.settings.agentCliPaths, (paths, previous) => {
     for (const kind of kinds.value) if (paths[kind] !== previous?.[kind]) void overview.invalidate(kind);
     catalogStore.invalidate(workspacePath.value);

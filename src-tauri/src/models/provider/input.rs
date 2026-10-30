@@ -49,6 +49,7 @@ impl Default for ProviderInput {
                 backup_urls: Vec::new(),
             },
             auth: ProviderAuth {
+                oauth: None,
                 mode: AuthMode::Password,
                 source: AuthSource::Password,
                 api_key: String::new(),
@@ -106,6 +107,10 @@ impl Provider {
         let name = provider_name_from_input(&input.identity.name, &input.identity.base_url);
         let protocol = input.identity.protocol;
         let api = matches!(protocol, ProviderProtocol::Api);
+        let quota_known = matches!(
+            protocol,
+            ProviderProtocol::NewApi | ProviderProtocol::Sub2Api
+        );
         let mut auth = input.auth;
         let input_user_id = if !input.identity.user_id.trim().is_empty() {
             input.identity.user_id.trim().to_string()
@@ -137,8 +142,8 @@ impl Provider {
             quota: ProviderQuota {
                 available: 0.0,
                 used: 0.0,
-                known: !api,
-                total_known: !api,
+                known: quota_known,
+                total_known: quota_known,
                 scope: if api {
                     ProviderQuotaScope::Token
                 } else {
@@ -149,6 +154,7 @@ impl Provider {
                 display_type: defaults::quota_display_type(),
                 currency_symbol: defaults::currency_symbol(),
                 currency_exchange_rate: defaults::currency_exchange_rate(),
+                windows: Vec::new(),
             },
             capabilities: ProviderCapabilities::default(),
             cli: ProviderCli {
@@ -441,7 +447,12 @@ impl Provider {
             self.identity.site_logo.clear();
             self.quota.available = 0.0;
             self.quota.used = 0.0;
-            let account_protocol = !matches!(self.identity.protocol, ProviderProtocol::Api);
+            // 订阅窗口属于旧账号/旧站点，换凭据后必须一起失效。
+            self.quota.windows.clear();
+            let account_protocol = matches!(
+                self.identity.protocol,
+                ProviderProtocol::NewApi | ProviderProtocol::Sub2Api
+            );
             self.quota.known = account_protocol;
             self.quota.total_known = account_protocol;
             self.quota.unlimited = false;
@@ -479,6 +490,7 @@ impl Provider {
         };
         self.auth = normalize_provider_auth(
             ProviderAuth {
+                oauth: input.auth.oauth,
                 mode: next_auth_mode,
                 source: input.auth.source,
                 api_key: input.auth.api_key,
@@ -540,6 +552,20 @@ pub(crate) fn normalize_provider_auth(
     mut auth: ProviderAuth,
     protocol: ProviderProtocol,
 ) -> ProviderAuth {
+    if protocol != ProviderProtocol::OAuth {
+        auth.oauth = None;
+    }
+    if protocol == ProviderProtocol::OAuth {
+        auth.mode = AuthMode::AccessToken;
+        auth.source = AuthSource::Oauth;
+        auth.api_key_options.clear();
+        auth.api_key_token_id.clear();
+        auth.api_user.clear();
+        auth.session_cookie.clear();
+        auth.login_username.clear();
+        auth.login_password.clear();
+        auth.browser_binding = None;
+    }
     if !matches!(protocol, ProviderProtocol::NewApi) {
         auth.new_api_session = None;
     }

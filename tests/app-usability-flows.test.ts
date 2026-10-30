@@ -346,7 +346,7 @@ test("notification timeout releases the button and late success cannot erase the
 });
 
 function announcement(id: string, readAt: string | null = null): SiteAnnouncement {
-  return { fingerprint: id, providerId: "a", id, title: id, content: id, publishedAt: "10", updatedAt: null, readAt, canMarkRead: true } as SiteAnnouncement;
+  return { fingerprint: id, providerId: "a", source: "console", id, title: id, titleIsDerived: false, content: id, level: "", extra: "", publishedAt: "10", updatedAt: null, readAt, canMarkRead: true } as SiteAnnouncement;
 }
 function announcementHarness(t: TestContext, api: { getSiteAnnouncements: () => Promise<SiteAnnouncementsSnapshot>; markSiteAnnouncementRead: () => Promise<unknown> }) {
   const feedback = messages();
@@ -358,7 +358,7 @@ function announcementHarness(t: TestContext, api: { getSiteAnnouncements: () => 
   return { ...context, feedback, reloads: () => reloads };
 }
 
-test("background announcement reads do not mark content read, opening selects the first unread item", async (t) => {
+test("background announcement reads never mark content read, and opening the panel keeps the badge", async (t) => {
   let marks = 0;
   const context = announcementHarness(t, {
     getSiteAnnouncements: async () => ({ fetchedAt: "1", announcements: [announcement("read", "1"), announcement("unread")], errors: [] }),
@@ -367,11 +367,16 @@ test("background announcement reads do not mark content read, opening selects th
   await context.value.refreshSiteAnnouncements();
   assert.equal(marks, 0);
   assert.equal(context.value.unreadSiteAnnouncementCount.value, 1);
-  assert.equal(context.value.selectedSiteAnnouncement.value, null);
+  // 面板一次性展开全部正文，打开动作本身不代表读过。
   context.value.openSiteAnnouncements();
-  assert.equal(context.value.selectedSiteAnnouncement.value?.fingerprint, "unread");
-  assert.equal(context.value.unreadSiteAnnouncementCount.value, 0);
+  assert.equal(context.value.unreadSiteAnnouncementCount.value, 1);
   await settle();
+  assert.equal(marks, 0);
+
+  const unreadItem = context.value.siteAnnouncements.value.find((item) => !item.readAt);
+  assert.ok(unreadItem);
+  await context.value.markSiteAnnouncementRead(unreadItem);
+  assert.equal(context.value.unreadSiteAnnouncementCount.value, 0);
   assert.equal(marks, 1);
 });
 

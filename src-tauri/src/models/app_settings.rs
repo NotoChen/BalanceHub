@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use super::enums::{
-    AgentCliKind, LivenessIntervalMode, LivenessPromptMode, ProxyMode, TemporaryCliTerminalKind,
-    ThemeMode,
+    AgentCliKind, LivenessIntervalMode, LivenessPromptMode, LogLevel, NotificationEvent, ProxyMode,
+    TemporaryCliTerminalKind, ThemeMode, TrayClickAction, WindowCloseAction,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +73,77 @@ pub struct AppSettings {
     pub liveness_number_min: u64,
     #[serde(default = "default_liveness_number_max")]
     pub liveness_number_max: u64,
+
+    // ---- 窗口与托盘 ----
+    /// 关闭主窗口时隐藏到托盘还是退出进程。
+    #[serde(default)]
+    pub window_close_action: WindowCloseAction,
+    /// 隐藏窗口时同时隐藏 macOS Dock 图标，只留菜单栏入口。
+    #[serde(default = "default_true")]
+    pub window_hide_dock_icon: bool,
+    #[serde(default)]
+    pub window_tray_click_action: TrayClickAction,
+    /// 记住上次的窗口尺寸与位置。
+    #[serde(default = "default_true")]
+    pub window_restore_state: bool,
+    /// 只在「首次关闭窗口」时提示一次它还在后台运行。
+    #[serde(default)]
+    pub window_close_hint_shown: bool,
+
+    // ---- 更新 ----
+    #[serde(default = "default_true")]
+    pub update_auto_check: bool,
+    #[serde(default = "default_update_check_interval_hours")]
+    pub update_check_interval_hours: u64,
+
+    // ---- 通知 ----
+    /// 逐类事件开关：关闭后仍保留通知总开关和其他事件。
+    #[serde(default = "default_true")]
+    pub notify_refresh_failure: bool,
+    #[serde(default = "default_true")]
+    pub notify_liveness_failure: bool,
+    #[serde(default = "default_true")]
+    pub notify_check_in: bool,
+    #[serde(default)]
+    pub notify_quiet_hours: bool,
+    #[serde(default = "default_quiet_start")]
+    pub notify_quiet_start: String,
+    #[serde(default = "default_quiet_end")]
+    pub notify_quiet_end: String,
+    /// 单次投递失败后的重试次数，0 表示不重试。
+    #[serde(default = "default_notify_retry_count")]
+    pub notify_retry_count: u64,
+    /// 同一中转站的同类事件在该窗口内只发一条，0 表示不合并。
+    #[serde(default = "default_notify_merge_window_secs")]
+    pub notify_merge_window_secs: u64,
+
+    // ---- 自动化策略 ----
+    /// 刷新失败后额外重试的次数，重试沿用同一刷新间隔的等待。
+    #[serde(default)]
+    pub refresh_retry_count: u64,
+    /// 给每个中转站的刷新到点时间加一点随机偏移，避免整批同时打出去。
+    #[serde(default = "default_true")]
+    pub refresh_jitter: bool,
+    /// 自动测活连续失败到第几次才通知，避免单次抖动就打扰。
+    #[serde(default = "default_liveness_failure_threshold")]
+    pub liveness_failure_threshold: u64,
+
+    // ---- 历史保留 ----
+    #[serde(default = "default_liveness_record_limit")]
+    pub liveness_record_limit: u64,
+    #[serde(default = "default_check_in_record_limit")]
+    pub check_in_record_limit: u64,
+
+    // ---- 网络与日志 ----
+    #[serde(default = "default_http_timeout_secs")]
+    pub http_timeout_secs: u64,
+    /// 追加到内置绕过列表之后的自定义条目，逗号分隔。
+    #[serde(default)]
+    pub proxy_bypass: String,
+    #[serde(default)]
+    pub log_level: LogLevel,
+    #[serde(default = "default_log_retention_days")]
+    pub log_retention_days: u64,
 }
 
 impl Default for AppSettings {
@@ -109,6 +180,30 @@ impl Default for AppSettings {
             liveness_placeholder_pools: default_liveness_placeholder_pools(),
             liveness_number_min: default_liveness_number_min(),
             liveness_number_max: default_liveness_number_max(),
+            window_close_action: WindowCloseAction::default(),
+            window_hide_dock_icon: true,
+            window_tray_click_action: TrayClickAction::default(),
+            window_restore_state: true,
+            window_close_hint_shown: false,
+            update_auto_check: true,
+            update_check_interval_hours: default_update_check_interval_hours(),
+            notify_refresh_failure: true,
+            notify_liveness_failure: true,
+            notify_check_in: true,
+            notify_quiet_hours: false,
+            notify_quiet_start: default_quiet_start(),
+            notify_quiet_end: default_quiet_end(),
+            notify_retry_count: default_notify_retry_count(),
+            notify_merge_window_secs: default_notify_merge_window_secs(),
+            refresh_retry_count: 0,
+            refresh_jitter: true,
+            liveness_failure_threshold: default_liveness_failure_threshold(),
+            liveness_record_limit: default_liveness_record_limit(),
+            check_in_record_limit: default_check_in_record_limit(),
+            http_timeout_secs: default_http_timeout_secs(),
+            proxy_bypass: String::new(),
+            log_level: LogLevel::default(),
+            log_retention_days: default_log_retention_days(),
         }
     }
 }
@@ -131,6 +226,17 @@ impl AppSettings {
             self.agent_cli_paths.remove(&kind);
         } else {
             self.agent_cli_paths.insert(kind, path);
+        }
+    }
+
+    /// 单类事件开关。手动触发与设置里的「发送测试」永远放行，
+    /// 否则用户点了发送却什么都没有，只会以为功能坏了。
+    pub fn notify_enabled_for(&self, event: NotificationEvent) -> bool {
+        match event {
+            NotificationEvent::RefreshFailure => self.notify_refresh_failure,
+            NotificationEvent::LivenessFailure => self.notify_liveness_failure,
+            NotificationEvent::CheckIn => self.notify_check_in,
+            NotificationEvent::Manual => true,
         }
     }
 }
@@ -349,6 +455,47 @@ pub struct LivenessPlaceholderPool {
 
 pub(crate) fn default_true() -> bool {
     true
+}
+
+pub(crate) const fn default_update_check_interval_hours() -> u64 {
+    24
+}
+
+/// 静默时段跨午夜（22:00 → 08:00），判定时按环形区间处理。
+pub(crate) fn default_quiet_start() -> String {
+    "22:00".to_string()
+}
+
+pub(crate) fn default_quiet_end() -> String {
+    "08:00".to_string()
+}
+
+pub(crate) const fn default_notify_retry_count() -> u64 {
+    1
+}
+
+pub(crate) const fn default_notify_merge_window_secs() -> u64 {
+    5 * 60
+}
+
+pub(crate) const fn default_liveness_failure_threshold() -> u64 {
+    2
+}
+
+pub(crate) const fn default_liveness_record_limit() -> u64 {
+    40
+}
+
+pub(crate) const fn default_check_in_record_limit() -> u64 {
+    730
+}
+
+pub(crate) const fn default_http_timeout_secs() -> u64 {
+    20
+}
+
+pub(crate) const fn default_log_retention_days() -> u64 {
+    7
 }
 
 pub(crate) fn default_check_in_time() -> String {

@@ -1,7 +1,12 @@
 //! Durable task facts only. Restart recovery never restores executable plans.
 use crate::models::*;
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Write, path::PathBuf, sync::OnceLock};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 static ROOT: OnceLock<PathBuf> = OnceLock::new();
 pub(crate) fn initialize(root: PathBuf) {
@@ -23,6 +28,11 @@ impl Journal {
             root: ROOT.get().cloned(),
         }
     }
+    pub(super) fn automatic_path(&self) -> Option<PathBuf> {
+        self.root
+            .as_ref()
+            .map(|root| root.join("automation").join("policies.json"))
+    }
     pub fn save(&self, record: &Record) -> Result<(), String> {
         let Some(root) = &self.root else {
             return if cfg!(test) {
@@ -31,28 +41,9 @@ impl Journal {
                 Err("升级记录目录未初始化".into())
             };
         };
-        fs::create_dir_all(root).map_err(|e| e.to_string())?;
         let name = crate::services::agent_cli::cache::key(record.operation.id.as_bytes());
         let path = root.join(format!("{name}.json"));
-        let temporary = root.join(format!("{name}.tmp"));
-        let bytes = serde_json::to_vec(record).map_err(|e| e.to_string())?;
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temporary).map_err(|e| e.to_string())?;
-        file.write_all(&bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|e| e.to_string())?;
-        fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        fs::File::open(root)
-            .and_then(|file| file.sync_all())
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        write_json(&path, record)
     }
     pub fn remove(&self, id: &str) -> Result<(), String> {
         let Some(root) = &self.root else {
@@ -110,4 +101,28 @@ impl Journal {
         }
         Ok(kept)
     }
+}
+
+pub(super) fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
+    let root = path.parent().ok_or("升级记录目录不可用")?;
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let temporary = path.with_extension("tmp");
+    let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary).map_err(|e| e.to_string())?;
+    file.write_all(&bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    fs::rename(&temporary, path).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    fs::File::open(root)
+        .and_then(|file| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

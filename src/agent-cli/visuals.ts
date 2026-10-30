@@ -30,3 +30,17 @@ export type AgentCliKind = keyof typeof agentCliVisuals;
 export function hasAgentCliVisual(value: string): value is AgentCliKind {
   return Object.prototype.hasOwnProperty.call(agentCliVisuals, value);
 }
+
+/**
+ * OAuth vendor keys differ from Agent CLI kinds only for Claude: Rust names the
+ * Agent `claudeCode` while the OAuth vendor key is `claude`. Both show the same
+ * mark, so the icon resolver accepts either key without a second logo table.
+ */
+const oauthVendorSources: Record<string, string> = {
+  claude: agentCliVisuals.claudeCode.source,
+};
+
+export function brandSource(kind: string): string | null {
+  if (hasAgentCliVisual(kind)) return agentCliVisuals[kind].source;
+  return oauthVendorSources[kind] ?? null;
+}

@@ -11,7 +11,7 @@ pub(crate) use input::normalize_provider_auth;
 pub use input::ProviderInput;
 pub(crate) use normalize::{
     check_in_message_indicates_disabled, normalize_api_key, normalize_api_key_for_protocol,
-    normalize_invite_link, normalize_provider_endpoint, provider_duplicate_kind,
-    ProviderDuplicateKind,
+    normalize_cpa_base_url, normalize_invite_link, normalize_provider_endpoint,
+    provider_duplicate_kind, ProviderDuplicateKind,
 };
 pub use state::*;
