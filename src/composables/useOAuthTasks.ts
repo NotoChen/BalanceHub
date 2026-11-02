@@ -1,5 +1,5 @@
 import { computed, onMounted, onScopeDispose } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../api/transport.ts";
 import { Message } from "@arco-design/web-vue";
 import { useOAuthAccountStore } from "../stores/oauth-accounts";
 import { useProviderStore } from "../stores/providers";

@@ -24,6 +24,37 @@ const PHASE_INSTALLING: u8 = 2;
 
 static INSTALL_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+/// 更新器的 reqwest 版本固定为 0.13，和业务客户端的 0.12 不同；
+/// 代理结论来自 `network::proxy_plan`，这里只负责套到更新器构建器上。
+fn configure_updater_builder(
+    builder: tauri_plugin_updater::UpdaterBuilder,
+    proxy: &network::EffectiveProxy,
+) -> Result<tauri_plugin_updater::UpdaterBuilder, String> {
+    match network::proxy_plan(proxy)? {
+        network::ProxyPlan::NoProxy => Ok(builder.no_proxy()),
+        network::ProxyPlan::Inherit => Ok(builder),
+        network::ProxyPlan::Rules { rules, no_proxy } => {
+            let mut explicit = Vec::new();
+            for (kind, url) in rules {
+                let rule = match kind {
+                    network::ProxyKind::Http => reqwest_updater::Proxy::http(&url),
+                    network::ProxyKind::Https => reqwest_updater::Proxy::https(&url),
+                    network::ProxyKind::All => reqwest_updater::Proxy::all(&url),
+                }
+                .map_err(|err| format!("代理地址无效({url}): {err}"))?
+                .no_proxy(reqwest_updater::NoProxy::from_string(&no_proxy));
+                explicit.push(rule);
+            }
+            Ok(builder.configure_client(move |client| {
+                explicit
+                    .iter()
+                    .cloned()
+                    .fold(client.no_proxy(), |client, proxy| client.proxy(proxy))
+            }))
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct AppUpdaterState {
     pending: Mutex<Option<Update>>,
@@ -92,7 +123,7 @@ pub async fn check(app: &AppHandle) -> Result<Option<AppUpdateInfo>, String> {
         tauri::async_runtime::spawn_blocking(move || network::resolve_global_proxy(&settings))
             .await
             .map_err(|err| format!("读取系统代理配置任务异常: {err}"))?;
-    let builder = network::configure_updater_builder(app.updater_builder(), &proxy)?;
+    let builder = configure_updater_builder(app.updater_builder(), &proxy)?;
     let updater = builder
         .build()
         .map_err(|err| format!("初始化更新客户端失败: {err}"))?;

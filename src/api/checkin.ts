@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "./transport.ts";
+import { listen } from "./transport.ts";
 import { withTimeout } from "../utils/promise-timeout";
 
 export interface CheckInTask {

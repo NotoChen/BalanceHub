@@ -2,6 +2,25 @@
 
 BalanceHub 的重要变更会记录在这里。
 
+## 未发布
+
+### 架构
+
+- Rust 代码拆成工作区三块：`crates/core`（包名 `balancehub-core`）承载协议、数据模型、存储、额度、签到、OAuth/CPA、调度与通知；`crates/server`（包名 `balancehub-server`）是无界面后端；`src-tauri` 只保留桌面专属的 Agent 配置、会话、临时 CLI、云同步、更新器和托盘。核心 crate 不再依赖 Tauri。
+- 核心通过 `host::Host` 取数据目录、广播事件、发送系统通知和打开链接，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现；本地测活与导出链接以执行器形式由桌面装配，服务端不安装即无此能力。
+- 新增传输无关的命令分发 `balancehub_core::api`，与 Tauri command 执行同一份业务实现，参数和返回值沿用现有 IPC 结构。
+- 工作区锁文件移到根目录 `Cargo.lock`；`npm run cargo` 调用的检查命令改为 `--workspace` / `--all`，`npm run doctor` 同时扫描三个源码目录。
+
+### 新增
+
+- 新增无界面后端 `balancehub-server`：通过 `POST /rpc` 执行与桌面相同的命令（支持单条与批处理），`GET /events` 推送事件，并可直接托管 `dist/` 下的前端页面；数据目录由 `BALANCEHUB_ROOT`、`BALANCEHUB_DATA_DIR`、`BALANCEHUB_CONFIG_DIR`、`BALANCEHUB_CACHE_DIR` 指定，默认监听 `127.0.0.1:8787`。
+- 前端新增统一宿主通道 `src/api/transport.ts`：桌面走 Tauri `invoke` / `listen`，浏览器走 HTTP 与 WebSocket，页面代码不需要区分宿主。
+- 浏览器版通过 `get_host_capabilities` 得知服务端已实现的命令：不显示 Agent 视角和 Agent 专属卡片入口，初始化向导也不再要求配置本机 CLI 环境。
+
+### 变更
+
+- 服务端返回的卡片动作把 `temporaryCli`、`defaultCliConfig` 置为不可用，Agent 相关入口不会出现在浏览器界面里。
+
 ## 0.6.5
 
 ### 新增

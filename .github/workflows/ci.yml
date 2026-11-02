@@ -64,7 +64,7 @@ jobs:
       - name: 缓存 Rust 依赖
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: . -> target
           shared-key: balancehub-tauri
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -77,7 +77,7 @@ jobs:
 
       - name: 编译 Tauri 应用
         env:
-          # 本地开发由 npm/scripts/tauri.mjs 隔离到系统缓存；CI 使用工作区路径，
-          # 以便与 Swatinem/rust-cache 的 workspace 配置复用缓存。
-          CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+          # 本地开发由 npm/scripts/tauri.mjs 隔离到系统缓存；CI 使用工作区根目录，
+          # 与 Swatinem/rust-cache 的 workspace 配置一致，缓存才能命中。
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
         run: npm run tauri build -- --no-bundle

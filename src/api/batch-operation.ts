@@ -1,4 +1,4 @@
-import { invoke, type Channel } from "@tauri-apps/api/core";
+import { invoke, type Channel } from "./transport.ts";
 import type { Provider } from "../stores/providers";
 
 export type ProviderBatchOperation = "refresh";

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onScopeDispose, ref, watch } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "../../api/transport.ts";
+import { invoke } from "../../api/transport.ts";
 import type {
   SessionTokenCounts,
   SessionUsageSummary,

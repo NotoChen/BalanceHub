@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./transport.ts";
 import { cancelAgentCatalogRead } from "./agent-catalog";
 import type {
   AgentConfigurationApplyRequest, AgentConfigurationEdit, AgentConfigurationListRequest, AgentConfigurationOpenRequest,

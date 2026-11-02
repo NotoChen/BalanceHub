@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import { open } from "@tauri-apps/plugin-dialog";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../../api/transport.ts";
 import { IconDesktop, IconSearch } from "@arco-design/web-vue/es/icon";
 import SettingsTerminalManager from "./SettingsTerminalManager.vue";
 import { agentCliLabel } from "../../utils/cli-environment";

@@ -1,7 +1,7 @@
 mod process;
-mod prompt;
 
-pub use prompt::{effective_interval, preview_prompts};
+pub use balancehub_core::services::liveness::preview_prompts;
+use balancehub_core::services::liveness::{prompt, LivenessExecutor};
 
 use crate::{
     limits,
@@ -23,6 +23,25 @@ use std::{
 };
 
 pub struct LivenessRunner;
+
+/// 桌面宿主安装的测活执行器：真正启动本地 Agent CLI 并读取输出。
+pub struct LocalLivenessExecutor;
+
+impl LivenessExecutor for LocalLivenessExecutor {
+    fn run(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        prompt: Option<String>,
+        automatic: bool,
+    ) -> Result<LivenessRecord, String> {
+        LivenessRunner::run(settings, provider, prompt, automatic)
+    }
+
+    fn waits_for_update(&self, settings: &AppSettings, provider: &Provider) -> bool {
+        waits_for_agent_update(settings, provider)
+    }
+}
 
 pub(crate) fn waits_for_agent_update(settings: &AppSettings, provider: &Provider) -> bool {
     agent_cli::lifecycle::usage::is_updating_kind(effective_cli_kind(settings, provider))

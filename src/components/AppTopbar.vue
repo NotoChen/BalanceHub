@@ -27,6 +27,7 @@ import type { AppWorkspaceView } from "../stores/agent-workspace";
 
 const props = withDefaults(defineProps<{
   workspaceView?: AppWorkspaceView;
+  agentAvailable?: boolean;
   refreshInProgress: boolean;
   globalCheckInInProgress: boolean;
   searchQuery: string;
@@ -44,7 +45,7 @@ const props = withDefaults(defineProps<{
   backgroundTasks: BackgroundTask[];
   recentBackgroundTasks: BackgroundTask[];
   backgroundTaskCount: number;
-}>(), { workspaceView: "providers", searchPlaceholder: "搜索名称、URL、用户或模型" });
+}>(), { workspaceView: "providers", agentAvailable: true, searchPlaceholder: "搜索名称、URL、用户或模型" });
 
 const emit = defineEmits<{
   add: [];
@@ -110,7 +111,7 @@ const announcementTooltip = computed(() => {
   <header class="topbar" data-tauri-drag-region @mousedown="emit('startDrag', $event)">
     <div class="workspace-view-switch" role="group" aria-label="主面板视角" @mousedown.stop>
       <button type="button" :aria-pressed="workspaceView === 'providers'" :class="{ active: workspaceView === 'providers' }" @click="emit('setWorkspaceView', 'providers')">中转站</button>
-      <button type="button" :aria-pressed="workspaceView === 'agents'" :class="{ active: workspaceView === 'agents' }" @click="emit('setWorkspaceView', 'agents')">Agent</button>
+      <button v-if="agentAvailable" type="button" :aria-pressed="workspaceView === 'agents'" :class="{ active: workspaceView === 'agents' }" @click="emit('setWorkspaceView', 'agents')">Agent</button>
     </div>
     <div class="topbar-search-cluster" @mousedown.stop>
       <label class="topbar-search-shell">

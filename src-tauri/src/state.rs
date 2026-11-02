@@ -1,31 +1,21 @@
 use crate::models::AppData;
+use balancehub_core::state::CoreState;
 use std::{
     collections::BTreeMap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex, OnceLock, RwLock,
-    },
+    ops::Deref,
+    sync::{Arc, Mutex, OnceLock},
 };
 use tauri::Manager;
 
 use crate::services::agent_cli::{catalog::CatalogService, lifecycle::LifecycleService};
 
-/// 内存中的应用状态。
+/// 桌面进程的应用状态。
 ///
-/// 启动时从磁盘加载一次，之后所有读写都走内存，变更时再原子落盘。
-/// 用 `RwLock` 串行化写入，避免并发命令（自动刷新、保存设置、签到……）
-/// 各自「读磁盘 → 改 → 写磁盘」时互相覆盖导致丢更新。
-#[derive(Default)]
+/// 配置数据、刷新闸门和版本号属于 `balancehub-core`；这里只额外持有
+/// 桌面专属的 Agent 服务。`Deref` 让现有 `state.data`、`state.next_revision()`
+/// 之类的写法继续成立。
 pub struct AppState {
-    pub data: RwLock<AppData>,
-    /// 网络认证互斥闸门：手动刷新、调度刷新以及可能轮换 Sub2API
-    /// `refresh_token` 的交互操作不能同时运行。手动路径 `lock().await` 排队，
-    /// 调度器 `try_lock` 拿不到直接跳过本 tick（下个 tick 重新评估到期），
-    /// 两边都不会饿死。
-    pub refresh_gate: tokio::sync::Mutex<()>,
-    /// 串行化“基于快照修改并落盘”的事务。持有该锁时不会长期占用 `data` 写锁，
-    /// 因此 JSON 序列化和磁盘替换期间读取方仍可继续读取上一份完整状态。
-    pub mutation_gate: Mutex<()>,
+    pub core: Arc<CoreState>,
     pub(crate) agent_asset_access:
         Arc<crate::services::agent_cli::environment::access_registry::AgentAssetAccessRegistry>,
     pub(crate) agent_asset_mutations:
@@ -37,44 +27,29 @@ pub struct AppState {
     agent_catalog: OnceLock<Arc<CatalogService>>,
     pub(crate) mcp_checks: Arc<crate::services::agent_cli::mcp_check::McpCheckService>,
     pub(crate) agent_maintenance: Arc<crate::services::agent_cli::maintenance::MaintenanceService>,
-    model_catalog: OnceLock<Arc<crate::services::model_catalog::ModelCatalogService>>,
     agent_lifecycle: OnceLock<Arc<LifecycleService>>,
     cloud_sync: OnceLock<Arc<crate::services::cloud_sync::CloudSyncService>>,
     pub(crate) cloud_sync_signal: Arc<crate::services::cloud_sync::SyncSignal>,
     agent_overview: OnceLock<Arc<crate::services::agent_cli::overview::OverviewService>>,
     asset_actors: Mutex<BTreeMap<String, String>>,
-    revision: AtomicU64,
-    load_error: RwLock<Option<String>>,
+}
+
+impl Deref for AppState {
+    type Target = CoreState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
 }
 
 impl AppState {
-    pub(crate) fn model_catalog(
-        &self,
-        app: &tauri::AppHandle,
-    ) -> Result<Arc<crate::services::model_catalog::ModelCatalogService>, String> {
-        let path = crate::desktop::data_dir(app)
-            .map_err(|_| "模型资料缓存目录不可用")?
-            .join("model-catalog.json");
-        Ok(Arc::clone(self.model_catalog.get_or_init(|| {
-            Arc::new(crate::services::model_catalog::ModelCatalogService::new(
-                path,
-            ))
-        })))
-    }
-
     pub fn new(data: AppData) -> Self {
         Self::with_load_error(data, None)
     }
 
-    pub fn with_load_error(mut data: AppData, load_error: Option<String>) -> Self {
-        data.revision = 1;
-        for provider in &mut data.providers {
-            provider.revision = 1;
-        }
+    pub fn with_load_error(data: AppData, load_error: Option<String>) -> Self {
         Self {
-            data: RwLock::new(data),
-            refresh_gate: tokio::sync::Mutex::new(()),
-            mutation_gate: Mutex::new(()),
+            core: Arc::new(CoreState::with_load_error(data, load_error)),
             agent_asset_access: Arc::default(),
             agent_asset_mutations: Arc::default(),
             agent_session_resumes: Arc::default(),
@@ -82,22 +57,12 @@ impl AppState {
             agent_catalog: OnceLock::new(),
             mcp_checks: Arc::default(),
             agent_maintenance: Arc::default(),
-            model_catalog: OnceLock::new(),
             agent_lifecycle: OnceLock::new(),
             cloud_sync: OnceLock::new(),
             cloud_sync_signal: Arc::default(),
             agent_overview: OnceLock::new(),
             asset_actors: Mutex::default(),
-            revision: AtomicU64::new(1),
-            load_error: RwLock::new(load_error),
         }
-    }
-
-    pub fn load_error(&self) -> Option<String> {
-        self.load_error
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .clone()
     }
 
     /// The managed library is isolated from provider configuration and exports.
@@ -210,20 +175,6 @@ impl AppState {
         }
     }
 
-    pub fn clear_load_error(&self) {
-        *self
-            .load_error
-            .write()
-            .unwrap_or_else(|err| err.into_inner()) = None;
-    }
-
-    pub(crate) fn block_storage(&self, error: String) {
-        *self
-            .load_error
-            .write()
-            .unwrap_or_else(|error| error.into_inner()) = Some(error);
-    }
-
     pub(crate) fn cloud_sync(
         &self,
         app: &tauri::AppHandle,
@@ -238,27 +189,11 @@ impl AppState {
             ))
         })))
     }
-
-    pub fn next_revision(&self) -> u64 {
-        self.revision.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
-    pub fn current_revision(&self) -> u64 {
-        self.revision.load(Ordering::Relaxed)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn revisions_are_monotonic_within_the_process() {
-        let state = AppState::new(AppData::default());
-        assert_eq!(state.next_revision(), 2);
-        assert_eq!(state.next_revision(), 3);
-        assert_eq!(state.current_revision(), 3);
-    }
 
     #[test]
     fn asset_actor_is_bound_to_one_window_lifetime() {

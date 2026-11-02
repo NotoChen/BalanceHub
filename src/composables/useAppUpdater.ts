@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
-import { Channel } from "@tauri-apps/api/core";
+import { Channel } from "../api/transport.ts";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Message } from "@arco-design/web-vue";
 import {

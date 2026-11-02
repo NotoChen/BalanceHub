@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/core", "crates/server"]
+
+# 原生 CLI 二进制可能超过 200 MiB，哈希截止时间在开发/测试构建里也要成立。
+[profile.dev.package.sha2]
+opt-level = 3

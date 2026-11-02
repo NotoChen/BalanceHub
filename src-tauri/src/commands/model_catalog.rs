@@ -15,7 +15,7 @@ pub(crate) async fn estimate_session_usage(
         .filter_map(|model| model.model.clone())
         .collect();
     let _ = get_model_metadata(app.clone(), ids, false, None).await?;
-    app.state::<AppState>().model_catalog(&app)?.estimate(usage)
+    app.state::<AppState>().model_catalog()?.estimate(usage)
 }
 
 #[tauri::command]
@@ -40,7 +40,7 @@ pub(crate) async fn get_model_metadata(
     });
     let service_app = app.clone();
     let service = super::run_blocking("读取模型资料缓存", move || {
-        service_app.state::<AppState>().model_catalog(&service_app)
+        service_app.state::<AppState>().model_catalog()
     })
     .await?;
     let settings = app

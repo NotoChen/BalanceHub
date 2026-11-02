@@ -76,22 +76,22 @@ pub(crate) fn list_temporary_cli_profiles(app: AppHandle) -> Vec<TemporaryCliPro
 
 #[tauri::command]
 pub(crate) async fn save_temporary_cli_profile(
-    app: AppHandle,
+    _app: AppHandle,
     profile: TemporaryCliProfile,
 ) -> Result<Vec<TemporaryCliProfile>, String> {
     super::run_blocking("保存启动方案", move || {
-        ProviderService::new(&app).save_temporary_cli_profile(profile)
+        ProviderService::new().save_temporary_cli_profile(profile)
     })
     .await
 }
 
 #[tauri::command]
 pub(crate) async fn delete_temporary_cli_profile(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
 ) -> Result<Vec<TemporaryCliProfile>, String> {
     super::run_blocking("删除启动方案", move || {
-        ProviderService::new(&app).delete_temporary_cli_profile(&id)
+        ProviderService::new().delete_temporary_cli_profile(&id)
     })
     .await
 }

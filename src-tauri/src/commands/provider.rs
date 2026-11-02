@@ -31,7 +31,7 @@ pub(crate) fn preview_provider_check_in_policy(
 #[tauri::command]
 pub(crate) async fn open_provider_site(app: AppHandle, id: String) -> Result<(), String> {
     run_blocking("打开中转站", move || {
-        let data = ProviderService::new(&app).load_app_data()?;
+        let data = ProviderService::new().load_app_data()?;
         let provider = data
             .providers
             .iter()
@@ -59,13 +59,13 @@ pub(crate) async fn save_provider(
     input: ProviderInput,
     options: Option<ProviderSaveOptions>,
 ) -> Result<ProviderSaveResultView, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let result = run_blocking("保存中转站", move || {
-        ProviderService::new(&task_app).save_provider(input, options.unwrap_or_default())
+        ProviderService::new().save_provider(input, options.unwrap_or_default())
     })
     .await?;
     if result.saved {
-        crate::services::check_in_tasks::cancel_outdated(&app);
+        crate::services::check_in_tasks::cancel_outdated();
         tray::refresh_from_state(&app);
     }
     Ok(result.into())
@@ -77,8 +77,8 @@ pub(crate) async fn set_provider_enabled(
     id: String,
     enabled: bool,
 ) -> Result<ProviderView, String> {
-    let provider = ProviderService::new(&app).set_enabled(id, enabled).await?;
-    crate::services::check_in_tasks::cancel_outdated(&app);
+    let provider = ProviderService::new().set_enabled(id, enabled).await?;
+    crate::services::check_in_tasks::cancel_outdated();
     tray::refresh_from_state(&app);
     Ok(provider.into())
 }
@@ -88,9 +88,9 @@ pub(crate) async fn remove_provider(
     app: AppHandle,
     id: String,
 ) -> Result<ProviderRemovalResult, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let result = run_blocking("删除中转站", move || {
-        ProviderService::new(&task_app).remove_provider(id)
+        ProviderService::new().remove_provider(id)
     })
     .await?;
     tray::refresh_from_state(&app);
@@ -102,9 +102,9 @@ pub(crate) async fn reorder_providers(
     app: AppHandle,
     ids: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let order = run_blocking("调整中转站顺序", move || {
-        ProviderService::new(&task_app).reorder_providers(ids)
+        ProviderService::new().reorder_providers(ids)
     })
     .await?;
     tray::refresh_from_state(&app);
@@ -113,42 +113,42 @@ pub(crate) async fn reorder_providers(
 
 #[tauri::command]
 pub(crate) async fn complete_provider_credentials(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
 ) -> Result<ProviderCredentialCompletionResult, String> {
-    ProviderService::new(&app).complete_credentials(input).await
+    ProviderService::new().complete_credentials(input).await
 }
 
 #[tauri::command]
 pub(crate) async fn test_provider_connection(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
 ) -> Result<ProviderConnectionTestResult, String> {
-    ProviderService::new(&app).test_connection(input).await
+    ProviderService::new().test_connection(input).await
 }
 
 #[tauri::command]
 pub(crate) async fn probe_provider_site(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
 ) -> Result<ProviderSiteProbeResult, String> {
-    ProviderService::new(&app).probe_site(input).await
+    ProviderService::new().probe_site(input).await
 }
 
 #[tauri::command]
 pub(crate) async fn detect_provider_protocol(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
 ) -> ProviderProtocolDetectionResult {
-    ProviderService::new(&app).detect_protocol(input).await
+    ProviderService::new().detect_protocol(input).await
 }
 
 #[tauri::command]
 pub(crate) async fn list_provider_api_keys(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    api_key_request(ProviderService::new(&app).list_api_keys(id), false).await
+    api_key_request(ProviderService::new().list_api_keys(id), false).await
 }
 
 async fn api_key_request<T>(
@@ -169,12 +169,12 @@ async fn api_key_request<T>(
 
 #[tauri::command]
 pub(crate) async fn get_provider_api_key_editor_context(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     token_id: Option<String>,
 ) -> Result<ProviderApiKeyEditorContext, String> {
     api_key_request(
-        ProviderService::new(&app).api_key_editor_context(id, token_id),
+        ProviderService::new().api_key_editor_context(id, token_id),
         false,
     )
     .await
@@ -182,11 +182,11 @@ pub(crate) async fn get_provider_api_key_editor_context(
 
 #[tauri::command]
 pub(crate) async fn get_provider_api_key_editor_context_for_input(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
 ) -> Result<ProviderApiKeyEditorContext, String> {
     api_key_request(
-        ProviderService::new(&app).api_key_editor_context_for_input(input),
+        ProviderService::new().api_key_editor_context_for_input(input),
         false,
     )
     .await
@@ -194,14 +194,14 @@ pub(crate) async fn get_provider_api_key_editor_context_for_input(
 
 #[tauri::command]
 pub(crate) async fn update_provider_api_key(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     credential_revision: u64,
     token_id: String,
     patch: ProviderApiKeyPatch,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
     api_key_request(
-        ProviderService::new(&app).update_api_key(id, credential_revision, token_id, patch),
+        ProviderService::new().update_api_key(id, credential_revision, token_id, patch),
         true,
     )
     .await
@@ -212,9 +212,9 @@ pub(crate) async fn list_local_provider_api_keys(
     app: AppHandle,
     id: String,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     run_blocking("读取本地 API Key", move || {
-        ProviderService::new(&task_app).local_api_keys(id)
+        ProviderService::new().local_api_keys(id)
     })
     .await
 }
@@ -226,9 +226,9 @@ pub(crate) async fn add_local_provider_api_key(
     key: String,
     remark: String,
 ) -> Result<ProviderView, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let provider = run_blocking("添加本地 API Key", move || {
-        ProviderService::new(&task_app).add_local_api_key(id, key, remark)
+        ProviderService::new().add_local_api_key(id, key, remark)
     })
     .await?;
     tray::refresh_from_state(&app);
@@ -242,9 +242,9 @@ pub(crate) async fn set_local_provider_api_key_remark(
     local_id: String,
     remark: String,
 ) -> Result<ProviderView, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let provider = run_blocking("设置 API Key 本地备注", move || {
-        ProviderService::new(&task_app).set_local_api_key_remark(id, local_id, remark)
+        ProviderService::new().set_local_api_key_remark(id, local_id, remark)
     })
     .await?;
     tray::refresh_from_state(&app);
@@ -257,9 +257,9 @@ pub(crate) async fn set_default_local_provider_api_key(
     id: String,
     local_id: String,
 ) -> Result<ProviderView, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let provider = run_blocking("设置当前调用 API Key", move || {
-        ProviderService::new(&task_app).set_default_local_api_key(id, local_id)
+        ProviderService::new().set_default_local_api_key(id, local_id)
     })
     .await?;
     tray::refresh_from_state(&app);
@@ -272,9 +272,9 @@ pub(crate) async fn remove_local_provider_api_key(
     id: String,
     local_id: String,
 ) -> Result<ProviderView, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let provider = run_blocking("移除本地 API Key", move || {
-        ProviderService::new(&task_app).remove_local_api_key(id, local_id)
+        ProviderService::new().remove_local_api_key(id, local_id)
     })
     .await?;
     tray::refresh_from_state(&app);
@@ -283,13 +283,13 @@ pub(crate) async fn remove_local_provider_api_key(
 
 #[tauri::command]
 pub(crate) async fn create_provider_api_key(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     credential_revision: u64,
     patch: ProviderApiKeyPatch,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
     api_key_request(
-        ProviderService::new(&app).create_api_key(id, credential_revision, patch),
+        ProviderService::new().create_api_key(id, credential_revision, patch),
         true,
     )
     .await
@@ -297,12 +297,12 @@ pub(crate) async fn create_provider_api_key(
 
 #[tauri::command]
 pub(crate) async fn create_provider_api_key_for_input(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
     patch: ProviderApiKeyPatch,
 ) -> Result<ProviderApiKeyOption, String> {
     api_key_request(
-        ProviderService::new(&app).create_api_key_for_input(input, patch),
+        ProviderService::new().create_api_key_for_input(input, patch),
         true,
     )
     .await
@@ -310,83 +310,77 @@ pub(crate) async fn create_provider_api_key_for_input(
 
 #[tauri::command]
 pub(crate) async fn generate_provider_access_token_for_input(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
 ) -> Result<String, String> {
-    ProviderService::new(&app)
+    ProviderService::new()
         .generate_access_token_for_input(input)
         .await
 }
 
 #[tauri::command]
 pub(crate) async fn delete_provider_api_key(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     token_id: String,
 ) -> Result<Vec<ProviderApiKeyOption>, String> {
-    api_key_request(
-        ProviderService::new(&app).delete_api_key(id, token_id),
-        true,
-    )
-    .await
+    api_key_request(ProviderService::new().delete_api_key(id, token_id), true).await
 }
 
 #[tauri::command]
 pub(crate) async fn get_provider_usage(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     period: String,
 ) -> Result<ProviderUsageSummary, String> {
-    ProviderService::new(&app).usage_summary(id, period).await
+    ProviderService::new().usage_summary(id, period).await
 }
 
 /// 顶栏的全局用量趋势：不带中转站时聚合全部可读取的站点。
 #[tauri::command]
 pub(crate) async fn get_usage_overview(
-    app: AppHandle,
+    _app: AppHandle,
     period: String,
 ) -> Result<ProviderUsageOverview, String> {
-    ProviderService::new(&app)
-        .usage_summary_overview(&period)
-        .await
+    ProviderService::new().usage_summary_overview(&period).await
 }
 
 #[tauri::command]
 pub(crate) async fn get_provider_request_logs(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     query: ProviderRequestLogsQuery,
 ) -> Result<ProviderRequestLogsResult, String> {
-    ProviderService::new(&app).request_logs(id, query).await
+    ProviderService::new().request_logs(id, query).await
 }
 
 #[tauri::command]
 pub(crate) async fn change_provider_password(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     original_password: String,
     password: String,
 ) -> Result<String, String> {
-    ProviderService::new(&app)
+    ProviderService::new()
         .change_password(id, original_password, password)
         .await
 }
 
 #[tauri::command]
 pub(crate) async fn get_provider_check_in_records(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
     month: String,
 ) -> Result<ProviderCheckInRecordsResult, String> {
-    ProviderService::new(&app).check_in_records(id, month).await
+    ProviderService::new().check_in_records(id, month).await
 }
 
 #[tauri::command]
 pub(crate) async fn probe_provider_capabilities(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
 ) -> Result<ProviderCapabilityProbeResultView, String> {
-    ProviderService::new(&app)
+    ProviderService::new()
         .probe_capabilities(id)
         .await
         .map(ProviderCapabilityProbeResultView::from)
@@ -394,36 +388,48 @@ pub(crate) async fn probe_provider_capabilities(
 
 #[tauri::command]
 pub(crate) async fn sync_available_models(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
 ) -> Result<ProviderModelSyncResultView, String> {
-    ProviderService::new(&app)
+    ProviderService::new()
         .sync_available_models(id)
         .await
         .map(ProviderModelSyncResultView::from)
 }
 
 #[tauri::command]
-pub(crate) async fn get_provider_invite_link(app: AppHandle, id: String) -> Result<String, String> {
-    ProviderService::new(&app).invite_link(id).await
+pub(crate) async fn get_provider_invite_link(
+    _app: AppHandle,
+    id: String,
+) -> Result<String, String> {
+    ProviderService::new().invite_link(id).await
 }
 
 #[tauri::command]
 pub(crate) async fn get_site_announcements(
-    app: AppHandle,
+    _app: AppHandle,
 ) -> Result<SiteAnnouncementsSnapshot, String> {
-    ProviderService::new(&app).site_announcements().await
+    ProviderService::new().site_announcements().await
 }
 
 #[tauri::command]
 pub(crate) async fn mark_site_announcement_read(
-    app: AppHandle,
+    _app: AppHandle,
     provider_id: String,
     announcement_id: String,
 ) -> Result<(), String> {
-    ProviderService::new(&app)
+    ProviderService::new()
         .mark_site_announcement_read(provider_id, announcement_id)
         .await
+}
+
+/// 批次进度走 Tauri IPC 通道；核心只认识 `ProgressSink`。
+struct ChannelProgress(Channel<ProviderBatchProgressEvent>);
+
+impl balancehub_core::contracts::ProgressSink for ChannelProgress {
+    fn send(&self, event: ProviderBatchProgressEvent) {
+        let _ = self.0.send(event);
+    }
 }
 
 #[tauri::command]
@@ -431,8 +437,8 @@ pub(crate) async fn refresh_all_providers_with_progress(
     app: AppHandle,
     on_event: Channel<ProviderBatchProgressEvent>,
 ) -> Result<ProviderBatchResultView, String> {
-    let (result, items) = ProviderService::new(&app)
-        .refresh_all_with_progress(on_event)
+    let (result, items) = ProviderService::new()
+        .refresh_all_with_progress(std::sync::Arc::new(ChannelProgress(on_event)))
         .await?;
     tray::refresh_from_state(&app);
     Ok(ProviderBatchResultView {
@@ -446,33 +452,27 @@ pub(crate) async fn refresh_providers(
     app: AppHandle,
     ids: Vec<String>,
 ) -> Result<RefreshResultView, String> {
-    let result = ProviderService::new(&app).refresh_by_ids(ids).await?;
+    let result = ProviderService::new().refresh_by_ids(ids).await?;
     tray::refresh_from_state(&app);
     Ok(result.into())
 }
 
 #[tauri::command]
 pub(crate) fn check_in_provider(
-    app: AppHandle,
+    _app: AppHandle,
     id: String,
 ) -> Result<crate::models::CheckInTask, String> {
-    crate::services::check_in_tasks::enqueue(
-        &app,
-        id,
-        crate::models::CheckInSource::Manual,
-        None,
-        0,
-    )
+    crate::services::check_in_tasks::enqueue(id, crate::models::CheckInSource::Manual, None, 0)
 }
 
 #[tauri::command]
-pub(crate) fn list_check_in_tasks(app: AppHandle) -> Vec<crate::models::CheckInTask> {
-    crate::services::check_in_tasks::list(&app)
+pub(crate) fn list_check_in_tasks(_app: AppHandle) -> Vec<crate::models::CheckInTask> {
+    crate::services::check_in_tasks::list()
 }
 
 #[tauri::command]
-pub(crate) fn cancel_check_in_task(app: AppHandle, run_id: String) -> Result<(), String> {
-    crate::services::check_in_tasks::cancel(&app, &run_id)
+pub(crate) fn cancel_check_in_task(_app: AppHandle, run_id: String) -> Result<(), String> {
+    crate::services::check_in_tasks::cancel(&run_id)
 }
 
 #[tauri::command]
@@ -482,15 +482,15 @@ pub(crate) async fn show_check_in_window(run_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) fn resume_check_in_task(
-    app: AppHandle,
+    _app: AppHandle,
     run_id: String,
 ) -> Result<crate::models::CheckInTask, String> {
-    crate::services::check_in_tasks::resume(&app, &run_id)
+    crate::services::check_in_tasks::resume(&run_id)
 }
 
 #[tauri::command]
 pub(crate) fn check_in_all_providers(
-    app: AppHandle,
+    _app: AppHandle,
 ) -> Result<crate::models::CheckInBatch, String> {
-    crate::services::check_in_tasks::enqueue_all(&app)
+    crate::services::check_in_tasks::enqueue_all()
 }

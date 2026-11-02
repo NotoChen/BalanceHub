@@ -207,7 +207,7 @@ impl Replica for AppReplica {
                     recovery: expected.clone(),
                 };
                 let warning = coordinated_apply(&root, journal, publish_catalog, || {
-                    storage::save_app_data(&self.app, &next)
+                    storage::save_app_data(&next)
                 })?;
                 *state
                     .data

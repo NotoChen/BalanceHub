@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./transport.ts";
 export interface ModelPrice {
   input: number | null;
   output: number | null;

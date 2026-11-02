@@ -1,7 +1,7 @@
 import type {
   AgentSessionMessageRequest,
   AgentSessionMessageContent,
-} from "../stores/session-reader-types";import { invoke } from "@tauri-apps/api/core";
+} from "../stores/session-reader-types";import { invoke } from "./transport.ts";
 import type {
   AgentSessionCancelRequest,
   AgentSessionCountRequest,

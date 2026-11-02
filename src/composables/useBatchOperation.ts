@@ -1,6 +1,6 @@
 import { onScopeDispose, ref, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
-import { Channel } from "@tauri-apps/api/core";
+import { Channel } from "../api/transport.ts";
 import {
   refreshAllProvidersWithProgress,
   type ProviderBatchOperation,

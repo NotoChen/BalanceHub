@@ -76,32 +76,33 @@ Agent 工作台相关条目描述当前仓库源码，操作步骤见 [Agent 工
 
 ## 架构说明
 
-BalanceHub 按“前端交互、Tauri command、Rust 服务、站点接口、本地存储”分层：
+BalanceHub 按“前端交互、宿主通道、核心服务、站点接口、本地存储”分层，同一个前端可以接两种宿主：
 
 ```text
 Vue 3 UI
   -> composables / Pinia store
-    -> Tauri invoke API
-      -> src-tauri/src/desktop.rs 注册 command
-        -> src-tauri/src/commands/ command 实现
-        -> services/provider_service 调度业务
-          -> adapters/protocol 运行时分发与描述注册表
-            -> adapters/new_api
-            -> adapters/sub2_api
-            -> adapters/api
-            -> adapters/oauth
-            -> adapters/cli_proxy_api
-          -> services/oauth_accounts 授权任务与文件互通
-          -> services/agent_cli 注册 Agent 能力 Adapter
-            -> catalog 汇总全局资产与共享定义分发
-            -> lifecycle 规划与执行 已有 CLI 升级
-            -> services/liveness 执行 CLI 测活
-            -> services/temporary_cli 启动临时 CLI
-          -> services/notifications 发送通知
-          -> storage.rs 读写本地配置
+    -> src/api/transport.ts（唯一宿主通道）
+       ├─ 桌面：Tauri invoke / listen
+       └── 浏览器：HTTP /rpc + WebSocket /events
+          -> 宿主实现（src-tauri 或 crates/server）
+            -> balancehub-core: services/provider_service 调度业务
+              -> adapters/protocol 运行时分发与描述注册表
+                -> adapters/new_api
+                -> adapters/sub2_api
+                -> adapters/api
+                -> adapters/oauth
+                -> adapters/cli_proxy_api
+              -> services/oauth_accounts 授权任务与文件互通
+              -> services/scheduler 自动刷新
+              -> services/check_in_tasks 签到任务
+              -> services/notifications 发送通知
+              -> storage 读写本地配置
+            -> 桌面专属（src-tauri/services）: agent_cli、cli_sessions、temporary_cli、cloud_sync、updater
 ```
 
-前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。凭据默认保存在本机；启用 WebDAV 后，同步范围内的凭据在本机加密后上传到用户指定的服务。业务请求由桌面后端执行，不依赖浏览器页面直接访问中转站。
+`balancehub-core` 不依赖 Tauri：数据目录、事件广播、系统通知和打开链接统一走 `host::Host`，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现。Agent 配置、终端和本地浏览器窗口只有桌面宿主提供；服务端返回的卡片动作会把 `temporaryCli`、`defaultCliConfig` 置为不可用，界面据此隐藏这些入口。
+
+前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。凭据默认保存在本机；启用 WebDAV 后，同步范围内的凭据在本机加密后上传到用户指定的服务。业务请求由后端执行，浏览器页面不直接访问中转站。
 
 ## 目录说明
 
@@ -138,6 +139,17 @@ Vue 3 UI
 │   ├── stores/                       # Pinia store、类型和默认值
 │   ├── styles/                       # 全局样式和业务模块样式
 │   └── utils/                        # 展示格式化、拖拽、测活、趋势等工具函数
+├── crates/
+│   ├── core/                         # balancehub-core：协议、模型、存储、调度（不依赖 Tauri）
+│   │   └── src/
+│   │       ├── api/                  # 传输无关的命令分发
+│   │       ├── host.rs               # 宿主接口（数据目录、事件、通知、打开链接）
+│   │       ├── adapters/             # 协议探测、运行时分发与各协议实现
+│   │       ├── models/               # Rust 数据模型
+│   │       ├── network/              # 跨平台系统代理解析和统一网络语义
+│   │       ├── services/             # 额度、签到、OAuth、调度、通知等服务
+│   │       └── storage/              # 本地配置读写、版本检查和恢复
+│   └── server/                       # balancehub-server：无界面后端（axum，/rpc + /events）
 └── src-tauri/                        # Tauri / Rust 后端
     ├── tauri.conf.json               # 开发配置、窗口、安全策略和插件配置
     ├── tauri.release.conf.json       # Release / updater 构建配置
@@ -146,24 +158,17 @@ Vue 3 UI
     └── src/
         ├── lib.rs                    # Rust 库入口
         ├── desktop.rs                # Tauri 应用编排、插件和 command 注册
-        ├── commands/                 # 应用、CLI 和中转站 command 实现
+        ├── desktop_host.rs           # 桌面宿主实现（数据目录、事件、通知、托盘）
+        ├── commands/                 # Agent、CLI 和桌面专属 command 实现
         ├── main.rs                   # 桌面进程入口
-        ├── state.rs                  # 全局运行状态
-        ├── storage.rs                # 本地配置读写、版本检查和恢复
+        ├── state.rs                  # 桌面运行状态（核心状态 + Agent 服务）
         ├── tray.rs                   # 系统托盘 / 菜单栏
-        ├── network/                  # 跨平台系统代理解析和统一网络语义
-        ├── platform/                 # 深链、后台进程等平台能力封装
-        ├── contracts.rs              # Rust 派生操作能力和 IPC View
-        ├── adapters/                 # 协议探测、运行时分发、描述注册表及各协议实现
-        ├── provider_protocol_catalog.rs # 协议枚举身份与描述模块目录
-        ├── terminal_catalog.rs       # 终端枚举身份与 fallback 名称目录
-        ├── models/                   # Rust 数据模型
-        └── services/                 # 业务服务、测活、通知和调度
+        └── services/                 # 桌面专属：Agent 配置、会话、临时 CLI、云同步、更新
 ```
 
 ## 关键边界
 
-- BalanceHub 只考虑桌面 App，不提供 Web 自部署版本。
+- BalanceHub 以桌面 App 为主，同时提供无界面的 `balancehub-server`；两种形态共用 `balancehub-core`，服务端不包含 Agent、终端和托盘能力。
 - 当前支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 作为 NewAPI 方言兼容，不在 UI 上作为独立类型展示。
 - 通用 API 只提供 API Key、模型识别和 CLI 相关能力，不虚构账号、签到或站点密钥管理能力。
 - 操作能力以 Rust 为唯一真源，前端只消费后端返回的 actions，不维护同源业务判断。

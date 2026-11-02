@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, watch, type Ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../api/transport.ts";
 import { useHostPlatform } from "./useHostPlatform";
 import type { AppSettings } from "../stores/providers";
 

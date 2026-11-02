@@ -1,0 +1,604 @@
+use crate::{
+    adapters::protocol::{contracts::ProviderOperationOutcome, ProtocolAdapter},
+    contracts::{ProgressSink, ProviderBatchProgressEvent, ProviderView},
+    models::{
+        provider_domain::{self, failure::ProviderFailureKind},
+        AppData, AppSettings, AuthMode, Provider, ProviderBatchDetails, ProviderBatchOperation,
+        ProviderBatchProgressItem, ProviderBatchStatus, ProviderProtocol, ProviderStatus,
+        RefreshResult,
+    },
+};
+use futures_util::{stream, StreamExt};
+use std::{collections::HashSet, sync::Arc, time::Duration};
+
+use super::{MutationDecision, ProviderRequestContext, ProviderService};
+
+struct RefreshedProvider {
+    provider: Provider,
+    request_context: ProviderRequestContext,
+}
+
+impl ProviderService {
+    pub async fn refresh_all_with_progress(
+        &self,
+        progress: Arc<dyn ProgressSink>,
+    ) -> Result<(RefreshResult, Vec<ProviderBatchProgressItem>), String> {
+        let state = crate::host::core_state();
+        let _gate = state.refresh_gate.lock().await;
+        self.refresh_all_inner(progress).await
+    }
+
+    pub async fn refresh_by_ids(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
+        let state = crate::host::core_state();
+        let _gate = state.refresh_gate.lock().await;
+        self.refresh_by_ids_inner(ids).await
+    }
+
+    /// 调度器专用：刷新闸门被手动刷新占用时返回 `None` 跳过本轮，避免重复打请求。
+    pub async fn try_refresh_by_ids(
+        &self,
+        ids: Vec<String>,
+    ) -> Option<Result<RefreshResult, String>> {
+        let state = crate::host::core_state();
+        let Ok(_gate) = state.refresh_gate.try_lock() else {
+            return None;
+        };
+        Some(self.refresh_by_ids_inner(ids).await)
+    }
+
+    async fn refresh_all_inner(
+        &self,
+        progress: Arc<dyn ProgressSink>,
+    ) -> Result<(RefreshResult, Vec<ProviderBatchProgressItem>), String> {
+        let data = self.snapshot_async().await?;
+        let mut progress_items = data
+            .providers
+            .iter()
+            .map(|provider| {
+                if provider.runtime.enabled {
+                    ProviderBatchProgressItem::pending(provider)
+                } else {
+                    ProviderBatchProgressItem::skipped(provider, "中转站已停用")
+                }
+            })
+            .collect::<Vec<_>>();
+        send_progress(
+            Some(&progress),
+            ProviderBatchProgressEvent::Started {
+                operation: ProviderBatchOperation::Refresh,
+                total: progress_items.len(),
+                items: progress_items.clone(),
+            },
+        );
+        let settings = Arc::new(data.settings);
+        let refreshed =
+            refresh_providers_concurrently(settings, data.providers, Some(Arc::clone(&progress)))
+                .await?;
+        for item in &refreshed {
+            if let Some(slot) = progress_items
+                .iter_mut()
+                .find(|slot| slot.provider_id == item.provider_id)
+            {
+                *slot = item.clone();
+            }
+        }
+        let refreshed_ids = refreshed
+            .iter()
+            .map(|item| item.provider_id.clone())
+            .collect::<Vec<_>>();
+        let updated_providers = self.providers_by_ids_async(&refreshed_ids).await?;
+        send_progress(
+            Some(&progress),
+            ProviderBatchProgressEvent::Completed {
+                operation: ProviderBatchOperation::Refresh,
+                summary: crate::models::ProviderBatchSummary::from_items(&progress_items),
+            },
+        );
+        Ok((RefreshResult { updated_providers }, progress_items))
+    }
+
+    async fn refresh_by_ids_inner(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
+        let data = self.snapshot_async().await?;
+        let settings = Arc::new(data.settings);
+        let id_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
+        let refreshed = refresh_providers_concurrently(
+            settings,
+            data.providers
+                .into_iter()
+                .filter(|provider| id_set.contains(provider.identity.id.as_str()))
+                .collect(),
+            None,
+        )
+        .await?;
+        let refreshed_ids = refreshed
+            .iter()
+            .map(|item| item.provider_id.clone())
+            .collect::<Vec<_>>();
+        Ok(RefreshResult {
+            updated_providers: self.providers_by_ids_async(&refreshed_ids).await?,
+        })
+    }
+
+    async fn refresh_one(
+        &self,
+        settings: &AppSettings,
+        mut provider: Provider,
+    ) -> Result<(ProviderBatchProgressItem, Option<Provider>), String> {
+        let mut request_context = ProviderRequestContext::capture(&provider);
+        let attempt = async {
+            let preparation_error = match self.prepare_operation_auth(settings, &provider).await {
+                Ok((prepared, result)) => {
+                    provider = prepared;
+                    request_context = ProviderRequestContext::capture(&provider);
+                    result.err()
+                }
+                // Do not attach an old account's failure to a concurrently
+                // edited configuration when authentication rejects its context.
+                Err(message) => Some(message),
+            };
+            if let Some(message) = preparation_error {
+                provider.runtime.status = ProviderStatus::Error;
+                provider.runtime.error_message = Some(message);
+                // 登录/换令牌被拒属于凭据问题，重试不会自愈。
+                return Some(ProviderFailureKind::Credential);
+            }
+            let outcome = ProtocolAdapter.refresh_provider(settings, &provider).await;
+            let failure = outcome.failure;
+            outcome.apply_to(&mut provider);
+            failure
+        };
+        // Individual HTTP requests already have deadlines. Also bound the
+        // complete authentication + refresh chain so one site cannot hang a batch.
+        let mut failure = match tokio::time::timeout(Duration::from_secs(120), attempt).await {
+            Ok(failure) => failure,
+            Err(_) => {
+                provider.runtime.status = ProviderStatus::Error;
+                provider.runtime.error_message = Some("刷新超时，请稍后重试".to_string());
+                Some(ProviderFailureKind::Transient)
+            }
+        };
+        if failure.is_none() && matches!(provider.runtime.status, ProviderStatus::Error) {
+            // 适配器没有结构化分类，但刷新确实失败了：按瞬时问题退避。
+            failure = Some(ProviderFailureKind::Transient);
+        }
+        provider_domain::failure::record_attempt(
+            &mut provider,
+            failure,
+            settings.refresh_retry_count as u32,
+            crate::util::unix_secs(),
+        );
+        let id = provider.identity.id.clone();
+        let removed_item = ProviderBatchProgressItem::skipped(&provider, "中转站已移除");
+        let applied = self
+            .mutate_decided_async(move |data| {
+                Ok(
+                    if apply_refreshed(
+                        data,
+                        vec![RefreshedProvider {
+                            provider,
+                            request_context,
+                        }],
+                    ) {
+                        MutationDecision::changed(true)
+                    } else {
+                        MutationDecision::unchanged(false)
+                    },
+                )
+            })
+            .await?;
+        // Read after committing: transactions normalize data and assign the IPC
+        // revision. Publishing the request snapshot would bypass both safeguards.
+        let current = self.providers_by_ids_async(&[id]).await?.into_iter().next();
+        let item = match current.as_ref() {
+            Some(provider) if applied => refresh_progress_item(provider),
+            Some(provider) => {
+                ProviderBatchProgressItem::skipped(provider, "配置已变更，本次刷新结果已跳过")
+            }
+            None => removed_item,
+        };
+        Ok((item, current))
+    }
+}
+
+/// 把刷新结果按 id 合并回最新状态。
+///
+/// 只合并 [`apply_refresh_owned_fields`] 列出的「刷新拥有」字段，而非整体替换结构体：
+/// 刷新是后台常态操作，网络往返期间用户可能正在编辑凭据/名称/自动化配置并保存，
+/// 整体替换会把这些并发编辑静默回滚。期间被删除的中转站不会重新插入，新增的不受影响。
+fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvider>) -> bool {
+    let mut changed = false;
+    for refreshed in refreshed {
+        let RefreshedProvider {
+            provider: next,
+            request_context,
+        } = refreshed;
+        if let Some(slot) = data
+            .providers
+            .iter_mut()
+            .find(|provider| provider.identity.id == next.identity.id)
+        {
+            changed |= apply_refresh_owned_fields(slot, next, &request_context);
+        }
+    }
+    changed
+}
+
+/// 刷新流程「拥有」的字段集合，须与具体协议适配器的刷新写入面保持一致：
+/// 配额全量、站点自报的展示信息（含站点名）、同步时间、运行状态与错误信息。
+/// 签到成功后的静默刷新（check_in.rs）复用同一份清单，避免两处合并语义漂移。
+pub(super) fn apply_refresh_owned_fields(
+    provider: &mut Provider,
+    refreshed: Provider,
+    request_context: &ProviderRequestContext,
+) -> bool {
+    // 身份、额度和凭据必须作为同一个原子结果写回。只校验 URL/协议会让同站点旧账号
+    // 的刷新结果覆盖新账号；完整请求上下文变化时，本次网络结果全部作废。
+    if !request_context.matches(provider) {
+        return false;
+    }
+    ProviderOperationOutcome::<()>::refreshed(provider, refreshed).apply_to(provider);
+    true
+}
+
+/// 最多 6 个中转站滚动刷新；获得名额后才发送开始事件，每个结果独立落盘并推送。
+/// 等所有任务收口后才返回批次结果，单站失败不会丢掉已完成数据或遗留脱管任务。
+async fn refresh_providers_concurrently(
+    settings: Arc<AppSettings>,
+    providers: Vec<Provider>,
+    progress: Option<Arc<dyn ProgressSink>>,
+) -> Result<Vec<ProviderBatchProgressItem>, String> {
+    const MAX_CONCURRENT_REFRESH: usize = 6;
+
+    let results = stream::iter(
+        providers
+            .into_iter()
+            .filter(|provider| provider.runtime.enabled),
+    )
+    .map(|provider| {
+        let settings = Arc::clone(&settings);
+        let progress = progress.clone();
+        async move {
+            let mut item = ProviderBatchProgressItem::new(
+                &provider,
+                ProviderBatchStatus::Running,
+                refresh_started_message(&provider),
+                None,
+            );
+            send_progress(
+                progress.as_ref(),
+                ProviderBatchProgressEvent::ProviderStarted {
+                    operation: ProviderBatchOperation::Refresh,
+                    item: item.clone(),
+                },
+            );
+            let result = ProviderService::new()
+                .refresh_one(&settings, provider)
+                .await;
+            let (item, provider, error) = match result {
+                Ok((item, provider)) => (item, provider, None),
+                Err(message) => {
+                    item.status = ProviderBatchStatus::Failed;
+                    item.message = message.clone();
+                    (item, None, Some(message))
+                }
+            };
+            send_progress(
+                progress.as_ref(),
+                ProviderBatchProgressEvent::ProviderFinished {
+                    operation: ProviderBatchOperation::Refresh,
+                    item: item.clone(),
+                    provider: provider.map(|provider| Box::new(ProviderView::from(provider))),
+                },
+            );
+            error.map_or(Ok(item), Err)
+        }
+    })
+    .buffer_unordered(MAX_CONCURRENT_REFRESH)
+    .collect::<Vec<_>>()
+    .await;
+    results.into_iter().collect()
+}
+
+fn refresh_progress_item(provider: &Provider) -> ProviderBatchProgressItem {
+    let status = if matches!(provider.runtime.status, ProviderStatus::Error) {
+        ProviderBatchStatus::Failed
+    } else {
+        ProviderBatchStatus::Success
+    };
+    let message = provider.runtime.error_message.clone().unwrap_or_else(|| {
+        if matches!(status, ProviderBatchStatus::Success) {
+            refresh_finished_message(provider)
+        } else {
+            "刷新失败".to_string()
+        }
+    });
+    ProviderBatchProgressItem::new(
+        provider,
+        status,
+        message,
+        Some(ProviderBatchDetails::from_provider(provider, None)),
+    )
+}
+
+fn is_model_refresh_provider(provider: &Provider) -> bool {
+    matches!(provider.identity.protocol, ProviderProtocol::Api)
+        || matches!(provider.auth.mode, AuthMode::ApiKey)
+}
+
+fn refresh_started_message(provider: &Provider) -> String {
+    if is_model_refresh_provider(provider) {
+        "正在获取最新模型列表".to_string()
+    } else {
+        "正在刷新额度和账号能力".to_string()
+    }
+}
+
+fn refresh_finished_message(provider: &Provider) -> String {
+    if is_model_refresh_provider(provider) {
+        format!(
+            "模型列表已更新（{} 个）",
+            provider.capabilities.available_models.len()
+        )
+    } else {
+        "刷新完成".to_string()
+    }
+}
+
+fn send_progress(progress: Option<&Arc<dyn ProgressSink>>, event: ProviderBatchProgressEvent) {
+    if let Some(progress) = progress {
+        progress.send(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ProviderInput, ProviderProtocol, ProviderStatus};
+
+    fn provider(id: &str) -> Provider {
+        Provider::from_input(ProviderInput::default(), id.to_string())
+    }
+
+    fn refreshed_provider(provider: &Provider) -> RefreshedProvider {
+        RefreshedProvider {
+            provider: provider.clone(),
+            request_context: ProviderRequestContext::capture(provider),
+        }
+    }
+
+    #[test]
+    fn apply_refreshed_merges_only_refresh_owned_fields() {
+        let stored = provider("p1");
+        let request_context = ProviderRequestContext::capture(&stored);
+        let mut stored = stored;
+        stored.identity.name = "用户改名".to_string();
+        stored.automation.check_in_time = "09:30".to_string();
+
+        // 刷新结果基于旧快照：站点报了新名字和新配额，但 api_key/签到时间是旧值。
+        let mut refreshed = provider("p1");
+        refreshed.identity.name = "站点自报名".to_string();
+        refreshed.automation.check_in_time = String::new();
+        refreshed.quota.available = 42.0;
+        refreshed.runtime.status = ProviderStatus::Ok;
+        refreshed.automation.last_synced_at = Some("1700000000".to_string());
+
+        let mut data = AppData::default();
+        data.providers.push(stored);
+        assert!(apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context,
+            }],
+        ));
+
+        let merged = &data.providers[0];
+        // 刷新拥有的字段：跟随刷新结果。
+        assert_eq!(merged.identity.name, "站点自报名");
+        assert_eq!(merged.quota.available, 42.0);
+        assert_eq!(
+            merged.automation.last_synced_at,
+            Some("1700000000".to_string())
+        );
+        // 用户拥有的字段：并发编辑不被覆盖。
+        assert_eq!(merged.automation.check_in_time, "09:30");
+    }
+
+    #[test]
+    fn apply_refreshed_skips_providers_removed_meanwhile() {
+        let mut data = AppData::default();
+        data.providers.push(provider("kept"));
+
+        let removed = provider("removed");
+        assert!(!apply_refreshed(
+            &mut data,
+            vec![refreshed_provider(&removed)]
+        ));
+
+        assert_eq!(data.providers.len(), 1);
+        assert_eq!(data.providers[0].identity.id, "kept");
+    }
+
+    #[test]
+    fn refresh_backfills_empty_login_username() {
+        let stored = provider("p1");
+        let mut refreshed = stored.clone();
+        refreshed.auth.login_username = "alice".to_string();
+
+        let mut data = AppData::default();
+        data.providers.push(stored);
+        let request_context = ProviderRequestContext::capture(&data.providers[0]);
+        assert!(apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context,
+            }],
+        ));
+
+        assert_eq!(data.providers[0].auth.login_username, "alice");
+    }
+
+    #[test]
+    fn refresh_does_not_overwrite_concurrent_login_username_edit() {
+        let snapshot_provider = provider("p1");
+        let mut current_provider = snapshot_provider.clone();
+        current_provider.auth.login_username = "manual-account".to_string();
+        let mut refreshed = snapshot_provider.clone();
+        refreshed.auth.login_username = "alice".to_string();
+
+        let mut data = AppData::default();
+        data.providers.push(current_provider);
+        assert!(!apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context: ProviderRequestContext::capture(&snapshot_provider),
+            }],
+        ));
+
+        assert_eq!(data.providers[0].auth.login_username, "manual-account");
+    }
+
+    #[test]
+    fn sub2api_refresh_persists_refreshed_access_token() {
+        let mut stored = provider("p1");
+        stored.identity.protocol = ProviderProtocol::Sub2Api;
+        stored.auth.mode = AuthMode::Password;
+        stored.auth.login_username = "user@example.com".to_string();
+        stored.auth.login_password = "password".to_string();
+        stored.auth.access_token = "old-token".to_string();
+
+        let mut refreshed = stored.clone();
+        refreshed.auth.access_token = "new-token".to_string();
+
+        let snapshot = ProviderRequestContext::capture(&stored);
+        let mut data = AppData::default();
+        data.providers.push(stored);
+        assert!(apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context: snapshot,
+            }],
+        ));
+
+        assert_eq!(data.providers[0].auth.access_token, "new-token");
+    }
+
+    #[test]
+    fn sub2api_refresh_clears_broken_refresh_chain() {
+        let mut stored = provider("p1");
+        stored.identity.protocol = ProviderProtocol::Sub2Api;
+        stored.auth.mode = AuthMode::AccessToken;
+        stored.auth.access_token = "expired-access-token".to_string();
+        stored.auth.refresh_token = "revoked-refresh-token".to_string();
+        stored.auth.access_token_expires_at = Some(100);
+
+        let request_context = ProviderRequestContext::capture(&stored);
+        let mut refreshed = stored.clone();
+        refreshed.auth.access_token.clear();
+        refreshed.auth.refresh_token.clear();
+        refreshed.auth.access_token_expires_at = None;
+        refreshed.runtime.status = ProviderStatus::Error;
+
+        let mut data = AppData::default();
+        data.providers.push(stored);
+        assert!(apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context,
+            }],
+        ));
+
+        assert!(data.providers[0].auth.access_token.is_empty());
+        assert!(data.providers[0].auth.refresh_token.is_empty());
+        assert_eq!(data.providers[0].auth.access_token_expires_at, None);
+    }
+
+    #[test]
+    fn refresh_ignores_result_when_protocol_changed() {
+        let mut current = provider("p1");
+        current.identity.protocol = ProviderProtocol::Sub2Api;
+        current.quota.available = 99.0;
+
+        let mut old = current.clone();
+        old.identity.protocol = ProviderProtocol::NewApi;
+        old.quota.available = 1.0;
+        let snapshot = ProviderRequestContext::capture(&old);
+
+        let mut data = AppData::default();
+        data.providers.push(current);
+        assert!(!apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: old,
+                request_context: snapshot,
+            }],
+        ));
+
+        assert_eq!(data.providers[0].quota.available, 99.0);
+    }
+
+    #[test]
+    fn refresh_ignores_identity_and_quota_when_auth_changed() {
+        let old = provider("p1");
+        let request_context = ProviderRequestContext::capture(&old);
+        let mut current = old.clone();
+        current.auth.api_key = "sk-new-account".to_string();
+        current.identity.username = "new-user".to_string();
+        current.quota.available = 99.0;
+
+        let mut refreshed = old;
+        refreshed.identity.username = "old-user".to_string();
+        refreshed.quota.available = 1.0;
+
+        let mut data = AppData::default();
+        data.providers.push(current);
+        assert!(!apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context,
+            }],
+        ));
+
+        assert_eq!(data.providers[0].identity.username, "new-user");
+        assert_eq!(data.providers[0].quota.available, 99.0);
+    }
+
+    #[test]
+    fn refresh_ignores_result_when_refresh_token_changed() {
+        let mut old = provider("p1");
+        old.identity.protocol = ProviderProtocol::Sub2Api;
+        old.auth.mode = AuthMode::AccessToken;
+        old.auth.access_token = "access-token".to_string();
+        old.auth.refresh_token = "old-refresh".to_string();
+        old.auth.access_token_expires_at = Some(100);
+        let request_context = ProviderRequestContext::capture(&old);
+
+        let mut current = old.clone();
+        current.auth.refresh_token = "new-refresh".to_string();
+        current.auth.access_token_expires_at = Some(200);
+        current.quota.available = 99.0;
+
+        let mut refreshed = old;
+        refreshed.quota.available = 1.0;
+        refreshed.auth.refresh_token = "rotated-old-refresh".to_string();
+
+        let mut data = AppData::default();
+        data.providers.push(current);
+        assert!(!apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context,
+            }],
+        ));
+
+        assert_eq!(data.providers[0].auth.refresh_token, "new-refresh");
+        assert_eq!(data.providers[0].auth.access_token_expires_at, Some(200));
+        assert_eq!(data.providers[0].quota.available, 99.0);
+    }
+}

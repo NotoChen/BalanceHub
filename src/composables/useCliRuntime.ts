@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../api/transport.ts";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import { useAgentConfigurationEditor } from "./useAgentConfigurationEditor";
 import type { AgentConfigurationEdit } from "../stores/agent-configuration-types";

@@ -1,0 +1,788 @@
+use serde::Serialize;
+use std::sync::OnceLock;
+
+use crate::{
+    adapters::protocol,
+    models::{
+        provider_domain, AppData, AppDataTransferResult, AppSettings, AuthMode, Provider,
+        ProviderBatchOperation, ProviderBatchProgressItem, ProviderBatchSummary,
+        ProviderCapabilityProbeResult, ProviderModelSyncResult, ProviderProtocol,
+        ProviderSaveResult, RefreshResult, TemporaryCliPreference, Workspace,
+    },
+};
+
+/// Tauri IPC only view of a provider. The persisted `Provider` remains free of
+/// presentation-only derived state; actions are recalculated whenever Rust
+/// returns a provider to the webview.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderView {
+    #[serde(flatten)]
+    pub provider: Provider,
+    pub revision: u64,
+    pub display_label: String,
+    pub protocol_label: &'static str,
+    pub protocol_description: &'static str,
+    pub auth_mode_label: &'static str,
+    pub auth_mode_description: &'static str,
+    /// 主地址失败、请求正在走备用地址时才有值。这是运行读数而不是用户配置，
+    /// 只活在进程内，卡片据此说明当前实际使用的是哪个地址。
+    pub active_endpoint: Option<ProviderActiveEndpointView>,
+    /// 站点返回的模型列表经过卡片展示规则（include / exclude / hidden）过滤后
+    /// 的结果；原始列表仍由 `capabilities.available_models` 保存。
+    pub visible_models: Vec<String>,
+    pub actions: ProviderActions,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderActiveEndpointView {
+    /// 备用地址原文，保留用户填写的写法。
+    pub backup_url: String,
+    /// 备用地址在列表中的位置，从 1 开始。
+    pub backup_index: usize,
+    pub switched_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderActions {
+    pub temporary_cli: bool,
+    /// Whether the card's own credential can be written as an agent's native
+    /// authorization: the stored login for an OAuth card, a complete key for a
+    /// relay card.
+    pub default_cli_config: bool,
+    pub oauth_account: bool,
+    pub cpa_gateway: bool,
+    pub app_imports: Vec<crate::models::ProviderAppImportOption>,
+    pub account_management: bool,
+    pub check_in: bool,
+    pub checked_in_today: bool,
+    pub api_key_management: bool,
+    pub invitation: bool,
+    pub refresh_models_only: bool,
+    pub models: provider_domain::model_list::ProviderModelListAction,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthAccountDetails {
+    pub provider: ProviderView,
+    pub refreshable: bool,
+    pub renewal_enabled_here: bool,
+    pub renewal_elsewhere: bool,
+    pub export_options: Vec<crate::models::OAuthExportOption>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthExportResult {
+    pub provider: ProviderView,
+    pub file_name: String,
+    pub instructions: String,
+    pub renewal_paused: bool,
+    pub warning: Option<String>,
+}
+
+impl From<Provider> for ProviderView {
+    fn from(mut provider: Provider) -> Self {
+        if let Some(error) = provider.capabilities.available_models_state.error.as_ref() {
+            if provider.runtime.error_message.is_none() {
+                provider.runtime.error_message = Some(format!("模型列表获取失败: {error}"));
+                if !matches!(
+                    provider.runtime.status,
+                    crate::models::ProviderStatus::Error
+                ) {
+                    provider.runtime.status = crate::models::ProviderStatus::Warning;
+                }
+            }
+        }
+        let revision = provider.revision;
+        let display_label = provider.display_label();
+        let visible_models = provider
+            .model_config
+            .visible(&provider.capabilities.available_models);
+        let protocol_definition = protocol::definition(provider.identity.protocol);
+        let auth_schema = protocol_definition
+            .auth_schemas
+            .iter()
+            .find(|schema| schema.mode == provider.auth.mode);
+        let oauth_credential_ready =
+            provider.auth.oauth.as_ref().is_some_and(|oauth| {
+                !provider.auth.access_token.is_empty() && !oauth.refresh_pending
+            });
+        let actions = ProviderActions {
+            // An OAuth card hands its own vendor token to that vendor's CLI; a
+            // relay card needs a complete API key. Either way the launch itself
+            // decides whether the stored credential is usable.
+            // 本机 Agent 能力只属于桌面宿主；服务端返回 false，界面据此隐藏相关入口。
+            temporary_cli: !crate::host::is_headless()
+                && match provider.identity.protocol {
+                    ProviderProtocol::OAuth => oauth_credential_ready,
+                    _ => crate::models::provider_domain::auth::has_api_key(&provider),
+                },
+            default_cli_config: !crate::host::is_headless()
+                && match provider.identity.protocol {
+                    ProviderProtocol::OAuth => oauth_credential_ready,
+                    _ => {
+                        crate::models::provider_domain::auth::has_api_key(&provider)
+                            || provider.auth.api_key_options.iter().any(|option| {
+                                option.key_available
+                                    && crate::models::is_full_api_key_value(&option.key)
+                            })
+                    }
+                },
+            oauth_account: provider.identity.protocol == ProviderProtocol::OAuth,
+            cpa_gateway: provider.identity.protocol == ProviderProtocol::CliProxyApi,
+            app_imports: app_imports(&provider),
+            account_management: provider_domain::capabilities::supports_account_management(
+                &provider,
+            ),
+            check_in: provider_domain::capabilities::supports_check_in(&provider),
+            checked_in_today: provider_domain::capabilities::checked_in_today(&provider),
+            api_key_management: provider_domain::capabilities::supports_api_key_management(
+                &provider,
+            ),
+            invitation: provider_domain::capabilities::supports_invitation(&provider),
+            refresh_models_only: provider.identity.protocol == ProviderProtocol::Api,
+            models: provider_domain::model_list::action(&provider),
+        };
+        if provider.identity.protocol == ProviderProtocol::OAuth {
+            // Account credentials only leave Rust through the explicit export path.
+            provider.auth.access_token.clear();
+            provider.auth.refresh_token.clear();
+            if let Some(oauth) = &mut provider.auth.oauth {
+                oauth.id_token.clear();
+                oauth.client_secret.clear();
+                oauth.refresh_owner = None;
+            }
+        }
+        let active_endpoint = crate::adapters::transport::active_backup(&provider).map(|active| {
+            ProviderActiveEndpointView {
+                backup_url: active.backup_url,
+                backup_index: active.backup_index,
+                switched_at: active.switched_at,
+            }
+        });
+        Self {
+            provider,
+            revision,
+            display_label,
+            protocol_label: protocol_definition.label,
+            protocol_description: protocol_definition.description,
+            auth_mode_label: auth_schema.map_or("认证凭据", |schema| schema.label),
+            auth_mode_description: auth_schema.map_or("", |schema| schema.description),
+            active_endpoint,
+            visible_models,
+            actions,
+        }
+    }
+}
+
+/// 导出到其他客户端的深层链接由桌面模块提供；服务端没有这些目标，
+/// 未安装投影器时列表为空。
+type AppImportProjector = fn(&Provider) -> Vec<crate::models::ProviderAppImportOption>;
+
+static APP_IMPORT_PROJECTOR: OnceLock<AppImportProjector> = OnceLock::new();
+
+pub fn install_app_import_projector(projector: AppImportProjector) {
+    let _ = APP_IMPORT_PROJECTOR.set(projector);
+}
+
+fn app_imports(provider: &Provider) -> Vec<crate::models::ProviderAppImportOption> {
+    APP_IMPORT_PROJECTOR
+        .get()
+        .map(|projector| projector(provider))
+        .unwrap_or_default()
+}
+
+/// 批次进度接收方。桌面宿主用 Tauri IPC 通道实现，服务端可以换成
+/// WebSocket/SSE；核心只负责产生事件。
+pub trait ProgressSink: Send + Sync {
+    fn send(&self, event: ProviderBatchProgressEvent);
+}
+
+pub fn provider_views(providers: Vec<Provider>) -> Vec<ProviderView> {
+    providers.into_iter().map(ProviderView::from).collect()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAuthModeDescriptorView {
+    pub mode: AuthMode,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub note: &'static str,
+    pub required_fields: Vec<&'static str>,
+    pub required_any_fields: Vec<&'static str>,
+    pub optional_fields: Vec<&'static str>,
+    pub fields: Vec<ProviderAuthFieldDescriptorView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAuthFieldDescriptorView {
+    pub field: &'static str,
+    pub label: &'static str,
+    pub placeholder: &'static str,
+    pub secret: bool,
+    pub wide: bool,
+    pub readonly: bool,
+    pub show_when_empty: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProtocolCapabilitiesView {
+    pub access_token: bool,
+    pub api_key_management: bool,
+    pub usage: bool,
+    pub account: bool,
+    pub check_in: bool,
+    pub announcements: bool,
+    pub max_backup_urls: usize,
+    pub request_headers: bool,
+    pub api_key_scheme: bool,
+    pub quota_spec: bool,
+    pub max_quota_windows: usize,
+    pub models_url: bool,
+    /// 按接口改写的数量上限；0 表示该协议没有请求目录。
+    pub max_endpoint_overrides: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderEndpointHeaderView {
+    pub name: &'static str,
+    pub value: &'static str,
+}
+
+/// 协议会对站点发出的一个请求。编辑器把它作为可见的默认行为列出来，并允许
+/// 按接口改写路径、查询参数和请求头。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderEndpointView {
+    pub id: &'static str,
+    pub group: &'static str,
+    pub group_label: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    /// `None` 表示不是 HTTP 请求，而是可直接复制的外部链接模板。
+    pub method: Option<&'static str>,
+    pub path: &'static str,
+    pub query: &'static str,
+    pub alt_paths: Vec<&'static str>,
+    pub placeholders: Vec<&'static str>,
+    pub headers: Vec<ProviderEndpointHeaderView>,
+    pub auth: &'static str,
+    pub auth_label: &'static str,
+    pub json_body: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProtocolOperationMethodsView {
+    pub check_in: Option<&'static str>,
+    pub api_keys: Option<&'static str>,
+    pub invitation: Option<&'static str>,
+    pub models: &'static str,
+    pub announcements: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCredentialAssistantDescriptorView {
+    pub enabled: bool,
+    pub access_token_flow: &'static str,
+    pub access_token_skip_fields: Vec<&'static str>,
+    pub api_key_required_fields: Vec<&'static str>,
+    pub api_key_required_any_fields: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProtocolDescriptorView {
+    pub form_creation: bool,
+    pub kind: ProviderProtocol,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub default_auth_mode: AuthMode,
+    pub browser_login_supported: bool,
+    pub auth_modes: Vec<ProviderAuthModeDescriptorView>,
+    pub capabilities: ProviderProtocolCapabilitiesView,
+    pub operation_methods: ProviderProtocolOperationMethodsView,
+    /// 该协议会发出的请求默认值，按目录顺序排列。
+    pub endpoints: Vec<ProviderEndpointView>,
+    pub credential_assistant: ProviderCredentialAssistantDescriptorView,
+}
+
+pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
+    protocol::definitions()
+        .iter()
+        .map(|definition| {
+            let capabilities = definition.capabilities();
+            ProviderProtocolDescriptorView {
+                form_creation: definition.kind != ProviderProtocol::OAuth,
+                kind: definition.kind,
+                label: definition.label,
+                description: definition.description,
+                default_auth_mode: definition.default_auth_mode,
+                browser_login_supported:
+                    crate::models::provider_domain::auth::browser_login_supported(definition.kind),
+                auth_modes: definition.auth_schemas.iter().map(auth_mode_view).collect(),
+                capabilities: ProviderProtocolCapabilitiesView {
+                    access_token: capabilities.access_token,
+                    api_key_management: capabilities.api_key_management,
+                    usage: capabilities.usage,
+                    account: capabilities.account,
+                    check_in: capabilities.check_in,
+                    announcements: capabilities.announcements,
+                    max_backup_urls: capabilities.max_backup_urls,
+                    request_headers: capabilities.request_headers,
+                    api_key_scheme: capabilities.api_key_scheme,
+                    quota_spec: capabilities.quota_spec,
+                    max_quota_windows: capabilities.max_quota_windows,
+                    models_url: capabilities.models_url,
+                    max_endpoint_overrides: capabilities.max_endpoint_overrides,
+                },
+                operation_methods: ProviderProtocolOperationMethodsView {
+                    check_in: definition.operation_methods.check_in,
+                    api_keys: definition.operation_methods.api_keys,
+                    invitation: definition.operation_methods.invitation,
+                    models: definition.operation_methods.models,
+                    announcements: definition.operation_methods.announcements,
+                },
+                endpoints: crate::models::provider_domain::endpoints::catalog(definition.kind)
+                    .iter()
+                    .map(|endpoint| ProviderEndpointView {
+                        id: endpoint.id,
+                        group: endpoint.group.key(),
+                        group_label: endpoint.group.label(),
+                        label: endpoint.label,
+                        description: endpoint.description,
+                        method: endpoint.method,
+                        path: endpoint.path,
+                        query: endpoint.default_query,
+                        alt_paths: endpoint.alt_paths.to_vec(),
+                        placeholders: endpoint.placeholders.to_vec(),
+                        headers: endpoint
+                            .headers
+                            .iter()
+                            .map(|(name, value)| ProviderEndpointHeaderView { name, value })
+                            .collect(),
+                        auth: endpoint.auth.key(),
+                        auth_label: endpoint.auth.label(),
+                        json_body: endpoint.json_body,
+                    })
+                    .collect(),
+                credential_assistant: ProviderCredentialAssistantDescriptorView {
+                    enabled: definition.credential_assistant.enabled,
+                    access_token_flow: definition.credential_assistant.access_token_flow.key(),
+                    access_token_skip_fields: definition
+                        .credential_assistant
+                        .access_token_skip_fields
+                        .to_vec(),
+                    api_key_required_fields: definition
+                        .credential_assistant
+                        .api_key_required_fields
+                        .to_vec(),
+                    api_key_required_any_fields: definition
+                        .credential_assistant
+                        .api_key_required_any_fields
+                        .to_vec(),
+                },
+            }
+        })
+        .collect()
+}
+
+fn auth_mode_view(schema: &protocol::ProviderProtocolAuthSchema) -> ProviderAuthModeDescriptorView {
+    ProviderAuthModeDescriptorView {
+        mode: schema.mode,
+        label: schema.label,
+        description: schema.description,
+        note: schema.note,
+        required_fields: schema.required_fields.to_vec(),
+        required_any_fields: schema.required_any_fields.to_vec(),
+        optional_fields: schema.optional_fields.to_vec(),
+        fields: schema
+            .fields
+            .iter()
+            .map(|field| ProviderAuthFieldDescriptorView {
+                field: field.field,
+                label: field.label,
+                placeholder: field.placeholder,
+                secret: field.secret,
+                wide: field.wide,
+                readonly: field.readonly,
+                show_when_empty: field.show_when_empty,
+            })
+            .collect(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSaveResultView {
+    pub saved: bool,
+    pub provider: Option<ProviderView>,
+    pub conflict: Option<crate::models::ProviderSaveConflict>,
+}
+
+impl From<ProviderSaveResult> for ProviderSaveResultView {
+    fn from(result: ProviderSaveResult) -> Self {
+        Self {
+            saved: result.saved,
+            provider: result.provider.map(ProviderView::from),
+            conflict: result.conflict,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppDataView {
+    pub revision: u64,
+    pub schema_version: u32,
+    pub providers: Vec<ProviderView>,
+    pub provider_protocols: Vec<ProviderProtocolDescriptorView>,
+    pub settings: AppSettings,
+    pub workspaces: Vec<Workspace>,
+    pub temporary_cli_preferences: Vec<TemporaryCliPreference>,
+    pub login_accounts: Vec<crate::models::LoginAccount>,
+}
+
+impl From<AppData> for AppDataView {
+    fn from(data: AppData) -> Self {
+        Self {
+            revision: data.revision,
+            schema_version: data.schema_version,
+            providers: provider_views(data.providers),
+            provider_protocols: provider_protocol_views(),
+            settings: data.settings,
+            workspaces: data.workspaces,
+            temporary_cli_preferences: data.temporary_cli_preferences,
+            login_accounts: data.login_accounts,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppDataImportResultView {
+    pub data: AppDataView,
+    pub transfer: AppDataTransferResult,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshResultView {
+    pub updated_providers: Vec<ProviderView>,
+}
+
+impl From<RefreshResult> for RefreshResultView {
+    fn from(result: RefreshResult) -> Self {
+        Self {
+            updated_providers: provider_views(result.updated_providers),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderBatchResultView {
+    pub updated_providers: Vec<ProviderView>,
+    pub items: Vec<ProviderBatchProgressItem>,
+}
+
+/// Progress carries the committed IPC view so cards can accept each provider's
+/// revision immediately, independently of the remaining batch.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "event", content = "data")]
+pub enum ProviderBatchProgressEvent {
+    #[serde(rename = "started")]
+    Started {
+        operation: ProviderBatchOperation,
+        total: usize,
+        items: Vec<ProviderBatchProgressItem>,
+    },
+    #[serde(rename = "providerStarted")]
+    ProviderStarted {
+        operation: ProviderBatchOperation,
+        item: ProviderBatchProgressItem,
+    },
+    #[serde(rename = "providerFinished")]
+    ProviderFinished {
+        operation: ProviderBatchOperation,
+        item: ProviderBatchProgressItem,
+        provider: Option<Box<ProviderView>>,
+    },
+    #[serde(rename = "completed")]
+    Completed {
+        operation: ProviderBatchOperation,
+        summary: ProviderBatchSummary,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilityProbeResultView {
+    pub provider: ProviderView,
+    pub message: String,
+}
+
+impl From<ProviderCapabilityProbeResult> for ProviderCapabilityProbeResultView {
+    fn from(result: ProviderCapabilityProbeResult) -> Self {
+        Self {
+            provider: ProviderView::from(result.provider),
+            message: result.message,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelSyncResultView {
+    pub provider: ProviderView,
+    pub models: Vec<String>,
+    pub message: String,
+}
+
+impl From<ProviderModelSyncResult> for ProviderModelSyncResultView {
+    fn from(result: ProviderModelSyncResult) -> Self {
+        Self {
+            provider: ProviderView::from(result.provider),
+            models: result.models,
+            message: result.message,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{AuthMode, ProviderInput, ProviderProtocol};
+
+    #[test]
+    fn batch_progress_events_use_frontend_names_and_revisioned_provider_views() {
+        let mut provider = Provider::from_input(ProviderInput::default(), "provider-1".to_string());
+        provider.revision = 9;
+        provider.quota.available = 42.0;
+        let pending = ProviderBatchProgressItem::pending(&provider);
+        let started = serde_json::to_value(ProviderBatchProgressEvent::Started {
+            operation: ProviderBatchOperation::Refresh,
+            total: 1,
+            items: vec![pending.clone()],
+        })
+        .unwrap();
+        assert_eq!(started["event"], "started");
+        assert_eq!(started["data"]["operation"], "refresh");
+        assert_eq!(started["data"]["items"][0]["status"], "pending");
+        assert_eq!(started["data"]["items"][0]["providerId"], "provider-1");
+
+        let view = ProviderView::from(provider);
+        let finished = serde_json::to_value(ProviderBatchProgressEvent::ProviderFinished {
+            operation: ProviderBatchOperation::Refresh,
+            item: pending.clone(),
+            provider: Some(Box::new(view.clone())),
+        })
+        .unwrap();
+        assert_eq!(finished["event"], "providerFinished");
+        assert_eq!(finished["data"]["provider"]["identity"]["id"], "provider-1");
+        assert_eq!(finished["data"]["provider"]["revision"], 9);
+        assert_eq!(finished["data"]["provider"]["quota"]["available"], 42.0);
+        assert!(finished["data"]["provider"]["actions"].is_object());
+
+        let result = serde_json::to_value(ProviderBatchResultView {
+            updated_providers: vec![view],
+            items: vec![pending],
+        })
+        .unwrap();
+        assert_eq!(result["updatedProviders"][0]["revision"], 9);
+        assert_eq!(result["items"][0]["providerId"], "provider-1");
+    }
+
+    #[test]
+    fn api_protocol_reports_the_quota_window_limit_to_the_editor() {
+        let views = provider_protocol_views();
+        let api = views
+            .iter()
+            .find(|view| view.kind == ProviderProtocol::Api)
+            .expect("通用 API Key 协议应出现在协议目录里");
+        assert!(api.capabilities.quota_spec);
+        assert_eq!(
+            api.capabilities.max_quota_windows,
+            crate::limits::MAX_QUOTA_WINDOWS,
+        );
+
+        for view in views
+            .iter()
+            .filter(|view| view.kind != ProviderProtocol::Api)
+        {
+            assert!(!view.capabilities.quota_spec);
+            assert_eq!(view.capabilities.max_quota_windows, 0);
+        }
+    }
+
+    #[test]
+    fn provider_view_adds_rust_owned_actions_without_changing_persisted_model() {
+        let mut input = ProviderInput::default();
+        input.identity.protocol = ProviderProtocol::Api;
+        input.identity.name = "Relay Site".to_string();
+        input.auth.mode = AuthMode::ApiKey;
+        input.auth.api_key = "sk-test".to_string();
+        let view = ProviderView::from(Provider::from_input(input, "provider-1".to_string()));
+
+        assert!(!view.actions.account_management);
+        assert!(!view.actions.check_in);
+        assert!(!view.actions.api_key_management);
+        assert!(!view.actions.invitation);
+        assert!(view.actions.refresh_models_only);
+        assert_eq!(view.protocol_label, "通用 API Key");
+        assert_eq!(view.auth_mode_label, "API Key");
+        assert_eq!(view.display_label, "Relay Site");
+
+        let value = serde_json::to_value(view).expect("provider view should serialize");
+        assert_eq!(value["identity"]["id"], "provider-1");
+        assert_eq!(value["displayLabel"], "Relay Site");
+        assert_eq!(value["actions"]["checkIn"], false);
+
+        let provider = serde_json::from_value::<Provider>(value)
+            .expect("Provider should ignore IPC-only actions on commands sent back to Rust");
+        assert_eq!(provider.identity.id, "provider-1");
+    }
+
+    #[test]
+    fn provider_view_uses_one_display_label_rule_for_account_and_api_key_cards() {
+        let mut account_input = ProviderInput::default();
+        account_input.identity.name = "Relay Site".to_string();
+        account_input.identity.remark = "Claude 主用".to_string();
+        let account = ProviderView::from(Provider::from_input(
+            account_input,
+            "provider-account".to_string(),
+        ));
+        assert_eq!(account.display_label, "Relay Site · Claude 主用");
+
+        let mut api_key_input = ProviderInput::default();
+        api_key_input.identity.name = "Relay Site".to_string();
+        api_key_input.identity.remark = "Codex 备用".to_string();
+        api_key_input.identity.protocol = ProviderProtocol::Api;
+        api_key_input.auth.mode = AuthMode::ApiKey;
+        let api_key = ProviderView::from(Provider::from_input(
+            api_key_input,
+            "provider-api-key".to_string(),
+        ));
+        assert_eq!(api_key.display_label, "Codex 备用");
+    }
+
+    #[test]
+    fn protocol_views_expose_auth_fields_and_assistant_rules_from_rust() {
+        let views = provider_protocol_views();
+        let new_api = views
+            .iter()
+            .find(|view| view.kind == ProviderProtocol::NewApi)
+            .expect("NewAPI descriptor");
+        let access_token = new_api
+            .auth_modes
+            .iter()
+            .find(|mode| mode.mode == AuthMode::AccessToken)
+            .expect("NewAPI access token schema");
+
+        assert_eq!(access_token.required_fields, ["accessToken", "apiUser"]);
+        assert!(access_token.required_any_fields.is_empty());
+        assert!(access_token.note.is_empty());
+        assert_eq!(
+            access_token
+                .fields
+                .iter()
+                .map(|field| field.field)
+                .collect::<Vec<_>>(),
+            ["accessToken", "apiUser"]
+        );
+        assert_eq!(
+            new_api.credential_assistant.access_token_flow,
+            "sessionGeneration"
+        );
+        assert_eq!(
+            new_api.credential_assistant.api_key_required_fields,
+            ["apiUser"]
+        );
+        let session = new_api
+            .auth_modes
+            .iter()
+            .find(|mode| mode.mode == AuthMode::Session)
+            .expect("NewAPI session schema");
+        assert_eq!(session.label, "登录会话");
+        assert!(session.required_fields.is_empty());
+        assert_eq!(
+            session.required_any_fields,
+            ["sessionCookie", "newApiSession.refreshCookie"]
+        );
+        assert_eq!(
+            new_api.credential_assistant.access_token_skip_fields,
+            ["newApiSession.refreshCookie"]
+        );
+        assert!(new_api
+            .credential_assistant
+            .api_key_required_any_fields
+            .contains(&"newApiSession.refreshCookie"));
+        assert_eq!(new_api.operation_methods.api_keys, Some("GET /api/token/"));
+        assert!(new_api.capabilities.max_endpoint_overrides > 0);
+        assert!(new_api
+            .endpoints
+            .iter()
+            .any(|endpoint| endpoint.id == "login"
+                && endpoint.method == Some("POST")
+                && endpoint.path == "/api/user/login"));
+        let password = new_api
+            .auth_modes
+            .iter()
+            .find(|mode| mode.mode == AuthMode::Password)
+            .expect("NewAPI password schema");
+        assert!(password.note.contains("2FA"));
+
+        let generic = views
+            .iter()
+            .find(|view| view.kind == ProviderProtocol::Api)
+            .expect("generic API descriptor");
+        assert!(!generic.credential_assistant.enabled);
+        assert!(generic.operation_methods.api_keys.is_none());
+        assert!(generic.endpoints.is_empty());
+        assert_eq!(generic.capabilities.max_endpoint_overrides, 0);
+    }
+
+    #[test]
+    fn app_data_ipc_serializes_the_complete_protocol_registry() {
+        let value = serde_json::to_value(AppDataView::from(AppData::default()))
+            .expect("app data IPC view should serialize");
+        let protocols = value["providerProtocols"]
+            .as_array()
+            .expect("providerProtocols should be an array");
+
+        assert_eq!(protocols.len(), ProviderProtocol::ALL.len());
+        assert!(protocols.iter().all(|protocol| {
+            protocol["kind"].is_string()
+                && protocol["label"].is_string()
+                && protocol["defaultAuthMode"].is_string()
+                && protocol["authModes"].is_array()
+                && protocol["capabilities"].is_object()
+                && protocol["endpoints"].is_array()
+                && protocol["operationMethods"]["models"].is_string()
+                && protocol["credentialAssistant"]["accessTokenFlow"].is_string()
+        }));
+
+        let new_api = protocols
+            .iter()
+            .find(|protocol| protocol["kind"] == "newApi")
+            .expect("serialized NewAPI descriptor");
+        let password = new_api["authModes"]
+            .as_array()
+            .and_then(|modes| modes.iter().find(|mode| mode["mode"] == "password"))
+            .expect("serialized password schema");
+        assert!(password["note"]
+            .as_str()
+            .is_some_and(|note| note.contains("2FA")));
+        assert_eq!(password["fields"][0]["field"], "loginUsername");
+        assert_eq!(password["fields"][0]["showWhenEmpty"], true);
+    }
+}

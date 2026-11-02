@@ -64,7 +64,7 @@ function harness(
       "@arco-design/web-vue": {
         Message: { error: (message: string) => messages.push(message) },
       },
-      "@tauri-apps/api/core": {
+      "../api/transport.ts": {
         Channel: class {
           onmessage: (event: ProviderBatchProgressEvent) => void;
           constructor(onmessage: (event: ProviderBatchProgressEvent) => void) {

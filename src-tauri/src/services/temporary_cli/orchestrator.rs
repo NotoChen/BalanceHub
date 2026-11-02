@@ -60,7 +60,7 @@ impl<'a> TemporaryCliLaunchService<'a> {
             model: prepared.preference_model.clone(),
             workspace_path: prepared.workdir.to_string_lossy().to_string(),
         };
-        let (workspaces, workspace_error, preference) = match ProviderService::new(self.app)
+        let (workspaces, workspace_error, preference) = match ProviderService::new()
             .record_temporary_cli_launch(
                 &prepared.provider.identity.id,
                 prepared.cli_kind,

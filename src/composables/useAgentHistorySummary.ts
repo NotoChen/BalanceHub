@@ -1,5 +1,5 @@
 import { computed, getCurrentInstance, onMounted, onScopeDispose, ref, shallowRef, watch, type Ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../api/transport.ts";
 import { cancelAgentSessionQuery, countAgentSessions } from "../api/agent-sessions";
 import { withTimeout } from "../utils/promise-timeout";
 import type { AgentCliKind } from "../stores/provider-types";

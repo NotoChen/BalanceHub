@@ -1,0 +1,614 @@
+use super::check_in::probe_check_in_capability;
+use super::http::{
+    access_token_fallback_provider, build_url, build_user_request, normalize_base_url,
+    provider_user_management_context, retry_with_access_token, should_retry_with_access_token,
+    ProviderTransport,
+};
+pub use super::http::{authenticate_password_provider, build_client};
+use super::keys::{delete_api_key, fetch_api_key_options, probe_api_key_management};
+use super::response::{extract_string_field, parse_success_data, send_text};
+use super::site::fetch_site_metadata;
+pub use super::site::SiteMetadata;
+use crate::models::{
+    provider_domain::check_in as check_in_policy, AppSettings, AuthMode, Provider,
+    ProviderApiKeyEditorContext, ProviderApiKeyOption, ProviderApiKeyPatch, ProviderCapabilities,
+    ProviderCheckInMethod, ProviderCheckInRecordsResult, ProviderCheckInResult,
+    ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
+    ProviderQuotaDisplay, ProviderRequestLogsQuery, ProviderRequestLogsResult,
+    ProviderSiteProbeResult, ProviderUsageSummary,
+};
+use reqwest::Method;
+
+pub struct NewApiAdapter;
+
+impl NewApiAdapter {
+    pub async fn complete_credentials(
+        &self,
+        settings: &AppSettings,
+        input: ProviderInput,
+        provider_id: String,
+    ) -> Result<ProviderCredentialCompletionResult, String> {
+        if matches!(input.auth.mode, AuthMode::ApiKey) {
+            return Err("API Key 认证没有可补全的账号凭据".to_string());
+        }
+        let provider = Provider::from_input(input.clone(), provider_id);
+        let client = build_client(settings, &provider).await?;
+        super::credentials::complete_credentials(&client, input).await
+    }
+
+    pub async fn test_connection(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<(Provider, ProviderConnectionTestResult), String> {
+        match build_client(settings, provider).await {
+            Ok(client) => super::quota::test_connection(&client, provider).await,
+            Err(message) => Ok((
+                provider.clone(),
+                ProviderConnectionTestResult {
+                    ok: false,
+                    message,
+                    available: None,
+                    used: None,
+                    quota_display: ProviderQuotaDisplay::default(),
+                    steps: Vec::new(),
+                },
+            )),
+        }
+    }
+
+    pub async fn probe_site(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<ProviderSiteProbeResult, String> {
+        let client = build_client(settings, provider).await?;
+        match discover_site_metadata(&client, &provider.identity.base_url).await {
+            Ok(site) => Ok(ProviderSiteProbeResult {
+                ok: true,
+                message: "站点可访问，已发现中转站名称".to_string(),
+                system_name: Some(site.system_name),
+                logo: if site.logo.trim().is_empty() {
+                    None
+                } else {
+                    Some(site.logo)
+                },
+                quota_display: ProviderQuotaDisplay {
+                    quota_display_type: site.quota_display_type,
+                    currency_symbol: site.currency_symbol,
+                },
+            }),
+            Err(message) => Ok(ProviderSiteProbeResult {
+                ok: false,
+                message,
+                system_name: None,
+                logo: None,
+                quota_display: ProviderQuotaDisplay::default(),
+            }),
+        }
+    }
+
+    pub async fn list_api_keys(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<(Provider, Vec<ProviderApiKeyOption>), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, options) = retry_with_access_token(
+            &client,
+            &authenticated,
+            list_api_keys(&client, &authenticated),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { list_api_keys(&retry_client, &candidate).await }
+            },
+        )
+        .await?;
+        Ok((provider, options))
+    }
+
+    pub async fn api_key_editor_context(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: Option<&str>,
+    ) -> Result<(Provider, ProviderApiKeyEditorContext), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        super::key_management::editor_context(&client, &authenticated, token_id).await
+    }
+
+    pub async fn create_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        patch: &ProviderApiKeyPatch,
+    ) -> Result<(Provider, ProviderApiKeyOption), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        super::key_management::create(&client, &authenticated, patch).await
+    }
+
+    pub async fn update_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+        patch: &ProviderApiKeyPatch,
+    ) -> Result<(Provider, ProviderApiKeyOption), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        super::key_management::update(&client, &authenticated, token_id, patch).await
+    }
+
+    pub async fn generate_access_token(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<String, String> {
+        if matches!(provider.auth.mode, AuthMode::ApiKey) {
+            return Err("API Key 认证不支持生成访问令牌".to_string());
+        }
+        let client = build_client(settings, provider).await?;
+        let provider = authenticated_provider(&client, provider).await?;
+        super::credentials::create_access_token(&client, &provider).await
+    }
+
+    pub async fn delete_api_key(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        token_id: &str,
+    ) -> Result<(Provider, ()), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, ()) = retry_with_access_token(
+            &client,
+            &authenticated,
+            delete_managed_api_key(&client, &authenticated, token_id),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { delete_managed_api_key(&retry_client, &candidate, token_id).await }
+            },
+        )
+        .await?;
+        Ok((provider, ()))
+    }
+
+    pub async fn usage_summary(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        period: &str,
+    ) -> Result<(Provider, ProviderUsageSummary), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) =
+            retry_with_access_token(
+                &client,
+                &authenticated,
+                super::usage::fetch_usage_summary(&client, &authenticated, period),
+                |candidate| {
+                    let retry_client = client.clone();
+                    async move {
+                        super::usage::fetch_usage_summary(&retry_client, &candidate, period).await
+                    }
+                },
+            )
+            .await?;
+        Ok((provider, value))
+    }
+
+    pub async fn request_logs(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        query: ProviderRequestLogsQuery,
+    ) -> Result<(Provider, ProviderRequestLogsResult), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::logs::fetch_request_logs(&client, &authenticated, query.clone()),
+            |candidate| {
+                let retry_client = client.clone();
+                async move {
+                    super::logs::fetch_request_logs(&retry_client, &candidate, query.clone()).await
+                }
+            },
+        )
+        .await?;
+        Ok((provider, value))
+    }
+
+    pub async fn change_password(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        original_password: &str,
+        password: &str,
+    ) -> Result<(Provider, String), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::account::change_user_password(
+                &client,
+                &authenticated,
+                original_password,
+                password,
+            ),
+            |candidate| {
+                let retry_client = client.clone();
+                async move {
+                    super::account::change_user_password(
+                        &retry_client,
+                        &candidate,
+                        original_password,
+                        password,
+                    )
+                    .await
+                }
+            },
+        )
+        .await?;
+        Ok((provider, value))
+    }
+
+    pub async fn probe_capabilities(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<(Provider, (ProviderCapabilities, String, Option<String>)), String> {
+        match build_client(settings, provider).await {
+            Ok(client) => match authenticated_provider(&client, provider).await {
+                Ok(provider) => {
+                    let first = probe_capabilities(&client, &provider).await;
+                    if first
+                        .2
+                        .as_deref()
+                        .is_some_and(should_retry_with_access_token)
+                    {
+                        if let Some(fallback) = access_token_fallback_provider(&provider) {
+                            let retry = probe_capabilities(&client, &fallback).await;
+                            return Ok((fallback, retry));
+                        }
+                    }
+                    Ok((provider, first))
+                }
+                Err(message) => Ok((
+                    provider.clone(),
+                    (
+                        ProviderCapabilities::default(),
+                        String::new(),
+                        Some(message),
+                    ),
+                )),
+            },
+            Err(message) => Ok((
+                provider.clone(),
+                (
+                    ProviderCapabilities::default(),
+                    String::new(),
+                    Some(message),
+                ),
+            )),
+        }
+    }
+
+    pub async fn invite_link(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<(Provider, String), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            fetch_invite_link(&client, &authenticated),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { fetch_invite_link(&retry_client, &candidate).await }
+            },
+        )
+        .await?;
+        Ok((provider, value))
+    }
+
+    pub async fn refresh_provider(&self, settings: &AppSettings, provider: &Provider) -> Provider {
+        match crate::adapters::transport::build_client(settings, provider).await {
+            Ok(client) => {
+                let mut refreshed = super::quota::refresh_provider(&client, provider).await;
+                if !crate::models::provider_domain::model_list::action(&refreshed).can_sync {
+                    return refreshed;
+                }
+
+                let quota_failed = matches!(
+                    refreshed.runtime.status,
+                    crate::models::ProviderStatus::Error
+                );
+                match crate::adapters::protocol::contracts::ConnectionCapability::fetch_available_models(
+                    self, &client, &refreshed,
+                ).await {
+                    Ok(operation) => {
+                        operation.apply_to(&mut refreshed);
+                        refreshed.capabilities.set_available_models(operation.value);
+                        if quota_failed && matches!(provider.auth.mode, AuthMode::ApiKey) {
+                            // API Key endpoints often expose /models but not account quota.
+                            // A model refresh is still useful and should not leave the card
+                            // permanently in an error state just because quota is unavailable.
+                            refreshed.quota.available = 0.0;
+                            refreshed.quota.used = 0.0;
+                            refreshed.quota.known = false;
+                            refreshed.quota.total_known = false;
+                            refreshed.quota.unlimited = false;
+                            refreshed.quota.scope = crate::models::ProviderQuotaScope::Token;
+                            refreshed.runtime.status = crate::models::ProviderStatus::Ok;
+                            refreshed.runtime.error_message = None;
+                            refreshed.automation.last_synced_at =
+                                Some(crate::util::unix_secs().to_string());
+                        }
+                    }
+                    Err(model_error) => {
+                        refreshed.capabilities.available_models_state.error = Some(model_error.clone());
+                        if matches!(provider.auth.mode, AuthMode::ApiKey) && quota_failed {
+                            let quota_error = refreshed
+                                .runtime
+                                .error_message
+                                .take()
+                                .unwrap_or_else(|| "额度刷新失败".to_string());
+                            refreshed.runtime.error_message =
+                                Some(format!("{quota_error}；模型列表获取失败: {model_error}"));
+                        } else if matches!(provider.auth.mode, AuthMode::ApiKey) {
+                            refreshed.runtime.status = crate::models::ProviderStatus::Warning;
+                            refreshed.runtime.error_message =
+                                Some(format!("额度已更新；模型列表获取失败: {model_error}"));
+                        }
+                    }
+                }
+                refreshed
+            }
+            Err(message) => provider_with_error(provider, message),
+        }
+    }
+
+    pub async fn check_in(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> Result<(Provider, ProviderCheckInResult), String> {
+        let client = build_client(settings, provider).await?;
+        let first = super::check_in::check_in_provider(&client, provider).await;
+        // Only the standard method can switch authentication after an explicit
+        // auth rejection. Session-only and fresh-login methods keep their contract.
+        if check_in_policy::effective_method(provider) != ProviderCheckInMethod::Standard
+            || client
+                .shield_blocked_for(&provider.identity.base_url)
+                .await
+                .is_some()
+        {
+            return first;
+        }
+        let (candidate, message) = match &first {
+            Ok((authenticated, value))
+                if !value.ok && !value.unconfirmed && value.verification_required.is_none() =>
+            {
+                (authenticated, value.message.as_str())
+            }
+            Err(message) => (provider, message.as_str()),
+            _ => return first,
+        };
+        if !should_retry_with_access_token(message) {
+            return first;
+        }
+        let Some(fallback) = access_token_fallback_provider(candidate) else {
+            return first;
+        };
+        super::check_in::check_in_provider(&client, &fallback)
+            .await
+            .map_err(|error| format!("{message}；改用访问令牌仍失败: {error}"))
+    }
+
+    pub async fn check_in_records(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        month: &str,
+    ) -> Result<(Provider, ProviderCheckInRecordsResult), String> {
+        if matches!(provider.auth.mode, AuthMode::ApiKey) {
+            return Err("API Key 认证不支持签到记录，请切换到 Cookie 或访问令牌".to_string());
+        }
+        if check_in_policy::effective_method(provider) != ProviderCheckInMethod::Standard {
+            return Err("当前签到方式没有可用的官方历史接口".to_string());
+        }
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::check_in::fetch_check_in_records(&client, &authenticated, month),
+            |candidate| {
+                let retry_client = client.clone();
+                async move {
+                    super::check_in::fetch_check_in_records(&retry_client, &candidate, month).await
+                }
+            },
+        )
+        .await?;
+        Ok((provider, value))
+    }
+}
+
+fn provider_with_error(provider: &Provider, message: String) -> Provider {
+    let mut next = provider.clone();
+    next.runtime.status = crate::models::ProviderStatus::Error;
+    next.runtime.error_message = Some(message);
+    next
+}
+
+async fn authenticated_provider(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Result<Provider, String> {
+    authenticate_password_provider(client, provider).await
+}
+
+pub async fn discover_site_metadata(
+    client: &ProviderTransport,
+    base_url: &str,
+) -> Result<SiteMetadata, String> {
+    let base_url = normalize_base_url(base_url);
+    if base_url.is_empty() {
+        return Err("请先填写中转站地址".to_string());
+    }
+    fetch_site_metadata(client, &base_url).await
+}
+
+pub async fn list_api_keys(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Result<Vec<ProviderApiKeyOption>, String> {
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    fetch_api_key_options(client, &base_url, &api_user, credential).await
+}
+
+pub async fn delete_managed_api_key(
+    client: &ProviderTransport,
+    provider: &Provider,
+    token_id: &str,
+) -> Result<(), String> {
+    if token_id.trim().is_empty() {
+        return Err("缺少 API 密钥 ID".to_string());
+    }
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    delete_api_key(client, &base_url, &api_user, credential, token_id).await
+}
+
+pub async fn probe_capabilities(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> (ProviderCapabilities, String, Option<String>) {
+    let mut capabilities = ProviderCapabilities::default();
+    let mut invite_link = String::new();
+    let mut errors = Vec::new();
+    let base_url = normalize_base_url(&provider.identity.base_url);
+
+    if base_url.is_empty() {
+        return (
+            capabilities,
+            invite_link,
+            Some("缺少中转站地址，无法探测站点能力".to_string()),
+        );
+    }
+
+    if matches!(provider.auth.mode, AuthMode::ApiKey) {
+        capabilities.check_in_known = true;
+        capabilities.check_in_supported = false;
+        capabilities.api_key_management_known = true;
+        capabilities.api_key_management_supported = false;
+        capabilities.invitation_known = true;
+        capabilities.invitation_supported = false;
+        return (capabilities, invite_link, None);
+    }
+
+    if check_in_policy::effective_method(provider) == ProviderCheckInMethod::FreshLogin {
+        capabilities.check_in_known = true;
+        capabilities.check_in_supported = check_in_policy::validate_credentials(provider).is_ok();
+        if capabilities.check_in_supported {
+            capabilities.check_in_auth_modes.push(provider.auth.mode);
+        }
+    } else if check_in_policy::effective_method(provider) == ProviderCheckInMethod::SessionSignIn {
+        capabilities.check_in_known = true;
+        capabilities.check_in_supported = !provider.auth.session_cookie.trim().is_empty();
+        if capabilities.check_in_supported {
+            capabilities.check_in_auth_modes.push(AuthMode::Session);
+        }
+    } else {
+        match probe_check_in_capability(client, provider, &base_url).await {
+            Ok(modes) => {
+                capabilities.check_in_known = true;
+                capabilities.check_in_supported = !modes.is_empty();
+                capabilities.check_in_auth_modes = modes;
+            }
+            Err(message) => errors.push(format!("签到能力: {message}")),
+        }
+    }
+
+    let api_key_management_context = provider_user_management_context(provider);
+    match api_key_management_context {
+        Ok((base_url, api_user, credential)) => {
+            match probe_api_key_management(client, &base_url, &api_user, credential).await {
+                Ok(()) => {
+                    capabilities.api_key_management_known = true;
+                    capabilities.api_key_management_supported = true;
+                }
+                Err(message) => {
+                    capabilities.api_key_management_known = true;
+                    capabilities.api_key_management_supported = false;
+                    errors.push(format!("密钥管理: {message}"));
+                }
+            }
+        }
+        Err(message) => {
+            capabilities.api_key_management_known = true;
+            capabilities.api_key_management_supported = false;
+            errors.push(format!("密钥管理: {message}"));
+        }
+    }
+
+    match fetch_invite_link(client, provider).await {
+        Ok(link) => {
+            capabilities.invitation_known = true;
+            capabilities.invitation_supported = true;
+            invite_link = link;
+        }
+        Err(message) => {
+            capabilities.invitation_known = true;
+            capabilities.invitation_supported = false;
+            errors.push(format!("邀请链接: {message}"));
+        }
+    }
+
+    let error = if errors.is_empty() {
+        None
+    } else {
+        Some(errors.join("；"))
+    };
+
+    (capabilities, invite_link, error)
+}
+
+pub async fn fetch_invite_link(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> Result<String, String> {
+    let (base_url, api_user, credential) = provider_user_management_context(provider)?;
+    let url = build_url(&base_url, "/api/user/aff")?;
+    let request = build_user_request(client, Method::GET, url, &base_url, &api_user, credential);
+    let (status, body) = send_text(client, request, "读取邀请链接").await?;
+    let data = parse_success_data(&status, body, "邀请链接")?;
+    let code = data
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            extract_string_field(
+                &data,
+                &["aff_code", "affCode", "code", "invite_code", "inviteCode"],
+            )
+        })
+        .ok_or_else(|| "接口没有返回邀请码".to_string())?;
+    crate::models::provider_domain::endpoints::provider_link(
+        provider.identity.protocol,
+        &provider.request.endpoints,
+        "register_link",
+        &base_url,
+        &code,
+    )
+    .ok_or_else(|| "当前协议不支持邀请链接".to_string())
+}

@@ -78,7 +78,7 @@ impl ResumeCompletion {
 
     pub(crate) fn record(
         &self,
-        app: &AppHandle,
+        _app: &AppHandle,
         instance: TemporaryCliInstance,
     ) -> AgentSessionResumeResult {
         // A Linux executable is not a preferred Windows CLI installation.
@@ -89,7 +89,7 @@ impl ResumeCompletion {
         {
             return self.pending(instance);
         }
-        let service = ProviderService::new(app);
+        let service = ProviderService::new();
         let recorded = match &self.preference {
             Some(preference) => service
                 .record_temporary_cli_launch(

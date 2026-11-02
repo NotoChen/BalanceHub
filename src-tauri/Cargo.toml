@@ -18,13 +18,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 # Native CLI binaries can exceed 200 MiB. Keep bounded executable hashing
 # within its deadline in dev/test as well as release builds.
-[profile.dev.package.sha2]
-opt-level = 3
+# 该 profile 已上移到工作区根 Cargo.toml，成员 crate 里重复声明会被忽略。
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+balancehub-core = { path = "../crates/core" }
 # 浏览器启动验证使用自动清理的独立临时 profile。
 tempfile = "3"
 # Keep canonical Windows paths usable by directory pickers and external shells.

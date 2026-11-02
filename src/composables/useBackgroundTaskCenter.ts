@@ -2,7 +2,7 @@ import { Message } from "@arco-design/web-vue";
 import { cancelProviderBrowserLogin, listProviderBrowserLogins, showProviderLoginWindow } from "../api/provider-browser-login";
 import { createLoginTaskControl } from "../utils/login-task-control";
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../api/transport.ts";
 import type {
   Provider,
   SiteAnnouncementSourceError,

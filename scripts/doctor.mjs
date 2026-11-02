@@ -7,7 +7,11 @@ import {
 } from "./build-cache.mjs";
 import { runBuildCommand } from "./build-runner.mjs";
 
-const sourceRoot = join(projectRoot, "src-tauri", "src");
+const sourceRoots = [
+  join(projectRoot, "src-tauri", "src"),
+  join(projectRoot, "crates", "core", "src"),
+  join(projectRoot, "crates", "server", "src"),
+];
 const staticOnly = process.argv.includes("--static-only");
 const strictCache = process.argv.includes("--strict-cache");
 
@@ -69,7 +73,7 @@ function checkPlatformScriptNames() {
   const powerShellAssignment = /\$([A-Za-z_][A-Za-z0-9_]*)[ \t]*=/g;
   const cmdAssignment = /\bset[ \t]+\"?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=/gi;
 
-  for (const path of sourceFiles(sourceRoot)) {
+  for (const path of sourceRoots.flatMap(sourceFiles)) {
     const text = readFileSync(path, "utf8");
     for (const match of text.matchAll(unixAssignment)) {
       const name = match[1];
@@ -126,9 +130,9 @@ if (!staticOnly && healthy) {
     ["Git 差异检查", "git", ["diff", "--check"]],
     ["前端构建", "npm", ["run", "build"]],
     ["前端测试", "npm", ["test"]],
-    ["Rust 格式检查", "cargo", ["fmt", "--manifest-path", join(projectRoot, "src-tauri/Cargo.toml"), "--check"]],
-    ["Rust Clippy", "cargo", ["clippy", "--manifest-path", join(projectRoot, "src-tauri/Cargo.toml"), "--locked", "--all-targets", "--all-features", "--", "-D", "warnings"], true],
-    ["Rust 测试", "cargo", ["test", "--manifest-path", join(projectRoot, "src-tauri/Cargo.toml"), "--locked"], true],
+    ["Rust 格式检查", "cargo", ["fmt", "--all", "--check"]],
+    ["Rust Clippy", "cargo", ["clippy", "--workspace", "--locked", "--all-targets", "--all-features", "--", "-D", "warnings"], true],
+    ["Rust 测试", "cargo", ["test", "--workspace", "--locked"], true],
   ];
   for (const step of steps) {
     if (!await run(...step)) {

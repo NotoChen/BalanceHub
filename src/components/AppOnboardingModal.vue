@@ -5,6 +5,10 @@ import {
   IconSettings,
   IconUpload,
 } from "@arco-design/web-vue/es/icon";
+import { useHostCapabilities } from "../composables/useHostCapabilities";
+
+const { agentAvailable, ensure } = useHostCapabilities();
+void ensure();
 
 defineProps<{
   visible: boolean;
@@ -35,7 +39,8 @@ const emit = defineEmits<{
         <div class="onboarding-logo">BH</div>
         <div>
           <h2>初始化 BalanceHub</h2>
-          <p>先完成账号来源和本机环境配置，之后就可以进入主界面。</p>
+          <p v-if="agentAvailable">先完成账号来源和本机环境配置，之后就可以进入主界面。</p>
+          <p v-else>先配置一个中转站，之后就可以进入主界面。</p>
         </div>
       </div>
 
@@ -62,7 +67,7 @@ const emit = defineEmits<{
           </div>
         </section>
 
-        <section class="onboarding-step">
+        <section v-if="agentAvailable" class="onboarding-step">
           <div class="onboarding-step-index">
             <icon-check-circle-fill v-if="cliConfigured" />
             <span v-else>2</span>

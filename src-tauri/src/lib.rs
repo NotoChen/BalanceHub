@@ -1,23 +1,16 @@
-mod adapters;
-mod agent_cli_catalog;
-mod app_events;
 mod commands;
-mod contracts;
 mod desktop;
-#[cfg(debug_assertions)]
-mod dev_sample;
-mod limits;
-mod models;
-mod network;
-mod platform;
-mod provider_protocol_catalog;
-mod quota_expression;
+mod desktop_host;
 mod services;
 mod state;
-mod storage;
-mod terminal_catalog;
 mod tray;
-mod util;
+
+// 网络协议、数据模型和调度核心已经拆到 `balancehub-core`。这里保留同名
+// 模块别名，桌面代码可以继续使用 `crate::models::…` 这类路径，而不必
+// 在每个文件里区分能力属于哪个 crate。
+pub(crate) use balancehub_core::{
+    agent_cli_catalog, app_events, contracts, limits, models, network, platform, storage, util,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

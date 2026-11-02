@@ -26,7 +26,6 @@ pub(crate) fn run() {
         }))
         .manage(AppUpdaterState::default())
         .manage(tray::TrayAvailability::default())
-        .manage(services::notifications::NotificationThrottle::default())
         // 自启动项固定携带 --silent-start 标记启动来源；是否真的静默由
         // launch_at_login_minimized 设置决定。前端每次保存设置调用 enable()
         // 时都会按这里的参数重写系统启动项。
@@ -391,11 +390,18 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let config_root =
         config_dir(app.app_handle()).map_err(|_| "无法获取应用配置目录".to_owned())?;
     let data_root = data_dir(app.app_handle()).map_err(|_| "无法获取应用数据目录".to_owned())?;
+    // 核心服务通过进程级宿主取目录与事件；先注册，配置加载和后台任务就能直接用。
+    let desktop_host = std::sync::Arc::new(crate::desktop_host::DesktopHost::new(
+        app.app_handle().clone(),
+    ));
+    balancehub_core::host::install(desktop_host.clone())?;
+    balancehub_core::runtime::install(tauri::async_runtime::handle().inner().clone())?;
     let recovery = services::cloud_sync::recover(&config_root);
-    let app_state = match recovery.and_then(|_| storage::load_app_data(app.app_handle())) {
+    let app_state = match recovery.and_then(|_| storage::load_app_data()) {
         Ok(data) => AppState::new(data),
         Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
     };
+    desktop_host.attach_core(app_state.core.clone());
     services::agent_cli::config_support::native_history::initialize(&data_root, &config_root)?;
     services::agent_cli::initialize_discovery_cache(data_root.join("agent-discovery-cache"));
     services::agent_cli::lifecycle::initialize_journal(data_root.join("agent-upgrades"));
@@ -414,6 +420,14 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         startup_settings.launch_at_login_minimized,
     );
     app.manage(app_state);
+    // 桌面专属执行器：本地测活与导出链接都需要桌面能力，服务端不会安装。
+    balancehub_core::contracts::install_app_import_projector(
+        services::provider_app_import::options,
+    );
+    balancehub_core::services::liveness::install_executor(std::sync::Arc::new(
+        services::liveness::LocalLivenessExecutor,
+    ))
+    .map_err(|err| err.to_string())?;
     // 日志要先于其余后台服务安装：它们的告警都往这里写。
     if let Ok(directory) = log_dir(app.app_handle()) {
         services::logging::init(&directory, &startup_settings);
@@ -442,7 +456,7 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     agent_runtime.start(app.app_handle());
 
     // 单实例插件已在 setup 前完成仲裁，只有主实例会启动后台调度。
-    services::scheduler::start(app.app_handle());
+    services::scheduler::start();
     // Agent 自动更新策略的执行者：核对升级记录、按设置扫描新版本并逐个安装。
     services::agent_cli::lifecycle::start_worker(app.app_handle());
 
@@ -520,9 +534,9 @@ fn hint_background_running(app: &AppHandle) {
         .title("BalanceHub 仍在后台运行")
         .body("刷新、签到和测活会继续；点菜单栏图标重新打开，托盘菜单里可以退出。")
         .show();
-    let handle = app.clone();
+    let _handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = ProviderService::new(&handle).mark_close_hint_shown().await {
+        if let Err(error) = ProviderService::new().mark_close_hint_shown().await {
             log::warn!("记录关窗提示状态失败：{error}");
         }
     });
@@ -669,11 +683,11 @@ pub(crate) fn log_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// 发布构建里这个 command 只返回错误，前端只在开发版显示入口，因此安装版
 /// 永远拿不到演示数据。
 #[tauri::command]
-async fn install_dev_sample_data(app: AppHandle) -> Result<usize, String> {
+async fn install_dev_sample_data(_app: AppHandle) -> Result<usize, String> {
     #[cfg(debug_assertions)]
     {
         crate::commands::run_blocking("写入演示数据", move || {
-            ProviderService::new(&app).merge_dev_sample()
+            ProviderService::new().merge_dev_sample()
         })
         .await
     }

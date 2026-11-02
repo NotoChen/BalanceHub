@@ -202,7 +202,7 @@ test("Agent detail keeps complete read-only Hook diagnostics without mutation co
 });
 
 test("Rust owns Hook action availability in the IPC contract", () => {
-  const model = read("src-tauri/src/models/agent_hook.rs");
+  const model = read("crates/core/src/models/agent_hook.rs");
   const types = read("src/stores/provider-types.ts");
   assert.match(model, /AgentHookActionKind/);
   assert.match(model, /pub actions: Vec<AgentHookAction>/);

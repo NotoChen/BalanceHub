@@ -1,0 +1,18 @@
+[package]
+name = "balancehub-server"
+version = "0.6.5"
+description = "BalanceHub 无界面后端：中转站额度、签到与账号状态。"
+authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
+edition = "2021"
+repository = "https://github.com/NotoChen/BalanceHub"
+license-file = "../../LICENSE"
+
+[dependencies]
+balancehub-core = { path = "../core" }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, reactive, ref, watch, type Ref } from "vue";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { isWebHost } from "../api/transport.ts";
 import { Message } from "@arco-design/web-vue";
 import type { AppSettings, Provider } from "../stores/providers";
 import { normalizeLivenessTiming } from "../utils/liveness-defaults";
@@ -34,7 +35,8 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
       return draft;
     },
     write: async (payload, expected) => {
-      if (lastLaunchAtLogin !== payload.launchAtLogin) {
+      // 浏览器版没有登录自启动；跳过系统调用，只保存设置本身。
+      if (!isWebHost && lastLaunchAtLogin !== payload.launchAtLogin) {
         if (payload.launchAtLogin) await enable();
         else await disable();
         lastLaunchAtLogin = payload.launchAtLogin;
@@ -79,6 +81,10 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
   });
 
   async function syncLaunchAtLogin() {
+    if (isWebHost) {
+      settingsForm.launchAtLogin = options.settings.value.launchAtLogin;
+      return;
+    }
     try {
       settingsForm.launchAtLogin = await isEnabled();
     } catch {

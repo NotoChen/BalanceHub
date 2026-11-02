@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./transport.ts";
 import type { ProviderInput } from "../stores/provider-types";
 import { withTimeout } from "../utils/promise-timeout";
 

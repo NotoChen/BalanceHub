@@ -28,7 +28,6 @@ pub(crate) use orchestrator::{launch_identity, ResumeCompletion, TemporaryCliLau
 pub(crate) use prepared::{prepare_launch, CliLaunchRequest, CliLaunchTarget};
 pub(crate) use run_settings::{
     asset_options as run_asset_options, capabilities as run_capabilities,
-    validate as validate_run_settings,
 };
 pub use shell_runtime::script::cleanup_stale;
 pub use terminal::{probe_available_terminals, probe_terminal};

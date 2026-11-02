@@ -1,4 +1,4 @@
-import { invoke, type Channel } from "@tauri-apps/api/core";
+import { invoke, type Channel } from "./transport.ts";
 import type { AgentConfigurationEdit } from "../stores/agent-configuration-types";
 import type {
   AppSettings,

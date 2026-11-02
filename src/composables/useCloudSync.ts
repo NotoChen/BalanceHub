@@ -6,7 +6,7 @@ import {
   shallowRef,
   type InjectionKey,
 } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../api/transport.ts";
 import { cloudSyncApi } from "../api/cloud-sync";
 import {
   createCloudSyncController,

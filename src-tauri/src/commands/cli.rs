@@ -116,11 +116,11 @@ pub(crate) async fn get_temporary_cli_instance(
 
 #[tauri::command]
 pub(crate) async fn forget_workspace(
-    app: AppHandle,
+    _app: AppHandle,
     path: String,
 ) -> Result<Vec<Workspace>, String> {
     run_blocking("删除工作空间记录", move || {
-        ProviderService::new(&app).forget_workspace(path)
+        ProviderService::new().forget_workspace(path)
     })
     .await
 }

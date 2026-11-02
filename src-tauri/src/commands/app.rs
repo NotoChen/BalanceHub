@@ -55,9 +55,9 @@ pub(crate) async fn open_external_link(app: AppHandle, url: String) -> Result<()
 #[tauri::command]
 pub(crate) async fn load_app_data(app: AppHandle) -> Result<AppDataView, String> {
     let data = {
-        let task_app = app.clone();
+        let _task_app = app.clone();
         run_blocking("加载应用配置", move || {
-            ProviderService::new(&task_app).load_app_data()
+            ProviderService::new().load_app_data()
         })
         .await?
     };
@@ -71,9 +71,9 @@ pub(crate) async fn save_settings(
     settings: AppSettings,
     expected: AppSettings,
 ) -> Result<AppSettings, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let settings = run_blocking("保存应用设置", move || {
-        ProviderService::new(&task_app).save_settings(settings, expected)
+        ProviderService::new().save_settings(settings, expected)
     })
     .await?;
     // 级别与保留期改完立即生效，不用重启托盘进程。
@@ -108,7 +108,7 @@ pub(crate) async fn open_data_directory(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) async fn send_app_notification(
-    app: AppHandle,
+    _app: AppHandle,
     settings: AppSettings,
     provider: Option<Provider>,
     title: String,
@@ -117,7 +117,6 @@ pub(crate) async fn send_app_notification(
 ) -> Result<NotificationSendResult, String> {
     if let Some(provider) = provider {
         Ok(notifications::send_provider_notification(
-            &app,
             &settings,
             &provider,
             NotificationEvent::Manual,
@@ -127,24 +126,20 @@ pub(crate) async fn send_app_notification(
         )
         .await)
     } else {
-        Ok(notifications::send_configured_notification(
-            &app,
-            &settings,
-            title,
-            markdown,
-            ignore_switch,
+        Ok(
+            notifications::send_configured_notification(&settings, title, markdown, ignore_switch)
+                .await,
         )
-        .await)
     }
 }
 
 #[tauri::command]
 pub(crate) async fn export_app_data(
-    app: AppHandle,
+    _app: AppHandle,
     path: String,
 ) -> Result<AppDataTransferResult, String> {
     run_blocking("导出应用配置", move || {
-        ProviderService::new(&app).export_app_data(path)
+        ProviderService::new().export_app_data(path)
     })
     .await
 }
@@ -154,9 +149,9 @@ pub(crate) async fn import_app_data(
     app: AppHandle,
     path: String,
 ) -> Result<AppDataImportResultView, String> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
     let (data, transfer) = run_blocking("导入应用配置", move || {
-        ProviderService::new(&task_app).import_app_data(path)
+        ProviderService::new().import_app_data(path)
     })
     .await?;
     tray::refresh_from_state(&app);

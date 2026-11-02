@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./transport.ts";
 export interface AgentMcpCheck {
   id: string;
   phase: "queued" | "connecting" | "initializing" | "listing" | "completed";

@@ -107,7 +107,7 @@ test("account cards can open local API Key management without remote site capabi
 test("unsaved API Key mode never exposes account-only remote management actions", () => {
   const controller = source("../src/composables/useAppController.ts");
   const managerState = source("../src/composables/useApiKeyManager.ts");
-  const rust = source("../src-tauri/src/models/provider/input.rs");
+  const rust = source("../crates/core/src/models/provider/input.rs");
 
   assert.match(controller, /providerEditor\.draftProvider\.auth\.mode !== "apiKey"/);
   assert.match(managerState, /const remote = remoteKey && apiKeyRemoteManaged\.value/);
@@ -139,7 +139,7 @@ test("closing API Key management invalidates pending work and releases the busy 
 
 test("deleting a bound Key is blocked and deleting the current Key selects a usable replacement", () => {
   const managerState = source("../src/composables/useApiKeyManager.ts");
-  const rust = source("../src-tauri/src/services/provider_service/api_keys.rs");
+  const rust = source("../crates/core/src/services/provider_service/api_keys.rs");
 
   assert.match(managerState, /if \(boundAgents\.length > 0\)[\s\S]*Modal\.warning[\s\S]*return;/);
   assert.match(managerState, /当前调用 Key 会自动切换/);

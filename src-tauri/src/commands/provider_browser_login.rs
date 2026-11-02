@@ -6,12 +6,12 @@ use tauri::AppHandle;
 
 #[tauri::command]
 pub(crate) async fn start_provider_browser_login(
-    app: AppHandle,
+    _app: AppHandle,
     input: ProviderInput,
     login_account_id: String,
 ) -> Result<ProviderBrowserLoginTask, String> {
     super::run_blocking("创建登录任务", move || {
-        provider_browser_login::start(&app, input, login_account_id)
+        provider_browser_login::start(input, login_account_id)
     })
     .await
 }

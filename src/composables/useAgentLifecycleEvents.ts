@@ -1,5 +1,5 @@
 import { onMounted, onScopeDispose } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../api/transport.ts";
 import { useAgentLifecycleStore } from "../stores/agent-lifecycle";
 import type { AgentLifecycleCatalog, AgentLifecycleOperation } from "../stores/agent-lifecycle-types";
 import { withTimeout } from "../utils/promise-timeout";

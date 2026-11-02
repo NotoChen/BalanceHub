@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./transport.ts";
 import type { CredentialKind, LoginAccount, LoginAccountSummary, LoginCookieSummary, LoginPlatform, ProviderCredentialDetails } from "../stores/provider-types";
 import type { ProviderBrowserLoginTask } from "./provider-browser-login";
 import { withTimeout } from "../utils/promise-timeout";

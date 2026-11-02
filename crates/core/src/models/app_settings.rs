@@ -1,0 +1,526 @@
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+use super::enums::{
+    AgentCliKind, LivenessIntervalMode, LivenessPromptMode, LogLevel, NotificationEvent, ProxyMode,
+    TemporaryCliTerminalKind, ThemeMode, TrayClickAction, WindowCloseAction,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    #[serde(default)]
+    pub onboarding_completed: bool,
+    pub refresh_interval: u64,
+    pub launch_at_login: bool,
+    /// 仅对携带 `--silent-start` 参数的自启动生效；手动启动始终弹出主窗口。
+    #[serde(default)]
+    pub launch_at_login_minimized: bool,
+    #[serde(default)]
+    pub proxy_mode: ProxyMode,
+    #[serde(default)]
+    pub proxy_url: String,
+    #[serde(default)]
+    pub theme_mode: ThemeMode,
+    #[serde(default = "default_true")]
+    pub auto_refresh_enabled: bool,
+    #[serde(default = "default_true")]
+    pub auto_check_in_enabled: bool,
+    #[serde(default = "default_check_in_time")]
+    pub check_in_time: String,
+    #[serde(default = "default_true")]
+    pub notification_enabled: bool,
+    #[serde(default = "default_notification_channels")]
+    pub notification_channels: Vec<NotificationChannel>,
+    #[serde(default)]
+    pub liveness_cli_kind: AgentCliKind,
+    #[serde(default)]
+    pub agent_cli_paths: BTreeMap<AgentCliKind, String>,
+    #[serde(default)]
+    pub temporary_cli_terminal_kind: TemporaryCliTerminalKind,
+    #[serde(default = "default_true")]
+    pub session_index_enabled: bool,
+    #[serde(default)]
+    pub session_index_directory: String,
+    #[serde(
+        default = "default_session_index_max_size_mib",
+        rename = "sessionIndexMaxSizeMiB"
+    )]
+    pub session_index_max_size_mib: u64,
+    #[serde(default)]
+    pub liveness_enabled: bool,
+    #[serde(default)]
+    pub liveness_model: String,
+    #[serde(default)]
+    pub liveness_interval_mode: LivenessIntervalMode,
+    #[serde(default = "default_liveness_interval")]
+    pub liveness_interval: u64,
+    #[serde(default = "default_liveness_random_min_interval")]
+    pub liveness_random_min_interval: u64,
+    #[serde(default = "default_liveness_interval")]
+    pub liveness_random_max_interval: u64,
+    #[serde(default = "default_liveness_timeout")]
+    pub liveness_timeout: u64,
+    #[serde(default)]
+    pub liveness_prompt_mode: LivenessPromptMode,
+    #[serde(default = "default_liveness_prompt")]
+    pub liveness_fixed_prompt: String,
+    #[serde(default = "default_liveness_prompt_library")]
+    pub liveness_prompt_library: Vec<String>,
+    #[serde(default = "default_liveness_placeholder_pools")]
+    pub liveness_placeholder_pools: Vec<LivenessPlaceholderPool>,
+    #[serde(default = "default_liveness_number_min")]
+    pub liveness_number_min: u64,
+    #[serde(default = "default_liveness_number_max")]
+    pub liveness_number_max: u64,
+
+    // ---- 窗口与托盘 ----
+    /// 关闭主窗口时隐藏到托盘还是退出进程。
+    #[serde(default)]
+    pub window_close_action: WindowCloseAction,
+    /// 隐藏窗口时同时隐藏 macOS Dock 图标，只留菜单栏入口。
+    #[serde(default = "default_true")]
+    pub window_hide_dock_icon: bool,
+    #[serde(default)]
+    pub window_tray_click_action: TrayClickAction,
+    /// 记住上次的窗口尺寸与位置。
+    #[serde(default = "default_true")]
+    pub window_restore_state: bool,
+    /// 只在「首次关闭窗口」时提示一次它还在后台运行。
+    #[serde(default)]
+    pub window_close_hint_shown: bool,
+
+    // ---- 更新 ----
+    #[serde(default = "default_true")]
+    pub update_auto_check: bool,
+    #[serde(default = "default_update_check_interval_hours")]
+    pub update_check_interval_hours: u64,
+
+    // ---- 通知 ----
+    /// 逐类事件开关：关闭后仍保留通知总开关和其他事件。
+    #[serde(default = "default_true")]
+    pub notify_refresh_failure: bool,
+    #[serde(default = "default_true")]
+    pub notify_liveness_failure: bool,
+    #[serde(default = "default_true")]
+    pub notify_check_in: bool,
+    #[serde(default)]
+    pub notify_quiet_hours: bool,
+    #[serde(default = "default_quiet_start")]
+    pub notify_quiet_start: String,
+    #[serde(default = "default_quiet_end")]
+    pub notify_quiet_end: String,
+    /// 单次投递失败后的重试次数，0 表示不重试。
+    #[serde(default = "default_notify_retry_count")]
+    pub notify_retry_count: u64,
+    /// 同一中转站的同类事件在该窗口内只发一条，0 表示不合并。
+    #[serde(default = "default_notify_merge_window_secs")]
+    pub notify_merge_window_secs: u64,
+
+    // ---- 自动化策略 ----
+    /// 刷新失败后额外重试的次数，重试沿用同一刷新间隔的等待。
+    #[serde(default)]
+    pub refresh_retry_count: u64,
+    /// 给每个中转站的刷新到点时间加一点随机偏移，避免整批同时打出去。
+    #[serde(default = "default_true")]
+    pub refresh_jitter: bool,
+    /// 自动测活连续失败到第几次才通知，避免单次抖动就打扰。
+    #[serde(default = "default_liveness_failure_threshold")]
+    pub liveness_failure_threshold: u64,
+
+    // ---- 历史保留 ----
+    #[serde(default = "default_liveness_record_limit")]
+    pub liveness_record_limit: u64,
+    #[serde(default = "default_check_in_record_limit")]
+    pub check_in_record_limit: u64,
+
+    // ---- 网络与日志 ----
+    #[serde(default = "default_http_timeout_secs")]
+    pub http_timeout_secs: u64,
+    /// 追加到内置绕过列表之后的自定义条目，逗号分隔。
+    #[serde(default)]
+    pub proxy_bypass: String,
+    #[serde(default)]
+    pub log_level: LogLevel,
+    #[serde(default = "default_log_retention_days")]
+    pub log_retention_days: u64,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            onboarding_completed: false,
+            refresh_interval: 300,
+            launch_at_login: false,
+            launch_at_login_minimized: false,
+            proxy_mode: ProxyMode::System,
+            proxy_url: String::new(),
+            theme_mode: ThemeMode::System,
+            auto_refresh_enabled: true,
+            auto_check_in_enabled: true,
+            check_in_time: default_check_in_time(),
+            notification_enabled: true,
+            notification_channels: default_notification_channels(),
+            liveness_cli_kind: AgentCliKind::Codex,
+            agent_cli_paths: BTreeMap::new(),
+            temporary_cli_terminal_kind: TemporaryCliTerminalKind::default(),
+            session_index_enabled: true,
+            session_index_directory: String::new(),
+            session_index_max_size_mib: default_session_index_max_size_mib(),
+            liveness_enabled: false,
+            liveness_model: String::new(),
+            liveness_interval_mode: LivenessIntervalMode::Fixed,
+            liveness_interval: default_liveness_interval(),
+            liveness_random_min_interval: default_liveness_random_min_interval(),
+            liveness_random_max_interval: default_liveness_interval(),
+            liveness_timeout: default_liveness_timeout(),
+            liveness_prompt_mode: LivenessPromptMode::Random,
+            liveness_fixed_prompt: default_liveness_prompt(),
+            liveness_prompt_library: default_liveness_prompt_library(),
+            liveness_placeholder_pools: default_liveness_placeholder_pools(),
+            liveness_number_min: default_liveness_number_min(),
+            liveness_number_max: default_liveness_number_max(),
+            window_close_action: WindowCloseAction::default(),
+            window_hide_dock_icon: true,
+            window_tray_click_action: TrayClickAction::default(),
+            window_restore_state: true,
+            window_close_hint_shown: false,
+            update_auto_check: true,
+            update_check_interval_hours: default_update_check_interval_hours(),
+            notify_refresh_failure: true,
+            notify_liveness_failure: true,
+            notify_check_in: true,
+            notify_quiet_hours: false,
+            notify_quiet_start: default_quiet_start(),
+            notify_quiet_end: default_quiet_end(),
+            notify_retry_count: default_notify_retry_count(),
+            notify_merge_window_secs: default_notify_merge_window_secs(),
+            refresh_retry_count: 0,
+            refresh_jitter: true,
+            liveness_failure_threshold: default_liveness_failure_threshold(),
+            liveness_record_limit: default_liveness_record_limit(),
+            check_in_record_limit: default_check_in_record_limit(),
+            http_timeout_secs: default_http_timeout_secs(),
+            proxy_bypass: String::new(),
+            log_level: LogLevel::default(),
+            log_retention_days: default_log_retention_days(),
+        }
+    }
+}
+
+pub const fn default_session_index_max_size_mib() -> u64 {
+    64
+}
+
+impl AppSettings {
+    pub fn agent_cli_path(&self, kind: AgentCliKind) -> &str {
+        self.agent_cli_paths
+            .get(&kind)
+            .map(String::as_str)
+            .unwrap_or_default()
+    }
+
+    pub fn set_agent_cli_path(&mut self, kind: AgentCliKind, path: String) {
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            self.agent_cli_paths.remove(&kind);
+        } else {
+            self.agent_cli_paths.insert(kind, path);
+        }
+    }
+
+    /// 单类事件开关。手动触发与设置里的「发送测试」永远放行，
+    /// 否则用户点了发送却什么都没有，只会以为功能坏了。
+    pub fn notify_enabled_for(&self, event: NotificationEvent) -> bool {
+        match event {
+            NotificationEvent::RefreshFailure => self.notify_refresh_failure,
+            NotificationEvent::LivenessFailure => self.notify_liveness_failure,
+            NotificationEvent::CheckIn => self.notify_check_in,
+            NotificationEvent::Manual => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationChannel {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub kind: NotificationChannelKind,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub secret: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub enum NotificationChannelKind {
+    #[default]
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "dingtalk")]
+    DingTalk,
+    #[serde(rename = "wecom")]
+    WeCom,
+    #[serde(rename = "feishu")]
+    Feishu,
+    #[serde(rename = "slack")]
+    Slack,
+    #[serde(rename = "generic")]
+    Generic,
+}
+
+fn default_notification_channels() -> Vec<NotificationChannel> {
+    vec![NotificationChannel {
+        id: "system".to_string(),
+        name: "系统通知".to_string(),
+        kind: NotificationChannelKind::System,
+        url: String::new(),
+        secret: String::new(),
+        enabled: true,
+    }]
+}
+
+pub fn default_liveness_interval() -> u64 {
+    5 * 60
+}
+
+pub fn default_liveness_random_min_interval() -> u64 {
+    default_liveness_interval()
+}
+
+pub fn default_liveness_timeout() -> u64 {
+    75
+}
+
+fn default_liveness_prompt() -> String {
+    "Explain: ls -la".to_string()
+}
+
+fn default_liveness_prompt_library() -> Vec<String> {
+    vec![
+        "Explain: {cmd}".to_string(),
+        "Convert to camelCase: {snake}".to_string(),
+        "Is this valid JSON: {json}".to_string(),
+        "Normalize path: {path}".to_string(),
+        "Fix typo: {typo}".to_string(),
+        "Rename variable: {var}".to_string(),
+        "Sum: {a}+{b}".to_string(),
+        "Choose smaller: {a} or {b}".to_string(),
+        "Make this concise: {sentence}".to_string(),
+        "Classify log level: {log}".to_string(),
+        "Title case: {phrase}".to_string(),
+        "Make slug: {phrase}".to_string(),
+        "Is this path absolute: {path}".to_string(),
+    ]
+}
+
+fn default_liveness_number_min() -> u64 {
+    2
+}
+
+fn default_liveness_number_max() -> u64 {
+    97
+}
+
+pub fn default_liveness_placeholder_pools() -> Vec<LivenessPlaceholderPool> {
+    vec![
+        placeholder_pool(
+            "word",
+            &[
+                "folder", "record", "index", "config", "window", "button", "result", "summary",
+            ],
+        ),
+        placeholder_pool(
+            "cmd",
+            &[
+                "ls -la",
+                "git status",
+                "npm test",
+                "node -v",
+                "pwd",
+                "cat README.md",
+                "cargo check",
+                "date",
+            ],
+        ),
+        placeholder_pool(
+            "phrase",
+            &[
+                "daily notes",
+                "release plan",
+                "window title",
+                "build result",
+                "local draft",
+                "error summary",
+            ],
+        ),
+        placeholder_pool(
+            "snake",
+            &[
+                "file_name",
+                "total_count",
+                "last_seen",
+                "item_index",
+                "window_title",
+                "retry_delay",
+                "created_at",
+            ],
+        ),
+        placeholder_pool(
+            "var",
+            &[
+                "tmpValue",
+                "rawText",
+                "nextItem",
+                "userName",
+                "filePath",
+                "totalCount",
+                "retryCount",
+            ],
+        ),
+        placeholder_pool(
+            "path",
+            &[
+                "/tmp/../var/log",
+                "./src/../README.md",
+                "./notes//today.md",
+                "~/Downloads/../.config",
+                "/usr/local/../bin",
+            ],
+        ),
+        placeholder_pool(
+            "json",
+            &[
+                "{\"ok\":true}",
+                "{\"name\":\"demo\"}",
+                "{\"items\":[\"a\",\"b\"]}",
+                "{\"enabled\":false}",
+                "{\"limit\":3}",
+            ],
+        ),
+        placeholder_pool("status", &["200", "201", "204", "301", "400", "404", "418"]),
+        placeholder_pool(
+            "typo",
+            &[
+                "recieve",
+                "adress",
+                "teh",
+                "occured",
+                "seperate",
+                "enviroment",
+            ],
+        ),
+        placeholder_pool(
+            "sentence",
+            &[
+                "The file was saved after the last edit.",
+                "This setting controls how often data refreshes.",
+                "The window title should stay short.",
+                "The table row needs a clearer label.",
+                "The command finished without output.",
+            ],
+        ),
+        placeholder_pool(
+            "log",
+            &[
+                "WARN retry after timeout",
+                "ERROR file not found",
+                "INFO build completed",
+                "DEBUG cache hit",
+                "WARN missing config",
+            ],
+        ),
+        placeholder_pool("port", &["22", "80", "443", "3000", "5432", "6379", "8080"]),
+    ]
+}
+
+fn placeholder_pool(key: &str, values: &[&str]) -> LivenessPlaceholderPool {
+    LivenessPlaceholderPool {
+        key: key.to_string(),
+        values: values.iter().map(|value| value.to_string()).collect(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LivenessPlaceholderPool {
+    pub key: String,
+    pub values: Vec<String>,
+}
+
+pub fn default_true() -> bool {
+    true
+}
+
+pub const fn default_update_check_interval_hours() -> u64 {
+    24
+}
+
+/// 静默时段跨午夜（22:00 → 08:00），判定时按环形区间处理。
+pub fn default_quiet_start() -> String {
+    "22:00".to_string()
+}
+
+pub fn default_quiet_end() -> String {
+    "08:00".to_string()
+}
+
+pub const fn default_notify_retry_count() -> u64 {
+    1
+}
+
+pub const fn default_notify_merge_window_secs() -> u64 {
+    5 * 60
+}
+
+pub const fn default_liveness_failure_threshold() -> u64 {
+    2
+}
+
+pub const fn default_liveness_record_limit() -> u64 {
+    40
+}
+
+pub const fn default_check_in_record_limit() -> u64 {
+    730
+}
+
+pub const fn default_http_timeout_secs() -> u64 {
+    20
+}
+
+pub const fn default_log_retention_days() -> u64 {
+    7
+}
+
+pub fn default_check_in_time() -> String {
+    "00:00".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_index_size_keeps_the_frontend_mib_field_name() {
+        let settings = AppSettings {
+            session_index_max_size_mib: 128,
+            ..AppSettings::default()
+        };
+        let value = serde_json::to_value(&settings).expect("settings should serialize");
+        assert_eq!(
+            value.get("sessionIndexMaxSizeMiB"),
+            Some(&serde_json::json!(128))
+        );
+        assert!(value.get("sessionIndexMaxSizeMib").is_none());
+
+        let decoded: AppSettings =
+            serde_json::from_value(value).expect("settings should deserialize");
+        assert_eq!(decoded.session_index_max_size_mib, 128);
+    }
+}

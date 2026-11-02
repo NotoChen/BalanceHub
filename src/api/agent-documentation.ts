@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./transport.ts";
 import type { AgentCliKind } from "../stores/provider-types";
 
 export const agentDocumentationUrls: Record<AgentCliKind, string> = {

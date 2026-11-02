@@ -29,7 +29,8 @@ BalanceHub 当前只接受 Issue，不接受 Pull Request。仓库保留开发�
 │   ├── stores/                 # Pinia store、类型和默认值
 │   ├── styles/                 # 全局样式和模块样式
 │   └── utils/                  # 展示格式化、拖拽、测活等纯工具逻辑
-├── src-tauri/                  # Tauri / Rust 后端
+├── crates/                     # Rust 工作区成员：core（跨宿主核心）与 server（无界面后端）
+├── src-tauri/                  # Tauri 桌面宿主
 │   ├── capabilities/           # Tauri 权限能力配置
 │   ├── icons/                  # 应用图标
 │   ├── src/
@@ -48,7 +49,8 @@ BalanceHub 当前只接受 Issue，不接受 Pull Request。仓库保留开发�
 │   ├── tauri.conf.json         # 开发构建配置
 │   └── tauri.release.conf.json # Release / updater 相关配置
 ├── package.json                # 前端依赖和 npm 脚本
-├── src-tauri/Cargo.toml        # Rust crate、Tauri 和后端依赖
+├── Cargo.toml                  # Rust 工作区定义（core / server / src-tauri）
+├── src-tauri/Cargo.toml        # 桌面 crate、Tauri 和桌面依赖
 └── README.md                   # 项目入口说明
 ```
 
@@ -179,11 +181,13 @@ BalanceHub 的真实账号配置保存在系统应用配置目录，不在仓库
 3. `src/stores/provider-types.ts`：前端中转站、设置、日志、用量等类型。
 4. `src-tauri/src/desktop.rs`：Tauri 应用编排、插件和 command 注册。
 5. `src-tauri/src/commands/`：按应用、CLI 和中转站职责拆分的 command 实现。
-6. `src-tauri/src/contracts.rs`：Rust 派生的前端操作能力和 IPC 返回 View。
-7. `src-tauri/src/models/`：后端持久化模型和业务数据结构。
-8. `src-tauri/src/adapters/`：协议探测、分发及 NewAPI、Sub2API、通用 API 实现。
-9. `src-tauri/src/services/`：调度、通知、测活和跨模块业务。
-10. `src-tauri/src/network/`：业务请求、Webhook、updater 和 CLI 共用的代理语义。
+6. `crates/core/src/contracts.rs`：Rust 派生的前端操作能力和 IPC 返回 View。
+7. `crates/core/src/models/`：后端持久化模型和业务数据结构。
+8. `crates/core/src/adapters/`：协议探测、分发及 NewAPI、Sub2API、通用 API 实现。
+9. `crates/core/src/services/`：额度、签到、调度、通知和配置事务；`src-tauri/src/services/` 只放 Agent、终端和云同步等桌面能力。
+10. `crates/core/src/network/`：业务请求、Webhook、updater 和 CLI 共用的代理语义。
+
+`crates/core` 不依赖 Tauri：需要数据目录、事件或系统交互时通过 `crates/core/src/host.rs` 的 `Host` 提供，两个宿主各自实现（`src-tauri/src/desktop_host.rs`、`crates/server/src/host.rs`）；新增网络类命令同时登记到 `crates/core/src/api/`，服务端才能通过 `/rpc` 复用。
 
 保持改动边界清晰。UI、前端状态、后端 command、存储模型和协议接口尽量分开修改；涉及持久化数据结构时，需要同步前后端类型和本地配置迁移逻辑。账号管理、签到、密钥管理、邀请等操作能力由 Rust 计算，经 `contracts.rs` 返回；前端 `provider-actions.ts` 只读取结果，不复制业务判断。
 
@@ -191,7 +195,7 @@ BalanceHub 的真实账号配置保存在系统应用配置目录，不在仓库
 
 Agent CLI 使用内置静态注册表和能力 Adapter，不依赖插件系统或代码生成。新增 Agent 时：
 
-1. 在 `src-tauri/src/agent_cli_catalog.rs` 增加一条身份、序列化 key 和模块名声明。
+1. 在 `crates/core/src/agent_cli_catalog.rs` 增加一条身份、序列化 key 和模块名声明。
 2. 新增 `src-tauri/src/services/agent_cli/<agent>/`，在 `mod.rs` 返回定义，并按实际能力提供 `launch.rs`、`liveness.rs`、`sessions.rs`、`config.rs`。不支持的能力保持为 `None`，不要添加空壳实现。
 3. 在 `src/agent-cli/visuals.ts` 增加原生图标和卡片轨道颜色；名称、可用状态和能力仍以 Rust 探测结果为准。
 4. 不修改 `temporary_cli.rs`、`liveness.rs`、`cli_sessions/mod.rs`、`cli_runtime/config.rs` 等通用编排，也不在前端增加具体 Agent 分支。需要修改这些文件通常意味着 Adapter 契约仍不完整。
@@ -204,9 +208,9 @@ Agent CLI 使用内置静态注册表和能力 Adapter，不依赖插件系统�
 
 中转站协议使用编译期 catalog、能力契约和描述注册表，不使用代码生成。Rust 负责协议身份、认证 Schema、能力和操作语义，前端只接收 IPC 描述并渲染：
 
-1. 在 `src-tauri/src/provider_protocol_catalog.rs` 登记 Rust 枚举名、序列化 key 和描述模块名；`ProviderProtocol` 与运行时注册表会同时生成，不能只改其中一处。
-2. 在 `src-tauri/src/adapters/<protocol>/` 实现真实站点请求，并在该模块的 `protocol.rs` 实现 `adapters/protocol/contracts.rs` 中确实支持的能力。未支持的能力保持未注册，不添加返回固定错误的空壳 Adapter。
-3. 新增 `src-tauri/src/adapters/protocol/registry/<protocol>.rs`，声明认证方式、字段 Schema、探测角色、操作说明、凭据助手策略和能力对象。`adapters/protocol.rs` 只负责运行时分发，不放协议字段或站点分支。
+1. 在 `crates/core/src/provider_protocol_catalog.rs` 登记 Rust 枚举名、序列化 key 和描述模块名；`ProviderProtocol` 与运行时注册表会同时生成，不能只改其中一处。
+2. 在 `crates/core/src/adapters/<protocol>/` 实现真实站点请求，并在该模块的 `protocol.rs` 实现 `adapters/protocol/contracts.rs` 中确实支持的能力。未支持的能力保持未注册，不添加返回固定错误的空壳 Adapter。
+3. 新增 `crates/core/src/adapters/protocol/registry/<protocol>.rs`，声明认证方式、字段 Schema、探测角色、操作说明、凭据助手策略和能力对象。`adapters/protocol.rs` 只负责运行时分发，不放协议字段或站点分支。
 4. 协议探测复用注册表中的 `ConnectionCapability::probe_site` 和 `ProtocolDetectionRole`。通用 fallback 只能在对应认证边界内启用，不能因为请求失败就把已知账号协议降级成通用 API。
 5. 同步 `src/stores/provider-types.ts` 的 IPC 字面量类型；只有图标或卡片视觉确实不同才增加前端映射，不在 Vue、Pinia 或 composable 中复制认证和能力判断。
 6. 如果新增了持久化字段或改变数据结构，必须同步 Rust 模型、默认值、存储迁移和前端接收类型。单纯新增协议枚举不应伪造旧配置兼容分支。
@@ -217,7 +221,7 @@ Agent CLI 使用内置静态注册表和能力 Adapter，不依赖插件系统�
 
 终端身份、平台探测和启动策略彼此分离：
 
-1. 在 `src-tauri/src/terminal_catalog.rs` 登记枚举名、序列化 key 和 fallback 名称；Rust 模型的 `TemporaryCliTerminalKind` 由 catalog 生成。
+1. 在 `crates/core/src/terminal_catalog.rs` 登记枚举名、序列化 key 和 fallback 名称；Rust 模型的 `TemporaryCliTerminalKind` 由 catalog 生成。
 2. 在 `src-tauri/src/services/temporary_cli/terminal/<platform>.rs` 或对应平台子目录实现探测与启动，并加入该平台 `TerminalDefinition` 注册表。某个平台不支持时不要注册，也不要提供假成功实现。
 3. 精确激活窗口是可选能力，只有终端能返回稳定 locator 时才登记 activator；否则保持普通未跟踪启动。
 4. 同步 `src/stores/provider-types.ts` 的终端字面量类型；需要原生图标时更新 `TerminalBrandIcon.vue`，没有图标时沿用统一终端 fallback，不复制探测名称。
@@ -232,6 +236,8 @@ Agent CLI 使用内置静态注册表和能力 Adapter，不依赖插件系统�
 - `package.json`
 - `package-lock.json`
 - `src-tauri/Cargo.toml`
+- `crates/core/Cargo.toml`
+- `crates/server/Cargo.toml`
 - `src-tauri/tauri.conf.json`
 - Git tag，例如 `v0.2.0`
 

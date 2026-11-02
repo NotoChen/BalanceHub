@@ -33,19 +33,6 @@ impl PreparedRunSettings {
     }
 }
 
-pub(crate) fn validate(settings: &TemporaryCliRunSettings) -> Result<(), String> {
-    if settings.initial_prompt.len() + settings.instructions.len() > 256 * 1024 {
-        return Err("本次上下文超过 256 KiB，请改为在会话中按需读取文件".into());
-    }
-    if settings.disabled_assets.len() > 4096 || settings.additional_directories.len() > 64 {
-        return Err("本次启动选项数量过多".into());
-    }
-    if settings.initial_prompt.contains('\0') || settings.instructions.contains('\0') {
-        return Err("上下文不能包含空字符".into());
-    }
-    Ok(())
-}
-
 pub(crate) fn asset_options(
     settings: &AppSettings,
     request: &TemporaryCliSettingsRequest,
@@ -113,7 +100,7 @@ pub(super) fn apply(
             model_selection: options::read_model_selection(&model_request),
         });
     }
-    validate(settings)?;
+    settings.validate()?;
     let (capabilities, resolved) = capabilities::inspect(&model_request, provider_models)?;
     let mut prepared = PreparedRunSettings {
         files: Vec::new(),

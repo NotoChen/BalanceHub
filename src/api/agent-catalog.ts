@@ -1,4 +1,4 @@
-import { Channel, invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from "./transport.ts"
 import type {
   AgentAssetCatalog, AgentCatalogDefinition, AgentCatalogSaveRequest, AgentCatalogDeleteRequest,
   AgentCatalogAdoptRequest, AgentCatalogPlanRequest, AgentCatalogAgentPanelRequest, AgentCatalogAgentPanel,

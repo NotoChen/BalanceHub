@@ -7,6 +7,7 @@ import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
 import AgentDashboard from "./agent-workspace/AgentDashboard.vue";
 import { useAgentWorkspaceStore } from "../stores/agent-workspace";
+import { useHostCapabilities } from "../composables/useHostCapabilities";
 import type {
   CliRuntimeSnapshot,
   AgentRuntimeSnapshot,
@@ -64,6 +65,11 @@ const props = defineProps<{
 const oauth = useOAuthAccountStore();
 const searchQuery = ref("");
 const agentWorkspace = useAgentWorkspaceStore();
+const { agentAvailable, ensure: ensureHostCapabilities } = useHostCapabilities();
+void ensureHostCapabilities();
+watch(agentAvailable, (available) => {
+  if (!available) agentWorkspace.setView("providers");
+}, { immediate: true });
 const agentOpened = ref(agentWorkspace.view === "agents");
 const agentRefreshing = ref(false);
 const dashboard = ref<InstanceType<typeof AgentDashboard> | null>(null);
@@ -148,6 +154,7 @@ const emit = defineEmits<{
 <template>
   <AppTopbar
     :workspace-view="agentWorkspace.view"
+    :agent-available="agentAvailable"
     :refresh-in-progress="agentWorkspace.view === 'agents' ? agentRefreshing : refreshInProgress"
     :global-check-in-in-progress="globalCheckInInProgress"
     :search-query="currentSearch"
@@ -237,7 +244,7 @@ const emit = defineEmits<{
   />
   <OAuthWorkspace @edit="emit('edit', $event)" @models="emit('openAvailableModels', $event)" />
   <AgentDashboard
-    v-if="agentOpened"
+    v-if="agentOpened && agentAvailable"
     v-show="agentWorkspace.view === 'agents'"
     ref="dashboard"
     :active="agentWorkspace.view === 'agents'"
