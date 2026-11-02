@@ -87,23 +87,56 @@ test("card marks render without a frame at one shared size", () => {
   assert.doesNotMatch(managedStyles, /workspace-card-logo-framed/);
 });
 
-test("icon, title and status share one top line no matter how many subtitle rows a card has", () => {
+test("the icon centers on the name block while the status stays on the title line", () => {
   const sharedHeader = readFileSync(
     new URL("../src/components/workspace-card/WorkspaceCardHeader.vue", import.meta.url),
     "utf8",
   );
   const sharedStyles = readFileSync(sharedCardStylePath, "utf8");
+  const foundation = readFileSync(
+    new URL("../src/styles/modules/foundation.css", import.meta.url),
+    "utf8",
+  );
   const styles = readFileSync(stylePath, "utf8");
 
-  // 头部三样东西按标题首行对齐：中转站卡副标题两行、Key 卡三行，居中对齐
-  // 会把图标和状态点各自推到不同高度。
+  // 图标按名称块（标题行 + 一行副标题）居中：图标是 32px 的方块，标题墨迹只有
+  // 约 11px，钉在标题首行时图标在文字上方探出的部分远多于下方，标题看起来
+  // 浮在图标中心偏上。参考块固定为一行副标题：Key 卡的副标题有三行，跟着全文
+  // 居中会把图标压到地址行上，四类卡片的图标也就不在同一高度。右侧状态仍贴
+  // 标题首行：副标题行数由卡型的数据决定（中转站两行、Key 三行），跟着名称块
+  // 居中会把同一状态推到不同高度。
   assert.match(sharedHeader, /<div v-if="\$slots\.meta" class="workspace-card-meta">/);
   assert.match(sharedStyles, /\.workspace-card-brand \{[^}]*align-items:\s*flex-start;/s);
   const meta = sharedStyles.match(/\.workspace-card-meta\s*\{([^}]*)\}/s)?.[1] ?? "";
   const copy = sharedStyles.match(/\.workspace-card-brand-copy\s*\{([^}]*)\}/s)?.[1] ?? "";
-  const offset = /padding-top:\s*calc\(\s*\(var\(--workspace-card-icon-box-size\) - var\(--workspace-card-title-size\) \* 1\.25\) \/ 2\s*\);/;
+  const logo = sharedStyles.match(/\.workspace-card-logo\s*\{([^}]*)\}/s)?.[1] ?? "";
+  const offset = /padding-top:\s*calc\(\s*\(var\(--workspace-card-icon-box-size\) - var\(--workspace-card-title-row-size\)\) \/ 2\s*\);/;
   assert.match(meta, offset);
-  assert.match(copy, offset);
+  assert.doesNotMatch(copy, /padding-top:/);
+  assert.match(
+    logo,
+    /margin-top:\s*calc\(\s*\(var\(--workspace-card-title-row-size\) \+ var\(--workspace-card-subtitle-line-height\) -\s*var\(--workspace-card-icon-box-size\)\) \/ 2\s*\);/,
+  );
+  // 标题行的高度取标题行高和行内操作按钮里较高的一档：只按文字行高排版时，
+  // 24px 的「打开」按钮会把这一行撑高，标题和副标题的行距跟着抖动。派生变量
+  // 声明在卡片上，才能跟着 agent 卡自己的标题字号走。
+  assert.match(
+    sharedStyles,
+    /\.workspace-card \{[\s\S]*?--workspace-card-title-row-size:\s*max\(\s*calc\(var\(--workspace-card-title-size\) \* var\(--workspace-card-title-line-height\)\),\s*24px\s*\);/,
+  );
+  assert.match(
+    foundation,
+    /--workspace-card-title-line-height:\s*1\.25;/,
+  );
+  assert.match(
+    foundation,
+    /--workspace-card-subtitle-line-height:\s*12px;/,
+  );
+  assert.match(
+    sharedStyles,
+    /\.workspace-card-title-row \{[^}]*min-height:\s*var\(--workspace-card-title-row-size\);/s,
+  );
+  assert.match(sharedStyles, /\.workspace-card-title \{[^}]*line-height:\s*var\(--workspace-card-title-line-height\);/s);
   // Key 卡的地址行和账号卡的「协议 · 账号」同一级字号，不是第二个标题。
   const endpoint = styles.match(/\.provider-card-api-endpoint-value\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(endpoint, /font-size:\s*11px;/);
@@ -310,6 +343,23 @@ test("subscription windows reuse the OAuth quota bar and the bar never gets a le
   // 只有一个余额数字时不挂「账号可用额度」标签，未同步时直接写「未同步」。
   assert.doesNotMatch(body, /等待首次同步/);
   assert.match(body, /value: "未同步"/);
+});
+
+test("a card names the backup endpoint only while failover is active", () => {
+  const body = readFileSync(bodyPath, "utf8");
+  const styles = readFileSync(stylePath, "utf8");
+  const note = readFileSync(
+    new URL("../src/components/provider-card/ProviderCardEndpointNote.vue", import.meta.url),
+    "utf8",
+  );
+  // 备用地址说明和过期说明同一个位置、同一套「只在需要时出现」的规则：
+  // 主地址正常时这一行不占卡片容量。
+  assert.match(body, /<ProviderCardEndpointNote :provider="provider" \/>/);
+  assert.match(note, /providerEndpointNote\(props\.provider\)/);
+  assert.match(note, /v-if="note\.text"/);
+  // 地址再长也只占一行，主机名结尾省略，全文在悬停提示里。
+  assert.match(styles, /\.provider-card-endpoint \{[^}]*text-overflow: ellipsis/s);
+  assert.match(styles, /\.provider-card-endpoint \{[^}]*white-space: nowrap/s);
 });
 
 test("API Key cards expose transport and provider protocol labels independently", () => {

@@ -8,9 +8,12 @@ import {
   providerApiKeySecondaryName,
   providerApiKeyRemark,
   providerCardTitle,
+  providerCardScopeNoun,
   providerCardStatusTone,
+  providerCooldownNote,
   providerModelScopeLabel,
   providerDefaultApiKeyOption,
+  providerEndpointNote,
   providerQuotaScopeLabel,
   providerQuotaHeadline,
   providerQuotaTone,
@@ -93,6 +96,20 @@ test("quota progress stays between zero and one while retaining the account bala
 test("account card title appends an optional provider remark", () => {
   assert.equal(providerCardTitle(provider("password", "Claude 主用")), "Relay Site · Claude 主用");
   assert.equal(providerCardTitle(provider("password")), "Relay Site");
+});
+
+test("a card calls itself what its protocol is", () => {
+  const relay = provider("password");
+  relay.identity.protocol = "newApi";
+  assert.equal(providerCardScopeNoun(relay), "中转站");
+
+  const gateway = provider("password");
+  gateway.identity.protocol = "cliProxyApi";
+  assert.equal(providerCardScopeNoun(gateway), "网关");
+
+  const account = provider("password");
+  account.identity.protocol = "oauth";
+  assert.equal(providerCardScopeNoun(account), "账号");
 });
 
 test("API Key card exposes its remark as a standalone heading", () => {
@@ -432,4 +449,53 @@ test("a card only names the sync time once its numbers are stale", () => {
   assert.equal(providerStaleSyncNote(String((now - 2 * 86_400_000) / 1000), now), "数据已 2 天未更新");
   assert.equal(providerStaleSyncNote(String(now - 2 * 86_400_000), now), "数据已 2 天未更新");
   assert.equal(providerStaleSyncNote(String(now - 5 * 86_400_000), now), "数据已 5 天未更新");
+});
+
+test("a cooling card says when automatic refresh resumes", () => {
+  const now = Date.UTC(2026, 9, 22, 12, 0, 0);
+  const value = provider("session");
+  // 停用的卡片不自动刷新，冷却说明没有意义。
+  value.runtime = { enabled: false, status: "disabled" };
+  assert.equal(providerCooldownNote(value, now).text, "");
+
+  value.runtime = {
+    enabled: true,
+    status: "error",
+    cooldownUntil: (now + 5 * 60_000) / 1000,
+    cooldownReason: "站点限流，稍后自动重试",
+  } as Provider["runtime"];
+  const note = providerCooldownNote(value, now);
+  assert.equal(note.text, "冷却中 · 5 分钟后重试");
+  assert.match(note.title, /站点限流/);
+  assert.match(note.title, /手动刷新不受冷却限制/);
+
+  // 冷却时间已过、状态尚未回写时不显示过期倒计时。
+  assert.equal(providerCooldownNote(value, now + 6 * 60_000).text, "");
+
+  // 长冷却按小时和天读，和额度窗口的重置倒计时同一读法。
+  value.runtime.cooldownUntil = (now + (2 * 60 + 30) * 60_000) / 1000;
+  assert.equal(providerCooldownNote(value, now).text, "冷却中 · 2 小时 30 分后重试");
+  value.runtime.cooldownUntil = (now + 49 * 3_600_000) / 1000;
+  assert.equal(providerCooldownNote(value, now).text, "冷却中 · 3 天后重试");
+});
+
+test("a failed-over card names the backup endpoint it is actually using", () => {
+  const value = provider("session");
+  // 主地址正常时这一行不出现，卡片不为一件没发生的事留位置。
+  assert.deepEqual(providerEndpointNote(value), { text: "", title: "" });
+
+  value.activeEndpoint = {
+    backupUrl: "https://backup.example.com/v1",
+    backupIndex: 1,
+    switchedAt: 1_760_000_000,
+  };
+  const note = providerEndpointNote(value);
+  // 卡片上只写序号和主机名，全文和切换时间放进悬停提示。
+  assert.equal(note.text, "备用地址 1 · backup.example.com");
+  assert.match(note.title, /主地址不可用，请求正在使用备用地址 1：https:\/\/backup\.example\.com\/v1/);
+  assert.match(note.title, /切换时间：/);
+
+  // 地址解析不了时仍写序号，不把整段原始字符串塞进卡片。
+  value.activeEndpoint.backupUrl = "backup.example.com/v1";
+  assert.equal(providerEndpointNote(value).text, "备用地址 1 · backup.example.com");
 });

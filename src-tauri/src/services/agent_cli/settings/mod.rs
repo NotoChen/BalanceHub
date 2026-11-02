@@ -3,6 +3,7 @@ mod apply;
 mod display;
 mod help;
 mod model_catalog;
+mod model_declared;
 mod model_mappings;
 mod models;
 mod persistence;
@@ -70,6 +71,7 @@ pub(crate) struct ResolvedOptions {
 pub(crate) fn resolve(
     request: &TemporaryCliSettingsRequest,
     help: &str,
+    provider_models: Option<&ProviderModelConfig>,
 ) -> Result<ResolvedOptions, String> {
     let mut snapshot = sources::read(request)?;
     codex::load_features(&mut snapshot, &request.cli_path);
@@ -100,6 +102,7 @@ pub(crate) fn resolve(
         false,
         Some(&request.native_options),
     );
+    model_declared::annotate(&mut fields, &model, provider_models);
     display::annotate(&mut fields, &snapshot);
     reset::launch_values(&original_snapshot, request, &model, help, &mut fields);
     let model_choices = models::choices(&snapshot);

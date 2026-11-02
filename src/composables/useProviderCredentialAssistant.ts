@@ -119,7 +119,7 @@ export function useProviderCredentialAssistant(
 
     if (!options.draftProvider.identity.baseUrl.trim()) {
       if (notify) {
-        Message.warning("请先填写中转站地址");
+        Message.warning("请先填写地址");
       }
       return;
     }
@@ -478,7 +478,7 @@ export function useProviderCredentialAssistant(
     }
 
     credentialAssistantState.value = "saving";
-    setAssistantStep("save", "保存配置", "running", "正在保存中转站配置");
+    setAssistantStep("save", "保存配置", "running", "正在保存配置");
     const saveContext = captureRequestContext();
     try {
       const savedProvider = await options.saveDraftAndFindProvider(
@@ -497,7 +497,7 @@ export function useProviderCredentialAssistant(
       credentialAssistantSaved.value = true;
       credentialAssistantState.value = "done";
       credentialAssistantMessage.value = "配置已完成并保存";
-      setAssistantStep("save", "保存配置", "done", "已保存，你可以继续调整高级配置");
+      setAssistantStep("save", "保存配置", "done", "已保存，你可以继续调整其他分区");
       Message.success("配置已完成并保存");
     } catch (error) {
       if (!requestContextIsCurrent(saveContext)) {
@@ -518,7 +518,7 @@ export function useProviderCredentialAssistant(
       return false;
     }
     if (!options.draftProvider.identity.baseUrl.trim()) {
-      Message.warning("请先填写中转站地址");
+      Message.warning("请先填写地址");
       return false;
     }
     const schema = currentAuthModeDescriptor();

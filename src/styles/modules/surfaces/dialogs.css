@@ -27,7 +27,8 @@
     max-height: calc(100dvh - 24px);
     margin: 12px auto;
   }
-  .surface-modal .arco-modal-header { padding-right: 54px; }
+  .surface-modal .arco-modal-header { padding-right: 54px; padding-left: 16px; }
+  .surface-modal-title-meta { display: none; }
   .settings-overview-hero { grid-template-columns: minmax(0, 1fr); padding: 20px; }
   .settings-overview-hero-mark { display: none; }
   .settings-overview-metrics,
@@ -35,10 +36,6 @@
   .settings-workspace-v3 .settings-theme-layout,
   .settings-workspace-v3 .settings-field-grid,
   .settings-workspace-v3 .settings-field-grid-three { grid-template-columns: 1fr; }
-  .provider-editor-context { flex: 0 0 auto; border-top: 1px solid var(--surface-line); border-left: 0; padding: 12px 16px; }
-  .provider-editor-context-progress { margin-top: 0; }
-  .provider-editor-footer-status { display: none; }
-  .provider-basics-identity-grid { grid-template-columns: 1fr; gap: 0; }
 }
 
 /* Provider editor refinements: identity is observed, credentials are progressive. */
@@ -51,29 +48,45 @@
   line-height: 1.6;
 }
 
+/* 接入类型是一张 2×2 的选型卡：四个协议各自带一句说明，两列比一排三段式
+   更好读，也不会让第四个选项单独掉到第二行左端。 */
 .provider-protocol-picker {
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
   margin-bottom: 0;
   border: 1px solid #e0e6ee;
   border-radius: 8px;
   background: #f3f6f9;
-  padding: 3px;
+  padding: 6px;
 }
 
 .provider-protocol-option {
+  display: grid;
   min-height: 32px;
+  align-content: start;
+  gap: 2px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: #344357;
   cursor: pointer;
-  padding: 6px 10px;
-  text-align: center;
+  padding: 8px 10px;
+  text-align: left;
   transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.provider-protocol-option strong {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.provider-protocol-option-description {
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .provider-protocol-option.active {
@@ -96,6 +109,10 @@
   background: #26384e;
   color: #b7d4fb;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
+}
+
+:root.theme-dark .provider-protocol-option-description {
+  color: #93a3b8;
 }
 
 .provider-site-detection.ready {

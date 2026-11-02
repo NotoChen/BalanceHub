@@ -29,7 +29,7 @@ export function useProviderConnectionTest(options: UseProviderConnectionTestOpti
   async function testConnection() {
     if (!options.drawerVisible.value || request.loading.value) return;
     if (!options.draftProvider.identity.baseUrl.trim()) {
-      options.connectionTestResult.value = failedResult("请先填写中转站地址");
+      options.connectionTestResult.value = failedResult("请先填写地址");
       return;
     }
     options.connectionTestResult.value = null;

@@ -26,10 +26,21 @@ pub(crate) async fn get_agent_model_catalog(
 
 #[tauri::command]
 pub(crate) async fn get_temporary_cli_settings(
+    app: AppHandle,
     request: TemporaryCliSettingsRequest,
 ) -> Result<TemporaryCliSettingsCapabilities, String> {
+    // 卡片声明的模型推理能力以 Rust 侧数据为准；前端只传本次启动的中转站。
+    let model_config = app
+        .state::<AppState>()
+        .data
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .providers
+        .iter()
+        .find(|provider| provider.identity.id == request.provider_id)
+        .map(|provider| provider.model_config.clone());
     super::run_blocking("读取本次启动能力", move || {
-        temporary_cli::run_capabilities(&request)
+        temporary_cli::run_capabilities(&request, model_config.as_ref())
     })
     .await
 }

@@ -40,14 +40,28 @@ const modalTitle = computed(() => props.provider
   ? `${providerDisplayLabel(props.provider)} · ${providerModelScopeLabel(modelScope.value)}`
   : "可用模型");
 
-const models = computed(() =>
+const allModels = computed(() =>
   Array.from(
     new Set(
       (props.provider?.capabilities.availableModels ?? [])
         .map((model) => model.trim())
         .filter(Boolean),
     ),
+  ),
+);
+// 模型选择器展示卡片规则（include / exclude / hidden）过滤后的列表；
+// 原始列表仍完整保留，被隐藏的数量在这里说明。
+const models = computed(() =>
+  Array.from(
+    new Set(
+      (props.provider?.visibleModels ?? [])
+        .map((model) => model.trim())
+        .filter(Boolean),
+    ),
   ).sort((left, right) => left.localeCompare(right)),
+);
+const hiddenCount = computed(() =>
+  Math.max(0, allModels.value.length - models.value.length),
 );
 
 const filteredModels = computed(() => {
@@ -57,7 +71,11 @@ const filteredModels = computed(() => {
 });
 
 const displayedModels = computed(() => filteredModels.value.slice((page.value - 1) * MODELS_PER_PAGE, page.value * MODELS_PER_PAGE));
-const metadata = useModelMetadata(displayedModels, computed(() => props.visible));
+const metadata = useModelMetadata(
+  displayedModels,
+  computed(() => props.visible),
+  computed(() => props.provider?.identity.id),
+);
 watch(keyword, () => { page.value = 1; });
 watch(() => filteredModels.value.length, (count) => { page.value = Math.min(page.value, Math.max(1, Math.ceil(count / MODELS_PER_PAGE))); });
 watch([page, keyword], () => { if (modelList.value) modelList.value.scrollTop = 0; }, { flush: "post" });
@@ -120,7 +138,7 @@ const canRefresh = computed(() => Boolean(props.provider?.actions.models.canSync
         </div>
         <div v-else class="available-models-body">
           <div class="available-models-summary">
-            <span>{{ keyword.trim() ? `匹配 ${filteredModels.length.toLocaleString()} 个 · 共 ${models.length.toLocaleString()} 个模型` : `共 ${models.length.toLocaleString()} 个模型` }}</span>
+            <span>{{ keyword.trim() ? `匹配 ${filteredModels.length.toLocaleString()} 个 · 共 ${models.length.toLocaleString()} 个模型` : `共 ${models.length.toLocaleString()} 个模型` }}<template v-if="hiddenCount">（展示规则隐藏 {{ hiddenCount }} 个）</template></span>
             <span>点击模型名称即可复制</span>
           </div>
           <div v-if="filteredModels.length === 0" class="available-models-empty">

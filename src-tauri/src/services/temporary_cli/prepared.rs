@@ -152,6 +152,11 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         }
     }
     let model = options.model_override.trim().to_string();
+    // 卡片声明了 wire_name 时，CLI 收到的才是上游认识的模型 ID；表单、预览和
+    // 历史仍使用用户选择的 ID。
+    let wire_model = provider
+        .map(|provider| provider.model_config.wire_name(&model).to_string())
+        .unwrap_or_else(|| model.clone());
     let session_name = resolve_session_name(
         cli_kind,
         options.session_mode,
@@ -182,7 +187,7 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
     };
     let mut plan = adapter.build_plan(TemporaryLaunchRequest {
         configuration,
-        model: &model,
+        model: &wire_model,
         session_name: &session_name,
         resume_id: &resume_id,
         session_mode: options.session_mode,
@@ -220,6 +225,7 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             inherited_model: options.inherited_model,
             directory: script.parent().ok_or("缺少启动目录")?,
             settings: options.run_settings,
+            provider,
         },
         &mut plan,
     )?;

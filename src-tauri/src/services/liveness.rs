@@ -48,7 +48,10 @@ impl LivenessRunner {
         if !provider_domain::auth::has_api_key(provider) {
             return Err("缺少 API Key，测活需要 API Key".to_string());
         }
-        let model = effective_model(settings, provider);
+        let model = provider
+            .model_config
+            .wire_name(&effective_model(settings, provider))
+            .to_string();
         let prompt = prompt_override
             .and_then(|value| {
                 let value = value.trim().to_string();

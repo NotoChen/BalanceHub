@@ -1,3 +1,5 @@
+#[path = "provider/advanced.rs"]
+mod advanced;
 #[path = "provider/defaults.rs"]
 mod defaults;
 #[path = "provider/input.rs"]
@@ -7,6 +9,7 @@ mod normalize;
 #[path = "provider/state.rs"]
 mod state;
 
+pub use advanced::*;
 pub(crate) use input::normalize_provider_auth;
 pub use input::ProviderInput;
 pub(crate) use normalize::{

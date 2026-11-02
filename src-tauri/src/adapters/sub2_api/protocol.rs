@@ -62,10 +62,8 @@ impl ConnectionCapability for Sub2ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> ProviderOperationOutcome<()> {
-        ProviderOperationOutcome::refreshed(
-            provider,
-            Sub2ApiAdapter::refresh_provider(self, settings, provider).await,
-        )
+        let (refreshed, failure) = Sub2ApiAdapter::refresh_provider(self, settings, provider).await;
+        ProviderOperationOutcome::refreshed(provider, refreshed).with_failure(failure)
     }
 }
 

@@ -1,6 +1,7 @@
 use super::Sub2ApiAdapter;
 use crate::{
     adapters::{
+        error::AdapterError,
         sub2_api::{
             auth::{
                 authenticate_account, is_auth_failure, is_refresh_chain_broken,
@@ -16,8 +17,9 @@ use crate::{
     },
     limits,
     models::{
-        AppSettings, AuthMode, Provider, ProviderConnectionTestResult, ProviderConnectionTestStep,
-        ProviderQuotaDisplay, ProviderQuotaWindow, ProviderSiteProbeResult, ProviderStatus,
+        provider_domain::failure::ProviderFailureKind, AppSettings, AuthMode, Provider,
+        ProviderConnectionTestResult, ProviderConnectionTestStep, ProviderQuotaDisplay,
+        ProviderQuotaWindow, ProviderSiteProbeResult, ProviderStatus,
     },
 };
 use serde_json::Value;
@@ -33,7 +35,7 @@ impl Sub2ApiAdapter {
         let site = fetch_site(&client, &provider.identity.base_url).await.ok();
         let mut steps = Vec::new();
 
-        let refreshed = self
+        let (refreshed, _) = self
             .refresh_provider_with_client(&client, provider, site)
             .await;
         let value = match refreshed.runtime.status {
@@ -106,13 +108,16 @@ impl Sub2ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Provider {
+    ) -> (Provider, Option<ProviderFailureKind>) {
         match build_client(settings, provider).await {
             Ok(client) => {
                 self.refresh_provider_with_client(&client, provider, None)
                     .await
             }
-            Err(message) => provider_with_error(provider, message),
+            Err(message) => (
+                provider_with_error(provider, message),
+                Some(ProviderFailureKind::Transient),
+            ),
         }
     }
 
@@ -121,10 +126,10 @@ impl Sub2ApiAdapter {
         client: &ProviderTransport,
         provider: &Provider,
         site_hint: Option<Value>,
-    ) -> Provider {
+    ) -> (Provider, Option<ProviderFailureKind>) {
         let mut next = provider.clone();
         if !provider.runtime.enabled {
-            return next;
+            return (next, None);
         }
 
         // 刷新路径会轮换 refresh_token。服务层在进入该适配器前持有网络认证闸门，
@@ -193,7 +198,7 @@ impl Sub2ApiAdapter {
                 next.quota.unlimited = false;
                 next.automation.last_synced_at = Some(crate::util::unix_secs().to_string());
                 next.runtime.error_message = None;
-                next
+                (next, None)
             }
             Err(_message) if matches!(provider.auth.mode, AuthMode::ApiKey) => {
                 // Key 的额度与模型列表是两条独立的读取：扣了额度但模型接口
@@ -219,12 +224,22 @@ impl Sub2ApiAdapter {
                 next.automation.last_synced_at = Some(crate::util::unix_secs().to_string());
                 next.runtime.error_message = None;
                 match model_result {
-                    Ok(()) => next,
-                    Err(_) if next.quota.known => next,
-                    Err(model_error) => provider_with_error(&next, model_error),
+                    Ok(()) => (next, None),
+                    Err(_) if next.quota.known => (next, None),
+                    Err(error) => (
+                        provider_with_error(&next, error.message),
+                        Some(error.failure),
+                    ),
                 }
             }
-            Err(message) => provider_with_error(&next, message),
+            Err(message) => {
+                let failure = if is_refresh_chain_broken(&message) || is_auth_failure(&message) {
+                    ProviderFailureKind::Credential
+                } else {
+                    ProviderFailureKind::Transient
+                };
+                (provider_with_error(&next, message), Some(failure))
+            }
         }
     }
 }
@@ -309,7 +324,7 @@ async fn authenticate_account_with_refresh(
 async fn refresh_models_if_available(
     client: &ProviderTransport,
     provider: &mut Provider,
-) -> Result<(), String> {
+) -> Result<(), AdapterError> {
     match crate::adapters::api::fetch_models(client, provider).await {
         Ok(models) => {
             provider
@@ -321,7 +336,7 @@ async fn refresh_models_if_available(
             Ok(())
         }
         Err(error) => {
-            provider.capabilities.available_models_state.error = Some(error.clone());
+            provider.capabilities.available_models_state.error = Some(error.message.clone());
             Err(error)
         }
     }

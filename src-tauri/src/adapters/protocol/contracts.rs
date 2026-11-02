@@ -8,6 +8,8 @@ use crate::models::{
 };
 use async_trait::async_trait;
 
+use crate::models::provider_domain::failure::ProviderFailureKind;
+
 /// 认证请求可能产生的最小凭据变更。
 ///
 /// Adapter 不再把整份 `Provider` 返回给业务层，避免一次令牌轮换顺带覆盖配额、能力、
@@ -126,6 +128,9 @@ pub(crate) struct ProviderObservationPatch {
     last_synced_at: Option<String>,
     status: ProviderStatus,
     error_message: Option<String>,
+    consecutive_failures: u32,
+    cooldown_until: Option<i64>,
+    cooldown_reason: Option<String>,
 }
 
 impl ProviderObservationPatch {
@@ -146,6 +151,9 @@ impl ProviderObservationPatch {
             last_synced_at: refreshed.automation.last_synced_at.clone(),
             status: refreshed.runtime.status,
             error_message: refreshed.runtime.error_message.clone(),
+            consecutive_failures: refreshed.runtime.consecutive_failures,
+            cooldown_until: refreshed.runtime.cooldown_until,
+            cooldown_reason: refreshed.runtime.cooldown_reason.clone(),
         }
     }
 
@@ -178,6 +186,12 @@ impl ProviderObservationPatch {
             .runtime
             .error_message
             .clone_from(&self.error_message);
+        provider.runtime.consecutive_failures = self.consecutive_failures;
+        provider.runtime.cooldown_until = self.cooldown_until;
+        provider
+            .runtime
+            .cooldown_reason
+            .clone_from(&self.cooldown_reason);
     }
 }
 
@@ -186,6 +200,8 @@ impl ProviderObservationPatch {
 pub(crate) struct ProviderOperationOutcome<T> {
     pub(crate) credentials: ProviderCredentialPatch,
     pub(crate) observation: Option<ProviderObservationPatch>,
+    /// 刷新失败的来源分类；成功或无法结构化判断时为 `None`。
+    pub(crate) failure: Option<ProviderFailureKind>,
     pub(crate) value: T,
 }
 
@@ -201,6 +217,7 @@ impl<T> ProviderOperationOutcome<T> {
         Self {
             credentials: ProviderCredentialPatch::from_authenticated(original, &authenticated),
             observation: None,
+            failure: None,
             value,
         }
     }
@@ -209,6 +226,7 @@ impl<T> ProviderOperationOutcome<T> {
         Self {
             credentials: ProviderCredentialPatch::default(),
             observation: None,
+            failure: None,
             value,
         }
     }
@@ -220,8 +238,14 @@ impl<T> ProviderOperationOutcome<T> {
         Self {
             credentials: ProviderCredentialPatch::from_authenticated(original, &refreshed),
             observation: Some(ProviderObservationPatch::from_refreshed(&refreshed)),
+            failure: None,
             value: T::default(),
         }
+    }
+
+    pub(crate) fn with_failure(mut self, failure: Option<ProviderFailureKind>) -> Self {
+        self.failure = failure;
+        self
     }
 
     pub(crate) fn apply_to(&self, provider: &mut Provider) {
@@ -260,6 +284,7 @@ pub(crate) trait ConnectionCapability: Send + Sync {
     ) -> Result<ProviderOperationOutcome<ProviderModelList>, String> {
         crate::adapters::api::fetch_models(client, provider)
             .await
+            .map_err(String::from)
             .map(|models| {
                 ProviderOperationOutcome::unchanged(ProviderModelList::new(
                     models,

@@ -22,6 +22,12 @@ body.workspace-card-drag-active * {
   --workspace-card-surface: var(--glass-card);
   --workspace-card-state: #c9cdd4;
   --workspace-card-beam-duration: 6s;
+  /* 标题行按标题行高和行内操作按钮（24px）里较高的一档排版。声明在卡片上而
+     不是 :root：agent 卡把标题字号调到 17px，派生值要跟着卡片自己的变量走。 */
+  --workspace-card-title-row-size: max(
+    calc(var(--workspace-card-title-size) * var(--workspace-card-title-line-height)),
+    24px
+  );
   position: relative;
   display: flex;
   width: 100%;
@@ -139,15 +145,17 @@ body.workspace-card-drag-active * {
   gap: 12px;
 }
 
-/* 头部右侧和标题首行对齐：副标题行数由卡型的数据决定（中转站两行、Key 三
-   行），居中对齐会把状态点推到副标题那一行，四类卡片看起来不在同一个位置。 */
+/* 头部右侧和标题首行对齐：副标题行数由卡型的数据决定（中转站一行、Key 两
+   行），让状态跟着名称块居中会把不同卡型的同一状态推到不同高度。右侧内容
+   按标题行高中线居中，始终贴着标题首行。 */
 .workspace-card-meta {
   display: flex;
   min-width: 0;
   flex: 0 0 auto;
   align-items: center;
+  min-height: var(--workspace-card-title-row-size);
   padding-top: calc(
-    (var(--workspace-card-icon-box-size) - var(--workspace-card-title-size) * 1.25) / 2
+    (var(--workspace-card-icon-box-size) - var(--workspace-card-title-row-size)) / 2
   );
 }
 
@@ -164,8 +172,12 @@ body.workspace-card-drag-active * {
   margin-top: auto;
 }
 
-/* 图标按顶对齐：四类卡片的副标题行数不同（中转站两行、Key 三行），
-   居中对齐会让图标在 Key 卡上落到最后一行，标题看起来浮在图标上方。 */
+/* 图标按名称块居中：标题行加一行副标题一起构成参考块。图标是 32px 的方块，
+   标题墨迹只有约 11px，把图标钉在标题首行时它在文字上方探出的部分远多于
+   下方，标题看起来浮在图标中心偏上；按名称块居中，图标在标题上方和副标题
+   下方探出的留白相等。参考块固定为「标题行 + 一行副标题」，不随副标题实际
+   行数变化：Key 卡的副标题有两行（地址、Key），跟着全文居中会把图标压到
+   地址行上，四类卡片的图标也就不再在同一高度。 */
 .workspace-card-brand {
   display: flex;
   min-width: 0;
@@ -174,18 +186,20 @@ body.workspace-card-drag-active * {
   gap: 9px;
 }
 
-/* 图标与标题首行同心中线：图标盒和标题行高都由各自卡片的变量决定（中转站
-   32px / 15px，Agent 卡 40px / 17px），偏移量按变量算，不写死像素。 */
+/* 名称块不再靠 padding 把标题压到图标中线：标题行只负责自己的行高（含行内
+   24px 操作按钮），跟着副标题一起排；图标由自己的 margin-top 落到参考块
+   中线。 */
 .workspace-card-brand-copy {
   display: grid;
   min-width: 0;
   gap: 1px;
-  padding-top: calc(
-    (var(--workspace-card-icon-box-size) - var(--workspace-card-title-size) * 1.25) / 2
-  );
 }
 
 .workspace-card-logo {
+  margin-top: calc(
+    (var(--workspace-card-title-row-size) + var(--workspace-card-subtitle-line-height) -
+          var(--workspace-card-icon-box-size)) / 2
+  );
   flex: 0 0 auto;
   display: grid;
   width: var(--workspace-card-icon-box-size);
@@ -196,6 +210,7 @@ body.workspace-card-drag-active * {
 .workspace-card-title-row {
   display: flex;
   min-width: 0;
+  min-height: var(--workspace-card-title-row-size);
   align-items: center;
   gap: 6px;
 }
@@ -207,7 +222,7 @@ body.workspace-card-drag-active * {
   color: #1d2129;
   font-size: var(--workspace-card-title-size);
   font-weight: 650;
-  line-height: 1.25;
+  line-height: var(--workspace-card-title-line-height);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;

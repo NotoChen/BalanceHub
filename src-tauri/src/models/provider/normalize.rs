@@ -3,8 +3,12 @@ use crate::{
     models::{AuthMode, ProviderProtocol},
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
 
-use super::{Provider, ProviderInput};
+use super::{
+    Provider, ProviderHeader, ProviderInput, ProviderModelConfig, ProviderModelOverride,
+    ProviderQuotaSpec, ProviderQuotaWindowSpec, ProviderRequestConfig,
+};
 
 pub fn check_in_message_indicates_disabled(message: &str) -> bool {
     let normalized = message.trim().to_ascii_lowercase();
@@ -435,6 +439,181 @@ pub(crate) fn normalize_cpa_base_url(value: &str) -> Result<String, String> {
     url.set_query(None);
     url.set_fragment(None);
     Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+fn clip(value: &str, max_chars: usize) -> String {
+    value.trim().chars().take(max_chars).collect()
+}
+
+fn normalize_header_list(headers: Vec<ProviderHeader>) -> Vec<ProviderHeader> {
+    let mut normalized: Vec<ProviderHeader> = Vec::new();
+    for header in headers {
+        let name = clip(&header.name, limits::MAX_HEADER_NAME_CHARS);
+        if name.is_empty() {
+            continue;
+        }
+        let value = clip(&header.value, limits::MAX_HEADER_VALUE_CHARS);
+        match normalized
+            .iter_mut()
+            .find(|existing| existing.name.eq_ignore_ascii_case(&name))
+        {
+            // 同名请求头以最后一次填写为准，位置沿用第一次出现的位置。
+            Some(existing) => existing.value = value,
+            None => normalized.push(ProviderHeader { name, value }),
+        }
+        if normalized.len() >= limits::MAX_PROVIDER_HEADERS {
+            break;
+        }
+    }
+    normalized
+}
+
+pub(crate) fn normalize_request_config(
+    config: ProviderRequestConfig,
+    protocol: crate::models::ProviderProtocol,
+) -> ProviderRequestConfig {
+    ProviderRequestConfig {
+        headers: normalize_header_list(config.headers),
+        auth_scheme: config.auth_scheme,
+        endpoints: crate::models::provider_domain::endpoints::normalize_endpoint_overrides(
+            protocol,
+            config.endpoints,
+            normalize_header_list,
+        ),
+    }
+}
+
+fn normalize_expression(expression: &str) -> String {
+    clip(expression, limits::MAX_QUOTA_EXPRESSION_CHARS)
+}
+
+pub(crate) fn normalize_quota_spec(spec: ProviderQuotaSpec) -> ProviderQuotaSpec {
+    let windows = spec
+        .windows
+        .into_iter()
+        .take(limits::MAX_QUOTA_WINDOWS)
+        .enumerate()
+        .filter_map(|(index, window)| {
+            let used = normalize_expression(&window.used);
+            let limit = normalize_expression(&window.limit);
+            let resets_at = normalize_expression(&window.resets_at);
+            if used.is_empty() && limit.is_empty() && resets_at.is_empty() {
+                return None;
+            }
+            let label = clip(&window.label, 48);
+            Some(ProviderQuotaWindowSpec {
+                label: if label.is_empty() {
+                    format!("窗口 {}", index + 1)
+                } else {
+                    label
+                },
+                used,
+                limit,
+                resets_at,
+            })
+        })
+        .collect();
+    ProviderQuotaSpec {
+        url: clip(&spec.url, 512),
+        method: spec.method,
+        token: clip(&spec.token, 2048),
+        headers: normalize_header_list(spec.headers),
+        balance: normalize_expression(&spec.balance),
+        total: normalize_expression(&spec.total),
+        windows,
+        per_unit: if spec.per_unit.is_finite() && spec.per_unit > 0.0 {
+            spec.per_unit
+        } else {
+            0.0
+        },
+        currency_symbol: clip(&spec.currency_symbol, 8),
+    }
+}
+
+fn normalize_model_patterns(patterns: Vec<String>) -> Vec<String> {
+    let mut normalized: Vec<String> = Vec::new();
+    for pattern in patterns {
+        let pattern = clip(&pattern, limits::MAX_MODEL_PATTERN_CHARS);
+        if pattern.is_empty() || normalized.contains(&pattern) {
+            continue;
+        }
+        normalized.push(pattern);
+        if normalized.len() >= limits::MAX_MODEL_PATTERNS {
+            break;
+        }
+    }
+    normalized
+}
+
+fn normalize_price(price: crate::models::ModelPrice) -> crate::models::ModelPrice {
+    fn value(input: Option<f64>) -> Option<f64> {
+        input.filter(|value| value.is_finite() && *value >= 0.0)
+    }
+    crate::models::ModelPrice {
+        input: value(price.input),
+        output: value(price.output),
+        cache_read: value(price.cache_read),
+        cache_write: value(price.cache_write),
+    }
+}
+
+fn normalize_override(over: ProviderModelOverride) -> ProviderModelOverride {
+    let mut levels: Vec<String> = Vec::new();
+    for level in over.reasoning_levels {
+        let level = clip(&level, limits::MAX_REASONING_LEVEL_CHARS);
+        let level = level.to_ascii_lowercase();
+        if level.is_empty() || levels.contains(&level) {
+            continue;
+        }
+        levels.push(level);
+        if levels.len() >= limits::MAX_REASONING_LEVELS {
+            break;
+        }
+    }
+    ProviderModelOverride {
+        display_name: clip(&over.display_name, limits::MAX_MODEL_OVERRIDE_CHARS),
+        wire_name: clip(&over.wire_name, limits::MAX_MODEL_OVERRIDE_CHARS),
+        alias: clip(&over.alias, limits::MAX_MODEL_OVERRIDE_CHARS),
+        context_window: over.context_window.filter(|value| *value > 0),
+        output_limit: over.output_limit.filter(|value| *value > 0),
+        price: normalize_price(over.price),
+        reasoning_levels: levels,
+        sends_reasoning: over.sends_reasoning,
+        hidden: over.hidden,
+    }
+}
+
+fn override_is_empty(over: &ProviderModelOverride) -> bool {
+    over.display_name.is_empty()
+        && over.wire_name.is_empty()
+        && over.alias.is_empty()
+        && over.context_window.is_none()
+        && over.output_limit.is_none()
+        && over.price == crate::models::ModelPrice::default()
+        && over.reasoning_levels.is_empty()
+        && over.sends_reasoning.is_none()
+        && !over.hidden
+}
+
+pub(crate) fn normalize_model_config(config: ProviderModelConfig) -> ProviderModelConfig {
+    let mut overrides = BTreeMap::new();
+    for (model, over) in config.overrides {
+        let model = clip(&model, limits::MAX_MODEL_OVERRIDE_CHARS);
+        if model.is_empty() || overrides.contains_key(&model) {
+            continue;
+        }
+        let over = normalize_override(over);
+        if !override_is_empty(&over) {
+            overrides.insert(model, over);
+        }
+    }
+    ProviderModelConfig {
+        models_url: clip(&config.models_url, 512),
+        include: normalize_model_patterns(config.include),
+        exclude: normalize_model_patterns(config.exclude),
+        catalog: clip(&config.catalog, 128),
+        overrides,
+    }
 }
 
 #[cfg(test)]

@@ -211,6 +211,9 @@ fn new_api_error() -> Provider {
         enabled: true,
         status: ProviderStatus::Error,
         error_message: Some("站点返回 502，额度接口暂无响应".into()),
+        consecutive_failures: 0,
+        cooldown_until: None,
+        cooldown_reason: None,
     };
     provider
 }
@@ -225,6 +228,9 @@ fn new_api_disabled(now: i64) -> Provider {
         enabled: false,
         status: ProviderStatus::Ok,
         error_message: None,
+        consecutive_failures: 0,
+        cooldown_until: None,
+        cooldown_reason: None,
     };
     provider
 }
@@ -246,6 +252,9 @@ fn new_api_pending() -> Provider {
         enabled: true,
         status: ProviderStatus::Ok,
         error_message: None,
+        consecutive_failures: 0,
+        cooldown_until: None,
+        cooldown_reason: None,
     };
     provider
 }
@@ -606,6 +615,9 @@ fn cpa_gateway_offline() -> Provider {
         enabled: true,
         status: ProviderStatus::Error,
         error_message: Some("无法连接网关管理接口".into()),
+        consecutive_failures: 0,
+        cooldown_until: None,
+        cooldown_reason: None,
     };
     provider
 }
@@ -856,6 +868,9 @@ fn settle(mut provider: Provider, status: ProviderStatus, now: i64) -> Provider 
         enabled: true,
         status,
         error_message: None,
+        consecutive_failures: 0,
+        cooldown_until: None,
+        cooldown_reason: None,
     };
     provider.automation.last_synced_at = Some(now.to_string());
     provider

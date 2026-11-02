@@ -25,6 +25,8 @@ const props = defineProps<{
   selectedModel: string;
   inheritedModel?: string;
   providerModels?: readonly string[];
+  /// 本次启动的中转站；Rust 据此读取卡片声明的模型推理能力。
+  providerId?: string;
   sessionMode: TemporaryCliSessionMode;
   canNameSession: boolean;
   sessionNamingHint: string;
@@ -41,6 +43,7 @@ const request = computed(() => ({
   workdir: props.workdir,
   model: props.selectedModel,
   inheritedModel: props.inheritedModel ?? "",
+  providerId: props.providerId ?? "",
   sessionMode: props.sessionMode,
   nativeOptions: model.value.nativeOptions,
 }));

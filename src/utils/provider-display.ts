@@ -11,6 +11,7 @@ import type { AccountQuotaWindow } from "../stores/oauth-types";
 import { providerNeedsCheckIn } from "./provider-actions.ts";
 import { quotaPercent, quotaResetLabel } from "./oauth-display.ts";
 import { type QuotaLevel, quotaLevel } from "./quota-level.ts";
+import { providerScopeNoun } from "./provider-protocol.ts";
 
 export type ProviderCardTone =
   | "disabled"
@@ -47,9 +48,7 @@ export function providerCardStatusTitle(provider: Provider): string {
 
 /** 底栏、菜单和提示里对这张卡片的称呼；同一句话在四类卡片上保持同一读法。 */
 export function providerCardScopeNoun(provider: Provider): string {
-  if (provider.actions.cpaGateway) return "网关";
-  if (provider.actions.oauthAccount) return "账号";
-  return "中转站";
+  return providerScopeNoun(provider.identity.protocol);
 }
 
 /** 卡片与筛选共用的状态；签到、探测等临时进度由卡片单独显示。 */
@@ -334,8 +333,73 @@ export function providerStaleSyncNote(
   return `数据已 ${Math.floor(seconds / STALE_SYNC_SECONDS)} 天未更新`;
 }
 
+/// 自动刷新被上游拒绝后进入冷却，卡片要说明「现在再怎么等也不会刷新」以及
+/// 什么时候恢复。冷却截止时间由 Rust 写入，手动刷新不受它限制；时间已过但
+/// 状态尚未回写时不写这一行，避免出现过期的倒计时。时长写法与额度窗口的
+/// 重置倒计时一致，三行以内同一读法。
+export interface ProviderCooldownNote {
+  text: string;
+  title: string;
+}
+
+export function providerCooldownNote(
+  provider: Provider,
+  now = Date.now(),
+): ProviderCooldownNote {
+  if (!provider.runtime.enabled) return { text: "", title: "" };
+  const until = Number(provider.runtime.cooldownUntil ?? 0);
+  if (!Number.isFinite(until) || until <= 0) return { text: "", title: "" };
+  const minutes = Math.ceil((until * 1000 - now) / 60_000);
+  if (minutes <= 0) return { text: "", title: "" };
+  const span =
+    minutes < 60
+      ? `${minutes} 分钟`
+      : minutes < 1440
+        ? `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`
+        : `${Math.ceil(minutes / 1440)} 天`;
+  const reason = provider.runtime.cooldownReason?.trim() ?? "";
+  return {
+    text: `冷却中 · ${span}后重试`,
+    title: [reason, `自动刷新将在 ${span}后恢复；手动刷新不受冷却限制。`]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
 export function providerQuotaUnlimited(provider: Provider) {
   return provider.quota.unlimited === true;
+}
+
+/// 主地址失败时卡片写一句「备用地址 N · 主机名」，完整地址和切换时间进悬停
+/// 提示；主地址正常时没有这一行。地址原文由 Rust 保留用户填写的写法。
+export interface ProviderEndpointNote {
+  text: string;
+  title: string;
+}
+
+export function providerEndpointNote(provider: Provider): ProviderEndpointNote {
+  const active = provider.activeEndpoint;
+  if (!active) return { text: "", title: "" };
+  const label = `备用地址 ${active.backupIndex}`;
+  const host = endpointHost(active.backupUrl);
+  const switchedAt = formatProviderSyncTime(active.switchedAt);
+  const title = [
+    `主地址不可用，请求正在使用${label}：${active.backupUrl}`,
+    switchedAt ? `切换时间：${switchedAt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { text: host ? `${label} · ${host}` : label, title };
+}
+
+function endpointHost(raw: string) {
+  const text = raw.trim();
+  if (!text) return "";
+  try {
+    return new URL(text).host;
+  } catch {
+    return text.replace(/^https?:\/\//i, "").split("/")[0] ?? "";
+  }
 }
 
 /// 一张卡片读的额度窗口：OAuth / CPA 卡来自账号订阅，中转站卡来自 Rust 收口
@@ -660,18 +724,6 @@ export function providerIdentityId(provider: Provider) {
     return "";
   }
   return provider.identity.userId?.trim() || provider.auth.apiUser?.trim() || "";
-}
-
-export function normalizeInviteLink(value: string) {
-  const text = value.trim();
-  if (!text || text.includes("/register?aff=")) {
-    return text;
-  }
-  const [base, code] = text.split("?aff=");
-  if (!base || !code) {
-    return text;
-  }
-  return `${base.replace(/\/+$/, "")}/register?aff=${code.trim()}`;
 }
 
 /// 钱包卡的比例条画已用份额，和订阅窗口条、OAuth 窗口条同向：条越长压力越大，

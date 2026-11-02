@@ -4,6 +4,8 @@ import ProviderLivenessTimeline from "../ProviderLivenessTimeline.vue";
 import ProviderModelPreview from "../ProviderModelPreview.vue";
 import type { Provider } from "../../stores/providers";
 import AccountQuotaBar from "../oauth/AccountQuotaBar.vue";
+import ProviderCardCooldownNote from "./ProviderCardCooldownNote.vue";
+import ProviderCardEndpointNote from "./ProviderCardEndpointNote.vue";
 import ProviderCardStaleNote from "./ProviderCardStaleNote.vue";
 import {
   formatProviderSyncTime,
@@ -125,6 +127,10 @@ const quotaWindowRows = computed(() => providerQuotaWindowRows(props.provider));
   </div>
   <!-- 数据新鲜时卡片不写同步时间；过期了才说一句，避免用户拿旧数字做判断。 -->
   <ProviderCardStaleNote :synced-at="provider.automation.lastSyncedAt" />
+  <!-- 自动刷新被判失败后进入冷却，写清楚何时恢复，别让人以为卡住不动。 -->
+  <ProviderCardCooldownNote :provider="provider" />
+  <!-- 主地址不可用、请求改走备用地址时，卡片说明当前实际使用的是哪个地址。 -->
+  <ProviderCardEndpointNote :provider="provider" />
 </section>
 
 <!-- 模型行是正文最后一层，多余的高度留在额度和模型之间，芯片紧贴页脚

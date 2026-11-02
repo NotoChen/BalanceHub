@@ -632,12 +632,27 @@
   white-space: nowrap;
 }
 
-/* 过期提示只在数据需要重取时占一行：新鲜时卡片不写同步时间。 */
-.provider-card-stale {
+/* 过期提示只在数据需要重取时占一行：新鲜时卡片不写同步时间。冷却说明与它
+   同一位置、同一读法，只在自动刷新被暂停时出现。 */
+.provider-card-stale,
+.provider-card-cooldown {
   color: #b26a00;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
+}
+
+/* 备用地址生效时和同步时间同一读法：一句必须被看见的旁注，主机名结尾省略，
+   完整地址在悬停提示里。 */
+.provider-card-endpoint {
+  min-width: 0;
+  overflow: hidden;
+  color: #b26a00;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 钱包余额的比例条独占一行，条右端才写已用比例；条长本身就是数据，左边

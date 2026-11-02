@@ -256,7 +256,7 @@ function formatRate(value: number) {
             <section v-if="overviewStats.modelHealth.length" class="usage-model-panel usage-health-panel">
               <div class="usage-model-panel-header">
                 <strong>响应质量</strong>
-                <span>站点近 24 小时采样 · 成功率低的在前</span>
+                <span>全部中转站采样 · 成功率低的在前；同名模型取最低</span>
               </div>
               <div class="usage-model-list">
                 <div v-for="item in overviewStats.modelHealth" :key="`overview-health-${item.modelName}`" class="usage-model-row">

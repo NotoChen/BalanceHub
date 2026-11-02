@@ -431,6 +431,7 @@ function handleVisibleChange(visible: boolean) {
                       <SelectedModelMetadata
                         :model="effectiveModel"
                         :active="visible"
+                        :provider-id="provider?.identity.id"
                       />
                     </template>
                   </a-popover>
@@ -441,7 +442,7 @@ function handleVisibleChange(visible: boolean) {
                   v-model:value="selectedModelModel"
                   :native-choices="capabilities?.modelChoices ?? []"
                   :catalog="capabilities?.modelCatalog"
-                  :provider-models="provider?.capabilities.availableModels"
+                  :provider-models="provider?.visibleModels"
                   :disabled="launchLocked"
                   :default-label="settingValueLabel(inheritedModelValue)"
                   :default-description="
@@ -527,7 +528,8 @@ function handleVisibleChange(visible: boolean) {
             :workdir="launchWorkdir"
             :selected-model="selectedModel"
             :inherited-model="historyModel"
-            :provider-models="provider?.capabilities.availableModels"
+            :provider-models="provider?.visibleModels"
+            :provider-id="provider?.identity.id"
             :session-mode="sessionMode"
             :can-name-session="canNameSession"
             :session-naming-hint="sessionNamingHint"

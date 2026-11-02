@@ -232,7 +232,17 @@ impl<'a> ProviderService<'a> {
             .await?;
         let request_context = ProviderRequestContext::capture(&provider);
         if !provider.capabilities.invite_link.trim().is_empty() {
-            let invite_link = normalize_invite_link(&provider.capabilities.invite_link);
+            // 卡片改写了注册页模板时按模板原样保留，不再套用旧的 `?aff=` 地址迁移。
+            let invite_link = if crate::models::provider_domain::endpoints::link_template(
+                &provider.request.endpoints,
+                "register_link",
+            )
+            .is_empty()
+            {
+                normalize_invite_link(&provider.capabilities.invite_link)
+            } else {
+                provider.capabilities.invite_link.clone()
+            };
             if invite_link != provider.capabilities.invite_link {
                 let stored_link = invite_link.clone();
                 let provider_id = id.clone();

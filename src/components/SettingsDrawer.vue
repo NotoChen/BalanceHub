@@ -161,12 +161,12 @@ function saveStateLabel(state: SettingsSaveState) {
     </template>
 
     <div class="settings-workspace settings-workspace-v3">
-      <nav class="settings-nav" aria-label="设置分区">
+      <nav class="surface-nav" aria-label="设置分区">
         <button
           v-for="(section, index) in sections"
           :key="section.id"
           type="button"
-          class="settings-nav-item"
+          class="surface-nav-item"
           :class="{
             'is-active': !searchTerms.length && section.id === activeSection,
             'is-hit': searchTerms.length > 0 && matchedSectionIds.has(section.id),
@@ -174,8 +174,8 @@ function saveStateLabel(state: SettingsSaveState) {
           :aria-current="!searchTerms.length && section.id === activeSection ? 'page' : undefined"
           @click="activate(section.id)"
         >
-          <span class="settings-nav-index" aria-hidden="true">{{ String(index + 1).padStart(2, "0") }}</span>
-          <span class="settings-nav-copy">
+          <span class="surface-nav-index" aria-hidden="true">{{ String(index + 1).padStart(2, "0") }}</span>
+          <span class="surface-nav-copy">
             <strong>{{ section.title }}</strong>
             <small>{{ section.description }}</small>
           </span>

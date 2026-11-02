@@ -53,7 +53,7 @@ const titleText = computed(() => {
 
 const descriptionText = computed(() => {
   if (props.saved) {
-    return "已保存本次补全结果，可继续调整运行策略。";
+    return "已保存本次补全结果，可继续调整其他分区。";
   }
   if (props.state === "needApiKeySelection") {
     return "已同步多个 API Key，选择当前调用 Key 后会继续保存。";

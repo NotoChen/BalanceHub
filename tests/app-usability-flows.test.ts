@@ -226,6 +226,7 @@ test("API Key updates merge current credentials and revision without overwriting
   const { useProviderEditorState } = loadSource<typeof import("../src/composables/useProviderEditorState.ts")>("composables/useProviderEditorState.ts", {
     "../utils/provider-input": { emptyDraft, providerToInput },
     "../utils/provider-api-key-options": apiKeyOptions,
+    "../utils/provider-protocol": providerProtocol,
     "./provider-editor-shared": { normalizeProviderBaseUrl },
   });
   const initial = emptyDraft();
@@ -584,7 +585,7 @@ test("large model lists expose every page and searching resets to the first matc
     "./ModelMetadataLine.vue": {},
   }).default;
   const names = Array.from({ length: 620 }, (_, index) => `model-${String(index).padStart(3, "0")}`);
-  const props = reactive({ visible: true, provider: { ...modelProvider("a"), capabilities: { ...modelProvider("a").capabilities, availableModels: names } }, loading: false, error: "" });
+  const props = reactive({ visible: true, provider: { ...modelProvider("a"), visibleModels: names, capabilities: { ...modelProvider("a").capabilities, availableModels: names } }, loading: false, error: "" });
   const { value: panel } = scoped(t, () => component.setup(props, { expose() {}, emit() {} }));
   assert.equal(panel.canRefresh.value, true);
   assert.match(panel.modalTitle.value, /账号可用模型/);

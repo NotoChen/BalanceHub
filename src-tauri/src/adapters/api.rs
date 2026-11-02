@@ -6,8 +6,13 @@
 
 mod protocol;
 
+use crate::models::provider_domain::failure::ProviderFailureKind;
 use crate::{
-    adapters::transport::{build_client, ProviderTransport, USER_AGENT_VALUE},
+    adapters::{
+        error::AdapterError,
+        quota_spec::{apply_auth_scheme, fetch_quota, resolve_provider_url},
+        transport::{build_client, ProviderTransport, USER_AGENT_VALUE},
+    },
     limits,
     models::{
         is_full_api_key_value, AppSettings, AuthMode, Provider, ProviderApiKeyOption,
@@ -16,7 +21,7 @@ use crate::{
         ProviderQuotaDisplay, ProviderQuotaScope, ProviderSiteProbeResult, ProviderStatus,
     },
 };
-use reqwest::{header::ACCEPT, header::USER_AGENT, Url};
+use reqwest::{header::ACCEPT, header::RETRY_AFTER, header::USER_AGENT, Url};
 use serde_json::Value;
 
 pub(crate) struct ApiAdapter;
@@ -80,28 +85,74 @@ impl ApiAdapter {
 
         match fetch_models(&client, provider).await {
             Ok(models) => {
-                let message = format!(
-                    "通用 API Key 已连接，模型接口返回 {} 个模型；账号额度不可用",
-                    models.len()
-                );
-                let step = ProviderConnectionTestStep {
+                let mut steps = vec![ProviderConnectionTestStep {
                     name: "模型接口".to_string(),
                     ok: true,
-                    message: message.clone(),
+                    message: format!("模型接口返回 {} 个模型", models.len()),
                     available: None,
                     used: None,
                     quota_display: ProviderQuotaDisplay::default(),
-                };
+                }];
+                let mut message =
+                    format!("通用 API Key 已连接，模型接口返回 {} 个模型", models.len());
+                let (mut available, mut used, mut quota_display) =
+                    (None, None, ProviderQuotaDisplay::default());
+                if provider.quota_spec.is_configured() {
+                    match fetch_quota(&client, provider).await {
+                        Ok(quota) => {
+                            message.push_str("；余额接口已读取");
+                            if quota.known {
+                                available = Some(quota.available);
+                                used = quota.total_known.then_some(quota.used);
+                            }
+                            quota_display = ProviderQuotaDisplay {
+                                quota_display_type: quota.display_type.clone(),
+                                currency_symbol: quota.currency_symbol.clone(),
+                            };
+                            steps.push(ProviderConnectionTestStep {
+                                name: "余额接口".to_string(),
+                                ok: true,
+                                message: if quota.unlimited {
+                                    "余额接口不限量".to_string()
+                                } else if quota.known {
+                                    format!(
+                                        "可用 {}，{} 个订阅窗口",
+                                        quota.available,
+                                        quota.windows.len()
+                                    )
+                                } else {
+                                    "余额接口已响应，但没有读到额度字段".to_string()
+                                },
+                                available: quota.known.then_some(quota.available),
+                                used: quota.total_known.then_some(quota.used),
+                                quota_display: quota_display.clone(),
+                            });
+                        }
+                        Err(error) => {
+                            message.push_str(&format!("；余额接口读取失败：{error}"));
+                            steps.push(ProviderConnectionTestStep {
+                                name: "余额接口".to_string(),
+                                ok: false,
+                                message: error.message,
+                                available: None,
+                                used: None,
+                                quota_display: ProviderQuotaDisplay::default(),
+                            });
+                        }
+                    }
+                } else {
+                    message.push_str("；未声明余额接口");
+                }
                 Ok(ProviderConnectionTestResult {
                     ok: true,
                     message,
-                    available: None,
-                    used: None,
-                    quota_display: ProviderQuotaDisplay::default(),
-                    steps: vec![step],
+                    available,
+                    used,
+                    quota_display,
+                    steps,
                 })
             }
-            Err(message) => Ok(connection_failure(message)),
+            Err(error) => Ok(connection_failure(error.message)),
         }
     }
 
@@ -120,9 +171,9 @@ impl ApiAdapter {
                 logo: None,
                 quota_display: ProviderQuotaDisplay::default(),
             }),
-            Err(message) => Ok(ProviderSiteProbeResult {
+            Err(error) => Ok(ProviderSiteProbeResult {
                 ok: false,
-                message,
+                message: error.message,
                 system_name,
                 logo: None,
                 quota_display: ProviderQuotaDisplay::default(),
@@ -154,43 +205,78 @@ impl ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Provider {
+    ) -> (Provider, Option<ProviderFailureKind>) {
         let mut next = provider.clone();
         if !provider.runtime.enabled {
-            return next;
+            return (next, None);
         }
         if !matches!(provider.auth.mode, AuthMode::ApiKey) {
-            return provider_with_error(&next, "通用 API 协议只支持 API Key 认证".to_string());
+            return (
+                provider_with_error(&next, "通用 API 协议只支持 API Key 认证".to_string()),
+                Some(ProviderFailureKind::Credential),
+            );
         }
 
         let client = match crate::adapters::transport::build_client(settings, provider).await {
             Ok(client) => client,
-            Err(message) => return provider_with_error(&next, message),
+            Err(message) => {
+                return (
+                    provider_with_error(&next, message),
+                    Some(ProviderFailureKind::Transient),
+                )
+            }
         };
         match fetch_models(&client, provider).await {
             Ok(models) => {
-                next.quota.available = 0.0;
-                next.quota.used = 0.0;
-                next.quota.known = false;
-                next.quota.total_known = false;
-                next.quota.unlimited = false;
-                next.quota.scope = ProviderQuotaScope::Token;
                 next.capabilities
                     .set_available_models(crate::models::ProviderModelList::new(
                         models,
                         crate::models::ProviderModelScope::ApiKey,
                     ));
-                next.runtime.status = ProviderStatus::Ok;
-                next.runtime.error_message = None;
+                next.quota.scope = ProviderQuotaScope::Token;
+                let mut failure = None;
+                if provider.quota_spec.is_configured() {
+                    match fetch_quota(&client, provider).await {
+                        Ok(quota) => {
+                            next.quota = quota;
+                            next.runtime.status = ProviderStatus::Ok;
+                            next.runtime.error_message = None;
+                        }
+                        Err(error) => {
+                            // 模型列表已经读到，卡片保留可用状态，只把余额问题写进
+                            // 同步提示；旧余额不再可信，一并清空。
+                            clear_quota(&mut next);
+                            next.runtime.status = ProviderStatus::Warning;
+                            next.runtime.error_message =
+                                Some(format!("模型列表已同步；{}", error.message));
+                            failure = Some(error.failure);
+                        }
+                    }
+                } else {
+                    clear_quota(&mut next);
+                    next.runtime.status = ProviderStatus::Ok;
+                    next.runtime.error_message = None;
+                }
                 next.automation.last_synced_at = Some(crate::util::unix_secs().to_string());
-                next
+                (next, failure)
             }
-            Err(message) => {
-                next.capabilities.available_models_state.error = Some(message.clone());
-                provider_with_error(&next, message)
+            Err(error) => {
+                next.capabilities.available_models_state.error = Some(error.message.clone());
+                let failure = error.failure;
+                (provider_with_error(&next, error.message), Some(failure))
             }
         }
     }
+}
+
+fn clear_quota(provider: &mut Provider) {
+    provider.quota.available = 0.0;
+    provider.quota.used = 0.0;
+    provider.quota.known = false;
+    provider.quota.total_known = false;
+    provider.quota.unlimited = false;
+    provider.quota.windows.clear();
+    provider.quota.scope = ProviderQuotaScope::Token;
 }
 
 /// Fetch the OpenAI-compatible model list used by connection checks, refresh,
@@ -198,16 +284,20 @@ impl ApiAdapter {
 pub(crate) async fn fetch_models(
     client: &ProviderTransport,
     provider: &Provider,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, AdapterError> {
     if provider.auth.api_key.trim().is_empty() {
-        return Err("缺少 API Key，无法获取模型列表".to_string());
+        return Err(AdapterError::credential("缺少 API Key，无法获取模型列表"));
     }
     let url = models_url(provider)?;
     let request = client
         .get(url)
-        .bearer_auth(provider.auth.api_key.trim())
         .header(USER_AGENT, USER_AGENT_VALUE)
         .header(ACCEPT, "application/json");
+    let request = apply_auth_scheme(
+        request,
+        provider.request.auth_scheme,
+        &provider.auth.api_key,
+    );
     let response = client.send(request, "读取模型列表").await?;
     let status = response.status;
     let body = response.body;
@@ -217,16 +307,20 @@ pub(crate) async fn fetch_models(
             || payload.pointer("/error/type").and_then(Value::as_str)
                 == Some("unauthorized_client_error")
         {
-            return Err(format!(
+            return Err(AdapterError::credential(format!(
                 "站点拒绝此客户端访问模型接口（HTTP {}）",
                 status.as_u16()
-            ));
+            )));
         }
         let detail = body.chars().take(240).collect::<String>();
-        return Err(format!("获取模型列表失败: HTTP {status} {detail}"));
+        return Err(AdapterError::from_status(
+            format!("获取模型列表失败: HTTP {status} {detail}"),
+            status,
+            response.headers.get(RETRY_AFTER),
+        ));
     }
 
-    parse_models(&body)
+    parse_models(&body).map_err(AdapterError::transient)
 }
 
 fn parse_models(body: &str) -> Result<Vec<String>, String> {
@@ -275,6 +369,11 @@ fn models_url(provider: &Provider) -> Result<Url, String> {
     let raw = provider.identity.base_url.trim();
     if raw.is_empty() {
         return Err("缺少模型 Base URL 或中转站地址".to_string());
+    }
+    let declared = provider.model_config.models_url.trim();
+    if !declared.is_empty() {
+        let endpoint = resolve_provider_url(raw, declared)?;
+        return Url::parse(&endpoint).map_err(|err| format!("模型列表地址无效: {err}"));
     }
     let normalized = raw.trim_end_matches('/');
     let endpoint = if normalized.ends_with("/models") {

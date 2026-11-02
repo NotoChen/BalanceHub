@@ -168,7 +168,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     const silent = probeOptions.silent === true;
     if (!options.draftProvider.identity.baseUrl.trim()) {
       if (!silent) {
-        Message.warning("请先填写中转站地址");
+        Message.warning("请先填写地址");
       }
       return;
     }
@@ -186,7 +186,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     options.siteProbeResult.value = null;
     try {
       if (shouldDetect) {
-        const detection = await withTimeout(options.detectProviderProtocol(initialInput), 30_000, "识别中转站类型超时，请手动选择类型或重试");
+        const detection = await withTimeout(options.detectProviderProtocol(initialInput), 30_000, "识别接入类型超时，请手动选择类型或重试");
         if (revision !== siteProbeRevision || !requestContextIsCurrent(initialContext)) {
           return null;
         }
@@ -317,7 +317,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     }
     const descriptor = providerProtocolDescriptor(options.providerProtocols(), protocol);
     if (!descriptor) {
-      Message.error("中转站协议目录未加载，请重新打开编辑窗口");
+      Message.error("协议目录未加载，请重新打开编辑窗口");
       return false;
     }
     if (options.draftProvider.identity.protocol === protocol) {
@@ -334,7 +334,7 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
     );
     if (hasProtocolCredentials) {
       const confirmed = await confirmAction(
-        "切换中转站协议",
+        "切换接入协议",
         `切换为 ${protocolLabel(protocol)} 后，当前 Cookie、访问令牌、刷新令牌和 API User ID 将被清空。账号密码和 API Key 会保留。`,
         "切换",
         "warning",

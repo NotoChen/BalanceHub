@@ -7,6 +7,7 @@ import { hasUsableProviderApiKey } from "../utils/provider-api-key-options";
 import { useProviderCopyActions } from "./useProviderCopyActions";
 import { useProviderAppImport } from "./useProviderAppImport";
 import { providerDisplayLabel } from "../utils/provider-display";
+import { providerScopeNoun } from "../utils/provider-protocol";
 
 interface UseProviderActionsOptions {
   providers: { value: Provider[] };
@@ -82,7 +83,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     }
     if (provider.identity.protocol !== "oauth") {
       if (!provider.identity.baseUrl.trim()) {
-        Message.warning("临时启动 CLI 需要中转站地址");
+        Message.warning("临时启动 CLI 需要先填写地址");
         return;
       }
       if (!hasUsableProviderApiKey(provider.auth.apiKey, provider.auth.apiKeyOptions)) {
@@ -243,7 +244,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
 
   function removeProviderAction(provider: Provider) {
     Modal.confirm({
-      title: "删除中转站",
+      title: `删除${providerScopeNoun(provider.identity.protocol)}`,
       content: `确定删除“${providerDisplayLabel(provider)}”吗？`,
       okText: "删除",
       cancelText: "取消",

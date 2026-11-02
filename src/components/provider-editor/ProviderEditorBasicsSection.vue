@@ -9,7 +9,7 @@ import type {
   ProviderSiteProbeResult,
 } from "../../stores/providers";
 import type { ProtocolSelectionSource } from "../../composables/provider-editor-shared";
-import { providerProtocolLabel } from "../../utils/provider-protocol";
+import { providerProtocolLabel, providerScopeNoun } from "../../utils/provider-protocol";
 import RadioChoiceGroup from "../RadioChoiceGroup.vue";
 
 const props = defineProps<{
@@ -72,7 +72,17 @@ const detectionLabel = computed(() => {
 const protocolOptions = computed(() => props.providerProtocols.filter((descriptor) => descriptor.formCreation).map((descriptor) => ({
   value: descriptor.kind,
   label: descriptor.label,
+  // 说明也来自协议目录：选型面板上一句话讲清每种接入是什么，不必先去试。
+  description: descriptor.description,
 })));
+
+/// 称呼跟着选中的协议走，地址字段和占位示例一起改口。
+const scopeNoun = computed(() => providerScopeNoun(props.draft.identity.protocol));
+const baseUrlPlaceholder = computed(() =>
+  props.draft.identity.protocol === "cliProxyApi"
+    ? "http://127.0.0.1:8317"
+    : "https://relay.example.com",
+);
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
@@ -91,25 +101,26 @@ function protocolLabel(protocol: ProviderProtocol) {
         <div><strong>连接信息</strong></div>
       </header>
       <div class="provider-form-block-body">
-        <a-form-item class="provider-field" label="中转站类型">
+        <a-form-item class="provider-field" label="接入类型">
           <RadioChoiceGroup
             :model-value="draft.identity.protocol"
             :options="protocolOptions"
             :disabled="disabled"
-            label="中转站类型"
+            label="接入类型"
             class="provider-protocol-picker"
             option-class="provider-protocol-option"
             @update:model-value="emit('select-protocol', $event)"
           >
             <template #default="{ option }">
               <strong>{{ option.label }}</strong>
+              <span v-if="option.description" class="provider-protocol-option-description">{{ option.description }}</span>
             </template>
           </RadioChoiceGroup>
         </a-form-item>
-        <a-form-item class="provider-field" field="identity.baseUrl" label="中转站地址" required>
+        <a-form-item class="provider-field" field="identity.baseUrl" :label="`${scopeNoun}地址`" required>
           <a-input
             v-model="draft.identity.baseUrl"
-            placeholder="https://relay.example.com"
+            :placeholder="baseUrlPlaceholder"
             allow-clear
             @blur="emit('probe-site')"
           >

@@ -7,16 +7,13 @@
 
 :root.theme-dark .surface-modal-title-copy > strong,
 :root.theme-dark .settings-card-header > div > strong,
-:root.theme-dark .settings-theme-option strong,
-:root.theme-dark .provider-editor-context-card > header > span,
-:root.theme-dark .provider-editor-context-card dd {
+:root.theme-dark .settings-theme-option strong {
   color: #f0f2f5;
 }
 
 :root.theme-dark .surface-modal-title-copy > span,
 :root.theme-dark .settings-card-header > div > span,
-:root.theme-dark .settings-theme-option small,
-:root.theme-dark .provider-editor-footer-status {
+:root.theme-dark .settings-theme-option small {
   color: #929aa8;
 }
 
@@ -26,8 +23,7 @@
 }
 
 :root.theme-dark .surface-modal-title-meta.ready,
-:root.theme-dark .settings-card-state.active,
-:root.theme-dark .provider-editor-context-card > header > b.ready {
+:root.theme-dark .settings-card-state.active {
   background: rgba(34, 160, 107, 0.16);
   color: #73d1ad;
 }
@@ -53,14 +49,8 @@
   color: #e9b968;
 }
 
-:root.theme-dark .provider-editor-context {
-  border-color: #353943;
-  background: #191c21;
-}
-
 :root.theme-dark .settings-card,
-:root.theme-dark .settings-theme-option,
-:root.theme-dark .provider-editor-context-card {
+:root.theme-dark .settings-theme-option {
   border-color: #3a3f49;
   background: #242830;
 }
@@ -71,13 +61,7 @@
   background: #20242b;
 }
 
-:root.theme-dark .provider-editor-context-card > header,
-:root.theme-dark .provider-editor-context-card dl > div + div {
-  border-color: #383d46;
-}
-
-:root.theme-dark .settings-card-state,
-:root.theme-dark .provider-editor-context-card > header > b {
+:root.theme-dark .settings-card-state {
   background: #30353e;
   color: #a9b0bc;
 }
@@ -102,27 +86,6 @@
 :root.theme-dark .settings-theme-option.active .settings-theme-option-icon {
   background: rgba(64, 128, 255, 0.2);
   color: #8bb2ff;
-}
-
-:root.theme-dark .provider-editor-context-progress > div {
-  background: #40454f;
-}
-
-:root.theme-dark .provider-editor-context-card dt {
-  color: #949ca9;
-}
-
-:root.theme-dark .provider-editor-context-note {
-  border-color: #355b58;
-  background: #1f3332;
-}
-
-:root.theme-dark .provider-editor-context-note strong {
-  color: #87d6cf;
-}
-
-:root.theme-dark .provider-editor-context-note span {
-  color: #9abbb7;
 }
 
 :root.theme-dark .provider-credential-active-panel {

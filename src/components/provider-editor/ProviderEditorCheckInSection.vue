@@ -66,14 +66,19 @@ const turnstileOptions: SelectOption<ProviderTurnstileMode>[] = [
         </div>
         <template v-if="!settings.autoCheckInEnabled" #extra>全局自动签到已关闭</template>
       </a-form-item>
-      <a-form-item class="provider-field" label="站点防护">
-        <a-checkbox v-model="draft.automation.autoShield">允许浏览器辅助处理站点防护</a-checkbox>
-        <template #extra>可自动完成的验证会继续执行，需要交互时提示手动完成。</template>
-      </a-form-item>
-      <a-form-item class="provider-field" label="Turnstile 签到验证">
-        <a-select v-model="draft.automation.turnstileMode" :options="turnstileOptions" :disabled="policy?.configurable === false" />
-        <template #extra>自动检测会在签到要求验证时打开小窗，不受站点防护勾选项影响。</template>
-      </a-form-item>
+      <details class="provider-form-disclosure is-inset">
+        <summary>更多签到设置</summary>
+        <div class="provider-form-disclosure-body">
+          <a-form-item class="provider-field" label="站点防护">
+            <a-checkbox v-model="draft.automation.autoShield">允许浏览器辅助处理站点防护</a-checkbox>
+            <template #extra>可自动完成的验证会继续执行，需要交互时提示手动完成。</template>
+          </a-form-item>
+          <a-form-item class="provider-field" label="Turnstile 签到验证">
+            <a-select v-model="draft.automation.turnstileMode" :options="turnstileOptions" :disabled="policy?.configurable === false" />
+            <template #extra>自动检测会在签到要求验证时打开小窗，不受站点防护勾选项影响。</template>
+          </a-form-item>
+        </div>
+      </details>
     </div>
   </section>
 </template>

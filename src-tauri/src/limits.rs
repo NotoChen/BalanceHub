@@ -24,6 +24,22 @@ pub const MAX_WORKSPACES: usize = 30;
 pub const MAX_SITE_LOGO_BYTES: usize = 256 * 1024;
 pub const MAX_PROVIDER_REMARK_CHARS: usize = 160;
 pub const MAX_API_KEY_REMARK_CHARS: usize = MAX_PROVIDER_REMARK_CHARS;
+/// 自定义请求头和余额接口都属于「手写的少量约定」，上限用于挡住误粘贴整份
+/// curl 配置，而不是限制正常使用。
+pub const MAX_PROVIDER_HEADERS: usize = 16;
+pub const MAX_HEADER_NAME_CHARS: usize = 128;
+pub const MAX_HEADER_VALUE_CHARS: usize = 2048;
+pub const MAX_QUOTA_WINDOWS: usize = 3;
+pub const MAX_QUOTA_EXPRESSION_CHARS: usize = 512;
+/// 按接口覆盖的请求约定。它替代的是手写脚本，不是批量导入入口；上限用于
+/// 挡住误粘贴整份配置，正常只会有几行改动。
+pub const MAX_ENDPOINT_OVERRIDES: usize = 48;
+pub const MAX_ENDPOINT_PATH_CHARS: usize = 512;
+pub const MAX_MODEL_PATTERNS: usize = 64;
+pub const MAX_MODEL_PATTERN_CHARS: usize = 160;
+pub const MAX_MODEL_OVERRIDE_CHARS: usize = 512;
+pub const MAX_REASONING_LEVELS: usize = 16;
+pub const MAX_REASONING_LEVEL_CHARS: usize = 32;
 pub const MAX_LIVENESS_TIMEOUT_SECS: u64 = 600;
 /// 设置项的可取值范围。超出范围一律夹到边界，而不是拒绝保存整份设置。
 pub const MIN_UPDATE_CHECK_INTERVAL_HOURS: u64 = 1;

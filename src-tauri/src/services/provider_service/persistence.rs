@@ -42,6 +42,7 @@ impl ProviderService<'_> {
         mut input: ProviderInput,
         options: ProviderSaveOptions,
     ) -> Result<ProviderSaveResult, String> {
+        input.validate_advanced()?;
         if input.identity.protocol == crate::models::ProviderProtocol::OAuth
             || input.id.as_ref().is_some_and(|id| {
                 self.snapshot().providers.iter().any(|p| {

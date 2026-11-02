@@ -221,8 +221,7 @@
   gap: 8px;
 }
 
-.settings-drawer-body,
-.provider-editor-body {
+.settings-drawer-body {
   padding: 0 !important;
 }
 

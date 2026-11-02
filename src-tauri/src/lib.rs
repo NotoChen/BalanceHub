@@ -11,6 +11,7 @@ mod models;
 mod network;
 mod platform;
 mod provider_protocol_catalog;
+mod quota_expression;
 mod services;
 mod state;
 mod storage;

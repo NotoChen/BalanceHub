@@ -74,9 +74,6 @@ const INITIAL_DELAY_SECS: u64 = 5;
 const CHECK_IN_MAX_ATTEMPTS_PER_DAY: u32 = 3;
 /// 自动签到两次尝试之间的退避间隔。
 const CHECK_IN_RETRY_BACKOFF_SECS: u64 = 30 * 60;
-/// 刷新失败后的提前重试间隔：两个 tick 足够让一次网络抖动过去，
-/// 又远小于最短的刷新间隔（30 秒）。
-const REFRESH_RETRY_BACKOFF_SECS: u64 = 60;
 /// 刷新抖动上限：刷新间隔的十分之一，且不超过 5 分钟。
 const REFRESH_JITTER_MAX_SECS: u64 = 300;
 /// 单个中转站当日自动签到的尝试记录。
@@ -93,14 +90,13 @@ struct CheckInAttemptState {
 }
 
 /// 调度器跨 tick 的内存状态。进程重启后清零：代价只是重启后允许重新尝试一轮，可接受。
+///
+/// 失败后的冷却不在这里：它写在 `runtime.cooldown_until` 上，随配置持久化，
+/// 卡片和调度器读同一份，重启后也不会立刻重试一个已经进入长冷却的站点。
 #[derive(Default)]
 struct SchedulerState {
     /// 每个中转站「上次发起刷新」的时刻（秒），避免刷新失败时每 tick 重试。
     refresh_attempts: HashMap<String, u64>,
-    /// 失败后的提前重试到点时间；命中时优先于按间隔计算的到期判定。
-    refresh_retry_at: HashMap<String, u64>,
-    /// 当前这轮失败已经用掉的额外重试次数，刷新成功后清零。
-    refresh_retries: HashMap<String, u32>,
     check_in_attempts: HashMap<String, CheckInAttemptState>,
 }
 
@@ -149,16 +145,12 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
             .iter()
             .filter(|provider| provider.runtime.enabled)
             .filter(|provider| {
-                // 失败后的提前重试优先于按间隔计算的到期判定。
-                match state.refresh_retry_at.get(&provider.identity.id) {
-                    Some(retry_at) => now_secs >= *retry_at,
-                    None => provider_domain::automation::refresh_due(
-                        provider,
-                        settings,
-                        now_secs,
-                        &state.refresh_attempts,
-                    ),
-                }
+                provider_domain::failure::refresh_due(
+                    provider,
+                    settings,
+                    now_secs,
+                    &state.refresh_attempts,
+                )
             })
             .map(|provider| provider.identity.id.clone())
             .collect();
@@ -193,14 +185,7 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
                         .filter(|provider| matches!(provider.runtime.status, ProviderStatus::Error))
                         .map(|provider| provider.identity.id.clone())
                         .collect::<Vec<_>>();
-                    record_refresh_outcome(
-                        state,
-                        settings,
-                        &data.providers,
-                        &due,
-                        &failed_ids,
-                        now_secs,
-                    );
+                    record_refresh_outcome(state, settings, &data.providers, &due, now_secs);
                     changed = true;
                     let failed = failed_ids.len();
                     emit_background_task(
@@ -226,8 +211,9 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
                     .await;
                 }
                 Some(Err(error)) => {
-                    // 整批请求失败：所有站点都算一次失败，同样享受提前重试。
-                    record_refresh_outcome(state, settings, &data.providers, &due, &due, now_secs);
+                    // 整批请求失败（存储/快照问题）：没有可写的站点状态，
+                    // 只记本轮尝试，下个正常间隔再评估。
+                    record_refresh_outcome(state, settings, &data.providers, &due, now_secs);
                     emit_background_task(
                         app,
                         &AUTO_REFRESH_TASK,
@@ -332,40 +318,24 @@ async fn run_tick(app: &AppHandle, state: &mut SchedulerState) {
 fn prune_state(state: &mut SchedulerState, providers: &[Provider], today: &str) {
     let exists = |id: &str| providers.iter().any(|provider| provider.identity.id == id);
     state.refresh_attempts.retain(|id, _| exists(id));
-    state.refresh_retry_at.retain(|id, _| exists(id));
-    state.refresh_retries.retain(|id, _| exists(id));
     state
         .check_in_attempts
         .retain(|id, attempt| exists(id) && attempt.date == today);
 }
 
-/// 记录本轮刷新的去向：失败且有剩余重试额度的站点提前再试一次，
-/// 其余站点按「刷新间隔 + 抖动」排下一次。
-///
-/// 抖动通过把记录的尝试时刻整体后移实现：各站点按 ID 与轮次哈希得到不同偏移，
-/// 原本同一秒打出去的整批刷新就此散开，之后也各自保持错峰。
+/// 记录本轮刷新的发起时刻。失败后的下一次尝试由刷新流程写在
+/// `runtime.cooldown_until` 上（见 `provider_domain::failure`），这里不再维护
+/// 第二份重试时刻；成功且开启抖动的站点把尝试时刻整体后移，避免整批刷新
+/// 之后仍然同一秒集中打满网络。
 fn record_refresh_outcome(
     state: &mut SchedulerState,
     settings: &AppSettings,
     providers: &[Provider],
     attempted: &[String],
-    failed: &[String],
     now_secs: u64,
 ) {
     for id in attempted {
         state.refresh_attempts.insert(id.clone(), now_secs);
-        if failed.contains(id) {
-            let used = state.refresh_retries.get(id).copied().unwrap_or(0);
-            if used < settings.refresh_retry_count as u32 {
-                state.refresh_retries.insert(id.clone(), used + 1);
-                state
-                    .refresh_retry_at
-                    .insert(id.clone(), now_secs + REFRESH_RETRY_BACKOFF_SECS);
-                continue;
-            }
-        }
-        state.refresh_retries.remove(id);
-        state.refresh_retry_at.remove(id);
         if !settings.refresh_jitter {
             continue;
         }

@@ -139,7 +139,7 @@ const announcementTooltip = computed(() => {
 
     <div class="topbar-actions" @mousedown.stop>
       <a-dropdown v-if="workspaceView === 'providers'" trigger="click" position="br">
-        <a-button class="topbar-add-button" type="primary" aria-label="添加中转站或账号">
+        <a-button class="topbar-add-button" type="primary" aria-label="添加中转站、账号或网关">
           <template #icon><ServerPlus :size="17" :stroke-width="1.9" /></template>
           <span>添加</span><ChevronDown :size="13" />
         </a-button>

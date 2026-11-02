@@ -33,7 +33,16 @@ export interface ProviderEditorStore {
 }
 
 export type ProtocolSelectionSource = "auto" | "unresolved" | "manual" | "saved";
-export type ProviderEditorSection = "basics" | "credentials" | "advanced";
+/// 编辑窗口的分区。基础信息与认证凭据是每张卡片都要过一遍的入口，
+/// 其余分区按协议能力出现；「运行策略」被拆成这些可单独打开的分区。
+export type ProviderEditorSection =
+  | "basics"
+  | "credentials"
+  | "quota"
+  | "models"
+  | "request"
+  | "automation"
+  | "network";
 export type ProviderDuplicateDecision = "createSeparate" | "merge" | "overwrite" | "cancel";
 export type ProviderSaveCompletion = "standard" | "mergedApiKey";
 

@@ -42,9 +42,19 @@ pub(super) fn normalize_provider_cached_values(data: &mut AppData) -> bool {
             changed = true;
         }
 
-        let normalized_invite_link = normalize_invite_link(&provider.capabilities.invite_link);
-        if normalized_invite_link != provider.capabilities.invite_link {
-            provider.capabilities.invite_link = normalized_invite_link;
+        // 卡片改写了注册页模板时保留模板生成的链接，不再做 `?aff=` 地址迁移。
+        let invite_link = if crate::models::provider_domain::endpoints::link_template(
+            &provider.request.endpoints,
+            "register_link",
+        )
+        .is_empty()
+        {
+            normalize_invite_link(&provider.capabilities.invite_link)
+        } else {
+            provider.capabilities.invite_link.clone()
+        };
+        if invite_link != provider.capabilities.invite_link {
+            provider.capabilities.invite_link = invite_link;
             changed = true;
         }
     }

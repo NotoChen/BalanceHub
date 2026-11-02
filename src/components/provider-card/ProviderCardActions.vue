@@ -36,9 +36,10 @@ import {
   supportsCheckIn,
 } from "../../utils/provider-actions";
 
-/// 四类卡片共用同一排底栏：日常动作（启动 CLI、签到、刷新、切换授权）在前，
-/// 管理动作（全部续期、重新授权、编辑、启停、删除）在后。卡型只决定哪些动作
-/// 有数据，不决定它们长在哪、叫什么。
+/// 四类卡片共用同一排底栏：管理这张卡的动作（签到、刷新、切换授权、续期、
+/// 编辑、启停、删除）在前，把这张卡的凭据交给外部程序的动作（复制、数据、
+/// 站点、导出、启动临时 CLI）在后。卡型只决定哪些动作有数据，不决定它们
+/// 长在哪、叫什么。
 const props = withDefaults(
   defineProps<{
     provider: Provider;
@@ -331,18 +332,6 @@ const menuListeners = {
       >
     </template>
     <WorkspaceCardActionGroup :label="`${noun}操作`">
-      <CardIconButton
-        v-if="canLaunchCli"
-        tone="launch"
-        :title="launchTitle"
-        :aria-label="launchTitle"
-        @click.stop="launchTemporaryCli"
-        @pointerdown.stop
-      >
-        <AgentCliIcon v-if="launchCliKind" :kind="launchCliKind" :size="16" />
-        <SquareTerminal v-else :size="15" :stroke-width="1.9" />
-      </CardIconButton>
-
       <ProviderCheckInAction
         v-if="canCheckIn"
         :provider-id="provider.identity.id"
@@ -485,6 +474,20 @@ const menuListeners = {
       :probing-capabilities="probingCapabilities"
       v-on="menuListeners"
     />
+
+    <!-- 启动临时 CLI 和上面的导出菜单做同一件事：把这张卡的凭据交给另一个
+         程序。它排在把凭据交出去的这一组末尾，也就是底栏最右端。 -->
+    <CardIconButton
+      v-if="canLaunchCli"
+      tone="launch"
+      :title="launchTitle"
+      :aria-label="launchTitle"
+      @click.stop="launchTemporaryCli"
+      @pointerdown.stop
+    >
+      <AgentCliIcon v-if="launchCliKind" :kind="launchCliKind" :size="16" />
+      <SquareTerminal v-else :size="15" :stroke-width="1.9" />
+    </CardIconButton>
   </WorkspaceCardFooter>
 </template>
 <style scoped>

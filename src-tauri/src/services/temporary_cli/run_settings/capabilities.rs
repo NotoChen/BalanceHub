@@ -3,16 +3,18 @@ use std::collections::BTreeMap;
 
 pub(crate) fn capabilities(
     request: &TemporaryCliSettingsRequest,
+    provider_models: Option<&ProviderModelConfig>,
 ) -> Result<TemporaryCliSettingsCapabilities, String> {
-    inspect(request).map(|(capabilities, _)| capabilities)
+    inspect(request, provider_models).map(|(capabilities, _)| capabilities)
 }
 
 pub(super) fn inspect(
     request: &TemporaryCliSettingsRequest,
+    provider_models: Option<&ProviderModelConfig>,
 ) -> Result<(TemporaryCliSettingsCapabilities, options::ResolvedOptions), String> {
     let help = options::read_help(&request.cli_path)?;
     let has = |flag: &str| help.contains(flag);
-    let resolved = options::resolve(request, &help)?;
+    let resolved = options::resolve(request, &help, provider_models)?;
     let mut result = TemporaryCliSettingsCapabilities {
         can_discard_session: false,
         retention_note: String::new(),

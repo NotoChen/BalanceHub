@@ -23,7 +23,16 @@ export function protocolFixture(kind: ProviderProtocol): ProviderProtocolDescrip
       requiredFields: mode === "password" ? ["loginUsername", "loginPassword"] : mode === "accessToken" ? (kind === "newApi" ? ["accessToken", "apiUser"] : ["accessToken"]) : mode === "apiKey" ? ["apiKey"] : [],
       requiredAnyFields: mode === "session" ? ["sessionCookie", "newApiSession.refreshCookie"] : [],
     })),
-    capabilities: { accessToken: kind !== "api", apiKeyManagement: kind !== "api", usage: true, account: kind !== "api", checkIn: kind === "newApi", announcements: false },
+    capabilities: {
+      accessToken: kind !== "api",
+      apiKeyManagement: kind !== "api",
+      usage: true,
+      account: kind !== "api",
+      checkIn: kind === "newApi",
+      announcements: false,
+      // 测试里的三种协议都经过中转站传输层，备用地址上限取同一常量。
+      maxBackupUrls: 16,
+    },
     operationMethods: { checkIn: null, apiKeys: null, invitation: null, models: "", announcements: null },
     credentialAssistant: { enabled: kind !== "api", accessTokenFlow: kind === "newApi" ? "sessionGeneration" : kind === "sub2Api" ? "credentialCompletion" : "none", accessTokenSkipFields: kind === "newApi" ? ["newApiSession.refreshCookie"] : [], apiKeyRequiredFields: kind === "newApi" ? ["apiUser"] : [], apiKeyRequiredAnyFields: kind === "newApi" ? ["sessionCookie", "accessToken", "newApiSession.refreshCookie"] : [] },
   };
@@ -85,13 +94,15 @@ export function providerEditorFixture(t: TestContext, overrides: {
   });
   const state = loadSource<typeof import("../../src/composables/useProviderEditorState.ts")>("composables/useProviderEditorState.ts", {
     "../utils/provider-input": inputHelpers, "../utils/provider-api-key-options": apiKeyOptions, "./provider-editor-shared": shared,
+    "../utils/provider-protocol": protocolHelpers,
   });
   const factory = loadSource<typeof import("../../src/composables/useProviderEditor.ts")>("composables/useProviderEditor.ts", {
     vue: { ...vue, onUnmounted: vue.onScopeDispose },
     "@arco-design/web-vue": { Message }, "./useClipboard": { copyText: async () => {} }, "./provider-editor-shared": shared,
     "./useProviderConnectionTest": { useProviderConnectionTest }, "./useProviderCredentialCompletion": completion,
     "./useProviderEditorState": state, "./useProviderSave": { useProviderSave }, "./provider-credential-dialogs": dialogs,
-    "../utils/provider-display": display, "../utils/liveness-defaults": { normalizeLivenessTiming() {} },
+    "../utils/provider-display": display, "../utils/provider-protocol": protocolHelpers,
+    "../utils/liveness-defaults": { normalizeLivenessTiming() {} },
     "../api/provider-browser-login": { startProviderBrowserLogin() {}, cancelProviderBrowserLogin() {} },
     "../utils/provider-login-flow": { createProviderLoginFlow: () => ({ run() {}, invalidate() {} }) },
   });

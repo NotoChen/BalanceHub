@@ -1,6 +1,5 @@
 import { Message } from "@arco-design/web-vue";
 import type { Provider } from "../stores/providers";
-import { normalizeInviteLink } from "../utils/provider-display";
 import { copyText } from "./useClipboard";
 
 interface UseProviderCopyActionsOptions {
@@ -61,7 +60,7 @@ export function useProviderCopyActions(options: UseProviderCopyActionsOptions) {
 
     options.setBusyProviderId(provider.identity.id);
     try {
-      const link = normalizeInviteLink(provider.capabilities.inviteLink || (await options.getInviteLink(provider.identity.id)));
+      const link = provider.capabilities.inviteLink || (await options.getInviteLink(provider.identity.id));
       await copyText(link);
       await options.reload();
       Message.success("已复制邀请链接");

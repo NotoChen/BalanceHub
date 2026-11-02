@@ -2,6 +2,7 @@ use crate::{
     adapters::protocol::{contracts::ProviderOperationOutcome, ProtocolAdapter},
     contracts::{ProviderBatchProgressEvent, ProviderView},
     models::{
+        provider_domain::{self, failure::ProviderFailureKind},
         AppData, AppSettings, AuthMode, Provider, ProviderBatchDetails, ProviderBatchOperation,
         ProviderBatchProgressItem, ProviderBatchStatus, ProviderProtocol, ProviderStatus,
         RefreshResult,
@@ -145,20 +146,34 @@ impl<'a> ProviderService<'a> {
             if let Some(message) = preparation_error {
                 provider.runtime.status = ProviderStatus::Error;
                 provider.runtime.error_message = Some(message);
-            } else {
-                let outcome = ProtocolAdapter.refresh_provider(settings, &provider).await;
-                outcome.apply_to(&mut provider);
+                // 登录/换令牌被拒属于凭据问题，重试不会自愈。
+                return Some(ProviderFailureKind::Credential);
             }
+            let outcome = ProtocolAdapter.refresh_provider(settings, &provider).await;
+            let failure = outcome.failure;
+            outcome.apply_to(&mut provider);
+            failure
         };
         // Individual HTTP requests already have deadlines. Also bound the
         // complete authentication + refresh chain so one site cannot hang a batch.
-        if tokio::time::timeout(Duration::from_secs(120), attempt)
-            .await
-            .is_err()
-        {
-            provider.runtime.status = ProviderStatus::Error;
-            provider.runtime.error_message = Some("刷新超时，请稍后重试".to_string());
+        let mut failure = match tokio::time::timeout(Duration::from_secs(120), attempt).await {
+            Ok(failure) => failure,
+            Err(_) => {
+                provider.runtime.status = ProviderStatus::Error;
+                provider.runtime.error_message = Some("刷新超时，请稍后重试".to_string());
+                Some(ProviderFailureKind::Transient)
+            }
+        };
+        if failure.is_none() && matches!(provider.runtime.status, ProviderStatus::Error) {
+            // 适配器没有结构化分类，但刷新确实失败了：按瞬时问题退避。
+            failure = Some(ProviderFailureKind::Transient);
         }
+        provider_domain::failure::record_attempt(
+            &mut provider,
+            failure,
+            settings.refresh_retry_count as u32,
+            crate::util::unix_secs(),
+        );
         let id = provider.identity.id.clone();
         let removed_item = ProviderBatchProgressItem::skipped(&provider, "中转站已移除");
         let applied = self

@@ -47,10 +47,8 @@ impl ConnectionCapability for ApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> ProviderOperationOutcome<()> {
-        ProviderOperationOutcome::refreshed(
-            provider,
-            ApiAdapter::refresh_provider(self, settings, provider).await,
-        )
+        let (refreshed, failure) = ApiAdapter::refresh_provider(self, settings, provider).await;
+        ProviderOperationOutcome::refreshed(provider, refreshed).with_failure(failure)
     }
 }
 

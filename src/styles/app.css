@@ -17,13 +17,9 @@
 @import "./modules/agent-settings.css";
 @import "./modules/agent-environment.css";
 @import "./modules/settings/base.css";
-@import "./modules/settings/provider-editor-base.css";
 @import "./modules/settings/workspace-base.css";
-@import "./modules/settings/provider-editor-workspace.css";
 @import "./modules/settings/workspace-foundations.css";
-@import "./modules/settings/provider-editor-studio.css";
 @import "./modules/settings/dense-workspace.css";
-@import "./modules/settings/provider-editor-refinements.css";
 @import "./modules/api-key-manager.css";
 @import "./modules/theme-dark/base.css";
 @import "./modules/workspace-card-dark.css";
@@ -43,6 +39,7 @@
 @import "./modules/batch-operation.css";
 @import "./modules/responsive.css";
 @import "./modules/surfaces/foundation.css";
+@import "./modules/surfaces/nav-rail.css";
 @import "./modules/surfaces/settings-shell.css";
 @import "./modules/surfaces/overview.css";
 @import "./modules/surfaces/settings-content.css";

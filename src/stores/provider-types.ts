@@ -1,4 +1,5 @@
 import type { OAuthCredential, AccountSubscription, CpaGatewaySnapshot } from "./oauth-types";
+import type { ModelPrice } from "../api/model-catalog";
 import type {
   SessionMessageMetadata,
   SessionFileChange,
@@ -45,6 +46,45 @@ export interface ProviderProtocolCapabilitiesDescriptor {
   account: boolean;
   checkIn: boolean;
   announcements: boolean;
+  /// 可填写的备用地址数量上限；0 表示该协议的请求不经过中转站传输层，
+  /// 备用地址不会生效。
+  maxBackupUrls: number;
+  /// 额外请求头会附加到该协议的每个请求。
+  requestHeaders: boolean;
+  /// 该协议读取卡片声明的 API Key 发送方式。
+  apiKeyScheme: boolean;
+  /// 该协议读取卡片声明的余额接口。
+  quotaSpec: boolean;
+  /// 该协议允许声明的订阅窗口数量上限；0 表示不读取余额接口。
+  maxQuotaWindows: number;
+  /// 该协议读取卡片声明的模型列表地址。
+  modelsUrl: boolean;
+  /// 该协议允许按接口改写的数量上限；0 表示没有请求目录。
+  maxEndpointOverrides: number;
+}
+
+export interface ProviderEndpointHeaderDescriptor {
+  name: string;
+  value: string;
+}
+
+/// 协议会对站点发出的一个请求；编辑器把它作为可见的默认行为展示。
+export interface ProviderEndpointDescriptor {
+  id: string;
+  group: string;
+  groupLabel: string;
+  label: string;
+  description: string;
+  /// null 表示不是 HTTP 请求，而是可复制的外部链接模板。
+  method: string | null;
+  path: string;
+  query: string;
+  altPaths: string[];
+  placeholders: string[];
+  headers: ProviderEndpointHeaderDescriptor[];
+  auth: "none" | "account" | "apiKey";
+  authLabel: string;
+  jsonBody: boolean;
 }
 
 export interface ProviderProtocolOperationMethodsDescriptor {
@@ -73,6 +113,8 @@ export interface ProviderProtocolDescriptor {
   authModes: ProviderAuthModeDescriptor[];
   capabilities: ProviderProtocolCapabilitiesDescriptor;
   operationMethods: ProviderProtocolOperationMethodsDescriptor;
+  /// 该协议会发出的请求默认值，按目录顺序排列。
+  endpoints: ProviderEndpointDescriptor[];
   credentialAssistant: ProviderCredentialAssistantDescriptor;
 }
 export type ProviderQuotaScope = "account" | "token";
@@ -120,7 +162,25 @@ export interface Provider {
   proxy: ProviderProxy;
   notification: ProviderNotification;
   runtime: ProviderRuntime;
+  /// 卡片对上游的请求约定：额外请求头与 API Key 发送方式。
+  request: ProviderRequestConfig;
+  /// 通用 API Key 卡片的余额读取声明；未配置时为空对象。
+  quotaSpec: ProviderQuotaSpec;
+  /// 模型展示与元数据覆盖；原始模型列表仍在 capabilities.availableModels。
+  modelConfig: ProviderModelConfig;
+  /// 应用展示规则（include / exclude / hidden）之后的模型列表。
+  visibleModels: string[];
+  /// 主地址失败、请求改走备用地址时由 Rust 给出；主地址正常时为 null。
+  activeEndpoint?: ProviderActiveEndpoint | null;
   actions: ProviderActions;
+}
+
+export interface ProviderActiveEndpoint {
+  /// 备用地址原文，保留用户填写的写法。
+  backupUrl: string;
+  /// 备用地址在列表中的位置，从 1 开始。
+  backupIndex: number;
+  switchedAt: number;
 }
 
 export interface ProviderActions {
@@ -408,10 +468,88 @@ export interface ProviderNotification {
   channelIds: string[];
 }
 
+export type ProviderAuthScheme = "bearer" | "xApiKey" | "none";
+
+export interface ProviderHeader {
+  name: string;
+  value: string;
+}
+
+export interface ProviderRequestConfig {
+  headers: ProviderHeader[];
+  authScheme: ProviderAuthScheme;
+  /// 按接口改写的路径、查询参数和请求头；未声明的接口沿用协议默认值。
+  endpoints: ProviderEndpointOverride[];
+}
+
+export interface ProviderEndpointQuery {
+  name: string;
+  value: string;
+}
+
+export interface ProviderEndpointOverride {
+  /// 协议请求目录里的接口 id。
+  operation: string;
+  /// 自定义路径；空表示沿用默认路径，可继续使用 {id} 这类占位符。
+  path: string;
+  /// 查询参数增量；值留空表示删除同名默认参数。
+  query: ProviderEndpointQuery[];
+  /// 只附加到该接口的请求头。
+  headers: ProviderHeader[];
+}
+
+export type ProviderQuotaMethod = "get" | "post";
+
+export interface ProviderQuotaWindowSpec {
+  label: string;
+  used: string;
+  limit: string;
+  resetsAt: string;
+}
+
+/// 通用 API Key 中转站的余额读取声明。表达式按 perUnit 换算后写入 ProviderQuota。
+export interface ProviderQuotaSpec {
+  url: string;
+  method: ProviderQuotaMethod;
+  token: string;
+  headers: ProviderHeader[];
+  balance: string;
+  total: string;
+  windows: ProviderQuotaWindowSpec[];
+  /// 表达式数值的换算单位；0 表示沿用卡片默认值。
+  perUnit: number;
+  currencySymbol: string;
+}
+
+export interface ProviderModelOverride {
+  displayName: string;
+  wireName: string;
+  alias: string;
+  contextWindow: number | null;
+  outputLimit: number | null;
+  /** USD per million tokens；null 表示沿用目录或留空。 */
+  price: ModelPrice;
+  reasoningLevels: string[];
+  sendsReasoning: boolean | null;
+  hidden: boolean;
+}
+
+export interface ProviderModelConfig {
+  modelsUrl: string;
+  include: string[];
+  exclude: string[];
+  catalog: string;
+  overrides: Record<string, ProviderModelOverride>;
+}
+
 export interface ProviderRuntime {
   enabled: boolean;
   status: ProviderStatus;
   errorMessage?: string | null;
+  consecutiveFailures?: number;
+  /// unix 秒；冷却结束前调度器不再刷新该卡片。
+  cooldownUntil?: number | null;
+  cooldownReason?: string | null;
 }
 
 export interface ProviderInput {
@@ -423,6 +561,9 @@ export interface ProviderInput {
   liveness: ProviderLivenessInput;
   proxy: ProviderProxy;
   notification: ProviderNotification;
+  request: ProviderRequestConfig;
+  quotaSpec: ProviderQuotaSpec;
+  modelConfig: ProviderModelConfig;
   runtime: Pick<ProviderRuntime, "enabled">;
 }
 

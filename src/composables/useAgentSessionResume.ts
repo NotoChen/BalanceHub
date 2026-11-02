@@ -328,6 +328,7 @@ export function useAgentSessionResume(options: AgentSessionResumeOptions) {
             workdir: row.session.workdir,
             model: "",
             inheritedModel: row.session.model ?? "",
+            providerId: selectedProvider.value?.identity.id ?? "",
             sessionMode: "history",
           }),
           15_000,

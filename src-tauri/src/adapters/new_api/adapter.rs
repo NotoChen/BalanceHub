@@ -607,9 +607,12 @@ pub async fn fetch_invite_link(
             )
         })
         .ok_or_else(|| "接口没有返回邀请码".to_string())?;
-    Ok(format!(
-        "{}/register?aff={}",
-        base_url.trim_end_matches('/'),
-        code
-    ))
+    crate::models::provider_domain::endpoints::provider_link(
+        provider.identity.protocol,
+        &provider.request.endpoints,
+        "register_link",
+        &base_url,
+        &code,
+    )
+    .ok_or_else(|| "当前协议不支持邀请链接".to_string())
 }

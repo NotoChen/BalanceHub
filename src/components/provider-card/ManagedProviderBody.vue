@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { ArrowUpRight } from "@lucide/vue";
 import type { Provider } from "../../stores/provider-types";
 import AccountQuotaBar from "../oauth/AccountQuotaBar.vue";
+import ProviderCardCooldownNote from "./ProviderCardCooldownNote.vue";
 import ProviderCardStaleNote from "./ProviderCardStaleNote.vue";
 import ProviderModelPreview from "../ProviderModelPreview.vue";
 import {
@@ -115,6 +116,8 @@ const creditsLabel = computed(() => {
       </div>
       <!-- 数据新鲜时卡片不写同步时间；过期了才说一句，避免拿旧数字做判断。 -->
       <ProviderCardStaleNote :synced-at="provider.automation.lastSyncedAt" />
+      <!-- 自动刷新被判失败后进入冷却，写清楚何时恢复，别让人以为卡住不动。 -->
+      <ProviderCardCooldownNote :provider="provider" />
       <ProviderModelPreview
         class="provider-card-models-tail"
         :models="provider.capabilities.availableModels"
@@ -160,6 +163,8 @@ const creditsLabel = computed(() => {
       </p>
       <!-- 数据新鲜时卡片不写同步时间；过期了才说一句，避免拿旧数字做判断。 -->
       <ProviderCardStaleNote :synced-at="provider.automation.lastSyncedAt" />
+      <!-- 自动刷新被判失败后进入冷却，写清楚何时恢复，别让人以为卡住不动。 -->
+      <ProviderCardCooldownNote :provider="provider" />
       <!-- 网关卡和中转站卡、账号卡共用同一块模型区：不再只报一个「可用模型 N」
            的数字，也不自己画一套芯片。 -->
       <ProviderModelPreview

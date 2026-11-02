@@ -76,6 +76,8 @@ export interface TemporaryCliSettingsRequest {
   cliPath: string;
   workdir: string;
   model: string;
+  /// 本次启动的中转站；Rust 据此读取卡片声明的模型推理能力。
+  providerId?: string;
   sessionMode: "new" | "history";
 }
 

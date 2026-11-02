@@ -12,6 +12,7 @@ impl<'a> ProviderService<'a> {
         &self,
         input: ProviderInput,
     ) -> Result<ProviderConnectionTestResult, String> {
+        input.validate_advanced()?;
         let state = self.app.state::<crate::state::AppState>();
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;

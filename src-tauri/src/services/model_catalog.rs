@@ -63,12 +63,49 @@ impl ModelCatalogService {
             attempt: Mutex::new(None),
         }
     }
-    pub(crate) fn snapshot(&self, ids: &[String]) -> Result<ModelMetadataSnapshot, String> {
+    /// 同一份 models.dev 缓存按卡片的高级配置做覆盖：卡片声明的名称、上下文、
+    /// 输出上限和价格优先于上游目录，缺失字段仍由目录补全。
+    pub(crate) fn snapshot_for(
+        &self,
+        ids: &[String],
+        config: Option<&ProviderModelConfig>,
+    ) -> Result<ModelMetadataSnapshot, String> {
         let catalog = self.catalog.lock().map_err(|_| "模型资料暂不可用")?;
         let models = ids
             .iter()
-            .filter_map(|id| catalog.models.get(id))
-            .cloned()
+            .filter_map(|id| {
+                let catalog_name = config
+                    .map(|config| config.catalog.trim())
+                    .filter(|name| !name.is_empty());
+                let lookup = catalog_name
+                    .and_then(|name| catalog.models.get(&format!("{name}/{id}")))
+                    .or_else(|| catalog.models.get(id));
+                match (lookup, config.and_then(|config| config.overrides.get(id))) {
+                    (None, None) => None,
+                    (Some(base), over) => {
+                        let mut metadata = base.clone();
+                        metadata.id.clone_from(id);
+                        Some(over.map_or(metadata.clone(), |over| {
+                            apply_model_override(metadata, over)
+                        }))
+                    }
+                    (None, Some(over)) => Some(apply_model_override(
+                        ModelMetadata {
+                            id: id.clone(),
+                            name: id.clone(),
+                            provider: String::new(),
+                            context_window: None,
+                            output_limit: None,
+                            reasoning: None,
+                            tool_call: None,
+                            input_modalities: Vec::new(),
+                            output_modalities: Vec::new(),
+                            price: ModelPrice::default(),
+                        },
+                        over,
+                    )),
+                }
+            })
             .collect();
         let updated_at = chrono::DateTime::from_timestamp(catalog.updated_at, 0)
             .filter(|_| catalog.updated_at > 0)
@@ -175,6 +212,29 @@ impl ModelCatalogService {
             Some((Instant::now(), result.as_ref().err().cloned()));
         result
     }
+}
+
+fn apply_model_override(
+    mut metadata: ModelMetadata,
+    over: &ProviderModelOverride,
+) -> ModelMetadata {
+    if !over.display_name.trim().is_empty() {
+        metadata.name = over.display_name.trim().to_string();
+    }
+    metadata.context_window = over.context_window.or(metadata.context_window);
+    metadata.output_limit = over.output_limit.or(metadata.output_limit);
+    if over.sends_reasoning == Some(false) {
+        metadata.reasoning = Some(false);
+    } else if !over.reasoning_levels.is_empty() {
+        metadata.reasoning = Some(true);
+    }
+    metadata.price = ModelPrice {
+        input: over.price.input.or(metadata.price.input),
+        output: over.price.output.or(metadata.price.output),
+        cache_read: over.price.cache_read.or(metadata.price.cache_read),
+        cache_write: over.price.cache_write.or(metadata.price.cache_write),
+    };
+    metadata
 }
 
 fn estimate(tokens: &SessionTokenCounts, prices: &ModelPrice) -> Option<u64> {

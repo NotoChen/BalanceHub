@@ -48,7 +48,7 @@ where
                     ProviderModelScope::ApiKey,
                 )))
             }
-            Err(error) if !model_list::can_use_account_models(provider) => return Err(error),
+            Err(error) if !model_list::can_use_account_models(provider) => return Err(error.into()),
             Err(error) => Some(error),
         }
     } else {
@@ -71,7 +71,7 @@ where
         ProviderModelList {
             models,
             scope: ProviderModelScope::Account,
-            fallback_reason: key_error,
+            fallback_reason: key_error.map(String::from),
         },
     ))
 }

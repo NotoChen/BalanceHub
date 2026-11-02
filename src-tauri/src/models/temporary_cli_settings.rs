@@ -117,4 +117,7 @@ pub struct TemporaryCliSettingsRequest {
     #[serde(default)]
     pub inherited_model: String,
     pub session_mode: super::TemporaryCliSessionMode,
+    /// 本次启动使用的中转站；用于读取该卡片声明的模型推理能力。
+    #[serde(default)]
+    pub provider_id: String,
 }

@@ -14,7 +14,11 @@ import {
 } from "../api/model-catalog";
 import { withTimeout } from "../utils/promise-timeout";
 
-export function useModelMetadata(ids: Ref<string[]>, active: Ref<boolean>) {
+export function useModelMetadata(
+  ids: Ref<string[]>,
+  active: Ref<boolean>,
+  providerId?: Ref<string | undefined>,
+) {
   const snapshot = ref<ModelMetadataSnapshot | null>(null);
   const loading = ref(false);
   const error = ref("");
@@ -35,7 +39,7 @@ export function useModelMetadata(ids: Ref<string[]>, active: Ref<boolean>) {
     error.value = "";
     try {
       const result = await withTimeout(
-        getModelMetadata([...new Set(ids.value)], refresh),
+        getModelMetadata([...new Set(ids.value)], refresh, providerId?.value),
         35_000,
         "读取模型资料超时",
       );
@@ -51,7 +55,7 @@ export function useModelMetadata(ids: Ref<string[]>, active: Ref<boolean>) {
     }
   }
   watch(
-    [ids, active],
+    [ids, active, ...(providerId ? [providerId] : [])],
     () => {
       void load();
     },

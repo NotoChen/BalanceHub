@@ -31,6 +31,16 @@
   font-weight: 600;
 }
 
+/* 正在使用的认证方式在整组凭据里保持可辨认，切换时不会找不到当前入口。 */
+.provider-auth-section.is-active .provider-auth-section-heading > strong {
+  color: var(--surface-accent);
+}
+
+.provider-auth-section.is-active .provider-auth-mode-icon {
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
 .provider-auth-section-choice {
   display: inline-flex;
   flex: 0 0 auto;

@@ -6,6 +6,10 @@ pub mod automation;
 pub mod capabilities;
 #[path = "provider_domain/check_in.rs"]
 pub mod check_in;
+#[path = "provider_domain/endpoints.rs"]
+pub mod endpoints;
+#[path = "provider_domain/failure.rs"]
+pub mod failure;
 #[path = "provider_domain/liveness.rs"]
 pub mod liveness;
 #[path = "provider_domain/model_list.rs"]

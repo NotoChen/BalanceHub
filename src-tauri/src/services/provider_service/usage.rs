@@ -1,9 +1,9 @@
 use crate::{
     adapters::protocol::ProtocolAdapter,
     models::{
-        AuthMode, ProviderProtocol, ProviderRequestLogsQuery, ProviderRequestLogsResult,
-        ProviderStatus, ProviderUsageModelStat, ProviderUsageOverview, ProviderUsageSourceError,
-        ProviderUsageSummary,
+        AuthMode, ProviderModelHealth, ProviderProtocol, ProviderRequestLogsQuery,
+        ProviderRequestLogsResult, ProviderStatus, ProviderUsageModelStat, ProviderUsageOverview,
+        ProviderUsageSourceError, ProviderUsageSummary,
     },
 };
 use tauri::Manager;
@@ -23,6 +23,75 @@ fn overview_target(provider: &crate::models::Provider) -> bool {
 
 /// 汇总视图只展示排在前面的模型，排行铺满屏幕没有意义。
 const MODEL_LIMIT: usize = 10;
+
+/// 用量排行按卡片声明的归并名聚合：同款模型的多个上游 ID（以及汇总视图里
+/// 不同中转站的同名模型）合成一行，避免排行被拆散。
+fn merge_model_stats(
+    stats: impl IntoIterator<Item = ProviderUsageModelStat>,
+) -> Vec<ProviderUsageModelStat> {
+    let mut merged: std::collections::BTreeMap<String, ProviderUsageModelStat> =
+        std::collections::BTreeMap::new();
+    for stat in stats {
+        let entry =
+            merged
+                .entry(stat.model_name.clone())
+                .or_insert_with(|| ProviderUsageModelStat {
+                    model_name: stat.model_name.clone(),
+                    used: 0.0,
+                    request_count: 0,
+                    token_used: 0,
+                });
+        entry.used += stat.used;
+        entry.request_count = entry.request_count.saturating_add(stat.request_count);
+        entry.token_used = entry.token_used.saturating_add(stat.token_used);
+    }
+    merged.into_values().collect()
+}
+
+/// 单站排行先把上游模型 ID 换成卡片声明的归并名，再交给合并逻辑。
+fn apply_usage_aliases(provider: &crate::models::Provider, stats: &mut [ProviderUsageModelStat]) {
+    for stat in stats {
+        let model = stat.model_name.trim();
+        stat.model_name = provider.model_config.usage_alias(model).to_string();
+    }
+}
+
+/// 响应质量来自各站点自己的采样，汇总结果没有站点维度：同名模型只保留最差
+/// 的一次采样，避免多站同名行的列表键冲突，也避免把问题站点摊平在均值里。
+fn merge_model_health(health: Vec<ProviderModelHealth>) -> Vec<ProviderModelHealth> {
+    let mut merged: std::collections::BTreeMap<String, ProviderModelHealth> =
+        std::collections::BTreeMap::new();
+    for row in health {
+        match merged.get(&row.model_name) {
+            Some(current) => {
+                let worse = match (current.success_rate, row.success_rate) {
+                    // 从未采样换成有采样，有采样更有信息。
+                    (None, Some(_)) => true,
+                    (Some(before), Some(after)) => after < before,
+                    _ => false,
+                };
+                if worse {
+                    merged.insert(row.model_name.clone(), row);
+                }
+            }
+            None => {
+                merged.insert(row.model_name.clone(), row);
+            }
+        }
+    }
+    merged.into_values().collect()
+}
+
+/// 单个站点的排行按花费排序，与适配器返回时的口径一致。
+fn sort_by_usage(stats: &mut [ProviderUsageModelStat]) {
+    stats.sort_by(|left, right| {
+        right
+            .used
+            .partial_cmp(&left.used)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| right.request_count.cmp(&left.request_count))
+    });
+}
 
 impl<'a> ProviderService<'a> {
     pub async fn usage_summary(
@@ -51,7 +120,11 @@ impl<'a> ProviderService<'a> {
         )
         .await?
         .ok_or_else(|| "本地配置已变更，本次用量结果已忽略".to_string())?;
-        Ok(operation.value)
+        let mut summary = operation.value;
+        apply_usage_aliases(&provider, &mut summary.model_stats);
+        summary.model_stats = merge_model_stats(summary.model_stats);
+        sort_by_usage(&mut summary.model_stats);
+        Ok(summary)
     }
 
     /// 汇总视图（不带中转站）把能回答用量的站点合成一份结果。逐个在后台并发读取：
@@ -115,30 +188,24 @@ impl<'a> ProviderService<'a> {
                 }
             };
             overview.request_count += summary.request_count;
-            overview
-                .model_stats
-                .extend(
-                    summary
-                        .model_stats
-                        .into_iter()
-                        .map(|stat| ProviderUsageModelStat {
-                            model_name: stat.model_name,
-                            used: stat.used,
-                            request_count: stat.request_count,
-                            token_used: stat.token_used,
-                        }),
-                );
+            let mut stats = summary.model_stats;
+            apply_usage_aliases(provider, &mut stats);
+            overview.model_stats.extend(stats);
             overview.model_health.extend(summary.model_health);
         }
+        // 汇总视图是「全部中转站合计」，同名模型合并成一行后再排行。
+        overview.model_stats = merge_model_stats(overview.model_stats);
+        overview.model_health = merge_model_health(overview.model_health);
         overview
             .model_stats
             .sort_by_key(|stat| std::cmp::Reverse(stat.request_count));
         overview.model_stats.truncate(MODEL_LIMIT);
-        // 失败率高的站点先列，和单个站点的响应质量面板同一顺序。
+        // 失败率高的站点先列，和单个站点的响应质量面板同一顺序；未采样的
+        // 模型没有成功率可排，放在最后。
         overview.model_health.sort_by(|left, right| {
-            right
-                .success_rate
-                .partial_cmp(&left.success_rate)
+            let rank = |rate: Option<f64>| rate.unwrap_or(f64::INFINITY);
+            rank(left.success_rate)
+                .partial_cmp(&rank(right.success_rate))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         overview.model_health.truncate(MODEL_LIMIT);
@@ -179,7 +246,7 @@ impl<'a> ProviderService<'a> {
 mod tests {
     use super::*;
     use crate::models::{ProviderIdentityInput, ProviderInput};
-    use crate::models::{ProviderStatus, ProviderUsageModelStat};
+    use crate::models::{ProviderModelOverride, ProviderStatus, ProviderUsageModelStat};
 
     fn provider(
         base_url: &str,
@@ -239,6 +306,99 @@ mod tests {
             AuthMode::ApiKey,
             ProviderStatus::Ok
         )));
+    }
+
+    #[test]
+    fn usage_rows_merge_under_the_declared_alias() {
+        let mut provider = provider(
+            "https://relay.example.com",
+            ProviderProtocol::NewApi,
+            AuthMode::Session,
+            ProviderStatus::Ok,
+        );
+        provider.model_config.overrides.insert(
+            "gpt-5.5-2026".into(),
+            ProviderModelOverride {
+                alias: "gpt-5.5".into(),
+                ..Default::default()
+            },
+        );
+        let mut stats = vec![
+            ProviderUsageModelStat {
+                model_name: "gpt-5.5-2026".into(),
+                used: 3.0,
+                request_count: 30,
+                token_used: 300,
+            },
+            ProviderUsageModelStat {
+                model_name: "gpt-5.5".into(),
+                used: 2.0,
+                request_count: 20,
+                token_used: 200,
+            },
+            ProviderUsageModelStat {
+                model_name: "o5".into(),
+                used: 1.0,
+                request_count: 10,
+                token_used: 100,
+            },
+        ];
+
+        apply_usage_aliases(&provider, &mut stats);
+        let mut merged = merge_model_stats(stats);
+        sort_by_usage(&mut merged);
+
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].model_name, "gpt-5.5");
+        assert_eq!(merged[0].used, 5.0);
+        assert_eq!(merged[0].request_count, 50);
+        assert_eq!(merged[0].token_used, 500);
+        assert_eq!(merged[1].model_name, "o5");
+    }
+
+    #[test]
+    fn overview_health_keeps_the_worst_sample_per_model() {
+        let health = vec![
+            ProviderModelHealth {
+                model_name: "gpt-5.5".into(),
+                success_rate: Some(0.9),
+                avg_latency_ms: Some(100),
+                avg_tps: None,
+            },
+            ProviderModelHealth {
+                model_name: "gpt-5.5".into(),
+                success_rate: Some(0.4),
+                avg_latency_ms: Some(900),
+                avg_tps: Some(12.0),
+            },
+            ProviderModelHealth {
+                model_name: "o5".into(),
+                success_rate: None,
+                avg_latency_ms: None,
+                avg_tps: None,
+            },
+            ProviderModelHealth {
+                model_name: "o5".into(),
+                success_rate: Some(0.8),
+                avg_latency_ms: Some(200),
+                avg_tps: None,
+            },
+        ];
+
+        let merged = merge_model_health(health);
+        assert_eq!(merged.len(), 2);
+        let gpt = merged
+            .iter()
+            .find(|row| row.model_name == "gpt-5.5")
+            .expect("gpt row");
+        assert_eq!(gpt.success_rate, Some(0.4));
+        assert_eq!(gpt.avg_latency_ms, Some(900));
+        let o5 = merged
+            .iter()
+            .find(|row| row.model_name == "o5")
+            .expect("o5 row");
+        // 未采样行不会盖掉真实的成功率。
+        assert_eq!(o5.success_rate, Some(0.8));
     }
 
     #[test]

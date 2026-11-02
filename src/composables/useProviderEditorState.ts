@@ -9,6 +9,7 @@ import type {
 } from "../stores/providers";
 import { emptyDraft, providerToInput } from "../utils/provider-input";
 import { effectiveProviderApiKeyOptions } from "../utils/provider-api-key-options";
+import { providerEditorTitle } from "../utils/provider-protocol";
 import { normalizeProviderBaseUrl } from "./provider-editor-shared";
 import type { ProtocolSelectionSource, ProviderEditorSection } from "./provider-editor-shared";
 
@@ -33,7 +34,10 @@ export function useProviderEditorState() {
   const availableModels = ref<string[]>([]);
   const siteNameSourceBaseUrl = ref("");
 
-  const drawerTitle = computed(() => (editingProviderId.value ? "编辑中转站" : "添加中转站"));
+  /// 标题里的称呼跟着草稿此刻选中的协议走，窗口不是一个固定的「中转站」。
+  const drawerTitle = computed(() =>
+    providerEditorTitle(Boolean(editingProviderId.value), draftProvider.identity.protocol),
+  );
 
   watch(drawerVisible, (visible, previous) => {
     if (!visible && previous) {

@@ -7,6 +7,7 @@ import { createRenderer, nextTick } from "vue";
 import { loadSource } from "./helpers/load-source.ts";
 import type { AgentCliKind } from "../src/stores/providers.ts";
 import type { Provider } from "../src/stores/provider-types.ts";
+import { providerScopeNoun } from "../src/utils/provider-protocol.ts";
 
 const actionsPath = fileURLToPath(
   new URL("../src/components/provider-card/ProviderCardActions.vue", import.meta.url),
@@ -52,13 +53,9 @@ function mountFooter(
       },
       "../../utils/oauth-cli": { oauthAgentCliKind: (vendor: string) => vendor },
       "../../utils/provider-display": {
-        // 称呼只有一份实现，这里按同一规则给出，测试才能读到真实文案。
+        // 称呼只有一份实现，这里直接转调协议目录里的同一条规则。
         providerCardScopeNoun: (value: Provider) =>
-          value.actions.cpaGateway
-            ? "网关"
-            : value.actions.oauthAccount
-              ? "账号"
-              : "中转站",
+          providerScopeNoun(value.identity.protocol),
         providerAuthModeDescription: () => "",
         providerDefaultApiKeyOption: () => null,
         providerApiKeyDisplayName: () => "",
@@ -113,7 +110,7 @@ function provider(
   } = {},
 ): Provider {
   return {
-    identity: { id: "oauth-fixture", name: "oauth-fixture", remark: "", baseUrl: "" },
+    identity: { id: "oauth-fixture", name: "oauth-fixture", remark: "", baseUrl: "", protocol: "oauth" },
     auth: {
       credentialRevision: 1,
       mode: "accessToken",
@@ -212,6 +209,7 @@ test("the switch keeps the agent name in its tooltip, not in the footer row", (t
 test("a gateway keeps the agent menu because it can serve several agents", (t) => {
   const gateway = provider();
   (gateway.auth as Record<string, unknown>).oauth = null;
+  (gateway.identity as Record<string, unknown>).protocol = "cliProxyApi";
   (gateway.actions as Record<string, unknown>).defaultCliConfig = true;
   const card = mountFooter(t, {
     provider: gateway,
@@ -224,6 +222,7 @@ test("a gateway keeps the agent menu because it can serve several agents", (t) =
 test("the same footer serves a relay card, and its wording follows the card type", (t) => {
   const relay = provider();
   (relay.auth as Record<string, unknown>).oauth = null;
+  (relay.identity as Record<string, unknown>).protocol = "newApi";
   (relay.actions as Record<string, unknown>).oauthAccount = false;
   const card = mountFooter(t, { provider: relay, boundProviderId: "oauth-fixture" });
   assert.equal(unwrap(card.state, "noun"), "中转站");
@@ -275,6 +274,7 @@ function loadActions(options: {
     },
     "../utils/oauth-display": { oauthVendorLabel: (vendor: string) => vendor },
     "../utils/provider-api-key-options": { hasUsableProviderApiKey: () => true },
+    "../utils/provider-protocol": { providerScopeNoun },
     "../utils/provider-display": { providerDisplayLabel: (p: Provider) => p.identity.name },
     "./useProviderCopyActions": {
       useProviderCopyActions: () => ({
@@ -362,9 +362,9 @@ test("one footer serves all four card types, in one fixed order", () => {
   assert.match(template, /<ProviderCardActionMenus/);
   assert.doesNotMatch(template, /show-cli-menu|group-label=/);
   assert.doesNotMatch(template, /label="更多"/);
-  // 日常动作在前、管理动作在后，顺序不随卡型改变。
+  // 管理这张卡的动作在前、交给外部程序的动作在后，顺序不随卡型改变；
+  // 启动临时 CLI 和导出菜单做同一件事，排在底栏最右端。
   const order = [
-    "launchTemporaryCli",
     "<ProviderCheckInAction",
     'tone="refresh"',
     "singleSwitchKind",
@@ -374,6 +374,7 @@ test("one footer serves all four card types, in one fixed order", () => {
     "toggleProvider",
     'tone="danger"',
     "<ProviderCardActionMenus",
+    "v-if=\"canLaunchCli\"",
   ].map((needle) => {
     const at = template.indexOf(needle);
     assert.ok(at >= 0, `底栏缺少 ${needle}`);

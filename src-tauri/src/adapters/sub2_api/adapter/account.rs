@@ -3,7 +3,7 @@ use crate::{
     adapters::{
         sub2_api::{
             auth::request_account_json, json::string_field, keys::fetch_api_keys,
-            response::normalize_base_url, usage::urlencoding,
+            response::normalize_base_url,
         },
         transport::{build_client, ProviderTransport},
     },
@@ -192,11 +192,14 @@ impl Sub2ApiAdapter {
             .ok_or_else(|| "Sub2API 没有返回邀请编码".to_string())?;
         Ok((
             authenticated,
-            format!(
-                "{}/register?aff_code={}",
-                normalize_base_url(&provider.identity.base_url),
-                urlencoding(&code)
-            ),
+            crate::models::provider_domain::endpoints::provider_link(
+                provider.identity.protocol,
+                &provider.request.endpoints,
+                "register_link",
+                &normalize_base_url(&provider.identity.base_url),
+                &code,
+            )
+            .ok_or_else(|| "当前协议不支持邀请链接".to_string())?,
         ))
     }
 }

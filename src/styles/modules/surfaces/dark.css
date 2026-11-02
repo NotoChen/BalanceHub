@@ -68,10 +68,8 @@ body[arco-theme="dark"] {
 :root.theme-dark .settings-overview-metric,
 :root.theme-dark .settings-overview-surface,
 :root.theme-dark .settings-workspace-v3 .settings-card,
-:root.theme-dark .provider-editor-context-card,
 :root.theme-dark .app-update-modal .app-update-version-summary,
 :root.theme-dark .app-update-modal .app-update-release-scroll { background: var(--surface-panel); }
-:root.theme-dark .provider-editor-context,
 :root.theme-dark .app-update-modal .arco-modal-body,
 :root.theme-dark .available-models-modal .arco-modal-body,
 :root.theme-dark .workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
@@ -82,9 +80,7 @@ body[arco-theme="dark"] {
 :root.theme-dark .settings-overview-surface > header span,
 :root.theme-dark .settings-workspace-v3 .settings-card-header > div > span { color: var(--surface-muted); }
 :root.theme-dark .settings-overview-toggle-row strong,
-:root.theme-dark .settings-workspace-v3 .settings-theme-option strong,
-:root.theme-dark .provider-editor-context-card > header > span,
-:root.theme-dark .provider-editor-context-card dd { color: var(--surface-ink-soft); }
+:root.theme-dark .settings-workspace-v3 .settings-theme-option strong { color: var(--surface-ink-soft); }
 :root.theme-dark .settings-overview-toggle-icon,
 :root.theme-dark .settings-workspace-v3 .settings-theme-option,
 :root.theme-dark .settings-workspace-v3 .settings-appearance-preview,
@@ -94,10 +90,3 @@ body[arco-theme="dark"] {
 :root.theme-dark .settings-overview-empty-state { color: var(--surface-success); }
 :root.theme-dark .settings-overview-toggle-row,
 :root.theme-dark .settings-overview-surface > footer { border-color: var(--surface-line); }
-:root.theme-dark .provider-editor-context { background: #172231; }
-:root.theme-dark .provider-editor-context-note { border-color: #2c6258; background: #1b3936; }
-:root.theme-dark .provider-editor-context-note strong { color: #8be4c2; }
-:root.theme-dark .provider-editor-context-note span { color: #a4cfc2; }
-:root.theme-dark .provider-editor-context-progress > div { background: #334155; }
-:root.theme-dark .provider-editor-context-card > header > b { background: var(--surface-panel-soft); color: var(--surface-muted); }
-:root.theme-dark .provider-editor-context-card > header > b.ready { background: #1b3936; color: var(--surface-success); }

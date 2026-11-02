@@ -146,12 +146,17 @@
 }
 
 .provider-credential-active-panel {
-  border-color: #cddbf0;
+  display: grid;
+  gap: 5px;
+  margin: 2px 0 4px;
+  border: 1px solid #cddbf0;
+  border-radius: 10px;
   background: var(--surface-panel);
   padding: 0;
 }
 
-/* Identity, credentials and policies share a single scrolling form. */
+/* 编辑窗口与设置共用「左侧分区 + 单页内容」的读法：同一时间只展开一个分区，
+ * 长表单不再连成一页。导航样式见 nav-rail.css。 */
 .provider-editor-layout {
   display: flex;
   width: 100%;
@@ -162,6 +167,24 @@
   background: var(--surface-canvas);
 }
 
+.provider-editor-workspace {
+  --surface-nav-width: 208px;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.provider-editor-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
 .provider-editor-scroll {
   position: relative;
   min-height: 0;
@@ -169,7 +192,39 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 28px clamp(24px, 4vw, 48px) 36px;
+  padding: 28px clamp(20px, 3.5vw, 40px) 36px;
+}
+
+.provider-editor-panel-content {
+  display: grid;
+  width: min(100%, 820px);
+  gap: 18px;
+  margin: 0 auto;
+}
+
+.provider-editor-pane-heading {
+  display: grid;
+  gap: 3px;
+}
+
+.provider-editor-pane-heading h2 {
+  margin: 0;
+  color: var(--surface-ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.provider-editor-pane-heading p {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.provider-editor-pane {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
 }
 
 .provider-editor-feedback {
@@ -186,19 +241,6 @@
 .provider-test-steps > div { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: 12px; margin-top: 6px; }
 .provider-test-steps .is-error { color: rgb(var(--red-6)); }
 
-.provider-editor-form {
-  display: grid;
-  width: min(100%, 900px);
-  gap: 24px;
-  margin: 0 auto;
-}
-
-.provider-editor-form > [data-provider-section="credentials"],
-.provider-editor-policy-section {
-  border-top: 1px solid var(--surface-line);
-  padding-top: 24px;
-}
-
 .provider-editor-form .provider-form-block-header {
   min-height: 56px;
   padding-inline: 16px;
@@ -206,17 +248,6 @@
 
 .provider-editor-form .provider-form-block-body {
   padding: 18px 16px 20px;
-}
-
-.provider-editor-policy-heading {
-  margin-bottom: 22px;
-}
-
-.provider-editor-policy-heading h2 {
-  margin: 0;
-  color: var(--surface-ink);
-  font-size: 16px;
-  font-weight: 700;
 }
 
 .provider-editor-footer {
@@ -228,11 +259,6 @@
   border-top: 1px solid var(--surface-line);
   background: var(--surface-panel);
   padding: 12px clamp(24px, 4vw, 48px);
-}
-
-.provider-editor-policies {
-  display: grid;
-  gap: 16px;
 }
 
 .provider-form-section {
@@ -272,11 +298,26 @@
 
 .provider-empty-note { margin: 10px 0 0; color: var(--surface-muted); font-size: 12px; }
 
+/* 备用地址标题右侧：数量只在上限附近才有用，但一直显示能让「还能加几条」
+   不用点开按钮去猜。 */
+.provider-backup-url-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-backup-url-count {
+  color: var(--surface-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
 .provider-form-section-body {
   min-width: 0;
 }
 
-.provider-editor-policies .provider-field {
+.provider-editor-pane.is-rows .provider-field {
   display: flex;
   min-width: 0;
   flex-direction: row;
@@ -286,7 +327,7 @@
   padding: 8px 0;
 }
 
-.provider-editor-policies .provider-field > .arco-form-item-label-col {
+.provider-editor-pane.is-rows .provider-field > .arco-form-item-label-col {
   width: 154px;
   max-width: 154px;
   flex: 0 0 154px;
@@ -294,33 +335,49 @@
   text-align: left;
 }
 
-.provider-editor-policies .provider-field > .arco-form-item-wrapper-col {
+.provider-editor-pane.is-rows .provider-field > .arco-form-item-wrapper-col {
   width: auto;
   min-width: 0;
   max-width: none;
   flex: 1;
 }
 
-.provider-editor-policies .provider-field .arco-form-item-label {
+.provider-editor-pane.is-rows .provider-field .arco-form-item-label {
   padding: 0;
   line-height: 20px;
 }
 
-.provider-editor-policies .provider-field .arco-form-item-label > label {
+.provider-editor-pane.is-rows .provider-field .arco-form-item-label > label {
   color: var(--color-text-2);
   font-size: 12px;
 }
 
-.provider-editor-policies .provider-field .arco-form-item-content {
+.provider-editor-pane.is-rows .provider-field .arco-form-item-content {
   min-height: 32px;
 }
 
-.provider-editor-policies .provider-field .arco-form-item-extra {
+.provider-editor-pane.is-rows .provider-field .arco-form-item-extra {
   min-height: 0;
   padding-top: 5px;
   color: var(--color-text-3);
   font-size: 11px;
   line-height: 1.6;
+}
+
+/* 多列字段网格自行排布：行式分区的标签列占 154px，在半宽的网格单元里放不下
+   输入框；网格内改为标签在上、控件占满整列。 */
+.provider-editor-pane.is-rows .provider-field-grid > .provider-field {
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+}
+
+.provider-editor-pane.is-rows .provider-field-grid > .provider-field > .arco-form-item-label-col,
+.provider-editor-pane.is-rows .provider-field-grid > .provider-field > .arco-form-item-wrapper-col {
+  width: 100%;
+  max-width: none;
+  flex: 0 0 auto;
+  padding: 0;
 }
 
 .provider-setting-controls {
@@ -392,6 +449,18 @@
   border-top: 1px solid var(--color-border-2);
 }
 
+/* 行式分区里的折叠项与字段标签列对齐；窄窗口取消缩进。 */
+.provider-form-disclosure.is-inset {
+  margin-left: 154px;
+}
+
+.provider-form-disclosure-body {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 4px 0 14px;
+}
+
 .provider-form-disclosure > summary {
   width: fit-content;
   padding: 12px 0;
@@ -404,6 +473,339 @@
   border-radius: 4px;
   outline: 2px solid rgb(var(--primary-6));
   outline-offset: 2px;
+}
+
+/* 请求头、余额窗口和模型覆盖共用同一套「小节标题 + 行编辑器」骨架：
+   标题右侧放数量和添加按钮，行内直接编辑，避免为每条配置再开弹窗。 */
+.provider-form-subsection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+  color: var(--color-text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provider-header-editor {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  width: 100%;
+}
+
+/* 接口目录：默认请求只读展示，改写项就地展开，避免再开一层编辑窗口。 */
+.provider-endpoint-intro {
+  margin: 0 0 8px;
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.provider-endpoint-group {
+  border-top: 1px solid var(--color-border-2);
+}
+
+.provider-endpoint-group > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 0;
+  color: var(--color-text-2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provider-endpoint-group > summary:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid rgb(var(--primary-6));
+  outline-offset: 2px;
+}
+
+.provider-endpoint-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 0 10px;
+}
+
+.provider-endpoint-item {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.provider-endpoint-item.is-overridden {
+  border-color: rgb(var(--primary-4));
+}
+
+.provider-endpoint-head {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+
+.provider-endpoint-method {
+  flex: none;
+  border-radius: 4px;
+  background: var(--surface-panel-soft);
+  padding: 1px 5px;
+  color: var(--color-text-2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.provider-endpoint-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provider-endpoint-path {
+  min-width: 0;
+  flex: 1 1 220px;
+  color: var(--color-text-2);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.provider-endpoint-description {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.provider-endpoint-defaults {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 2px 0 0;
+  color: var(--color-text-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.provider-endpoint-defaults dt {
+  color: var(--surface-muted);
+}
+
+.provider-endpoint-defaults dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.provider-endpoint-headers {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.provider-endpoint-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--color-border-2);
+  padding-top: 10px;
+}
+
+.provider-endpoint-subsection {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-quota-windows,
+.provider-model-overrides {
+  display: grid;
+  gap: 8px;
+}
+
+.provider-quota-window {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.provider-quota-window-fields {
+  gap: 6px 8px;
+}
+
+/* 表达式写完就地读取一次：结果贴在字段上方，不用滚到窗口底部找测试步骤。 */
+.provider-quota-preview {
+  margin: 0 0 10px;
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.provider-quota-preview.is-ok {
+  background: var(--surface-success-soft);
+  color: var(--surface-success);
+}
+
+.provider-quota-preview.is-error {
+  background: var(--surface-warning-soft);
+  color: rgb(var(--red-6));
+}
+
+.provider-quota-preview.is-pending {
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+}
+
+.provider-quota-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* 展示规则可以直接从站点模型列表勾选；通配符仍按文本输入，匹配由后端负责。 */
+.provider-model-rule {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.provider-model-rule > .arco-input-tag {
+  min-width: 0;
+  flex: 1;
+}
+
+.provider-model-picker {
+  display: grid;
+  width: 300px;
+  max-width: 70vw;
+  gap: 8px;
+}
+
+.provider-model-picker-list {
+  display: grid;
+  max-height: 240px;
+  gap: 2px;
+  overflow: auto;
+}
+
+.provider-model-picker-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-radius: 5px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.provider-model-picker-item:hover {
+  background: var(--surface-panel-soft);
+}
+
+.provider-model-picker-item code {
+  overflow: hidden;
+  min-width: 0;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-model-picker-note,
+.provider-model-picker-empty {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.provider-model-override-group {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  color: var(--color-text-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.provider-model-override-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.provider-model-override {
+  border: 1px solid var(--color-border-2);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.provider-model-override > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.provider-model-override > summary::-webkit-details-marker {
+  display: none;
+}
+
+.provider-model-override > summary code {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-model-override > summary .arco-btn {
+  margin-left: auto;
+}
+
+.provider-model-override-badge {
+  flex: none;
+  border: 1px solid var(--color-border-2);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--color-text-3);
+  font-size: 11px;
+}
+
+.provider-model-override-fields {
+  gap: 6px 12px;
+  padding-top: 8px;
+}
+
+.provider-model-price-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .provider-model-price-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1000px) {
+  /* 导航在窄窗口里横排到内容上方，和设置窗口同一断点。 */
+  .provider-editor-workspace {
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 760px) {
@@ -419,19 +821,21 @@
 @media (max-width: 640px) {
   .provider-liveness-fields { margin-left: 0; }
 
-  .provider-editor-policies .provider-field {
+  .provider-form-disclosure.is-inset { margin-left: 0; }
+
+  .provider-editor-pane.is-rows .provider-field {
     flex-direction: column;
     gap: 6px;
   }
 
-  .provider-editor-policies .provider-field > .arco-form-item-label-col {
+  .provider-editor-pane.is-rows .provider-field > .arco-form-item-label-col {
     width: 100%;
     max-width: none;
     flex: 0 0 auto;
     padding: 0;
   }
 
-  .provider-editor-policies .provider-field > .arco-form-item-wrapper-col {
+  .provider-editor-pane.is-rows .provider-field > .arco-form-item-wrapper-col {
     width: 100%;
   }
 

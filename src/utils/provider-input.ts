@@ -52,6 +52,29 @@ export function emptyDraft(): ProviderInput {
       mode: "inherit",
       channelIds: [],
     },
+    request: {
+      headers: [],
+      authScheme: "bearer",
+      endpoints: [],
+    },
+    quotaSpec: {
+      url: "",
+      method: "get",
+      token: "",
+      headers: [],
+      balance: "",
+      total: "",
+      windows: [],
+      perUnit: 0,
+      currencySymbol: "",
+    },
+    modelConfig: {
+      modelsUrl: "",
+      include: [],
+      exclude: [],
+      catalog: "",
+      overrides: {},
+    },
     liveness: {
       useGlobal: true,
       enabled: false,
@@ -109,6 +132,36 @@ export function providerToInput(
       mode: provider.notification.mode,
       channelIds: [...(provider.notification.channelIds || [])],
     },
+    request: {
+      authScheme: provider.request?.authScheme ?? "bearer",
+      headers: (provider.request?.headers ?? []).map((header) => ({ ...header })),
+      endpoints: (provider.request?.endpoints ?? []).map((endpoint) => ({
+        operation: endpoint.operation,
+        path: endpoint.path,
+        query: (endpoint.query ?? []).map((field) => ({ ...field })),
+        headers: (endpoint.headers ?? []).map((header) => ({ ...header })),
+      })),
+    },
+    quotaSpec: {
+      url: provider.quotaSpec?.url ?? "",
+      method: provider.quotaSpec?.method ?? "get",
+      token: provider.quotaSpec?.token ?? "",
+      headers: (provider.quotaSpec?.headers ?? []).map((header) => ({ ...header })),
+      balance: provider.quotaSpec?.balance ?? "",
+      total: provider.quotaSpec?.total ?? "",
+      windows: (provider.quotaSpec?.windows ?? []).map((window) => ({
+        ...window,
+      })),
+      perUnit: provider.quotaSpec?.perUnit ?? 0,
+      currencySymbol: provider.quotaSpec?.currencySymbol ?? "",
+    },
+    modelConfig: {
+      modelsUrl: provider.modelConfig?.modelsUrl ?? "",
+      include: [...(provider.modelConfig?.include ?? [])],
+      exclude: [...(provider.modelConfig?.exclude ?? [])],
+      catalog: provider.modelConfig?.catalog ?? "",
+      overrides: copyModelOverrides(provider.modelConfig?.overrides),
+    },
     liveness: {
       useGlobal: provider.liveness.useGlobal,
       enabled: provider.liveness.enabled,
@@ -128,4 +181,21 @@ export function providerToInput(
     },
     ...overrides,
   };
+}
+
+/// 模型覆盖是嵌套结构，草稿必须与已保存卡片脱离引用，否则编辑抽屉会直接
+/// 改到 store 里的对象。
+function copyModelOverrides(
+  overrides: Provider["modelConfig"]["overrides"] | undefined,
+): Provider["modelConfig"]["overrides"] {
+  return Object.fromEntries(
+    Object.entries(overrides ?? {}).map(([model, over]) => [
+      model,
+      {
+        ...over,
+        price: { ...over.price },
+        reasoningLevels: [...(over.reasoningLevels ?? [])],
+      },
+    ]),
+  );
 }

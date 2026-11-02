@@ -23,6 +23,15 @@ export interface ModelMetadataSnapshot {
   stale: boolean;
   error: string | null;
 }
-export function getModelMetadata(ids: string[], refresh = false) {
-  return invoke<ModelMetadataSnapshot>("get_model_metadata", { ids, refresh });
+/// `providerId` 让 Rust 应用该卡片的模型覆盖（名称、上下文、价格）。
+export function getModelMetadata(
+  ids: string[],
+  refresh = false,
+  providerId?: string,
+) {
+  return invoke<ModelMetadataSnapshot>("get_model_metadata", {
+    ids,
+    refresh,
+    providerId: providerId ?? null,
+  });
 }

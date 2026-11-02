@@ -165,7 +165,7 @@ function keyLabel(key: ProviderApiKeyOption) {
           :catalog="model.modelCatalog"
           :provider-models="
             model.intentKind === 'provider'
-              ? (model.selectedProvider?.capabilities.availableModels ?? [])
+              ? (model.selectedProvider?.visibleModels ?? [])
               : undefined
           "
           :loading="model.modelLoading"

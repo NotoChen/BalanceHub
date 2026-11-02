@@ -19,6 +19,7 @@ import { useProviderSave } from "./useProviderSave";
 import { normalizeLivenessTiming } from "../utils/liveness-defaults";
 import { chooseSameSiteApiKeyAction, confirmAction } from "./provider-credential-dialogs";
 import { providerDisplayLabel } from "../utils/provider-display";
+import { providerScopeNoun } from "../utils/provider-protocol";
 
 interface UseProviderEditorOptions {
   store: ProviderEditorStore;
@@ -70,7 +71,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     resolveConflict: (conflict) => resolveDuplicateConflict(conflict.kind, conflict.existingProviderName),
     accept: acceptSavedProvider,
     completed: (provider) => {
-      Message.success("中转站已保存");
+      Message.success(`${providerScopeNoun(provider.identity.protocol)}已保存`);
       refreshAfterSave(provider);
     },
   });
@@ -187,7 +188,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     if (kind === "sameApiKey") {
       const confirmed = await confirmAction(
         "API Key 已存在",
-        `“${existingName}”已经保存了相同的 API Key。是否覆盖已有中转站配置？`,
+        `“${existingName}”已经保存了相同的 API Key。是否覆盖已有配置？`,
         "覆盖配置",
         "warning",
       );
@@ -195,7 +196,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     }
     const confirmed = await confirmAction(
       "账号已存在",
-      `检测到“${existingName}”是同一站点的同一账号。是否覆盖已有中转站配置？`,
+      `检测到“${existingName}”是同一站点的同一账号。是否覆盖已有配置？`,
       "覆盖配置",
       "warning",
     );
@@ -242,7 +243,7 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
         Message.error(`保存后刷新失败：${error}`);
       }
     }).catch((error: unknown) => {
-      Message.warning(`中转站已保存，额度刷新失败：${error instanceof Error ? error.message : String(error)}`);
+      Message.warning(`${providerScopeNoun(provider.identity.protocol)}已保存，额度刷新失败：${error instanceof Error ? error.message : String(error)}`);
     });
     void options.store
       .probeCapabilities(provider.identity.id)

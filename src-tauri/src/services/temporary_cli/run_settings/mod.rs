@@ -67,6 +67,8 @@ pub(super) struct RunSettingsRequest<'a> {
     pub inherited_model: &'a str,
     pub directory: &'a Path,
     pub settings: Option<&'a TemporaryCliRunSettings>,
+    /// 中转站声明的模型推理能力；原生启动时为 `None`。
+    pub provider: Option<&'a Provider>,
 }
 
 pub(super) fn apply(
@@ -83,9 +85,11 @@ pub(super) fn apply(
         inherited_model,
         directory,
         settings,
+        provider,
     } = request;
     let default = TemporaryCliRunSettings::default();
     let settings = settings.unwrap_or(&default);
+    let provider_models = provider.map(|provider| &provider.model_config);
     let model_request = TemporaryCliSettingsRequest {
         native_options: settings.native_options.clone(),
         cli_kind: kind,
@@ -94,6 +98,9 @@ pub(super) fn apply(
         model: model.into(),
         inherited_model: inherited_model.into(),
         session_mode: mode,
+        provider_id: provider
+            .map(|provider| provider.identity.id.clone())
+            .unwrap_or_default(),
     };
     if settings == &default {
         if kind == AgentCliKind::Gemini {
@@ -107,7 +114,7 @@ pub(super) fn apply(
         });
     }
     validate(settings)?;
-    let (capabilities, resolved) = capabilities::inspect(&model_request)?;
+    let (capabilities, resolved) = capabilities::inspect(&model_request, provider_models)?;
     let mut prepared = PreparedRunSettings {
         files: Vec::new(),
         isolation: None,

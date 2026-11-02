@@ -10,6 +10,7 @@ use super::{
         ProviderLivenessInput, ProviderNotification, ProviderProxy, ProviderQuota, ProviderRuntime,
         ProviderRuntimeInput,
     },
+    ProviderModelConfig, ProviderQuotaSpec, ProviderRequestConfig,
 };
 use crate::limits;
 use crate::models::{
@@ -34,6 +35,12 @@ pub struct ProviderInput {
     pub proxy: ProviderProxy,
     pub notification: ProviderNotification,
     pub runtime: ProviderRuntimeInput,
+    #[serde(default)]
+    pub request: ProviderRequestConfig,
+    #[serde(default)]
+    pub quota_spec: ProviderQuotaSpec,
+    #[serde(default)]
+    pub model_config: ProviderModelConfig,
 }
 
 impl Default for ProviderInput {
@@ -98,12 +105,17 @@ impl Default for ProviderInput {
                 channel_ids: Vec::new(),
             },
             runtime: ProviderRuntimeInput { enabled: true },
+            request: ProviderRequestConfig::default(),
+            quota_spec: ProviderQuotaSpec::default(),
+            model_config: ProviderModelConfig::default(),
         }
     }
 }
 
 impl Provider {
     pub fn from_input(input: ProviderInput, id: String) -> Self {
+        let mut input = input;
+        input.normalize_advanced();
         let name = provider_name_from_input(&input.identity.name, &input.identity.base_url);
         let protocol = input.identity.protocol;
         let api = matches!(protocol, ProviderProtocol::Api);
@@ -205,7 +217,13 @@ impl Provider {
                 enabled: input.runtime.enabled,
                 status: ProviderStatus::Warning,
                 error_message: Some("尚未同步".to_string()),
+                consecutive_failures: 0,
+                cooldown_until: None,
+                cooldown_reason: None,
             },
+            request: input.request,
+            quota_spec: input.quota_spec,
+            model_config: input.model_config,
         }
     }
 
@@ -329,6 +347,8 @@ impl Provider {
     }
 
     pub fn apply_input(&mut self, input: ProviderInput) {
+        let mut input = input;
+        input.normalize_advanced();
         let check_in_policy_changed = self.automation.check_in_method
             != input.automation.check_in_method
             || self.automation.auto_shield != input.automation.auto_shield
@@ -541,6 +561,53 @@ impl Provider {
         self.liveness.prompt_mode = input.liveness.prompt_mode;
         self.liveness.fixed_prompt = input.liveness.fixed_prompt;
         self.runtime.enabled = input.runtime.enabled;
+        let request_changed = self.request != input.request;
+        let register_link_changed = crate::models::provider_domain::endpoints::link_template(
+            &self.request.endpoints,
+            "register_link",
+        ) != crate::models::provider_domain::endpoints::link_template(
+            &input.request.endpoints,
+            "register_link",
+        );
+        let quota_spec_changed = self.quota_spec != input.quota_spec;
+        let models_url_changed = self.model_config.models_url != input.model_config.models_url;
+        self.request = input.request;
+        self.quota_spec = input.quota_spec;
+        self.model_config = input.model_config;
+        if register_link_changed {
+            // 缓存的邀请链接是用旧模板拼出来的；模板换了，下次复制时重新请求邀请码。
+            self.capabilities.invite_link.clear();
+        }
+        if quota_spec_changed {
+            // 余额来源换了，旧数字不再对应当前声明；等下一次同步重新写入。
+            self.quota.available = 0.0;
+            self.quota.used = 0.0;
+            self.quota.unlimited = false;
+            self.quota.windows.clear();
+            let account_protocol = matches!(
+                self.identity.protocol,
+                ProviderProtocol::NewApi | ProviderProtocol::Sub2Api
+            );
+            self.quota.known = account_protocol;
+            self.quota.total_known = account_protocol;
+            self.automation.last_synced_at = None;
+        }
+        if models_url_changed {
+            self.capabilities.clear_available_models();
+        }
+        if request_changed
+            || quota_spec_changed
+            || models_url_changed
+            || auth_material_changed
+            || base_url_changed
+        {
+            // 用户刚改过连接方式：旧的失败判定不再可信，让调度器重新试一次。
+            self.runtime.consecutive_failures = 0;
+            self.runtime.cooldown_until = None;
+            self.runtime.cooldown_reason = None;
+            self.runtime.status = ProviderStatus::Warning;
+            self.runtime.error_message = Some("尚未同步".to_string());
+        }
     }
 }
 
@@ -721,6 +788,35 @@ mod tests {
         input.identity.base_url = "https://another.test".into();
         provider.apply_input(input);
         assert!(provider.auth.new_api_session.is_none());
+    }
+
+    #[test]
+    fn changing_the_register_template_drops_the_cached_invite_link() {
+        use crate::models::provider_domain::endpoints::ProviderEndpointOverride;
+        use crate::models::{AuthMode, Provider};
+        let mut input = super::ProviderInput::default();
+        input.identity.base_url = "https://example.test".into();
+        input.auth.mode = AuthMode::ApiKey;
+        let mut provider = Provider::from_input(input.clone(), "fixture".into());
+        provider.capabilities.invite_link = "https://example.test/register?aff=fixture".into();
+
+        // 与模板无关的修改保留缓存链接。
+        input.identity.remark = "user edit".into();
+        provider.apply_input(input.clone());
+        assert_eq!(
+            provider.capabilities.invite_link,
+            "https://example.test/register?aff=fixture"
+        );
+
+        // 换了注册页模板，旧链接不再对应当前配置，复制时会重新请求。
+        input.request.endpoints = vec![ProviderEndpointOverride {
+            operation: "register_link".into(),
+            path: "/regist?code={code}".into(),
+            query: Vec::new(),
+            headers: Vec::new(),
+        }];
+        provider.apply_input(input);
+        assert!(provider.capabilities.invite_link.is_empty());
     }
 
     #[test]

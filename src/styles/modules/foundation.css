@@ -17,6 +17,10 @@
   --workspace-card-radius: 8px;
   --workspace-card-padding: 14px;
   --workspace-card-title-size: 15px;
+  --workspace-card-title-line-height: 1.25;
+  /* 图标居中的参考块按「标题行 + 一行副标题」计算，副标题再多行不参与。副标题
+     自己仍按 1.2 行高排版，这里取 10px 字号下的一行高度。 */
+  --workspace-card-subtitle-line-height: 12px;
   --workspace-card-icon-box-size: 32px;
   --workspace-card-icon-size: 24px;
   font-family:

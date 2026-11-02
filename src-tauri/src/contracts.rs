@@ -24,7 +24,23 @@ pub struct ProviderView {
     pub protocol_description: &'static str,
     pub auth_mode_label: &'static str,
     pub auth_mode_description: &'static str,
+    /// 主地址失败、请求正在走备用地址时才有值。这是运行读数而不是用户配置，
+    /// 只活在进程内，卡片据此说明当前实际使用的是哪个地址。
+    pub active_endpoint: Option<ProviderActiveEndpointView>,
+    /// 站点返回的模型列表经过卡片展示规则（include / exclude / hidden）过滤后
+    /// 的结果；原始列表仍由 `capabilities.available_models` 保存。
+    pub visible_models: Vec<String>,
     pub actions: ProviderActions,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderActiveEndpointView {
+    /// 备用地址原文，保留用户填写的写法。
+    pub backup_url: String,
+    /// 备用地址在列表中的位置，从 1 开始。
+    pub backup_index: usize,
+    pub switched_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -82,6 +98,9 @@ impl From<Provider> for ProviderView {
         }
         let revision = provider.revision;
         let display_label = provider.display_label();
+        let visible_models = provider
+            .model_config
+            .visible(&provider.capabilities.available_models);
         let protocol_definition = protocol::definition(provider.identity.protocol);
         let auth_schema = protocol_definition
             .auth_schemas
@@ -134,6 +153,13 @@ impl From<Provider> for ProviderView {
                 oauth.refresh_owner = None;
             }
         }
+        let active_endpoint = crate::adapters::transport::active_backup(&provider).map(|active| {
+            ProviderActiveEndpointView {
+                backup_url: active.backup_url,
+                backup_index: active.backup_index,
+                switched_at: active.switched_at,
+            }
+        });
         Self {
             provider,
             revision,
@@ -142,6 +168,8 @@ impl From<Provider> for ProviderView {
             protocol_description: protocol_definition.description,
             auth_mode_label: auth_schema.map_or("认证凭据", |schema| schema.label),
             auth_mode_description: auth_schema.map_or("", |schema| schema.description),
+            active_endpoint,
+            visible_models,
             actions,
         }
     }
@@ -185,6 +213,43 @@ pub struct ProviderProtocolCapabilitiesView {
     pub account: bool,
     pub check_in: bool,
     pub announcements: bool,
+    pub max_backup_urls: usize,
+    pub request_headers: bool,
+    pub api_key_scheme: bool,
+    pub quota_spec: bool,
+    pub max_quota_windows: usize,
+    pub models_url: bool,
+    /// 按接口改写的数量上限；0 表示该协议没有请求目录。
+    pub max_endpoint_overrides: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderEndpointHeaderView {
+    pub name: &'static str,
+    pub value: &'static str,
+}
+
+/// 协议会对站点发出的一个请求。编辑器把它作为可见的默认行为列出来，并允许
+/// 按接口改写路径、查询参数和请求头。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderEndpointView {
+    pub id: &'static str,
+    pub group: &'static str,
+    pub group_label: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    /// `None` 表示不是 HTTP 请求，而是可直接复制的外部链接模板。
+    pub method: Option<&'static str>,
+    pub path: &'static str,
+    pub query: &'static str,
+    pub alt_paths: Vec<&'static str>,
+    pub placeholders: Vec<&'static str>,
+    pub headers: Vec<ProviderEndpointHeaderView>,
+    pub auth: &'static str,
+    pub auth_label: &'static str,
+    pub json_body: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -219,6 +284,8 @@ pub struct ProviderProtocolDescriptorView {
     pub auth_modes: Vec<ProviderAuthModeDescriptorView>,
     pub capabilities: ProviderProtocolCapabilitiesView,
     pub operation_methods: ProviderProtocolOperationMethodsView,
+    /// 该协议会发出的请求默认值，按目录顺序排列。
+    pub endpoints: Vec<ProviderEndpointView>,
     pub credential_assistant: ProviderCredentialAssistantDescriptorView,
 }
 
@@ -243,6 +310,13 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                     account: capabilities.account,
                     check_in: capabilities.check_in,
                     announcements: capabilities.announcements,
+                    max_backup_urls: capabilities.max_backup_urls,
+                    request_headers: capabilities.request_headers,
+                    api_key_scheme: capabilities.api_key_scheme,
+                    quota_spec: capabilities.quota_spec,
+                    max_quota_windows: capabilities.max_quota_windows,
+                    models_url: capabilities.models_url,
+                    max_endpoint_overrides: capabilities.max_endpoint_overrides,
                 },
                 operation_methods: ProviderProtocolOperationMethodsView {
                     check_in: definition.operation_methods.check_in,
@@ -251,6 +325,29 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                     models: definition.operation_methods.models,
                     announcements: definition.operation_methods.announcements,
                 },
+                endpoints: crate::models::provider_domain::endpoints::catalog(definition.kind)
+                    .iter()
+                    .map(|endpoint| ProviderEndpointView {
+                        id: endpoint.id,
+                        group: endpoint.group.key(),
+                        group_label: endpoint.group.label(),
+                        label: endpoint.label,
+                        description: endpoint.description,
+                        method: endpoint.method,
+                        path: endpoint.path,
+                        query: endpoint.default_query,
+                        alt_paths: endpoint.alt_paths.to_vec(),
+                        placeholders: endpoint.placeholders.to_vec(),
+                        headers: endpoint
+                            .headers
+                            .iter()
+                            .map(|(name, value)| ProviderEndpointHeaderView { name, value })
+                            .collect(),
+                        auth: endpoint.auth.key(),
+                        auth_label: endpoint.auth.label(),
+                        json_body: endpoint.json_body,
+                    })
+                    .collect(),
                 credential_assistant: ProviderCredentialAssistantDescriptorView {
                     enabled: definition.credential_assistant.enabled,
                     access_token_flow: definition.credential_assistant.access_token_flow.key(),
@@ -479,6 +576,28 @@ mod tests {
     }
 
     #[test]
+    fn api_protocol_reports_the_quota_window_limit_to_the_editor() {
+        let views = provider_protocol_views();
+        let api = views
+            .iter()
+            .find(|view| view.kind == ProviderProtocol::Api)
+            .expect("通用 API Key 协议应出现在协议目录里");
+        assert!(api.capabilities.quota_spec);
+        assert_eq!(
+            api.capabilities.max_quota_windows,
+            crate::limits::MAX_QUOTA_WINDOWS,
+        );
+
+        for view in views
+            .iter()
+            .filter(|view| view.kind != ProviderProtocol::Api)
+        {
+            assert!(!view.capabilities.quota_spec);
+            assert_eq!(view.capabilities.max_quota_windows, 0);
+        }
+    }
+
+    #[test]
     fn provider_view_adds_rust_owned_actions_without_changing_persisted_model() {
         let mut input = ProviderInput::default();
         input.identity.protocol = ProviderProtocol::Api;
@@ -581,6 +700,13 @@ mod tests {
             .api_key_required_any_fields
             .contains(&"newApiSession.refreshCookie"));
         assert_eq!(new_api.operation_methods.api_keys, Some("GET /api/token/"));
+        assert!(new_api.capabilities.max_endpoint_overrides > 0);
+        assert!(new_api
+            .endpoints
+            .iter()
+            .any(|endpoint| endpoint.id == "login"
+                && endpoint.method == Some("POST")
+                && endpoint.path == "/api/user/login"));
         let password = new_api
             .auth_modes
             .iter()
@@ -594,6 +720,8 @@ mod tests {
             .expect("generic API descriptor");
         assert!(!generic.credential_assistant.enabled);
         assert!(generic.operation_methods.api_keys.is_none());
+        assert!(generic.endpoints.is_empty());
+        assert_eq!(generic.capabilities.max_endpoint_overrides, 0);
     }
 
     #[test]
@@ -611,6 +739,7 @@ mod tests {
                 && protocol["defaultAuthMode"].is_string()
                 && protocol["authModes"].is_array()
                 && protocol["capabilities"].is_object()
+                && protocol["endpoints"].is_array()
                 && protocol["operationMethods"]["models"].is_string()
                 && protocol["credentialAssistant"]["accessTokenFlow"].is_string()
         }));

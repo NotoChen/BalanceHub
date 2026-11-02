@@ -84,6 +84,7 @@ pub fn preview(
         });
     }
     let model = options.model_override.trim().to_string();
+    let wire_model = provider.model_config.wire_name(&model).to_string();
     let session_name = resolve_session_name(
         cli_kind,
         options.session_mode,
@@ -118,7 +119,7 @@ pub fn preview(
     let launch_directory = std::path::Path::new("<temporary-cli>");
     let mut plan = launch_adapter.build_plan(TemporaryLaunchRequest {
         configuration,
-        model: &model,
+        model: &wire_model,
         session_name: &session_name,
         resume_id: &resume_id,
         session_mode: options.session_mode,
@@ -135,6 +136,7 @@ pub fn preview(
             inherited_model: options.inherited_model,
             directory: &std::env::temp_dir().join("balancehub-launch-preview"),
             settings: options.run_settings,
+            provider: Some(provider),
         },
         &mut plan,
     )?;

@@ -186,6 +186,7 @@ function syncApiKeySelection() {
             v-for="mode in credentialSections"
             :key="mode.mode"
             class="provider-auth-section"
+            :class="{ 'is-active': draft.auth.mode === mode.mode }"
             :aria-label="mode.label"
           >
             <header class="provider-auth-section-heading">

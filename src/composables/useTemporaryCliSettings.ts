@@ -277,6 +277,7 @@ export function useTemporaryCliSettings(
       () => request.value.model,
       () => request.value.sessionMode,
       () => request.value.inheritedModel,
+      () => request.value.providerId,
       () => request.value.nativeOptions?.contextWindow,
       () => request.value.nativeOptions?.autoCompact,
       () => request.value.nativeOptions?.modelMappings,
@@ -295,7 +296,7 @@ export function useTemporaryCliSettings(
         current[3] === previous[3];
       const valuesOnly =
         sameContext &&
-        current.slice(0, 7).every((value, index) => value === previous[index]);
+        current.slice(0, 8).every((value, index) => value === previous[index]);
       if (!sameContext) capabilities.value = null;
       loading.value = false;
       error.value = "";

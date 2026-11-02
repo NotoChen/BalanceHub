@@ -30,6 +30,15 @@ pub struct Provider {
     pub proxy: ProviderProxy,
     pub notification: ProviderNotification,
     pub runtime: ProviderRuntime,
+    /// 该中转站专属的请求约定；默认值与「不带任何额外配置」一致。
+    #[serde(default)]
+    pub request: super::ProviderRequestConfig,
+    /// 通用 API Key 的余额接口声明；未配置时保持协议默认行为。
+    #[serde(default)]
+    pub quota_spec: super::ProviderQuotaSpec,
+    /// 模型目录的展示与元数据覆盖。
+    #[serde(default)]
+    pub model_config: super::ProviderModelConfig,
 }
 
 impl Provider {
@@ -446,6 +455,16 @@ pub struct ProviderRuntime {
     pub enabled: bool,
     pub status: ProviderStatus,
     pub error_message: Option<String>,
+    /// 连续刷新失败次数：瞬时失败指数退避的依据，成功一次即清零。
+    #[serde(default)]
+    pub consecutive_failures: u32,
+    /// 自动刷新被上游明确拒绝后的冷却截止时间（Unix 秒）。时间到了才允许
+    /// 再次自动请求；手动刷新不受限制。
+    #[serde(default)]
+    pub cooldown_until: Option<i64>,
+    /// 冷却原因，直接展示在卡片上，例如「凭据被拒绝」。
+    #[serde(default)]
+    pub cooldown_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
