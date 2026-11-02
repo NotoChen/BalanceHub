@@ -514,10 +514,8 @@ fn launch_preview_redacts_claude_settings_credentials() {
     assert!(content.contains("***"));
     assert!(content.contains("https://relay.example.com/anthropic"));
     assert_eq!(
-        preview_cli_settings_path(AgentCliKind::ClaudeCode)
-            .unwrap()
-            .to_string_lossy(),
-        "<temporary-cli>/claude-settings.json"
+        preview_cli_settings_path(AgentCliKind::ClaudeCode).unwrap(),
+        preview_directory().join("claude-settings.json")
     );
     assert!(preview_cli_settings_path(AgentCliKind::Codex).is_none());
 }
@@ -552,10 +550,8 @@ fn gemini_args_and_system_settings_follow_official_cli_contract() {
     assert!(settings.contains("\"selectedType\": \"gemini-api-key\""));
     assert!(!settings.contains("ignored"));
     assert_eq!(
-        preview_cli_settings_path(AgentCliKind::Gemini)
-            .unwrap()
-            .to_string_lossy(),
-        "<temporary-cli>/gemini-system-settings.json"
+        preview_cli_settings_path(AgentCliKind::Gemini).unwrap(),
+        preview_directory().join("gemini-system-settings.json")
     );
 }
 
@@ -658,7 +654,10 @@ fn official_session_modes_are_appended_after_provider_overrides() {
 fn claude_args_include_settings_and_model_when_configured() {
     // The settings file lives beside the generated launch script, so the CLI is
     // pointed at the launch directory's copy rather than a shared temp path.
-    let settings_path = "<temporary-cli>/claude-settings.json";
+    let settings_path = preview_directory()
+        .join("claude-settings.json")
+        .to_string_lossy()
+        .into_owned();
 
     assert_eq!(
         cli_args(
@@ -671,7 +670,7 @@ fn claude_args_include_settings_and_model_when_configured() {
         ),
         vec![
             "--settings".to_string(),
-            settings_path.to_string(),
+            settings_path.clone(),
             "--model".to_string(),
             "claude-sonnet-4-5".to_string(),
         ]
@@ -685,7 +684,7 @@ fn claude_args_include_settings_and_model_when_configured() {
             "",
             TemporaryCliSessionMode::New,
         ),
-        vec!["--settings".to_string(), settings_path.to_string()]
+        vec!["--settings".to_string(), settings_path]
     );
 }
 
@@ -703,7 +702,10 @@ fn claude_args_include_name_only_for_new_sessions() {
         named,
         vec![
             "--settings".to_string(),
-            "<temporary-cli>/claude-settings.json".to_string(),
+            preview_directory()
+                .join("claude-settings.json")
+                .to_string_lossy()
+                .into_owned(),
             "--name".to_string(),
             "Billing refactor".to_string(),
         ]
@@ -721,7 +723,10 @@ fn claude_args_include_name_only_for_new_sessions() {
         resumed,
         vec![
             "--settings".to_string(),
-            "<temporary-cli>/claude-settings.json".to_string(),
+            preview_directory()
+                .join("claude-settings.json")
+                .to_string_lossy()
+                .into_owned(),
             "--resume".to_string(),
         ]
     );
