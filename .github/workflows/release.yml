@@ -124,7 +124,9 @@ jobs:
             rust-target: ""
             args: --bundles appimage,deb,rpm --config src-tauri/tauri.release.conf.json
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # macOS Intel 的 release 编译已接近 30 分钟，打包 DMG 再占用几分钟；
+    # 上限留足余量，避免缓存未命中时整条发布流水线被取消。
+    timeout-minutes: 60
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
