@@ -59,7 +59,7 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
 
 ## 容器部署
 
-仓库根目录提供 `Dockerfile` 和 `compose.yaml`。镜像分三段构建：前端 `dist/`、只编译 `balancehub-server` 的 Rust 构建、带 Chromium 运行库的 Debian 运行层。
+仓库根目录提供 `Dockerfile` 和 `compose.yaml`。镜像分三段构建：前端 `dist/`、只编译 `balancehub-server` 的 Rust 构建、带 Chromium 运行库的 Debian 运行层。构建使用 BuildKit 的缓存挂载，需要 Docker 23 及以上。
 
 ```sh
 docker compose up -d --build

@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # 浏览器版前端：构建 dist/，由服务端直接托管。
 FROM node:22-bookworm-slim AS web
 WORKDIR /build

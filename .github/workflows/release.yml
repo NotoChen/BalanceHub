@@ -177,11 +177,21 @@ jobs:
           args: ${{ matrix.args }}
 
   server:
-    name: 打包无界面后端
+    name: 打包无界面后端（${{ matrix.label }}）
     needs:
       - prepare
       - quality
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-22.04
+            artifact: balancehub-server-linux-x64.tar.gz
+          - label: Linux ARM64
+            os: ubuntu-24.04-arm
+            artifact: balancehub-server-linux-arm64.tar.gz
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - name: 拉取代码
@@ -200,7 +210,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
-          shared-key: balancehub-server
+          shared-key: balancehub-server-${{ matrix.os }}
           save-if: false
 
       - name: 安装前端依赖
@@ -220,12 +230,12 @@ jobs:
           mkdir -p balancehub-server
           cp target/release/balancehub-server balancehub-server/
           cp -R dist balancehub-server/web
-          tar -czf balancehub-server-linux-x64.tar.gz balancehub-server
+          tar -czf "${{ matrix.artifact }}" balancehub-server
 
       - name: 上传到 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" balancehub-server-linux-x64.tar.gz --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" "${{ matrix.artifact }}" --clobber
 
   manifest:
     name: 生成更新清单

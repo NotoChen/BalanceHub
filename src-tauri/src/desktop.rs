@@ -19,6 +19,15 @@ use tauri::{
 };
 
 pub(crate) fn run() {
+    // macOS 的系统信任设置需要递归解析，部分机器上远超默认 2 MiB 线程栈；
+    // 中转站请求运行在异步运行时上，默认栈会在首次 HTTPS 请求时直接 abort。
+    // 这里显式使用自己的运行时，让桌面进程与无界面后端采用同一份栈配置。
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(16 * 1024 * 1024)
+        .build()
+        .expect("无法创建异步运行时");
+    tauri::async_runtime::set(runtime.handle().clone());
     tauri::Builder::default()
         // 必须是第一个插件：在 setup 和后台调度启动前拦截第二个实例。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

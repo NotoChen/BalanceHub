@@ -13,6 +13,10 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        // macOS 在部分机器上会为系统信任设置递归解析较大的 plist；HTTPS 客户端的
+        // 初始化与首次连接都跑在运行时线程上，默认 2 MiB 栈会直接 abort。
+        // 16 MiB 只保留虚拟地址空间，按需提交，不影响常驻内存。
+        .thread_stack_size(16 * 1024 * 1024)
         .build()?;
     runtime.block_on(run())
 }

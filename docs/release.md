@@ -16,7 +16,7 @@ BalanceHub 通过 GitHub Releases 分发桌面安装包。
 - macOS Apple Silicon 和 Intel 的 `.dmg`。
 - Windows x64 和 ARM64 的 NSIS `setup.exe`。
 - Linux x64 和 ARM64 的 AppImage、deb、rpm。
-- Linux x64 的 `balancehub-server-linux-x64.tar.gz`：无界面后端与 `web/` 前端，解压后即可在服务器常驻运行，部署方式见[服务端部署](server-deployment.md)。
+- Linux x64 和 ARM64 的 `balancehub-server-linux-*.tar.gz`：无界面后端与 `web/` 前端，解压后即可在服务器常驻运行，部署方式见[服务端部署](server-deployment.md)。
 
 ## 发布前检查
 

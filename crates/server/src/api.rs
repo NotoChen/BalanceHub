@@ -3,7 +3,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        DefaultBodyLimit, State,
     },
     http::StatusCode,
     response::{Html, IntoResponse},
@@ -41,7 +41,12 @@ fn router(host: Arc<ServerHost>, web_dir: Option<std::path::PathBuf>) -> Router 
     let state = AppState { host };
     let mut router = Router::new()
         .route("/api/health", get(health))
-        .route("/rpc", post(rpc))
+        // 配置导入会把整份 JSON 放进请求体；默认 2 MiB 会让较大的备份在服务端被拒。
+        // 上限与核心配置文件上限保持同一量级，并给 JSON 字符串转义留出余量。
+        .route(
+            "/rpc",
+            post(rpc).layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
         .route("/events", get(events))
         .with_state(state);
 
@@ -253,6 +258,25 @@ mod tests {
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["command"], "load_app_data");
         assert_eq!(value["ok"], true);
+
+        // 配置导入可能远大于默认 2 MiB 请求体上限；验证 /rpc 接受较大的请求。
+        let large = serde_json::json!({
+            "command": "load_app_data",
+            "args": { "padding": "x".repeat(3 * 1024 * 1024) }
+        })
+        .to_string();
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/rpc")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(large))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
 
         let _ = std::fs::remove_dir_all(&root);
     }
