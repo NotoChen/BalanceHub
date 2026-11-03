@@ -97,7 +97,7 @@ pub struct AgentSessionRow {
     pub search_hit: Option<super::SessionSearchHit>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionQuery {
     pub consumer_id: String,
@@ -153,7 +153,7 @@ pub struct AgentSessionCount {
     pub total: Option<usize>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionCountRequest {
     pub consumer_id: String,
@@ -185,7 +185,7 @@ pub struct AgentSessionPage {
     pub workspaces: Vec<AgentSessionWorkspace>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionDetailRequest {
     pub consumer_id: String,
@@ -206,7 +206,7 @@ pub struct AgentSessionDetail {
     pub detail: CliSessionDetail,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionCancelRequest {
     pub consumer_id: String,

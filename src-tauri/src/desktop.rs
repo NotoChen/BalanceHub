@@ -1,10 +1,7 @@
 use crate::{
     commands::{
-        agent_assets::*, agent_catalog::*, agent_configuration::*, agent_instructions::*,
-        agent_lifecycle::*, agent_maintenance::*, agent_mcp_check::*, agent_overview::*,
-        agent_session_resume::*, agent_sessions::*, agent_wsl::*, app::*, browser_runtime::*,
-        cli::*, cloud_sync::*, login_accounts::*, model_catalog::*, oauth_accounts::*, provider::*,
-        provider_app_import::*, provider_browser_login::*, temporary_cli_settings::*,
+        agent::*, app::*, browser_runtime::*, cloud_sync::*, login_accounts::*, model_catalog::*,
+        oauth_accounts::*, provider::*, provider_app_import::*, provider_browser_login::*,
     },
     models::{AppData, TrayClickAction, WindowCloseAction},
     services::{self, app_updater::AppUpdaterState, provider_service::ProviderService},
@@ -52,13 +49,7 @@ pub(crate) fn run() {
         .setup(setup_app)
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::Destroyed) {
-                services::cli_sessions::workbench::release_window(
-                    window.app_handle(),
-                    window.label(),
-                );
-                if let Some(state) = window.app_handle().try_state::<AppState>() {
-                    state.clear_asset_actor(window.label());
-                }
+                balancehub_agent::release_window(window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -79,6 +70,7 @@ pub(crate) fn run() {
             preview_temporary_cli_launch,
             get_temporary_cli_settings,
             get_agent_model_catalog,
+            estimate_session_usage,
             get_temporary_cli_assets,
             list_temporary_cli_profiles,
             save_temporary_cli_profile,
@@ -228,7 +220,6 @@ pub(crate) fn run() {
             probe_provider_capabilities,
             sync_available_models,
             get_model_metadata,
-            estimate_session_usage,
             get_provider_invite_link,
             get_site_announcements,
             mark_site_announcement_read,
@@ -398,7 +389,6 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // 开发版的配置与数据始终落在临时根目录，不碰安装版目录。
     let config_root =
         config_dir(app.app_handle()).map_err(|_| "无法获取应用配置目录".to_owned())?;
-    let data_root = data_dir(app.app_handle()).map_err(|_| "无法获取应用数据目录".to_owned())?;
     // 核心服务通过进程级宿主取目录与事件；先注册，配置加载和后台任务就能直接用。
     let desktop_host = std::sync::Arc::new(crate::desktop_host::DesktopHost::new(
         app.app_handle().clone(),
@@ -411,9 +401,7 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
     };
     desktop_host.attach_core(app_state.core.clone());
-    services::agent_cli::config_support::native_history::initialize(&data_root, &config_root)?;
-    services::agent_cli::initialize_discovery_cache(data_root.join("agent-discovery-cache"));
-    services::agent_cli::lifecycle::initialize_journal(data_root.join("agent-upgrades"));
+    install_desktop_opener(app.app_handle().clone());
     // updater/手动可见重启会继承原进程参数；一次性环境标记用于覆盖继承的
     // --silent-start，读取后立即删除，避免污染后续普通启动。
     let force_visible_start = services::app_updater::consume_visible_relaunch();
@@ -433,10 +421,8 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     balancehub_core::contracts::install_app_import_projector(
         services::provider_app_import::options,
     );
-    balancehub_core::services::liveness::install_executor(std::sync::Arc::new(
-        services::liveness::LocalLivenessExecutor,
-    ))
-    .map_err(|err| err.to_string())?;
+    balancehub_core::services::liveness::install_executor(balancehub_agent::liveness_executor())
+        .map_err(|err| err.to_string())?;
     // 日志要先于其余后台服务安装：它们的告警都往这里写。
     if let Ok(directory) = log_dir(app.app_handle()) {
         services::logging::init(&directory, &startup_settings);
@@ -457,20 +443,10 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         sync.start_worker();
     }
 
-    // Agent runtime persistence is optional. Initialization failures remain
-    // available through IPC and must not prevent the main App from starting.
-    let agent_runtime =
-        services::agent_runtime::service::AgentRuntimeService::from_app(app.app_handle());
-    app.manage(agent_runtime.clone());
-    agent_runtime.start(app.app_handle());
-
     // 单实例插件已在 setup 前完成仲裁，只有主实例会启动后台调度。
     services::scheduler::start();
-    // Agent 自动更新策略的执行者：核对升级记录、按设置扫描新版本并逐个安装。
-    services::agent_cli::lifecycle::start_worker(app.app_handle());
-
-    // 清扫历史残留的临时 CLI 目录/测活隔离 HOME（可能含明文凭据）。
-    std::thread::spawn(services::temporary_cli::cleanup_stale);
+    // Agent 后台服务：本机状态初始化、runtime 持久化、自动升级与临时目录清扫。
+    balancehub_agent::start_background();
 
     install_close_behavior(app);
     let tray_available = build_tray_with_linux_fallback(app)?;
@@ -487,6 +463,31 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         tray::show_main_window(app.app_handle());
     }
     Ok(())
+}
+
+/// 桌面文件打开器：交给系统外壳打开或定位本机文件。
+struct DesktopFileOpener(tauri::AppHandle);
+
+impl balancehub_agent::FileOpener for DesktopFileOpener {
+    fn open_path(&self, path: &std::path::Path) -> Result<(), String> {
+        use tauri_plugin_opener::OpenerExt;
+        self.0
+            .opener()
+            .open_path(path.to_string_lossy(), None::<&str>)
+            .map_err(|error| error.to_string())
+    }
+
+    fn reveal(&self, path: &std::path::Path) -> Result<(), String> {
+        use tauri_plugin_opener::OpenerExt;
+        self.0
+            .opener()
+            .reveal_item_in_dir(path)
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn install_desktop_opener(app: tauri::AppHandle) {
+    let _ = balancehub_agent::install_file_opener(std::sync::Arc::new(DesktopFileOpener(app)));
 }
 
 fn restore_window_state(app: &App, settings: &crate::models::AppSettings) {

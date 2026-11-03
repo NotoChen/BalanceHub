@@ -47,9 +47,8 @@ export function supportsCommand(command: string): boolean {
 }
 
 export function useHostCapabilities() {
-  const agentAvailable = computed(
-    () => capabilities.value?.host !== "server",
-  );
+  /// Agent 能力由命令清单决定：后端机器上有 CLI 工具时同样可用。
+  const agentAvailable = computed(() => supportsCommand("get_agent_runtime_snapshot"));
   const commandAvailable = (command: string) => supportsCommand(command);
   const resolved = computed(() => capabilities.value !== null);
   return {

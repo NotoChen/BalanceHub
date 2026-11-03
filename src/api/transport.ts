@@ -49,7 +49,25 @@ export const Channel: new <T>(onmessage?: (message: T) => void) => Channel<T> =
 /** 命令用到的进度通道与事件名；服务端把进度当作普通事件推送。 */
 const channelEvents: Record<string, string> = {
   refresh_all_providers_with_progress: "provider-batch-progress",
+  get_agent_asset_catalog: "agent-asset-catalog-progress",
+  read_agent_catalog_content: "agent-catalog-content-progress",
 };
+
+/// 浏览器会话标识：区分同一站点下不同标签页的资产访问身份。
+const clientId = (() => {
+  if (!isWebHost || typeof crypto === "undefined" || typeof sessionStorage === "undefined") {
+    return "web";
+  }
+  try {
+    const stored = sessionStorage.getItem("balancehub-client");
+    if (stored) return stored;
+    const id = crypto.randomUUID().replace(/-/g, "");
+    sessionStorage.setItem("balancehub-client", id);
+    return id;
+  } catch {
+    return "web";
+  }
+})();
 
 type Listener = (payload: unknown) => void;
 
@@ -128,7 +146,10 @@ async function rpcCall<T>(command: string, args: Record<string, unknown>): Promi
   try {
     const response = await fetch("/rpc", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-balancehub-client": clientId,
+      },
       body: JSON.stringify({ command, args: payload }),
     });
     const body = (await response.json().catch(() => ({}))) as {

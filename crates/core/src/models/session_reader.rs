@@ -103,7 +103,7 @@ pub struct SessionFileChange {
     pub before_known: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionMessageRequest {
     pub consumer_id: String,

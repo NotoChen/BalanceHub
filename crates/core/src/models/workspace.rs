@@ -33,7 +33,7 @@ pub struct TemporaryCliPreference {
     pub workspace_path: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TemporaryCliLaunchInput {
     pub provider_id: String,

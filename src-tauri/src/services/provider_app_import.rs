@@ -10,8 +10,6 @@ use crate::models::{
     ProviderAppImportTarget,
 };
 
-use super::agent_cli;
-
 pub(crate) fn options(provider: &Provider) -> Vec<ProviderAppImportOption> {
     std::iter::once(ProviderAppImportTarget::Magpie)
         .chain(CcSwitchAgent::ALL.map(ProviderAppImportTarget::CcSwitch))
@@ -170,7 +168,7 @@ fn magpie_endpoints(provider: &Provider) -> Result<Vec<(&'static str, String)>, 
 }
 
 fn native_base_url(kind: AgentCliKind, provider: &Provider) -> String {
-    let raw = agent_cli::provider_raw_base_url(kind, provider).trim_end_matches('/');
+    let raw = balancehub_agent::provider_raw_base_url(kind, provider).trim_end_matches('/');
     // BalanceHub also accepts a complete models URL. Deep links need an API
     // base, or the receiving app would append paths after /models or /messages.
     let suffixes: &[&str] = match kind {
@@ -200,7 +198,7 @@ fn native_base_url(kind: AgentCliKind, provider: &Provider) -> String {
     } else {
         base
     };
-    agent_cli::normalize_base_url(kind, base)
+    balancehub_agent::normalize_base_url(kind, base)
 }
 
 fn validate_endpoint(

@@ -1,0 +1,47 @@
+[package]
+name = "balancehub-agent"
+version = "0.6.5"
+description = "BalanceHub 的 Agent CLI、会话与本机工具能力；桌面与无界面后端共用。"
+authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
+edition = "2021"
+repository = "https://github.com/NotoChen/BalanceHub"
+license-file = "../../LICENSE"
+
+[dependencies]
+balancehub-core = { path = "../core" }
+tempfile = "3"
+dunce = "1.0.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "gzip", "brotli", "deflate", "system-proxy", "socks"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+rusqlite = { version = "0.32", features = ["bundled", "hooks"] }
+toml = "0.8"
+toml_edit = "0.20"
+getrandom = "0.3"
+semver = "1"
+regex = "1"
+regex-lite = "0.1"
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
+sha1 = "0.10"
+flate2 = "1"
+zstd = { version = "0.13", default-features = false }
+tar = "0.4"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+log = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+async-trait = "0.1"
+futures-util = "0.3"
+lru = "0.16.3"
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+tokio = { version = "1", features = ["time", "sync", "macros", "process", "io-util", "fs", "net"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+rustix = { version = "1.1", features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+junction = "2.1"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading", "Win32_Security"] }

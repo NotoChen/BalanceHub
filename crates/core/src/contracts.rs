@@ -141,13 +141,13 @@ impl From<Provider> for ProviderView {
             // An OAuth card hands its own vendor token to that vendor's CLI; a
             // relay card needs a complete API key. Either way the launch itself
             // decides whether the stored credential is usable.
-            // 本机 Agent 能力只属于桌面宿主；服务端返回 false，界面据此隐藏相关入口。
-            temporary_cli: !crate::host::is_headless()
+            // 终端启动需要可交互的桌面会话；有会话的服务端同样可用。
+            temporary_cli: crate::host::has_desktop_session()
                 && match provider.identity.protocol {
                     ProviderProtocol::OAuth => oauth_credential_ready,
                     _ => crate::models::provider_domain::auth::has_api_key(&provider),
                 },
-            default_cli_config: !crate::host::is_headless()
+            default_cli_config: crate::host::has_desktop_session()
                 && match provider.identity.protocol {
                     ProviderProtocol::OAuth => oauth_credential_ready,
                     _ => {

@@ -361,6 +361,7 @@ version = "0.6.5"
 dependencies = [
  "argon2",
  "async-trait",
+ "balancehub-agent",
  "balancehub-core",
  "base64 0.22.1",
  "chacha20poly1305",
@@ -408,6 +409,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "balancehub-agent"
+version = "0.6.5"
+dependencies = [
+ "async-trait",
+ "balancehub-core",
+ "base64 0.22.1",
+ "chrono",
+ "dunce",
+ "flate2",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hmac",
+ "junction",
+ "libc",
+ "log",
+ "lru",
+ "regex",
+ "regex-lite",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "rustix",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha1",
+ "sha2",
+ "sysinfo",
+ "tar",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "toml_edit 0.20.2",
+ "windows-sys 0.61.2",
+ "zip",
+ "zstd",
+]
+
+[[package]]
 name = "balancehub-core"
 version = "0.6.5"
 dependencies = [
@@ -444,6 +484,7 @@ name = "balancehub-server"
 version = "0.6.5"
 dependencies = [
  "axum",
+ "balancehub-agent",
  "balancehub-core",
  "chrono",
  "log",

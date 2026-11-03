@@ -150,7 +150,7 @@ pub struct AgentSettingReference {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentConfigurationFormRequest {
     pub edit_id: String,

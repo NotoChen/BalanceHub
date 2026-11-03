@@ -1,0 +1,506 @@
+use super::{
+    budget::with_history_cache,
+    hash,
+    scope::{history_adapter, validated_scope},
+    state::{self, QueryProgress, ReferenceState, ScopeState, Snapshot},
+    with_read_budget, AgentSessionActor,
+};
+use crate::{
+    models::*,
+    services::{
+        agent_cli::contracts::{SessionHistoryRecord, SessionHistorySource, SessionReadBudget},
+        cli_sessions::{session_sort_key, SearchQuery},
+    },
+};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::atomic::Ordering,
+    time::{Duration, Instant},
+};
+
+mod scan;
+use scan::scan_source;
+
+struct SourceOutcome {
+    references: Vec<ReferenceState>,
+    matched: HashSet<String>,
+    states: Vec<AgentSessionSourceState>,
+    can_continue: bool,
+    workspaces: Vec<AgentSessionWorkspace>,
+}
+
+pub(crate) fn query(
+    actor: AgentSessionActor<'_>,
+    request: &AgentSessionQuery,
+    budget: &SessionReadBudget,
+) -> Result<AgentSessionPage, String> {
+    if !(1..=200).contains(&request.page_size) {
+        return Err("每页会话数量应为 1 至 200".into());
+    }
+    SearchQuery::new(&request.query)?;
+    let scope = validated_scope(actor, &request.scope_revision)?;
+    let selected_workspaces = select_workspaces(&scope, &request.workspace_ids)?;
+    let selected_sources = scope
+        .public
+        .sources
+        .iter()
+        .filter(|source| {
+            (request.agent_kinds.is_empty() || request.agent_kinds.contains(&source.agent_kind))
+                && request
+                    .runtime_scope
+                    .as_ref()
+                    .is_none_or(|scope| scope == &source.runtime_scope)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let key = query_key(request, &selected_workspaces, &selected_sources);
+    let (snapshot_id, offset, mut snapshot) = if let Some(cursor) = request.cursor.as_deref() {
+        let (id, offset) = cursor
+            .rsplit_once(':')
+            .ok_or_else(|| "会话分页引用无效".to_string())?;
+        let offset = offset
+            .parse::<usize>()
+            .map_err(|_| "会话分页位置无效".to_string())?;
+        let snapshot = state::registry()
+            .snapshots
+            .get(id)
+            .cloned()
+            .ok_or_else(|| "会话分页快照已过期，请刷新".to_string())?;
+        if snapshot.actor != actor.key()
+            || snapshot.consumer != request.consumer_id
+            || snapshot.scope_revision != request.scope_revision
+            || snapshot.query_key != key
+            || offset > snapshot.rows.len()
+        {
+            return Err("会话分页不属于当前筛选范围，请刷新".into());
+        }
+        (id.to_string(), offset, snapshot)
+    } else {
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = hash(&[
+            "snapshot",
+            &actor.key(),
+            &key,
+            &SEQUENCE.fetch_add(1, Ordering::Relaxed).to_string(),
+        ]);
+        let snapshot = Snapshot {
+            actor: actor.key(),
+            consumer: request.consumer_id.clone(),
+            scope_revision: request.scope_revision.clone(),
+            query_key: key,
+            rows: Vec::new(),
+            parent_updates: HashMap::new(),
+            states: Vec::new(),
+            workspaces: Vec::new(),
+            complete: false,
+            progress: QueryProgress::default(),
+            used_at: Instant::now(),
+        };
+        (id, 0, snapshot)
+    };
+    if request.cursor.is_none() || snapshot.progress.can_continue {
+        let settings = crate::state::app_data().settings;
+        let index_config = super::super::index_config(&settings)?;
+        snapshot.progress.passes += 1;
+        let outcomes = std::thread::scope(|threads| {
+            let mut handles = Vec::new();
+            for source in selected_sources.iter().cloned() {
+                let source_config = scope
+                    .sources
+                    .get(&source.id)
+                    .cloned()
+                    .ok_or_else(|| "原生来源已不可用".to_string())?;
+                let resources = state::source_resources(actor, &source, &index_config);
+                let cache = resources.cache;
+                let index = resources.index;
+                let workspaces = selected_workspaces.clone();
+                let query_text = request.query.clone();
+                let matches = snapshot.progress.matches.clone();
+                // Fast sources have independent workers and budgets. Later
+                // cursors reuse completed records and advance unread sources.
+                let duration =
+                    Duration::from_secs((8 * u64::from(snapshot.progress.passes)).min(45));
+                let source_budget = SessionReadBudget::new(
+                    budget.deadline.min(Instant::now() + duration),
+                    budget.cancelled.clone(),
+                    budget.max_bytes,
+                );
+                handles.push(threads.spawn(move || {
+                    with_read_budget(&source_budget, || {
+                        with_history_cache(&cache, || {
+                            super::budget::with_source_root(&source_config.config_root, || {
+                                scan_source(
+                                    &source,
+                                    &source_config,
+                                    &workspaces,
+                                    &query_text,
+                                    &index,
+                                    &source_budget,
+                                    matches,
+                                )
+                            })
+                        })
+                    })
+                }));
+            }
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .map_err(|_| "原生会话读取线程异常".to_string())
+                })
+                .collect::<Result<Vec<_>, String>>()
+        })?;
+        if budget.cancelled.load(Ordering::Acquire) {
+            return Err("会话读取已取消".into());
+        }
+        validated_scope(actor, &request.scope_revision)?;
+        let refs = merge_source_outcomes(&mut snapshot, outcomes, request.role_filter);
+        let mut registry = state::registry();
+        budget.check()?;
+        if let Some(saved) = registry
+            .scopes
+            .get_mut(&(actor.key(), request.scope_revision.clone()))
+        {
+            for workspace in &snapshot.workspaces {
+                if !saved
+                    .public
+                    .workspaces
+                    .iter()
+                    .any(|item| item.id == workspace.id)
+                {
+                    saved.public.workspaces.push(workspace.clone());
+                }
+            }
+        }
+        for reference in refs {
+            registry.references.insert(
+                (
+                    actor.key(),
+                    request.scope_revision.clone(),
+                    reference.row.session_ref.clone(),
+                ),
+                reference,
+            );
+        }
+    }
+    {
+        let mut registry = state::registry();
+        budget.check()?;
+        registry.store_snapshot(snapshot_id.clone(), snapshot.clone());
+    }
+    let mut page = page(
+        &snapshot_id,
+        &snapshot,
+        offset,
+        request.page_size,
+        &selected_sources,
+        &selected_workspaces,
+    );
+    apply_activity(&mut page.items);
+    Ok(page)
+}
+
+fn select_workspaces(
+    scope: &ScopeState,
+    ids: &[String],
+) -> Result<Vec<AgentSessionWorkspace>, String> {
+    if ids.is_empty() {
+        return Ok(if scope.explicit_workdir.is_some() {
+            scope.public.workspaces.clone()
+        } else {
+            Vec::new()
+        });
+    }
+    if ids.iter().any(|id| {
+        !scope
+            .public
+            .workspaces
+            .iter()
+            .any(|workspace| &workspace.id == id)
+    }) {
+        return Err("所选工作目录已移出当前范围".into());
+    }
+    Ok(scope
+        .public
+        .workspaces
+        .iter()
+        .filter(|workspace| ids.contains(&workspace.id))
+        .cloned()
+        .collect())
+}
+fn query_key(
+    request: &AgentSessionQuery,
+    workspaces: &[AgentSessionWorkspace],
+    sources: &[AgentSessionSource],
+) -> String {
+    let mut ids = workspaces
+        .iter()
+        .map(|workspace| workspace.id.clone())
+        .chain(sources.iter().map(|source| source.id.clone()))
+        .collect::<Vec<_>>();
+    ids.sort();
+    hash(&[
+        &ids.join("\n"),
+        &format!("{:?}", request.role_filter),
+        request.query.trim(),
+    ])
+}
+fn role_matches(filter: AgentSessionRoleFilter, role: AgentSessionRole) -> bool {
+    match filter {
+        AgentSessionRoleFilter::All => true,
+        AgentSessionRoleFilter::Main => role == AgentSessionRole::Main,
+        AgentSessionRoleFilter::Subagent => role == AgentSessionRole::Subagent,
+    }
+}
+
+fn merge_source_outcomes(
+    snapshot: &mut Snapshot,
+    outcomes: Vec<SourceOutcome>,
+    role_filter: AgentSessionRoleFilter,
+) -> Vec<ReferenceState> {
+    let mut references = Vec::new();
+    let mut matched_ids = HashSet::new();
+    snapshot.states.clear();
+    snapshot.progress.can_continue = false;
+    for outcome in outcomes {
+        references.extend(outcome.references);
+        matched_ids.extend(outcome.matched);
+        snapshot.states.extend(outcome.states);
+        snapshot.progress.can_continue |= outcome.can_continue;
+        for workspace in outcome.workspaces {
+            if !snapshot
+                .workspaces
+                .iter()
+                .any(|item| item.id == workspace.id)
+            {
+                snapshot.workspaces.push(workspace);
+            }
+        }
+    }
+    // Resolve against all actual native records before search, role filtering
+    // and paging. A parent may itself be a subagent or outside the result page.
+    link_parent_references(&mut references);
+    let parents: HashMap<_, _> = references
+        .iter()
+        .map(|entry| (entry.row.session_ref.as_str(), &entry.row.parent))
+        .collect();
+    for row in &mut snapshot.rows {
+        if let Some(parent) = parents.get(row.session_ref.as_str()) {
+            if row.parent != **parent {
+                row.parent = (*parent).clone();
+                snapshot
+                    .parent_updates
+                    .insert(row.session_ref.clone(), row.parent.clone());
+            }
+        }
+    }
+    let new_rows = references
+        .iter()
+        .filter(|entry| {
+            matched_ids.contains(&entry.row.session_ref)
+                && role_matches(role_filter, entry.row.role)
+        })
+        .map(|entry| entry.row.clone())
+        .collect();
+    append_batch(&mut snapshot.rows, new_rows);
+    snapshot.complete = snapshot
+        .states
+        .iter()
+        .all(|state| state.state == AgentSessionSourceStatus::Complete);
+    references
+}
+
+fn link_parent_references(references: &mut [ReferenceState]) {
+    let mut parents = HashMap::<_, Option<String>>::new();
+    for entry in references.iter() {
+        let key = (
+            entry.row.source_id.clone(),
+            entry.row.workspace_id.clone(),
+            entry.row.session.id.clone(),
+        );
+        parents
+            .entry(key)
+            .and_modify(|parent| {
+                if parent.as_deref() != Some(entry.row.session_ref.as_str()) {
+                    *parent = None;
+                }
+            })
+            .or_insert_with(|| Some(entry.row.session_ref.clone()));
+    }
+    for entry in references {
+        if let AgentSessionParent::Known {
+            native_id,
+            parent_ref,
+        } = &mut entry.row.parent
+        {
+            *parent_ref = parents
+                .get(&(
+                    entry.row.source_id.clone(),
+                    entry.row.workspace_id.clone(),
+                    native_id.clone(),
+                ))
+                .and_then(Clone::clone);
+        }
+    }
+}
+
+fn append_batch(existing: &mut Vec<AgentSessionRow>, mut incoming: Vec<AgentSessionRow>) {
+    let mut delivered: HashSet<_> = existing.iter().map(|row| row.session_ref.clone()).collect();
+    incoming.retain(|row| delivered.insert(row.session_ref.clone()));
+    incoming.sort_by(row_order);
+    // Never insert before an already-issued cursor when a later batch
+    // discovers a newer record; that would repeat or hide another row.
+    existing.extend(incoming);
+}
+
+fn row_order(left: &AgentSessionRow, right: &AgentSessionRow) -> std::cmp::Ordering {
+    session_sort_key(right.session.updated_at.as_deref())
+        .cmp(&session_sort_key(left.session.updated_at.as_deref()))
+        .then_with(|| left.session_ref.cmp(&right.session_ref))
+}
+
+fn row_for_record(
+    source: &AgentSessionSource,
+    config: &SessionHistorySource,
+    workspace: &AgentSessionWorkspace,
+    record: &SessionHistoryRecord,
+) -> AgentSessionRow {
+    let mut session = record.summary.clone();
+    let resume_reason = record.resume_reason.clone().or_else(|| {
+        if workspace.path.is_empty() {
+            Some("原生记录未提供有效工作目录；仍可查看历史".into())
+        } else if !workspace.exists {
+            Some("工作目录不存在或未挂载；仍可查看历史".into())
+        } else {
+            config.resume_reason.clone()
+        }
+    });
+    session.can_resume &= resume_reason.is_none();
+    let parent = match &record.parent_native_id {
+        Some(native_id) => AgentSessionParent::Known {
+            native_id: native_id.clone(),
+            parent_ref: None,
+        },
+        None if record.role == AgentSessionRole::Main => AgentSessionParent::None,
+        None => AgentSessionParent::Unknown,
+    };
+    AgentSessionRow {
+        project_relocation_available: record.role == AgentSessionRole::Main
+            && !workspace.path.is_empty()
+            && history_adapter(source.agent_kind).is_ok_and(|adapter| adapter.relocation.is_some()),
+        runtime_scope: source.runtime_scope.clone(),
+        runtime_label: source.label.clone(),
+        resume_cli: source.resume_cli.clone(),
+        supports_provider_resume: matches!(source.runtime_scope, AgentRuntimeScope::Native),
+        session_ref: super::scope::session_identity(source, workspace, record),
+        source_id: source.id.clone(),
+        workspace_id: workspace.id.clone(),
+        session,
+        role: record.role,
+        parent,
+        resume_reason,
+        activity_state: AgentSessionActivityState::Unknown,
+        runtime_ids: Vec::new(),
+        search_hit: None,
+    }
+}
+pub(super) fn apply_activity(rows: &mut [AgentSessionRow]) {
+    let activity = super::super::resume::native_session_activity();
+    let wanted: HashSet<_> = rows.iter().map(|row| row.session_ref.as_str()).collect();
+    let identities: HashMap<_, _> = {
+        let references = state::registry();
+        references
+            .references
+            .values()
+            .filter(|entry| wanted.contains(entry.row.session_ref.as_str()))
+            .map(|entry| {
+                (
+                    entry.row.session_ref.clone(),
+                    hash(&[
+                        "native",
+                        &entry.row.source_id,
+                        &entry.row.workspace_id,
+                        &entry.record.record_key,
+                    ]),
+                )
+            })
+            .collect()
+    };
+    for row in rows {
+        let Some(source_identity) = identities.get(&row.session_ref) else {
+            continue;
+        };
+        row.runtime_ids = activity
+            .iter()
+            .filter(|item| item.matches(row.session.cli_kind, source_identity, &row.session.id))
+            .map(|item| item.runtime_id.clone())
+            .collect();
+        row.activity_state = if row.runtime_ids.is_empty() {
+            AgentSessionActivityState::Unknown
+        } else {
+            AgentSessionActivityState::Active
+        };
+    }
+}
+
+fn agent_counts(
+    snapshot: &Snapshot,
+    sources: &[AgentSessionSource],
+    workspaces: &[AgentSessionWorkspace],
+) -> Vec<AgentSessionCount> {
+    super::counts::summarize(
+        snapshot
+            .rows
+            .iter()
+            .map(|row| (row.session.cli_kind, row.session_ref.as_str())),
+        &snapshot.states,
+        sources,
+        workspaces,
+    )
+}
+
+fn page(
+    id: &str,
+    snapshot: &Snapshot,
+    offset: usize,
+    size: usize,
+    sources: &[AgentSessionSource],
+    workspaces: &[AgentSessionWorkspace],
+) -> AgentSessionPage {
+    let end = offset.saturating_add(size).min(snapshot.rows.len());
+    let items = snapshot.rows[offset..end].to_vec();
+    // Cursors already prove which rows were delivered. Only those corrected
+    // rows need a separate update; current-page items carry their latest parent.
+    // Keep the latest correction so retrying the same cursor remains idempotent.
+    let parent_updates = snapshot.rows[..offset]
+        .iter()
+        .filter_map(|row| {
+            snapshot
+                .parent_updates
+                .get(&row.session_ref)
+                .map(|parent| AgentSessionParentUpdate {
+                    session_ref: row.session_ref.clone(),
+                    parent: parent.clone(),
+                })
+        })
+        .collect();
+    AgentSessionPage {
+        snapshot_id: id.into(),
+        scope_revision: snapshot.scope_revision.clone(),
+        items,
+        parent_updates,
+        next_cursor: (end < snapshot.rows.len() || snapshot.progress.can_continue)
+            .then(|| format!("{id}:{end}")),
+        scan_pending: snapshot.progress.can_continue,
+        loaded_count: snapshot.rows.len(),
+        total: snapshot.complete.then_some(snapshot.rows.len()),
+        agent_counts: agent_counts(snapshot, sources, workspaces),
+        source_states: snapshot.states.clone(),
+        workspaces: snapshot.workspaces.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

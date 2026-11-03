@@ -83,7 +83,7 @@ impl Host for DesktopHost {
     }
 
     fn settings_changed(&self, previous: &AppSettings, current: &AppSettings) {
-        crate::services::cli_sessions::reconfigure_index(&self.app, previous, current);
+        balancehub_agent::settings_changed(previous, current);
     }
 
     fn refresh_tray(&self) {
@@ -99,36 +99,6 @@ impl Host for DesktopHost {
     fn cloud_library(
         &self,
     ) -> Option<Arc<dyn balancehub_core::services::cloud_sync::library::CloudLibrary>> {
-        let state = self.app.state::<crate::state::AppState>();
-        let catalog = state.agent_catalog(&self.app).ok()?;
-        Some(Arc::new(DesktopCloudLibrary(catalog)))
-    }
-}
-
-/// 桌面共享库：把 Agent 资产库接到核心的同步扩展点上。
-struct DesktopCloudLibrary(Arc<crate::services::agent_cli::catalog::CatalogService>);
-
-impl balancehub_core::services::cloud_sync::library::CloudLibrary for DesktopCloudLibrary {
-    fn validate(
-        &self,
-        documents: &balancehub_core::services::cloud_sync::SyncDocuments,
-    ) -> Result<(), String> {
-        self.0.validate_cloud_snapshot(documents)
-    }
-
-    fn snapshot(&self) -> Result<balancehub_core::services::cloud_sync::SyncDocuments, String> {
-        self.0.cloud_snapshot()
-    }
-
-    fn apply(
-        &self,
-        expected: &balancehub_core::services::cloud_sync::SyncDocuments,
-        desired: &balancehub_core::services::cloud_sync::SyncDocuments,
-        commit: balancehub_core::services::cloud_sync::library::LibraryCommit<'_>,
-    ) -> Result<Option<String>, String> {
-        self.0
-            .apply_cloud_snapshot(expected, desired, |before, after, publish| {
-                commit(before, after, publish)
-            })
+        balancehub_agent::cloud_library()
     }
 }

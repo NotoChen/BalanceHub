@@ -40,8 +40,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let data = storage::load_app_data()?;
     let core = Arc::new(CoreState::new(data));
     server_host.attach_core(core);
+    // Agent 域命令由同一个 RPC 提供；能力清单同时登记给前端。
+    balancehub_core::api::register_commands(balancehub_agent::api::COMMANDS);
     // 常驻进程的核心价值：没有界面也会按设置自动刷新、签到和测活。
     balancehub_core::services::scheduler::start();
+    // Agent CLI、会话索引与自动升级：依赖本机工具，工具存在时即可用。
+    balancehub_agent::start_background();
     // WebDAV 同步与桌面共用同一套实现；服务端只有配置文档，没有 Agent 资产库。
     if let Ok(sync) = balancehub_core::services::cloud_sync::service() {
         sync.start_worker();

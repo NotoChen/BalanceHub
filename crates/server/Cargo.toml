@@ -8,6 +8,7 @@ repository = "https://github.com/NotoChen/BalanceHub"
 license-file = "../../LICENSE"
 
 [dependencies]
+balancehub-agent = { path = "../agent" }
 balancehub-core = { path = "../core" }
 axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["fs"] }

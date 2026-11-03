@@ -43,7 +43,7 @@ pub enum AgentSessionResumeIntent {
 
 /// Paths and native IDs are resolved from sessionRef on the backend. Only the
 /// executable selection follows the existing exact-path CLI validation flow.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentSessionResumeRequest {
     pub request_id: String,

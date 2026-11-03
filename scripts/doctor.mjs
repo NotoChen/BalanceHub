@@ -10,6 +10,7 @@ import { runBuildCommand } from "./build-runner.mjs";
 const sourceRoots = [
   join(projectRoot, "src-tauri", "src"),
   join(projectRoot, "crates", "core", "src"),
+  join(projectRoot, "crates", "agent", "src"),
   join(projectRoot, "crates", "server", "src"),
 ];
 const staticOnly = process.argv.includes("--static-only");

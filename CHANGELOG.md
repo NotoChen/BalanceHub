@@ -6,20 +6,22 @@ BalanceHub 的重要变更会记录在这里。
 
 ### 架构
 
-- Rust 代码拆成工作区三块：`crates/core`（包名 `balancehub-core`）承载协议、数据模型、存储、额度、签到、OAuth/CPA、WebDAV 同步、调度与通知；`crates/server`（包名 `balancehub-server`）是无界面后端；`src-tauri` 只保留桌面专属的 Agent 配置、会话、临时 CLI、更新器和托盘。核心 crate 不再依赖 Tauri。
-- 核心通过 `host::Host` 取数据目录、广播事件、发送系统通知和打开链接，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现；本地测活与导出链接以执行器形式由桌面装配，服务端不安装即无此能力。
-- 新增传输无关的命令分发 `balancehub_core::api`，与 Tauri command 执行同一份业务实现，参数和返回值沿用现有 IPC 结构。
-- 工作区锁文件移到根目录 `Cargo.lock`；`npm run cargo` 调用的检查命令改为 `--workspace` / `--all`，`npm run doctor` 同时扫描三个源码目录。
+- Rust 代码拆成工作区四块：`crates/agent`（包名 `balancehub-agent`）承载 Agent CLI 发现、配置读写、会话索引、临时 CLI、WSL、共享资产库与测活执行器，不依赖 Tauri；桌面命令改为经 `balancehub_agent::api` 调用同一份实现。
+- 浏览器版 App 的能力判断从「宿主是不是服务端」改为按运行环境：Agent 工作台、配置与会话在有 CLI 的服务器上同样可用；终端启动与系统打开取决于是否存在桌面会话。
+- `crates/core`（包名 `balancehub-core`）承载协议、数据模型、存储、额度、签到、OAuth/CPA、WebDAV 同步、调度与通知；`crates/server`（包名 `balancehub-server`）是无界面后端；`src-tauri` 只保留桌面宿主编排、更新器与托盘。核心与 Agent crate 都不依赖 Tauri。
+- 核心通过 `host::Host` 取数据目录、广播事件、发送系统通知和打开链接，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现；文件打开通过 `balancehub_agent::FileOpener` 注入，测活执行器由 Agent crate 提供，两个宿主都可用。
+- 新增传输无关的命令分发 `balancehub_core::api` 与 `balancehub_agent::api`，与 Tauri command 执行同一份业务实现，参数和返回值沿用现有 IPC 结构。
+- 工作区锁文件移到根目录 `Cargo.lock`；`npm run cargo` 调用的检查命令改为 `--workspace` / `--all`，`npm run doctor` 同时扫描四个源码目录。
 
 ### 新增
 
 - 新增无界面后端 `balancehub-server`：通过 `POST /rpc` 执行与桌面相同的命令（支持单条与批处理），`GET /events` 推送事件，并可直接托管 `dist/` 下的前端页面；数据目录由 `BALANCEHUB_ROOT`、`BALANCEHUB_DATA_DIR`、`BALANCEHUB_CONFIG_DIR`、`BALANCEHUB_CACHE_DIR` 指定，默认监听 `127.0.0.1:8787`。
 - 前端新增统一宿主通道 `src/api/transport.ts`：桌面走 Tauri `invoke` / `listen`，浏览器走 HTTP 与 WebSocket，页面代码不需要区分宿主。
-- 浏览器版通过 `get_host_capabilities` 得知服务端已实现的命令：不显示 Agent 视角和 Agent 专属卡片入口，初始化向导也不再要求配置本机 CLI 环境。
+- 浏览器版通过 `get_host_capabilities` 得知服务端已实现的命令：初始化向导按命令清单决定是否要求配置本机 CLI 环境。
 - 桌面命令改为直接委托 `balancehub_core::api`，桌面与服务端不再各写一份实现；桌面只保留系统打开站点、Tauri 进度通道和托盘刷新等宿主副作用。
 - WebDAV 配置同步移入核心：桌面与服务端共用同一套同步引擎和设置，服务端没有 Agent 资产库时只同步配置文档，桌面通过宿主扩展点把共享库接进同一事务。
 - 服务端签到改为无头浏览器：没有可见窗口时不注册窗口控制，界面也不会出现「显示签到窗口」；浏览器进程、组件与桌面是同一套。
-- `get_host_capabilities` 返回的清单扩展到 125 个命令；浏览器组件探测、版本更新与本地目录入口仍按能力清单隐藏，OAuth 账号与 CPA 网关入口在服务端可用。
+- `get_host_capabilities` 返回的清单扩展到 242 个命令（核心 125 条 + Agent 117 条）；浏览器组件探测、版本更新、本机登录账号与本地目录入口按能力清单隐藏。
 - 浏览器版支持 OAuth 账号与 CPA 网关：授权任务在服务端运行，授权页在当前浏览器的新标签页打开；服务端回调地址到不了用户浏览器时，把完整回调地址粘回面板即可保存。服务端以自身设备标识执行授权续期。
 - 浏览器版导入授权文件改为读取上传的文件文本，导出改为直接下载授权 JSON；服务端不接收客户端文件路径，也不会把授权写入服务器磁盘。
 - 浏览器版可查看、清除和验证站点凭据；重新登录与登录账号管理仍只在本机浏览器组件可用时出现。
@@ -28,6 +30,7 @@ BalanceHub 的重要变更会记录在这里。
 - 新增服务端部署文档：运行方式、环境变量、数据目录与单实例约束、反向代理与 WebSocket、容器、签到组件、能力边界和安全提示。
 - 前端新增浏览器通道的回归测试：`/rpc` 请求体、服务端错误透传、`/events` 订阅与取消、进度通道按事件名接收。
 - 服务端新增 `/rpc` 单条与批处理、健康检查的集成测试。
+- 无界面后端新增 Agent 命令：`/rpc` 同时分发核心与 Agent 命令，事件流推送资产目录与资源正文进度；浏览器标签页以独立标识作为资产访问身份。
 
 ### 变更
 

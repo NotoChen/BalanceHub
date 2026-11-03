@@ -89,6 +89,14 @@ impl Host for ServerHost {
         Err("服务端不能打开本地浏览器".to_owned())
     }
 
+    /// 有桌面会话的服务器同样可以启动终端；无显示环境时不提供入口。
+    fn has_desktop_session(&self) -> bool {
+        if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
+            return true;
+        }
+        std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
+    }
+
     fn app_data_changed(&self, _previous: &AppData, _next: &AppData) {}
 
     fn settings_changed(&self, _previous: &AppSettings, _current: &AppSettings) {}

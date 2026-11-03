@@ -3,7 +3,6 @@ use crate::{
     models::{AppDataTransferResult, AppSettings, Provider},
     services::{
         app_updater::{self, AppUpdateDownloadEvent, AppUpdateInfo},
-        liveness::preview_prompts,
         logging,
         provider_service::ProviderService,
     },
@@ -149,7 +148,7 @@ pub(crate) async fn import_app_data(
 
 #[tauri::command]
 pub(crate) fn preview_liveness_prompts(settings: AppSettings, count: usize) -> Vec<String> {
-    preview_prompts(&settings, count)
+    balancehub_core::services::liveness::preview_prompts(&settings, count)
 }
 
 #[tauri::command]

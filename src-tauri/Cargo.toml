@@ -24,6 +24,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+balancehub-agent = { path = "../crates/agent" }
 balancehub-core = { path = "../crates/core" }
 # 浏览器启动验证使用自动清理的独立临时 profile。
 tempfile = "3"

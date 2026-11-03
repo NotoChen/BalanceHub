@@ -35,6 +35,11 @@ pub trait Host: Send + Sync + 'static {
     /// 用系统默认浏览器打开链接。
     fn open_url(&self, url: &str) -> Result<(), String>;
 
+    /// 当前进程是否有可交互的桌面会话；由宿主按运行环境判断。
+    fn has_desktop_session(&self) -> bool {
+        true
+    }
+
     /// 配置数据落盘后的宿主扩展点（例如云同步）。
     /// `changed` 由宿主自行判断，核心不重复实现同步规则。
     fn app_data_changed(&self, previous: &AppData, next: &AppData);
@@ -99,9 +104,17 @@ pub fn refresh_tray() {
     current().refresh_tray();
 }
 
-/// 无界面宿主（服务端）不提供 Agent 配置、终端和本地浏览器窗口。
+/// 无界面宿主（服务端）没有可显示的签到窗口，浏览器以无头模式运行。
 pub fn is_headless() -> bool {
     SHARED.get().is_some_and(|host| host.kind() == "server")
+}
+
+/// 当前进程是否有可交互的桌面会话。
+///
+/// 与「是否无界面宿主」不同：服务端部署在有桌面环境的机器上时，终端启动和
+/// 系统文件打开同样可用。由宿主按运行环境判断，界面据此决定是否展示入口。
+pub fn has_desktop_session() -> bool {
+    SHARED.get().is_none_or(|host| host.has_desktop_session())
 }
 
 static SHARED: OnceLock<Arc<dyn Host>> = OnceLock::new();

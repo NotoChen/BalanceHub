@@ -90,11 +90,58 @@ struct RpcBatch {
     commands: Vec<RpcRequest>,
 }
 
+/// 流式结果命令对应的事件名；与前端 `channelEvents` 保持一致。
+const PROGRESS_EVENTS: &[(&str, &str)] = &[
+    ("get_agent_asset_catalog", "agent-asset-catalog-progress"),
+    (
+        "read_agent_catalog_content",
+        "agent-catalog-content-progress",
+    ),
+];
+
+/// 把流式结果转发到 WebSocket 事件流。
+struct EventSink(&'static str);
+
+impl balancehub_agent::api::ProgressSink for EventSink {
+    fn send(&self, event: Value) -> Result<(), String> {
+        balancehub_core::host::emit(self.0, event);
+        Ok(())
+    }
+}
+
+fn progress_sink(command: &str) -> Option<std::sync::Arc<dyn balancehub_agent::api::ProgressSink>> {
+    PROGRESS_EVENTS
+        .iter()
+        .find(|(name, _)| *name == command)
+        .map(|(_, event)| {
+            std::sync::Arc::new(EventSink(event))
+                as std::sync::Arc<dyn balancehub_agent::api::ProgressSink>
+        })
+}
+
+async fn dispatch(command: &str, args: Value, client: &str) -> Result<Value, Value> {
+    if balancehub_agent::api::COMMANDS.contains(&command) {
+        return balancehub_agent::api::dispatch(command, args, client, progress_sink(command))
+            .await;
+    }
+    balancehub_core::api::dispatch(command, args)
+        .await
+        .map_err(Value::String)
+}
+
 /// 单次请求可以带一条命令，也可以带一批；批处理让首屏只发一个请求。
 async fn rpc(
     State(_state): State<AppState>,
+    headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Json<Value>, ApiError> {
+    // 浏览器会话标识用于区分标签页的资产访问身份；缺失时归入同一默认身份。
+    let client = headers
+        .get("x-balancehub-client")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty() && value.len() <= 64)
+        .unwrap_or("web")
+        .to_owned();
     let body: Value = serde_json::from_slice(&body)
         .map_err(|error| ApiError::bad_request(format!("请求格式无效：{error}")))?;
     let requests = if body.get("commands").is_some() {
@@ -108,7 +155,7 @@ async fn rpc(
 
     let mut results = Vec::with_capacity(requests.len());
     for request in requests {
-        let result = balancehub_core::api::dispatch(&request.command, request.args).await;
+        let result = dispatch(&request.command, request.args, &client).await;
         results.push(match result {
             Ok(data) => serde_json::json!({ "command": request.command, "ok": true, "data": data }),
             Err(error) => {

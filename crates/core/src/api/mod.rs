@@ -15,7 +15,7 @@ mod settings;
 use crate::contracts::ProgressSink;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub use browser::COMMANDS as BROWSER_COMMANDS;
 pub use checkin::COMMANDS as CHECK_IN_COMMANDS;
@@ -25,7 +25,16 @@ pub use oauth::COMMANDS as OAUTH_COMMANDS;
 pub use provider::COMMANDS as PROVIDER_COMMANDS;
 pub use settings::COMMANDS as SETTINGS_COMMANDS;
 
-/// 服务端当前实现的命令名。前端据此隐藏桌面专属区块。
+static EXTRA_COMMANDS: OnceLock<&'static [&'static str]> = OnceLock::new();
+
+/// 宿主额外装配的命令（例如无界面后端加入的 Agent 域命令）。
+///
+/// 核心不知道上层能力，由宿主在启动时登记；前端据此隐藏未实现的入口。
+pub fn register_commands(commands: &'static [&'static str]) {
+    let _ = EXTRA_COMMANDS.set(commands);
+}
+
+/// 当前宿主实现的命令名。
 pub fn commands() -> Vec<&'static str> {
     settings::COMMANDS
         .iter()
@@ -35,6 +44,7 @@ pub fn commands() -> Vec<&'static str> {
         .chain(credentials::COMMANDS)
         .chain(cloud_sync::COMMANDS)
         .chain(browser::COMMANDS)
+        .chain(EXTRA_COMMANDS.get().copied().unwrap_or(&[]))
         .copied()
         .collect()
 }

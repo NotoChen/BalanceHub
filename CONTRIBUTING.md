@@ -29,27 +29,22 @@ BalanceHub 当前只接受 Issue，不接受 Pull Request。仓库保留开发�
 │   ├── stores/                 # Pinia store、类型和默认值
 │   ├── styles/                 # 全局样式和模块样式
 │   └── utils/                  # 展示格式化、拖拽、测活等纯工具逻辑
-├── crates/                     # Rust 工作区成员：core（跨宿主核心）与 server（无界面后端）
+├── crates/                     # Rust 工作区成员：core（跨宿主核心）、agent（Agent 能力）与 server（无界面后端）
 ├── src-tauri/                  # Tauri 桌面宿主
 │   ├── capabilities/           # Tauri 权限能力配置
 │   ├── icons/                  # 应用图标
 │   ├── src/
-│   │   ├── adapters/           # NewAPI、Sub2API、通用 API 与协议探测适配
-│   │   ├── commands/           # Tauri command 实现与注册清单
-│   │   ├── contracts.rs        # Rust 计算并输出给前端的 IPC View
+│   │   ├── commands/           # 桌面 command：Agent 桥接与桌面专属能力
 │   │   ├── desktop.rs          # 桌面应用初始化、插件和单实例编排
-│   │   ├── models/             # Rust 数据模型和序列化结构
-│   │   ├── network/            # HTTP 客户端、代理解析和平台系统代理读取
-│   │   ├── platform/           # 深链、后台进程等桌面平台差异封装
-│   │   ├── services/           # 调度、通知、测活、中转站服务
+│   │   ├── desktop_host.rs     # 桌面宿主实现（目录、事件、托盘、文件打开）
 │   │   ├── lib.rs              # Rust crate 入口
-│   │   ├── storage.rs          # 本地配置模块入口
-│   │   ├── storage/            # 配置读写、迁移、恢复与测试
-│   │   └── tray.rs             # 系统托盘 / 菜单栏相关逻辑
+│   │   ├── state.rs            # 桌面运行状态（核心配置）
+│   │   ├── tray.rs             # 系统托盘 / 菜单栏相关逻辑
+│   │   └── services/           # 更新器、日志与应用导入投影
 │   ├── tauri.conf.json         # 开发构建配置
 │   └── tauri.release.conf.json # Release / updater 相关配置
 ├── package.json                # 前端依赖和 npm 脚本
-├── Cargo.toml                  # Rust 工作区定义（core / server / src-tauri）
+├── Cargo.toml                  # Rust 工作区定义（core / agent / server / src-tauri）
 ├── src-tauri/Cargo.toml        # 桌面 crate、Tauri 和桌面依赖
 └── README.md                   # 项目入口说明
 ```
@@ -194,10 +189,11 @@ BalanceHub 的真实账号配置保存在系统应用配置目录，不在仓库
 6. `crates/core/src/contracts.rs`：Rust 派生的前端操作能力和 IPC 返回 View。
 7. `crates/core/src/models/`：后端持久化模型和业务数据结构。
 8. `crates/core/src/adapters/`：协议探测、分发及 NewAPI、Sub2API、通用 API 实现。
-9. `crates/core/src/services/`：额度、签到、调度、通知、WebDAV 同步和配置事务；`src-tauri/src/services/` 只放 Agent、终端和更新器等桌面能力。
-10. `crates/core/src/network/`：业务请求、Webhook、updater 和 CLI 共用的代理语义。
+9. `crates/core/src/services/`：额度、签到、调度、通知、WebDAV 同步和配置事务。
+10. `crates/agent/src/services/`：Agent CLI 发现、配置读写、会话索引、临时 CLI、WSL 与测活执行器；命令入口是 `crates/agent/src/api/`。
+11. `crates/core/src/network/`：业务请求、Webhook、updater 和 CLI 共用的代理语义。
 
-`crates/core` 不依赖 Tauri：需要数据目录、事件或系统交互时通过 `crates/core/src/host.rs` 的 `Host` 提供，两个宿主各自实现（`src-tauri/src/desktop_host.rs`、`crates/server/src/host.rs`）；新增网络类命令同时登记到 `crates/core/src/api/`，服务端才能通过 `/rpc` 复用。
+`crates/core` 与 `crates/agent` 都不依赖 Tauri：需要数据目录、事件或系统交互时通过 `crates/core/src/host.rs` 的 `Host` 提供，文件打开通过 `crates/agent/src/host.rs` 的 `FileOpener` 注入，两个宿主各自实现（`src-tauri/src/desktop_host.rs`、`crates/server/src/host.rs`）；新增网络类命令登记到 `crates/core/src/api/` 或 `crates/agent/src/api/`，服务端才能通过 `/rpc` 复用。
 
 保持改动边界清晰。UI、前端状态、后端 command、存储模型和协议接口尽量分开修改；涉及持久化数据结构时，需要同步前后端类型和本地配置迁移逻辑。账号管理、签到、密钥管理、邀请等操作能力由 Rust 计算，经 `contracts.rs` 返回；前端 `provider-actions.ts` 只读取结果，不复制业务判断。
 

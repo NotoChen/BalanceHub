@@ -12,7 +12,7 @@ pub struct AgentInstructionSet {
     pub additions: BTreeMap<AgentCliKind, String>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentInstructionSaveRequest {
     pub id: Option<String>,
@@ -22,7 +22,7 @@ pub struct AgentInstructionSaveRequest {
     pub additions: BTreeMap<AgentCliKind, String>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentInstructionEditRequest {
     pub id: String,

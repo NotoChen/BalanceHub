@@ -1,17 +1,6 @@
-pub(crate) mod agent_assets;
-pub(crate) mod agent_catalog;
-pub(crate) mod agent_configuration;
-pub(crate) mod agent_instructions;
-pub(crate) mod agent_lifecycle;
-pub(crate) mod agent_maintenance;
-pub(crate) mod agent_mcp_check;
-pub(crate) mod agent_overview;
-pub(crate) mod agent_session_resume;
-pub(crate) mod agent_sessions;
-pub(crate) mod agent_wsl;
+pub(crate) mod agent;
 pub(crate) mod app;
 pub(crate) mod browser_runtime;
-pub(crate) mod cli;
 pub(crate) mod cloud_sync;
 pub(crate) mod login_accounts;
 pub(crate) mod model_catalog;
@@ -19,7 +8,6 @@ pub(crate) mod oauth_accounts;
 pub(crate) mod provider;
 pub(crate) mod provider_app_import;
 pub(crate) mod provider_browser_login;
-pub(crate) mod temporary_cli_settings;
 
 pub(crate) async fn run_blocking<T, F>(label: &'static str, task: F) -> Result<T, String>
 where
