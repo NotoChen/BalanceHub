@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "balancehub"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "balancehub-agent",
  "balancehub-core",
@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "balancehub-agent"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "async-trait",
  "balancehub-core",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "balancehub-core"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "argon2",
  "async-trait",
@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "balancehub-server"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "axum",
  "balancehub-agent",
