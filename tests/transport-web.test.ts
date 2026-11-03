@@ -133,7 +133,7 @@ test("事件订阅连接 /events，取消订阅后不再回调", async () => {
   });
   const socket = FakeSocket.instances.at(-1);
   assert.ok(socket, "订阅时应建立事件连接");
-  assert.equal(socket.url, "ws://127.0.0.1:8787/events");
+  assert.equal(socket.url, "ws://127.0.0.1:8787/events?client=web");
 
   socket.deliver("providers-changed", { ids: ["a"] });
   socket.deliver("unrelated", { ids: ["b"] });

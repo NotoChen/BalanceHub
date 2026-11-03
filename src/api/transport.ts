@@ -79,7 +79,8 @@ let reconnectDelay = 1_000;
 
 function eventSocketUrl(): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${location.host}/events`;
+  // 客户端标识随连接上报：服务端据此只把进度发给本标签页，并在断开后回收身份。
+  return `${scheme}//${location.host}/events?client=${encodeURIComponent(clientId)}`;
 }
 
 function dispatch(event: string, payload: unknown) {

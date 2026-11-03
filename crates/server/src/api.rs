@@ -3,7 +3,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        DefaultBodyLimit, State,
+        DefaultBodyLimit, Query, State,
     },
     http::StatusCode,
     response::{Html, IntoResponse},
@@ -15,11 +15,15 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::host::ServerHost;
+use crate::{
+    clients::ClientRegistry,
+    host::{ServerEvent, ServerHost},
+};
 
 #[derive(Clone)]
 pub struct AppState {
     pub host: Arc<ServerHost>,
+    pub clients: Arc<ClientRegistry>,
 }
 
 pub async fn serve(
@@ -38,7 +42,16 @@ pub async fn serve(
 }
 
 fn router(host: Arc<ServerHost>, web_dir: Option<std::path::PathBuf>) -> Router {
-    let state = AppState { host };
+    state_router(
+        AppState {
+            host,
+            clients: Arc::new(ClientRegistry::default()),
+        },
+        web_dir,
+    )
+}
+
+fn state_router(state: AppState, web_dir: Option<std::path::PathBuf>) -> Router {
     let mut router = Router::new()
         .route("/api/health", get(health))
         // 配置导入会把整份 JSON 放进请求体；默认 2 MiB 会让较大的备份在服务端被拒。
@@ -99,30 +112,58 @@ const PROGRESS_EVENTS: &[(&str, &str)] = &[
     ),
 ];
 
-/// 把流式结果转发到 WebSocket 事件流。
-struct EventSink(&'static str);
+/// 把流式结果只发给发起请求的那个标签页。
+struct EventSink {
+    event: &'static str,
+    client: String,
+    clients: Arc<ClientRegistry>,
+}
 
 impl balancehub_agent::api::ProgressSink for EventSink {
-    fn send(&self, event: Value) -> Result<(), String> {
-        balancehub_core::host::emit(self.0, event);
+    fn send(&self, payload: Value) -> Result<(), String> {
+        // 事件流断开时进度无处可送；请求的最终结果仍会正常返回。
+        self.clients.send(
+            &self.client,
+            ServerEvent {
+                event: self.event.to_owned(),
+                payload,
+            },
+        );
         Ok(())
     }
 }
 
-fn progress_sink(command: &str) -> Option<std::sync::Arc<dyn balancehub_agent::api::ProgressSink>> {
+fn progress_sink(
+    command: &str,
+    client: &str,
+    clients: &Arc<ClientRegistry>,
+) -> Option<Arc<dyn balancehub_agent::api::ProgressSink>> {
     PROGRESS_EVENTS
         .iter()
         .find(|(name, _)| *name == command)
         .map(|(_, event)| {
-            std::sync::Arc::new(EventSink(event))
-                as std::sync::Arc<dyn balancehub_agent::api::ProgressSink>
+            Arc::new(EventSink {
+                event,
+                client: client.to_owned(),
+                clients: Arc::clone(clients),
+            }) as Arc<dyn balancehub_agent::api::ProgressSink>
         })
 }
 
-async fn dispatch(command: &str, args: Value, client: &str) -> Result<Value, Value> {
+async fn dispatch(
+    command: &str,
+    args: Value,
+    client: &str,
+    clients: &Arc<ClientRegistry>,
+) -> Result<Value, Value> {
     if balancehub_agent::api::COMMANDS.contains(&command) {
-        return balancehub_agent::api::dispatch(command, args, client, progress_sink(command))
-            .await;
+        return balancehub_agent::api::dispatch(
+            command,
+            args,
+            client,
+            progress_sink(command, client, clients),
+        )
+        .await;
     }
     balancehub_core::api::dispatch(command, args)
         .await
@@ -131,7 +172,7 @@ async fn dispatch(command: &str, args: Value, client: &str) -> Result<Value, Val
 
 /// 单次请求可以带一条命令，也可以带一批；批处理让首屏只发一个请求。
 async fn rpc(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -155,7 +196,7 @@ async fn rpc(
 
     let mut results = Vec::with_capacity(requests.len());
     for request in requests {
-        let result = dispatch(&request.command, request.args, &client).await;
+        let result = dispatch(&request.command, request.args, &client, &state.clients).await;
         results.push(match result {
             Ok(data) => serde_json::json!({ "command": request.command, "ok": true, "data": data }),
             Err(error) => {
@@ -170,12 +211,28 @@ async fn rpc(
     Ok(Json(serde_json::json!({ "results": results })))
 }
 
-async fn events(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| event_stream(socket, state))
+#[derive(Deserialize)]
+struct EventsQuery {
+    #[serde(default)]
+    client: Option<String>,
 }
 
-async fn event_stream(mut socket: WebSocket, state: AppState) {
+async fn events(
+    ws: WebSocketUpgrade,
+    Query(query): Query<EventsQuery>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let client = query
+        .client
+        .filter(|value| !value.is_empty() && value.len() <= 64)
+        .unwrap_or_else(|| "web".to_owned());
+    ws.on_upgrade(move |socket| event_stream(socket, state, client))
+}
+
+async fn event_stream(mut socket: WebSocket, state: AppState, client: String) {
     let mut receiver = state.host.subscribe();
+    let (sender, mut targeted) = tokio::sync::mpsc::unbounded_channel();
+    let generation = state.clients.connect(&client, sender);
     loop {
         tokio::select! {
             incoming = socket.recv() => {
@@ -187,13 +244,29 @@ async fn event_stream(mut socket: WebSocket, state: AppState) {
             }
             event = receiver.recv() => {
                 let Ok(event) = event else { continue };
-                let Ok(text) = serde_json::to_string(&event) else { continue };
-                if socket.send(Message::Text(text.into())).await.is_err() {
+                if send_event(&mut socket, &event).await.is_err() {
+                    break;
+                }
+            }
+            event = targeted.recv() => {
+                let Some(event) = event else { break };
+                if send_event(&mut socket, &event).await.is_err() {
                     break;
                 }
             }
         }
     }
+    state.clients.disconnect(&client, generation);
+}
+
+async fn send_event(socket: &mut WebSocket, event: &ServerEvent) -> Result<(), ()> {
+    let Ok(text) = serde_json::to_string(event) else {
+        return Ok(());
+    };
+    socket
+        .send(Message::Text(text.into()))
+        .await
+        .map_err(|_| ())
 }
 
 pub struct ApiError {
@@ -220,7 +293,94 @@ impl IntoResponse for ApiError {
 mod tests {
     use super::*;
     use balancehub_core::{host as core_host, models::AppData, runtime, state::CoreState};
+    use futures_util::StreamExt;
+    use std::time::Duration;
     use tower::ServiceExt;
+
+    /// 准备一个装了核心状态的测试宿主；返回路由和它的客户端注册表。
+    fn test_state() -> (AppState, std::path::PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("balancehub-server-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["data", "config", "cache"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let host = Arc::new(ServerHost::new(
+            root.join("data"),
+            root.join("config"),
+            root.join("cache"),
+        ));
+        // 同一进程里只允许安装一次宿主；重复调用时沿用已安装的那个。
+        let _ = core_host::install(host.clone());
+        let _ = runtime::install(tokio::runtime::Handle::current());
+        host.attach_core(Arc::new(CoreState::new(AppData::default())));
+        (
+            AppState {
+                host,
+                clients: Arc::new(ClientRegistry::default()),
+            },
+            root,
+        )
+    }
+
+    /// 两条事件流分别属于不同标签页：定向进度只到达发起请求的那一条。
+    #[tokio::test]
+    async fn targeted_progress_reaches_only_the_requesting_tab() {
+        let (state, root) = test_state();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = state_router(state.clone(), None);
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        type Socket = tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >;
+        async fn connect(addr: std::net::SocketAddr, client: &str) -> Socket {
+            let (socket, _) =
+                tokio_tungstenite::connect_async(format!("ws://{addr}/events?client={client}"))
+                    .await
+                    .unwrap();
+            socket
+        }
+        async fn next_event(socket: &mut Socket) -> Option<String> {
+            loop {
+                let message = tokio::time::timeout(Duration::from_secs(5), socket.next())
+                    .await
+                    .ok()??
+                    .ok()?;
+                if let tokio_tungstenite::tungstenite::Message::Text(text) = message {
+                    return Some(text.to_string());
+                }
+            }
+        }
+
+        let mut tab_a = connect(addr, "tab-a").await;
+        let mut tab_b = connect(addr, "tab-b").await;
+        // 连接刚建立时服务端可能还在登记，给两个标签页一点时间。
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let sink = progress_sink("get_agent_asset_catalog", "tab-a", &state.clients)
+            .expect("该命令应有进度通道");
+        sink.send(serde_json::json!({ "revision": "r1" })).unwrap();
+
+        let frame = next_event(&mut tab_a)
+            .await
+            .expect("发起请求的标签页应收到进度");
+        assert!(frame.contains("agent-asset-catalog-progress"));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), next_event(&mut tab_b))
+                .await
+                .is_err(),
+            "其他标签页不应收到这次进度"
+        );
+
+        // 断开后身份在宽限期结束前保留，期间仍可定向投递。
+        drop(tab_a);
+        drop(tab_b);
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     /// `/rpc` 必须同时接受单条命令与批处理，并把失败限定在对应命令上。
     #[tokio::test]
@@ -237,8 +397,9 @@ mod tests {
         }
 
         let host = Arc::new(ServerHost::new(data_dir.clone(), config_dir, cache_dir));
-        core_host::install(host.clone()).unwrap();
-        runtime::install(tokio::runtime::Handle::current()).unwrap();
+        // 同一进程里只允许安装一次宿主：另一个测试可能已经装过，沿用即可。
+        let _ = core_host::install(host.clone());
+        let _ = runtime::install(tokio::runtime::Handle::current());
         host.attach_core(Arc::new(CoreState::new(AppData::default())));
         let app = router(host, None);
 

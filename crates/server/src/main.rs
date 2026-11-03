@@ -4,6 +4,7 @@
 //! 数据目录通过环境变量指定，默认落在用户目录下的 `.balancehub`。
 
 mod api;
+mod clients;
 mod host;
 mod logging;
 

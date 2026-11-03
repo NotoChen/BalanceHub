@@ -455,10 +455,12 @@ dependencies = [
  "balancehub-agent",
  "balancehub-core",
  "chrono",
+ "futures-util",
  "log",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
  "tower",
  "tower-http",
 ]

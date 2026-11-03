@@ -20,3 +20,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+# 事件流测试：用真实 WebSocket 连接验证定向投递。
+tokio-tungstenite = "0.29"
+futures-util = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "time"] }
