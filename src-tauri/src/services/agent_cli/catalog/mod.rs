@@ -420,6 +420,8 @@ pub(super) fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+#[cfg(test)]
+mod cloud_tests;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod hook_acceptance;
 #[cfg(all(test, unix))]

@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use super::{arg, optional, to_value};
 use crate::{
-    contracts::AppDataView,
+    contracts::{AppDataImportResultView, AppDataView},
     models::{AppSettings, ModelMetadataSnapshot},
     services::{notifications, provider_service::ProviderService},
 };
@@ -16,6 +16,9 @@ pub const COMMANDS: &[&str] = &[
     "send_app_notification",
     "host_platform",
     "get_host_capabilities",
+    "preview_liveness_prompts",
+    "export_app_data_json",
+    "import_app_data_json",
 ];
 
 pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
@@ -27,7 +30,12 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
         "save_settings" => {
             let settings: AppSettings = arg(args, "settings")?;
             let expected: AppSettings = arg(args, "expected")?;
-            to_value(ProviderService::new().save_settings(settings, expected)?)
+            let saved = crate::api::blocking(move || {
+                ProviderService::new().save_settings(settings, expected)
+            })
+            .await?;
+            crate::host::refresh_tray();
+            to_value(saved)
         }
         "get_model_metadata" => {
             let ids: Vec<String> = arg(args, "ids")?;
@@ -76,10 +84,8 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
         }
         "send_app_notification" => {
             let settings: AppSettings = arg(args, "settings")?;
-            let provider =
-                optional(args, "provider")?.map(|input: crate::models::ProviderInput| {
-                    crate::models::Provider::from_input(input, String::new())
-                });
+            // 前端传入的是卡片上的完整 Provider 快照，直接按其结构反序列化。
+            let provider: Option<crate::models::Provider> = optional(args, "provider")?;
             let title: String = arg(args, "title")?;
             let markdown: String = arg(args, "markdown")?;
             let ignore_switch: bool = optional(args, "ignoreSwitch")?.unwrap_or(false);
@@ -108,6 +114,23 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
             to_value(result)
         }
         "host_platform" => Ok(json!(std::env::consts::OS)),
+        "preview_liveness_prompts" => {
+            let settings: AppSettings = arg(args, "settings")?;
+            let count: usize = arg(args, "count")?;
+            to_value(crate::services::liveness::preview_prompts(&settings, count))
+        }
+        "export_app_data_json" => to_value(ProviderService::new().export_app_data_json()?),
+        "import_app_data_json" => {
+            let text: String = arg(args, "text")?;
+            let (data, transfer) =
+                crate::api::blocking(move || ProviderService::new().import_app_data_json(text))
+                    .await?;
+            crate::host::refresh_tray();
+            to_value(AppDataImportResultView {
+                data: AppDataView::from(data),
+                transfer,
+            })
+        }
         "get_host_capabilities" => Ok(json!({
             "host": crate::host::current().kind(),
             "commands": super::commands(),

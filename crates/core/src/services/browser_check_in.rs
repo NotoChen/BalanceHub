@@ -42,7 +42,12 @@ pub async fn run(
         }),
     )
     .map_err(CheckInError::WaitingBrowser)?;
-    let window = task.attach_window(session.window_control())?;
+    // 无界面宿主没有人能看窗口；不注册窗口控制，界面也不会给出“显示窗口”入口。
+    let window = if crate::host::is_headless() {
+        None
+    } else {
+        Some(task.attach_window(session.window_control())?)
+    };
     let outcome = tokio::time::timeout(
         Duration::from_secs(480),
         execute(
@@ -128,6 +133,7 @@ async fn execute(
                 "providerName": provider.display_label(),
                 "cookies": cookies, "executablePath": executable, "interactive": task.interactive,
                 "autoShield": provider.automation.auto_shield,
+                "headless": crate::host::is_headless(),
             }),
         )
         .await?;

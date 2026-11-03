@@ -1,54 +1,51 @@
-use super::run_blocking;
-use crate::services::browser_runtime::{self, BrowserInfo, BrowserRuntimeStatus, BrowserSelection};
-use tauri::AppHandle;
+//! 浏览器组件命令。实现来自 `balancehub_core::api`，与服务端共用。
+
+use serde_json::json;
+
+use super::dispatch_value;
+use crate::services::browser_runtime::BrowserSelection;
 
 #[tauri::command]
-pub(crate) async fn get_browser_runtime_status(
-    _app: AppHandle,
-    force: bool,
-) -> Result<BrowserRuntimeStatus, String> {
-    run_blocking("检测浏览器组件", move || {
-        browser_runtime::status(force)
-    })
-    .await
+pub(crate) async fn get_browser_runtime_status(force: bool) -> Result<serde_json::Value, String> {
+    dispatch_value("get_browser_runtime_status", json!({ "force": force })).await
 }
 
 #[tauri::command]
-pub(crate) fn install_browser_runtime(
-    _app: AppHandle,
+pub(crate) async fn install_browser_runtime(
     selection: BrowserSelection,
     repair: bool,
-) -> Result<BrowserRuntimeStatus, String> {
-    browser_runtime::start_install(selection, repair)
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "install_browser_runtime",
+        json!({ "selection": selection, "repair": repair }),
+    )
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn select_browser_runtime_browser(
-    _app: AppHandle,
+pub(crate) async fn select_browser_runtime_browser(
     selection: BrowserSelection,
-) -> Result<BrowserRuntimeStatus, String> {
-    browser_runtime::select_browser(selection)
-}
-
-#[tauri::command]
-pub(crate) async fn inspect_browser_runtime_browser(path: String) -> Result<BrowserInfo, String> {
-    run_blocking("读取浏览器程序", move || {
-        browser_runtime::inspect_browser(std::path::Path::new(&path))
-    })
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "select_browser_runtime_browser",
+        json!({ "selection": selection }),
+    )
     .await
 }
 
 #[tauri::command]
-pub(crate) fn cancel_browser_runtime_install() -> Result<(), String> {
-    browser_runtime::cancel_install()
+pub(crate) async fn inspect_browser_runtime_browser(
+    path: String,
+) -> Result<serde_json::Value, String> {
+    dispatch_value("inspect_browser_runtime_browser", json!({ "path": path })).await
 }
 
 #[tauri::command]
-pub(crate) async fn uninstall_browser_runtime(
-    _app: AppHandle,
-) -> Result<BrowserRuntimeStatus, String> {
-    run_blocking("卸载浏览器组件", move || {
-        browser_runtime::uninstall()
-    })
-    .await
+pub(crate) async fn cancel_browser_runtime_install() -> Result<serde_json::Value, String> {
+    dispatch_value("cancel_browser_runtime_install", json!({})).await
+}
+
+#[tauri::command]
+pub(crate) async fn uninstall_browser_runtime() -> Result<serde_json::Value, String> {
+    dispatch_value("uninstall_browser_runtime", json!({})).await
 }

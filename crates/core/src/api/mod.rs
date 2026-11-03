@@ -4,14 +4,20 @@
 //! 经 HTTP RPC 送进来。两边执行的是同一份业务实现，参数与返回值都按
 //! 前端当前的 IPC 结构序列化，因此前端不需要知道请求走的是哪条通道。
 
+mod browser;
 mod checkin;
+mod cloud_sync;
 mod provider;
 mod settings;
 
+use crate::contracts::ProgressSink;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use std::sync::Arc;
 
+pub use browser::COMMANDS as BROWSER_COMMANDS;
 pub use checkin::COMMANDS as CHECK_IN_COMMANDS;
+pub use cloud_sync::COMMANDS as CLOUD_SYNC_COMMANDS;
 pub use provider::COMMANDS as PROVIDER_COMMANDS;
 pub use settings::COMMANDS as SETTINGS_COMMANDS;
 
@@ -21,21 +27,49 @@ pub fn commands() -> Vec<&'static str> {
         .iter()
         .chain(provider::COMMANDS)
         .chain(checkin::COMMANDS)
+        .chain(cloud_sync::COMMANDS)
+        .chain(browser::COMMANDS)
         .copied()
         .collect()
 }
 
 pub async fn dispatch(command: &str, args: Value) -> Result<Value, String> {
+    dispatch_with_progress(command, args, None).await
+}
+
+/// `progress` 只有桌面宿主会提供（Tauri Channel）；服务端留空，进度按事件广播。
+pub async fn dispatch_with_progress(
+    command: &str,
+    args: Value,
+    progress: Option<Arc<dyn ProgressSink>>,
+) -> Result<Value, String> {
     if settings::COMMANDS.contains(&command) {
         return settings::handle(command, &args).await;
     }
     if provider::COMMANDS.contains(&command) {
-        return provider::handle(command, &args).await;
+        return provider::handle(command, &args, progress).await;
     }
     if checkin::COMMANDS.contains(&command) {
         return checkin::handle(command, &args).await;
     }
+    if cloud_sync::COMMANDS.contains(&command) {
+        return cloud_sync::handle(command, &args).await;
+    }
+    if browser::COMMANDS.contains(&command) {
+        return browser::handle(command, &args).await;
+    }
     Err(format!("当前宿主不支持命令：{command}"))
+}
+
+/// 在阻塞线程池执行同步事务，避免持锁写盘占用异步工作线程。
+async fn blocking<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    crate::runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("后台任务异常：{error}"))?
 }
 
 // ── 参数读取 ──────────────────────────────────────────────────────────

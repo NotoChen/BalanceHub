@@ -33,7 +33,7 @@ pub struct ProviderApiKeySpendingLimits {
 
 /// Only changed fields are sent on update. None never means "clear".
 /// Explicit empty arrays/strings and Expiration::Never perform clearing.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct ProviderApiKeyPatch {
     pub name: Option<String>,

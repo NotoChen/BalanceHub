@@ -40,14 +40,22 @@ export function loadHostCapabilities(): Promise<HostCapabilities> {
   return pending;
 }
 
+/** 当前宿主是否实现了某个命令；能力清单未就绪时按可用处理，避免首帧闪烁。 */
+export function supportsCommand(command: string): boolean {
+  const commands = capabilities.value?.commands;
+  return commands === null || commands === undefined || commands.has(command);
+}
+
 export function useHostCapabilities() {
   const agentAvailable = computed(
     () => capabilities.value?.host !== "server",
   );
+  const commandAvailable = (command: string) => supportsCommand(command);
   const resolved = computed(() => capabilities.value !== null);
   return {
     capabilities: readonly(capabilities),
     agentAvailable,
+    commandAvailable,
     resolved,
     ensure: loadHostCapabilities,
   };

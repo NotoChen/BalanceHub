@@ -10,13 +10,13 @@ pub(super) const MAX_OBJECT_BYTES: usize = 96 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct SyncDocument {
+pub struct SyncDocument {
     pub title: String,
     pub category: String,
     pub value: Value,
 }
 
-pub(crate) type SyncDocuments = BTreeMap<String, SyncDocument>;
+pub type SyncDocuments = BTreeMap<String, SyncDocument>;
 
 impl SyncDocument {
     pub(super) fn hash(&self) -> Result<String, String> {

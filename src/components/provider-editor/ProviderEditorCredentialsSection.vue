@@ -15,8 +15,14 @@ import { providerProtocolDescriptor } from "../../utils/provider-protocol";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import ProviderCredentialFields from "./ProviderCredentialFields.vue";
 import ProviderApiKeyVault from "./ProviderApiKeyVault.vue";
+import { supportsCommand } from "../../composables/useHostCapabilities";
 
 const loginAccounts = inject(LOGIN_ACCOUNTS_CONTEXT);
+/// 浏览器登录需要本机浏览器组件；没有它的宿主不展示这条入口。
+const browserLoginAvailable = computed(() => supportsCommand("start_provider_browser_login"));
+const showBrowserLogin = computed(
+  () => Boolean(currentProtocol.value?.browserLoginSupported) && browserLoginAvailable.value,
+);
 const providerCredentials = inject(PROVIDER_CREDENTIALS_CONTEXT);
 const authGroupName = useId();
 
@@ -166,7 +172,7 @@ function syncApiKeySelection() {
         </div>
       </header>
       <div class="provider-form-block-body provider-primary-credentials">
-        <div v-if="currentProtocol?.browserLoginSupported" class="provider-browser-login">
+        <div v-if="showBrowserLogin" class="provider-browser-login">
           <IconUser class="provider-browser-login-icon" />
           <div class="provider-browser-login-copy">
             <strong>在浏览器中登录</strong>

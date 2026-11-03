@@ -11,6 +11,7 @@ import {
 import { openDataDirectory, openLogDirectory, openProjectRepository } from "../../api/app";
 import type { AppSettings, LogLevel } from "../../stores/providers";
 import { formatAppVersionLabel } from "../../utils/app-version";
+import { supportsCommand } from "../../composables/useHostCapabilities";
 
 const props = defineProps<{
   settings: AppSettings;
@@ -19,6 +20,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ "check-for-update": [] }>();
+
+/// 版本更新与本地目录只存在于桌面宿主；浏览器版隐藏这两块，避免点了没反应。
+const updateAvailable = computed(() => supportsCommand("check_app_update"));
+const localDirectoryAvailable = computed(() => supportsCommand("open_data_directory"));
 
 const logLevelOptions: { label: string; value: LogLevel }[] = [
   { label: "仅错误", value: "error" },
@@ -63,7 +68,7 @@ function openData() {
 
 <template>
   <div class="settings-page settings-about-page">
-    <section class="settings-card">
+    <section v-if="updateAvailable" class="settings-card">
       <header class="settings-card-header">
         <span class="settings-card-icon"><IconSync /></span>
         <div>
@@ -148,7 +153,7 @@ function openData() {
             <template #suffix>天</template>
           </a-input-number>
         </div>
-        <div class="settings-setting-row">
+        <div v-if="localDirectoryAvailable" class="settings-setting-row">
           <div class="settings-setting-copy">
             <strong>打开日志目录</strong>
             <span>出问题时把当天日志文件发出来即可。</span>
@@ -157,7 +162,7 @@ function openData() {
             <template #icon><IconFolder /></template>打开
           </a-button>
         </div>
-        <div class="settings-setting-row">
+        <div v-if="localDirectoryAvailable" class="settings-setting-row">
           <div class="settings-setting-copy">
             <strong>打开数据目录</strong>
             <span>临时 CLI、隔离登录环境等运行数据都在这里。</span>

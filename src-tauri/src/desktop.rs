@@ -444,8 +444,8 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     restore_window_state(app, &startup_settings);
-    if let Ok(sync) = app.state::<AppState>().cloud_sync(app.app_handle()) {
-        sync.start_worker(app.app_handle().clone());
+    if let Ok(sync) = services::cloud_sync::service() {
+        sync.start_worker();
     }
 
     // Agent runtime persistence is optional. Initialization failures remain

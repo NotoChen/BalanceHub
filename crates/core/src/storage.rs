@@ -63,6 +63,27 @@ pub fn import_app_data(source: &Path) -> Result<AppData, String> {
     Ok(data)
 }
 
+/// 浏览器版导出：生成与文件导出完全一致的内容，交给前端下载。
+pub fn export_app_data_json(data: &AppData) -> Result<String, String> {
+    let mut export_data = data.clone();
+    validate_app_data_schema(&export_data)?;
+    normalize_provider_cached_values(&mut export_data);
+    limits::normalize_app_data(&mut export_data);
+    serde_json::to_string_pretty(&export_data).map_err(|error| format!("导出配置失败: {error}"))
+}
+
+/// 浏览器版导入：接收上传的配置文本，走与文件导入相同的迁移和校验。
+pub fn import_app_data_json(text: &str) -> Result<AppData, String> {
+    let label = Path::new("上传的配置");
+    let (mut data, _migrated) =
+        migration::read_app_data_text(text, label, BackupBeforeMigrate::No)?;
+    validate_app_data_schema(&data)?;
+    normalize_provider_cached_values(&mut data);
+    limits::normalize_app_data(&mut data);
+    save_app_data(&data)?;
+    Ok(data)
+}
+
 pub fn export_app_data(target: &Path, data: &AppData) -> Result<(), String> {
     if let Some(parent) = target.parent() {
         if !parent.as_os_str().is_empty() {

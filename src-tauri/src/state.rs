@@ -28,8 +28,6 @@ pub struct AppState {
     pub(crate) mcp_checks: Arc<crate::services::agent_cli::mcp_check::McpCheckService>,
     pub(crate) agent_maintenance: Arc<crate::services::agent_cli::maintenance::MaintenanceService>,
     agent_lifecycle: OnceLock<Arc<LifecycleService>>,
-    cloud_sync: OnceLock<Arc<crate::services::cloud_sync::CloudSyncService>>,
-    pub(crate) cloud_sync_signal: Arc<crate::services::cloud_sync::SyncSignal>,
     agent_overview: OnceLock<Arc<crate::services::agent_cli::overview::OverviewService>>,
     asset_actors: Mutex<BTreeMap<String, String>>,
 }
@@ -58,8 +56,6 @@ impl AppState {
             mcp_checks: Arc::default(),
             agent_maintenance: Arc::default(),
             agent_lifecycle: OnceLock::new(),
-            cloud_sync: OnceLock::new(),
-            cloud_sync_signal: Arc::default(),
             agent_overview: OnceLock::new(),
             asset_actors: Mutex::default(),
         }
@@ -84,7 +80,7 @@ impl AppState {
         Ok(Arc::clone(self.agent_catalog.get_or_init(|| {
             Arc::new(
                 CatalogService::new(root, Arc::clone(&self.agent_asset_mutations))
-                    .with_sync_signal(Arc::clone(&self.cloud_sync_signal))
+                    .with_sync_signal(std::sync::Arc::clone(crate::services::cloud_sync::signal()))
                     .with_managed_hook_root(managed_hook_root)
                     .with_display_cache(display_cache_root),
             )
@@ -173,21 +169,6 @@ impl AppState {
                 lifecycle.remove_actor(&actor);
             }
         }
-    }
-
-    pub(crate) fn cloud_sync(
-        &self,
-        app: &tauri::AppHandle,
-    ) -> Result<Arc<crate::services::cloud_sync::CloudSyncService>, String> {
-        let root = crate::desktop::config_dir(app)
-            .map_err(|_| "无法获取同步配置目录")?
-            .join("cloud-sync");
-        Ok(Arc::clone(self.cloud_sync.get_or_init(|| {
-            Arc::new(crate::services::cloud_sync::CloudSyncService::new(
-                root,
-                Arc::clone(&self.cloud_sync_signal),
-            ))
-        })))
     }
 }
 

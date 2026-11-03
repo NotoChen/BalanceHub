@@ -1,4 +1,4 @@
-import { invoke, type Channel } from "./transport.ts";
+import { invoke, isWebHost, type Channel } from "./transport.ts";
 import type { AgentConfigurationEdit } from "../stores/agent-configuration-types";
 import type {
   AppSettings,
@@ -115,13 +115,21 @@ export function hostPlatform() {
   return invoke<string>("host_platform");
 }
 
+/** 浏览器版按新标签页打开；桌面版交给系统默认浏览器。 */
+function openInBrowser(url: string) {
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) return Promise.reject("浏览器拦截了新标签页，请允许弹出窗口");
+  return Promise.resolve();
+}
+
 export function openProjectRepository() {
-  return invoke<void>("open_project_repository");
+  const url = "https://github.com/NotoChen/BalanceHub";
+  return isWebHost ? openInBrowser(url) : invoke<void>("open_project_repository");
 }
 
 /** 打开 Agent 文档、站点公告等外部内容里的链接，由 Rust 校验并交给系统浏览器。 */
 export function openExternalLink(url: string) {
-  return invoke<void>("open_external_link", { url });
+  return isWebHost ? openInBrowser(url) : invoke<void>("open_external_link", { url });
 }
 
 export function openLogDirectory() {
@@ -194,6 +202,15 @@ export function exportAppData(path: string) {
 
 export function importAppData(path: string) {
   return invoke<AppDataImportResult>("import_app_data", { path });
+}
+
+/** 浏览器版：配置以文本下载 / 上传，不经过本机路径。 */
+export function exportAppDataJson() {
+  return invoke<string>("export_app_data_json");
+}
+
+export function importAppDataJson(text: string) {
+  return invoke<AppDataImportResult>("import_app_data_json", { text });
 }
 
 /** 开发版专用：用隔离目录里的演示数据覆盖本地配置，仅开发构建提供。 */

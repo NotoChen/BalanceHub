@@ -32,7 +32,7 @@ pub struct ProviderCredentialCompletionStep {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderSaveOptions {
     /// 覆盖前一次重复校验返回的同账号/同 API Key 中转站。

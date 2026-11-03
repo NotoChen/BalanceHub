@@ -1,4 +1,5 @@
 import { computed, onMounted, onUnmounted, provide, shallowRef, type InjectionKey } from "vue";
+import { supportsCommand } from "./useHostCapabilities";
 import { cancelBrowserRuntimeInstall, getBrowserRuntimeStatus, installBrowserRuntime, listenBrowserRuntime, selectBrowserRuntimeBrowser, uninstallBrowserRuntime } from "../api/browser-runtime";
 import { createBrowserRuntimeController, type BrowserRuntimeSnapshot } from "../utils/browser-runtime-controller";
 
@@ -10,9 +11,12 @@ export function useBrowserRuntime() {
   const model = createBrowserRuntimeController({ status: getBrowserRuntimeStatus, listen: listenBrowserRuntime,
     install: installBrowserRuntime, selectBrowser: selectBrowserRuntimeBrowser, cancel: cancelBrowserRuntimeInstall, uninstall: uninstallBrowserRuntime,
   }, (next) => { snapshot.value = next; });
-  onMounted(() => { void model.start().catch(() => {}); });
+  // 没有本地浏览器组件的宿主（服务端）不探测、不监听，界面也不展示相关面板。
+  const available = supportsCommand("get_browser_runtime_status");
+  onMounted(() => { if (available) void model.start().catch(() => {}); });
   onUnmounted(model.stop);
   const controller = {
+    available: computed(() => supportsCommand("get_browser_runtime_status")),
     state: computed(() => snapshot.value.status),
     visible: computed({ get: () => snapshot.value.visible, set: model.setVisible }),
     pending: computed(() => snapshot.value.pending),

@@ -8,16 +8,15 @@ use std::{
     sync::{atomic::Ordering, Arc},
     time::Duration,
 };
-use tauri::AppHandle;
 
 impl CloudSyncService {
-    pub fn start_worker(self: &Arc<Self>, app: AppHandle) {
+    pub fn start_worker(self: &Arc<Self>) {
         if self.worker_started.swap(true, Ordering::AcqRel) {
             return;
         }
         let weak = Arc::downgrade(self);
         let signal = Arc::clone(&self.signal);
-        tauri::async_runtime::spawn(async move {
+        crate::runtime::spawn(async move {
             loop {
                 let changed = tokio::select! {
                     _ = signal.notify.notified() => true,
@@ -51,7 +50,7 @@ impl CloudSyncService {
                         && (changed || inner.status.phase != CloudSyncPhase::Cancelled)
                 };
                 if should_run {
-                    let _ = service.start(app.clone(), Action::Sync, true);
+                    let _ = service.start(Action::Sync, true);
                 }
             }
         });
@@ -59,21 +58,13 @@ impl CloudSyncService {
 
     pub(super) async fn execute(
         self: &Arc<Self>,
-        app: &AppHandle,
         task_id: &str,
         settings: Settings,
         control: Arc<Control>,
         action: Action,
         pending: Option<Arc<Prepared>>,
     ) -> Result<Outcome, String> {
-        let operation = self.run_action(
-            app,
-            task_id,
-            settings,
-            Arc::clone(&control),
-            action,
-            pending,
-        );
+        let operation = self.run_action(task_id, settings, Arc::clone(&control), action, pending);
         tokio::pin!(operation);
         tokio::select! {
             result = &mut operation => result,
@@ -87,7 +78,6 @@ impl CloudSyncService {
 
     async fn run_action(
         self: &Arc<Self>,
-        app: &AppHandle,
         task_id: &str,
         settings: Settings,
         control: Arc<Control>,
@@ -95,9 +85,9 @@ impl CloudSyncService {
         pending: Option<Arc<Prepared>>,
     ) -> Result<Outcome, String> {
         if matches!(action, Action::Restore) {
-            let replica = Arc::new(super::local::AppReplica { app: app.clone() });
+            let replica = Arc::new(super::local::AppReplica);
             let reader = Arc::clone(&replica);
-            let (current, recovery) = tauri::async_runtime::spawn_blocking(move || {
+            let (current, recovery) = crate::runtime::spawn_blocking(move || {
                 let recovery = reader.recovery()?.ok_or("同步恢复点不存在")?;
                 reader.validate(&recovery)?;
                 Ok::<_, String>((reader.snapshot()?, recovery))
@@ -106,13 +96,12 @@ impl CloudSyncService {
             .map_err(|_| "读取同步恢复点任务异常")??;
             control.begin_commit()?;
             self.progress(
-                app,
                 task_id,
                 CloudSyncPhase::Applying,
                 "正在恢复同步前的本机配置",
                 TransferStats::default(),
             );
-            tauri::async_runtime::spawn_blocking(move || replica.apply(&current, &recovery))
+            crate::runtime::spawn_blocking(move || replica.apply(&current, &recovery))
                 .await
                 .map_err(|_| "恢复同步配置任务异常")??;
             return Ok(Outcome::Restored);
@@ -120,7 +109,7 @@ impl CloudSyncService {
         let stamp = self.local_stamp();
         let automatic = self.lock().status.automatic;
         let engine = self
-            .engine(app, task_id, &settings, Arc::clone(&control))
+            .engine(task_id, &settings, Arc::clone(&control))
             .await?;
         control.check()?;
         let verification = settings.verification_id()?;
@@ -128,7 +117,6 @@ impl CloudSyncService {
             matches!(action, Action::Test) || self.lock().verified.as_ref() != Some(&verification);
         if needs_verification {
             self.progress(
-                app,
                 task_id,
                 CloudSyncPhase::Checking,
                 "正在验证 WebDAV 读写与多设备同步能力",

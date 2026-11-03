@@ -296,6 +296,43 @@ impl ProviderService {
         })
     }
 
+    /// 浏览器版导出：返回与文件导出相同的内容。
+    pub fn export_app_data_json(&self) -> Result<String, String> {
+        self.ensure_storage_ready()?;
+        storage::export_app_data_json(&self.snapshot())
+    }
+
+    /// 浏览器版导入：文本与文件导入走同一套迁移、校验与落盘。
+    pub fn import_app_data_json(
+        &self,
+        text: String,
+    ) -> Result<(AppData, AppDataTransferResult), String> {
+        let state = crate::host::core_state();
+        let _transaction = state
+            .mutation_gate
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let mut data = storage::import_app_data_json(&text)?;
+        let revision = state.next_revision();
+        data.revision = revision;
+        for provider in &mut data.providers {
+            provider.revision = revision;
+        }
+        let previous_data = {
+            let mut current = state.data.write().unwrap_or_else(|err| err.into_inner());
+            std::mem::replace(&mut *current, data.clone())
+        };
+        state.clear_load_error();
+        crate::host::app_data_changed(&previous_data, &data);
+        drop(previous_data);
+        let result = AppDataTransferResult {
+            path: "上传的配置".to_owned(),
+            schema_version: data.schema_version,
+            provider_count: data.providers.len(),
+        };
+        Ok((data, result))
+    }
+
     pub fn import_app_data(
         &self,
         path: String,

@@ -108,6 +108,11 @@ export function useProviderEditor(options: UseProviderEditorOptions) {
     visible: () => drawerVisible.value,
     input: currentProviderInput,
     ensureRuntime: async () => {
+      // 没有本机浏览器组件的宿主（服务端）直接说明原因，不弹安装面板。
+      if (!options.browserRuntime.available.value) {
+        Message.info("当前宿主没有本机浏览器，请改用账号密码、会话 Cookie 或访问令牌");
+        return false;
+      }
       await options.browserRuntime.refresh(true);
       if (options.browserRuntime.state.value?.ready) return true;
       options.browserRuntime.open();

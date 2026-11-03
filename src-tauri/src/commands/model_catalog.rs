@@ -1,6 +1,8 @@
-use crate::{models::ModelMetadataSnapshot, state::AppState};
-use tauri::{AppHandle, Emitter, Manager};
+use crate::state::AppState;
+use serde_json::json;
+use tauri::{AppHandle, Manager};
 
+/// 会话用量的费用估算依赖桌面端的模型目录缓存；命令实现与无界面后端共用。
 #[tauri::command]
 pub(crate) async fn estimate_session_usage(
     app: AppHandle,
@@ -20,57 +22,14 @@ pub(crate) async fn estimate_session_usage(
 
 #[tauri::command]
 pub(crate) async fn get_model_metadata(
-    app: AppHandle,
+    _app: AppHandle,
     ids: Vec<String>,
     refresh: bool,
     provider_id: Option<String>,
-) -> Result<ModelMetadataSnapshot, String> {
-    if ids.len() > 2000 || ids.iter().any(|id| id.len() > 512) {
-        return Err("模型资料查询数量或名称超出范围".to_owned());
-    }
-    let model_config = provider_id.and_then(|id| {
-        app.state::<AppState>()
-            .data
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .providers
-            .iter()
-            .find(|provider| provider.identity.id == id)
-            .map(|provider| provider.model_config.clone())
-    });
-    let service_app = app.clone();
-    let service = super::run_blocking("读取模型资料缓存", move || {
-        service_app.state::<AppState>().model_catalog()
-    })
-    .await?;
-    let settings = app
-        .state::<AppState>()
-        .data
-        .read()
-        .unwrap_or_else(|error| error.into_inner())
-        .settings
-        .clone();
-    let snapshot = service.snapshot_for(&ids, model_config.as_ref())?;
-    if refresh || snapshot.updated_at.is_none() {
-        let _ = service.refresh(&settings, refresh).await;
-        let current = service.snapshot_for(&ids, model_config.as_ref())?;
-        if current.updated_at != snapshot.updated_at {
-            let _ = app.emit("model-metadata-updated", ());
-        }
-        return Ok(current);
-    }
-    if snapshot.stale {
-        let updated_at = snapshot.updated_at.clone();
-        let service_config = model_config.clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = service.refresh(&settings, false).await;
-            if service
-                .snapshot_for(&[], service_config.as_ref())
-                .is_ok_and(|current| current.updated_at != updated_at)
-            {
-                let _ = app.emit("model-metadata-updated", ());
-            }
-        });
-    }
-    Ok(snapshot)
+) -> Result<serde_json::Value, String> {
+    super::dispatch_value(
+        "get_model_metadata",
+        json!({ "ids": ids, "refresh": refresh, "providerId": provider_id }),
+    )
+    .await
 }

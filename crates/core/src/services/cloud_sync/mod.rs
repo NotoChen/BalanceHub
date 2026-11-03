@@ -4,6 +4,7 @@ mod core;
 mod crypto;
 mod files;
 mod format;
+pub mod library;
 mod local;
 mod merge;
 mod projection;
@@ -12,25 +13,31 @@ mod tests;
 mod transport;
 mod worker;
 
-pub(crate) use format::{SyncDocument, SyncDocuments};
-pub(crate) use local::recover;
-pub(crate) use projection::app_changed;
+pub use format::{SyncDocument, SyncDocuments};
+pub use local::recover;
+pub use projection::app_changed;
 
-use crate::{models::*, state::AppState};
+use crate::models::*;
 use config::Settings;
 use core::{Control, Engine, Prepared, TransferStats};
 use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     time::SystemTime,
 };
-use tauri::{AppHandle, Emitter, Manager};
+
+/// 进程内唯一的同步信号：宿主在配置落盘后调用 `changed()`，后台任务据此判断
+/// 是否需要重新同步。桌面与服务端共用同一个实例，不需要各自注册。
+pub fn signal() -> &'static Arc<SyncSignal> {
+    static SIGNAL: OnceLock<Arc<SyncSignal>> = OnceLock::new();
+    SIGNAL.get_or_init(|| Arc::new(SyncSignal::default()))
+}
 
 #[derive(Default)]
-pub(crate) struct SyncSignal {
+pub struct SyncSignal {
     enabled: AtomicBool,
     generation: AtomicU64,
     notify: tokio::sync::Notify,
@@ -70,14 +77,14 @@ struct Inner {
     reconciled: Option<LocalStamp>,
 }
 
-pub(crate) struct CloudSyncService {
+pub struct CloudSyncService {
     root: PathBuf,
     inner: Mutex<Inner>,
     signal: Arc<SyncSignal>,
     worker_started: AtomicBool,
 }
 
-pub(crate) enum Action {
+pub enum Action {
     Sync,
     Test,
     Confirm {
@@ -94,8 +101,21 @@ enum Outcome {
     Restored,
 }
 
+/// 进程级同步服务：桌面和服务端都只有一份配置，用同一个实例即可。
+pub fn service() -> Result<&'static Arc<CloudSyncService>, String> {
+    static SERVICE: OnceLock<Result<Arc<CloudSyncService>, String>> = OnceLock::new();
+    SERVICE
+        .get_or_init(|| {
+            let root = crate::host::config_dir()?.join("cloud-sync");
+            Ok(Arc::new(CloudSyncService::new(root)))
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
 impl CloudSyncService {
-    pub fn new(root: PathBuf, signal: Arc<SyncSignal>) -> Self {
+    pub fn new(root: PathBuf) -> Self {
+        let signal = Arc::clone(signal());
         let (settings, config_error) = match Settings::load(&root) {
             Ok(settings) => (settings, None),
             Err(error) => (Settings::default(), Some(error)),
@@ -152,8 +172,8 @@ impl CloudSyncService {
         self.snapshot_locked(&self.lock())
     }
 
-    fn emit(&self, app: &AppHandle) {
-        let _ = app.emit("cloud-sync-state", self.snapshot());
+    fn emit(&self) {
+        crate::host::emit("cloud-sync-state", self.snapshot());
     }
 
     fn local_stamp(&self) -> Option<LocalStamp> {
@@ -169,11 +189,7 @@ impl CloudSyncService {
         })
     }
 
-    pub fn save(
-        &self,
-        app: &AppHandle,
-        input: CloudSyncSettingsInput,
-    ) -> Result<CloudSyncSnapshot, String> {
+    pub fn save(&self, input: CloudSyncSettingsInput) -> Result<CloudSyncSnapshot, String> {
         {
             let mut inner = self.lock();
             if let Some(error) = &inner.config_error {
@@ -201,7 +217,7 @@ impl CloudSyncService {
             }
             self.signal.set_enabled(inner.settings.auto_sync);
         }
-        self.emit(app);
+        self.emit();
         Ok(self.snapshot())
     }
 
@@ -209,7 +225,6 @@ impl CloudSyncService {
     /// scan is awaited by the initiating IPC or the settings window.
     pub fn start(
         self: &Arc<Self>,
-        app: AppHandle,
         action: Action,
         automatic: bool,
     ) -> Result<CloudSyncSnapshot, String> {
@@ -282,12 +297,11 @@ impl CloudSyncService {
             inner.pending = None;
             (inner.settings.clone(), control, task_id, pending)
         };
-        self.emit(&app);
+        self.emit();
         let service = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
+        crate::runtime::spawn(async move {
             use futures_util::FutureExt;
             let result = std::panic::AssertUnwindSafe(service.execute(
-                &app,
                 &task_id,
                 settings,
                 Arc::clone(&control),
@@ -297,12 +311,12 @@ impl CloudSyncService {
             .catch_unwind()
             .await
             .unwrap_or_else(|_| Err("同步后台任务异常，已释放操作状态；请重新同步".to_owned()));
-            service.finish(&app, &task_id, &control, result);
+            service.finish(&task_id, &control, result);
         });
         Ok(self.snapshot())
     }
 
-    pub fn cancel(&self, app: &AppHandle, task_id: &str) -> Result<CloudSyncSnapshot, String> {
+    pub fn cancel(&self, task_id: &str) -> Result<CloudSyncSnapshot, String> {
         {
             let mut inner = self.lock();
             if inner.status.task_id != task_id {
@@ -323,7 +337,7 @@ impl CloudSyncService {
             }
             inner.status.revision = inner.status.revision.saturating_add(1);
         }
-        self.emit(app);
+        self.emit();
         Ok(self.snapshot())
     }
 
@@ -338,14 +352,7 @@ impl CloudSyncService {
         comparison::compare(&pending, key)
     }
 
-    fn progress(
-        &self,
-        app: &AppHandle,
-        task_id: &str,
-        phase: CloudSyncPhase,
-        message: &str,
-        stats: TransferStats,
-    ) {
+    fn progress(&self, task_id: &str, phase: CloudSyncPhase, message: &str, stats: TransferStats) {
         {
             let mut inner = self.lock();
             if inner.status.task_id != task_id || inner.active.is_none() {
@@ -364,16 +371,10 @@ impl CloudSyncService {
             inner.status.downloaded = stats.downloaded;
             inner.status.transferred_bytes = stats.bytes;
         }
-        self.emit(app);
+        self.emit();
     }
 
-    fn finish(
-        &self,
-        app: &AppHandle,
-        task_id: &str,
-        control: &Control,
-        result: Result<Outcome, String>,
-    ) {
+    fn finish(&self, task_id: &str, control: &Control, result: Result<Outcome, String>) {
         {
             let mut inner = self.lock();
             if inner.status.task_id != task_id {
@@ -462,24 +463,21 @@ impl CloudSyncService {
                 self.signal.notify.notify_one();
             }
         }
-        self.emit(app);
+        self.emit();
     }
 
     async fn engine(
         self: &Arc<Self>,
-        app: &AppHandle,
         task_id: &str,
         settings: &Settings,
         control: Arc<Control>,
     ) -> Result<Engine, String> {
-        let task_app = app.clone();
         let settings = settings.clone();
         let root = self.root.join("replicas").join(settings.space_id()?);
         let passphrase = settings.passphrase.clone();
         let device = settings.device_name.clone();
-        let dav = tauri::async_runtime::spawn_blocking(move || {
-            let app_state = task_app.state::<AppState>();
-            let preferences = app_state
+        let dav = crate::runtime::spawn_blocking(move || {
+            let preferences = crate::host::core_state()
                 .data
                 .read()
                 .map_err(|_| "本机网络设置不可用")?
@@ -496,7 +494,6 @@ impl CloudSyncService {
         .await
         .map_err(|_| "初始化同步网络任务异常")??;
         let weak = Arc::downgrade(self);
-        let progress_app = app.clone();
         let progress_id = task_id.to_owned();
         Ok(Engine {
             root,
@@ -504,10 +501,10 @@ impl CloudSyncService {
             passphrase,
             device,
             control,
-            replica: Arc::new(local::AppReplica { app: app.clone() }),
+            replica: Arc::new(local::AppReplica),
             progress: Arc::new(move |phase, message, stats| {
                 if let Some(service) = weak.upgrade() {
-                    service.progress(&progress_app, &progress_id, phase, message, stats);
+                    service.progress(&progress_id, phase, message, stats);
                 }
             }),
         })

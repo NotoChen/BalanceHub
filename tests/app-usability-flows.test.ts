@@ -55,6 +55,7 @@ test("authentication sections stay visible and retain credentials across support
     "../ProviderAuthIcon.vue": {},
     "./ProviderCredentialFields.vue": {},
     "./ProviderApiKeyVault.vue": {},
+    "../../composables/useHostCapabilities": { supportsCommand: () => true },
   }).default;
   for (const protocol of ["newApi", "sub2Api", "api"] as const) {
     const draft = reactive(emptyDraft());
@@ -409,6 +410,8 @@ function transferHarness(t: TestContext, dialogs: Record<string, unknown>, overr
   const { useAppDataTransfer } = loadSource<typeof import("../src/composables/useAppDataTransfer.ts")>("composables/useAppDataTransfer.ts", {
     "@arco-design/web-vue": feedback, "@tauri-apps/plugin-dialog": dialogs,
     "./provider-credential-dialogs": { confirmAction: confirm }, "../utils/promise-timeout": { withTimeout },
+    "../api/transport.ts": { isWebHost: false },
+    "../api/app": { exportAppDataJson: async () => "", importAppDataJson: async () => ({ transfer: transfer() }) },
   });
   const operations: string[] = [];
   const context = scoped(t, () => useAppDataTransfer({ beforeTransfer: async () => { operations.push("save settings"); return true; }, exportAppData: async () => { operations.push("export"); return transfer(); }, importAppData: async () => { operations.push("restore"); return transfer(); }, ...overrides }));

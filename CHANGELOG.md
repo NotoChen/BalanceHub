@@ -6,7 +6,7 @@ BalanceHub 的重要变更会记录在这里。
 
 ### 架构
 
-- Rust 代码拆成工作区三块：`crates/core`（包名 `balancehub-core`）承载协议、数据模型、存储、额度、签到、OAuth/CPA、调度与通知；`crates/server`（包名 `balancehub-server`）是无界面后端；`src-tauri` 只保留桌面专属的 Agent 配置、会话、临时 CLI、云同步、更新器和托盘。核心 crate 不再依赖 Tauri。
+- Rust 代码拆成工作区三块：`crates/core`（包名 `balancehub-core`）承载协议、数据模型、存储、额度、签到、OAuth/CPA、WebDAV 同步、调度与通知；`crates/server`（包名 `balancehub-server`）是无界面后端；`src-tauri` 只保留桌面专属的 Agent 配置、会话、临时 CLI、更新器和托盘。核心 crate 不再依赖 Tauri。
 - 核心通过 `host::Host` 取数据目录、广播事件、发送系统通知和打开链接，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现；本地测活与导出链接以执行器形式由桌面装配，服务端不安装即无此能力。
 - 新增传输无关的命令分发 `balancehub_core::api`，与 Tauri command 执行同一份业务实现，参数和返回值沿用现有 IPC 结构。
 - 工作区锁文件移到根目录 `Cargo.lock`；`npm run cargo` 调用的检查命令改为 `--workspace` / `--all`，`npm run doctor` 同时扫描三个源码目录。
@@ -16,10 +16,18 @@ BalanceHub 的重要变更会记录在这里。
 - 新增无界面后端 `balancehub-server`：通过 `POST /rpc` 执行与桌面相同的命令（支持单条与批处理），`GET /events` 推送事件，并可直接托管 `dist/` 下的前端页面；数据目录由 `BALANCEHUB_ROOT`、`BALANCEHUB_DATA_DIR`、`BALANCEHUB_CONFIG_DIR`、`BALANCEHUB_CACHE_DIR` 指定，默认监听 `127.0.0.1:8787`。
 - 前端新增统一宿主通道 `src/api/transport.ts`：桌面走 Tauri `invoke` / `listen`，浏览器走 HTTP 与 WebSocket，页面代码不需要区分宿主。
 - 浏览器版通过 `get_host_capabilities` 得知服务端已实现的命令：不显示 Agent 视角和 Agent 专属卡片入口，初始化向导也不再要求配置本机 CLI 环境。
+- 桌面命令改为直接委托 `balancehub_core::api`，桌面与服务端不再各写一份实现；桌面只保留系统打开站点、Tauri 进度通道和托盘刷新等宿主副作用。
+- WebDAV 配置同步移入核心：桌面与服务端共用同一套同步引擎和设置，服务端没有 Agent 资产库时只同步配置文档，桌面通过宿主扩展点把共享库接进同一事务。
+- 服务端签到改为无头浏览器：没有可见窗口时不注册窗口控制，界面也不会出现「显示签到窗口」；浏览器进程、组件与桌面是同一套。
+- `get_host_capabilities` 返回的清单扩展到 64 个命令；前端的 OAuth / CPA 入口、浏览器组件探测、版本更新与本地目录入口按能力清单隐藏，缺少能力的宿主会说明原因而不是报错。
+- 浏览器版支持导入 / 导出配置：导出直接下载与桌面导出完全一致的 JSON，导入读取上传文本并走同一套 schema 迁移与校验；浏览器版打开站点与外部链接改为新标签页。
+- 浏览器组件命令（状态、安装、选择、验证、卸载）与服务端共用，服务端可以自行安装组件并以无头模式执行签到验证。
+- 修复浏览器执行器在符号链接路径下（例如 macOS 的 `/tmp`）判断入口失败、启动后立即退出，导致「验证窗口或浏览器进程已关闭」的问题。
 
 ### 变更
 
 - 服务端返回的卡片动作把 `temporaryCli`、`defaultCliConfig` 置为不可用，Agent 相关入口不会出现在浏览器界面里。
+- 服务端默认监听 `127.0.0.1:8787`，启动时按设置运行自动刷新、签到、测活与 WebDAV 同步。
 
 ## 0.6.5
 

@@ -105,7 +105,7 @@ fn portable_auth(auth: &ProviderAuth) -> PortableAuth {
     }
 }
 
-pub(crate) fn app_documents(data: &AppData) -> Result<SyncDocuments, String> {
+pub fn app_documents(data: &AppData) -> Result<SyncDocuments, String> {
     let mut documents = BTreeMap::new();
     for provider in &data.providers {
         let portable = PortableProvider {
@@ -163,7 +163,7 @@ pub(crate) fn app_documents(data: &AppData) -> Result<SyncDocuments, String> {
     Ok(documents)
 }
 
-pub(crate) fn app_changed(before: &AppData, after: &AppData) -> bool {
+pub fn app_changed(before: &AppData, after: &AppData) -> bool {
     match (app_documents(before), app_documents(after)) {
         (Ok(left), Ok(right)) => left != right,
         _ => true,

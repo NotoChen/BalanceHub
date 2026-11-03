@@ -5,6 +5,7 @@
 
 use crate::{
     models::{AppData, AppSettings},
+    services::cloud_sync::library::CloudLibrary,
     state::CoreState,
 };
 use serde::Serialize;
@@ -37,6 +38,11 @@ pub trait Host: Send + Sync + 'static {
     /// 配置数据落盘后的宿主扩展点（例如云同步）。
     /// `changed` 由宿主自行判断，核心不重复实现同步规则。
     fn app_data_changed(&self, previous: &AppData, next: &AppData);
+
+    /// 共享库（Agent 资产）的同步扩展点；没有本机资产库的宿主返回 `None`。
+    fn cloud_library(&self) -> Option<Arc<dyn CloudLibrary>> {
+        None
+    }
 
     /// 设置保存后的宿主扩展点（例如重建会话索引）。
     fn settings_changed(&self, _previous: &AppSettings, _current: &AppSettings) {}
@@ -83,6 +89,10 @@ pub fn app_data_changed(previous: &AppData, next: &AppData) {
 
 pub fn settings_changed(previous: &AppSettings, current_settings: &AppSettings) {
     current().settings_changed(previous, current_settings);
+}
+
+pub fn cloud_library() -> Option<Arc<dyn CloudLibrary>> {
+    current().cloud_library()
 }
 
 pub fn refresh_tray() {

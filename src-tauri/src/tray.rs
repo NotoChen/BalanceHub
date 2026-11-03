@@ -18,11 +18,6 @@ pub fn is_available(app: &AppHandle) -> bool {
     app.state::<TrayAvailability>().0.load(Ordering::Acquire)
 }
 
-pub fn update_tooltip(app: &AppHandle, providers: &[Provider]) {
-    let tooltip = build_tooltip(providers);
-    apply_tooltip(app, tooltip);
-}
-
 /// 只做纯计算，不碰托盘、不发生阻塞，因此可以安全地在持有状态锁时调用。
 fn build_tooltip(providers: &[Provider]) -> String {
     let active_providers = providers

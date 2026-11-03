@@ -23,6 +23,7 @@ import AgentCliIcon from "./AgentCliIcon.vue";
 import BackgroundTaskIndicator from "./BackgroundTaskIndicator.vue";
 import AppTopbarMenu from "./AppTopbarMenu.vue";
 import { activeAgentRuntimeSessions, isConfirmedAgentRuntimeSession } from "../utils/agent-runtime";
+import { useHostCapabilities } from "../composables/useHostCapabilities";
 import type { AppWorkspaceView } from "../stores/agent-workspace";
 
 const props = withDefaults(defineProps<{
@@ -46,6 +47,11 @@ const props = withDefaults(defineProps<{
   recentBackgroundTasks: BackgroundTask[];
   backgroundTaskCount: number;
 }>(), { workspaceView: "providers", agentAvailable: true, searchPlaceholder: "搜索名称、URL、用户或模型" });
+
+const { commandAvailable, ensure: ensureHostCapabilities } = useHostCapabilities();
+void ensureHostCapabilities();
+const oauthAvailable = computed(() => commandAvailable("start_oauth_login"));
+const cpaAvailable = computed(() => commandAvailable("list_cpa_plugins"));
 
 const emit = defineEmits<{
   add: [];
@@ -146,9 +152,11 @@ const announcementTooltip = computed(() => {
         </a-button>
         <template #content>
           <a-doption @click="emit('add')">中转站 / API Key</a-doption>
-          <a-doption @click="emit('addOauth')">OAuth 账号</a-doption>
-          <a-doption @click="emit('importOauth')">导入授权文件</a-doption>
-          <a-doption @click="emit('addCpa')">CPA 网关</a-doption>
+          <template v-if="oauthAvailable">
+            <a-doption @click="emit('addOauth')">OAuth 账号</a-doption>
+            <a-doption @click="emit('importOauth')">导入授权文件</a-doption>
+          </template>
+          <a-doption v-if="cpaAvailable" @click="emit('addCpa')">CPA 网关</a-doption>
         </template>
       </a-dropdown>
       <span v-if="workspaceView === 'providers'" class="topbar-action-divider" aria-hidden="true" />

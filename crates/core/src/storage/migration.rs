@@ -25,11 +25,23 @@ pub(super) fn read_app_data_file(
     backup_mode: BackupBeforeMigrate,
 ) -> Result<(AppData, bool), String> {
     let text = read_text_file_limited(path, limits::MAX_APP_DATA_FILE_BYTES, "读取配置")?;
-    let stored_version = stored_schema_version(&text)
+    read_app_data_text(&text, path, backup_mode)
+}
+
+/// 同一套解析与迁移规则也用于浏览器版上传的配置文本，避免两条入口行为不一致。
+pub(super) fn read_app_data_text(
+    text: &str,
+    path: &Path,
+    backup_mode: BackupBeforeMigrate,
+) -> Result<(AppData, bool), String> {
+    if text.len() > limits::MAX_APP_DATA_FILE_BYTES {
+        return Err("配置文件超过大小上限".to_owned());
+    }
+    let stored_version = stored_schema_version(text)
         .map_err(|error| format!("解析配置失败({}): {error}", path.display()))?;
 
     if stored_version == CURRENT_SCHEMA_VERSION {
-        let data = serde_json::from_str::<AppData>(&text)
+        let data = serde_json::from_str::<AppData>(text)
             .map_err(|error| format!("解析配置失败({}): {error}", path.display()))?;
         return Ok((data, false));
     }
@@ -40,7 +52,7 @@ pub(super) fn read_app_data_file(
     }
 
     let backup = if backup_mode == BackupBeforeMigrate::Yes {
-        backup_legacy_file(path, stored_version, &text)
+        backup_legacy_file(path, stored_version, text)
     } else {
         None
     };
@@ -48,7 +60,7 @@ pub(super) fn read_app_data_file(
         .as_ref()
         .map(|backup_path| format!("，原文件已备份至 {}", backup_path.display()))
         .unwrap_or_default();
-    let data = migrate_app_data(&text, stored_version).map_err(|error| {
+    let data = migrate_app_data(text, stored_version).map_err(|error| {
         format!(
             "配置从 schemaVersion {stored_version} 迁移到 {CURRENT_SCHEMA_VERSION} 失败：{error}{backup_hint}"
         )

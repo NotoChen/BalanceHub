@@ -3,7 +3,8 @@ import { LoginBrowser } from "./login.mjs";
 import { AccountBrowser } from "./accounts.mjs";
 import { pageNeedsVerification, renderTurnstile, verificationFailure } from "./verification.mjs";
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -80,7 +81,7 @@ export class BrowserWorker {
     return { version: this.context.browser().version() };
   }
 
-  async open({ url, providerName, profileDir, proxy, cookies = [], executablePath, interactive = false, autoShield = true }) {
+  async open({ url, providerName, profileDir, proxy, cookies = [], executablePath, interactive = false, autoShield = true, headless = false }) {
     if (this.context || this.closing) throw new WorkerError("浏览器任务已启动或已取消");
     const target = new URL(url);
     if (!["https:", "http:"].includes(target.protocol) || target.username || target.password) {
@@ -93,7 +94,7 @@ export class BrowserWorker {
     const bootstrap = bootstrapHtml(this.windowTitle);
     this.interactive = interactive;
     this.autoShield = autoShield;
-    this.context = await launchBrowser({ profileDir, executablePath, proxy, title: this.windowTitle }, this.emit);
+    this.context = await launchBrowser({ profileDir, executablePath, proxy, title: this.windowTitle, headless }, this.emit);
     if (this.closing) {
       await this.context.close();
       throw new WorkerCancelled("签到验证已取消");
@@ -403,6 +404,17 @@ async function main() {
   await new Promise((resolve) => input.once("close", resolve));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// The launcher may pass a symlinked path (`/tmp`, macOS `/var`): compare resolved
+// paths so the worker does not exit before reading its first request.
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   await main();
 }

@@ -38,6 +38,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     server_host.attach_core(core);
     // 常驻进程的核心价值：没有界面也会按设置自动刷新、签到和测活。
     balancehub_core::services::scheduler::start();
+    // WebDAV 同步与桌面共用同一套实现；服务端只有配置文档，没有 Agent 资产库。
+    if let Ok(sync) = balancehub_core::services::cloud_sync::service() {
+        sync.start_worker();
+    }
 
     let addr: SocketAddr = std::env::var("BALANCEHUB_SERVER_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8787".to_owned())

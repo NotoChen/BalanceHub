@@ -1,19 +1,19 @@
 use crate::{
-    contracts::{AppDataImportResultView, AppDataView},
-    models::{AppDataTransferResult, AppSettings, NotificationEvent, Provider},
+    contracts::AppDataImportResultView,
+    models::{AppDataTransferResult, AppSettings, Provider},
     services::{
         app_updater::{self, AppUpdateDownloadEvent, AppUpdateInfo},
         liveness::preview_prompts,
         logging,
-        notifications::{self, NotificationSendResult},
         provider_service::ProviderService,
     },
     tray,
 };
+use serde_json::json;
 use tauri::{ipc::Channel, AppHandle};
 use tauri_plugin_opener::OpenerExt;
 
-use super::run_blocking;
+use super::{dispatch, dispatch_value, run_blocking};
 
 #[tauri::command]
 pub(crate) fn host_platform() -> &'static str {
@@ -53,32 +53,24 @@ pub(crate) async fn open_external_link(app: AppHandle, url: String) -> Result<()
 }
 
 #[tauri::command]
-pub(crate) async fn load_app_data(app: AppHandle) -> Result<AppDataView, String> {
-    let data = {
-        let _task_app = app.clone();
-        run_blocking("加载应用配置", move || {
-            ProviderService::new().load_app_data()
-        })
-        .await?
-    };
-    tray::update_tooltip(&app, &data.providers);
-    Ok(data.into())
+pub(crate) async fn load_app_data(app: AppHandle) -> Result<serde_json::Value, String> {
+    let data = dispatch_value("load_app_data", json!({})).await?;
+    tray::refresh_from_state(&app);
+    Ok(data)
 }
 
 #[tauri::command]
 pub(crate) async fn save_settings(
-    app: AppHandle,
     settings: AppSettings,
     expected: AppSettings,
 ) -> Result<AppSettings, String> {
-    let _task_app = app.clone();
-    let settings = run_blocking("保存应用设置", move || {
-        ProviderService::new().save_settings(settings, expected)
-    })
+    let settings: AppSettings = dispatch(
+        "save_settings",
+        json!({ "settings": settings, "expected": expected }),
+    )
     .await?;
     // 级别与保留期改完立即生效，不用重启托盘进程。
     logging::apply_settings(&settings);
-    tray::refresh_from_state(&app);
     Ok(settings)
 }
 
@@ -108,29 +100,23 @@ pub(crate) async fn open_data_directory(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) async fn send_app_notification(
-    _app: AppHandle,
     settings: AppSettings,
     provider: Option<Provider>,
     title: String,
     markdown: String,
     ignore_switch: bool,
-) -> Result<NotificationSendResult, String> {
-    if let Some(provider) = provider {
-        Ok(notifications::send_provider_notification(
-            &settings,
-            &provider,
-            NotificationEvent::Manual,
-            title,
-            markdown,
-            ignore_switch,
-        )
-        .await)
-    } else {
-        Ok(
-            notifications::send_configured_notification(&settings, title, markdown, ignore_switch)
-                .await,
-        )
-    }
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "send_app_notification",
+        json!({
+            "settings": settings,
+            "provider": provider,
+            "title": title,
+            "markdown": markdown,
+            "ignoreSwitch": ignore_switch,
+        }),
+    )
+    .await
 }
 
 #[tauri::command]

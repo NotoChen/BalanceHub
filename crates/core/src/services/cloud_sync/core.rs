@@ -165,7 +165,7 @@ impl Engine {
 
     pub async fn snapshot(&self) -> Result<SyncDocuments, String> {
         let replica = Arc::clone(&self.replica);
-        tauri::async_runtime::spawn_blocking(move || replica.snapshot())
+        crate::runtime::spawn_blocking(move || replica.snapshot())
             .await
             .map_err(|_| "读取同步数据的后台任务异常".to_owned())?
     }
@@ -198,11 +198,9 @@ impl Engine {
         let passphrase = self.passphrase.clone();
         let salt = head.as_ref().map(|value| value.salt.clone());
         let cipher = Arc::new(
-            tauri::async_runtime::spawn_blocking(move || {
-                Cipher::derive(&passphrase, salt.as_deref())
-            })
-            .await
-            .map_err(|_| "生成同步密钥失败")??,
+            crate::runtime::spawn_blocking(move || Cipher::derive(&passphrase, salt.as_deref()))
+                .await
+                .map_err(|_| "生成同步密钥失败")??,
         );
         let manifest = match &head {
             Some(head) => cipher.decode_head(head)?,
@@ -347,11 +345,9 @@ impl Engine {
         normalize_order(&mut merged.documents)?;
         let validation_replica = Arc::clone(&self.replica);
         let validation_documents = merged.documents.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            validation_replica.validate(&validation_documents)
-        })
-        .await
-        .map_err(|_| "校验同步数据的后台任务异常")??;
+        crate::runtime::spawn_blocking(move || validation_replica.validate(&validation_documents))
+            .await
+            .map_err(|_| "校验同步数据的后台任务异常")??;
         self.verify_fresh(&prepared).await?;
         let mut entries = BTreeMap::new();
         let mut uploads = Vec::new();
@@ -483,7 +479,7 @@ impl Engine {
         let replica = Arc::clone(&self.replica);
         let expected = prepared.local.clone();
         let desired = merged.documents;
-        tauri::async_runtime::spawn_blocking(move || replica.apply(&expected, &desired))
+        crate::runtime::spawn_blocking(move || replica.apply(&expected, &desired))
             .await
             .map_err(|_| "本地应用同步结果的后台任务异常")??;
         files::write_json(

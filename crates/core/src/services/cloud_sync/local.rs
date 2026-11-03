@@ -4,15 +4,12 @@ use super::{
     format::{self, SyncDocuments},
     projection,
 };
-use crate::{models::AppData, state::AppState, storage};
+use crate::{host, models::AppData, storage};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
-use tauri::{AppHandle, Emitter, Manager};
 
-pub(super) struct AppReplica {
-    pub app: AppHandle,
-}
+pub(super) struct AppReplica;
 
 #[derive(Serialize, Deserialize)]
 struct Journal {
@@ -69,7 +66,7 @@ fn coordinated_apply(
 
 /// Runs before AppState and the catalog are loaded. Only files matching this
 /// transaction's old/new versions may be recovered; external edits are kept.
-pub(crate) fn recover(root: &Path) -> Result<(), String> {
+pub fn recover(root: &Path) -> Result<(), String> {
     let path = root.join("cloud-sync/apply-journal.json");
     let Some(journal): Option<Journal> = files::read_json(&path)? else {
         return Ok(());
@@ -129,7 +126,7 @@ pub(crate) fn recover(root: &Path) -> Result<(), String> {
 
 impl Replica for AppReplica {
     fn validate(&self, documents: &SyncDocuments) -> Result<(), String> {
-        let state = self.app.state::<AppState>();
+        let state = host::core_state();
         let data = state.data.read().map_err(|_| "应用配置不可用")?;
         let next = projection::apply_app_documents(&data, documents)?;
         let submitted: SyncDocuments = documents
@@ -145,19 +142,22 @@ impl Replica for AppReplica {
             return Err("云端配置不能无损应用，请核对配置格式与应用版本".to_owned());
         }
         drop(data);
-        state
-            .agent_catalog(&self.app)?
-            .validate_cloud_snapshot(documents)
+        match host::cloud_library() {
+            Some(library) => library.validate(documents),
+            None => Ok(()),
+        }
     }
     fn snapshot(&self) -> Result<SyncDocuments, String> {
-        let state = self.app.state::<AppState>();
+        let state = host::core_state();
         if let Some(error) = state.load_error() {
             return Err(error);
         }
         let data = state.data.read().map_err(|_| "应用配置不可用")?;
         let mut documents = projection::app_documents(&data)?;
         drop(data);
-        documents.extend(state.agent_catalog(&self.app)?.cloud_snapshot()?);
+        if let Some(library) = host::cloud_library() {
+            documents.extend(library.snapshot()?);
+        }
         Ok(documents)
     }
 
@@ -165,7 +165,7 @@ impl Replica for AppReplica {
         if expected == desired {
             return Ok(());
         }
-        let state = self.app.state::<AppState>();
+        let state = host::core_state();
         let _transaction = state
             .mutation_gate
             .lock()
@@ -192,29 +192,32 @@ impl Replica for AppReplica {
         for provider in &mut next.providers {
             provider.revision = revision;
         }
-        let root = crate::desktop::config_dir(&self.app).map_err(|_| "无法获取配置目录")?;
+        let root = host::config_dir().map_err(|_| "无法获取配置目录")?;
         let journal_path = root.join("cloud-sync/apply-journal.json");
-        let catalog = state.agent_catalog(&self.app)?;
-        let result =
-            catalog.apply_cloud_snapshot(expected, desired, |before, after, publish_catalog| {
-                let journal = Journal {
-                    id: format::random_id()?,
-                    committed: false,
-                    before_data: current.clone(),
-                    after_data: next.clone(),
-                    before_library: before.map(|bytes| STANDARD.encode(bytes)),
-                    after_library: after.map(|bytes| STANDARD.encode(bytes)),
-                    recovery: expected.clone(),
-                };
-                let warning = coordinated_apply(&root, journal, publish_catalog, || {
-                    storage::save_app_data(&next)
-                })?;
-                *state
-                    .data
-                    .write()
-                    .unwrap_or_else(|error| error.into_inner()) = next.clone();
-                Ok(warning)
-            });
+        let library = host::cloud_library();
+        let apply = |commit: super::library::LibraryCommit<'_>| match library.as_ref() {
+            Some(library) => library.apply(expected, desired, commit),
+            None => commit(None, None, &mut || Ok(())),
+        };
+        let result = apply(&mut |before, after, publish_catalog| {
+            let journal = Journal {
+                id: format::random_id()?,
+                committed: false,
+                before_data: current.clone(),
+                after_data: next.clone(),
+                before_library: before.map(|bytes| STANDARD.encode(bytes)),
+                after_library: after.map(|bytes| STANDARD.encode(bytes)),
+                recovery: expected.clone(),
+            };
+            let warning = coordinated_apply(&root, journal, publish_catalog, || {
+                storage::save_app_data(&next)
+            })?;
+            *state
+                .data
+                .write()
+                .unwrap_or_else(|error| error.into_inner()) = next.clone();
+            Ok(warning)
+        });
         let warning = match result {
             Ok(value) => value,
             Err(error) => {
@@ -227,18 +230,14 @@ impl Replica for AppReplica {
         if warning.is_none() {
             let _ = fs::remove_file(journal_path);
         }
-        state.cloud_sync_signal.changed();
-        let _ = self.app.emit("cloud-sync-applied", revision);
-        let _ = self.app.emit("providers-changed", ());
+        super::signal().changed();
+        host::emit("cloud-sync-applied", revision);
+        host::emit("providers-changed", serde_json::json!(null));
         warning.map_or(Ok(()), Err)
     }
 
     fn recovery(&self) -> Result<Option<SyncDocuments>, String> {
-        let root = self
-            .app
-            .path()
-            .app_config_dir()
-            .map_err(|_| "无法获取配置目录")?;
+        let root = host::config_dir().map_err(|_| "无法获取配置目录")?;
         files::read_json(&root.join("cloud-sync/recovery.json"))
     }
 }

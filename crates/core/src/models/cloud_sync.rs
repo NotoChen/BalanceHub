@@ -94,14 +94,14 @@ pub struct CloudSyncSnapshot {
     pub has_recovery: bool,
 }
 
-#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum CloudSyncSide {
     Local,
     Remote,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudSyncResolution {
     pub key: String,
