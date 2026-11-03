@@ -97,7 +97,20 @@ impl Host for ServerHost {
         std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
     }
 
-    fn app_data_changed(&self, _previous: &AppData, _next: &AppData) {}
+    fn app_data_changed(&self, previous: &AppData, next: &AppData) {
+        if balancehub_core::services::cloud_sync::app_changed(previous, next) {
+            balancehub_core::services::cloud_sync::signal().changed();
+        }
+    }
 
-    fn settings_changed(&self, _previous: &AppSettings, _current: &AppSettings) {}
+    fn settings_changed(&self, previous: &AppSettings, current: &AppSettings) {
+        balancehub_agent::settings_changed(previous, current);
+    }
+
+    /// 服务端同样有 Agent 共享资产库，参与 WebDAV 同步。
+    fn cloud_library(
+        &self,
+    ) -> Option<Arc<dyn balancehub_core::services::cloud_sync::library::CloudLibrary>> {
+        balancehub_agent::cloud_library()
+    }
 }
