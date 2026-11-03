@@ -26,10 +26,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 balancehub-agent = { path = "../crates/agent" }
 balancehub-core = { path = "../crates/core" }
-# 浏览器启动验证使用自动清理的独立临时 profile。
-tempfile = "3"
-# Keep canonical Windows paths usable by directory pickers and external shells.
-dunce = "1.0.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "gzip", "brotli", "deflate", "system-proxy", "socks"] }
 # updater 目前使用 reqwest 0.13；显式合并 SOCKS 与系统代理 feature，
 # 并由 tauri-plugin-updater 的 native-tls feature 使用系统证书存储。
@@ -38,48 +34,15 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-serde_yaml_ng = "0.10"
-rusqlite = { version = "0.32", features = ["bundled", "hooks"] }
-toml = "0.8"
-toml_edit = "0.20"
-getrandom = "0.3"
-semver = "1"
-regex = "1"
-regex-lite = "0.1"
-base64 = "0.22"
-hmac = "0.12"
 sha2 = "0.10"
-sha1 = "0.10"
-argon2 = "0.5"
-chacha20poly1305 = "0.10"
-flate2 = "1"
-zstd = { version = "0.13", default-features = false }
-tar = "0.4"
-zip = { version = "4", default-features = false, features = ["deflate"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-window-state = "2"
 # 日志走 `log` 门面 + 自带的文件写入实现：级别可以在设置里即时切换。
 log = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-async-trait = "0.1"
-futures-util = "0.3"
-lru = "0.16.3"
-# Automatic Agent upgrades inspect executable paths and arguments only when an update is due.
-sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["native-tls", "zip"] }
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["time", "sync", "macros", "process", "io-util", "fs", "net"] }
-
-[target.'cfg(unix)'.dependencies]
-# Unix 进程组操作与配置文件的当前用户写入权限查询。
-libc = "0.2"
-# 目录资产盘点使用句柄相对的逐级 openat 与 RAII 目录枚举，避免路径替换竞态。
-rustix = { version = "1.1", features = ["fs"] }
-
-[target.'cfg(windows)'.dependencies]
-junction = "2.1"
-# 目录资产盘点必须从已打开且禁止删除共享的句柄枚举，避免路径替换竞态。
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading", "Win32_Security"] }

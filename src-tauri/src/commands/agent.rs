@@ -193,3 +193,33 @@ pub(crate) async fn cancel_agent_session_query(
     )
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    /// 桌面必须注册 `balancehub_agent::api` 的全部命令：少一条时浏览器能用、
+    /// 桌面却报「命令不存在」。这里直接扫描桥接文件本身，不再维护第二份清单。
+    #[test]
+    fn every_agent_command_is_bridged() {
+        let source = include_str!("agent.rs");
+        // 只看测试模块之前的桥接清单，避免把本测试里的字样也算进去。
+        let source = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let mut bridged: BTreeSet<&str> = source
+            .split("bridge!(")
+            .skip(1)
+            .filter_map(|rest| rest.split_whitespace().next())
+            .collect();
+        // 带进度通道或只返回空值的命令是手写实现，不经过 bridge! 宏。
+        bridged.extend([
+            "get_agent_asset_catalog",
+            "read_agent_catalog_content",
+            "cancel_agent_session_query",
+        ]);
+        let expected: BTreeSet<&str> = balancehub_agent::api::COMMANDS.iter().copied().collect();
+        let missing: Vec<_> = expected.difference(&bridged).collect();
+        let extra: Vec<_> = bridged.difference(&expected).collect();
+        assert!(missing.is_empty(), "桌面缺少 Agent 命令桥接：{missing:?}");
+        assert!(extra.is_empty(), "桌面桥接了不存在的 Agent 命令：{extra:?}");
+    }
+}
