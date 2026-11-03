@@ -75,8 +75,17 @@ pub fn liveness_executor(
 }
 
 /// 共享资产库接入 WebDAV 同步的扩展点。
+///
+/// 只有资产库目录已经存在时才参与同步：刚从零启动的服务端不该用一份空的
+/// 共享库去和桌面同步，否则第一次同步就会把桌面资产当成「被删除了」。
 pub fn cloud_library(
 ) -> Option<std::sync::Arc<dyn balancehub_core::services::cloud_sync::library::CloudLibrary>> {
+    let root = crate::core_host::config_dir()
+        .ok()?
+        .join("agent-asset-library");
+    if !root.is_dir() {
+        return None;
+    }
     let catalog = crate::state::services().catalog().ok()?;
     Some(std::sync::Arc::new(CatalogCloudLibrary(catalog)))
 }

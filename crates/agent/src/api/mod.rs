@@ -732,4 +732,29 @@ mod tests {
             assert!(seen.insert(command), "命令 {command} 重复登记");
         }
     }
+
+    #[test]
+    fn dispatch_reports_missing_arguments_and_unknown_commands() {
+        // 这两条命令在读取参数前不触碰宿主状态，可以在没有安装宿主的测试里跑。
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let error = dispatch("inspect_agent_hook", serde_json::json!({}), "test", None)
+                .await
+                .expect_err("缺少 agentKind 必须报参数错误");
+            assert!(
+                error
+                    .as_str()
+                    .is_some_and(|text| text.contains("agentKind")),
+                "错误应指出缺失参数：{error}"
+            );
+
+            let error = dispatch("not_a_command", serde_json::json!({}), "test", None)
+                .await
+                .expect_err("未知命令必须被拒绝");
+            assert!(error.as_str().is_some_and(|text| text.contains("不支持")));
+        });
+    }
 }
