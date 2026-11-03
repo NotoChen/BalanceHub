@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { IconCalendarClock, IconHistory, IconRefresh } from "@arco-design/web-vue/es/icon";
+import { computed } from "vue";
 import DurationInput from "../DurationInput.vue";
 import SettingsLivenessSection from "./SettingsLivenessSection.vue";
+import { useHostCapabilities } from "../../composables/useHostCapabilities";
 import type { AppSettings } from "../../stores/providers";
 
 defineProps<{
@@ -9,6 +11,10 @@ defineProps<{
   livenessModelOptions: string[];
   selectedLivenessModelProviders: { id: string; name: string }[];
 }>();
+
+/// 测活要启动本机 Agent CLI；浏览器版没有这条链路，不展示相应设置。
+const { commandAvailable } = useHostCapabilities();
+const livenessAvailable = computed(() => commandAvailable("probe_cli_tools"));
 </script>
 
 <template>
@@ -140,6 +146,7 @@ defineProps<{
       </div>
     </section>
     <SettingsLivenessSection
+      v-if="livenessAvailable"
       :settings="settings"
       :liveness-model-options="livenessModelOptions"
       :selected-liveness-model-providers="selectedLivenessModelProviders"

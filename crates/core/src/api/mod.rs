@@ -135,6 +135,15 @@ mod tests {
         assert!(tasks.is_array());
     }
 
+    #[test]
+    fn command_names_are_unique_across_modules() {
+        // 分发按模块顺序匹配；重名会让后登记的模块永远收不到命令。
+        let mut seen = std::collections::HashSet::new();
+        for command in commands() {
+            assert!(seen.insert(command), "命令 {command} 在多个模块重复登记");
+        }
+    }
+
     #[tokio::test]
     async fn dispatch_rejects_unknown_commands() {
         let error = dispatch("agent_catalog", serde_json::json!({}))

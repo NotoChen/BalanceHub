@@ -188,6 +188,7 @@ BalanceHub 处理的是账号密码、Cookie、Token 和 API Key,所以在设计
 | [Agent 自动更新](docs/agent-updates.md) | 按原安装渠道更新、空闲检查、进度与失败恢复 |
 | [WebDAV 配置同步](docs/webdav-sync.md) | 连接、加密与增量同步、冲突 diff、删除传播和本机恢复 |
 | [测活配置](docs/liveness.md) | 全局与单站测活、CLI 路径查找、模型与凭据、常见错误排查 |
+| [服务端部署](docs/server-deployment.md) | 无界面后端的运行方式、容器与反向代理、能力边界与备份 |
 | [功能与架构参考](docs/reference.md) | 完整功能清单、技术框架、架构分层、目录说明与关键边界 |
 | [发布与更新](docs/release.md) | 各平台发布包、发布前检查、自动更新机制与版本说明 |
 | [常见问题](docs/faq.md) | 协议支持、认证方式、未知开发者提示、签到记录、无限额度 |

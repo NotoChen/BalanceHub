@@ -100,10 +100,16 @@ const activeSection = ref<(typeof sections)[number]["id"]>(sections[0].id);
 const accountsAvailable = computed(() =>
   supportsCommand("start_provider_browser_login"),
 );
+/// 终端与历史会话索引读取本机 CLI 数据；服务端没有这些命令。
+const terminalAvailable = computed(() =>
+  supportsCommand("get_cli_session_index_status"),
+);
 const availableSections = computed(() =>
-  sections.filter(
-    (section) => section.id !== "accounts" || accountsAvailable.value,
-  ),
+  sections.filter((section) => {
+    if (section.id === "accounts") return accountsAvailable.value;
+    if (section.id === "terminal") return terminalAvailable.value;
+    return true;
+  }),
 );
 const searchTerms = computed(() =>
   searchQuery.value.normalize("NFKC").trim().toLocaleLowerCase().split(/\s+/).filter(Boolean),

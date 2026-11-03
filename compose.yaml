@@ -1,0 +1,16 @@
+services:
+  balancehub:
+    build: .
+    image: balancehub-server:local
+    restart: unless-stopped
+    ports:
+      # 服务端默认只监听容器内网；对外暴露由这里决定。建议配合反向代理与访问控制。
+      - "127.0.0.1:8787:8787"
+    environment:
+      # 自动签到按这里的本地时间判定；不设置时容器使用 UTC。
+      TZ: Asia/Shanghai
+    volumes:
+      - balancehub-data:/data
+
+volumes:
+  balancehub-data:

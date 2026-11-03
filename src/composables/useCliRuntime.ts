@@ -16,6 +16,7 @@ import { activeAgentRuntimeSessions } from "../utils/agent-runtime";
 import { agentCliLabel } from "../utils/cli-environment";
 import { withTimeout } from "../utils/promise-timeout";
 import { providerDisplayLabel } from "../utils/provider-display";
+import { supportsCommand } from "./useHostCapabilities";
 import {
   effectiveProviderApiKeyOptions,
   isProviderApiKeyUsable,
@@ -119,6 +120,8 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   }
 
   async function refreshCliRuntime(silent = false) {
+    // 浏览器版没有本机 Agent runtime；避免每次窗口聚焦都发一条必然失败的请求。
+    if (!supportsCommand("get_agent_runtime_snapshot")) return;
     if (runtimeRefreshPending) {
       return;
     }

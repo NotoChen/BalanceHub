@@ -176,6 +176,57 @@ jobs:
           retryAttempts: 3
           args: ${{ matrix.args }}
 
+  server:
+    name: 打包无界面后端
+    needs:
+      - prepare
+      - quality
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 设置 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 依赖
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          shared-key: balancehub-server
+          save-if: false
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建前端
+        run: npm run build
+
+      - name: 构建服务端
+        env:
+          # 与服务端 crate 无关的桌面依赖不参与编译，这里只产出 balancehub-server。
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: cargo build --release --locked -p balancehub-server
+
+      - name: 打包服务端与前端
+        run: |
+          mkdir -p balancehub-server
+          cp target/release/balancehub-server balancehub-server/
+          cp -R dist balancehub-server/web
+          tar -czf balancehub-server-linux-x64.tar.gz balancehub-server
+
+      - name: 上传到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" balancehub-server-linux-x64.tar.gz --clobber
+
   manifest:
     name: 生成更新清单
     needs:
@@ -205,6 +256,7 @@ jobs:
     needs:
       - prepare
       - build
+      - server
       - manifest
     runs-on: ubuntu-latest
     steps:

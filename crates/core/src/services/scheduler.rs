@@ -252,11 +252,15 @@ async fn run_tick(state: &mut SchedulerState) {
     }
 
     // ---- 自动测活 ----
+    // 测活要启动本机 Agent CLI；没有安装执行器的宿主（服务端）直接跳过，
+    // 否则每个到期站点都会以「当前宿主不支持本地测活」计入失败。
+    let liveness_available = super::liveness::executor().is_some();
     let due_liveness: Vec<Provider> = data
         .providers
         .iter()
         .filter(|provider| {
-            provider_domain::liveness::automatic_enabled(provider, settings)
+            liveness_available
+                && provider_domain::liveness::automatic_enabled(provider, settings)
                 && provider_domain::liveness::is_due(provider, now_millis)
                 && !super::liveness::waits_for_agent_update(settings, provider)
         })

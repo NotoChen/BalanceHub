@@ -105,6 +105,16 @@ npm run build
 npm test
 ```
 
+无界面后端构建与运行：
+
+```bash
+npm run build
+npm run cargo -- build --release -p balancehub-server
+BALANCEHUB_WEB_DIR="$PWD/dist" npm run cargo -- run -p balancehub-server
+```
+
+部署方式（环境变量、容器、反向代理与能力边界）见[服务端部署](docs/server-deployment.md)。
+
 推荐使用统一自检入口：
 
 ```bash
@@ -149,9 +159,9 @@ npm run build
 Rust 检查：
 
 ```bash
-npm run cargo -- fmt --check
-npm run cargo -- clippy --locked --all-targets --all-features -- -D warnings
-npm run cargo -- test --locked
+npm run cargo -- fmt --all --check
+npm run cargo -- clippy --workspace --locked --all-targets --all-features -- -D warnings
+npm run cargo -- test --workspace --locked
 ```
 
 按改动范围选择验证：文档改动只执行差异和相关文档检查；前端改动执行相关前端检查；构建脚本改动执行 `npm run doctor:platform` 和相关脚本测试；Rust 迭代先指定相关测试。任务收尾按需运行一次完整 doctor，不重复运行输入未变化、已经通过的全量构建。同一工作区的重型 Rust 检查串行执行。
@@ -180,11 +190,11 @@ BalanceHub 的真实账号配置保存在系统应用配置目录，不在仓库
 2. `src/composables/useAppController.ts`：前端主要状态编排。
 3. `src/stores/provider-types.ts`：前端中转站、设置、日志、用量等类型。
 4. `src-tauri/src/desktop.rs`：Tauri 应用编排、插件和 command 注册。
-5. `src-tauri/src/commands/`：按应用、CLI 和中转站职责拆分的 command 实现。
+5. `src-tauri/src/commands/`：桌面宿主副作用（窗口、通道、系统浏览器）与桌面专属 command；网络类命令委托 `crates/core/src/api/`。
 6. `crates/core/src/contracts.rs`：Rust 派生的前端操作能力和 IPC 返回 View。
 7. `crates/core/src/models/`：后端持久化模型和业务数据结构。
 8. `crates/core/src/adapters/`：协议探测、分发及 NewAPI、Sub2API、通用 API 实现。
-9. `crates/core/src/services/`：额度、签到、调度、通知和配置事务；`src-tauri/src/services/` 只放 Agent、终端和云同步等桌面能力。
+9. `crates/core/src/services/`：额度、签到、调度、通知、WebDAV 同步和配置事务；`src-tauri/src/services/` 只放 Agent、终端和更新器等桌面能力。
 10. `crates/core/src/network/`：业务请求、Webhook、updater 和 CLI 共用的代理语义。
 
 `crates/core` 不依赖 Tauri：需要数据目录、事件或系统交互时通过 `crates/core/src/host.rs` 的 `Host` 提供，两个宿主各自实现（`src-tauri/src/desktop_host.rs`、`crates/server/src/host.rs`）；新增网络类命令同时登记到 `crates/core/src/api/`，服务端才能通过 `/rpc` 复用。

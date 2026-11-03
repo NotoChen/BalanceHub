@@ -163,12 +163,12 @@ Vue 3 UI
         ├── main.rs                   # 桌面进程入口
         ├── state.rs                  # 桌面运行状态（核心状态 + Agent 服务）
         ├── tray.rs                   # 系统托盘 / 菜单栏
-        └── services/                 # 桌面专属：Agent 配置、会话、临时 CLI、云同步、更新
+        └── services/                 # 桌面专属：Agent 配置、会话、临时 CLI、更新
 ```
 
 ## 关键边界
 
-- BalanceHub 以桌面 App 为主，同时提供无界面的 `balancehub-server`；两种形态共用 `balancehub-core`，服务端不包含 Agent、终端和托盘能力。
+- BalanceHub 以桌面 App 为主，同时提供无界面的 `balancehub-server`；两种形态共用 `balancehub-core`，服务端不包含 Agent、终端和托盘能力。运行、容器与反向代理见[服务端部署](server-deployment.md)。
 - 当前支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 作为 NewAPI 方言兼容，不在 UI 上作为独立类型展示。
 - 通用 API 只提供 API Key、模型识别和 CLI 相关能力，不虚构账号、签到或站点密钥管理能力。
 - 操作能力以 Rust 为唯一真源，前端只消费后端返回的 actions，不维护同源业务判断。

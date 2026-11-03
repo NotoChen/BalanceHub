@@ -1,0 +1,13 @@
+# 构建上下文只保留源码与构建配置；其余由镜像内重新生成。
+.git
+.github
+.claude
+docs
+tests
+target
+dist
+node_modules
+src-tauri/target
+src-tauri/gen
+**/*.log
+.DS_Store
