@@ -1,7 +1,7 @@
 use super::{find_provider, MutationDecision, ProviderService};
 use crate::{
     adapters::cli_proxy_api,
-    contracts::{OAuthAccountDetails, OAuthExportResult},
+    contracts::{OAuthAccountDetails, OAuthExportContent, OAuthExportResult},
     models::*,
     services::oauth_accounts,
 };
@@ -194,6 +194,8 @@ impl ProviderService {
             .ok_or("账号已移除".into())
     }
 
+    /// 桌面导出：把授权写成客户端选定的 JSON 文件。
+    /// 整个动作放在 detached 任务里，前端超时后仍会完成写盘与续期交接。
     pub async fn export_oauth_file(
         &self,
         id: String,
@@ -201,32 +203,65 @@ impl ProviderService {
         path: String,
         pause_renewal: bool,
     ) -> Result<OAuthExportResult, String> {
-        // Complete the file write and renewal decision after a frontend timeout.
         crate::runtime::spawn(async move {
-            let service = ProviderService::new();
-            let lock = oauth_accounts::account_lock(&id);
-            let _guard = lock.lock().await;
-            let provider = find_provider(&service.load_app_data_async().await?, &id)?;
-            let file = oauth_accounts::interchange::export(&provider, format)?;
-            let content = file.content;
+            let (content, result) = ProviderService::new()
+                .export_oauth_payload(id, format, pause_renewal)
+                .await?;
             crate::runtime::spawn_blocking(move || save_authorization_file(&path, &content))
                 .await
                 .map_err(|_| "授权文件写入任务异常")??;
-            let (provider, warning) = if pause_renewal {
-                match service.pause_oauth_under_lock(id).await {
-                    Ok(provider) => (provider, None),
-                    Err(_) => (
-                        provider,
-                        Some(
-                            "文件已导出，但本机续期暂停失败。请在目标应用使用前手动暂停本机续期。"
-                                .into(),
-                        ),
+            Ok(result)
+        })
+        .await
+        .map_err(|_| "导出任务异常，请核对所选文件".to_string())?
+    }
+
+    /// 浏览器版导出：返回授权文本，由客户端下载；服务端不接收文件路径。
+    pub async fn export_oauth_content(
+        &self,
+        id: String,
+        format: OAuthExportFormat,
+        pause_renewal: bool,
+    ) -> Result<OAuthExportContent, String> {
+        crate::runtime::spawn(async move {
+            let (content, result) = ProviderService::new()
+                .export_oauth_payload(id, format, pause_renewal)
+                .await?;
+            Ok(OAuthExportContent::from((result, content)))
+        })
+        .await
+        .map_err(|_| "导出任务异常，请重试".to_string())?
+    }
+
+    async fn export_oauth_payload(
+        &self,
+        id: String,
+        format: OAuthExportFormat,
+        pause_renewal: bool,
+    ) -> Result<(String, OAuthExportResult), String> {
+        let service = ProviderService::new();
+        let lock = oauth_accounts::account_lock(&id);
+        let _guard = lock.lock().await;
+        let provider = find_provider(&service.load_app_data_async().await?, &id)?;
+        let file = oauth_accounts::interchange::export(&provider, format)?;
+        let content = file.content;
+        let (provider, warning) = if pause_renewal {
+            match service.pause_oauth_under_lock(id).await {
+                Ok(provider) => (provider, None),
+                Err(_) => (
+                    provider,
+                    Some(
+                        "文件已导出，但本机续期暂停失败。请在目标应用使用前手动暂停本机续期。"
+                            .into(),
                     ),
-                }
-            } else {
-                (provider, None)
-            };
-            Ok(OAuthExportResult {
+                ),
+            }
+        } else {
+            (provider, None)
+        };
+        Ok((
+            content,
+            OAuthExportResult {
                 renewal_paused: provider
                     .auth
                     .oauth
@@ -236,10 +271,8 @@ impl ProviderService {
                 file_name: file.name,
                 instructions: file.instructions,
                 warning,
-            })
-        })
-        .await
-        .map_err(|_| "导出任务异常，请核对所选文件".to_string())?
+            },
+        ))
     }
 
     pub async fn import_cpa_preview(

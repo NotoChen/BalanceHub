@@ -12,6 +12,7 @@ import {
   type AppUpdateInfo,
 } from "../api/app";
 import type { AppSettings } from "../stores/provider-types";
+import { supportsCommand } from "./useHostCapabilities";
 
 /// 启动后先等主界面加载完再安静检查一次；之后按设置里的间隔轮询。
 const STARTUP_UPDATE_CHECK_DELAY_MS = 30 * 1000;
@@ -76,6 +77,8 @@ export function useAppUpdater(options: { settings: Ref<AppSettings> }) {
   }
 
   async function performUpdateCheck(silent: boolean) {
+    // 浏览器版没有可替换的安装包，能力清单也未注册更新命令。
+    if (!supportsCommand("check_app_update")) return;
     if (
       disposed ||
       checkingForUpdate.value ||

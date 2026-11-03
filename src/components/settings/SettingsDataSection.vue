@@ -5,7 +5,9 @@ import {
   IconStorage,
   IconUpload,
 } from "@arco-design/web-vue/es/icon";
+import { computed } from "vue";
 import SettingsCloudSyncSection from "./SettingsCloudSyncSection.vue";
+import { supportsCommand } from "../../composables/useHostCapabilities";
 
 defineProps<{
   exportingAppData: boolean;
@@ -19,8 +21,10 @@ const emit = defineEmits<{
   "install-dev-sample-data": [];
 }>();
 
-/// 演示数据只在开发构建里出现；安装版后端也没有对应的 command。
-const isDevelopmentBuild = import.meta.env.DEV;
+/// 演示数据只在开发构建里出现；没有该命令的宿主（如服务端）不显示。
+const isDevelopmentBuild = computed(
+  () => import.meta.env.DEV && supportsCommand("install_dev_sample_data"),
+);
 </script>
 
 <template>

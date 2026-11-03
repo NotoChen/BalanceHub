@@ -7,6 +7,8 @@
 mod browser;
 mod checkin;
 mod cloud_sync;
+mod credentials;
+mod oauth;
 mod provider;
 mod settings;
 
@@ -18,6 +20,8 @@ use std::sync::Arc;
 pub use browser::COMMANDS as BROWSER_COMMANDS;
 pub use checkin::COMMANDS as CHECK_IN_COMMANDS;
 pub use cloud_sync::COMMANDS as CLOUD_SYNC_COMMANDS;
+pub use credentials::COMMANDS as CREDENTIAL_COMMANDS;
+pub use oauth::COMMANDS as OAUTH_COMMANDS;
 pub use provider::COMMANDS as PROVIDER_COMMANDS;
 pub use settings::COMMANDS as SETTINGS_COMMANDS;
 
@@ -27,6 +31,8 @@ pub fn commands() -> Vec<&'static str> {
         .iter()
         .chain(provider::COMMANDS)
         .chain(checkin::COMMANDS)
+        .chain(oauth::COMMANDS)
+        .chain(credentials::COMMANDS)
         .chain(cloud_sync::COMMANDS)
         .chain(browser::COMMANDS)
         .copied()
@@ -51,6 +57,12 @@ pub async fn dispatch_with_progress(
     }
     if checkin::COMMANDS.contains(&command) {
         return checkin::handle(command, &args).await;
+    }
+    if oauth::COMMANDS.contains(&command) {
+        return oauth::handle(command, &args).await;
+    }
+    if credentials::COMMANDS.contains(&command) {
+        return credentials::handle(command, &args).await;
     }
     if cloud_sync::COMMANDS.contains(&command) {
         return cloud_sync::handle(command, &args).await;
@@ -113,6 +125,15 @@ mod tests {
     }
 
     fn assert_send<T: Send>(_: T) {}
+
+    #[tokio::test]
+    async fn dispatch_supports_listing_oauth_logins() {
+        crate::host::testing::install();
+        let tasks = dispatch("list_oauth_logins", serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(tasks.is_array());
+    }
 
     #[tokio::test]
     async fn dispatch_rejects_unknown_commands() {

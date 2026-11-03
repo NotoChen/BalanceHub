@@ -1,4 +1,4 @@
-use super::{imports, interchange, login_callback};
+use super::{cpa_login_target, imports, interchange, login_callback};
 use crate::{adapters::oauth::tokens, contracts::ProviderView, models::*};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{json, Value};
@@ -510,4 +510,32 @@ fn credential_source_stays_available_while_a_refresh_is_pending() {
     source.auth.oauth.as_mut().unwrap().refresh_pending = true;
     assert!(interchange::export(&source, OAuthExportFormat::BalanceHub).is_err());
     assert!(interchange::source(&source).is_ok());
+}
+
+#[test]
+fn cpa_login_urls_must_stay_plain_http_links() {
+    let mut input = ProviderInput::default();
+    input.identity.protocol = ProviderProtocol::CliProxyApi;
+    input.identity.name = "测试网关".into();
+    input.identity.base_url = "https://cpa.example.test".into();
+    let gateway = Provider::from_input(input, "cpa-test".into());
+
+    assert_eq!(
+        cpa_login_target(&gateway, " https://auth.example.test/login?x=1 ").unwrap(),
+        "https://auth.example.test/login?x=1"
+    );
+    for rejected in [
+        "file:///tmp/auth.json",
+        "javascript:alert(1)",
+        "https://user:pass@auth.example.test/login",
+        "not a url",
+        "/relative",
+    ] {
+        assert!(
+            cpa_login_target(&gateway, rejected).is_err(),
+            "{rejected} 不应被当作授权地址"
+        );
+    }
+    let other = Provider::from_input(ProviderInput::default(), "other".into());
+    assert!(cpa_login_target(&other, "https://auth.example.test/login").is_err());
 }

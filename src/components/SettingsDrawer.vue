@@ -10,6 +10,7 @@ import SettingsNetworkSection from "./settings/SettingsNetworkSection.vue";
 import SettingsNotificationSection from "./settings/SettingsNotificationSection.vue";
 import SettingsTerminalSection from "./settings/SettingsTerminalSection.vue";
 import type { SettingsSaveState } from "../composables/useSettingsController";
+import { supportsCommand } from "../composables/useHostCapabilities";
 import type { AppSettings } from "../stores/providers";
 import type { NotificationSendResult } from "../api/app";
 
@@ -95,10 +96,19 @@ const searchQuery = ref("");
 const searchInput = ref<{ focus(): void } | null>(null);
 const settingsScroll = ref<HTMLElement | null>(null);
 const activeSection = ref<(typeof sections)[number]["id"]>(sections[0].id);
+/// 登录账号与浏览器组件依赖本机浏览器窗口；浏览器版没有这条链路。
+const accountsAvailable = computed(() =>
+  supportsCommand("start_provider_browser_login"),
+);
+const availableSections = computed(() =>
+  sections.filter(
+    (section) => section.id !== "accounts" || accountsAvailable.value,
+  ),
+);
 const searchTerms = computed(() =>
   searchQuery.value.normalize("NFKC").trim().toLocaleLowerCase().split(/\s+/).filter(Boolean),
 );
-const matchedSections = computed(() => sections.filter((section) => {
+const matchedSections = computed(() => availableSections.value.filter((section) => {
   const text = [section.title, section.description, section.keywords].join(" ").toLocaleLowerCase();
   return searchTerms.value.every((term) => text.includes(term));
 }));
@@ -107,7 +117,7 @@ const matchedSectionIds = computed(() => new Set(matchedSections.value.map((sect
 const visibleSections = computed(() =>
   searchTerms.value.length
     ? matchedSections.value
-    : sections.filter((section) => section.id === activeSection.value),
+    : availableSections.value.filter((section) => section.id === activeSection.value),
 );
 
 function activate(sectionId: (typeof sections)[number]["id"]) {
@@ -163,7 +173,7 @@ function saveStateLabel(state: SettingsSaveState) {
     <div class="settings-workspace settings-workspace-v3">
       <nav class="surface-nav" aria-label="设置分区">
         <button
-          v-for="(section, index) in sections"
+          v-for="(section, index) in availableSections"
           :key="section.id"
           type="button"
           class="surface-nav-item"

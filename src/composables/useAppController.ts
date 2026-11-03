@@ -28,6 +28,7 @@ import { useCliRuntime } from "./useCliRuntime";
 import { usePasswordChange } from "./usePasswordChange";
 import { useOnboardingController } from "./useOnboardingController";
 import { useProviderEditor } from "./useProviderEditor";
+import { supportsCommand } from "./useHostCapabilities";
 import { useProviderActions } from "./useProviderActions";
 import { useProviderWorkspaceController } from "./useProviderWorkspaceController";
 import { useRequestLogs } from "./useRequestLogs";
@@ -188,7 +189,9 @@ export function useAppController() {
       providerEditor.syncManagedApiKeys(provider);
       // Key 增删或切换会改变 CLI 配置归属。立即重读本机配置，避免卡片继续展示
       // 已删除 Key 的 Agent 绑定，或把旧绑定误认成新的当前调用 Key。
-      void cliRuntimeStore.refresh().catch(() => undefined);
+      if (supportsCommand("get_cli_runtime_snapshot")) {
+        void cliRuntimeStore.refresh().catch(() => undefined);
+      }
     },
   });
 

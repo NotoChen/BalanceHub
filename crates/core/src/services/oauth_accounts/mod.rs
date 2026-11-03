@@ -8,6 +8,7 @@ pub mod native;
 #[cfg(test)]
 mod oauth_tests;
 
+use crate::models::{Provider, ProviderProtocol};
 use std::{
     collections::HashMap,
     fs,
@@ -57,6 +58,23 @@ pub fn device_id() -> Result<String, String> {
         Ok(id)
     })
     .clone()
+}
+
+/// 校验 CPA 网关生成的授权地址。地址由网关响应临时带出、只存在于面板里，
+/// 打开前必须确认它仍是普通 HTTP(S) 链接且不携带凭据。
+pub fn cpa_login_target(provider: &Provider, url: &str) -> Result<String, String> {
+    if provider.identity.protocol != ProviderProtocol::CliProxyApi {
+        return Err("所选卡片不是 CPA 网关".to_string());
+    }
+    let parsed = reqwest::Url::parse(url.trim()).map_err(|_| "授权地址无效")?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("授权地址必须是完整的 HTTP 或 HTTPS 链接".to_string());
+    }
+    Ok(parsed.as_str().to_owned())
 }
 
 pub fn account_lock(id: &str) -> Arc<tokio::sync::Mutex<()>> {

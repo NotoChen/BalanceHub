@@ -268,7 +268,14 @@ async fn browser_flow(
             Some((listener, redirect)) => (
                 Some(listener),
                 redirect,
-                "请在浏览器完成授权，完成后会自动保存账号".to_string(),
+                if crate::host::is_headless() {
+                    // 服务端地址不一定能回环到用户浏览器：授权页面照常打开，
+                    // 但自动回调失败时必须把链接粘回来。
+                    "请在浏览器完成授权；页面无法自动返回时，把地址栏中的完整链接粘贴到下方"
+                        .to_string()
+                } else {
+                    "请在浏览器完成授权，完成后会自动保存账号".to_string()
+                },
             ),
             // 登记的端口全被占用且上游不接受任意端口时，退回让用户粘贴，
             // 而不是让整次授权直接失败。回调地址仍按首选端口发起，粘贴回来的
@@ -459,14 +466,19 @@ pub fn retry_save(id: String) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn reopen(id: String) -> Result<(), String> {
-    let url = sessions()
+/// 授权页面地址，只对仍在等待的授权有效。
+pub fn authorization_url(id: &str) -> Result<String, String> {
+    sessions()
         .lock()
         .map_err(|_| "授权任务状态不可用")?
-        .get(&id)
+        .get(id)
         .filter(|s| s.task.phase == OAuthLoginPhase::Waiting)
         .and_then(|s| s.task.authorization_url.clone())
-        .ok_or("授权页面已失效，请重新发起")?;
+        .ok_or_else(|| "授权页面已失效，请重新发起".to_string())
+}
+
+pub async fn reopen(id: String) -> Result<(), String> {
+    let url = authorization_url(&id)?;
     open_browser(&id, url).await;
     Ok(())
 }

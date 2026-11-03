@@ -84,6 +84,32 @@ pub struct OAuthExportResult {
     pub warning: Option<String>,
 }
 
+/// 浏览器版导出：授权文件内容随响应返回，由前端在自己的机器上下载。
+/// 服务端不接收客户端文件路径，也不会把授权写到服务器磁盘。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthExportContent {
+    pub provider: ProviderView,
+    pub file_name: String,
+    pub instructions: String,
+    pub renewal_paused: bool,
+    pub warning: Option<String>,
+    pub content: String,
+}
+
+impl From<(OAuthExportResult, String)> for OAuthExportContent {
+    fn from((result, content): (OAuthExportResult, String)) -> Self {
+        Self {
+            provider: result.provider,
+            file_name: result.file_name,
+            instructions: result.instructions,
+            renewal_paused: result.renewal_paused,
+            warning: result.warning,
+            content,
+        }
+    }
+}
+
 impl From<Provider> for ProviderView {
     fn from(mut provider: Provider) -> Self {
         if let Some(error) = provider.capabilities.available_models_state.error.as_ref() {

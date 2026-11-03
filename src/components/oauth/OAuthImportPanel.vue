@@ -9,7 +9,12 @@ import {
   previewOAuthImport,
 } from "../../api/oauth-accounts";
 import { useProviderStore } from "../../stores/providers";
-import type { OAuthImportPreview, OAuthVendor } from "../../stores/oauth-types";
+import type {
+  OAuthImportFile,
+  OAuthImportPreview,
+  OAuthVendor,
+} from "../../stores/oauth-types";
+import { isWebHost } from "../../api/transport.ts";
 import {
   oauthVendors,
   oauthVendorLabel,
@@ -52,27 +57,54 @@ onScopeDispose(() => {
   releasePreview();
 });
 
+/** 浏览器版直接读文件文本；桌面版仍把路径交给 Rust 读取。 */
+function pickImportFiles(): Promise<OAuthImportFile[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    input.multiple = true;
+    input.onchange = async () => {
+      const files: OAuthImportFile[] = [];
+      for (const file of Array.from(input.files ?? [])) {
+        try {
+          files.push({ name: file.name, content: await file.text() });
+        } catch {
+          // 单个文件读不动时跳过，由预览结果统一说明。
+        }
+      }
+      resolve(files);
+    };
+    input.oncancel = () => resolve([]);
+    input.click();
+  });
+}
+
 async function readFiles(fromText = false) {
   if (busy.value) return;
   const request = ++revision;
   busy.value = true;
   error.value = "";
   try {
-    const chosen = fromText
-      ? []
-      : await open({
-          title: "导入账号授权文件",
-          multiple: true,
-          directory: false,
-          filters: [{ name: "JSON 授权", extensions: ["json"] }],
-        });
-    if (disposed || request !== revision || (!fromText && !chosen)) return;
-    const paths = Array.isArray(chosen) ? chosen : chosen ? [chosen] : [];
-    const result = await previewOAuthImport(
-      fromText ? [{ name: "pasted.json", content: text.value }] : [],
-      paths,
-      vendor.value || null,
-    );
+    let files: OAuthImportFile[] = [];
+    let paths: string[] = [];
+    if (fromText) {
+      files = [{ name: "pasted.json", content: text.value }];
+    } else if (isWebHost) {
+      files = await pickImportFiles();
+      if (!files.length) return;
+    } else {
+      const chosen = await open({
+        title: "导入账号授权文件",
+        multiple: true,
+        directory: false,
+        filters: [{ name: "JSON 授权", extensions: ["json"] }],
+      });
+      if (disposed || request !== revision || !chosen) return;
+      paths = Array.isArray(chosen) ? chosen : [chosen];
+    }
+    if (disposed || request !== revision) return;
+    const result = await previewOAuthImport(files, paths, vendor.value || null);
     if (disposed || request !== revision) {
       void discardOAuthImport(result.token).catch(() => {});
       return;

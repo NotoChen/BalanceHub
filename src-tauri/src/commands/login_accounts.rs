@@ -2,13 +2,13 @@ use crate::{
     models::{LoginAccount, LoginPlatform},
     services::{
         provider_browser_login::{self, ProviderBrowserLoginTask},
-        provider_service::{
-            CredentialKind, LoginAccountSummary, LoginCookieSummary, ProviderCredentialDetails,
-            ProviderService,
-        },
+        provider_service::{LoginAccountSummary, LoginCookieSummary, ProviderService},
     },
 };
+use serde_json::json;
 use tauri::AppHandle;
+
+use super::dispatch_value;
 
 #[tauri::command]
 pub(crate) async fn list_login_accounts(
@@ -93,45 +93,37 @@ pub(crate) async fn read_login_account_cookie(
 }
 
 #[tauri::command]
-pub(crate) async fn get_provider_credentials(
-    _app: AppHandle,
-    id: String,
-) -> Result<ProviderCredentialDetails, String> {
-    super::run_blocking("读取站点凭据", move || {
-        ProviderService::new().credential_details(&id)
-    })
-    .await
+pub(crate) async fn get_provider_credentials(id: String) -> Result<serde_json::Value, String> {
+    dispatch_value("get_provider_credentials", json!({ "id": id })).await
 }
 
 #[tauri::command]
 pub(crate) async fn read_provider_credential(
-    _app: AppHandle,
     id: String,
-    kind: CredentialKind,
+    kind: crate::services::provider_service::CredentialKind,
     revision: u64,
-) -> Result<String, String> {
-    super::run_blocking("读取站点凭据内容", move || {
-        ProviderService::new().read_credential(&id, kind, revision)
-    })
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "read_provider_credential",
+        json!({ "id": id, "kind": kind, "revision": revision }),
+    )
     .await
 }
 
 #[tauri::command]
 pub(crate) async fn clear_provider_credential(
-    _app: AppHandle,
     id: String,
-    kind: CredentialKind,
+    kind: crate::services::provider_service::CredentialKind,
     revision: u64,
-) -> Result<(), String> {
-    ProviderService::new()
-        .clear_credential(id, kind, revision)
-        .await
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "clear_provider_credential",
+        json!({ "id": id, "kind": kind, "revision": revision }),
+    )
+    .await
 }
 
 #[tauri::command]
-pub(crate) async fn validate_provider_credentials(
-    _app: AppHandle,
-    id: String,
-) -> Result<ProviderCredentialDetails, String> {
-    ProviderService::new().validate_credentials(id).await
+pub(crate) async fn validate_provider_credentials(id: String) -> Result<serde_json::Value, String> {
+    dispatch_value("validate_provider_credentials", json!({ "id": id })).await
 }

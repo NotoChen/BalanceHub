@@ -5,6 +5,7 @@ import { Message } from "@arco-design/web-vue";
 import { useOAuthAccountStore } from "../../stores/oauth-accounts";
 import { useProviderStore } from "../../stores/providers";
 import { startOAuthLogin } from "../../api/oauth-accounts";
+import { isWebHost } from "../../api/transport.ts";
 import { oauthVendors } from "../../utils/oauth-display";
 import type { OAuthVendor } from "../../stores/oauth-types";
 import type { Provider } from "../../stores/provider-types";
@@ -112,7 +113,11 @@ function models() {
           </button>
         </div>
         <p class="oauth-add-note">
-          在系统浏览器完成授权，账号将作为独立卡片展示套餐、额度与模型。
+          {{
+            isWebHost
+              ? "在浏览器完成授权，账号将作为独立卡片展示套餐、额度与模型。"
+              : "在系统浏览器完成授权，账号将作为独立卡片展示套餐、额度与模型。"
+          }}
         </p>
         <button
           type="button"

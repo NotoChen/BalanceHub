@@ -128,6 +128,8 @@ function gatewayPanel(
 }
 const shared = {
   "@lucide/vue": {},
+  "../../api/transport.ts": { isWebHost: false },
+  "../../utils/download": { downloadTextFile: () => {} },
   "@arco-design/web-vue": {
     Message: {
       error: (v: unknown) => messages.push(String(v)),

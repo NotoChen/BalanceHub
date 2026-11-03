@@ -16,6 +16,7 @@ import { providerDisplayLabel } from "../utils/provider-display";
 import type { CheckInTask } from "../api/checkin";
 import { checkInResumeLabel } from "../utils/check-in-tasks";
 import type { BrowserRuntimeStatus } from "../api/browser-runtime";
+import { supportsCommand } from "./useHostCapabilities";
 
 export type BackgroundTaskStatus = "running" | "waiting" | "success" | "failed" | "cancelled" | "unconfirmed";
 
@@ -462,7 +463,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
       });
       if (disposed) dispose();
       else schedulerUnlisten = dispose;
-      if (!disposed) {
+      if (!disposed && supportsCommand("list_provider_browser_logins")) {
         const tasks = await listProviderBrowserLogins();
         if (disposed) return;
         for (const task of tasks) {

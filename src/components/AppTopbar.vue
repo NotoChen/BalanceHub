@@ -52,6 +52,8 @@ const { commandAvailable, ensure: ensureHostCapabilities } = useHostCapabilities
 void ensureHostCapabilities();
 const oauthAvailable = computed(() => commandAvailable("start_oauth_login"));
 const cpaAvailable = computed(() => commandAvailable("list_cpa_plugins"));
+/// 自动更新由桌面更新器提供；浏览器版没有可替换的应用安装。
+const updateAvailable = computed(() => commandAvailable("check_app_update"));
 
 const emit = defineEmits<{
   add: [];
@@ -286,7 +288,7 @@ const announcementTooltip = computed(() => {
           <LoaderCircle v-if="checkingForUpdate" class="topbar-action-spin" :size="18" :stroke-width="1.9" aria-hidden="true" />
           <Ellipsis v-else :size="20" :stroke-width="1.9" aria-hidden="true" />
         </template>
-        <button type="button" role="menuitem" :disabled="checkingForUpdate" @click="emit('checkForUpdate')">
+        <button v-if="updateAvailable" type="button" role="menuitem" :disabled="checkingForUpdate" @click="emit('checkForUpdate')">
           <CloudDownload :size="17" :stroke-width="1.9" aria-hidden="true" />
           <span>{{ checkingForUpdate ? "正在检查更新" : "检查更新" }}</span>
         </button>

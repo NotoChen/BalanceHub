@@ -403,6 +403,10 @@ export interface OAuthExportResult {
   renewalPaused: boolean;
   warning: string | null;
 }
+/** 浏览器版导出：授权文本随响应返回，由当前浏览器下载。 */
+export interface OAuthExportTextResult extends OAuthExportResult {
+  content: string;
+}
 export interface OAuthImportFile {
   name: string;
   content: string;

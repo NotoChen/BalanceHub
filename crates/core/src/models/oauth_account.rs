@@ -386,7 +386,7 @@ pub struct CpaGatewaySettings {
 /// A partial edit of the gateway-wide scheduling settings. Only the values the
 /// panel actually changed are present, so an untouched field keeps whatever the
 /// gateway has, including values this app does not surface yet.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CpaGatewaySettingsUpdate {
     pub routing_strategy: Option<String>,
@@ -416,7 +416,7 @@ pub struct CpaClientKeys {
 
 /// A client key the panel asked the gateway to add. The gateway accepts any
 /// string, so an empty value asks this app to mint one.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CpaClientKeyAdd {
     pub value: String,
@@ -493,14 +493,14 @@ pub struct OAuthImportPreview {
     pub errors: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthImportFile {
     pub name: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthImportRequest {
     pub token: String,

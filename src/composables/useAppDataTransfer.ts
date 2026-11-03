@@ -5,6 +5,7 @@ import { exportAppDataJson, importAppDataJson, type AppDataTransferResult } from
 import { isWebHost } from "../api/transport.ts";
 import { confirmAction } from "./provider-credential-dialogs";
 import { withTimeout } from "../utils/promise-timeout";
+import { downloadTextFile } from "../utils/download";
 
 interface UseAppDataTransferOptions {
   exportAppData: (path: string) => Promise<AppDataTransferResult>;
@@ -92,13 +93,7 @@ export function useAppDataTransfer(options: UseAppDataTransferOptions) {
 
   async function downloadBackup(fileName: string): Promise<AppDataTransferResult> {
     const text = await exportAppDataJson();
-    const blob = new Blob([text], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    downloadTextFile(fileName, text);
     const parsed = JSON.parse(text) as { providers?: unknown[]; schemaVersion?: number };
     return {
       path: fileName,

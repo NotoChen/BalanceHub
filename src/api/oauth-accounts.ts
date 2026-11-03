@@ -1,4 +1,5 @@
-import { invoke } from "./transport.ts";
+import { invoke, isWebHost } from "./transport.ts";
+import { openExternalLink } from "./app";
 import { withTimeout } from "../utils/promise-timeout";
 import type { Provider } from "../stores/provider-types";
 import type {
@@ -10,6 +11,7 @@ import type {
   OAuthAccountDetails,
   OAuthExportFormat,
   OAuthExportResult,
+  OAuthExportTextResult,
   CpaCredentialFields,
   CpaCredentialFile,
   CpaErrorLog,
@@ -62,8 +64,12 @@ export const submitOAuthCallback = (id: string, value: string) =>
   request<void>("submit_oauth_callback", { id, value });
 export const retryOAuthSave = (id: string) =>
   request<void>("retry_oauth_login_save", { id });
-export const openOAuthPage = (id: string) =>
-  request<void>("open_oauth_login_page", { id });
+/** 桌面交给系统浏览器；浏览器版在新标签页打开同一份已校验地址。 */
+export const openOAuthPage = async (id: string) => {
+  if (!isWebHost) return request<void>("open_oauth_login_page", { id });
+  const url = await request<string>("oauth_login_url", { id });
+  return openExternalLink(url);
+};
 export const previewOAuthImport = (
   files: OAuthImportFile[],
   paths: string[],
@@ -110,6 +116,17 @@ export const exportOAuthAccount = (
     path,
     pauseRenewal,
   });
+/** 浏览器版导出：内容随响应返回，由前端下载；服务端不写入文件。 */
+export const exportOAuthAccountText = (
+  id: string,
+  format: OAuthExportFormat,
+  pauseRenewal: boolean,
+) =>
+  request<OAuthExportTextResult>(
+    "export_oauth_account_text",
+    { id, format, pauseRenewal },
+    60_000,
+  );
 export const previewCpaImport = (id: string, names: string[]) =>
   request<OAuthImportPreview>(
     "preview_cpa_oauth_import",
@@ -323,8 +340,12 @@ export const submitCpaLoginCallback = (
   );
 export const cancelCpaLogin = (id: string, state: string) =>
   request<void>("cancel_cpa_login", { id, state }, 20_000);
-export const openCpaLoginUrl = (id: string, url: string) =>
-  request<void>("open_cpa_login_url", { id, url }, 15_000);
+/** 与桌面相同：地址先由 Rust 校验，浏览器版再在新标签页打开。 */
+export const openCpaLoginUrl = async (id: string, url: string) => {
+  if (!isWebHost) return request<void>("open_cpa_login_url", { id, url }, 15_000);
+  const target = await request<string>("cpa_login_url", { id, url }, 15_000);
+  return openExternalLink(target);
+};
 export const getCpaGatewaySettings = (id: string) =>
   request<CpaGatewaySettings>("get_cpa_gateway_settings", { id }, 75_000);
 export const updateCpaGatewaySettings = (

@@ -2,12 +2,19 @@
 import { computed, onScopeDispose, ref, watch } from "vue";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Download, Send } from "@lucide/vue";
-import { exportOAuthAccount, sendOAuthToCpa } from "../../api/oauth-accounts";
+import {
+  exportOAuthAccount,
+  exportOAuthAccountText,
+  sendOAuthToCpa,
+} from "../../api/oauth-accounts";
+import { isWebHost } from "../../api/transport.ts";
+import { downloadTextFile } from "../../utils/download";
 import { useProviderStore } from "../../stores/providers";
 import { confirmAction } from "../../composables/provider-credential-dialogs";
 import type {
   OAuthAccountDetails,
   OAuthExportFormat,
+  OAuthExportResult,
 } from "../../stores/oauth-types";
 const props = defineProps<{ account: OAuthAccountDetails }>();
 const emit = defineEmits<{ changed: [] }>();
@@ -80,18 +87,27 @@ async function exportFile() {
   const id = props.account.provider.identity.id;
   const selectedFormat = format.value;
   try {
-    const path = await save({
-      title: "导出账号授权",
-      defaultPath: current.value.fileName,
-      filters: [{ name: "JSON 授权文件", extensions: ["json"] }],
-    });
-    if (!path || disposed) return;
-    const result = await exportOAuthAccount(
-      id,
-      selectedFormat,
-      path,
-      pause.value,
-    );
+    let result: OAuthExportResult;
+    if (isWebHost) {
+      // 服务端不接收本地路径：授权文本随响应返回，由当前浏览器下载。
+      const text = await exportOAuthAccountText(
+        id,
+        selectedFormat,
+        pause.value,
+      );
+      if (disposed) return;
+      downloadTextFile(text.fileName, text.content);
+      const { content: _content, ...rest } = text;
+      result = rest;
+    } else {
+      const path = await save({
+        title: "导出账号授权",
+        defaultPath: current.value.fileName,
+        filters: [{ name: "JSON 授权文件", extensions: ["json"] }],
+      });
+      if (!path || disposed) return;
+      result = await exportOAuthAccount(id, selectedFormat, path, pause.value);
+    }
     store.upsertProvider(result.provider);
     if (!disposed) {
       resultMessage.value =

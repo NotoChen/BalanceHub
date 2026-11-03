@@ -410,6 +410,7 @@ function transferHarness(t: TestContext, dialogs: Record<string, unknown>, overr
   const { useAppDataTransfer } = loadSource<typeof import("../src/composables/useAppDataTransfer.ts")>("composables/useAppDataTransfer.ts", {
     "@arco-design/web-vue": feedback, "@tauri-apps/plugin-dialog": dialogs,
     "./provider-credential-dialogs": { confirmAction: confirm }, "../utils/promise-timeout": { withTimeout },
+    "../utils/download": { downloadTextFile: () => {} },
     "../api/transport.ts": { isWebHost: false },
     "../api/app": { exportAppDataJson: async () => "", importAppDataJson: async () => ({ transfer: transfer() }) },
   });
