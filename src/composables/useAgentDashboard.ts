@@ -117,6 +117,7 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
       configurationLoading: !saved?.configuration && refreshing,
       configurationError: saved?.configurationError ?? "",
       configurationStale: Boolean(saved?.configurationError),
+      modelSummary: saved?.model ?? null,
     }; });
   });
   async function refreshAssets(force = false) {

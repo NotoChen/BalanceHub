@@ -35,7 +35,8 @@
 .agent-overview-name:hover, .agent-overview-name:focus-visible { color: var(--surface-accent); text-decoration: underline; text-underline-offset: 3px; }
 .agent-overview-name:focus-visible { outline: 2px solid var(--surface-accent); outline-offset: -2px; }
 
-.agent-overview-version {
+.agent-overview-version,
+.agent-overview-model {
   display: inline-flex;
   min-width: 0;
   max-width: 100%;
@@ -51,11 +52,15 @@
   font-size: 11px;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
-  cursor: pointer;
 }
-.agent-overview-version > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.agent-overview-version,
+button.agent-overview-model { cursor: pointer; }
+.agent-overview-version > span,
+.agent-overview-model > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-overview-version > svg { flex: 0 0 auto; }
-.agent-overview-version:hover { color: var(--surface-accent); }
+button.agent-overview-version:hover,
+button.agent-overview-model:hover { color: var(--surface-accent); }
+.agent-overview-model.is-error { color: rgb(var(--danger-6)); }
 .agent-overview-status { justify-self: start; flex: 0 0 auto; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--color-text-3); font: inherit; font-size: 11px; line-height: 18px; white-space: nowrap; }
 button.agent-overview-status { cursor: pointer; }
 button.agent-overview-status:hover { color: var(--surface-accent); }

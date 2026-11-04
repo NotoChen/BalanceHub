@@ -42,7 +42,7 @@ pub enum AgentSettingControl {
     Readonly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentSettingValueState {
     Configured,
@@ -52,7 +52,7 @@ pub enum AgentSettingValueState {
 }
 
 /// What was actually resolved, independently of whether this editor writes an override.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSettingValueSummary {
     pub value: Option<String>,

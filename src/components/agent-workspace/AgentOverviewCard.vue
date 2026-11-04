@@ -15,6 +15,7 @@ import { agentConfigurationOpenAction } from "../../utils/agent-configuration-di
 import { elapsedLabel } from "../../utils/relative-time";
 import { iconThemeColor } from "../../utils/icon-theme-color";
 import type { AgentCliDescriptor, AgentInstallation } from "../../stores/provider-types";
+import type { AgentSettingValueSummary } from "../../stores/agent-settings-types";
 import type { AgentLifecycleTarget } from "../../stores/agent-lifecycle-types";
 import type { AgentSessionCount } from "../../stores/agent-session-types";
 import type { AgentConfigurationSnapshot } from "../../stores/agent-configuration-types";
@@ -43,7 +44,8 @@ const props = withDefaults(defineProps<{
   configurationLoading?: boolean;
   configurationError?: string;
   configurationStale?: boolean;
-}>(), { configurationSnapshot: null, configurationLoading: false, configurationError: "", configurationStale: true, lastActivityAt: null });
+  modelSummary?: AgentSettingValueSummary | null;
+}>(), { configurationSnapshot: null, configurationLoading: false, configurationError: "", configurationStale: true, modelSummary: null, lastActivityAt: null });
 const emit = defineEmits<{
   assets: [category: "skill" | "mcp" | "extension"];
   hooks: [];
@@ -77,6 +79,26 @@ function openVisualConfiguration() {
   const source = visualConfigurationSource.value;
   if (source) emit("openFile", source.sourceId);
 }
+const modelLabel = computed(() => {
+  const summary = props.modelSummary;
+  if (!summary) return "";
+  // Unset sources already read as a full sentence ("Claude 账号默认模型");
+  // prefixing "模型" there would repeat the subject.
+  return summary.state === "default" ? summary.label : `模型 ${summary.label}`;
+});
+/// The chip is only actionable when a visual source can hold a model override;
+/// managed or read-only installs still get the resolved label and its reason.
+const modelTitle = computed(() => {
+  const summary = props.modelSummary;
+  if (!summary) return "";
+  return [
+    summary.detail,
+    summary.source ? `来源：${summary.source}` : "",
+    visualConfigurationSource.value
+      ? "点击查看或切换默认模型"
+      : "此安装的配置不能在可视化编辑器中修改",
+  ].filter(Boolean).join("\n");
+});
 const installed = computed(() => props.installations.filter((installation) => installation.availability === "available"));
 const currentTarget = computed(() => props.lifecycleTargets.find((target) => target.isCurrent));
 const versionSummary = computed(() => {
@@ -189,6 +211,8 @@ function openStatistic(key: Statistic["key"]) {
         </template>
         <template #subtitle>
           <button v-if="versionSummary" type="button" class="agent-overview-version" title="版本与路径：查看本机安装、检查更新" :aria-label="`${agent.label} 版本与路径，${versionSummary}`" @click="emit('installation')"><span>{{ versionSummary }}</span><IconDown :size="10" aria-hidden="true" /></button>
+          <button v-if="modelSummary && visualConfigurationSource" type="button" class="agent-overview-model" :class="{ 'is-error': modelSummary.state === 'readError' }" :title="modelTitle" :aria-label="`${agent.label} 默认模型：${modelSummary.label}。查看或切换`" @click="openVisualConfiguration"><span>{{ modelLabel }}</span></button>
+          <span v-else-if="modelSummary" class="agent-overview-model" :class="{ 'is-error': modelSummary.state === 'readError' }" :title="modelTitle">{{ modelLabel }}</span>
           <button v-if="installationStatus?.action" type="button" class="agent-overview-status" :class="{ 'is-warning': installationStatus.warning }" :aria-label="`${agent.label} 安装状态，${installationStatus.label}`" :title="showInstallationGuide ? '打开官方安装说明' : '查看版本与路径'" @click="showInstallationGuide ? emit('installationGuide') : emit('installation')">{{ installationStatus.label }}</button>
           <span v-else-if="installationStatus" class="agent-overview-status" role="status">{{ installationStatus.label }}</span>
           <span v-if="activityLabel" class="agent-overview-activity" role="status" :title="activityTitle">最近活动 {{ activityLabel }}</span>

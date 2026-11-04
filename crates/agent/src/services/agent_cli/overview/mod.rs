@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-const CACHE_SCHEMA_VERSION: u32 = 7;
+const CACHE_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Serialize, Deserialize)]
 struct CachedOverview {
@@ -148,11 +148,27 @@ impl OverviewService {
                 false,
             ),
         );
+        // The card labels the model the CLI would use without a launch-time
+        // override. Reuse the settings reader so labels, precedence and WSL
+        // handling match the visual editor instead of duplicating parsers here.
+        let model = super::settings::read_model_selection(&TemporaryCliSettingsRequest {
+            native_options: Default::default(),
+            cli_kind: kind,
+            cli_path: settings.agent_cli_path(kind).to_owned(),
+            workdir: workspace
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            model: String::new(),
+            inherited_model: String::new(),
+            session_mode: TemporaryCliSessionMode::New,
+            provider_id: String::new(),
+        });
         let snapshot = AgentOverviewSnapshot {
             agent_kind: kind,
             probe,
             configuration,
             configuration_error,
+            model,
             updated_at: chrono::Utc::now().to_rfc3339(),
         };
         let signature = if snapshot.configuration_error.is_empty()
