@@ -97,10 +97,11 @@ Vue 3 UI
               -> services/check_in_tasks 签到任务
               -> services/notifications 发送通知
               -> storage 读写本地配置
-            -> 桌面专属（src-tauri/services）: agent_cli、cli_sessions、temporary_cli、cloud_sync、updater
+            -> balancehub-agent: agent_cli、cli_sessions、temporary_cli、资产库与测活
+            -> 桌面扩展（src-tauri/services）: updater、日志、应用导入投影
 ```
 
-`balancehub-core` 不依赖 Tauri：数据目录、事件广播、系统通知和打开链接统一走 `host::Host`，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现。Agent 配置、终端和本地浏览器窗口只有桌面宿主提供；服务端返回的卡片动作会把 `temporaryCli`、`defaultCliConfig` 置为不可用，界面据此隐藏这些入口。
+`balancehub-core` 和 `balancehub-agent` 都不依赖 Tauri：数据目录、事件广播、系统通知和打开链接统一走 `host::Host`，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现。Agent 配置、终端和浏览器窗口由运行机器是否具备相应能力决定：本地分离部署或带桌面会话的服务器可以像桌面版一样使用，无显示环境下只隐藏可见窗口入口，测活与签到仍以无头模式运行。
 
 前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。凭据默认保存在本机；启用 WebDAV 后，同步范围内的凭据在本机加密后上传到用户指定的服务。业务请求由后端执行，浏览器页面不直接访问中转站。
 

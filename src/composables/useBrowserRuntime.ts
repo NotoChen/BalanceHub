@@ -11,7 +11,7 @@ export function useBrowserRuntime() {
   const model = createBrowserRuntimeController({ status: getBrowserRuntimeStatus, listen: listenBrowserRuntime,
     install: installBrowserRuntime, selectBrowser: selectBrowserRuntimeBrowser, cancel: cancelBrowserRuntimeInstall, uninstall: uninstallBrowserRuntime,
   }, (next) => { snapshot.value = next; });
-  // 没有本地浏览器组件的宿主（服务端）不探测、不监听，界面也不展示相关面板。
+  // 宿主没有浏览器组件命令时不探测、不监听，界面也不展示相关面板。
   const available = supportsCommand("get_browser_runtime_status");
   onMounted(() => { if (available) void model.start().catch(() => {}); });
   onUnmounted(model.stop);

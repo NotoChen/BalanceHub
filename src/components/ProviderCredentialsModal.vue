@@ -11,9 +11,12 @@ import { supportsCommand } from "../composables/useHostCapabilities";
 const credentials = inject(PROVIDER_CREDENTIALS_CONTEXT);
 const accounts = inject(LOGIN_ACCOUNTS_CONTEXT);
 const details = computed(() => credentials?.details.value ?? null);
-/// 重新登录依赖本机浏览器窗口；浏览器版只保留读取、清除和验证。
+/// 登录账号管理不依赖窗口；只有重新登录需要本机浏览器窗口。
 const browserLoginAvailable = computed(() =>
   supportsCommand("start_provider_browser_login"),
+);
+const accountManagementAvailable = computed(() =>
+  supportsCommand("list_login_accounts"),
 );
 const time = (value: number | string | null) => {
   if (!value) return '尚无记录';
@@ -37,7 +40,7 @@ function manageAccount() {
       <template v-if="details">
         <div class="provider-credentials-heading"><strong>{{ details.providerName }}</strong><a-button size="small" :loading="credentials.pending.value === 'load'" @click="credentials.refresh"><template #icon><IconRefresh /></template>刷新详情</a-button></div>
         <dl class="provider-credentials-facts">
-          <div><dt>登录账号</dt><dd>{{ details.accountName || (details.binding ? '原登录账号已移除' : '尚未关联登录账号') }} <a-button v-if="browserLoginAvailable" type="text" size="mini" @click="manageAccount">管理登录账号</a-button></dd></div>
+          <div><dt>登录账号</dt><dd>{{ details.accountName || (details.binding ? '原登录账号已移除' : '尚未关联登录账号') }} <a-button v-if="accountManagementAvailable" type="text" size="mini" @click="manageAccount">管理登录账号</a-button></dd></div>
           <div><dt>同步认证方式</dt><dd>{{ details.authenticationLabel }}</dd></div>
           <div><dt>凭据最近更新</dt><dd>{{ time(details.updatedAt) }}</dd></div>
           <div><dt>上次同步成功</dt><dd>{{ formatProviderSyncTime(details.verifiedAt) || '尚无记录' }}</dd></div>

@@ -4,6 +4,7 @@ import { Modal } from "@arco-design/web-vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Globe, Download, FolderOpen, RefreshCw, Play } from "@lucide/vue";
 import { BROWSER_RUNTIME_CONTEXT } from "../composables/useBrowserRuntime";
+import { isWebHost } from "../api/transport.ts";
 import { inspectBrowserRuntimeBrowser, type BrowserInfo, type BrowserSelection } from "../api/browser-runtime";
 import { formatProgress } from "../utils/progress-display";
 import ContextDetails from "./ContextDetails.vue";
@@ -12,6 +13,7 @@ const runtime = inject(BROWSER_RUNTIME_CONTEXT);
 const state = computed(() => runtime?.state.value ?? null);
 const selected = ref<BrowserSelection>({ mode: "managed" });
 const customBrowser = ref<BrowserInfo | null>(null);
+const customPath = ref("");
 const touched = ref(false);
 const picking = ref(false);
 const pickerError = ref("");
@@ -48,6 +50,7 @@ watch(() => runtime?.visible.value, (visible) => {
   if (visible) {
     touched.value = false;
     customBrowser.value = null;
+    customPath.value = "";
     selected.value = state.value?.selection ?? { mode: "managed" };
   }
 }, { immediate: true });
@@ -59,6 +62,13 @@ watch(() => state.value?.phase, (phase) => {
 });
 onUnmounted(() => { pickerRequest++; });
 
+async function inspect(path: string, request: number) {
+  const browser = await inspectBrowserRuntimeBrowser(path);
+  if (request !== pickerRequest || !runtime?.visible.value) return;
+  customBrowser.value = browser;
+  choice.value = browser.path;
+}
+
 async function browse() {
   const request = ++pickerRequest;
   picking.value = true;
@@ -66,10 +76,22 @@ async function browse() {
   try {
     const path = await open({ title: "选择 Chrome、Edge 或其他 Chromium 浏览器", multiple: false, directory: false });
     if (!path || typeof path !== "string" || request !== pickerRequest || !runtime?.visible.value) return;
-    const browser = await inspectBrowserRuntimeBrowser(path);
-    if (request !== pickerRequest || !runtime?.visible.value) return;
-    customBrowser.value = browser;
-    choice.value = browser.path;
+    await inspect(path, request);
+  } catch (error) {
+    if (request === pickerRequest) pickerError.value = String(error);
+  } finally {
+    if (request === pickerRequest) picking.value = false;
+  }
+}
+
+async function inspectCustom() {
+  const path = customPath.value.trim();
+  if (!path || picking.value) return;
+  const request = ++pickerRequest;
+  picking.value = true;
+  pickerError.value = "";
+  try {
+    await inspect(path, request);
   } catch (error) {
     if (request === pickerRequest) pickerError.value = String(error);
   } finally {
@@ -106,7 +128,24 @@ function remove() {
         </a-radio-group>
         <p v-if="selectedPath" class="browser-component-path" :title="selectedPath">{{ selectedPath }}</p>
         <p v-if="!browsers.length" class="browser-component-note">未在安装位置找到本机浏览器，可手动选择程序。</p>
-        <a-button size="small" :disabled="busy || operating" :loading="picking" @click="browse"><template #icon><FolderOpen :size="14" /></template>选择其他浏览器</a-button>
+        <div v-if="isWebHost" class="browser-component-custom-path">
+          <a-input
+            v-model="customPath"
+            size="small"
+            placeholder="输入服务器上的浏览器程序路径"
+            :disabled="busy || operating"
+            @press-enter="inspectCustom"
+          />
+          <a-button
+            size="small"
+            :disabled="busy || operating || !customPath.trim()"
+            :loading="picking"
+            @click="inspectCustom"
+          >
+            使用此路径
+          </a-button>
+        </div>
+        <a-button v-else size="small" :disabled="busy || operating" :loading="picking" @click="browse"><template #icon><FolderOpen :size="14" /></template>选择其他浏览器</a-button>
       </section>
 
       <div v-if="operating" class="browser-component-operation">
@@ -131,9 +170,9 @@ function remove() {
         <a-button v-if="state?.canUninstall" size="small" status="danger" :disabled="busy || operating" @click="remove">卸载组件</a-button>
       </div>
       <ContextDetails label="下载内容与使用说明">
-        <p>本机模式复用所选浏览器程序，仅安装 Node.js 和 Playwright 辅助组件；独立模式额外安装 Chromium。下载使用 App 的网络代理。</p>
+        <p>复用所选浏览器程序时只安装 Node.js 和 Playwright 辅助组件；独立模式额外安装 Chromium。下载使用 App 的网络代理。</p>
         <p>各账号使用独立登录环境。普通账号密码或 API Key 的接口请求无需此组件。</p>
-        <p>支持 Chromium 系浏览器。Windows 会检查注册表和常见安装路径；macOS 检查应用目录；Linux 检查 PATH 和常见目录。非默认位置可手动选择。</p>
+        <p>支持 Chromium 系浏览器。Windows 会检查注册表和常见安装路径；macOS 检查应用目录；Linux 检查 PATH 和常见目录。非默认位置可手动指定。</p>
         <p>Linux 需要图形桌面及 Chromium 系统依赖；Windows ARM64 的独立浏览器依赖系统的 x64 兼容支持。</p>
         <p>安装和切换均通过启动验证后生效，失败或取消保留原有选择。验证码要求人工操作时由你完成，App 会显示验证错误原因。</p>
       </ContextDetails>
@@ -151,6 +190,8 @@ function remove() {
 .browser-component-options { display: flex; gap: 10px; }
 .browser-component-options :deep(.arco-radio-label) { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; }
 .browser-component-selection > .arco-btn { justify-self: start; }
+.browser-component-custom-path { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.browser-component-custom-path > :deep(.arco-input-wrapper) { flex: 1 1 220px; }
 .browser-component-path { color: var(--color-text-3); font: 11px/1.6 var(--font-mono, monospace); overflow-wrap: anywhere; }
 .browser-component-active { color: rgb(var(--success-6)); font-size: 12px; }
 .browser-component-note { color: var(--color-text-3); font-size: 12px; }

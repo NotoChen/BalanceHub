@@ -11,6 +11,7 @@ import SettingsNotificationSection from "./settings/SettingsNotificationSection.
 import SettingsTerminalSection from "./settings/SettingsTerminalSection.vue";
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import { supportsCommand } from "../composables/useHostCapabilities";
+import { isWebHost } from "../api/transport.ts";
 import type { AppSettings } from "../stores/providers";
 import type { NotificationSendResult } from "../api/app";
 
@@ -96,11 +97,16 @@ const searchQuery = ref("");
 const searchInput = ref<{ focus(): void } | null>(null);
 const settingsScroll = ref<HTMLElement | null>(null);
 const activeSection = ref<(typeof sections)[number]["id"]>(sections[0].id);
-/// 登录账号与浏览器组件依赖本机浏览器窗口；浏览器版没有这条链路。
+/// 浏览器版隐藏启动行为与窗口托盘，分区说明随之收敛。
+function sectionDescription(section: { id: string; description: string }) {
+  return section.id === "appearance" && isWebHost ? "外观与主题。" : section.description;
+}
+/// 登录账号管理、Cookie 查看和浏览器组件不依赖窗口；只有打开登录窗口的
+/// 动作在无显示环境里单独隐藏。
 const accountsAvailable = computed(() =>
-  supportsCommand("start_provider_browser_login"),
+  supportsCommand("list_login_accounts"),
 );
-/// 终端与历史会话索引读取本机 CLI 数据；服务端没有这些命令。
+/// 终端设置与会话索引由 Agent crate 提供；宿主实现对应命令时即可见。
 const terminalAvailable = computed(() =>
   supportsCommand("get_cli_session_index_status"),
 );
@@ -193,7 +199,7 @@ function saveStateLabel(state: SettingsSaveState) {
           <span class="surface-nav-index" aria-hidden="true">{{ String(index + 1).padStart(2, "0") }}</span>
           <span class="surface-nav-copy">
             <strong>{{ section.title }}</strong>
-            <small>{{ section.description }}</small>
+            <small>{{ sectionDescription(section) }}</small>
           </span>
         </button>
       </nav>
@@ -227,7 +233,7 @@ function saveStateLabel(state: SettingsSaveState) {
               >
                 <header class="settings-section-heading">
                   <h2 :id="'settings-section-' + section.id">{{ section.title }}</h2>
-                  <p>{{ section.description }}</p>
+                  <p>{{ sectionDescription(section) }}</p>
                 </header>
                 <SettingsAppearanceSection
                   v-if="section.id === 'appearance'"

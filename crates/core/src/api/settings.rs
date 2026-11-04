@@ -133,8 +133,42 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
         }
         "get_host_capabilities" => Ok(json!({
             "host": crate::host::current().kind(),
-            "commands": super::commands(),
+            "version": env!("CARGO_PKG_VERSION"),
+            "commands": visible_commands(crate::host::has_desktop_session()),
         })),
         _ => Err(format!("未实现的应用命令：{command}")),
+    }
+}
+
+/// 站点浏览器登录需要可交互的浏览器窗口；无显示环境里命令仍然存在，但入口
+/// 应当隐藏，避免用户点开一个必然失败的任务。
+fn visible_commands(desktop_session: bool) -> Vec<&'static str> {
+    super::commands()
+        .into_iter()
+        .filter(|command| {
+            desktop_session
+                || !matches!(
+                    *command,
+                    "start_provider_browser_login"
+                        | "list_provider_browser_logins"
+                        | "cancel_provider_browser_login"
+                        | "show_provider_login_window"
+                        | "open_login_account"
+                )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visible_commands;
+
+    #[test]
+    fn browser_login_is_hidden_without_a_desktop_session() {
+        let headless = visible_commands(false);
+        assert!(!headless.contains(&"start_provider_browser_login"));
+        assert!(!headless.contains(&"open_login_account"));
+        assert!(headless.contains(&"list_login_accounts"));
+        assert!(visible_commands(true).contains(&"start_provider_browser_login"));
     }
 }

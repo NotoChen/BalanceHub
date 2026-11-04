@@ -13,6 +13,7 @@ import type {
   WindowCloseAction,
 } from "../../stores/providers";
 import { useHostPlatform } from "../../composables/useHostPlatform";
+import { isWebHost } from "../../api/transport.ts";
 import RadioChoiceGroup from "../RadioChoiceGroup.vue";
 
 defineProps<{
@@ -78,7 +79,7 @@ const trayClickOptions: { label: string; value: TrayClickAction }[] = [
 
     </section>
 
-    <section class="settings-card">
+    <section v-if="!isWebHost" class="settings-card">
       <header class="settings-card-header">
         <span class="settings-card-icon settings-card-icon-green"><IconLaunch /></span>
         <div>
@@ -108,7 +109,7 @@ const trayClickOptions: { label: string; value: TrayClickAction }[] = [
       </div>
     </section>
 
-    <section class="settings-card">
+    <section v-if="!isWebHost" class="settings-card">
       <header class="settings-card-header">
         <span class="settings-card-icon"><IconDesktop /></span>
         <div>

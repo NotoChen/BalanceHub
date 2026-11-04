@@ -3,6 +3,7 @@ import { onScopeDispose, reactive, ref, watch } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { planAgentSessionRelocation } from "../../api/agent-maintenance";
 import { cancelAgentSessionQuery } from "../../api/agent-sessions";
+import { isWebHost } from "../../api/transport.ts";
 import { useAgentMaintenanceStore } from "../../stores/agent-maintenance";
 import type { AgentSessionRow } from "../../stores/agent-session-types";
 import { agentEnvironmentErrorMessage } from "../../stores/agent-environment";
@@ -132,7 +133,7 @@ async function preview() {
                   : '搬迁后已存在的项目目录'
               "
             /><a-button
-              v-if="row?.runtimeScope.kind !== 'wsl'"
+              v-if="!isWebHost && row?.runtimeScope.kind !== 'wsl'"
               :loading="choosing"
               :disabled="busy"
               @click="choose"

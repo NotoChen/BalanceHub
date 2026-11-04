@@ -726,4 +726,38 @@ mod tests {
         assert!(!should_start_silently(false, false, true));
         assert!(!should_start_silently(false, true, false));
     }
+
+    /// 桌面必须注册核心命令的全集；少一条时服务端能用、桌面却报
+    /// 「命令不存在」。浏览器版专用的核心命令由桌面用系统能力变体替代，
+    /// 单独列出；桌面专属命令与核心清单无关，不参与比较。
+    #[test]
+    fn every_core_command_is_registered() {
+        const WEB_ONLY: &[&str] = &[
+            "get_host_capabilities",
+            "export_app_data_json",
+            "import_app_data_json",
+            "get_provider_site_url",
+            "oauth_login_url",
+            "export_oauth_account_text",
+            "cpa_login_url",
+        ];
+        let source = include_str!("desktop.rs");
+        let source = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let handlers = source
+            .split("tauri::generate_handler![")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .unwrap_or_default();
+        let registered: std::collections::BTreeSet<&str> = handlers
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .collect();
+        let expected: std::collections::BTreeSet<&str> = balancehub_core::api::commands()
+            .into_iter()
+            .filter(|command| !WEB_ONLY.contains(command))
+            .collect();
+        let missing: Vec<_> = expected.difference(&registered).collect();
+        assert!(missing.is_empty(), "桌面缺少核心命令注册：{missing:?}");
+    }
 }

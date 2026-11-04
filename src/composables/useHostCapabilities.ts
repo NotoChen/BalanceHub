@@ -7,6 +7,8 @@ import { invoke, isWebHost } from "../api/transport.ts";
 
 export interface HostCapabilities {
   host: string;
+  /** 浏览器版为服务端版本号；桌面版由 `useAppVersion` 直接读取。 */
+  version: string | null;
   /** 浏览器版才有；桌面版为 null，表示不限制。 */
   commands: Set<string> | null;
 }
@@ -18,11 +20,12 @@ export function loadHostCapabilities(): Promise<HostCapabilities> {
   if (capabilities.value) return Promise.resolve(capabilities.value);
   if (pending) return pending;
   pending = (isWebHost
-    ? invoke<{ host: string; commands: string[] }>("get_host_capabilities")
-    : Promise.resolve({ host: "desktop", commands: [] as string[] }))
+    ? invoke<{ host: string; version?: string; commands: string[] }>("get_host_capabilities")
+    : Promise.resolve({ host: "desktop", version: "", commands: [] as string[] }))
     .then((value) => {
       capabilities.value = {
         host: value.host,
+        version: value.version || null,
         commands: isWebHost ? new Set(value.commands) : null,
       };
       return capabilities.value;
@@ -30,6 +33,7 @@ export function loadHostCapabilities(): Promise<HostCapabilities> {
     .catch(() => {
       capabilities.value = {
         host: isWebHost ? "server" : "desktop",
+        version: null,
         commands: new Set(),
       };
       return capabilities.value;

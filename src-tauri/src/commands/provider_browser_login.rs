@@ -1,32 +1,35 @@
-use crate::{
-    models::ProviderInput,
-    services::provider_browser_login::{self, ProviderBrowserLoginTask},
-};
-use tauri::AppHandle;
+use crate::models::ProviderInput;
+use serde_json::json;
+
+use super::dispatch_value;
 
 #[tauri::command]
 pub(crate) async fn start_provider_browser_login(
-    _app: AppHandle,
     input: ProviderInput,
     login_account_id: String,
-) -> Result<ProviderBrowserLoginTask, String> {
-    super::run_blocking("创建登录任务", move || {
-        provider_browser_login::start(input, login_account_id)
-    })
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "start_provider_browser_login",
+        json!({ "input": input, "loginAccountId": login_account_id }),
+    )
     .await
 }
 
 #[tauri::command]
-pub(crate) fn list_provider_browser_logins() -> Result<Vec<ProviderBrowserLoginTask>, String> {
-    provider_browser_login::list()
+pub(crate) async fn list_provider_browser_logins() -> Result<serde_json::Value, String> {
+    dispatch_value("list_provider_browser_logins", json!({})).await
 }
 
 #[tauri::command]
-pub(crate) fn cancel_provider_browser_login(run_id: String) -> Result<(), String> {
-    provider_browser_login::cancel(&run_id)
+pub(crate) async fn cancel_provider_browser_login(
+    run_id: String,
+) -> Result<serde_json::Value, String> {
+    dispatch_value("cancel_provider_browser_login", json!({ "runId": run_id })).await
 }
 
 #[tauri::command]
-pub(crate) async fn show_provider_login_window(run_id: String) -> Result<(), String> {
-    provider_browser_login::show_window(&run_id).await
+pub(crate) async fn show_provider_login_window(
+    run_id: String,
+) -> Result<serde_json::Value, String> {
+    dispatch_value("show_provider_login_window", json!({ "runId": run_id })).await
 }

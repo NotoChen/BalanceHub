@@ -6,12 +6,17 @@ import { LOGIN_ACCOUNTS_CONTEXT, LOGIN_PLATFORM_OPTIONS } from "../composables/u
 import { BROWSER_RUNTIME_CONTEXT } from "../composables/useBrowserRuntime";
 import { PROVIDER_CREDENTIALS_CONTEXT } from "../composables/useProviderCredentials";
 import { readLoginCookie } from "../api/login-accounts";
+import { supportsCommand } from "../composables/useHostCapabilities";
 import type { LoginPlatform } from "../stores/provider-types";
 import CredentialSecret from "./CredentialSecret.vue";
 
 const accounts = inject(LOGIN_ACCOUNTS_CONTEXT);
 const credentials = inject(PROVIDER_CREDENTIALS_CONTEXT);
 const runtime = inject(BROWSER_RUNTIME_CONTEXT);
+/// 打开账号窗口需要可交互的浏览器会话；无显示环境只保留账号管理。
+const loginWindowAvailable = computed(() =>
+  supportsCommand("open_login_account"),
+);
 const current = computed(() => accounts?.selected.value ?? null);
 const name = ref("");
 const platform = ref<LoginPlatform>("linuxDo");
@@ -82,11 +87,14 @@ function viewProvider(id: string) { if (accounts) accounts.visible.value = false
                 <div><dt>最近用于站点</dt><dd>{{ formatTime(current.lastUsedAt) }}</dd></div>
               </dl>
               <div class="login-account-actions">
-                <a-button :disabled="!current.canOpen || current.busy || Boolean(accounts.pending.value)" @click="accounts.launch(false)">登录 / 打开账号</a-button>
-                <a-button :disabled="!current.canOpen || current.busy || Boolean(accounts.pending.value)" @click="accounts.launch(true)">平台授权管理</a-button>
+                <template v-if="loginWindowAvailable">
+                  <a-button :disabled="!current.canOpen || current.busy || Boolean(accounts.pending.value)" @click="accounts.launch(false)">登录 / 打开账号</a-button>
+                  <a-button :disabled="!current.canOpen || current.busy || Boolean(accounts.pending.value)" @click="accounts.launch(true)">平台授权管理</a-button>
+                </template>
                 <a-button :loading="accounts.pending.value === 'cookies'" @click="inspect">查看 Cookie（{{ current.cookieCount }}）</a-button>
               </div>
-              <p class="login-muted">登录有效性以平台当前页面为准。授权管理将在此账号的独立窗口中打开。</p>
+              <p v-if="!loginWindowAvailable" class="login-muted">当前运行环境没有可交互的桌面会话，无法打开账号窗口；账号管理和 Cookie 查看仍可使用。</p>
+              <p v-if="loginWindowAvailable" class="login-muted">登录有效性以平台当前页面为准。授权管理将在此账号的独立窗口中打开。</p>
               <section class="login-linked">
                 <strong>关联的中转站</strong>
                 <p v-if="!current.linkedProviders.length" class="login-muted">还没有通过此账号导入的站点。</p>

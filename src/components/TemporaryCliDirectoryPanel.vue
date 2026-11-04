@@ -15,6 +15,7 @@ import type {
   Workspace,
   WorkspaceDirectoryListing,
 } from "../stores/provider-types";
+import { isWebHost } from "../api/transport.ts";
 import { withTimeout } from "../utils/promise-timeout";
 
 const props = defineProps<{
@@ -160,6 +161,7 @@ async function chooseDirectory() {
       <header class="cli-directory-section-heading">
         <strong>工作目录</strong
         ><a-button
+          v-if="!isWebHost"
           size="small"
           type="text"
           :disabled="disabled"

@@ -12,6 +12,7 @@ import { openDataDirectory, openLogDirectory, openProjectRepository } from "../.
 import type { AppSettings, LogLevel } from "../../stores/providers";
 import { formatAppVersionLabel } from "../../utils/app-version";
 import { supportsCommand } from "../../composables/useHostCapabilities";
+import { isWebHost } from "../../api/transport.ts";
 
 const props = defineProps<{
   settings: AppSettings;
@@ -127,7 +128,7 @@ function openData() {
       </header>
 
       <div class="settings-setting-list">
-        <div class="settings-setting-row settings-setting-row-field">
+        <div v-if="!isWebHost" class="settings-setting-row settings-setting-row-field">
           <div class="settings-setting-copy">
             <strong>日志级别</strong>
             <span>{{ logLevelHint }}</span>
@@ -138,7 +139,7 @@ function openData() {
             </a-radio>
           </a-radio-group>
         </div>
-        <div class="settings-setting-row settings-setting-row-field">
+        <div v-if="!isWebHost" class="settings-setting-row settings-setting-row-field">
           <div class="settings-setting-copy">
             <strong>日志保留</strong>
             <span>按天滚动，超过保留期的旧文件自动删除。</span>
@@ -152,6 +153,12 @@ function openData() {
           >
             <template #suffix>天</template>
           </a-input-number>
+        </div>
+        <div v-else class="settings-setting-row">
+          <div class="settings-setting-copy">
+            <strong>服务端日志</strong>
+            <span>级别由启动环境变量 BALANCEHUB_LOG 控制，日志输出到服务端标准输出。</span>
+          </div>
         </div>
         <div v-if="localDirectoryAvailable" class="settings-setting-row">
           <div class="settings-setting-copy">
@@ -179,8 +186,9 @@ function openData() {
         <span class="settings-card-icon"><IconInfoCircle /></span>
         <div>
           <strong>关于 BalanceHub</strong>
-          <span>本地桌面应用，只读取中转站自身的接口。</span>
+          <span>{{ isWebHost ? "无界面后端与浏览器界面，只读取中转站自身的接口。" : "本地桌面应用，只读取中转站自身的接口。" }}</span>
         </div>
+        <span v-if="isWebHost" class="settings-version-badge">{{ formatAppVersionLabel(appVersion) }}</span>
       </header>
       <div class="settings-setting-row">
         <div class="settings-setting-copy">

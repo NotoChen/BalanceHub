@@ -488,4 +488,79 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// 站点浏览器登录与登录账号管理必须由服务端分发，而不是只在桌面注册。
+    #[tokio::test]
+    async fn rpc_dispatches_browser_login_and_account_commands() {
+        let root =
+            std::env::temp_dir().join(format!("balancehub-server-login-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["data", "config", "cache"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let host = Arc::new(ServerHost::new(
+            root.join("data"),
+            root.join("config"),
+            root.join("cache"),
+        ));
+        let _ = core_host::install(host.clone());
+        let _ = runtime::install(tokio::runtime::Handle::current());
+        host.attach_core(Arc::new(CoreState::new(AppData::default())));
+        let app = router(host, None);
+
+        async fn rpc(app: &axum::Router, command: &str, args: Value) -> Value {
+            let body = serde_json::json!({ "command": command, "args": args }).to_string();
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("POST")
+                        .uri("/rpc")
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024)
+                .await
+                .unwrap();
+            serde_json::from_slice(&bytes).unwrap()
+        }
+
+        let capabilities = rpc(&app, "get_host_capabilities", Value::Null).await;
+        let commands = capabilities["data"]["commands"].as_array().unwrap();
+        assert!(commands.iter().any(|item| item == "list_login_accounts"));
+        assert!(commands
+            .iter()
+            .any(|item| item == "read_login_account_cookie"));
+        assert!(capabilities["data"]["version"].is_string());
+
+        let accounts = rpc(&app, "list_login_accounts", Value::Null).await;
+        assert_eq!(accounts["ok"], true);
+        assert!(accounts["data"].is_array());
+
+        // 参数名按前端 IPC 的 camelCase 传递；缺失账号时应走到业务校验，
+        // 而不是报「参数无效」或「命令不支持」。
+        let cookie = rpc(
+            &app,
+            "read_login_account_cookie",
+            serde_json::json!({ "id": "missing", "cookieId": "x" }),
+        )
+        .await;
+        assert_eq!(cookie["ok"], false);
+        assert!(cookie["error"].as_str().unwrap().contains("登录账号"));
+
+        let login = rpc(
+            &app,
+            "start_provider_browser_login",
+            serde_json::json!({ "input": {}, "loginAccountId": "missing" }),
+        )
+        .await;
+        assert_eq!(login["ok"], false);
+        assert!(login["error"].as_str().unwrap().contains("登录账号"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

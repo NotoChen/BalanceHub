@@ -1,7 +1,11 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isWebHost } from "../api/transport.ts";
 
 export function useWindowDrag() {
   function startWindowDrag(event: MouseEvent) {
+    if (isWebHost) {
+      return;
+    }
     if (event.button !== 0) {
       return;
     }

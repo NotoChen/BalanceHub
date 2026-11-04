@@ -3,6 +3,7 @@ import { inject } from "vue";
 import { IconUserGroup } from "@arco-design/web-vue/es/icon";
 import { LOGIN_ACCOUNTS_CONTEXT } from "../../composables/useLoginAccounts";
 import { BROWSER_RUNTIME_CONTEXT } from "../../composables/useBrowserRuntime";
+import { isWebHost } from "../../api/transport.ts";
 
 const loginAccounts = inject(LOGIN_ACCOUNTS_CONTEXT);
 const browserRuntime = inject(BROWSER_RUNTIME_CONTEXT);
@@ -28,7 +29,7 @@ const browserRuntime = inject(BROWSER_RUNTIME_CONTEXT);
       <div v-if="browserRuntime" class="settings-setting-row">
         <div class="settings-setting-copy">
           <strong>浏览器登录与验证（可选）</strong>
-          <span>{{ browserRuntime.state.value?.ready ? `当前使用 ${browserRuntime.state.value.browser?.name || '已安装浏览器'}，可管理或切换组件` : '使用本机兼容浏览器或独立 Chromium，首次使用时确认安装' }}</span>
+          <span>{{ browserRuntime.state.value?.ready ? `当前使用 ${browserRuntime.state.value.browser?.name || '已安装浏览器'}，可管理或切换组件` : isWebHost ? '使用服务器上的兼容浏览器或独立 Chromium，首次使用时确认安装' : '使用本机兼容浏览器或独立 Chromium，首次使用时确认安装' }}</span>
         </div>
         <a-button @click="browserRuntime.open">浏览器组件</a-button>
       </div>

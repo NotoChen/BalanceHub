@@ -8,6 +8,7 @@ mod browser;
 mod checkin;
 mod cloud_sync;
 mod credentials;
+mod login;
 mod oauth;
 mod provider;
 mod settings;
@@ -21,6 +22,7 @@ pub use browser::COMMANDS as BROWSER_COMMANDS;
 pub use checkin::COMMANDS as CHECK_IN_COMMANDS;
 pub use cloud_sync::COMMANDS as CLOUD_SYNC_COMMANDS;
 pub use credentials::COMMANDS as CREDENTIAL_COMMANDS;
+pub use login::COMMANDS as LOGIN_COMMANDS;
 pub use oauth::COMMANDS as OAUTH_COMMANDS;
 pub use provider::COMMANDS as PROVIDER_COMMANDS;
 pub use settings::COMMANDS as SETTINGS_COMMANDS;
@@ -42,6 +44,7 @@ pub fn commands() -> Vec<&'static str> {
         .chain(checkin::COMMANDS)
         .chain(oauth::COMMANDS)
         .chain(credentials::COMMANDS)
+        .chain(login::COMMANDS)
         .chain(cloud_sync::COMMANDS)
         .chain(browser::COMMANDS)
         .chain(EXTRA_COMMANDS.get().copied().unwrap_or(&[]))
@@ -73,6 +76,9 @@ pub async fn dispatch_with_progress(
     }
     if credentials::COMMANDS.contains(&command) {
         return credentials::handle(command, &args).await;
+    }
+    if login::COMMANDS.contains(&command) {
+        return login::handle(command, &args).await;
     }
     if cloud_sync::COMMANDS.contains(&command) {
         return cloud_sync::handle(command, &args).await;

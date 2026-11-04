@@ -7,6 +7,7 @@ import {
   IconPlus,
 } from "@arco-design/web-vue/es/icon";
 import DurationInput from "../DurationInput.vue";
+import { isWebHost } from "../../api/transport.ts";
 import type {
   AppSettings,
   NotificationChannel,
@@ -32,7 +33,8 @@ const failedTestCount = computed(() =>
 );
 
 const channelKindOptions: { label: string; value: NotificationChannelKind }[] = [
-  { label: "系统通知", value: "system" },
+  // 服务端没有系统通知中心，系统渠道在浏览器版只写入服务端日志。
+  { label: isWebHost ? "系统通知（仅记录日志）" : "系统通知", value: "system" },
   { label: "钉钉", value: "dingtalk" },
   { label: "企业微信", value: "wecom" },
   { label: "飞书", value: "feishu" },

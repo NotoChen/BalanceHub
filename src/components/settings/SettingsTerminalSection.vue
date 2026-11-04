@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
 import { open } from "@tauri-apps/plugin-dialog";
-import { listen, type UnlistenFn } from "../../api/transport.ts";
+import { isWebHost, listen, type UnlistenFn } from "../../api/transport.ts";
 import { IconDesktop, IconSearch } from "@arco-design/web-vue/es/icon";
 import SettingsTerminalManager from "./SettingsTerminalManager.vue";
 import { agentCliLabel } from "../../utils/cli-environment";
@@ -166,20 +166,29 @@ onUnmounted(() => {
         </a-alert>
         <a-form-item label="存储位置">
           <div class="settings-session-index-path">
-            <span :title="sessionIndexStatus?.directory || sessionIndexDirectoryLabel">
-              {{ sessionIndexDirectoryLabel }}
-            </span>
-            <a-space>
-              <a-button size="small" @click="chooseSessionIndexDirectory">选择目录</a-button>
-              <a-button
-                v-if="settings.sessionIndexDirectory"
-                size="small"
-                type="text"
-                @click="resetSessionIndexDirectory"
-              >
-                恢复默认
-              </a-button>
-            </a-space>
+            <template v-if="isWebHost">
+              <a-input
+                v-model="settings.sessionIndexDirectory"
+                placeholder="服务器上的绝对路径，留空使用系统缓存目录"
+                allow-clear
+              />
+            </template>
+            <template v-else>
+              <span :title="sessionIndexStatus?.directory || sessionIndexDirectoryLabel">
+                {{ sessionIndexDirectoryLabel }}
+              </span>
+              <a-space>
+                <a-button size="small" @click="chooseSessionIndexDirectory">选择目录</a-button>
+              </a-space>
+            </template>
+            <a-button
+              v-if="settings.sessionIndexDirectory"
+              size="small"
+              type="text"
+              @click="resetSessionIndexDirectory"
+            >
+              恢复默认
+            </a-button>
           </div>
         </a-form-item>
 
