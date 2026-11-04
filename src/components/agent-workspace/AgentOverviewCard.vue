@@ -82,9 +82,12 @@ function openVisualConfiguration() {
 const modelLabel = computed(() => {
   const summary = props.modelSummary;
   if (!summary) return "";
-  // Unset sources already read as a full sentence ("Claude 账号默认模型");
-  // prefixing "模型" there would repeat the subject.
-  return summary.state === "default" ? summary.label : `模型 ${summary.label}`;
+  // Only a concrete model ID needs the "模型" noun. Default/unset/error
+  // labels are already full sentences ("Claude 账号默认模型", "配置读取失败"),
+  // so prefixing them would repeat the subject.
+  return summary.state === "configured"
+    ? `模型 ${summary.label}`
+    : summary.label;
 });
 /// The chip is only actionable when a visual source can hold a model override;
 /// managed or read-only installs still get the resolved label and its reason.
