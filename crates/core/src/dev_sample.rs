@@ -27,6 +27,11 @@ use crate::models::{
 /// 注入，不需要设置页点击；发布构建不编译这里。
 pub const ENV_MERGE_ON_LOAD: &str = "BALANCEHUB_DEV_SAMPLE";
 
+/// 文档截图等需要真实后端请求链路的场景：指向本机隔离的 mock 站点。
+/// 设置后在最前面追加一张使用该地址的 NewAPI 卡片，用来在真实 App 里打开
+/// 用量趋势、请求日志与签到记录；不设置时演示数据保持原样。
+pub const ENV_MOCK_SITE: &str = "BALANCEHUB_DEV_MOCK_SITE";
+
 #[derive(Deserialize)]
 struct ProviderFile {
     #[serde(default)]
@@ -97,7 +102,7 @@ fn demo_name(name: &str) -> String {
 
 fn sample_providers() -> Vec<Provider> {
     let now = now_secs();
-    vec![
+    let mut samples = vec![
         // —— NewAPI ——
         new_api_full(now),
         new_api_weekly_only(now),
@@ -125,7 +130,30 @@ fn sample_providers() -> Vec<Provider> {
         cpa_gateway(now),
         cpa_gateway_cooling(now),
         cpa_gateway_offline(),
-    ]
+    ];
+    if let Some(mock) = mock_site(now) {
+        samples.insert(0, mock);
+    }
+    samples
+}
+
+/// 指向本机 mock 的演示卡片，只在 `BALANCEHUB_DEV_MOCK_SITE` 非空时生成。
+/// 复用满能力 NewAPI 卡片的字段，保证用量、日志、签到等入口都会出现；
+/// 地址与凭据仍是编造值，请求只发往传入的本机地址。
+fn mock_site(now: i64) -> Option<Provider> {
+    let url = std::env::var(ENV_MOCK_SITE).ok()?;
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let mut provider = new_api_full(now);
+    provider.identity.id = "demo-newapi-mock".into();
+    provider.identity.name = demo_name("本地模拟站点");
+    provider.identity.base_url = url.into();
+    provider.identity.username = "demo-user".into();
+    provider.identity.user_id = "7001".into();
+    provider.identity.remark = "仅用于界面截图，请求发往本机 mock".into();
+    Some(provider)
 }
 
 // —— NewAPI ——
