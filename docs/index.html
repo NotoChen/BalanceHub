@@ -1,22 +1,23 @@
 ---
 layout: default
-title: AI 中转站与 Agent CLI 桌面管理工具
-description: 在本地桌面集中管理 AI 中转站，并通过 Agent 工作台管理 CLI、共享资产绑定、版本和运行实例。
+title: AI 中转站与 Agent CLI 管理工具
+description: 在本地桌面集中管理 AI 中转站，并通过 Agent 工作台管理 CLI、共享资产绑定、版本和运行实例；也可以部署为无界面后端，用浏览器访问同一套界面。
 page_class: landing-page
 ---
 
 <section class="hero" aria-labelledby="hero-title">
   <div class="site-shell hero-inner">
     <div class="hero-copy">
-      <p class="eyebrow">本地桌面 App · 三端支持</p>
+      <p class="eyebrow">桌面 App · 无界面后端 · 三端支持</p>
       <h1 id="hero-title">
         <span class="title-line">把中转站与 Agent</span>
         <span class="title-line">收进一个本地</span>
-        <span class="title-line">桌面面板。</span>
+        <span class="title-line">管理面板。</span>
       </h1>
       <p class="hero-lead">
         中转站视角集中查看余额、签到、Key、用量和日志；Agent 视角管理本机
         CLI、共享资产与运行实例，也能从卡片启动终端或接续历史会话。
+        需要常驻时，还可以部署成自己的无界面后端，用浏览器打开同一套界面。
       </p>
       <p class="download-note">Agent 工作台说明对应当前仓库源码；发布安装包的功能以 <a href="{{ '/changelog.html' | relative_url }}">更新记录</a> 为准。</p>
       <div class="hero-actions">
@@ -33,8 +34,8 @@ page_class: landing-page
       <ul class="hero-meta" aria-label="产品特性">
         <li>NewAPI / Sub2API / 通用 API</li>
         <li>x64 / ARM64</li>
-        <li>凭据留在本机</li>
-        <li>开源桌面应用</li>
+        <li>凭据留在自己的机器</li>
+        <li>桌面 / 浏览器两种形态</li>
       </ul>
     </div>
 
@@ -280,25 +281,25 @@ page_class: landing-page
       <p class="section-kicker">本地优先</p>
       <h2 id="privacy-title">配置由你保存，同步由你选择。</h2>
       <p>
-        BalanceHub 是本地桌面工具，不是托管服务。账号密码、Cookie、Token、API Key
-        与站点配置默认由当前设备保存。启用 WebDAV 后，在本机加密并同步到你指定的服务；带认证的站点请求由本机 Rust 后端直接执行。
+        BalanceHub 默认是本地桌面工具，也可以部署成你自己的无界面后端；项目方不提供托管服务。账号密码、Cookie、Token、API Key
+        与站点配置保存在运行它的机器上。启用 WebDAV 后，在本机加密并同步到你指定的服务；带认证的站点请求由运行 BalanceHub 的 Rust 后端直接执行。
       </p>
       <p class="boundary-note">
         支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 按 NewAPI 方言兼容。当前源码还提供官方 OAuth 账号与 CPA 网关卡片。
-        不提供 Web 自部署版本，通用 API Key 也不等同于完整账号登录态。
+        服务端发布包与容器部署都由你自己运行，数据留在你的服务器；通用 API Key 也不等同于完整账号登录态。
       </p>
     </div>
 
     <div class="privacy-facts">
       <article class="privacy-fact">
         <span>01</span>
-        <h3>配置本机保存</h3>
+        <h3>配置自己保存</h3>
         <p>项目方没有中间服务接收你的账号或 Key。</p>
       </article>
       <article class="privacy-fact">
         <span>02</span>
         <h3>请求本机直发</h3>
-        <p>协议适配、额度查询和日志读取由桌面端执行。</p>
+        <p>协议适配、额度查询和日志读取在运行 BalanceHub 的机器上执行。</p>
       </article>
       <article class="privacy-fact">
         <span>03</span>
@@ -318,14 +319,17 @@ page_class: landing-page
   <div class="site-shell download-layout">
     <div class="download-copy">
       <p class="section-kicker">下载与更新</p>
-      <h2 id="download-title">选择你的桌面平台，开始集中管理。</h2>
+      <h2 id="download-title">桌面安装，或部署成自己的服务端。</h2>
       <p>
-        Release 同时提供 macOS、Windows 与 Linux 的 x64 / ARM64 构建。应用会检查更新，检测到新版本后先提示，由你确认是否下载和安装。
+        Release 同时提供 macOS、Windows 与 Linux 的 x64 / ARM64 桌面构建，以及 Linux 服务端包。桌面应用会检查更新，检测到新版本后先提示，由你确认是否下载和安装。
       </p>
       <div class="download-actions">
         <a class="button button-primary" href="https://github.com/NotoChen/BalanceHub/releases/latest">
           前往 GitHub Releases
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7" /></svg>
+        </a>
+        <a class="button button-secondary" href="{{ '/server-deployment.html' | relative_url }}">
+          服务端部署说明
         </a>
       </div>
     </div>
@@ -335,8 +339,9 @@ page_class: landing-page
         <li class="platform-row"><strong>macOS</strong><span>Apple Silicon / Intel · DMG</span></li>
         <li class="platform-row"><strong>Windows</strong><span>x64 / ARM64 · NSIS setup.exe</span></li>
         <li class="platform-row"><strong>Linux</strong><span>x64 / ARM64 · AppImage / deb / rpm</span></li>
+        <li class="platform-row"><strong>服务端</strong><span>Linux x64 / ARM64 · balancehub-server tar.gz</span></li>
       </ul>
-      <p class="download-note">Release 中的 .sig 文件用于应用内更新签名校验，不是手动安装入口。</p>
+      <p class="download-note">服务端包包含可执行文件与 web/ 前端，解压后即可常驻运行；也可以用仓库里的 Dockerfile 和 compose.yaml 构建镜像。Release 中的 .sig 文件用于应用内更新签名校验，不是手动安装入口。</p>
     </div>
   </div>
 </section>

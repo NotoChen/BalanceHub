@@ -14,7 +14,44 @@ BalanceHub 有两种运行形态：
 
 两种形态共用 `balancehub-core` 与 `balancehub-agent` 的实现和同一份配置格式；差别只在需要桌面窗口的入口，由运行环境决定是否展示。
 
-## 本地运行
+## 从发布包运行
+
+Release 里的 `balancehub-server-linux-x64.tar.gz` / `arm64.tar.gz` 已经包含可执行文件和 `web/` 前端：
+
+```sh
+mkdir -p ~/balancehub-server
+tar -xzf balancehub-server-linux-x64.tar.gz -C ~/balancehub-server --strip-components=1
+cd ~/balancehub-server
+BALANCEHUB_ROOT="$HOME/.balancehub" ./balancehub-server
+```
+
+服务端会在可执行文件旁查找 `web/`，因此不需要设置 `BALANCEHUB_WEB_DIR`。监听地址默认 `127.0.0.1:8787`；需要局域网访问时设置 `BALANCEHUB_SERVER_ADDR=0.0.0.0:8787`。
+
+长期运行可以用 systemd（先创建专用系统用户，例如 `useradd --system --home /var/lib/balancehub balancehub`）：
+
+```ini
+[Unit]
+Description=BalanceHub Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=balancehub
+Group=balancehub
+WorkingDirectory=/opt/balancehub
+ExecStart=/opt/balancehub/balancehub-server
+Environment=BALANCEHUB_ROOT=/var/lib/balancehub
+Environment=BALANCEHUB_SERVER_ADDR=127.0.0.1:8787
+StateDirectory=balancehub
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+把压缩包解压到 `/opt/balancehub`，`StateDirectory` 会创建并授权 `/var/lib/balancehub`。升级时替换可执行文件与 `web/` 后重启服务。
+
+## 从源码运行
 
 先构建前端，再构建服务端：
 

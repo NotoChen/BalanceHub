@@ -7,7 +7,7 @@ page_class: document-page
 
 # 快速开始
 
-BalanceHub 是本地桌面应用。配置和中转站凭据保存在当前电脑的应用数据目录中，换电脑使用时可以通过导入导出迁移，也可以连接自己的 WebDAV 服务进行加密同步。
+BalanceHub 有两种运行形态：本地桌面应用，以及可部署在服务器上的无界面后端。两种形态使用同一套界面与配置格式：桌面版的数据保存在当前电脑的应用数据目录中，服务端的数据保存在服务器上。换电脑使用时可以通过导入导出迁移，也可以连接自己的 WebDAV 服务进行加密同步。服务器常驻部署见[服务端部署](server-deployment.html)。
 
 本文的 Agent 工作台入口对应当前仓库源码；已发布安装包的功能以 [更新记录](https://github.com/NotoChen/BalanceHub/blob/main/CHANGELOG.md) 为准。
 
@@ -20,6 +20,8 @@ BalanceHub 是本地桌面应用。配置和中转站凭据保存在当前电脑
 - Linux：按发行版选择 AppImage、deb 或 rpm。
 
 Release 里的 `.sig` 文件是应用内自动更新使用的签名文件，不是手动安装入口。
+
+如果要在服务器上常驻、用浏览器访问同一套界面，不需要安装桌面版：下载 `balancehub-server-linux-*.tar.gz` 发布包解压运行，或用仓库里的 `Dockerfile` / `compose.yaml` 构建镜像。环境变量、反向代理和能力边界见[服务端部署](server-deployment.html)。
 
 ## 2. 添加第一个中转站
 
