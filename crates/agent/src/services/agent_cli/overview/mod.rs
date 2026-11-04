@@ -116,15 +116,36 @@ impl OverviewService {
             .unwrap_or_default();
         let before = fingerprint::signature(kind, settings, &known_paths);
         let mut paths = BTreeSet::new();
-        let configuration_result = configuration.list_sources(
-            &actor,
-            AgentConfigurationListRequest {
-                runtime_scope: Default::default(),
-                agent_kind: kind,
-                workspace: workspace_text,
-            },
-            Some(settings),
-        );
+        // Source discovery and the model read open the same native files. Keep
+        // one read scope around both so a refresh parses each document once.
+        let (configuration_result, model) = {
+            let _read = cache::ReadScope::enter();
+            let configuration_result = configuration.list_sources(
+                &actor,
+                AgentConfigurationListRequest {
+                    runtime_scope: Default::default(),
+                    agent_kind: kind,
+                    workspace: workspace_text,
+                },
+                Some(settings),
+            );
+            // The card labels the model the CLI would use without a launch-time
+            // override. Reuse the settings reader so labels, precedence and WSL
+            // handling match the visual editor instead of duplicating parsers here.
+            let model = super::settings::read_model_selection(&TemporaryCliSettingsRequest {
+                native_options: Default::default(),
+                cli_kind: kind,
+                cli_path: settings.agent_cli_path(kind).to_owned(),
+                workdir: workspace
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                model: String::new(),
+                inherited_model: String::new(),
+                session_mode: TemporaryCliSessionMode::New,
+                provider_id: String::new(),
+            });
+            (configuration_result, model)
+        };
         let configuration_error = configuration_result
             .as_ref()
             .err()
@@ -148,21 +169,6 @@ impl OverviewService {
                 false,
             ),
         );
-        // The card labels the model the CLI would use without a launch-time
-        // override. Reuse the settings reader so labels, precedence and WSL
-        // handling match the visual editor instead of duplicating parsers here.
-        let model = super::settings::read_model_selection(&TemporaryCliSettingsRequest {
-            native_options: Default::default(),
-            cli_kind: kind,
-            cli_path: settings.agent_cli_path(kind).to_owned(),
-            workdir: workspace
-                .map(|path| path.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            model: String::new(),
-            inherited_model: String::new(),
-            session_mode: TemporaryCliSessionMode::New,
-            provider_id: String::new(),
-        });
         let snapshot = AgentOverviewSnapshot {
             agent_kind: kind,
             probe,
