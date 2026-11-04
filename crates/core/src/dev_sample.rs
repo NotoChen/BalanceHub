@@ -88,11 +88,13 @@ pub fn merge_into(data: &mut AppData) -> usize {
 }
 
 /// 演示站点一律关闭定时任务：签到、刷新、测活都会真的打到编造域名。
+/// 干净目录首次启动时也不需要再走一遍引导页，否则演示数据被引导窗口挡住。
 fn quiet_automation(data: &mut AppData) {
     data.settings.auto_refresh_enabled = false;
     data.settings.auto_check_in_enabled = false;
     data.settings.notification_enabled = false;
     data.settings.liveness_enabled = false;
+    data.settings.onboarding_completed = true;
 }
 
 /// 演示卡片名称统一带前缀，和真实站点在列表里一眼分得开。

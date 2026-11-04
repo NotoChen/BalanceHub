@@ -25,7 +25,9 @@ pub fn load_app_data() -> Result<AppData, String> {
     } else if let Some(recovered) = recover_missing_app_data_file(&path)? {
         recovered
     } else {
-        return Ok(AppData::default());
+        // 干净目录同样走演示数据路径：开发脚本可以只用隔离根目录启动，
+        // 不依赖预先复制一份安装版配置。
+        (AppData::default(), false)
     };
     validate_app_data_schema(&data)?;
     let mut normalized =
