@@ -154,7 +154,7 @@ onUnmounted(() => {
         <div class="settings-setting-row">
           <div class="settings-setting-copy">
             <strong>启用历史会话全文检索</strong>
-            <span>仅索引用户输入与 Agent 可见回复，工具调用和输出不进入索引。</span>
+            <span>索引对话正文，包括工具调用、执行结果与思考内容；随时可以清理，原始会话不受影响。</span>
           </div>
           <a-switch v-model="settings.sessionIndexEnabled" />
         </div>
