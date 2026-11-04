@@ -85,7 +85,7 @@ npm run tauri dev
 npm run dev:session
 ```
 
-`dev:session` 先把安装版配置只读复制到 `~/Library/Caches/BalanceHub/dev-session`，再在仓库 `target/dev-session` 下建立隔离的 `BALANCEHUB_DEV_ROOT` 并启动 `tauri dev`；安装版目录本身不会被写入。脚本同时注入 `BALANCEHUB_DEV_SAMPLE=1`，开发版第一次加载配置时把各类卡片形态的演示数据并入：演示卡片以「演示 ·」开头、按 ID 合并，真实站点原样保留，并关闭自动刷新、签到与测活，重复启动不会重复追加。设置页的「追加演示数据」在演示卡片被删掉后可以再补一次。
+`dev:session` 先把安装版配置只读复制到 `~/Library/Caches/BalanceHub/dev-session`，再在仓库 `target/dev-session` 下建立隔离的 `BALANCEHUB_DEV_ROOT` 并启动 `tauri dev`；安装版目录本身不会被写入。脚本同时注入 `BALANCEHUB_DEV_SAMPLE=1`，开发版第一次加载配置时把各类卡片形态的演示数据并入：演示卡片以「演示 ·」开头、按 ID 合并，真实站点原样保留，并关闭自动刷新、签到与测活，重复启动不会重复追加。设置页的「追加演示数据」在演示卡片被删掉后可以再补一次。只需要演示数据的场景（例如生成文档截图）可以设置 `BALANCEHUB_DEV_SKIP_INSTALLED_COPY=1`，跳过安装版配置复制，窗口里只有演示卡片。
 
 只启动前端 Vite：
 
