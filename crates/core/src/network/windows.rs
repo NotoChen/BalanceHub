@@ -2,10 +2,9 @@ use super::SystemProxyConfig;
 
 #[cfg(windows)]
 pub(super) fn system_proxy_config() -> SystemProxyConfig {
-    use crate::platform::windows_registry::RegistryKey;
-    use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
+    use crate::platform::windows_registry::{RegistryKey, RegistryRoot};
     let Some(key) = RegistryKey::open(
-        HKEY_CURRENT_USER,
+        RegistryRoot::CurrentUser,
         r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
         0,
     ) else {

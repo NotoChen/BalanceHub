@@ -2,10 +2,26 @@ use std::ptr;
 use windows_sys::Win32::{
     Foundation::ERROR_SUCCESS,
     System::Registry::{
-        RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, KEY_READ, REG_DWORD,
-        REG_EXPAND_SZ, REG_SZ,
+        RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
+        HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD, REG_EXPAND_SZ, REG_SZ,
     },
 };
+
+/// 注册表根键。只暴露只读的预定义根，避免把原始句柄传进安全接口。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryRoot {
+    CurrentUser,
+    LocalMachine,
+}
+
+impl RegistryRoot {
+    fn handle(self) -> HKEY {
+        match self {
+            Self::CurrentUser => HKEY_CURRENT_USER,
+            Self::LocalMachine => HKEY_LOCAL_MACHINE,
+        }
+    }
+}
 
 /// Read-only, bounded Unicode registry access shared by browser and proxy discovery.
 pub struct RegistryKey(HKEY);
@@ -19,10 +35,10 @@ impl Drop for RegistryKey {
 }
 
 impl RegistryKey {
-    pub fn open(root: HKEY, path: &str, view: u32) -> Option<Self> {
+    pub fn open(root: RegistryRoot, path: &str, view: u32) -> Option<Self> {
         let path = path.encode_utf16().chain([0]).collect::<Vec<_>>();
         let mut key = ptr::null_mut();
-        (unsafe { RegOpenKeyExW(root, path.as_ptr(), 0, KEY_READ | view, &mut key) }
+        (unsafe { RegOpenKeyExW(root.handle(), path.as_ptr(), 0, KEY_READ | view, &mut key) }
             == ERROR_SUCCESS)
             .then(|| Self(key))
     }

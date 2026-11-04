@@ -703,7 +703,6 @@ async fn install_dev_sample_data(_app: AppHandle) -> Result<usize, String> {
     }
     #[cfg(not(debug_assertions))]
     {
-        let _ = app;
         Err("发布构建不提供演示数据".to_string())
     }
 }
