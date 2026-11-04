@@ -401,4 +401,66 @@ fn replace_session(
     Ok(())
 }
 
+#[test]
+fn complete_scan_sweep_removes_sessions_the_native_store_no_longer_lists() {
+    let root = test_root("retain");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let config = SessionIndexConfig {
+        enabled: true,
+        directory: root.clone(),
+        max_size_bytes: u64::MAX,
+    };
+    let database = database_path(&config, AgentCliKind::Codex);
+    let mut connection = open_connection(&database, true).unwrap();
+    let workdir = root.join("workspace");
+    fs::create_dir_all(&workdir).unwrap();
+    let workspace = workspace_key(&workdir);
+    for id in ["kept", "removed"] {
+        replace_session(
+            &mut connection,
+            &workspace,
+            &summary(id, &workdir),
+            vec![SessionIndexMessage {
+                metadata: Default::default(),
+                id: format!("{id}-message"),
+                role: CliSessionMessageRole::User,
+                content: format!("{id} 的会话正文"),
+            }],
+        )
+        .unwrap();
+    }
+    connection
+        .close()
+        .map_err(|(_, error)| error)
+        .expect("the SQLite test connection should close before the sweep");
+
+    let index = HistoryIndex::new(&config, AgentCliKind::Codex, "test-source");
+    let keep = std::collections::HashSet::from(["kept".to_string()]);
+    let removed = index
+        .retain_sessions(&workspace, &keep, &read_budget(u64::MAX))
+        .unwrap();
+    assert_eq!(removed, 1);
+
+    let connection = open_connection(&database, false).unwrap();
+    let sessions = connection
+        .prepare("SELECT session_id FROM sessions WHERE workspace=?1 ORDER BY session_id")
+        .unwrap()
+        .query_map(params![workspace], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(sessions, vec!["kept".to_string()]);
+    let leftover_messages: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM messages WHERE workspace=?1 AND session_id='removed'",
+            params![workspace],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(leftover_messages, 0);
+    drop(connection);
+    fs::remove_dir_all(root).unwrap();
+}
+
 mod incremental;

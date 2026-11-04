@@ -22,12 +22,10 @@ pub fn load_app_data() -> Result<AppData, String> {
     let path = data_file_path()?;
     let (mut data, migrated) = if path.exists() {
         read_app_data_file(&path, BackupBeforeMigrate::Yes)?
-    } else if let Some(recovered) = recover_missing_app_data_file(&path)? {
-        recovered
     } else {
         // 干净目录同样走演示数据路径：开发脚本可以只用隔离根目录启动，
         // 不依赖预先复制一份安装版配置。
-        (AppData::default(), false)
+        recover_missing_app_data_file(&path)?.unwrap_or_default()
     };
     validate_app_data_schema(&data)?;
     let mut normalized =

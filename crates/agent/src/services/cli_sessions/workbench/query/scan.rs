@@ -220,6 +220,24 @@ pub(super) fn scan_source(
             }
         }
         let loaded_count = references.len();
+        // A complete native scan is the source of truth for what still exists.
+        // Sweep derived rows the Agent's own storage no longer lists so deleted
+        // or renamed sessions stop answering searches and stop holding capacity.
+        if !query.is_empty()
+            && loaded.complete
+            && !pending
+            && !budget.cancelled.load(Ordering::Acquire)
+        {
+            let keep = references
+                .iter()
+                .map(|reference| reference.record.record_key.clone())
+                .collect::<HashSet<_>>();
+            if let Err(error) = index.retain_sessions(&workspace.id, &keep, budget) {
+                if budget.check().is_ok() {
+                    diagnostics.push(format!("清理过期会话索引稍后继续：{error}"));
+                }
+            }
+        }
         outcome.references.extend(references);
         pending |= budget.check().is_err();
         diagnostics.sort();

@@ -380,6 +380,60 @@ impl HistoryIndex {
                 .collect())
         })
     }
+    /// Drop derived rows for sessions that the latest complete native scan no
+    /// longer lists. This library is only an accelerator: a session deleted or
+    /// renamed in the Agent's own storage must stop answering content searches,
+    /// and its text must stop occupying the shared capacity.
+    pub(crate) fn retain_sessions(
+        &self,
+        workspace: &str,
+        keep: &std::collections::HashSet<String>,
+        budget: &SessionReadBudget,
+    ) -> Result<usize, String> {
+        self.connection(budget, |connection| {
+            let existing = {
+                let mut statement = connection
+                    .prepare("SELECT session_id FROM sessions WHERE workspace=?1")
+                    .map_err(|error| error.to_string())?;
+                let rows = statement
+                    .query_map(params![workspace], |row| row.get::<_, String>(0))
+                    .map_err(|error| error.to_string())?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?
+            };
+            let stale = existing
+                .into_iter()
+                .filter(|session| !keep.contains(session))
+                .collect::<Vec<_>>();
+            if stale.is_empty() {
+                return Ok(0);
+            }
+            let transaction = connection
+                .transaction()
+                .map_err(|error| error.to_string())?;
+            for session in &stale {
+                budget.check()?;
+                for table in [
+                    "session_usage",
+                    "session_sources",
+                    "message_positions",
+                    "messages",
+                    "sessions",
+                ] {
+                    transaction
+                        .execute(
+                            &format!("DELETE FROM {table} WHERE workspace=?1 AND session_id=?2"),
+                            params![workspace, session],
+                        )
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            transaction
+                .commit()
+                .map_err(|error| format!("清理过期会话索引失败：{error}"))?;
+            Ok(stale.len())
+        })
+    }
     pub(crate) fn finish(&self, budget: &SessionReadBudget) -> Result<(), String> {
         if self.memory_only.load(Ordering::Acquire) {
             return Ok(());
