@@ -4,6 +4,7 @@ import { Modal } from "@arco-design/web-vue";
 import { Cloud, RefreshCw, Settings2, ShieldCheck } from "@lucide/vue";
 import { CLOUD_SYNC_CONTEXT } from "../../composables/useCloudSync";
 import type {
+  CloudSyncBackend,
   CloudSyncSettings,
   CloudSyncSettingsInput,
 } from "../../api/cloud-sync";
@@ -13,26 +14,58 @@ import ContextDetails from "../ContextDetails.vue";
 const sync = inject(CLOUD_SYNC_CONTEXT);
 const state = computed(() => sync?.state.value);
 const status = computed(() => state.value?.status);
-const configured = computed(() =>
-  Boolean(
-    state.value?.settings.serverUrl && state.value.settings.hasPassphrase,
-  ),
-);
+const backendOptions = [
+  { label: "WebDAV", value: "webdav" },
+  { label: "S3 兼容存储", value: "s3" },
+];
+const endpointLabel = computed(() => {
+  const settings = state.value?.settings;
+  if (!settings) return "";
+  if (settings.backend === "s3") {
+    return settings.s3Endpoint
+      ? `S3 · ${settings.s3Bucket} · ${settings.s3Endpoint}`
+      : `S3 · ${settings.s3Bucket}`;
+  }
+  return settings.serverUrl;
+});
+const configured = computed(() => {
+  const settings = state.value?.settings;
+  if (!settings?.hasPassphrase) return false;
+  return settings.backend === "s3"
+    ? Boolean(settings.s3Bucket && settings.s3AccessKey && settings.hasSecretKey)
+    : Boolean(settings.serverUrl);
+});
 const busy = computed(() =>
   Boolean(sync?.pending.value || status.value?.running),
 );
 const editing = ref(false);
 const dirty = ref(false);
 const passwordEdited = ref(false);
+const secretEdited = ref(false);
 const passphraseEdited = ref(false);
 const draft = reactive({
+  backend: "webdav" as CloudSyncBackend,
   serverUrl: "",
   username: "",
   password: "",
   passphrase: "",
   remoteRoot: "BalanceHub",
+  s3Endpoint: "",
+  s3Region: "us-east-1",
+  s3Bucket: "",
+  s3AccessKey: "",
+  s3SecretKey: "",
   deviceName: "这台电脑",
 });
+const draftReady = computed(() =>
+  draft.backend === "s3"
+    ? Boolean(
+        draft.s3Bucket &&
+          draft.s3AccessKey &&
+          (draft.s3SecretKey || state.value?.settings.hasSecretKey),
+      )
+    : Boolean(draft.serverUrl),
+);
 let loaded = false;
 let draftRevision = 0;
 
@@ -43,14 +76,21 @@ function edited() {
 
 function fill(settings: CloudSyncSettings) {
   Object.assign(draft, {
+    backend: settings.backend,
     serverUrl: settings.serverUrl,
     username: settings.username,
     remoteRoot: settings.remoteRoot,
+    s3Endpoint: settings.s3Endpoint,
+    s3Region: settings.s3Region,
+    s3Bucket: settings.s3Bucket,
+    s3AccessKey: settings.s3AccessKey,
     deviceName: settings.deviceName,
     password: "",
+    s3SecretKey: "",
     passphrase: "",
   });
   passwordEdited.value = false;
+  secretEdited.value = false;
   passphraseEdited.value = false;
   dirty.value = false;
 }
@@ -69,10 +109,20 @@ watch(
 
 function input(): CloudSyncSettingsInput {
   return {
-    ...draft,
+    backend: draft.backend,
+    serverUrl: draft.serverUrl,
+    username: draft.username,
     password: passwordEdited.value && draft.password ? draft.password : null,
     passphrase:
       passphraseEdited.value && draft.passphrase ? draft.passphrase : null,
+    remoteRoot: draft.remoteRoot,
+    s3Endpoint: draft.s3Endpoint,
+    s3Region: draft.s3Region,
+    s3Bucket: draft.s3Bucket,
+    s3AccessKey: draft.s3AccessKey,
+    s3SecretKey:
+      secretEdited.value && draft.s3SecretKey ? draft.s3SecretKey : null,
+    deviceName: draft.deviceName,
     autoSync: state.value?.settings.autoSync ?? false,
   };
 }
@@ -103,6 +153,7 @@ async function toggleAuto(value: string | number | boolean) {
   await sync.save({
     ...saved,
     password: null,
+    s3SecretKey: null,
     passphrase: null,
     autoSync: Boolean(value),
   });
@@ -127,23 +178,24 @@ const date = (value: number) =>
   <section
     v-if="sync"
     class="settings-card cloud-sync-settings"
-    aria-label="WebDAV 同步"
+    aria-label="云端同步"
   >
     <header class="settings-card-header cloud-sync-heading">
       <span class="settings-card-icon"><Cloud :size="18" /></span>
-      <div><strong>WebDAV 同步</strong></div>
+      <div><strong>云端同步</strong></div>
       <label class="cloud-sync-auto"
         ><span>自动同步</span
         ><a-switch
           :model-value="state?.settings.autoSync ?? false"
           :disabled="!configured || busy || dirty"
-          aria-label="自动 WebDAV 同步"
+          aria-label="自动云端同步"
           @change="toggleAuto"
       /></label>
     </header>
     <div class="cloud-sync-body">
       <p class="cloud-sync-description">
-        在多台设备间同步中转站、应用偏好与共享资产。
+        在多台设备间同步中转站、应用偏好与共享资产，支持 WebDAV 与 S3
+        兼容存储。
       </p>
       <div v-if="!state" class="cloud-sync-state">
         <span>{{ sync.error.value || "正在读取同步设置…" }}</span
@@ -180,9 +232,8 @@ const date = (value: number) =>
         }}</template></a-progress
       >
       <div v-if="state && !editing" class="cloud-sync-overview">
-        <div class="cloud-sync-endpoint" :title="state.settings.serverUrl">
-          {{ state.settings.serverUrl
-          }}<span
+        <div class="cloud-sync-endpoint" :title="endpointLabel">
+          {{ endpointLabel }}<span
             >{{ state.settings.remoteRoot }} ·
             {{ state.settings.deviceName }}</span
           >
@@ -214,6 +265,17 @@ const date = (value: number) =>
       </div>
 
       <div v-if="state && editing" class="cloud-sync-form">
+        <div class="cloud-sync-field cloud-sync-field-wide">
+          <span class="cloud-sync-field-label">存储类型</span>
+          <a-radio-group
+            v-model="draft.backend"
+            type="button"
+            :options="backendOptions"
+            aria-label="云端同步存储类型"
+            @change="edited"
+          />
+        </div>
+        <template v-if="draft.backend === 'webdav'">
         <div class="cloud-sync-field cloud-sync-field-wide">
           <label for="cloud-sync-url">WebDAV 服务地址</label
           ><a-input
@@ -261,6 +323,88 @@ const date = (value: number) =>
             "
           />
         </div>
+        </template>
+        <template v-else>
+          <div class="cloud-sync-field cloud-sync-field-wide">
+            <label for="cloud-sync-s3-endpoint">服务地址</label
+            ><a-input
+              v-model="draft.s3Endpoint"
+              placeholder="https://s3.us-east-1.amazonaws.com（留空按区域生成）"
+              :input-attrs="{
+                id: 'cloud-sync-s3-endpoint',
+                'aria-label': 'S3 服务地址',
+                autocomplete: 'url',
+                spellcheck: false,
+              }"
+              @input="edited"
+            /><small
+              >AWS S3 可留空；Cloudflare R2、MinIO、Backblaze B2
+              等填写各自的服务地址。</small
+            >
+          </div>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-s3-bucket">存储桶</label
+            ><a-input
+              v-model="draft.s3Bucket"
+              placeholder="balancehub"
+              :input-attrs="{
+                id: 'cloud-sync-s3-bucket',
+                'aria-label': 'S3 存储桶',
+                autocomplete: 'off',
+                spellcheck: false,
+              }"
+              @input="edited"
+            />
+          </div>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-s3-region">区域</label
+            ><a-input
+              v-model="draft.s3Region"
+              placeholder="us-east-1"
+              :input-attrs="{
+                id: 'cloud-sync-s3-region',
+                'aria-label': 'S3 区域',
+                autocomplete: 'off',
+                spellcheck: false,
+              }"
+              @input="edited"
+            />
+          </div>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-s3-access">Access Key</label
+            ><a-input
+              v-model="draft.s3AccessKey"
+              placeholder="S3 Access Key ID"
+              :input-attrs="{
+                id: 'cloud-sync-s3-access',
+                'aria-label': 'S3 Access Key',
+                autocomplete: 'off',
+                spellcheck: false,
+              }"
+              @input="edited"
+            />
+          </div>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-s3-secret">Secret Key</label
+            ><a-input-password
+              v-model="draft.s3SecretKey"
+              :placeholder="
+                state.settings.hasSecretKey
+                  ? '已保存，留空保留'
+                  : 'S3 Secret Access Key'
+              "
+              :input-attrs="{
+                id: 'cloud-sync-s3-secret',
+                'aria-label': 'S3 Secret Key',
+                autocomplete: 'new-password',
+              }"
+              @input="
+                edited();
+                secretEdited = true;
+              "
+            />
+          </div>
+        </template>
         <div class="cloud-sync-field cloud-sync-field-wide">
           <label for="cloud-sync-passphrase">同步密码</label
           ><a-input-password
@@ -284,13 +428,15 @@ const date = (value: number) =>
           >
         </div>
         <div class="cloud-sync-field">
-          <label for="cloud-sync-directory">同步目录</label
+          <label for="cloud-sync-directory">{{
+            draft.backend === "s3" ? "同步前缀" : "同步目录"
+          }}</label
           ><a-input
             v-model="draft.remoteRoot"
             placeholder="BalanceHub"
             :input-attrs="{
               id: 'cloud-sync-directory',
-              'aria-label': '同步目录',
+              'aria-label': '同步目录或前缀',
             }"
             @input="edited"
           />
@@ -311,12 +457,12 @@ const date = (value: number) =>
             :loading="
               sync.pending.value === 'save' || sync.pending.value === 'sync'
             "
-            :disabled="busy || !draft.serverUrl"
+            :disabled="busy || !draftReady"
             @click="submit('sync')"
             >保存并同步</a-button
           >
           <a-button
-            :disabled="busy || !draft.serverUrl"
+            :disabled="busy || !draftReady"
             :loading="sync.pending.value === 'test'"
             @click="submit('test')"
             >测试连接</a-button
@@ -356,7 +502,9 @@ const date = (value: number) =>
         </p>
         <p>
           服务需支持文件读写、强 ETag
-          和条件写入，测试连接会实际验证。连接使用应用的网络代理，建议填写 HTTPS
+          和条件写入，测试连接会实际验证。WebDAV 使用应用密码；S3
+          兼容存储使用 Access Key，并要求 s3:GetObject、s3:PutObject、s3:DeleteObject
+          与 s3:ListBucket 权限。连接使用应用的网络代理，建议填写 HTTPS
           地址。
         </p>
         <a-button
@@ -456,7 +604,8 @@ const date = (value: number) =>
   align-content: start;
   min-width: 0;
 }
-.cloud-sync-field > label {
+.cloud-sync-field > label,
+.cloud-sync-field-label {
   font-size: 13px;
   color: var(--color-text-1);
 }

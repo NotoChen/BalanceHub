@@ -1,14 +1,31 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum CloudSyncBackend {
+    #[default]
+    Webdav,
+    S3,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct CloudSyncSettingsInput {
+    #[serde(default)]
+    pub backend: CloudSyncBackend,
     pub server_url: String,
     pub username: String,
     /// None preserves the saved value; Some("") explicitly clears it.
     pub password: Option<String>,
     pub passphrase: Option<String>,
+    /// WebDAV directory or S3 object prefix.
     pub remote_root: String,
+    pub s3_endpoint: String,
+    pub s3_region: String,
+    pub s3_bucket: String,
+    pub s3_access_key: String,
+    /// None preserves the saved value; Some("") explicitly clears it.
+    pub s3_secret_key: Option<String>,
     pub device_name: String,
     pub auto_sync: bool,
 }
@@ -16,12 +33,18 @@ pub struct CloudSyncSettingsInput {
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudSyncSettingsView {
+    pub backend: CloudSyncBackend,
     pub server_url: String,
     pub username: String,
     pub remote_root: String,
+    pub s3_endpoint: String,
+    pub s3_region: String,
+    pub s3_bucket: String,
+    pub s3_access_key: String,
     pub device_name: String,
     pub auto_sync: bool,
     pub has_password: bool,
+    pub has_secret_key: bool,
     pub has_passphrase: bool,
 }
 

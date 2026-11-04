@@ -19,7 +19,7 @@ page_class: document-page
 
 ## 可以部署到 Docker 或自己的服务器上吗？
 
-可以。`balancehub-server` 是无界面后端，托管与桌面版相同的前端页面，用浏览器访问；额度刷新、签到、测活、WebDAV 同步与 Agent 工作台都在服务器上执行，不要求服务器有桌面环境。发布页提供 Linux x64 / ARM64 的服务端 `tar.gz`，仓库根目录也提供 `Dockerfile` 与 `compose.yaml`。
+可以。`balancehub-server` 是无界面后端，托管与桌面版相同的前端页面，用浏览器访问；额度刷新、签到、测活、云端同步与 Agent 工作台都在服务器上执行，不要求服务器有桌面环境。发布页提供 Linux x64 / ARM64 的服务端 `tar.gz`，仓库根目录也提供 `Dockerfile` 与 `compose.yaml`。
 
 服务器上装了对应 Agent CLI 时，Agent 工作台、配置读写和会话检索同样可用；终端启动和可见登录窗口需要服务器本身有桌面会话，没有时界面隐藏这些入口。服务端没有内置登录鉴权，请绑定回环地址或放在带认证的反向代理之后。完整步骤见[服务端部署](server-deployment.html)。
 

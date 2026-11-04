@@ -82,8 +82,8 @@ const sections = [
   {
     id: "data",
     title: "数据与备份",
-    description: "WebDAV 同步、导出与恢复。",
-    keywords: "数据备份 导出当前配置 从备份恢复 导入 WebDAV 同步 共享资产 云端 加密 冲突 演示数据",
+    description: "云端同步、导出与恢复。",
+    keywords: "数据备份 导出当前配置 从备份恢复 导入 云端同步 WebDAV S3 共享资产 云端 加密 冲突 演示数据",
   },
   {
     id: "about",

@@ -1,4 +1,4 @@
-use super::format::random_id;
+use super::store::{probe_store, Download, RemoteStore};
 use reqwest::{Client, Method, Response, StatusCode, Url};
 
 #[derive(Clone)]
@@ -8,12 +8,6 @@ pub(super) struct DavClient {
     directories: Vec<Url>,
     username: String,
     password: String,
-}
-
-pub(super) enum Download {
-    Missing,
-    Unchanged,
-    Found { bytes: Vec<u8>, etag: String },
 }
 
 fn transport_error(error: reqwest::Error) -> String {
@@ -124,8 +118,19 @@ impl DavClient {
             request.basic_auth(&self.username, Some(&self.password))
         }
     }
+}
 
-    pub async fn ensure_directories(&self) -> Result<(), String> {
+#[async_trait::async_trait]
+impl RemoteStore for DavClient {
+    fn label(&self) -> &'static str {
+        "WebDAV"
+    }
+
+    async fn test(&self) -> Result<(), String> {
+        probe_store(self).await
+    }
+
+    async fn prepare(&self) -> Result<(), String> {
         for url in &self.directories {
             let response = self
                 .request(
@@ -160,7 +165,7 @@ impl DavClient {
         Ok(())
     }
 
-    pub async fn get(
+    async fn get(
         &self,
         file: &str,
         if_none_match: Option<&str>,
@@ -192,8 +197,7 @@ impl DavClient {
         })
     }
 
-    /// false means the remote changed; never retry this write without re-reading.
-    pub async fn put(
+    async fn put(
         &self,
         file: &str,
         bytes: Vec<u8>,
@@ -217,9 +221,9 @@ impl DavClient {
         Ok(true)
     }
 
-    async fn delete_probe(&self, name: &str) -> Result<(), String> {
+    async fn remove(&self, file: &str) -> Result<(), String> {
         let response = self
-            .request(Method::DELETE, self.url(name)?)
+            .request(Method::DELETE, self.url(file)?)
             .send()
             .await
             .map_err(transport_error)?;
@@ -229,70 +233,9 @@ impl DavClient {
             Err(status_error(response.status()))
         }
     }
-
-    /// Check the actual read/write and conditional-write contract using only
-    /// a random temporary object; never change the user's current snapshot.
-    pub async fn test(&self) -> Result<(), String> {
-        self.ensure_directories().await?;
-        let name = format!(".balancehub-probe-{}", random_id()?);
-        let result = self.test_probe(&name).await;
-        let cleanup = self.delete_probe(&name).await;
-        result?;
-        cleanup.map_err(|_| "连接验证通过，但临时探测文件清理失败，请检查删除权限".to_owned())
-    }
-
-    async fn test_probe(&self, name: &str) -> Result<(), String> {
-        let content = b"BalanceHub WebDAV capability probe".to_vec();
-        if !self.put(name, content.clone(), None).await? {
-            return Err("WebDAV 不支持创建同步文件".to_owned());
-        }
-        let mut etag = match self.get(name, None, 1024).await? {
-            Download::Found { bytes, etag } if bytes == content => etag,
-            _ => return Err("WebDAV 写入后读取内容不一致".to_owned()),
-        };
-        if self
-            .put(name, content.clone(), Some("\"balancehub-invalid-etag\""))
-            .await?
-            || self.put(name, content.clone(), None).await?
-        {
-            return Err(
-                "该 WebDAV 服务忽略条件写入，无法防止多设备互相覆盖，请使用支持 If-Match 的服务"
-                    .to_owned(),
-            );
-        }
-        // A timestamp/size ETag can claim to be strong while missing rapid
-        // same-size updates (including encrypted manifests). Check this before
-        // trusting either conditional reads or writes for user data.
-        for marker in *b"123" {
-            let mut replacement = content.clone();
-            replacement[0] = marker;
-            if !self.put(name, replacement.clone(), Some(&etag)).await? {
-                return Err("WebDAV 条件写入验证失败".to_owned());
-            }
-            let next_etag = match self.get(name, None, 1024).await? {
-                Download::Found { bytes, etag: next } if bytes == replacement && next != etag => {
-                    next
-                }
-                Download::Found { bytes, .. } if bytes == replacement => return Err(
-                    "WebDAV 的文件版本标识未随内容变化，无法安全同步；请使用提供可靠强 ETag 的服务"
-                        .to_owned(),
-                ),
-                _ => return Err("WebDAV 条件写入后内容不一致".to_owned()),
-            };
-            if self.put(name, content.clone(), Some(&etag)).await? {
-                return Err("WebDAV 接受了过期的文件版本，无法安全协调多设备同步".to_owned());
-            }
-            match self.get(name, Some(&etag), 1024).await? {
-                Download::Found { bytes, .. } if bytes == replacement => {}
-                _ => return Err("WebDAV 条件读取未返回最新内容，无法安全同步".to_owned()),
-            }
-            etag = next_etag;
-        }
-        Ok(())
-    }
 }
 
-async fn read_response(mut response: Response, limit: usize) -> Result<Vec<u8>, String> {
+pub(super) async fn read_response(mut response: Response, limit: usize) -> Result<Vec<u8>, String> {
     if response
         .content_length()
         .is_some_and(|size| size > limit as u64)

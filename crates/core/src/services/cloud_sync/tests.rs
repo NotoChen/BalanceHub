@@ -7,7 +7,8 @@ use super::{
         self, Baseline, Entry, Manifest, SyncDocument, SyncDocuments, MAX_HEAD_BYTES, VERSION,
     },
     merge, projection,
-    transport::{DavClient, Download},
+    store::Download,
+    transport::DavClient,
 };
 use crate::models::*;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -226,6 +227,54 @@ fn portable_projection_retains_local_sessions_and_excludes_automatic_execution_a
 }
 
 #[test]
+fn s3_settings_keep_secrets_private_and_rebaseline_per_bucket() {
+    let saved = Settings {
+        backend: CloudSyncBackend::S3,
+        s3_endpoint: "https://s3.example.net".to_owned(),
+        s3_region: "auto".to_owned(),
+        s3_bucket: "balancehub-data".to_owned(),
+        s3_access_key: "fixture-access".to_owned(),
+        s3_secret_key: "fixture-secret".to_owned(),
+        passphrase: PASSPHRASE.to_owned(),
+        ..Settings::default()
+    };
+    let input = CloudSyncSettingsInput {
+        backend: CloudSyncBackend::S3,
+        remote_root: saved.remote_root.clone(),
+        s3_endpoint: saved.s3_endpoint.clone(),
+        s3_region: saved.s3_region.clone(),
+        s3_bucket: saved.s3_bucket.clone(),
+        s3_access_key: saved.s3_access_key.clone(),
+        device_name: "Device A".to_owned(),
+        ..CloudSyncSettingsInput::default()
+    };
+    let updated = saved.update(input.clone()).unwrap();
+    assert_eq!(updated.s3_secret_key, saved.s3_secret_key);
+    let public = serde_json::to_string(&updated.view()).unwrap();
+    assert!(!public.contains("fixture-secret"));
+    assert!(public.contains("balancehub-data"));
+    assert!(!public.contains(PASSPHRASE));
+    assert!(saved
+        .update(CloudSyncSettingsInput {
+            s3_bucket: "another-bucket".to_owned(),
+            ..input.clone()
+        })
+        .is_err());
+    let moved = saved
+        .update(CloudSyncSettingsInput {
+            s3_bucket: "another-bucket".to_owned(),
+            s3_secret_key: Some("fixture-secret".to_owned()),
+            ..input
+        })
+        .unwrap();
+    assert_ne!(moved.space_id().unwrap(), saved.space_id().unwrap());
+    assert_ne!(
+        moved.verification_id().unwrap(),
+        saved.verification_id().unwrap()
+    );
+}
+
+#[test]
 fn settings_secrets_are_preserved_only_for_the_same_account_and_are_never_in_views() {
     let saved = Settings {
         server_url: "https://dav.fixture.invalid/".to_owned(),
@@ -335,14 +384,16 @@ impl Device {
         };
         Engine {
             root: self.root.path().to_path_buf(),
-            dav: DavClient::new(
-                crate::network::build_sync_client(&preferences).unwrap(),
-                &test_url(),
-                &self.space,
-                "balancehub-fixture",
-                "balancehub-fixture-password",
-            )
-            .unwrap(),
+            store: Arc::new(
+                DavClient::new(
+                    crate::network::build_sync_client(&preferences).unwrap(),
+                    &test_url(),
+                    &self.space,
+                    "balancehub-fixture",
+                    "balancehub-fixture-password",
+                )
+                .unwrap(),
+            ),
             passphrase: PASSPHRASE.to_owned(),
             device: self.name.clone(),
             replica: self.replica.clone(),
@@ -398,7 +449,7 @@ async fn real_dav_two_devices_merge_restart_deletion_and_stale_preview() {
     let a = Device::new("Device A", &space, BTreeMap::new());
     a.set("setting/themeMode", "主题", json!("dark"));
     let engine = a.engine();
-    engine.dav.test().await.unwrap();
+    engine.store.test().await.unwrap();
     let prepared = Arc::new(engine.prepare().await.unwrap());
     assert!(prepared.review().unwrap().initial);
     assert_eq!(prepared.review().unwrap().changes.len(), 1);
@@ -508,7 +559,7 @@ fn skill_documents(text: &str) -> SyncDocuments {
 async fn real_dav_skill_file_incremental_encryption_and_diff() {
     let space = space();
     let a = Device::new("Device A", &space, skill_documents("printf fixture-one\n"));
-    a.engine().dav.test().await.unwrap();
+    a.engine().store.test().await.unwrap();
     assert_eq!(a.sync(&[]).await.unwrap().uploaded, 3);
     let b = Device::new("Device B", &space, BTreeMap::new());
     assert_eq!(b.sync(&[]).await.unwrap().downloaded, 3);
@@ -526,7 +577,7 @@ async fn real_dav_skill_file_incremental_encryption_and_diff() {
     assert_eq!(a.documents(), b.documents());
     let Download::Found { bytes, .. } = a
         .engine()
-        .dav
+        .store
         .get("head.json", None, MAX_HEAD_BYTES)
         .await
         .unwrap()
@@ -541,7 +592,7 @@ async fn real_dav_skill_file_incremental_encryption_and_diff() {
         if let Some(id) = &entry.object {
             let Download::Found { bytes, .. } = a
                 .engine()
-                .dav
+                .store
                 .get(&format!("objects/{id}"), None, 1024 * 1024)
                 .await
                 .unwrap()
@@ -559,7 +610,7 @@ async fn real_dav_faults_keep_valid_head_and_local_data_recoverable() {
     let space = space();
     let a = Device::new("Device A", &space, BTreeMap::new());
     a.set("setting/themeMode", "主题", json!("dark"));
-    a.engine().dav.test().await.unwrap();
+    a.engine().store.test().await.unwrap();
     a.sync(&[]).await.unwrap();
     let b = Device::new("Device B", &space, BTreeMap::new());
     b.sync(&[]).await.unwrap();
@@ -615,7 +666,7 @@ async fn real_dav_rejects_ignored_conditions_and_honors_cas_and_unicode_director
     fault(&unsafe_space, Some("ignore_conditions"), 0).await;
     assert!(unsafe_device
         .engine()
-        .dav
+        .store
         .test()
         .await
         .unwrap_err()
@@ -624,7 +675,7 @@ async fn real_dav_rejects_ignored_conditions_and_honors_cas_and_unicode_director
     fault(&unsafe_space, Some("coarse_etag"), 0).await;
     assert!(unsafe_device
         .engine()
-        .dav
+        .store
         .test()
         .await
         .unwrap_err()
@@ -633,26 +684,31 @@ async fn real_dav_rejects_ignored_conditions_and_honors_cas_and_unicode_director
     let directory = format!("{}/中文目录 with space/设备", space());
     let device = Device::new("Fixture", &directory, BTreeMap::new());
     let engine = device.engine();
-    engine.dav.test().await.unwrap();
+    engine.store.test().await.unwrap();
     assert!(engine
-        .dav
+        .store
         .put("cas-test", b"first".to_vec(), None)
         .await
         .unwrap());
-    let Download::Found { etag, .. } = engine.dav.get("cas-test", None, 1024).await.unwrap() else {
+    let Download::Found { etag, .. } = engine.store.get("cas-test", None, 1024).await.unwrap()
+    else {
         panic!("missing CAS fixture");
     };
     assert!(matches!(
-        engine.dav.get("cas-test", Some(&etag), 1024).await.unwrap(),
+        engine
+            .store
+            .get("cas-test", Some(&etag), 1024)
+            .await
+            .unwrap(),
         Download::Unchanged
     ));
     assert!(engine
-        .dav
+        .store
         .put("cas-test", b"second-version".to_vec(), Some(&etag))
         .await
         .unwrap());
     assert!(!engine
-        .dav
+        .store
         .put("cas-test", b"lost-update".to_vec(), Some(&etag))
         .await
         .unwrap());

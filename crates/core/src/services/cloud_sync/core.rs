@@ -6,7 +6,7 @@ use super::{
         MAX_OBJECT_BYTES, VERSION,
     },
     merge,
-    transport::{DavClient, Download},
+    store::{Download, RemoteStore},
 };
 use crate::models::{CloudSyncPhase, CloudSyncResolution, CloudSyncReview};
 use futures_util::{stream, StreamExt, TryStreamExt};
@@ -100,7 +100,7 @@ impl Control {
 
 pub(super) struct Engine {
     pub root: PathBuf,
-    pub dav: DavClient,
+    pub store: Arc<dyn RemoteStore>,
     pub passphrase: String,
     pub device: String,
     pub replica: Arc<dyn Replica>,
@@ -151,7 +151,7 @@ impl Engine {
             return Ok(false);
         };
         match self
-            .dav
+            .store
             .get("head.json", Some(etag), MAX_HEAD_BYTES)
             .await?
         {
@@ -182,7 +182,7 @@ impl Engine {
             files::read_json(&self.root.join("baseline.json"))?.unwrap_or_default();
         let cached_etag = baseline.head.as_ref().and(baseline.etag.as_deref());
         let (head, etag) = match self
-            .dav
+            .store
             .get("head.json", cached_etag, MAX_HEAD_BYTES)
             .await?
         {
@@ -287,7 +287,7 @@ impl Engine {
             (bytes, 0)
         } else {
             match self
-                .dav
+                .store
                 .get(&format!("objects/{object}"), None, MAX_OBJECT_BYTES)
                 .await?
             {
@@ -317,7 +317,7 @@ impl Engine {
             return Err("本地配置在预览后已变化，请重新同步获取最新差异".to_owned());
         }
         match self
-            .dav
+            .store
             .get("head.json", prepared.etag.as_deref(), MAX_HEAD_BYTES)
             .await?
         {
@@ -394,12 +394,12 @@ impl Engine {
                     let count = bytes.len() as u64;
                     files::write_bytes(&self.root.join("cache").join(&object), &bytes)?;
                     let created = self
-                        .dav
+                        .store
                         .put(&format!("objects/{object}"), bytes, None)
                         .await?;
                     if !created {
                         match self
-                            .dav
+                            .store
                             .get(&format!("objects/{object}"), None, MAX_OBJECT_BYTES)
                             .await?
                         {
@@ -457,13 +457,13 @@ impl Engine {
                 stats.clone(),
             );
             if !self
-                .dav
+                .store
                 .put("head.json", bytes, prepared.etag.as_deref())
                 .await?
             {
                 return Err("其他设备刚刚更新了云端，已保留双方数据；请重新同步".to_owned());
             }
-            let etag = match self.dav.get("head.json", None, MAX_HEAD_BYTES).await? {
+            let etag = match self.store.get("head.json", None, MAX_HEAD_BYTES).await? {
                 Download::Found { bytes, etag } if format::digest(&bytes) == digest => Some(etag),
                 _ => None,
             };

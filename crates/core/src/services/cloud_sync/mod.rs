@@ -8,6 +8,8 @@ pub mod library;
 mod local;
 mod merge;
 mod projection;
+mod s3;
+mod store;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -28,6 +30,7 @@ use std::{
     },
     time::SystemTime,
 };
+use store::RemoteStore;
 
 /// 进程内唯一的同步信号：宿主在配置落盘后调用 `changed()`，后台任务据此判断
 /// 是否需要重新同步。桌面与服务端共用同一个实例，不需要各自注册。
@@ -240,7 +243,7 @@ impl CloudSyncService {
                 inner.settings.ready()?;
             }
             if matches!(action, Action::Test) {
-                transport::normalize_url(&inner.settings.server_url, &inner.settings.remote_root)?;
+                inner.settings.validate_remote()?;
             }
             let pending = if let Action::Confirm {
                 review_id,
@@ -476,20 +479,33 @@ impl CloudSyncService {
         let root = self.root.join("replicas").join(settings.space_id()?);
         let passphrase = settings.passphrase.clone();
         let device = settings.device_name.clone();
-        let dav = crate::runtime::spawn_blocking(move || {
+        let store = crate::runtime::spawn_blocking(move || {
             let preferences = crate::host::core_state()
                 .data
                 .read()
                 .map_err(|_| "本机网络设置不可用")?
                 .settings
                 .clone();
-            transport::DavClient::new(
-                crate::network::build_sync_client(&preferences)?,
-                &settings.server_url,
-                &settings.remote_root,
-                &settings.username,
-                &settings.password,
-            )
+            let client = crate::network::build_sync_client(&preferences)?;
+            let store: Arc<dyn RemoteStore> = match settings.backend {
+                CloudSyncBackend::Webdav => Arc::new(transport::DavClient::new(
+                    client,
+                    &settings.server_url,
+                    &settings.remote_root,
+                    &settings.username,
+                    &settings.password,
+                )?),
+                CloudSyncBackend::S3 => Arc::new(s3::S3Store::new(
+                    client,
+                    &settings.s3_endpoint,
+                    &settings.s3_bucket,
+                    &settings.remote_root,
+                    &settings.s3_region,
+                    &settings.s3_access_key,
+                    &settings.s3_secret_key,
+                )?),
+            };
+            Ok::<_, String>(store)
         })
         .await
         .map_err(|_| "初始化同步网络任务异常")??;
@@ -497,7 +513,7 @@ impl CloudSyncService {
         let progress_id = task_id.to_owned();
         Ok(Engine {
             root,
-            dav,
+            store,
             passphrase,
             device,
             control,

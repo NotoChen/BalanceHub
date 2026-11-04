@@ -103,7 +103,7 @@ export function useCloudSync(onApplied: () => Promise<unknown>) {
       {
         id: status.taskId,
         kind: "cloudSync",
-        title: "WebDAV 同步",
+        title: "云端同步",
         detail: status.message,
         status: taskStatus,
         progress: status.progress,

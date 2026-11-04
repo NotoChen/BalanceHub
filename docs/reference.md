@@ -15,8 +15,8 @@ Agent 工作台相关条目描述当前仓库源码，操作步骤见 [Agent 工
 
 | 功能 | 定义 | 实现位置 | 说明 |
 | --- | --- | --- | --- |
-| WebDAV 配置同步 | 加密同步中转站、可移植偏好与共享 Skill、MCP、Hook。 | `crates/core/src/services/cloud_sync/`、`src/components/settings/SettingsCloudSyncSection.vue` | 按条目与文件增量同步，首次差异和冲突使用 diff 确认；[连接与恢复说明](webdav-sync.html)。 |
-| 无界面后端 | 把同一套界面部署为可用浏览器访问的服务端，不依赖桌面窗口。 | `crates/server/`、`src/api/transport.ts` | 通过 `POST /rpc` 与 `GET /events` 执行与桌面相同的命令，启动时注册 Agent 命令并按设置运行自动刷新、签到、测活与 WebDAV 同步；数据目录由环境变量指定。[部署方式](server-deployment.html)。 |
+| 云端配置同步 | 通过 WebDAV 或 S3 兼容存储加密同步中转站、可移植偏好与共享 Skill、MCP、Hook。 | `crates/core/src/services/cloud_sync/`、`src/components/settings/SettingsCloudSyncSection.vue` | 按条目与文件增量同步，首次差异和冲突使用 diff 确认；[连接与恢复说明](webdav-sync.html)。 |
+| 无界面后端 | 把同一套界面部署为可用浏览器访问的服务端，不依赖桌面窗口。 | `crates/server/`、`src/api/transport.ts` | 通过 `POST /rpc` 与 `GET /events` 执行与桌面相同的命令，启动时注册 Agent 命令并按设置运行自动刷新、签到、测活与云端同步；数据目录由环境变量指定。[部署方式](server-deployment.html)。 |
 | 中转站账号管理 | 把 NewAPI、Sub2API 和通用 OpenAI 兼容 API 集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`crates/core/src/services/provider_service/` | 卡片按账号或 API Key 口径显示余额：Key 卡展示该 Key 的可用额度、无限额度与同步时间，剩余额度与 OAuth 额度窗口共用 70% / 90% 告警分级；账号卡在站点报告订阅进度时，用每个窗口一条进度条（已用比例）替代钱包比例条。AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
 | OAuth 账号与 CPA | 在独立卡片查看 Codex、Claude、Gemini CLI、Grok 的套餐、额度和动态模型，并连接 CPA 管理授权。 | `crates/core/src/adapters/oauth/`、`crates/core/src/adapters/cli_proxy_api.rs`、`crates/core/src/services/oauth_accounts/`、`crates/core/src/api/oauth.rs`、`src/components/oauth/` | 浏览器授权、单账号续期、文件预览与互通；桌面把授权页交给系统浏览器，浏览器版在同一浏览器的新标签页打开，服务端回环不到用户浏览器时把完整回调地址粘回来即可。浏览器版导入上传文件文本、导出直接下载授权 JSON，服务端不接收客户端文件路径。OAuth 授权续期在服务端以服务端自己的设备标识执行。[支持范围与使用方式](oauth-accounts.html)。 |
 | 认证方式管理 | 按协议保存账号密码、Cookie、访问令牌、Refresh Token、API Key 等认证信息。 | `src/stores/provider-types.ts`、`crates/core/src/models/`、`crates/core/src/adapters/` | NewAPI / Sub2API 默认账号密码；通用 API 只使用 API Key。 |

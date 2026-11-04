@@ -119,10 +119,10 @@ impl CloudSyncService {
             self.progress(
                 task_id,
                 CloudSyncPhase::Checking,
-                "正在验证 WebDAV 读写与多设备同步能力",
+                "正在验证云端读写与多设备同步能力",
                 TransferStats::default(),
             );
-            engine.dav.test().await?;
+            engine.store.test().await?;
             self.lock().verified = Some(verification);
         }
         if matches!(action, Action::Test) {

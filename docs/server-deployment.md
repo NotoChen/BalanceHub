@@ -10,7 +10,7 @@ page_class: document-page
 BalanceHub 有两种运行形态：
 
 - **桌面版**：安装包启动，带 Tauri 窗口，管理本机 Agent CLI、终端和浏览器登录。
-- **无界面后端**：`balancehub-server` 常驻运行，托管前端页面，用浏览器访问。额度刷新、签到、WebDAV 同步、OAuth / CPA 管理、站点浏览器登录以及 Agent 工作台都在服务端执行，后者只需要服务器上装了对应 CLI。
+- **无界面后端**：`balancehub-server` 常驻运行，托管前端页面，用浏览器访问。额度刷新、签到、云端同步、OAuth / CPA 管理、站点浏览器登录以及 Agent 工作台都在服务端执行，后者只需要服务器上装了对应 CLI。
 
 两种形态共用 `balancehub-core` 与 `balancehub-agent` 的实现和同一份配置格式；差别只在需要桌面窗口的入口，由运行环境决定是否展示。
 
@@ -78,7 +78,7 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
 | --- | --- | --- |
 | `BALANCEHUB_ROOT` | `~/.balancehub` | 数据目录根。其余目录默认都落在它下面。 |
 | `BALANCEHUB_DATA_DIR` | `$BALANCEHUB_ROOT` | 配置文件、备份与浏览器组件目录。 |
-| `BALANCEHUB_CONFIG_DIR` | `$BALANCEHUB_ROOT/config` | WebDAV 同步状态等宿主配置。 |
+| `BALANCEHUB_CONFIG_DIR` | `$BALANCEHUB_ROOT/config` | 云端同步状态等宿主配置。 |
 | `BALANCEHUB_CACHE_DIR` | `$BALANCEHUB_ROOT/cache` | 临时缓存。 |
 | `BALANCEHUB_SERVER_ADDR` | `127.0.0.1:8787` | 监听地址。容器或局域网访问时改为 `0.0.0.0:8787`。 |
 | `BALANCEHUB_WEB_DIR` | 可执行文件旁的 `web/`，否则仓库 `dist/` | 前端静态文件目录。 |
@@ -89,7 +89,7 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
 
 - `data.json`：中转站、OAuth 账号、CPA 网关与设置。
 - `data.json.v{N}.bak`：配置迁移前的原文件备份。
-- `oauth-device-id`：本机（本服务端）的续期设备标识，不参与 WebDAV 同步。
+- `oauth-device-id`：本机（本服务端）的续期设备标识，不参与云端同步。
 - `components/checkin-browser/`：签到用的浏览器组件，首次安装时才会下载。
 
 **同一份数据目录只能由一个进程使用。** 写入互斥是进程内的；桌面版与服务端同时指向同一目录会互相覆盖。
@@ -166,7 +166,7 @@ server {
 
 ## 能力边界
 
-服务端提供：中转站与 API Key 管理、额度与用量、连接测试、签到、WebDAV 同步、OAuth 账号、CPA 网关、配置导入导出、站点公告，以及 **Agent 工作台**——CLI 发现、配置读写、会话检索、共享资产、MCP / Hook 管理与自动升级，只要服务器上装了对应 CLI 就能用。
+服务端提供：中转站与 API Key 管理、额度与用量、连接测试、签到、云端同步、OAuth 账号、CPA 网关、配置导入导出、站点公告，以及 **Agent 工作台**——CLI 发现、配置读写、会话检索、共享资产、MCP / Hook 管理与自动升级，只要服务器上装了对应 CLI 就能用。
 
 按运行环境自动判断：
 
@@ -180,7 +180,7 @@ server {
 
 - 服务端没有内置登录与鉴权，按单人自用设计。请绑定回环地址，或放在带认证的反向代理之后，不要直接暴露到公网。
 - 配置里包含账号凭据与授权令牌，`data.json` 与备份应按秘密数据保护，卷不要共享给其他服务。
-- 升级前先备份：桌面与服务端都支持导出完整配置；也可以使用 WebDAV 同步保留一份云端副本。
+- 升级前先备份：桌面与服务端都支持导出完整配置；也可以使用云端同步保留一份云端副本。
 - 替换可执行文件或镜像后重启即可；配置文件由 schema 迁移自动升级，原文件会留在同目录的 `data.json.v{N}.bak`。
 
 ## 排错
