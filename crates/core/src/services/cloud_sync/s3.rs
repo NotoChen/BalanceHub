@@ -96,7 +96,7 @@ pub(super) fn normalize_endpoint(raw: &str, region: &str) -> Result<Url, String>
     } else {
         raw.to_owned()
     };
-    let mut url = Url::parse(&raw).map_err(|_| "请输入有效的 S3 服务地址")?;
+    let url = Url::parse(&raw).map_err(|_| "请输入有效的 S3 服务地址")?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
