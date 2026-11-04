@@ -21,7 +21,7 @@ argon2 = "0.5"
 chacha20poly1305 = "0.10"
 flate2 = "1"
 tar = "0.4"
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 log = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 async-trait = "0.1"
