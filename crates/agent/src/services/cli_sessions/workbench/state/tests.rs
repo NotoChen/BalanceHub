@@ -132,6 +132,7 @@ fn transcript(root: &Path, session: &str) -> Arc<Transcript> {
         path,
         parser_version: 1,
         format: SessionTranscriptFormat::JsonLines,
+        window_safe: true,
         decode,
     };
     let budget = SessionReadBudget::new(
@@ -140,6 +141,13 @@ fn transcript(root: &Path, session: &str) -> Arc<Transcript> {
         u64::MAX,
     );
     Arc::new(Transcript::from_sources("workspace", session, &[source], &budget).unwrap())
+}
+
+#[test]
+fn every_source_shares_one_transcript_budget() {
+    let first = shared_transcripts();
+    let second = shared_transcripts();
+    assert!(first.shares_budget_with(&second));
 }
 
 #[test]

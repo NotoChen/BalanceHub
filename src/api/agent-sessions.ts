@@ -1,7 +1,10 @@
 import type {
   AgentSessionMessageRequest,
   AgentSessionMessageContent,
-} from "../stores/session-reader-types";import { invoke } from "./transport.ts";
+  AgentSessionSearchRequest,
+  AgentSessionSearchResult,
+} from "../stores/session-reader-types";
+import { invoke } from "./transport.ts";
 import type {
   AgentSessionCancelRequest,
   AgentSessionCountRequest,
@@ -42,6 +45,10 @@ export function getAgentSessionMessageContent(
   );
 }
 
+export function searchAgentSession(request: AgentSessionSearchRequest) {
+  return invoke<AgentSessionSearchResult>("search_agent_session", { request });
+}
+
 export function cancelAgentSessionQuery(request: AgentSessionCancelRequest) {
   return invoke<void>("cancel_agent_session_query", { request });
 }
@@ -50,6 +57,7 @@ export const agentSessionQueryApi = {
   scope: getAgentSessionScope,
   query: queryAgentSessions,
   detail: getAgentSessionDetail,
+  search: searchAgentSession,
   message: getAgentSessionMessageContent,
   cancel: cancelAgentSessionQuery,
 };

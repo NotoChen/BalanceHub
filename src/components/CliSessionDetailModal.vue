@@ -4,6 +4,7 @@ import type { AgentSessionRow } from "../stores/agent-session-types";
 import type {
   SessionMessageLoadState,
   SessionReaderNavigation,
+  SessionReaderSearchState,
 } from "../stores/session-reader-types";
 import SessionReader from "./agent-workspace/SessionReader.vue";
 defineProps<{
@@ -15,6 +16,7 @@ defineProps<{
   query: string;
   paused: boolean;
   messageStates: Record<string, SessionMessageLoadState>;
+  sessionSearch: SessionReaderSearchState;
 }>();
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
@@ -23,6 +25,10 @@ const emit = defineEmits<{
   expand: [id: string, fromStart: boolean];
   pause: [];
   retry: [];
+  searchAll: [];
+  continueSearch: [];
+  stopSearch: [];
+  clearSearch: [];
 }>();
 </script>
 <template>
@@ -47,11 +53,16 @@ const emit = defineEmits<{
       :query="query"
       :paused="paused"
       :message-states="messageStates"
+      :session-search="sessionSearch"
       @parent="emit('parent', $event)"
       @navigate="emit('navigate', $event)"
       @expand="(id, fromStart) => emit('expand', id, fromStart)"
       @pause="emit('pause')"
       @retry="emit('retry')"
+      @search-all="emit('searchAll')"
+      @continue-search="emit('continueSearch')"
+      @stop-search="emit('stopSearch')"
+      @clear-search="emit('clearSearch')"
     />
   </a-modal>
 </template>

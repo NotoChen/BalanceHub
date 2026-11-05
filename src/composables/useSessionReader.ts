@@ -9,10 +9,12 @@ import type {
   AgentSessionMessageContent,
   SessionMessageLoadState,
   SessionReaderNavigation,
+  SessionReaderSearchState,
 } from "../stores/session-reader-types";
 import { withTimeout } from "../utils/promise-timeout.ts";
 
 const READ_TIMEOUT = 25_000;
+const SEARCH_TIMEOUT = 55_000;
 interface ReaderOptions {
   api: AgentSessionQueryApi;
   instance: string;
@@ -22,6 +24,19 @@ interface ReaderOptions {
   query: Ref<string>;
   contextKey: Ref<string>;
   parentRevision: (sessionRef: string) => number;
+}
+
+function emptySearch(): SessionReaderSearchState {
+  return {
+    query: "",
+    hits: [],
+    nextCursor: null,
+    scannedWindows: 0,
+    totalWindows: 0,
+    complete: false,
+    loading: false,
+    error: "",
+  };
 }
 
 /** Independent, cancellable lifetime shared by the history page and CLI picker. */
@@ -38,10 +53,14 @@ export function useSessionReader(options: ReaderOptions) {
   );
   const detail = computed(() => detailResult.value?.detail ?? null);
   const messageStates = shallowRef<Record<string, SessionMessageLoadState>>({});
+  const sessionSearch = shallowRef<SessionReaderSearchState>(emptySearch());
   const consumerId = `agent-session-detail-${options.instance}`;
+  const searchConsumerId = `${consumerId}-search`;
   let sequence = 0;
   let generation = 0;
+  let searchGeneration = 0;
   let pending: number | null = null;
+  let searchPending: number | null = null;
   let sessionRef = "";
   let navigation: SessionReaderNavigation = {};
   let timer: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -58,6 +77,17 @@ export function useSessionReader(options: ReaderOptions) {
       "取消读取超时",
     ).catch(() => undefined);
   }
+  function stopSessionSearch() {
+    searchGeneration += 1;
+    if (searchPending !== null) cancel(searchConsumerId, searchPending);
+    searchPending = null;
+    if (sessionSearch.value.loading)
+      sessionSearch.value = { ...sessionSearch.value, loading: false };
+  }
+  function resetSessionSearch() {
+    stopSessionSearch();
+    sessionSearch.value = emptySearch();
+  }
   function stop() {
     generation += 1;
     if (timer !== null) globalThis.clearTimeout(timer);
@@ -69,9 +99,11 @@ export function useSessionReader(options: ReaderOptions) {
     messageRequests.clear();
     messageStates.value = {};
     detailLoading.value = false;
+    stopSessionSearch();
   }
   function closeDetail() {
     stop();
+    resetSessionSearch();
     expandedMessages.clear();
     sessionRef = "";
     detailVisible.value = false;
@@ -233,18 +265,136 @@ export function useSessionReader(options: ReaderOptions) {
   }
   async function navigateDetail(next: SessionReaderNavigation) {
     stop();
+    if (
+      next.query !== undefined &&
+      next.query.trim() !== sessionSearch.value.query
+    )
+      resetSessionSearch();
     detailPaused.value = false;
     navigation = next;
     if (next.query !== undefined) detailQuery.value = next.query;
     await read();
   }
   function refreshDetail() {
+    const page = detail.value?.page;
     return navigateDetail({
-      cursor: detail.value?.page.revision,
+      // The newest window follows the file. A bare revision would ask for
+      // the old byte range again and miss records appended since the page
+      // was loaded. Earlier windows keep their stable revision.
+      cursor:
+        page?.window && !page.window.hasLater
+          ? `${page.revision}:latest`
+          : page?.revision,
       anchor:
         detail.value?.find.activeMessageId ?? detail.value?.messages[0]?.id,
       query: detailQuery.value,
     });
+  }
+
+  async function searchAllSession(resume = false) {
+    const scopeRevision = options.scope.value?.revision;
+    const target = sessionRef;
+    const query = detailQuery.value.trim();
+    if (
+      !scopeRevision ||
+      !target ||
+      !query ||
+      !options.active.value ||
+      !detailVisible.value
+    )
+      return;
+    const previous = sessionSearch.value;
+    const continuing =
+      resume &&
+      previous.query === query &&
+      !previous.complete &&
+      previous.nextCursor !== null;
+    const hits = continuing ? [...previous.hits] : [];
+    let cursor = continuing ? previous.nextCursor : null;
+    let scanned = continuing ? previous.scannedWindows : 0;
+    let total = continuing ? previous.totalWindows : 0;
+    // Starting over must also retire a request whose page is still in flight.
+    if (searchPending !== null) cancel(searchConsumerId, searchPending);
+    searchPending = null;
+    const token = ++searchGeneration;
+    sessionSearch.value = {
+      query,
+      hits,
+      nextCursor: cursor,
+      scannedWindows: scanned,
+      totalWindows: total,
+      complete: false,
+      loading: true,
+      error: "",
+    };
+    const current = () =>
+      token === searchGeneration &&
+      target === sessionRef &&
+      detailVisible.value &&
+      options.active.value &&
+      scopeRevision === options.scope.value?.revision;
+    try {
+      while (current()) {
+        const requestId = ++sequence;
+        searchPending = requestId;
+        const result = await withTimeout(
+          options.api.search({
+            consumerId: searchConsumerId,
+            requestId,
+            scopeRevision,
+            sessionRef: target,
+            query,
+            cursor,
+          }),
+          SEARCH_TIMEOUT,
+          "整段会话搜索超时，可以停止后重试",
+        );
+        if (!current()) return;
+        searchPending = null;
+        const seen = new Set(
+          hits.map((hit) => `${hit.cursor}\u0000${hit.messageId}`),
+        );
+        for (const hit of result.hits) {
+          const key = `${hit.cursor}\u0000${hit.messageId}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            hits.push(hit);
+          }
+        }
+        scanned += result.scannedWindows;
+        total = Math.max(total, result.totalWindows);
+        cursor = result.nextCursor;
+        sessionSearch.value = {
+          query,
+          hits: [...hits],
+          nextCursor: cursor,
+          scannedWindows: scanned,
+          totalWindows: total,
+          complete: result.complete || cursor === null,
+          loading: !result.complete && cursor !== null,
+          error: "",
+        };
+        if (result.complete || !cursor) break;
+        if (result.scannedWindows === 0)
+          throw new Error("搜索没有前进，请停止后重试");
+      }
+    } catch (error) {
+      if (current()) {
+        if (searchPending !== null)
+          cancel(searchConsumerId, searchPending);
+        searchPending = null;
+        sessionSearch.value = {
+          ...sessionSearch.value,
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    } finally {
+      if (token === searchGeneration) {
+        searchPending = null;
+        sessionSearch.value = { ...sessionSearch.value, loading: false };
+      }
+    }
   }
 
   async function expandMessage(messageId: string, fromStart = false) {
@@ -386,11 +536,15 @@ export function useSessionReader(options: ReaderOptions) {
     detailRow,
     detail,
     messageStates,
+    sessionSearch,
     openDetail,
     closeDetail,
     navigateDetail,
     refreshDetail,
     pauseDetail,
     expandMessage,
+    searchAllSession,
+    stopSessionSearch,
+    resetSessionSearch,
   };
 }

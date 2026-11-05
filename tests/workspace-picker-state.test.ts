@@ -627,6 +627,9 @@ function historyApi(
     detail: async () => {
       throw new Error("unexpected detail read");
     },
+    search: async () => {
+      throw new Error("unexpected session search");
+    },
     message: async () => {
       throw new Error("unexpected message read");
     },

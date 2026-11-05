@@ -175,6 +175,9 @@ fn transcript(record: &SessionHistoryRecord) -> Result<Vec<SessionTranscriptSour
                 path,
                 parser_version: INDEX_PARSER_VERSION,
                 format: SessionTranscriptFormat::JsonLines,
+                // updates.jsonl streams message chunks; a byte window would
+                // start in the middle of an Append-based message.
+                window_safe: name == "chat_history.jsonl",
                 decode,
             });
         }

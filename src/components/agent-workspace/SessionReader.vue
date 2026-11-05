@@ -17,8 +17,10 @@ import { Message } from "@arco-design/web-vue";
 import type { CliSessionDetail } from "../../stores/provider-types";
 import type { AgentSessionRow } from "../../stores/agent-session-types";
 import type {
+  AgentSessionSearchHit,
   SessionMessageLoadState,
   SessionReaderNavigation,
+  SessionReaderSearchState,
 } from "../../stores/session-reader-types";
 import { copyText } from "../../composables/useClipboard";
 import { formatFileSize } from "../../utils/file-size";
@@ -41,9 +43,22 @@ const props = withDefaults(
     query: string;
     paused: boolean;
     messageStates: Record<string, SessionMessageLoadState>;
+    sessionSearch: SessionReaderSearchState;
     showBack?: boolean;
   }>(),
-  { showBack: false },
+  {
+    showBack: false,
+    sessionSearch: (): SessionReaderSearchState => ({
+      query: "",
+      hits: [],
+      nextCursor: null,
+      scannedWindows: 0,
+      totalWindows: 0,
+      complete: false,
+      loading: false,
+      error: "",
+    }),
+  },
 );
 const emit = defineEmits<{
   close: [];
@@ -52,6 +67,10 @@ const emit = defineEmits<{
   pause: [];
   retry: [];
   parent: [sessionRef: string];
+  searchAll: [];
+  continueSearch: [];
+  stopSearch: [];
+  clearSearch: [];
 }>();
 const session = computed(
   () => props.detail?.session ?? props.sessionRow?.session ?? null,
@@ -91,6 +110,22 @@ const virtualRows = computed(() => virtual.value.getVirtualItems());
 const outlineRows = computed(() => outlineVirtual.value.getVirtualItems());
 const find = computed(() => props.detail?.find);
 const page = computed(() => props.detail?.page);
+const windowed = computed(() => Boolean(page.value?.window));
+const fragmentProgress = computed(() => {
+  const window = page.value?.window;
+  if (!window || window.fileBytes <= 0) return 0;
+  return Math.min(100, Math.round((window.end / window.fileBytes) * 100));
+});
+const displayedSearchHits = computed(() =>
+  props.sessionSearch.hits.slice(0, 200),
+);
+function jumpToSearchHit(hit: AgentSessionSearchHit) {
+  emit("navigate", {
+    cursor: hit.cursor,
+    anchor: hit.messageId,
+    query: props.sessionSearch.query,
+  });
+}
 const matchLabel = computed(() =>
   searchDraft.value.trim() !== props.query.trim()
     ? "输入中"
@@ -104,7 +139,9 @@ const matchLabel = computed(() =>
             : `${find.value.position + 1} / ${find.value.total}`
           : page.value?.indexing
             ? "继续查找中…"
-            : "没有匹配",
+            : windowed.value
+              ? "当前片段没有匹配"
+              : "没有匹配",
 );
 let timer: ReturnType<typeof globalThis.setTimeout> | null = null;
 let focusRevision = 0;
@@ -281,8 +318,8 @@ onScopeDispose(() => {
         size="small"
         allow-clear
         :max-length="200"
-        placeholder="在本会话中搜索"
-        aria-label="搜索当前会话"
+        :placeholder="windowed ? '在当前片段中搜索' : '在本会话中搜索'"
+        :aria-label="windowed ? '搜索当前片段' : '搜索当前会话'"
         @update:model-value="queueSearch"
         @press-enter="!$event.isComposing && match($event.shiftKey ? -1 : 1)"
         ><template #prefix><Search :size="14" /></template
@@ -312,7 +349,94 @@ onScopeDispose(() => {
           <ChevronDown :size="15" />
         </button>
       </div>
+      <button
+        v-if="windowed"
+        type="button"
+        class="session-reader-scope-search"
+        :disabled="
+          !query.trim() ||
+          searchDraft.trim() !== query.trim() ||
+          sessionSearch.loading
+        "
+        title="从最新片段开始，向更早的片段搜索整段会话"
+        @click="emit('searchAll')"
+      >
+        <Search :size="13" />整段
+      </button>
     </div>
+    <section
+      v-if="sessionSearch.query"
+      class="session-reader-session-search"
+      aria-label="整段会话搜索结果"
+    >
+      <header>
+        <div>
+          <strong>整段搜索「{{ sessionSearch.query }}」</strong
+          ><span
+            >{{ sessionSearch.hits.length }} 处匹配 · 已扫描
+            {{ sessionSearch.scannedWindows
+            }}<template v-if="sessionSearch.totalWindows">
+              / 约 {{ sessionSearch.totalWindows }}</template
+            >
+            个片段</span
+          >
+        </div>
+        <div class="session-reader-session-search-actions">
+          <button
+            v-if="sessionSearch.loading"
+            type="button"
+            @click="emit('stopSearch')"
+          >
+            停止</button
+          ><button
+            v-else-if="!sessionSearch.complete"
+            type="button"
+            @click="emit('continueSearch')"
+          >
+            继续</button
+          ><button
+            type="button"
+            aria-label="关闭整段搜索结果"
+            @click="emit('clearSearch')"
+          >
+            关闭
+          </button>
+        </div>
+      </header>
+      <div
+        v-if="sessionSearch.error"
+        class="session-reader-session-search-empty"
+        role="alert"
+      >
+        {{ sessionSearch.error }}
+      </div>
+      <div
+        v-else-if="!sessionSearch.hits.length && sessionSearch.complete"
+        class="session-reader-session-search-empty"
+      >
+        已搜索到文件开头，没有匹配。
+      </div>
+      <ol v-else>
+        <li v-for="hit in displayedSearchHits" :key="`${hit.cursor}:${hit.messageId}`">
+          <button type="button" @click="jumpToSearchHit(hit)">
+            <span class="session-reader-session-search-fragment">{{
+              hit.window
+                ? `片段 ${hit.window.index} / ${hit.window.total}`
+                : "整段"
+            }}</span
+            ><span class="session-reader-session-search-snippet">{{
+              hit.snippet
+            }}</span>
+          </button>
+        </li>
+      </ol>
+      <p
+        v-if="sessionSearch.hits.length > displayedSearchHits.length"
+        class="session-reader-session-search-note"
+      >
+        仅显示前 {{ displayedSearchHits.length }} 处匹配。
+      </p>
+    </section>
     <div v-if="error" class="session-reader-error" role="alert">
       <span>{{ error }}</span
       ><button type="button" @click="emit('retry')">
@@ -350,9 +474,13 @@ onScopeDispose(() => {
       >
         <TriangleAlert :size="14" aria-hidden="true" />
         <span
-          >会话原文较大，当前只读取了其中
-          {{ formatFileSize(page.window.end - page.window.start) }} 的一段（共
-          {{ formatFileSize(page.window.fileBytes) }}），可继续向更早的部分翻阅；搜索仅覆盖当前片段。</span
+          >会话原文较大，当前为{{
+            page.window.hasLater ? "较早" : "最新"
+          }}片段，已读取其中
+          {{ formatFileSize(page.window.end - page.window.start) }}（共
+          {{ formatFileSize(page.window.fileBytes) }}）；{{
+            page.window.hasEarlier ? "可继续向更早的部分翻阅" : "已是文件开头"
+          }}，输入框搜索仅覆盖当前片段，可用「整段」向前搜索。</span
         >
       </div>
       <nav
@@ -362,7 +490,8 @@ onScopeDispose(() => {
         aria-label="会话轮次目录"
       >
         <strong
-          >对话轮次 <span>{{ outline.length }}</span></strong
+          >{{ windowed ? "本片段轮次" : "对话轮次" }}
+          <span>{{ outline.length }}</span></strong
         >
         <div
           :style="{
@@ -433,11 +562,27 @@ onScopeDispose(() => {
     <div v-if="page" class="session-reader-pagebar">
       <label><input v-model="showContext" type="checkbox" />上下文</label>
       <span v-if="page.totalMessages">
-        <template v-if="page.window">片段 </template
+        <template v-if="page.window">本片段 </template
         >{{ page.start + 1 }}–{{ page.start + detail!.messages.length }} /
         {{ page.totalMessages }} 条</span
       >
       <span v-else>0 条消息</span>
+      <span
+        v-if="page.window"
+        class="session-reader-fragment"
+        :title="`片段按 32 MiB 估算，边界会对齐到完整记录；当前已读到文件的 ${fragmentProgress}%`"
+      >
+        <span>片段 {{ page.window.index }} / {{ page.window.total }}</span>
+        <span
+          class="session-reader-fragment-meter"
+          role="progressbar"
+          aria-label="文件片段位置"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="fragmentProgress"
+          ><span :style="{ width: `${fragmentProgress}%` }"></span
+        ></span>
+      </span>
       <div v-if="page.indexing" class="session-reader-indexing" role="status">
         <span>{{ paused ? "读取已暂停" : "正在读取其余内容" }}</span
         ><button
@@ -450,6 +595,15 @@ onScopeDispose(() => {
       </div>
       <div class="session-reader-page-actions">
         <button
+          v-if="page.window?.hasEarlier"
+          type="button"
+          :disabled="loading"
+          @click="
+            emit('navigate', { cursor: `${page.revision}:earliest`, query })
+          "
+        >
+          最早</button
+        ><button
           v-if="page.window?.hasLater"
           type="button"
           :disabled="loading"

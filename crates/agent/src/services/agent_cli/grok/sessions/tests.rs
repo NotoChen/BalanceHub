@@ -264,6 +264,7 @@ fn update_search_merges_streamed_chunks_and_replaces_tool_states() {
         path,
         parser_version: INDEX_PARSER_VERSION,
         format: SessionTranscriptFormat::JsonLines,
+        window_safe: true,
         decode: decoder::update,
     }]);
     assert_eq!(indexed.len(), 2);
@@ -428,6 +429,7 @@ fn chat_history_index_preserves_tool_and_thinking_block_order() {
         path: path.clone(),
         parser_version: INDEX_PARSER_VERSION,
         format: SessionTranscriptFormat::JsonLines,
+        window_safe: true,
         decode: decoder::chat,
     }]);
     use crate::models::SessionMessageKind;
@@ -627,6 +629,7 @@ fn source(
         path: path.into(),
         parser_version: INDEX_PARSER_VERSION,
         format: SessionTranscriptFormat::JsonLines,
+        window_safe: true,
         decode,
     }
 }

@@ -6,6 +6,7 @@ use crate::{
         AgentSessionCancelRequest, AgentSessionCountRequest, AgentSessionCounts,
         AgentSessionDetail, AgentSessionDetailRequest, AgentSessionMessageContent,
         AgentSessionMessageRequest, AgentSessionPage, AgentSessionQuery, AgentSessionScope,
+        AgentSessionSearchRequest, AgentSessionSearchResult,
     },
     services::cli_sessions::workbench::{self, AgentSessionActor},
 };
@@ -98,6 +99,33 @@ pub(crate) async fn get_agent_session_detail(
         Err(_) => {
             cancellation.store(true, Ordering::Release);
             Err("会话详情读取超时，后台读取已取消".into())
+        }
+    }
+}
+
+pub(crate) async fn search_agent_session(
+    actor: String,
+    request: AgentSessionSearchRequest,
+) -> Result<AgentSessionSearchResult, String> {
+    let budget = workbench::begin_request(
+        AgentSessionActor { client: &actor },
+        &request.consumer_id,
+        request.request_id,
+        workbench::SEARCH_TIMEOUT,
+    )?;
+    let cancellation = budget.cancelled.clone();
+    match tokio::time::timeout(
+        workbench::SEARCH_TIMEOUT,
+        blocking("搜索原生会话片段", move || {
+            workbench::search(AgentSessionActor { client: &actor }, &request, &budget)
+        }),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            cancellation.store(true, Ordering::Release);
+            Err("整段会话搜索超时，后台读取已取消".into())
         }
     }
 }

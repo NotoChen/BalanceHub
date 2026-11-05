@@ -359,6 +359,10 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionDetailQuery: sessionHistory.workspaceSessionDetailQuery,
     workspaceSessionDetailPaused: sessionHistory.workspaceSessionDetailPaused,
     workspaceSessionMessageStates: sessionHistory.workspaceSessionMessageStates,
+    workspaceSessionSearch: sessionHistory.workspaceSessionSearch,
+    searchWorkspaceSession: sessionHistory.searchWorkspaceSession,
+    stopWorkspaceSessionSearch: sessionHistory.stopWorkspaceSessionSearch,
+    clearWorkspaceSessionSearch: sessionHistory.clearWorkspaceSessionSearch,
     navigateWorkspaceSessionDetail:
       sessionHistory.navigateWorkspaceSessionDetail,
     expandWorkspaceSessionMessage: sessionHistory.expandWorkspaceSessionMessage,

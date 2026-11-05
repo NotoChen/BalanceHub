@@ -77,6 +77,10 @@ function harness(
       if (overrides.detail) return overrides.detail(request);
       throw new Error("unexpected detail read");
     },
+    search: async (request) => {
+      if (overrides.search) return overrides.search(request);
+      throw new Error("unexpected session search");
+    },
     message: async (request) => {
       if (overrides.message) return overrides.message(request);
       throw new Error("unexpected message read");

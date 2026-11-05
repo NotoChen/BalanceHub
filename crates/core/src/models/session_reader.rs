@@ -70,6 +70,11 @@ pub struct SessionReadWindow {
     /// End of the last decoded record in this window.
     pub end: u64,
     pub file_bytes: u64,
+    /// One-based fragment number. Window boundaries align to records, so this
+    /// is an estimate; the first and last windows are always 1 and `total`.
+    pub index: u64,
+    /// Estimated number of fragments in the file.
+    pub total: u64,
     pub has_earlier: bool,
     pub has_later: bool,
 }
@@ -141,4 +146,40 @@ pub struct AgentSessionMessageContent {
     pub total_chars: usize,
     pub next_offset: Option<usize>,
     pub changes: Vec<SessionFileChange>,
+}
+
+/// Searches the whole source one byte window at a time. `cursor` is opaque to
+/// callers: pass back `next_cursor` to continue towards older fragments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionSearchRequest {
+    pub consumer_id: String,
+    pub request_id: u64,
+    pub scope_revision: String,
+    pub session_ref: String,
+    pub query: String,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionSearchHit {
+    #[serde(flatten)]
+    pub hit: SessionSearchHit,
+    /// Revision of the byte window containing the hit. Opening the reader with
+    /// this cursor and the hit's message as anchor jumps to the exact fragment.
+    pub cursor: String,
+    /// Window facts for labeling the hit; absent when the whole transcript fit.
+    pub window: Option<SessionReadWindow>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionSearchResult {
+    pub hits: Vec<AgentSessionSearchHit>,
+    pub next_cursor: Option<String>,
+    /// Windows decoded by this call, not a session-wide cumulative count.
+    pub scanned_windows: u64,
+    pub total_windows: u64,
+    pub complete: bool,
 }

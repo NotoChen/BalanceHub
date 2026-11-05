@@ -18,6 +18,7 @@ pub(super) fn index_source(path: &Path) -> SessionTranscriptSource {
         path: path.to_path_buf(),
         parser_version: INDEX_PARSER_VERSION,
         format: SessionTranscriptFormat::JsonLines,
+        window_safe: true,
         decode: decoder::decode,
     }
 }

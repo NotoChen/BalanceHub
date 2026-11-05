@@ -30,6 +30,7 @@ impl Fixture {
             path: self.0.join(name),
             parser_version: 1,
             format,
+            window_safe: true,
             decode,
         }
     }

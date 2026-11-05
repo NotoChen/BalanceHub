@@ -32,6 +32,10 @@ export interface SessionReadWindow {
   /** 窗口内最后一条记录的结束位置。 */
   end: number;
   fileBytes: number;
+  /** 从 1 开始的片段序号；窗口边界按完整记录对齐，因此是估算值。 */
+  index: number;
+  /** 文件中的片段总数估算值；首尾片段始终是 1 和 total。 */
+  total: number;
   hasEarlier: boolean;
   hasLater: boolean;
 }
@@ -73,6 +77,37 @@ export interface SessionReaderNavigation {
   anchor?: string | null;
   query?: string;
   matchPosition?: number | null;
+}
+export interface AgentSessionSearchRequest {
+  consumerId: string;
+  requestId: number;
+  scopeRevision: string;
+  sessionRef: string;
+  query: string;
+  cursor: string | null;
+}
+export interface AgentSessionSearchHit extends SessionSearchHit {
+  /** Revision of the fragment containing this hit. */
+  cursor: string;
+  /** Fragment facts for labeling the hit; null for a full-transcript read. */
+  window: SessionReadWindow | null;
+}
+export interface AgentSessionSearchResult {
+  hits: AgentSessionSearchHit[];
+  nextCursor: string | null;
+  scannedWindows: number;
+  totalWindows: number;
+  complete: boolean;
+}
+export interface SessionReaderSearchState {
+  query: string;
+  hits: AgentSessionSearchHit[];
+  nextCursor: string | null;
+  scannedWindows: number;
+  totalWindows: number;
+  complete: boolean;
+  loading: boolean;
+  error: string;
 }
 export interface AgentSessionMessageRequest {
   contentVersion: number;

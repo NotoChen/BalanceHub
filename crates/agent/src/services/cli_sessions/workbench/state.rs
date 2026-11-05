@@ -61,6 +61,7 @@ pub(super) struct QueryProgress {
 #[derive(Clone)]
 pub(super) struct SourceResources {
     pub cache: super::budget::HistoryReadCache,
+    /// Process-wide transcript cache; every source shares one byte budget.
     pub transcripts: TranscriptCache,
     pub used_at: Instant,
 }
@@ -73,7 +74,8 @@ const CACHE_ENTRIES: usize = 8;
 /// this cache, so a workspace-wide search does not retain every body. Large
 /// transcripts are cached per byte window, and the LRU is bounded by decoded
 /// size as well as entry count so a handful of long sessions cannot pin
-/// arbitrary memory.
+/// arbitrary memory. The cache is shared by every source: a per-source budget
+/// would multiply the resident ceiling by the number of open workspaces.
 #[derive(Clone)]
 pub(super) struct TranscriptCache {
     inner: Arc<Mutex<TranscriptCacheData>>,
@@ -95,6 +97,11 @@ impl Default for TranscriptCache {
             })),
         }
     }
+}
+
+fn shared_transcripts() -> TranscriptCache {
+    static CACHE: OnceLock<TranscriptCache> = OnceLock::new();
+    CACHE.get_or_init(TranscriptCache::default).clone()
 }
 
 impl TranscriptCacheData {
@@ -217,6 +224,11 @@ impl TranscriptCache {
         let mut data = self.inner.lock().unwrap_or_else(|error| error.into_inner());
         data.find_by_revision(revision)
     }
+
+    #[cfg(test)]
+    fn shares_budget_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
 }
 
 pub(super) fn source_resources(
@@ -231,7 +243,7 @@ pub(super) fn source_resources(
     }
     let resource = SourceResources {
         cache: Default::default(),
-        transcripts: TranscriptCache::default(),
+        transcripts: shared_transcripts(),
         used_at: Instant::now(),
     };
     registry.sources.insert(key, resource.clone());

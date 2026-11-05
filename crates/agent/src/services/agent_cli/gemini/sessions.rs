@@ -158,6 +158,7 @@ fn index_source(path: &Path) -> SessionTranscriptSource {
         } else {
             SessionTranscriptFormat::JsonLines
         },
+        window_safe: true,
         decode: decoder::decode,
     }
 }

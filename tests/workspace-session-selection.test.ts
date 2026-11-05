@@ -175,6 +175,7 @@ async function mountPicker(t: TestContext, rows: AgentSessionRow[], detail: Agen
       visible, cliKind: ref("codex"), sessionMode: ref("history"), selectedModel: ref(""),
       sessionApi: { scope: async (path) => sessionScope(path),
         query: async (request) => sessionPage(rows, { scopeRevision: request.scopeRevision }), detail,
+        search: async () => { throw new Error("unexpected session search"); },
         message: async () => { throw new Error("unexpected message request"); }, cancel: async () => undefined },
     });
     return () => h(Picker, {

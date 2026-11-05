@@ -97,14 +97,17 @@ pub(super) fn source_signature(source: &SessionTranscriptSource) -> Result<Strin
 fn digest(file: &mut (impl Read + Seek), start: u64, length: u64) -> Result<String, String> {
     file.seek(SeekFrom::Start(start))
         .map_err(|error| error.to_string())?;
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(length)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes.len() as u64 != length {
-        return Err("会话文件在读取期间发生变化，请重试".into());
+    let mut hasher = Sha256::new();
+    let mut remaining = length;
+    let mut buffer = [0u8; 64 * 1024];
+    while remaining > 0 {
+        let chunk = remaining.min(buffer.len() as u64) as usize;
+        file.read_exact(&mut buffer[..chunk])
+            .map_err(|_| "会话文件在读取期间发生变化，请重试".to_string())?;
+        hasher.update(&buffer[..chunk]);
+        remaining -= chunk as u64;
     }
-    Ok(format!("{:x}", Sha256::digest(&bytes)))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub(super) fn read_batch(
@@ -252,6 +255,7 @@ pub(super) fn read_batch_with_limit(
 pub(super) enum WindowRequest {
     Default,
     Latest,
+    First,
     Before(u64),
     After(u64),
     Range { start: u64, end: u64 },
@@ -262,6 +266,7 @@ impl WindowRequest {
         match self {
             Self::Default => "default".into(),
             Self::Latest => "latest".into(),
+            Self::First => "first".into(),
             Self::Before(offset) => format!("before:{offset}"),
             Self::After(offset) => format!("after:{offset}"),
             Self::Range { start, end } => format!("range:{start}:{end}"),
@@ -270,13 +275,16 @@ impl WindowRequest {
 }
 
 /// One decoded byte window. Its `start` and `end` are the offsets actually
-/// covered after aligning the start to the next whole record.
+/// covered after aligning the start to the next whole record. `content_hash`
+/// covers that actual range, so reopening the same range yields the same
+/// identity even when the file only grows past it.
 pub(super) struct WindowBatch {
     pub mutations: Vec<(u64, SessionTranscriptMutation)>,
     pub skipped_records: u64,
     pub start: u64,
     pub end: u64,
     pub file_bytes: u64,
+    pub content_hash: String,
 }
 
 /// Reads one bounded window of a JSONL transcript. Compressed and non-JSONL
@@ -304,6 +312,7 @@ pub(super) fn read_window(
         WindowRequest::Default | WindowRequest::Latest => {
             (file_bytes.saturating_sub(window_bytes), file_bytes)
         }
+        WindowRequest::First => (0, file_bytes.min(window_bytes)),
         WindowRequest::Before(offset) => {
             let end = offset.min(file_bytes);
             (end.saturating_sub(window_bytes), end)
@@ -324,6 +333,7 @@ pub(super) fn read_window(
             start: requested_start,
             end: requested_start,
             file_bytes,
+            content_hash: digest(&mut file, requested_start, 0)?,
         });
     }
     let mut skip_partial_line = false;
@@ -382,6 +392,15 @@ pub(super) fn read_window(
         read_start
     };
     let end = checkpoint.offset.min(requested_end);
+    // Hash the range actually covered after record alignment. Reopening the
+    // same range (for example when a search hit jumps to this window) then
+    // reproduces the same revision even though `end` may be short of the
+    // requested boundary by one record.
+    let content_hash = {
+        let mut hash_file =
+            super::workbench::open_session_file(&source.path).map_err(|error| error.to_string())?;
+        digest(&mut hash_file, start, end.saturating_sub(start))?
+    };
     let after = std::fs::metadata(&source.path).map_err(|error| error.to_string())?;
     if identity(&after) != checkpoint.identity || after.len() < requested_end {
         return Err("会话文件在读取期间发生变化，请重试".into());
@@ -392,6 +411,7 @@ pub(super) fn read_window(
         start,
         end,
         file_bytes,
+        content_hash,
     })
 }
 

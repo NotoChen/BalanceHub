@@ -361,6 +361,7 @@ defineExpose({ refresh });
         :query="history.detailQuery"
         :paused="history.detailPaused"
         :message-states="history.messageStates"
+        :session-search="history.sessionSearch"
         show-back
         @close="history.closeDetail"
         @parent="history.openDetail"
@@ -368,6 +369,10 @@ defineExpose({ refresh });
         @expand="history.expandMessage"
         @pause="history.pauseDetail"
         @retry="history.refreshDetail"
+        @search-all="history.searchAllSession()"
+        @continue-search="history.searchAllSession(true)"
+        @stop-search="history.stopSessionSearch()"
+        @clear-search="history.resetSessionSearch()"
       >
         <template #footer
           ><span v-if="history.detailRow?.resumeReason">{{

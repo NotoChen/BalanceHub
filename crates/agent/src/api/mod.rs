@@ -101,6 +101,7 @@ pub const COMMANDS: &[&str] = &[
     "get_agent_session_scope",
     "query_agent_sessions",
     "get_agent_session_detail",
+    "search_agent_session",
     "get_agent_session_message_content",
     "cancel_agent_session_query",
     "resume_agent_session",
@@ -438,6 +439,9 @@ async fn dispatch_inner(
         }
         "get_agent_session_detail" => {
             text(sessions::get_agent_session_detail(client.to_owned(), arg(args, "request")?).await)
+        }
+        "search_agent_session" => {
+            text(sessions::search_agent_session(client.to_owned(), arg(args, "request")?).await)
         }
         "get_agent_session_message_content" => text(
             sessions::get_agent_session_message_content(client.to_owned(), arg(args, "request")?)

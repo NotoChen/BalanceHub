@@ -161,11 +161,16 @@ useWindowGridSnap();
       :query="app.workspaceSessionDetailQuery"
       :paused="app.workspaceSessionDetailPaused"
       :message-states="app.workspaceSessionMessageStates"
+      :session-search="app.workspaceSessionSearch"
       @navigate="app.navigateWorkspaceSessionDetail"
       @expand="app.expandWorkspaceSessionMessage"
       @pause="app.pauseWorkspaceSessionDetail"
       @retry="app.refreshWorkspaceSessionDetail"
       @parent="app.openWorkspaceSessionParent"
+      @search-all="app.searchWorkspaceSession()"
+      @continue-search="app.searchWorkspaceSession(true)"
+      @stop-search="app.stopWorkspaceSessionSearch()"
+      @clear-search="app.clearWorkspaceSessionSearch()"
     />
 
     <TemporaryCliLaunchPreviewModal

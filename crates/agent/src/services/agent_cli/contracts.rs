@@ -1903,6 +1903,11 @@ pub(crate) struct SessionTranscriptSource {
     pub path: PathBuf,
     pub parser_version: u32,
     pub format: SessionTranscriptFormat,
+    /// Whether an arbitrary complete-record boundary is also a safe decoding
+    /// boundary. Streaming formats whose records append to state established
+    /// by earlier records must keep this false: a window would otherwise show
+    /// only the tail of the straddling message.
+    pub window_safe: bool,
     pub decode: fn(&Path, u64, &[u8], &mut serde_json::Value) -> Vec<SessionTranscriptMutation>,
 }
 

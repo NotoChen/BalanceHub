@@ -129,6 +129,7 @@ bridge!(count_agent_sessions { "request": request: AgentSessionCountRequest });
 bridge!(get_agent_session_scope { "explicitWorkdir": explicit_workdir: Option<String> });
 bridge!(query_agent_sessions { "request": request: AgentSessionQuery });
 bridge!(get_agent_session_detail { "request": request: AgentSessionDetailRequest });
+bridge!(search_agent_session { "request": request: AgentSessionSearchRequest });
 bridge!(get_agent_session_message_content { "request": request: AgentSessionMessageRequest });
 bridge!(get_agent_model_catalog { "context": context: AgentModelCatalogContext, "refresh": refresh: bool });
 bridge!(estimate_session_usage { "usage": usage: SessionUsageSummary });

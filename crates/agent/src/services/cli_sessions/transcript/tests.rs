@@ -59,6 +59,7 @@ fn source(path: &Path) -> SessionTranscriptSource {
         path: path.to_path_buf(),
         parser_version: 1,
         format: SessionTranscriptFormat::JsonLines,
+        window_safe: true,
         decode,
     }
 }
@@ -373,6 +374,8 @@ fn windowed_pages_open_at_the_newest_messages_and_cross_window_boundaries() {
             start: 10,
             end: 500,
             file_bytes: 1000,
+            index: 1,
+            total: 1,
             has_earlier: true,
             has_later: true,
         })
@@ -454,11 +457,222 @@ fn windowed_pages_open_at_the_newest_messages_and_cross_window_boundaries() {
     assert!(transcript
         .read_page(summary(), &request, false, &budget(u64::MAX))
         .is_err());
-    // A cursor from another content revision is rejected.
+    // "latest" is relative to the file: a revision that changed after the
+    // cursor was issued still opens the newest window instead of failing.
     request.cursor = Some("stale@500-1000:latest".into());
-    assert!(transcript
+    let page = transcript
         .read_page(summary(), &request, false, &budget(u64::MAX))
-        .is_err());
+        .unwrap();
+    assert_eq!(page.page.start, 20);
+
+    // "earliest" opens the first page of the first window.
+    transcript.window = Some(SourceWindow {
+        start: 0,
+        end: 10,
+        file_bytes: 1000,
+    });
+    transcript.revision = format!("{content}@0-10");
+    request.cursor = Some(format!("{content}@10-500:earliest"));
+    let page = transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .unwrap();
+    assert_eq!(page.page.start, 0);
+    assert_eq!(page.messages.len(), 80);
+    assert_eq!(page.page.window.unwrap().start, 0);
+}
+
+#[test]
+fn refreshing_after_an_append_does_not_reject_the_stale_revision() {
+    let (_root, source) = fixture(
+        "refresh-append",
+        &[json!({"op":"put", "id":"m1", "content":"first"})],
+    );
+    let initial = Transcript::from_sources(
+        "workspace",
+        "session",
+        std::slice::from_ref(&source),
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    let stale = initial.revision.clone();
+
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(&source.path)
+        .unwrap();
+    file.write_all(b"\n{\"op\":\"put\",\"id\":\"m2\",\"content\":\"second\"}")
+        .unwrap();
+    drop(file);
+
+    let refreshed =
+        Transcript::from_sources("workspace", "session", &[source], &budget(u64::MAX)).unwrap();
+    assert_ne!(refreshed.revision, stale);
+    let mut request = page_request();
+    request.cursor = Some(stale);
+    let page = refreshed
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .unwrap();
+    assert!(page
+        .messages
+        .iter()
+        .any(|message| message.content == "second"));
+    assert_eq!(page.page.revision, refreshed.revision);
+}
+
+#[test]
+fn an_earlier_window_keeps_its_revision_when_the_file_grows() {
+    let (_root, source) = fixture(
+        "stable-window-revision",
+        &[
+            json!({"op":"put", "id":"m1", "content":"first"}),
+            json!({"op":"put", "id":"m2", "content":"second"}),
+        ],
+    );
+    let initial_bytes = fs::metadata(&source.path).unwrap().len();
+    let initial = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        std::slice::from_ref(&source),
+        stream::WindowRequest::Range {
+            start: 0,
+            end: initial_bytes,
+        },
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    let revision = initial.revision.clone();
+    assert!(revision.contains('@'));
+
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(&source.path)
+        .unwrap();
+    file.write_all(b"\n{\"op\":\"put\",\"id\":\"m3\",\"content\":\"third\"}")
+        .unwrap();
+    drop(file);
+    let grown_bytes = fs::metadata(&source.path).unwrap().len();
+
+    let unchanged = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        std::slice::from_ref(&source),
+        stream::WindowRequest::Range {
+            start: 0,
+            end: initial_bytes,
+        },
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    assert_eq!(unchanged.revision, revision);
+    assert_eq!(unchanged.window.unwrap().file_bytes, grown_bytes);
+
+    let changed = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        &[source],
+        stream::WindowRequest::Range {
+            start: 0,
+            end: grown_bytes,
+        },
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    assert_ne!(changed.revision, revision);
+}
+
+#[test]
+fn latest_cursor_still_opens_the_newest_window_after_a_revision_change() {
+    let lines = (0..100)
+        .map(|index| {
+            json!({"op":"put", "id":format!("m{index}"), "content":format!("message {index}")})
+        })
+        .collect::<Vec<_>>();
+    let (_root, source) = fixture("latest-after-change", &lines);
+    let mut transcript =
+        Transcript::from_sources("workspace", "session", &[source], &budget(u64::MAX)).unwrap();
+    let content = transcript.revision.clone();
+    transcript.window = Some(SourceWindow {
+        start: 500,
+        end: 1000,
+        file_bytes: 1000,
+    });
+    transcript.revision = format!("{content}@500-1000");
+
+    let mut request = page_request();
+    request.cursor = Some(format!("{content}@10-500:latest"));
+    let page = transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .unwrap();
+    assert_eq!(page.page.start, 20);
+    assert_eq!(page.messages.len(), 80);
+}
+
+#[test]
+fn the_first_window_starts_at_the_file_head() {
+    let (_root, source) = fixture(
+        "first-window",
+        &[
+            json!({"op":"put", "id":"m1", "content":"first"}),
+            json!({"op":"put", "id":"m2", "content":"second"}),
+        ],
+    );
+    let transcript = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        &[source],
+        stream::WindowRequest::First,
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    let window = transcript
+        .window
+        .expect("an explicit first request opens a window");
+    assert_eq!(window.start, 0);
+    assert_eq!(transcript.messages.len(), 2);
+}
+
+#[test]
+fn window_pages_report_an_estimated_fragment_position() {
+    let (_root, source) = fixture(
+        "fragment-position",
+        &[json!({"op":"put", "id":"m1", "content":"first"})],
+    );
+    let mut transcript =
+        Transcript::from_sources("workspace", "session", &[source], &budget(u64::MAX)).unwrap();
+    transcript.window = Some(SourceWindow {
+        start: TRANSCRIPT_WINDOW_BYTES + 10,
+        end: TRANSCRIPT_WINDOW_BYTES * 2,
+        file_bytes: TRANSCRIPT_WINDOW_BYTES * 3,
+    });
+    transcript.revision = format!(
+        "window@{}-{}",
+        transcript.window.unwrap().start,
+        transcript.window.unwrap().end
+    );
+    let page = transcript
+        .read_page(summary(), &page_request(), false, &budget(u64::MAX))
+        .unwrap();
+    let window = page.page.window.expect("window metadata");
+    assert_eq!(window.index, 2);
+    assert_eq!(window.total, 3);
+}
+
+#[test]
+fn sources_that_need_prior_state_do_not_open_windows() {
+    let (_root, mut source) = fixture(
+        "unsafe-window",
+        &[json!({"op":"put", "id":"m1", "content":"first"})],
+    );
+    source.window_safe = false;
+    let result = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        &[source],
+        stream::WindowRequest::Range { start: 0, end: 10 },
+        &budget(u64::MAX),
+    );
+    assert!(result.is_err());
+    assert_eq!(result.err().unwrap(), "该会话格式不支持分段读取");
 }
 
 #[test]
@@ -524,6 +738,42 @@ fn oversized_single_source_jsonl_opens_only_the_latest_window() {
 }
 
 #[test]
+fn a_window_revision_is_reproduced_by_reopening_its_byte_range() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("reopen.jsonl");
+    let mut file = fs::File::create(&path).unwrap();
+    file.write_all(b"{\"op\":\"put\",\"id\":\"head\",\"content\":\"head\"}\n")
+        .unwrap();
+    file.set_len(WINDOWED_TRANSCRIPT_BYTES + 1024).unwrap();
+    file.seek(SeekFrom::End(0)).unwrap();
+    file.write_all(b"\n{\"op\":\"put\",\"id\":\"tail\",\"content\":\"tail\"}\n")
+        .unwrap();
+    drop(file);
+
+    let latest = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        &[source(&path)],
+        stream::WindowRequest::Latest,
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    let window = latest.window.expect("large JSONL opens a window");
+    let reopened = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        &[source(&path)],
+        stream::WindowRequest::Range {
+            start: window.start,
+            end: window.end,
+        },
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    assert_eq!(reopened.revision, latest.revision);
+}
+
+#[test]
 fn window_requests_are_recovered_from_cursors_and_revisions() {
     assert_eq!(
         window_request_for_cursor(None).unwrap(),
@@ -536,6 +786,10 @@ fn window_requests_are_recovered_from_cursors_and_revisions() {
     assert_eq!(
         window_request_for_cursor(Some("hash@10-20:latest")).unwrap(),
         stream::WindowRequest::Latest
+    );
+    assert_eq!(
+        window_request_for_cursor(Some("hash:earliest")).unwrap(),
+        stream::WindowRequest::First
     );
     assert_eq!(
         window_request_for_cursor(Some("hash:earlier:42")).unwrap(),

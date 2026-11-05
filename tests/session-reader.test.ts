@@ -11,6 +11,8 @@ import type {
 import type {
   AgentSessionMessageContent,
   AgentSessionMessageRequest,
+  AgentSessionSearchRequest,
+  AgentSessionSearchResult,
 } from "../src/stores/session-reader-types.ts";
 import {
   sessionDetail,
@@ -35,6 +37,7 @@ function harness(
   overrides: Partial<AgentSessionQueryApi> = {},
 ) {
   const requests: AgentSessionDetailRequest[] = [];
+  const searches: AgentSessionSearchRequest[] = [];
   const chunks: AgentSessionMessageRequest[] = [];
   const cancellations: AgentSessionCancelRequest[] = [];
   const active = ref(true);
@@ -58,6 +61,11 @@ function harness(
         requests.push(request);
         return overrides.detail ? overrides.detail(request) : sessionDetail();
       },
+      search: async (request) => {
+        searches.push(request);
+        if (overrides.search) return overrides.search(request);
+        throw new Error("unexpected session search");
+      },
       message: async (request) => {
         chunks.push(request);
         if (overrides.message) return overrides.message(request);
@@ -72,6 +80,7 @@ function harness(
   return {
     reader,
     requests,
+    searches,
     chunks,
     cancellations,
     active,
@@ -188,6 +197,180 @@ test("refreshing a later page retains its first message when no search hit is se
   assert.equal(context.requests.at(-1)?.anchor, "later-page-first");
   // The revision keeps the same transcript or byte window when refreshing.
   assert.equal(context.requests.at(-1)?.cursor, "revision:fixture");
+});
+
+test("refreshing the newest window follows records appended since it loaded", async (t) => {
+  const result = sessionDetail();
+  result.detail.page.window = {
+    start: 500,
+    end: 1000,
+    fileBytes: 1000,
+    index: 2,
+    total: 2,
+    hasEarlier: true,
+    hasLater: false,
+  };
+  const context = harness(t, { detail: async () => result });
+  await context.reader.openDetail("ref:session-1");
+  await context.reader.refreshDetail();
+  assert.equal(context.requests.at(-1)?.cursor, "revision:fixture:latest");
+});
+
+test("whole-session search follows window cursors and merges each fragment's hits", async (t) => {
+  const pages: AgentSessionSearchResult[] = [
+    {
+      hits: [
+        {
+          messageId: "message-2",
+          offset: 3,
+          snippet: "needle in newest",
+          terms: ["needle"],
+          kind: "text",
+          cursor: "window@100-200",
+          window: {
+            start: 100,
+            end: 200,
+            fileBytes: 300,
+            index: 2,
+            total: 3,
+            hasEarlier: true,
+            hasLater: true,
+          },
+        },
+      ],
+      nextCursor: "window@100-200:earlier:100",
+      scannedWindows: 2,
+      totalWindows: 3,
+      complete: false,
+    },
+    {
+      hits: [
+        {
+          messageId: "message-1",
+          offset: 0,
+          snippet: "needle in oldest",
+          terms: ["needle"],
+          kind: "text",
+          cursor: "window@0-100",
+          window: {
+            start: 0,
+            end: 100,
+            fileBytes: 300,
+            index: 1,
+            total: 3,
+            hasEarlier: false,
+            hasLater: true,
+          },
+        },
+      ],
+      nextCursor: null,
+      scannedWindows: 1,
+      totalWindows: 3,
+      complete: true,
+    },
+  ];
+  let page = 0;
+  const context = harness(t, {
+    detail: async () => sessionDetail(),
+    search: async () => pages[page++],
+  });
+  context.query.value = "needle";
+  await context.reader.openDetail("ref:session-1");
+  await context.reader.searchAllSession();
+  assert.deepEqual(
+    context.searches.map((request) => request.cursor),
+    [null, "window@100-200:earlier:100"],
+  );
+  assert.equal(context.searches[0].query, "needle");
+  assert.deepEqual(
+    context.reader.sessionSearch.value.hits.map((hit) => hit.messageId),
+    ["message-2", "message-1"],
+  );
+  assert.equal(context.reader.sessionSearch.value.scannedWindows, 3);
+  assert.equal(context.reader.sessionSearch.value.totalWindows, 3);
+  assert.equal(context.reader.sessionSearch.value.complete, true);
+  assert.equal(context.reader.sessionSearch.value.loading, false);
+});
+
+test("stopping whole-session search releases busy state and ignores the late page", async (t) => {
+  const pending = deferred<AgentSessionSearchResult>();
+  const context = harness(t, {
+    detail: async () => sessionDetail(),
+    search: async () => pending.promise,
+  });
+  context.query.value = "needle";
+  await context.reader.openDetail("ref:session-1");
+  const searching = context.reader.searchAllSession();
+  assert.equal(context.reader.sessionSearch.value.loading, true);
+  context.reader.stopSessionSearch();
+  assert.equal(context.reader.sessionSearch.value.loading, false);
+  pending.resolve({
+    hits: [],
+    nextCursor: "window:earlier:0",
+    scannedWindows: 1,
+    totalWindows: 1,
+    complete: false,
+  });
+  await searching;
+  assert.equal(context.reader.sessionSearch.value.loading, false);
+  assert.equal(context.reader.sessionSearch.value.hits.length, 0);
+  assert.equal(context.searches.length, 1);
+});
+
+test("restarting whole-session search retires the in-flight page and ignores its late result", async (t) => {
+  const first = deferred<AgentSessionSearchResult>();
+  const second = deferred<AgentSessionSearchResult>();
+  let call = 0;
+  const context = harness(t, {
+    detail: async () => sessionDetail(),
+    search: async () => (++call === 1 ? first.promise : second.promise),
+  });
+  context.query.value = "needle";
+  await context.reader.openDetail("ref:session-1");
+  const searching = context.reader.searchAllSession();
+  const restarting = context.reader.searchAllSession();
+  assert.equal(context.searches.length, 2);
+  assert.equal(context.cancellations[0].requestId, context.searches[0].requestId);
+  first.resolve({
+    hits: [
+      {
+        messageId: "stale-message",
+        offset: 0,
+        snippet: "stale hit",
+        terms: ["needle"],
+        kind: "text",
+        cursor: "window@0-100",
+        window: null,
+      },
+    ],
+    nextCursor: null,
+    scannedWindows: 1,
+    totalWindows: 1,
+    complete: true,
+  });
+  second.resolve({
+    hits: [
+      {
+        messageId: "fresh-message",
+        offset: 0,
+        snippet: "fresh hit",
+        terms: ["needle"],
+        kind: "text",
+        cursor: "window@0-100",
+        window: null,
+      },
+    ],
+    nextCursor: null,
+    scannedWindows: 1,
+    totalWindows: 1,
+    complete: true,
+  });
+  await Promise.all([searching, restarting]);
+  assert.deepEqual(
+    context.reader.sessionSearch.value.hits.map((hit) => hit.messageId),
+    ["fresh-message"],
+  );
+  assert.equal(context.reader.sessionSearch.value.loading, false);
 });
 
 test("continuing a middle-of-message match appends its following chunk without rereading the start", async (t) => {

@@ -18,7 +18,7 @@ pub(crate) use budget::{
 };
 pub(crate) use counts::count;
 pub(crate) use query::query;
-pub(crate) use reader::{detail, message_content};
+pub(crate) use reader::{detail, message_content, search};
 #[cfg(test)]
 pub(crate) use scope::ResumeAdmissionFixture;
 pub(crate) use scope::{get_scope, relocation_source, resolve_session_ref, ResolvedSessionTarget};
@@ -29,6 +29,7 @@ use std::{
 
 pub(crate) const QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const DETAIL_TIMEOUT: Duration = Duration::from_secs(20);
+pub(crate) const SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const COUNT_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// 会话读取的调用方身份：桌面传窗口标签，浏览器版传客户端标识。
