@@ -47,7 +47,8 @@ jobs:
           - label: Windows ARM64
             os: windows-11-arm
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Windows ARM64 冷缓存编译会超过 20 分钟；发布构建同样使用 60 分钟上限。
+    timeout-minutes: 45
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
