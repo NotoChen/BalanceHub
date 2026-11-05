@@ -275,6 +275,59 @@ fn s3_settings_keep_secrets_private_and_rebaseline_per_bucket() {
 }
 
 #[test]
+fn github_settings_keep_tokens_private_and_rebaseline_per_repository() {
+    let saved = Settings {
+        backend: CloudSyncBackend::Github,
+        github_owner: "fixture-owner".to_owned(),
+        github_repo: "fixture-data".to_owned(),
+        github_branch: "main".to_owned(),
+        github_token: "fixture-github-token".to_owned(),
+        passphrase: PASSPHRASE.to_owned(),
+        ..Settings::default()
+    };
+    let input = CloudSyncSettingsInput {
+        backend: CloudSyncBackend::Github,
+        remote_root: saved.remote_root.clone(),
+        github_owner: saved.github_owner.clone(),
+        github_repo: saved.github_repo.clone(),
+        github_branch: saved.github_branch.clone(),
+        device_name: "Device A".to_owned(),
+        ..CloudSyncSettingsInput::default()
+    };
+    let updated = saved.update(input.clone()).unwrap();
+    assert_eq!(updated.github_token, saved.github_token);
+    let public = serde_json::to_string(&updated.view()).unwrap();
+    assert!(!public.contains("fixture-github-token"));
+    assert!(!public.contains(PASSPHRASE));
+    assert!(public.contains("fixture-data"));
+    let moved = saved
+        .update(CloudSyncSettingsInput {
+            github_repo: "another-repository".to_owned(),
+            ..input
+        })
+        .unwrap();
+    assert_ne!(moved.space_id().unwrap(), saved.space_id().unwrap());
+    assert_ne!(
+        moved.verification_id().unwrap(),
+        saved.verification_id().unwrap()
+    );
+    assert!(saved
+        .update(CloudSyncSettingsInput {
+            github_token: Some(String::new()),
+            ..CloudSyncSettingsInput {
+                backend: CloudSyncBackend::Github,
+                remote_root: saved.remote_root.clone(),
+                github_owner: saved.github_owner.clone(),
+                github_repo: saved.github_repo.clone(),
+                github_branch: saved.github_branch.clone(),
+                device_name: "Device A".to_owned(),
+                ..CloudSyncSettingsInput::default()
+            }
+        })
+        .is_err());
+}
+
+#[test]
 fn settings_secrets_are_preserved_only_for_the_same_account_and_are_never_in_views() {
     let saved = Settings {
         server_url: "https://dav.fixture.invalid/".to_owned(),

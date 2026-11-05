@@ -346,8 +346,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspaceSessionHasMore: sessionHistory.workspaceSessionHasMore,
     workspaceSelectedSessionRef: sessionHistory.workspaceSelectedSessionRef,
     workspaceSessionsError: sessionHistory.workspaceSessionsError,
-    workspaceSessionIndexState: sessionHistory.workspaceSessionIndexState,
-    workspaceSessionIndexMessage: sessionHistory.workspaceSessionIndexMessage,
+    workspaceSessionStatusMessage: sessionHistory.workspaceSessionStatusMessage,
     workspaceSelectedResumeId: sessionHistory.workspaceSelectedResumeId,
     workspaceSelectedSessionTitle: sessionHistory.workspaceSelectedSessionTitle,
     workspaceSelectedSessionWorkdir:

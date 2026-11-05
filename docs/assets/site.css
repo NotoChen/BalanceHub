@@ -496,35 +496,6 @@ a {
   transform: rotateY(-2deg) translateY(-5px);
 }
 
-.window-bar {
-  display: flex;
-  height: 32px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 13px;
-  border-bottom: 1px solid #d9e0e9;
-  background: #f9fafc;
-}
-
-.window-bar span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #d5dce6;
-}
-
-.window-bar span:first-child {
-  background: #ff7669;
-}
-
-.window-bar span:nth-child(2) {
-  background: #f7bf4f;
-}
-
-.window-bar span:nth-child(3) {
-  background: #57ca70;
-}
-
 .app-window img {
   width: 100%;
   height: auto;
@@ -1762,10 +1733,6 @@ a {
 
   .app-window {
     border-radius: 14px;
-  }
-
-  .window-bar {
-    height: 24px;
   }
 
   .hero-caption {

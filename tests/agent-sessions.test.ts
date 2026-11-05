@@ -47,7 +47,6 @@ function harness(
   configuration: Pick<
     Parameters<typeof useAgentSessions>[0],
     | "pageSize"
-    | "refreshOnIndexUpdate"
     | "autoLoad"
     | "autoContinue"
   > = {},
@@ -557,7 +556,6 @@ test("count consumers start once with all backend workspace IDs and expose count
               workspaceId: "home",
               state: "complete",
               loadedCount: 999,
-              indexState: "ready",
               message: null,
             },
           ],
@@ -567,7 +565,6 @@ test("count consumers start once with all backend workspace IDs and expose count
     {
       pageSize: 1,
       autoLoad: true,
-      refreshOnIndexUpdate: false,
     },
   );
   await settle();
@@ -659,7 +656,6 @@ test("pagination loads more than 100 distinct sources, continues empty partial p
           workspaceId: "home",
           state: "partial",
           loadedCount: 50,
-          indexState: "fallback",
           message: "继续读取",
         },
       ],

@@ -124,7 +124,6 @@ export function sessionPage(
         state: "complete",
         loadedCount: items.length,
         message: null,
-        indexState: "ready",
       },
     ],
     ...overrides,

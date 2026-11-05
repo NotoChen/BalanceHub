@@ -103,7 +103,7 @@ pub(crate) fn count(
         errors.insert(
             count.agent_kind,
             if messages.is_empty() {
-                "未能完整读取原生会话索引".into()
+                "未能完整读取原生会话数据".into()
             } else {
                 messages.join("；")
             },
@@ -223,7 +223,6 @@ fn source_state(
         state,
         loaded_count,
         message,
-        index_state: CliSessionIndexState::Disabled,
     }
 }
 

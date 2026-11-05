@@ -99,8 +99,6 @@ pub(crate) fn query(
         (id, 0, snapshot)
     };
     if request.cursor.is_none() || snapshot.progress.can_continue {
-        let settings = crate::state::app_data().settings;
-        let index_config = super::super::index_config(&settings)?;
         snapshot.progress.passes += 1;
         let outcomes = std::thread::scope(|threads| {
             let mut handles = Vec::new();
@@ -110,9 +108,8 @@ pub(crate) fn query(
                     .get(&source.id)
                     .cloned()
                     .ok_or_else(|| "原生来源已不可用".to_string())?;
-                let resources = state::source_resources(actor, &source, &index_config);
+                let resources = state::source_resources(actor, &source);
                 let cache = resources.cache;
-                let index = resources.index;
                 let workspaces = selected_workspaces.clone();
                 let query_text = request.query.clone();
                 let matches = snapshot.progress.matches.clone();
@@ -134,7 +131,6 @@ pub(crate) fn query(
                                     &source_config,
                                     &workspaces,
                                     &query_text,
-                                    &index,
                                     &source_budget,
                                     matches,
                                 )

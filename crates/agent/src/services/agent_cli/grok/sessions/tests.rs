@@ -260,10 +260,10 @@ fn update_search_merges_streamed_chunks_and_replaces_tool_states() {
     assert_eq!(streamed.matched_term_indexes, vec![0]);
     let replaced = search_updates_index(&path, &request("obsolete-keyword"), &|| true).unwrap();
     assert!(replaced.matched_term_indexes.is_empty());
-    let indexed = crate::services::cli_sessions::read_indexed_messages(&[SessionIndexSource {
+    let indexed = crate::services::cli_sessions::read_indexed_messages(&[SessionTranscriptSource {
         path,
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionIndexFormat::JsonLines,
+        format: SessionTranscriptFormat::JsonLines,
         decode: decoder::update,
     }]);
     assert_eq!(indexed.len(), 2);
@@ -424,10 +424,10 @@ fn chat_history_index_preserves_tool_and_thinking_block_order() {
     .join("\n");
     fs::write(&path, lines).unwrap();
 
-    let messages = crate::services::cli_sessions::read_indexed_messages(&[SessionIndexSource {
+    let messages = crate::services::cli_sessions::read_indexed_messages(&[SessionTranscriptSource {
         path: path.clone(),
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionIndexFormat::JsonLines,
+        format: SessionTranscriptFormat::JsonLines,
         decode: decoder::chat,
     }]);
     use crate::models::SessionMessageKind;
@@ -621,12 +621,12 @@ fn chat_history_detail_is_a_readable_fallback() {
 
 fn source(
     path: &Path,
-    decode: fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionIndexMutation>,
-) -> SessionIndexSource {
-    SessionIndexSource {
+    decode: fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionTranscriptMutation>,
+) -> SessionTranscriptSource {
+    SessionTranscriptSource {
         path: path.into(),
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionIndexFormat::JsonLines,
+        format: SessionTranscriptFormat::JsonLines,
         decode,
     }
 }

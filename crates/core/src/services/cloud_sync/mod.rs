@@ -4,6 +4,7 @@ mod core;
 mod crypto;
 mod files;
 mod format;
+mod github;
 pub mod library;
 mod local;
 mod merge;
@@ -503,6 +504,14 @@ impl CloudSyncService {
                     &settings.s3_region,
                     &settings.s3_access_key,
                     &settings.s3_secret_key,
+                )?),
+                CloudSyncBackend::Github => Arc::new(github::GithubStore::new(
+                    client,
+                    &settings.github_owner,
+                    &settings.github_repo,
+                    &settings.github_branch,
+                    &settings.remote_root,
+                    &settings.github_token,
                 )?),
             };
             Ok::<_, String>(store)

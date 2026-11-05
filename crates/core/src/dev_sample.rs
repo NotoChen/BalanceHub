@@ -153,8 +153,9 @@ fn mock_site(now: i64) -> Option<Provider> {
     provider.identity.name = demo_name("本地模拟站点");
     provider.identity.base_url = url.into();
     provider.identity.username = "demo-user".into();
-    provider.identity.user_id = "7001".into();
-    provider.identity.remark = "仅用于界面截图，请求发往本机 mock".into();
+    provider.identity.user_id = "7011".into();
+    provider.auth.api_user = "7011".into();
+    // 备注会拼进卡片标题，这里留空，截图里只显示“演示 · 本地模拟站点”。
     Some(provider)
 }
 
@@ -690,6 +691,9 @@ fn new_api_account(
     );
     provider.identity.username = login_username.into();
     provider.identity.user_id = user_id.into();
+    // 真实账号登录后会从会话 Cookie 或 /api/user/self 补齐 API User ID；
+    // 演示卡片补上同一个值，账号管理类入口（用量、日志、签到）才和真实账号一致。
+    provider.auth.api_user = user_id.into();
     provider
 }
 

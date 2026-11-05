@@ -261,12 +261,11 @@ impl ProviderService {
                 limits::MAX_NOTIFICATION_CHANNELS
             ));
         }
-        let (previous, saved) = self.mutate_decided(|data| {
+        let (_, saved) = self.mutate_decided(|data| {
             let merged = merge_settings_changes(&expected, &settings, &data.settings)?;
             let previous = std::mem::replace(&mut data.settings, merged);
             Ok(MutationDecision::changed((previous, data.settings.clone())))
         })?;
-        crate::host::settings_changed(&previous, &saved);
         Ok(saved)
     }
 

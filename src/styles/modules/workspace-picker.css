@@ -522,14 +522,6 @@
 .workspace-session-history .agent-session-pagination {
   margin: 0;
 }
-.workspace-session-index-state {
-  border-radius: 5px;
-  background: var(--surface-accent-soft);
-  color: var(--surface-ink-soft);
-  padding: 7px 9px;
-  font-size: 11px;
-  line-height: 1.5;
-}
 .workspace-session-empty {
   display: grid;
   flex: 1;

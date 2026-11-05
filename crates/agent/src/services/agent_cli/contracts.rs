@@ -1754,15 +1754,15 @@ type SessionHistoryScanner = fn(
     &SessionReadBudget,
     SessionHistoryReadMode,
 ) -> Result<SessionHistoryScan, String>;
-type SessionHistoryIndexReader =
-    fn(&SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String>;
+type SessionTranscriptSourceReader =
+    fn(&SessionHistoryRecord) -> Result<Vec<SessionTranscriptSource>, String>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct SessionHistoryAdapter {
     pub launch_environment: fn(&Path) -> Result<EnvironmentPatch, &'static str>,
     pub source: SessionHistorySourceResolver,
     pub scan: SessionHistoryScanner,
-    pub index: SessionHistoryIndexReader,
+    pub transcript: SessionTranscriptSourceReader,
     pub relocation: Option<SessionProjectRelocationAdapter>,
 }
 
@@ -1884,7 +1884,7 @@ pub(crate) struct SessionContentSearchResult {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct SessionIndexMessage {
+pub(crate) struct SessionTranscriptMessage {
     pub id: String,
     pub role: CliSessionMessageRole,
     pub content: String,
@@ -1892,28 +1892,28 @@ pub(crate) struct SessionIndexMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SessionIndexFormat {
+pub(crate) enum SessionTranscriptFormat {
     JsonLines,
     JsonMessages,
 }
 
 /// Native adapters decode records; the shared index owns I/O, checkpoints and
 /// transactions. Decoder state must contain only small parsing metadata.
-pub(crate) struct SessionIndexSource {
+pub(crate) struct SessionTranscriptSource {
     pub path: PathBuf,
     pub parser_version: u32,
-    pub format: SessionIndexFormat,
-    pub decode: fn(&Path, u64, &[u8], &mut serde_json::Value) -> Vec<SessionIndexMutation>,
+    pub format: SessionTranscriptFormat,
+    pub decode: fn(&Path, u64, &[u8], &mut serde_json::Value) -> Vec<SessionTranscriptMutation>,
 }
 
-pub(crate) enum SessionIndexMutation {
+pub(crate) enum SessionTranscriptMutation {
     Usage(crate::models::SessionUsageRecord),
     Put {
-        message: SessionIndexMessage,
+        message: SessionTranscriptMessage,
         priority: i64,
     },
     Append {
-        message: SessionIndexMessage,
+        message: SessionTranscriptMessage,
         priority: i64,
     },
     Clear,

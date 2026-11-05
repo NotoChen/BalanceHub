@@ -104,7 +104,7 @@ onScopeDispose(() => {
         </div>
       </dl>
       <p v-if="usage.partial">
-        索引仍在读取或原生计数不完整，当前数据仅反映已确认的部分。
+        会话正文仍在读取或原生计数不完整，当前数据仅反映已确认的部分。
       </p>
       <p v-else-if="usage.nativeCumulative">
         使用原生日志累计值；重复的统计事件已合并。

@@ -41,7 +41,6 @@ interface AgentSessionsOptions {
   scopeKey?: Ref<string>;
   pageSize?: number;
   initialRoleFilter?: AgentSessionRoleFilter;
-  refreshOnIndexUpdate?: boolean;
   autoLoad?: boolean;
   autoContinue?: boolean;
   api?: AgentSessionQueryApi;
@@ -485,20 +484,6 @@ export function useAgentSessions(options: AgentSessionsOptions) {
           if (options.active.value && options.autoLoad !== false) void load();
         }),
       ];
-      if (options.refreshOnIndexUpdate !== false)
-        subscriptions.push(listen<AgentCliKind | null>(
-          "cli-session-index-updated",
-          (event) => {
-            if (
-              event.payload !== null &&
-              options.agentKinds.value.length &&
-              !options.agentKinds.value.includes(event.payload)
-            )
-              return;
-            invalidateQuery();
-            if (options.active.value && options.autoLoad !== false) void load();
-          },
-        ));
       for (const result of await Promise.allSettled(subscriptions)) {
         // The event bus is optional in isolated component tests.
         if (result.status !== "fulfilled") continue;

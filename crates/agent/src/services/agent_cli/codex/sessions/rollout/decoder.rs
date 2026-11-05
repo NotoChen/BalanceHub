@@ -9,7 +9,7 @@ pub(super) fn decode(
     sequence: u64,
     line: &[u8],
     state: &mut Value,
-) -> Vec<SessionIndexMutation> {
+) -> Vec<SessionTranscriptMutation> {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return Vec::new();
     };
@@ -290,9 +290,9 @@ fn put(
     content: String,
     priority: i64,
     metadata: SessionMessageMetadata,
-) -> SessionIndexMutation {
-    SessionIndexMutation::Put {
-        message: SessionIndexMessage {
+) -> SessionTranscriptMutation {
+    SessionTranscriptMutation::Put {
+        message: SessionTranscriptMessage {
             id,
             role,
             content,
@@ -309,7 +309,7 @@ fn native_tool_event(
     sequence: u64,
     value: &Value,
     base: &SessionMessageMetadata,
-) -> Option<Vec<SessionIndexMutation>> {
+) -> Option<Vec<SessionTranscriptMutation>> {
     let kind = value.get("type")?.as_str()?;
     let call = value
         .get("call_id")

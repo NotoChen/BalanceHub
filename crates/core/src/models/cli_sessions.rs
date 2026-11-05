@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::AgentCliKind;
 
-/// 只读历史会话索引项。不会把完整对话、工具输出或凭据带入 IPC。
+/// 只读历史会话条目。不会把完整对话、工具输出或凭据带入 IPC。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliSessionSummary {
@@ -55,57 +55,8 @@ pub struct CliSessionDetail {
     pub session: CliSessionSummary,
     pub usage: super::SessionUsageSummary,
     pub messages: Vec<CliSessionMessage>,
-    /// 索引中的分页位置与可继续读取的游标。
+    /// 当前阅读页的位置与可继续读取的游标。
     pub page: super::SessionReadPage,
     pub outline: Vec<super::SessionTurnSummary>,
     pub find: super::SessionFindState,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum CliSessionIndexState {
-    Ready,
-    Disabled,
-    Fallback,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CliSessionIndexAgentStats {
-    pub cli_kind: AgentCliKind,
-    pub size_bytes: u64,
-    pub session_count: usize,
-    pub updated_at: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CliSessionIndexStatus {
-    pub enabled: bool,
-    pub directory: String,
-    #[serde(rename = "maxSizeMiB")]
-    pub max_size_mib: u64,
-    pub size_bytes: u64,
-    pub building: bool,
-    pub agents: Vec<CliSessionIndexAgentStats>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn index_status_keeps_the_frontend_mib_field_name() {
-        let status = CliSessionIndexStatus {
-            enabled: true,
-            directory: "/tmp/index".to_string(),
-            max_size_mib: 64,
-            size_bytes: 1_024,
-            building: false,
-            agents: Vec::new(),
-        };
-        let value = serde_json::to_value(status).expect("index status should serialize");
-        assert_eq!(value.get("maxSizeMiB"), Some(&serde_json::json!(64)));
-        assert!(value.get("maxSizeMib").is_none());
-    }
 }

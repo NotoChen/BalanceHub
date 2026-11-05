@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconRefresh, IconSearch } from "@arco-design/web-vue/es/icon";
-import type { CliSessionIndexState } from "../stores/providers";
 import type {
   AgentSessionRoleFilter,
   AgentSessionRow,
@@ -15,8 +14,7 @@ const props = defineProps<{
   loading: boolean;
   loadingMore: boolean;
   error: string;
-  indexState: CliSessionIndexState;
-  indexMessage: string;
+  statusMessage: string;
   roleFilter: AgentSessionRoleFilter;
   selectedSessionRef: string;
   selectedSessionTitle: string;
@@ -87,12 +85,11 @@ const selectedSession = computed(
       </a-tooltip>
     </div>
     <div
-      v-if="indexMessage"
-      class="workspace-session-index-state"
-      :class="`is-${indexState}`"
+      v-if="statusMessage"
+      class="workspace-session-status"
       role="status"
     >
-      <span>{{ indexMessage }}</span>
+      <span>{{ statusMessage }}</span>
     </div>
     <a-alert v-if="error" type="warning" show-icon
       ><template #title>历史会话读取失败</template>{{ error }}</a-alert

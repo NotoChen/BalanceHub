@@ -2,7 +2,7 @@
 //! ...). Requests use SigV4 with path-style addressing on custom endpoints and
 //! virtual-hosted addressing on AWS. Conditional writes are mandatory: the
 //! capability probe rejects providers that silently overwrite.
-use super::store::{probe_store, Download, RemoteStore};
+use super::store::{normalize_prefix, probe_store, valid_file, Download, RemoteStore};
 use super::transport::read_response;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
@@ -60,25 +60,6 @@ pub(super) fn valid_bucket(bucket: &str) -> bool {
         && !bucket.contains("..")
 }
 
-/// Prefix segments stay inside the canonical-URI unreserved set so signing
-/// never has to re-encode a user path.
-pub(super) fn normalize_prefix(raw: &str) -> Result<String, String> {
-    let prefix = raw.trim().trim_matches('/');
-    if prefix.is_empty() {
-        return Ok(prefix.to_owned());
-    }
-    if prefix.split('/').any(|part| {
-        part.is_empty()
-            || matches!(part, "." | "..")
-            || !part.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
-            })
-    }) {
-        return Err("同步前缀只能包含字母、数字、-、_、. 与 /".to_owned());
-    }
-    Ok(prefix.to_owned())
-}
-
 pub(super) fn normalize_endpoint(raw: &str, region: &str) -> Result<Url, String> {
     let raw = raw.trim();
     let raw = if raw.is_empty() {
@@ -107,19 +88,6 @@ pub(super) fn normalize_endpoint(raw: &str, region: &str) -> Result<Url, String>
         return Err("S3 服务地址须为 HTTP(S) 地址，凭据请填写在独立输入框".to_owned());
     }
     Ok(url)
-}
-
-fn valid_file(file: &str) -> bool {
-    !file.is_empty()
-        && !file.starts_with('/')
-        && file.split('/').all(|part| {
-            !part.is_empty()
-                && part != "."
-                && part != ".."
-                && part.bytes().all(|byte| {
-                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
-                })
-        })
 }
 
 fn hex(bytes: &[u8]) -> String {

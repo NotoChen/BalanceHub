@@ -45,7 +45,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     balancehub_core::api::register_commands(balancehub_agent::api::COMMANDS);
     // 常驻进程的核心价值：没有界面也会按设置自动刷新、签到和测活。
     balancehub_core::services::scheduler::start();
-    // Agent CLI、会话索引与自动升级：依赖本机工具，工具存在时即可用。
+    // Agent CLI、会话检索与自动升级：依赖本机工具，工具存在时即可用。
     balancehub_agent::start_background();
     // WebDAV 同步与桌面共用同一套实现；服务端只有配置文档，没有 Agent 资产库。
     if let Ok(sync) = balancehub_core::services::cloud_sync::service() {

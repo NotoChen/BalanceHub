@@ -1,6 +1,6 @@
 //! BalanceHub Agent 能力：Agent CLI、会话、临时 CLI、WSL 与本机工具。
 //!
-//! 这里不依赖任何窗口框架。工具发现、配置读写、会话索引与资产库都直接作用
+//! 这里不依赖任何窗口框架。工具发现、配置读写、会话读取与资产库都直接作用
 //! 于当前进程所在机器；窗口、系统打开与终端启动通过宿主扩展点注入，桌面和
 //! 无界面后端安装各自的实现。
 
@@ -52,14 +52,6 @@ pub fn initialize() -> Result<(), String> {
     crate::services::agent_cli::initialize_discovery_cache(data_root.join("agent-discovery-cache"));
     crate::services::agent_cli::lifecycle::initialize_journal(data_root.join("agent-upgrades"));
     Ok(())
-}
-
-/// 宿主设置变化后的重配置：会话索引目录与开关。
-pub fn settings_changed(
-    previous: &crate::models::AppSettings,
-    current: &crate::models::AppSettings,
-) {
-    crate::services::cli_sessions::reconfigure_index(previous, current);
 }
 
 /// 关闭一个窗口或浏览器会话时释放其会话读取配额与资产访问身份。

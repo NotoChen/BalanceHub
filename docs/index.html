@@ -41,10 +41,9 @@ page_class: landing-page
 
     <figure class="hero-visual">
       <div class="app-window">
-        <div class="window-bar" aria-hidden="true"><span></span><span></span><span></span></div>
         <img
           src="{{ '/assets/screenshots/overview.png' | relative_url }}"
-          width="3360"
+          width="3180"
           height="2040"
           fetchpriority="high"
           alt="BalanceHub 桌面应用主面板，集中展示多个中转站的额度、状态、模型和快捷操作"
@@ -222,8 +221,8 @@ page_class: landing-page
       <figure class="screenshot-frame">
         <img
           src="{{ '/assets/screenshots/usage-trends.png' | relative_url }}"
-          width="1952"
-          height="1584"
+          width="1956"
+          height="1862"
           loading="lazy"
           decoding="async"
           alt="BalanceHub 用量趋势页面，展示请求数、消耗、Token、峰值和每日明细"
@@ -245,8 +244,8 @@ page_class: landing-page
         <figure class="screenshot-frame">
           <img
             src="{{ '/assets/screenshots/request-logs.png' | relative_url }}"
-            width="2058"
-            height="1514"
+            width="2452"
+            height="1830"
             loading="lazy"
             decoding="async"
             alt="BalanceHub 请求日志页面，展示模型、Token、耗时、消耗和分页结果"
@@ -262,8 +261,8 @@ page_class: landing-page
         <figure class="screenshot-frame">
           <img
             src="{{ '/assets/screenshots/checkin-records.png' | relative_url }}"
-            width="1514"
-            height="1444"
+            width="1612"
+            height="1394"
             loading="lazy"
             decoding="async"
             alt="BalanceHub 签到记录日历，展示签到天数、累计增加和每日余额增量"
@@ -282,7 +281,7 @@ page_class: landing-page
       <h2 id="privacy-title">配置由你保存，同步由你选择。</h2>
       <p>
         BalanceHub 默认是本地桌面工具，也可以部署成你自己的无界面后端；项目方不提供托管服务。账号密码、Cookie、Token、API Key
-        与站点配置保存在运行它的机器上。启用云端同步后，在本机加密并同步到你指定的 WebDAV 或 S3 兼容存储；带认证的站点请求由运行 BalanceHub 的 Rust 后端直接执行。
+        与站点配置保存在运行它的机器上。启用云端同步后，在本机加密并同步到你指定的 WebDAV、S3 兼容存储或 GitHub 仓库；带认证的站点请求由运行 BalanceHub 的 Rust 后端直接执行。
       </p>
       <p class="boundary-note">
         支持 NewAPI、Sub2API 和通用 API Key；AnyRouter 按 NewAPI 方言兼容。当前源码还提供官方 OAuth 账号与 CPA 网关卡片。
@@ -382,7 +381,7 @@ page_class: landing-page
         <span class="doc-number">08</span><div><h3>更新记录</h3><p>按版本查看新增能力、行为变化和问题修复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
       <a class="doc-link" href="{{ '/webdav-sync.html' | relative_url }}">
-        <span class="doc-number">09</span><div><h3>云端同步</h3><p>WebDAV 与 S3 兼容存储的加密增量同步、冲突差异和本机恢复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
+        <span class="doc-number">09</span><div><h3>云端同步</h3><p>WebDAV、S3 兼容存储与 GitHub 仓库的加密增量同步、冲突差异和本机恢复。</p></div><span class="doc-arrow" aria-hidden="true">→</span>
       </a>
       <a class="doc-link" href="{{ '/oauth-accounts.html' | relative_url }}">
         <span class="doc-number">10</span><div><h3>OAuth 账号与 CPA</h3><p>套餐额度、授权文件互通、续期交接与网关。</p></div><span class="doc-arrow" aria-hidden="true">→</span>

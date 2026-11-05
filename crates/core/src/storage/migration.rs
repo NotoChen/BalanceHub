@@ -1,3 +1,4 @@
+use super::legacy_session_index;
 use crate::{
     limits,
     models::{AppData, CURRENT_SCHEMA_VERSION},
@@ -10,6 +11,15 @@ use std::{
 
 const DATA_FILE_NAME: &str = "data.json";
 
+/// 读取配置的结果。旧版索引目录只在真正启动时用于清理，导入配置不会触碰
+/// 本机缓存，因此与数据一起返回、由调用方决定是否使用。
+#[derive(Debug, Default)]
+pub(super) struct LoadedAppData {
+    pub data: AppData,
+    pub migrated: bool,
+    pub legacy_session_index_root: Option<PathBuf>,
+}
+
 /// 迁移前是否备份原文件：主配置/恢复候选会被迁移结果覆盖，需要备份；
 /// 导入的外部文件不会被改写，备份只会在来源目录留垃圾。
 #[derive(Clone, Copy, PartialEq)]
@@ -18,12 +28,11 @@ pub(super) enum BackupBeforeMigrate {
     No,
 }
 
-/// 读取并按需迁移一个配置文件。返回 `(数据, 是否发生了迁移)`，迁移过的数据
-/// 由调用方决定何时落盘。
+/// 读取并按需迁移一个配置文件。是否落盘由调用方决定。
 pub(super) fn read_app_data_file(
     path: &Path,
     backup_mode: BackupBeforeMigrate,
-) -> Result<(AppData, bool), String> {
+) -> Result<LoadedAppData, String> {
     let text = read_text_file_limited(path, limits::MAX_APP_DATA_FILE_BYTES, "读取配置")?;
     read_app_data_text(&text, path, backup_mode)
 }
@@ -33,17 +42,27 @@ pub(super) fn read_app_data_text(
     text: &str,
     path: &Path,
     backup_mode: BackupBeforeMigrate,
-) -> Result<(AppData, bool), String> {
+) -> Result<LoadedAppData, String> {
     if text.len() > limits::MAX_APP_DATA_FILE_BYTES {
         return Err("配置文件超过大小上限".to_owned());
     }
-    let stored_version = stored_schema_version(text)
-        .map_err(|error| format!("解析配置失败({}): {error}", path.display()))?;
+    let parse_error =
+        |error: serde_json::Error| format!("解析配置失败({}): {error}", path.display());
+    let value = serde_json::from_str::<serde_json::Value>(text).map_err(parse_error)?;
+    let stored_version = value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
+    // 迁移可能删除旧设置，先在原始配置上取清理线索。
+    let legacy_session_index_root = legacy_session_index::custom_directory(&value);
 
     if stored_version == CURRENT_SCHEMA_VERSION {
-        let data = serde_json::from_str::<AppData>(text)
-            .map_err(|error| format!("解析配置失败({}): {error}", path.display()))?;
-        return Ok((data, false));
+        let data = serde_json::from_value::<AppData>(value).map_err(parse_error)?;
+        return Ok(LoadedAppData {
+            data,
+            migrated: false,
+            legacy_session_index_root,
+        });
     }
     if stored_version > CURRENT_SCHEMA_VERSION {
         return Err(format!(
@@ -60,26 +79,26 @@ pub(super) fn read_app_data_text(
         .as_ref()
         .map(|backup_path| format!("，原文件已备份至 {}", backup_path.display()))
         .unwrap_or_default();
-    let data = migrate_app_data(text, stored_version).map_err(|error| {
+    let data = migrate_value(value, stored_version).map_err(|error| {
         format!(
             "配置从 schemaVersion {stored_version} 迁移到 {CURRENT_SCHEMA_VERSION} 失败：{error}{backup_hint}"
         )
     })?;
-    Ok((data, true))
+    Ok(LoadedAppData {
+        data,
+        migrated: true,
+        legacy_session_index_root,
+    })
 }
 
-fn stored_schema_version(text: &str) -> Result<u32, String> {
+#[cfg(test)]
+pub(super) fn migrate_app_data(text: &str, stored_version: u32) -> Result<AppData, String> {
     let value =
         serde_json::from_str::<serde_json::Value>(text).map_err(|error| error.to_string())?;
-    Ok(value
-        .get("schemaVersion")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0) as u32)
+    migrate_value(value, stored_version)
 }
 
-pub(super) fn migrate_app_data(text: &str, stored_version: u32) -> Result<AppData, String> {
-    let mut value =
-        serde_json::from_str::<serde_json::Value>(text).map_err(|error| error.to_string())?;
+fn migrate_value(mut value: serde_json::Value, stored_version: u32) -> Result<AppData, String> {
     for version in stored_version..CURRENT_SCHEMA_VERSION {
         migrate_step(version, &mut value)?;
     }
@@ -258,23 +277,8 @@ fn migrate_step(version: u32, data: &mut serde_json::Value) -> Result<(), String
             }
             Ok(())
         }
-        8 => {
-            if let Some(settings) = data
-                .get_mut("settings")
-                .and_then(serde_json::Value::as_object_mut)
-            {
-                settings
-                    .entry("sessionIndexEnabled")
-                    .or_insert_with(|| serde_json::Value::Bool(true));
-                settings
-                    .entry("sessionIndexDirectory")
-                    .or_insert_with(|| serde_json::Value::String(String::new()));
-                settings.entry("sessionIndexMaxSizeMiB").or_insert_with(|| {
-                    serde_json::Value::from(crate::models::default_session_index_max_size_mib())
-                });
-            }
-            Ok(())
-        }
+        // 8 曾写入会话索引设置；按需读取正文后这些字段不再存在。
+        8 => Ok(()),
         9 => {
             if let Some(providers) = data
                 .get_mut("providers")

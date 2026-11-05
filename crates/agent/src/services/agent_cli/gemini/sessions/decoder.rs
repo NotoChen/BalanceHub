@@ -9,12 +9,12 @@ pub(super) fn decode(
     _sequence: u64,
     line: &[u8],
     _state: &mut Value,
-) -> Vec<SessionIndexMutation> {
+) -> Vec<SessionTranscriptMutation> {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return Vec::new();
     };
     if let Some(id) = value.get("$rewindTo").and_then(Value::as_str) {
-        return vec![SessionIndexMutation::Rewind(format!("gemini-{id}"))];
+        return vec![SessionTranscriptMutation::Rewind(format!("gemini-{id}"))];
     }
     let mut result = Vec::new();
     if let Some(messages) = value
@@ -23,7 +23,7 @@ pub(super) fn decode(
         .or_else(|| value.get("messages"))
         .and_then(Value::as_array)
     {
-        result.push(SessionIndexMutation::Clear);
+        result.push(SessionTranscriptMutation::Clear);
         for message in messages {
             decode_message(message, &mut result);
         }
@@ -33,12 +33,12 @@ pub(super) fn decode(
     result
 }
 
-fn decode_message(value: &Value, result: &mut Vec<SessionIndexMutation>) {
+fn decode_message(value: &Value, result: &mut Vec<SessionTranscriptMutation>) {
     let Some(message) = MessageSummary::from_value(value) else {
         return;
     };
     let id = format!("gemini-{}", message.id);
-    result.push(SessionIndexMutation::RemoveGroup(id.clone()));
+    result.push(SessionTranscriptMutation::RemoveGroup(id.clone()));
     let role = match message.kind.as_str() {
         "user" => CliSessionMessageRole::User,
         "gemini" => CliSessionMessageRole::Assistant,
@@ -195,9 +195,9 @@ fn put(
     role: CliSessionMessageRole,
     content: String,
     metadata: SessionMessageMetadata,
-) -> SessionIndexMutation {
-    SessionIndexMutation::Put {
-        message: SessionIndexMessage {
+) -> SessionTranscriptMutation {
+    SessionTranscriptMutation::Put {
+        message: SessionTranscriptMessage {
             id,
             role,
             content,

@@ -53,7 +53,7 @@ fn every_native_decoder_preserves_failed_tool_status_and_exit_code() {
             .sessions()
             .unwrap()
             .history()
-            .index)(&record)
+            .transcript)(&record)
         .unwrap();
         let messages = crate::services::cli_sessions::read_indexed_messages(&sources);
         let tools: Vec<_> = messages

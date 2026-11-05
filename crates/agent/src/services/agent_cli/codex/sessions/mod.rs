@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionIndexSource, SessionMetadataCursor, SessionMetadataLookupError,
+    SessionTranscriptSource, SessionMetadataCursor, SessionMetadataLookupError,
     SessionMetadataLookupRequest, SessionMetadataLookupResult, SessionMetadataSnapshot,
 };
 

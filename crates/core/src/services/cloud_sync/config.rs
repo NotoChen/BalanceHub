@@ -1,4 +1,4 @@
-use super::{files, format, s3, transport::normalize_url};
+use super::{files, format, github, s3, store, transport::normalize_url};
 use crate::models::{CloudSyncBackend, CloudSyncSettingsInput, CloudSyncSettingsView};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -11,8 +11,12 @@ pub(super) struct Settings {
     pub username: String,
     pub password: String,
     pub passphrase: String,
-    /// WebDAV directory or S3 object prefix.
+    /// WebDAV directory, S3 object prefix or GitHub path prefix.
     pub remote_root: String,
+    pub github_owner: String,
+    pub github_repo: String,
+    pub github_branch: String,
+    pub github_token: String,
     pub s3_endpoint: String,
     pub s3_region: String,
     pub s3_bucket: String,
@@ -31,6 +35,10 @@ impl Default for Settings {
             password: String::new(),
             passphrase: String::new(),
             remote_root: "BalanceHub".to_owned(),
+            github_owner: String::new(),
+            github_repo: String::new(),
+            github_branch: "main".to_owned(),
+            github_token: String::new(),
             s3_endpoint: String::new(),
             s3_region: "us-east-1".to_owned(),
             s3_bucket: String::new(),
@@ -57,6 +65,9 @@ impl Settings {
             server_url: self.server_url.clone(),
             username: self.username.clone(),
             remote_root: self.remote_root.clone(),
+            github_owner: self.github_owner.clone(),
+            github_repo: self.github_repo.clone(),
+            github_branch: self.github_branch.clone(),
             s3_endpoint: self.s3_endpoint.clone(),
             s3_region: self.s3_region.clone(),
             s3_bucket: self.s3_bucket.clone(),
@@ -64,6 +75,7 @@ impl Settings {
             device_name: self.device_name.clone(),
             auto_sync: self.auto_sync,
             has_password: !self.password.is_empty(),
+            has_github_token: !self.github_token.is_empty(),
             has_secret_key: !self.s3_secret_key.is_empty(),
             has_passphrase: !self.passphrase.is_empty(),
         }
@@ -77,6 +89,7 @@ impl Settings {
         let s3_bucket = input.s3_bucket.trim().to_owned();
         let s3_access_key = input.s3_access_key.trim().to_owned();
         let password_provided = input.password.is_some();
+        let github_token_provided = input.github_token.is_some();
         let secret_provided = input.s3_secret_key.is_some();
         let next = Self {
             backend,
@@ -85,6 +98,12 @@ impl Settings {
             password: input.password.unwrap_or_else(|| self.password.clone()),
             passphrase: input.passphrase.unwrap_or_else(|| self.passphrase.clone()),
             remote_root: input.remote_root.trim().trim_matches('/').to_owned(),
+            github_owner: input.github_owner.trim().to_owned(),
+            github_repo: input.github_repo.trim().to_owned(),
+            github_branch: input.github_branch.trim().to_owned(),
+            github_token: input
+                .github_token
+                .unwrap_or_else(|| self.github_token.clone()),
             s3_endpoint,
             s3_region: input.s3_region.trim().to_owned(),
             s3_bucket,
@@ -110,6 +129,9 @@ impl Settings {
                 &self.s3_secret_key,
                 secret_provided,
             ),
+            // A GitHub token is account-level; moving the same token to another
+            // repository does not send it to a different host.
+            CloudSyncBackend::Github => (false, &self.github_token, github_token_provided),
         };
         if identity_changed && !saved_secret.is_empty() && !provided_secret {
             return Err(match backend {
@@ -119,6 +141,7 @@ impl Settings {
                 CloudSyncBackend::S3 => {
                     "更换 S3 服务地址、存储桶或 Access Key 后，请重新输入 Secret Key".to_owned()
                 }
+                CloudSyncBackend::Github => "请重新输入 GitHub 个人访问令牌".to_owned(),
             });
         }
         if next.device_name.is_empty() || next.device_name.chars().count() > 80 {
@@ -129,6 +152,10 @@ impl Settings {
             || next.passphrase.len() > 8192
             || next.server_url.len() > 4096
             || next.remote_root.len() > 1024
+            || next.github_owner.len() > 100
+            || next.github_repo.len() > 100
+            || next.github_branch.len() > 255
+            || next.github_token.len() > 8192
             || next.s3_endpoint.len() > 4096
             || next.s3_region.len() > 128
             || next.s3_bucket.len() > 128
@@ -157,6 +184,11 @@ impl Settings {
                     || !self.s3_endpoint.is_empty()
                     || !self.s3_access_key.is_empty()
             }
+            CloudSyncBackend::Github => {
+                !self.github_owner.is_empty()
+                    || !self.github_repo.is_empty()
+                    || !self.github_token.is_empty()
+            }
         }
     }
 
@@ -172,6 +204,13 @@ impl Settings {
                 &self.remote_root,
                 &self.s3_region,
                 &self.s3_access_key,
+            ),
+            CloudSyncBackend::Github => github::validate(
+                &self.github_owner,
+                &self.github_repo,
+                &self.github_branch,
+                &self.remote_root,
+                &self.github_token,
             ),
         }
     }
@@ -205,11 +244,18 @@ impl Settings {
                         "s3\n{}\n{}\n{}\n{}\n{}",
                         endpoint.as_str().trim_end_matches('/'),
                         self.s3_bucket,
-                        s3::normalize_prefix(&self.remote_root)?,
+                        store::normalize_prefix(&self.remote_root)?,
                         self.s3_region,
                         self.s3_access_key
                     )
                 }
+                CloudSyncBackend::Github => format!(
+                    "github\n{}/{}\n{}\n{}",
+                    self.github_owner.to_ascii_lowercase(),
+                    self.github_repo.to_ascii_lowercase(),
+                    self.github_branch,
+                    store::normalize_prefix(&self.remote_root)?
+                ),
             }
             .as_bytes(),
         ))
@@ -223,6 +269,7 @@ impl Settings {
                 match self.backend {
                     CloudSyncBackend::Webdav => &self.password,
                     CloudSyncBackend::S3 => &self.s3_secret_key,
+                    CloudSyncBackend::Github => &self.github_token,
                 }
             )
             .as_bytes(),

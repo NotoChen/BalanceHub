@@ -18,7 +18,7 @@ pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
     launch_environment: super::super::native_context::launch_environment,
     source,
     scan,
-    index,
+    transcript,
 };
 fn source() -> Result<SessionHistorySource, String> {
     let config_root = codex_home()?;
@@ -321,7 +321,7 @@ fn decode_role(source: Option<&str>, parent: Option<String>) -> (AgentSessionRol
     };
     (role, parent)
 }
-fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
+fn transcript(record: &SessionHistoryRecord) -> Result<Vec<SessionTranscriptSource>, String> {
     if let Some(reason) = &record.content_unavailable_reason {
         return Err(reason.clone());
     }

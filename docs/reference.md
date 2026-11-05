@@ -15,7 +15,7 @@ Agent 工作台相关条目描述当前仓库源码，操作步骤见 [Agent 工
 
 | 功能 | 定义 | 实现位置 | 说明 |
 | --- | --- | --- | --- |
-| 云端配置同步 | 通过 WebDAV 或 S3 兼容存储加密同步中转站、可移植偏好与共享 Skill、MCP、Hook。 | `crates/core/src/services/cloud_sync/`、`src/components/settings/SettingsCloudSyncSection.vue` | 按条目与文件增量同步，首次差异和冲突使用 diff 确认；[连接与恢复说明](webdav-sync.html)。 |
+| 云端配置同步 | 通过 WebDAV、S3 兼容存储或 GitHub 仓库加密同步中转站、可移植偏好与共享 Skill、MCP、Hook。 | `crates/core/src/services/cloud_sync/`、`src/components/settings/SettingsCloudSyncSection.vue` | 按条目与文件增量同步，首次差异和冲突使用 diff 确认；[连接与恢复说明](webdav-sync.html)。 |
 | 无界面后端 | 把同一套界面部署为可用浏览器访问的服务端，不依赖桌面窗口。 | `crates/server/`、`src/api/transport.ts` | 通过 `POST /rpc` 与 `GET /events` 执行与桌面相同的命令，启动时注册 Agent 命令并按设置运行自动刷新、签到、测活与云端同步；数据目录由环境变量指定。[部署方式](server-deployment.html)。 |
 | 中转站账号管理 | 把 NewAPI、Sub2API 和通用 OpenAI 兼容 API 集中到一个桌面面板中管理。 | `src/components/ProviderBoard.vue`、`src/components/ProviderCard.vue`、`src/components/ProviderEditorDrawer.vue`、`crates/core/src/services/provider_service/` | 卡片按账号或 API Key 口径显示余额：Key 卡展示该 Key 的可用额度、无限额度与同步时间，剩余额度与 OAuth 额度窗口共用 70% / 90% 告警分级；账号卡在站点报告订阅进度时，用每个窗口一条进度条（已用比例）替代钱包比例条。AnyRouter 按 NewAPI 方言兼容处理，不作为独立类型展示。 |
 | OAuth 账号与 CPA | 在独立卡片查看 Codex、Claude、Gemini CLI、Grok 的套餐、额度和动态模型，并连接 CPA 管理授权。 | `crates/core/src/adapters/oauth/`、`crates/core/src/adapters/cli_proxy_api.rs`、`crates/core/src/services/oauth_accounts/`、`crates/core/src/api/oauth.rs`、`src/components/oauth/` | 浏览器授权、单账号续期、文件预览与互通；桌面把授权页交给系统浏览器，浏览器版在同一浏览器的新标签页打开，服务端回环不到用户浏览器时把完整回调地址粘回来即可。浏览器版导入上传文件文本、导出直接下载授权 JSON，服务端不接收客户端文件路径。OAuth 授权续期在服务端以服务端自己的设备标识执行。[支持范围与使用方式](oauth-accounts.html)。 |
@@ -105,7 +105,7 @@ Vue 3 UI
 
 `balancehub-core` 和 `balancehub-agent` 都不依赖 Tauri：数据目录、事件广播、系统通知和打开链接统一走 `host::Host`，桌面在 `src-tauri/src/desktop_host.rs` 实现，服务端在 `crates/server/src/host.rs` 实现。Agent 配置、终端和浏览器窗口由运行机器是否具备相应能力决定：本地分离部署或带桌面会话的服务器可以像桌面版一样使用，无显示环境下只隐藏可见窗口入口，测活与签到仍以无头模式运行。
 
-前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。凭据默认保存在本机；启用云端同步（WebDAV 或 S3 兼容存储）后，同步范围内的凭据在本机加密后上传到用户指定的服务。业务请求由后端执行，浏览器页面不直接访问中转站。
+前端负责操作体验和状态呈现；Rust 负责带认证的站点请求、调度、持久化、通知和外部 CLI 调用。凭据默认保存在本机；启用云端同步（WebDAV、S3 兼容存储或 GitHub 仓库）后，同步范围内的凭据在本机加密后上传到用户指定的服务。业务请求由后端执行，浏览器页面不直接访问中转站。
 
 ## 目录说明
 

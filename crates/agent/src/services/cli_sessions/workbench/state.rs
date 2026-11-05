@@ -3,10 +3,13 @@ use crate::{
         AgentSessionParent, AgentSessionRow, AgentSessionScope, AgentSessionSourceState,
         AgentSessionWorkspace, SessionSearchHit,
     },
-    services::agent_cli::contracts::{SessionHistoryRecord, SessionHistorySource},
+    services::agent_cli::contracts::{
+        SessionHistoryRecord, SessionHistorySource, SessionReadBudget,
+    },
 };
 use std::{
     collections::HashMap,
+    num::NonZeroUsize,
     sync::{atomic::AtomicBool, Arc, Mutex, MutexGuard, OnceLock},
     time::{Duration, Instant},
 };
@@ -52,30 +55,79 @@ pub(super) struct QueryProgress {
 #[derive(Clone)]
 pub(super) struct SourceResources {
     pub cache: super::budget::HistoryReadCache,
-    pub index: Arc<crate::services::cli_sessions::index::HistoryIndex>,
+    pub transcripts: TranscriptCache,
     pub used_at: Instant,
+}
+
+/// Reader pages and message expansion revisit the same native transcript.
+/// Keep only the few transcripts currently open; list searches never populate
+/// this cache, so a workspace-wide search does not retain every body.
+#[derive(Clone)]
+pub(super) struct TranscriptCache {
+    inner: Arc<Mutex<TranscriptCacheData>>,
+}
+
+struct TranscriptCacheData {
+    entries: lru::LruCache<String, Arc<crate::services::cli_sessions::transcript::Transcript>>,
+}
+
+impl Default for TranscriptCache {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(TranscriptCacheData {
+                entries: lru::LruCache::new(NonZeroUsize::new(4).expect("positive cache capacity")),
+            })),
+        }
+    }
+}
+
+impl TranscriptCache {
+    pub(super) fn load(
+        &self,
+        workspace: &str,
+        record: &SessionHistoryRecord,
+        adapter: &crate::services::agent_cli::contracts::SessionHistoryAdapter,
+        budget: &SessionReadBudget,
+    ) -> Result<Arc<crate::services::cli_sessions::transcript::Transcript>, String> {
+        let sources = (adapter.transcript)(record)?;
+        let signature = crate::services::cli_sessions::transcript::sources_signature(&sources)?;
+        let key = format!("{workspace}\0{}\0{signature}", record.record_key);
+        {
+            let mut data = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+            if let Some(transcript) = data.entries.get(&key) {
+                budget.check()?;
+                return Ok(transcript.clone());
+            }
+        }
+        let transcript = Arc::new(
+            crate::services::cli_sessions::transcript::Transcript::from_sources(
+                workspace,
+                &record.record_key,
+                &sources,
+                budget,
+            )?,
+        );
+        if transcript.complete {
+            let mut data = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+            data.entries.put(key, transcript.clone());
+        }
+        Ok(transcript)
+    }
 }
 
 pub(super) fn source_resources(
     actor: super::AgentSessionActor<'_>,
     source: &crate::models::AgentSessionSource,
-    config: &crate::services::cli_sessions::index::SessionIndexConfig,
 ) -> SourceResources {
     let mut registry = registry();
     let key = (actor.key(), source.id.clone());
     if let Some(resource) = registry.sources.get_mut(&key) {
-        if resource.index.matches_config(config) {
-            resource.used_at = Instant::now();
-            return resource.clone();
-        }
+        resource.used_at = Instant::now();
+        return resource.clone();
     }
     let resource = SourceResources {
         cache: Default::default(),
-        index: Arc::new(crate::services::cli_sessions::index::HistoryIndex::new(
-            config,
-            source.agent_kind,
-            &source.id,
-        )),
+        transcripts: TranscriptCache::default(),
         used_at: Instant::now(),
     };
     registry.sources.insert(key, resource.clone());

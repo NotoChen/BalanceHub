@@ -108,3 +108,36 @@ async fn probe(store: &dyn RemoteStore, name: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Prefix or directory segments shared by every object backend. Keeping one
+/// normalizer means a path that WebDAV accepts is also safe for S3 and GitHub.
+pub(super) fn normalize_prefix(raw: &str) -> Result<String, String> {
+    let prefix = raw.trim().trim_matches('/');
+    if prefix.is_empty() {
+        return Ok(prefix.to_owned());
+    }
+    if prefix.split('/').any(|part| {
+        part.is_empty()
+            || matches!(part, "." | "..")
+            || !part.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+            })
+    }) {
+        return Err("同步前缀只能包含字母、数字、-、_、. 与 /".to_owned());
+    }
+    Ok(prefix.to_owned())
+}
+
+/// Object keys never escape the configured prefix.
+pub(super) fn valid_file(file: &str) -> bool {
+    !file.is_empty()
+        && !file.starts_with('/')
+        && file.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
+                })
+        })
+}

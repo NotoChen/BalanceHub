@@ -2,13 +2,16 @@ import { invoke } from "./transport.ts";
 import { listen } from "./transport.ts";
 import { withTimeout } from "../utils/promise-timeout";
 
-export type CloudSyncBackend = "webdav" | "s3";
+export type CloudSyncBackend = "webdav" | "s3" | "github";
 
 export interface CloudSyncSettings {
   backend: CloudSyncBackend;
   serverUrl: string;
   username: string;
   remoteRoot: string;
+  githubOwner: string;
+  githubRepo: string;
+  githubBranch: string;
   s3Endpoint: string;
   s3Region: string;
   s3Bucket: string;
@@ -16,6 +19,7 @@ export interface CloudSyncSettings {
   deviceName: string;
   autoSync: boolean;
   hasPassword: boolean;
+  hasGithubToken: boolean;
   hasSecretKey: boolean;
   hasPassphrase: boolean;
 }
@@ -26,6 +30,10 @@ export interface CloudSyncSettingsInput {
   password: string | null;
   passphrase: string | null;
   remoteRoot: string;
+  githubOwner: string;
+  githubRepo: string;
+  githubBranch: string;
+  githubToken: string | null;
   s3Endpoint: string;
   s3Region: string;
   s3Bucket: string;

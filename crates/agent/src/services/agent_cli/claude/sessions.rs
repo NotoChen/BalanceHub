@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::{collections::BTreeSet, fs, path::Path};
 
 use super::super::contracts::{
-    SessionIndexFormat, SessionIndexMessage, SessionIndexMutation, SessionIndexSource,
+    SessionTranscriptFormat, SessionTranscriptMessage, SessionTranscriptMutation, SessionTranscriptSource,
     SessionMetadataLookupError, SessionMetadataLookupRequest, SessionMetadataLookupResult,
 };
 
@@ -33,11 +33,11 @@ pub(super) fn metadata_lookup(
     metadata::lookup(&config_dir, request)
 }
 
-fn index_source(path: &Path) -> SessionIndexSource {
-    SessionIndexSource {
+fn index_source(path: &Path) -> SessionTranscriptSource {
+    SessionTranscriptSource {
         path: path.to_path_buf(),
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionIndexFormat::JsonLines,
+        format: SessionTranscriptFormat::JsonLines,
         decode: decoder::decode,
     }
 }

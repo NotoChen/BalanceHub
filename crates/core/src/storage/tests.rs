@@ -62,33 +62,6 @@ fn migrates_app_data_from_older_schema_version() {
     assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
     assert!(migrated.workspaces.is_empty());
     assert!(migrated.temporary_cli_preferences.is_empty());
-    assert!(migrated.settings.session_index_enabled);
-    assert_eq!(migrated.settings.session_index_max_size_mib, 64);
-}
-
-#[test]
-fn schema_eight_migration_adds_session_index_settings() {
-    let old = AppData {
-        schema_version: 8,
-        ..AppData::default()
-    };
-    let mut value = serde_json::to_value(old).expect("app data should serialize");
-    let settings = value["settings"]
-        .as_object_mut()
-        .expect("settings should be an object");
-    settings.remove("sessionIndexEnabled");
-    settings.remove("sessionIndexDirectory");
-    settings.remove("sessionIndexMaxSizeMiB");
-
-    let migrated = migrate_app_data(
-        &serde_json::to_string(&value).expect("legacy app data should serialize"),
-        8,
-    )
-    .expect("schema eight should migrate");
-
-    assert!(migrated.settings.session_index_enabled);
-    assert!(migrated.settings.session_index_directory.is_empty());
-    assert_eq!(migrated.settings.session_index_max_size_mib, 64);
 }
 
 #[test]
@@ -422,16 +395,39 @@ fn read_app_data_file_migrates_old_file_and_backs_up_original() {
     )
     .expect("old data file should be writable");
 
-    let (data, migrated) = read_app_data_file(&target, BackupBeforeMigrate::Yes)
+    let loaded = read_app_data_file(&target, BackupBeforeMigrate::Yes)
         .expect("old data file should migrate");
 
-    assert!(migrated);
-    assert_eq!(data.schema_version, CURRENT_SCHEMA_VERSION);
+    assert!(loaded.migrated);
+    assert_eq!(loaded.data.schema_version, CURRENT_SCHEMA_VERSION);
     let backup = target.with_file_name(format!(
         "{DATA_FILE_NAME}.v{}.bak",
         CURRENT_SCHEMA_VERSION - 1
     ));
     assert!(backup.exists(), "original file should be backed up");
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn reading_app_data_reports_the_legacy_session_index_root() {
+    let dir = unique_test_dir("legacy-index-directory");
+    let target = dir.join(DATA_FILE_NAME);
+    let mut value = serde_json::to_value(AppData::default()).expect("app data should serialize");
+    value["settings"]["sessionIndexDirectory"] = serde_json::json!("  /tmp/balancehub-index  ");
+    fs::write(
+        &target,
+        serde_json::to_string_pretty(&value).expect("app data should serialize"),
+    )
+    .expect("data file should be writable");
+
+    let loaded =
+        read_app_data_file(&target, BackupBeforeMigrate::No).expect("current schema should load");
+
+    assert_eq!(
+        loaded.legacy_session_index_root,
+        Some(PathBuf::from("/tmp/balancehub-index"))
+    );
 
     let _ = fs::remove_dir_all(dir);
 }
@@ -530,8 +526,11 @@ fn recovers_missing_data_file_from_tmp_file() {
         .expect("recovery should not fail")
         .expect("tmp file should be recovered");
 
-    assert_eq!(recovered.0.schema_version, CURRENT_SCHEMA_VERSION);
-    assert!(!recovered.1, "same-version recovery needs no migration");
+    assert_eq!(recovered.data.schema_version, CURRENT_SCHEMA_VERSION);
+    assert!(
+        !recovered.migrated,
+        "same-version recovery needs no migration"
+    );
     assert!(target.exists());
     assert!(!tmp.exists());
 

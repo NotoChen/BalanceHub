@@ -14,7 +14,7 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionIndexFormat, SessionIndexMessage, SessionIndexMutation, SessionIndexSource,
+    SessionTranscriptFormat, SessionTranscriptMessage, SessionTranscriptMutation, SessionTranscriptSource,
     SessionMetadataCursor, SessionMetadataLookupError, SessionMetadataLookupRequest,
     SessionMetadataLookupResult, SessionMetadataSnapshot,
 };
@@ -146,17 +146,17 @@ fn metadata_revision(path: &Path, summary: &CliSessionSummary) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn index_source(path: &Path) -> SessionIndexSource {
-    SessionIndexSource {
+fn index_source(path: &Path) -> SessionTranscriptSource {
+    SessionTranscriptSource {
         path: path.to_path_buf(),
         parser_version: INDEX_PARSER_VERSION,
         format: if path
             .extension()
             .is_some_and(|extension| extension == "json")
         {
-            SessionIndexFormat::JsonMessages
+            SessionTranscriptFormat::JsonMessages
         } else {
-            SessionIndexFormat::JsonLines
+            SessionTranscriptFormat::JsonLines
         },
         decode: decoder::decode,
     }

@@ -1,4 +1,3 @@
-mod index;
 mod io;
 mod metadata;
 pub(crate) mod presentation;
@@ -9,23 +8,20 @@ mod search;
 pub(crate) mod source;
 #[cfg(test)]
 mod tests;
+mod transcript;
 pub(crate) mod usage;
 pub(crate) mod workbench;
 
-#[cfg(test)]
-pub(crate) use index::test_support::{
-    read_history_detail, read_indexed_messages, search_history, search_sources,
-};
-pub(crate) use index::{
-    clear as clear_index, config as index_config, reconfigure as reconfigure_index,
-    status as index_status,
-};
 pub(crate) use io::{
-    json_text, read_json_lines_limited, scan_json_records, session_index_source_fingerprint,
+    json_text, read_json_lines_limited, scan_json_records, session_source_fingerprint,
 };
 pub(crate) use metadata::read_session_header;
 pub(crate) use record_stream::read_json_messages_limited;
 pub(crate) use search::{SearchAccumulator, SearchQuery};
+#[cfg(test)]
+pub(crate) use transcript::test_support::{
+    read_history_detail, read_indexed_messages, search_history, search_sources,
+};
 const MAX_SEARCH_QUERY_CHARS: usize = 200;
 const MAX_SEARCH_TERMS: usize = 8;
 pub(crate) fn normalize_records(

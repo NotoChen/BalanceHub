@@ -3,11 +3,7 @@
 //! 桌面宿主把 Tauri 的数据目录、事件和系统集成能力接进来；无界面宿主
 //! 只提供数据目录与可选的 HTTP 事件通道。
 
-use crate::{
-    models::{AppData, AppSettings},
-    services::cloud_sync::library::CloudLibrary,
-    state::CoreState,
-};
+use crate::{models::AppData, services::cloud_sync::library::CloudLibrary, state::CoreState};
 use serde::Serialize;
 use std::{
     path::PathBuf,
@@ -49,9 +45,6 @@ pub trait Host: Send + Sync + 'static {
         None
     }
 
-    /// 设置保存后的宿主扩展点（例如重建会话索引）。
-    fn settings_changed(&self, _previous: &AppSettings, _current: &AppSettings) {}
-
     /// 托盘提示随中转站状态变化；没有托盘概念的宿主不需要实现。
     fn refresh_tray(&self) {}
 }
@@ -90,10 +83,6 @@ pub fn open_url(url: &str) -> Result<(), String> {
 
 pub fn app_data_changed(previous: &AppData, next: &AppData) {
     current().app_data_changed(previous, next);
-}
-
-pub fn settings_changed(previous: &AppSettings, current_settings: &AppSettings) {
-    current().settings_changed(previous, current_settings);
 }
 
 pub fn cloud_library() -> Option<Arc<dyn CloudLibrary>> {
@@ -191,8 +180,6 @@ pub mod testing {
         }
 
         fn app_data_changed(&self, _previous: &AppData, _next: &AppData) {}
-
-        fn settings_changed(&self, _previous: &AppSettings, _current: &AppSettings) {}
     }
 
     /// 安装一次进程级测试宿主；多个测试共用同一份临时目录。

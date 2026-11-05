@@ -1772,25 +1772,6 @@ export interface CliSessionDetail {
   find: SessionFindState;
 }
 
-export type CliSessionIndexState =
-  "ready" | "disabled" | "fallback";
-
-export interface CliSessionIndexAgentStats {
-  cliKind: AgentCliKind;
-  sizeBytes: number;
-  sessionCount: number;
-  updatedAt: string | null;
-}
-
-export interface CliSessionIndexStatus {
-  enabled: boolean;
-  directory: string;
-  maxSizeMiB: number;
-  sizeBytes: number;
-  building: boolean;
-  agents: CliSessionIndexAgentStats[];
-}
-
 export interface WorkspaceDirectoryEntry {
   name: string;
   path: string;
@@ -1869,9 +1850,6 @@ export interface AppSettings {
   livenessCliKind: AgentCliKind;
   agentCliPaths: Partial<Record<AgentCliKind, string>>;
   temporaryCliTerminalKind: TemporaryCliTerminalKind;
-  sessionIndexEnabled: boolean;
-  sessionIndexDirectory: string;
-  sessionIndexMaxSizeMiB: number;
   livenessEnabled: boolean;
   livenessModel: string;
   livenessIntervalMode: LivenessIntervalMode;

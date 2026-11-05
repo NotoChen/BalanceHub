@@ -6,6 +6,7 @@ pub enum CloudSyncBackend {
     #[default]
     Webdav,
     S3,
+    Github,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -18,8 +19,13 @@ pub struct CloudSyncSettingsInput {
     /// None preserves the saved value; Some("") explicitly clears it.
     pub password: Option<String>,
     pub passphrase: Option<String>,
-    /// WebDAV directory or S3 object prefix.
+    /// WebDAV directory, S3 object prefix or GitHub path prefix.
     pub remote_root: String,
+    pub github_owner: String,
+    pub github_repo: String,
+    pub github_branch: String,
+    /// None preserves the saved value; Some("") explicitly clears it.
+    pub github_token: Option<String>,
     pub s3_endpoint: String,
     pub s3_region: String,
     pub s3_bucket: String,
@@ -37,6 +43,9 @@ pub struct CloudSyncSettingsView {
     pub server_url: String,
     pub username: String,
     pub remote_root: String,
+    pub github_owner: String,
+    pub github_repo: String,
+    pub github_branch: String,
     pub s3_endpoint: String,
     pub s3_region: String,
     pub s3_bucket: String,
@@ -44,6 +53,7 @@ pub struct CloudSyncSettingsView {
     pub device_name: String,
     pub auto_sync: bool,
     pub has_password: bool,
+    pub has_github_token: bool,
     pub has_secret_key: bool,
     pub has_passphrase: bool,
 }

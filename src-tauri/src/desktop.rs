@@ -84,8 +84,6 @@ pub(crate) fn run() {
             get_agent_session_resume_operation,
             list_agent_session_resume_operations,
             cancel_agent_session_resume_operation,
-            get_cli_session_index_status,
-            clear_cli_session_index,
             get_cli_runtime_snapshot,
             get_agent_runtime_snapshot,
             activate_agent_runtime,

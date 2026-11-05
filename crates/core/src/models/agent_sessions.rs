@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{AgentCliKind, CliSessionDetail, CliSessionIndexState, CliSessionSummary};
+use super::{AgentCliKind, CliSessionDetail, CliSessionSummary};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,7 +135,6 @@ pub struct AgentSessionSourceState {
     pub state: AgentSessionSourceStatus,
     pub loaded_count: usize,
     pub message: Option<String>,
-    pub index_state: CliSessionIndexState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

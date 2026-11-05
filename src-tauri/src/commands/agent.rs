@@ -57,8 +57,6 @@ bridge!(read_agent_mcp_form { "text": text: String, "format": format: AgentConfi
 bridge!(render_agent_mcp_form { "input": input: AgentCatalogMcpInput, "originalText": original_text: String, "format": format: AgentConfigurationFormat, "agentKind": agent_kind: Option<AgentCliKind> });
 bridge!(launch_temporary_cli { "input": input: TemporaryCliLaunchInput });
 bridge!(preview_temporary_cli_launch { "input": input: TemporaryCliLaunchInput });
-bridge!(get_cli_session_index_status {});
-bridge!(clear_cli_session_index {});
 bridge!(get_cli_runtime_snapshot {});
 bridge!(get_agent_runtime_snapshot {});
 bridge!(activate_agent_runtime { "runtimeId": runtime_id: String });

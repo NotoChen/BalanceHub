@@ -7,11 +7,8 @@ use crate::{
         AgentSessionWorkspace,
     },
     services::{
-        agent_cli::contracts::{
-            SessionContentSearchRequest, SessionHistoryReadMode, SessionHistorySource,
-            SessionReadBudget,
-        },
-        cli_sessions::{index::HistoryIndex, SearchAccumulator, SearchQuery},
+        agent_cli::contracts::{SessionHistoryReadMode, SessionHistorySource, SessionReadBudget},
+        cli_sessions::{transcript::Transcript, SearchAccumulator, SearchQuery},
     },
 };
 use std::{
@@ -25,7 +22,6 @@ pub(super) fn scan_source(
     config: &SessionHistorySource,
     workspaces: &[AgentSessionWorkspace],
     text: &str,
-    index: &HistoryIndex,
     budget: &SessionReadBudget,
     previous_matches: PreviousMatches,
 ) -> SourceOutcome {
@@ -52,7 +48,6 @@ pub(super) fn scan_source(
                 state: status,
                 loaded_count: 0,
                 message: Some(message.clone()),
-                index_state: index.state(),
             })
             .collect::<Vec<_>>()
     };
@@ -107,7 +102,6 @@ pub(super) fn scan_source(
         }
     };
     let full_request = SearchAccumulator::new(&query).content_request();
-    let empty_request = SessionContentSearchRequest { terms: Vec::new() };
     let source_diagnostics = loaded.diagnostics;
     for loaded in loaded.workspaces {
         let workspace = workspaces
@@ -126,7 +120,6 @@ pub(super) fn scan_source(
         }
         let mut pending = false;
         let mut references = Vec::new();
-        let mut indexed = HashSet::new();
         let mut incomplete = HashSet::new();
         let mut decisions = HashMap::new();
         for record in loaded.records {
@@ -141,25 +134,43 @@ pub(super) fn scan_source(
             } else if metadata_match(&query, &row).complete() {
                 decisions.insert(row.session_ref.clone(), (true, None));
             } else if record.content_unavailable_reason.is_none() {
-                // Leave time for the one FTS query that delivers this batch.
+                // Give the transcript read the remainder of this pass; a later
+                // cursor resumes sessions that did not fit.
                 if budget.deadline.saturating_duration_since(Instant::now())
                     < Duration::from_millis(250)
                 {
                     pending = true;
                 } else {
-                    match index.search(&workspace.id, &record, adapter, &empty_request, budget) {
-                        Ok(progress) => {
-                            indexed.insert(record.record_key.clone());
-                            if progress.skipped_records > 0 {
+                    let mut matched = metadata_match(&query, &row);
+                    match Transcript::load(
+                        &workspace.id,
+                        &record.record_key,
+                        &record,
+                        adapter,
+                        budget,
+                    ) {
+                        Ok(transcript) => {
+                            if transcript.skipped_records > 0 {
                                 diagnostics.push(format!(
                                     "有 {} 条损坏或异常超长记录无法读取",
-                                    progress.skipped_records
+                                    transcript.skipped_records
                                 ));
                             }
-                            if !progress.complete {
-                                incomplete.insert(record.record_key.clone());
+                            if transcript.oversized {
+                                diagnostics
+                                    .push("有会话正文超过按需读取上限，未参与全文检索".into());
+                            }
+                            let result = transcript.search(&full_request);
+                            matched.merge_content(result.clone());
+                            if !transcript.complete && !transcript.oversized {
+                                incomplete.insert(row.session_ref.clone());
                                 pending = true;
                             }
+                            // A partial transcript can still show what it has
+                            // read; the incomplete marker keeps it out of the
+                            // final-match cache below.
+                            decisions
+                                .insert(row.session_ref.clone(), (matched.complete(), result.hit));
                         }
                         Err(error) if budget.check().is_err() => {
                             let _ = error;
@@ -172,32 +183,6 @@ pub(super) fn scan_source(
                 decisions.insert(row.session_ref.clone(), (false, None));
             }
             references.push(ReferenceState { row, record });
-        }
-        // The query runs once per workspace, including tools and thought text.
-        // Native scans only update changed sources; no per-session FTS roundtrip.
-        if !indexed.is_empty() {
-            match index.search_workspace(&workspace.id, &full_request, budget) {
-                Ok(mut results) => {
-                    for reference in &references {
-                        if !indexed.contains(&reference.record.record_key) {
-                            continue;
-                        }
-                        let result = results
-                            .remove(&reference.record.record_key)
-                            .unwrap_or_default();
-                        let hit = result.hit.clone();
-                        let mut matched = metadata_match(&query, &reference.row);
-                        matched.merge_content(result);
-                        decisions
-                            .insert(reference.row.session_ref.clone(), (matched.complete(), hit));
-                    }
-                }
-                Err(error) if budget.check().is_err() => {
-                    let _ = error;
-                    pending = true;
-                }
-                Err(error) => diagnostics.push(error),
-            }
         }
         {
             let mut previous = previous_matches
@@ -212,7 +197,7 @@ pub(super) fn scan_source(
                     // Partial matches are useful immediately, but a later native
                     // rewind or update can change them. Cache final decisions only.
                     if reference.record.content_unavailable_reason.is_none()
-                        && !incomplete.contains(&reference.record.record_key)
+                        && !incomplete.contains(&reference.row.session_ref)
                     {
                         previous.insert(reference.row.session_ref.clone(), (matched, hit));
                     }
@@ -220,24 +205,6 @@ pub(super) fn scan_source(
             }
         }
         let loaded_count = references.len();
-        // A complete native scan is the source of truth for what still exists.
-        // Sweep derived rows the Agent's own storage no longer lists so deleted
-        // or renamed sessions stop answering searches and stop holding capacity.
-        if !query.is_empty()
-            && loaded.complete
-            && !pending
-            && !budget.cancelled.load(Ordering::Acquire)
-        {
-            let keep = references
-                .iter()
-                .map(|reference| reference.record.record_key.clone())
-                .collect::<HashSet<_>>();
-            if let Err(error) = index.retain_sessions(&workspace.id, &keep, budget) {
-                if budget.check().is_ok() {
-                    diagnostics.push(format!("清理过期会话索引稍后继续：{error}"));
-                }
-            }
-        }
         outcome.references.extend(references);
         pending |= budget.check().is_err();
         diagnostics.sort();
@@ -246,7 +213,7 @@ pub(super) fn scan_source(
             AgentSessionSourceStatus::Cancelled
         } else if pending {
             outcome.can_continue = true;
-            diagnostics.insert(0, "正在增量检索其余会话".into());
+            diagnostics.insert(0, "正在按需检索其余会话".into());
             AgentSessionSourceStatus::Indexing
         } else if !loaded.complete || !diagnostics.is_empty() {
             AgentSessionSourceStatus::Partial
@@ -259,7 +226,6 @@ pub(super) fn scan_source(
             state,
             loaded_count,
             message: (!diagnostics.is_empty()).then(|| diagnostics.join("；")),
-            index_state: index.state(),
         });
     }
     if workspaces.is_empty() {
@@ -281,23 +247,11 @@ pub(super) fn scan_source(
             state,
             loaded_count: outcome.references.len(),
             message: if pending {
-                Some("正在增量读取其余会话".into())
+                Some("正在按需读取其余会话".into())
             } else {
                 (!source_diagnostics.is_empty()).then(|| source_diagnostics.join("；"))
             },
-            index_state: index.state(),
         });
-    }
-    if !query.is_empty() && !outcome.can_continue {
-        if let Err(error) = index.finish(budget) {
-            for state in &mut outcome.states {
-                let maintenance = format!("索引缓存整理稍后继续：{error}");
-                state.message = Some(match state.message.take() {
-                    Some(message) => format!("{message}；{maintenance}"),
-                    None => maintenance,
-                });
-            }
-        }
     }
     outcome
 }

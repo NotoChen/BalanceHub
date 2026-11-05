@@ -51,7 +51,7 @@ export function useAgentHistorySummary(active: Ref<boolean>, kinds: Ref<AgentCli
           if (count) next.set(item, count);
           else next.delete(item);
           if (count?.total != null) delete errors.value[item];
-          else errors.value[item] = result.errors[item] || "未能完整读取原生会话索引";
+          else errors.value[item] = result.errors[item] || "未能完整读取原生会话数据";
         }
         agentCounts.value = [...next.values()];
         lastRead = Date.now();

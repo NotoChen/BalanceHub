@@ -4,11 +4,7 @@
 //! 所以这里用本地包装类型。启动时注册到 `balancehub_core::host` 后，核心
 //! 服务通过 `host::current()` 取用，不再逐层传递句柄。
 
-use balancehub_core::{
-    host::Host,
-    models::{AppData, AppSettings},
-    state::CoreState,
-};
+use balancehub_core::{host::Host, models::AppData, state::CoreState};
 use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
@@ -80,10 +76,6 @@ impl Host for DesktopHost {
             .opener()
             .open_url(url, None::<&str>)
             .map_err(|error| error.to_string())
-    }
-
-    fn settings_changed(&self, previous: &AppSettings, current: &AppSettings) {
-        balancehub_agent::settings_changed(previous, current);
     }
 
     fn refresh_tray(&self) {

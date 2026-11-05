@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     models::CliSessionMessageRole,
-    services::agent_cli::contracts::{SessionIndexMessage, SessionReadBudget},
+    services::agent_cli::contracts::{SessionReadBudget, SessionTranscriptMessage},
 };
 use std::{
     fs::{self, File, OpenOptions},
@@ -25,8 +25,8 @@ impl Fixture {
         fs::create_dir_all(&path).unwrap();
         Self(path)
     }
-    fn source(&self, name: &str, format: SessionIndexFormat) -> SessionIndexSource {
-        SessionIndexSource {
+    fn source(&self, name: &str, format: SessionTranscriptFormat) -> SessionTranscriptSource {
+        SessionTranscriptSource {
             path: self.0.join(name),
             parser_version: 1,
             format,
@@ -44,13 +44,13 @@ fn decode(
     _sequence: u64,
     bytes: &[u8],
     _state: &mut Value,
-) -> Vec<SessionIndexMutation> {
+) -> Vec<SessionTranscriptMutation> {
     let value: Value = serde_json::from_slice(bytes).unwrap();
     let Some(id) = value.get("id").and_then(Value::as_str) else {
         return vec![];
     };
-    vec![SessionIndexMutation::Put {
-        message: SessionIndexMessage {
+    vec![SessionTranscriptMutation::Put {
+        message: SessionTranscriptMessage {
             metadata: Default::default(),
             id: id.into(),
             role: CliSessionMessageRole::User,
@@ -64,7 +64,7 @@ fn contents(batch: &Batch) -> Vec<&str> {
         .mutations
         .iter()
         .filter_map(|(_, mutation)| match mutation {
-            SessionIndexMutation::Put { message, .. } => Some(message.content.as_str()),
+            SessionTranscriptMutation::Put { message, .. } => Some(message.content.as_str()),
             _ => None,
         })
         .collect()
@@ -80,7 +80,7 @@ fn read_budget() -> SessionReadBudget {
 #[test]
 fn compressed_checkpoints_resume_after_cancel_without_duplicating_or_losing_records() {
     let fixture = Fixture::new();
-    let source = fixture.source("compressed.jsonl.zst", SessionIndexFormat::JsonLines);
+    let source = fixture.source("compressed.jsonl.zst", SessionTranscriptFormat::JsonLines);
     let content = (0..100)
         .map(|number| format!("{{\"id\":\"{number}\",\"text\":\"完整记录 {number}\"}}\n"))
         .collect::<String>();
@@ -120,7 +120,7 @@ fn compressed_checkpoints_resume_after_cancel_without_duplicating_or_losing_reco
 #[test]
 fn batches_survive_checkpoint_serialization_and_only_read_appended_bytes() {
     let fixture = Fixture::new();
-    let source = fixture.source("append.jsonl", SessionIndexFormat::JsonLines);
+    let source = fixture.source("append.jsonl", SessionTranscriptFormat::JsonLines);
     let text: String = (0..2000)
         .map(|index| format!("{{\"id\":\"{index}\",\"text\":\"{}\"}}\n", "x".repeat(512)))
         .collect();
@@ -173,7 +173,7 @@ fn batches_survive_checkpoint_serialization_and_only_read_appended_bytes() {
 #[test]
 fn an_unfinished_trailing_line_is_retried_when_it_grows() {
     let fixture = Fixture::new();
-    let source = fixture.source("partial.jsonl", SessionIndexFormat::JsonLines);
+    let source = fixture.source("partial.jsonl", SessionTranscriptFormat::JsonLines);
     let first = "{\"id\":\"one\",\"text\":\"first\"}\n";
     fs::write(
         &source.path,
@@ -199,7 +199,7 @@ fn an_unfinished_trailing_line_is_retried_when_it_grows() {
 #[test]
 fn rewriting_truncating_replacing_or_changing_parser_version_resets_only_the_source() {
     let fixture = Fixture::new();
-    let mut source = fixture.source("rewrite.jsonl", SessionIndexFormat::JsonLines);
+    let mut source = fixture.source("rewrite.jsonl", SessionTranscriptFormat::JsonLines);
     fs::write(&source.path, "{\"id\":\"one\",\"text\":\"original\"}\n").unwrap();
     let mut previous = read_batch(&source, None, &|| true).unwrap().checkpoint;
     for text in [
@@ -234,7 +234,7 @@ fn rewriting_truncating_replacing_or_changing_parser_version_resets_only_the_sou
 #[test]
 fn sources_above_512_mib_start_normally_and_can_be_cancelled_between_batches() {
     let fixture = Fixture::new();
-    let source = fixture.source("large.jsonl", SessionIndexFormat::JsonLines);
+    let source = fixture.source("large.jsonl", SessionTranscriptFormat::JsonLines);
     let mut file = File::create(&source.path).unwrap();
     file.write_all(b"{\"id\":\"first\",\"text\":\"readable\"}\n")
         .unwrap();
@@ -253,7 +253,7 @@ fn sources_above_512_mib_start_normally_and_can_be_cancelled_between_batches() {
 #[test]
 fn json_messages_stream_across_checkpoints_with_escaped_strings_and_nested_values() {
     let fixture = Fixture::new();
-    let source = fixture.source("session.json", SessionIndexFormat::JsonMessages);
+    let source = fixture.source("session.json", SessionTranscriptFormat::JsonMessages);
     let value = serde_json::json!({"sessionId":"native", "messages":[
         {"id":"one", "text":"引号 \" 和反斜线 \\ 及括号 [ }", "nested":{"a":[1, {"b":"\\\""}]}},
         {"id":"two", "text":"second"}
@@ -293,11 +293,11 @@ fn json_messages_stream_across_checkpoints_with_escaped_strings_and_nested_value
 fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
     let fixture = Fixture::new();
     for format in [
-        SessionIndexFormat::JsonLines,
-        SessionIndexFormat::JsonMessages,
+        SessionTranscriptFormat::JsonLines,
+        SessionTranscriptFormat::JsonMessages,
     ] {
         let source = fixture.source(
-            if format == SessionIndexFormat::JsonLines {
+            if format == SessionTranscriptFormat::JsonLines {
                 "oversized.jsonl"
             } else {
                 "oversized.json"
@@ -305,7 +305,7 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
             format,
         );
         let mut file = File::create(&source.path).unwrap();
-        if format == SessionIndexFormat::JsonMessages {
+        if format == SessionTranscriptFormat::JsonMessages {
             file.write_all(b"{\"messages\":[").unwrap();
         }
         file.write_all(b"{\"id\":\"huge\",\"text\":\"").unwrap();
@@ -314,7 +314,7 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
             file.write_all(&block).unwrap();
         }
         file.write_all(b"\"}").unwrap();
-        file.write_all(if format == SessionIndexFormat::JsonLines {
+        file.write_all(if format == SessionTranscriptFormat::JsonLines {
             b"\n"
         } else {
             b","
@@ -322,7 +322,7 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
         .unwrap();
         file.write_all(b"{\"id\":\"tail\",\"text\":\"searchable tail\"}")
             .unwrap();
-        if format == SessionIndexFormat::JsonMessages {
+        if format == SessionTranscriptFormat::JsonMessages {
             file.write_all(b"]}").unwrap();
         }
         drop(file);

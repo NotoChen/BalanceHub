@@ -26,7 +26,6 @@ import {
 } from "@arco-design/web-vue/es/icon";
 import {
   type AgentCliKind,
-  type CliSessionIndexState,
   type Provider,
   type ProviderApiKeyOption,
   type TemporaryCliSessionMode,
@@ -88,8 +87,7 @@ const props = defineProps<{
   selectedSessionRef: string;
   historyLoading: boolean;
   historyError: string;
-  historyIndexState: CliSessionIndexState;
-  historyIndexMessage: string;
+  historyStatusMessage: string;
   selectedSessionTitle: string;
   selectedSessionWorkdir: string;
 }>();
@@ -344,8 +342,7 @@ function handleVisibleChange(visible: boolean) {
             :selected-session-ref="selectedSessionRef"
             :loading="historyLoading"
             :error="historyError"
-            :index-state="historyIndexState"
-            :index-message="historyIndexMessage"
+            :status-message="historyStatusMessage"
             :selected-session-title="selectedSessionTitle"
             :disabled="launchLocked"
             @select-session="emit('select-session', $event)"

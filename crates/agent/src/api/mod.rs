@@ -154,8 +154,6 @@ pub const COMMANDS: &[&str] = &[
     // CLI 与环境
     "launch_temporary_cli",
     "preview_temporary_cli_launch",
-    "get_cli_session_index_status",
-    "clear_cli_session_index",
     "get_cli_runtime_snapshot",
     "get_agent_runtime_snapshot",
     "activate_agent_runtime",
@@ -627,8 +625,6 @@ async fn dispatch_inner(
         "preview_temporary_cli_launch" => {
             text(cli::preview_temporary_cli_launch(arg(args, "input")?).await)
         }
-        "get_cli_session_index_status" => text(cli::get_cli_session_index_status().await),
-        "clear_cli_session_index" => text(cli::clear_cli_session_index().await),
         "get_cli_runtime_snapshot" => text(cli::get_cli_runtime_snapshot().await),
         "get_agent_runtime_snapshot" => text(cli::get_agent_runtime_snapshot().await),
         "activate_agent_runtime" => {

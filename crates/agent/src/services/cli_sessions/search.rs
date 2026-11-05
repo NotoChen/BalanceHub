@@ -27,10 +27,6 @@ impl SearchQuery {
             .collect();
         Ok(Self { terms })
     }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.terms.is_empty()
-    }
 }
 
 pub(crate) struct SearchAccumulator<'a> {

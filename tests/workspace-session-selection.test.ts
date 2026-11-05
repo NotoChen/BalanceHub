@@ -190,7 +190,7 @@ async function mountPicker(t: TestContext, rows: AgentSessionRow[], detail: Agen
       selectedSessionRef: history.workspaceSelectedSessionRef.value, selectedSessionTitle: history.workspaceSelectedSessionTitle.value,
       selectedSessionWorkdir: history.workspaceSelectedSessionWorkdir.value,
       historyLoading: history.workspaceSessionsLoading.value, historyError: history.workspaceSessionsError.value,
-      historyIndexState: history.workspaceSessionIndexState.value, historyIndexMessage: history.workspaceSessionIndexMessage.value,
+      historyStatusMessage: history.workspaceSessionStatusMessage.value,
       onSelectSession: history.selectWorkspaceSession, onViewSession: history.openWorkspaceSessionDetail,
       onLaunch: (path: string) => launches.push({ path, sessionRef: history.workspaceSelectedSessionRef.value }),
     });

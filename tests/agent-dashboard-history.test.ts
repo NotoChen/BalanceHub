@@ -142,7 +142,7 @@ function countResult(): AgentSessionCounts {
 function historyPage(revision = backendScope.revision) {
   return sessionPage([sessionRow()], {
     scopeRevision: revision, agentCounts: structuredClone(counts), loadedCount: 162, total: null, nextCursor: "snapshot:1:1",
-    sourceStates: [{ sourceId: "source:codex", workspaceId: "home", state: "complete", loadedCount: 999, indexState: "ready", message: null }],
+    sourceStates: [{ sourceId: "source:codex", workspaceId: "home", state: "complete", loadedCount: 999, message: null }],
   });
 }
 function node(type: string, text = ""): HostNode { return { type, text, props: {}, children: [], parent: null, style: {}, getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0 }) } as HostNode; }
@@ -302,18 +302,14 @@ test("cached history stays global and card navigation filters only the chosen Ag
   assert.equal(queries.length, 2);
 });
 
-test("native index changes refresh hidden history on return while bookmark changes preserve it", async (t) => {
+test("native source discovery refreshes hidden history on return while bookmark changes preserve it", async (t) => {
   const surface = mountDashboard(t); await settle();
   click(surface.historyButton("codex")); await settle();
   assert.equal(queries.length, 1);
   click(surface.navButton("总览")); await settle();
-  for (const handler of listeners.get("cli-session-index-updated") ?? []) handler({ payload: "gemini" });
-  click(surface.navButton("会话")); await settle();
-  assert.equal(queries.length, 1, "unrelated Agent index changes do not invalidate this history");
-  click(surface.navButton("总览")); await settle();
-  for (const handler of listeners.get("cli-session-index-updated") ?? []) handler({ payload: null });
+  for (const handler of listeners.get("agent-session-sources-changed") ?? []) handler({ payload: null });
   await settle();
-  assert.equal(queries.length, 1, "global cache reconfiguration is deferred while hidden");
+  assert.equal(queries.length, 1, "source discovery is deferred while history is hidden");
   click(surface.navButton("会话")); await settle();
   assert.equal(queries.length, 2);
   click(surface.navButton("总览")); await settle();
@@ -324,7 +320,7 @@ test("native index changes refresh hidden history on return while bookmark chang
   assert.equal(queries.length, 2, "bookmarks do not define native history scope");
 });
 
-test("one visible overview consumer serves four cards without rescanning for runtime, filters, versions, asset scope or index events", async (t) => {
+test("one visible overview consumer serves four cards without rescanning for runtime, filters, versions or asset scope", async (t) => {
   const surface = mountDashboard(t, { visible: false });
   await settle(); assert.equal(countRequests.length, 0, "a mounted overview hidden behind providers does not scan");
   surface.navigation.setView("agents"); await settle();
@@ -345,11 +341,8 @@ test("one visible overview consumer serves four cards without rescanning for run
   surface.navigation.selectWorkspace("/fixture/home/project");
   surface.cli.cliEnvironmentProbe = { tools: [{ ...workspaceAgent(), available: true, path: "/fixture/codex", version: "2.0.0", message: "fixture" }] };
   await surface.lifecycle.refresh(true); await settle();
-  for (const handler of listeners.get("cli-session-index-updated") ?? []) handler({ payload: "codex" });
-  await settle();
   assert.equal(countRequests.length, 1);
   assert.equal(queries.length, 0);
-  assert.equal(listeners.get("cli-session-index-updated")?.size ?? 0, 0, "overview counts do not subscribe to index refreshes");
   assert.deepEqual(kinds.map(surface.value), ["155", "读取失败", "0", "读取失败"]);
 });
 

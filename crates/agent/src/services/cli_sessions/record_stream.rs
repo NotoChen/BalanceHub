@@ -1,7 +1,7 @@
 //! Bounded native-record reads with durable byte checkpoints. A batch limit
 //! yields work; it never disqualifies a normally growing transcript.
 use crate::services::agent_cli::contracts::{
-    SessionIndexFormat, SessionIndexMutation, SessionIndexSource,
+    SessionTranscriptFormat, SessionTranscriptMutation, SessionTranscriptSource,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,7 +57,7 @@ struct JsonValueState {
 pub(super) struct Batch {
     pub checkpoint: Checkpoint,
     pub reset: bool,
-    pub mutations: Vec<(u64, SessionIndexMutation)>,
+    pub mutations: Vec<(u64, SessionTranscriptMutation)>,
 }
 
 fn identity(metadata: &Metadata) -> String {
@@ -82,7 +82,7 @@ fn fingerprint(metadata: &Metadata, version: u32) -> String {
     format!("{version}:{}:{modified}", metadata.len())
 }
 
-pub(super) fn source_signature(source: &SessionIndexSource) -> Result<String, String> {
+pub(super) fn source_signature(source: &SessionTranscriptSource) -> Result<String, String> {
     let file =
         super::workbench::open_session_file(&source.path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
@@ -108,7 +108,7 @@ fn digest(file: &mut (impl Read + Seek), start: u64, length: u64) -> Result<Stri
 }
 
 pub(super) fn read_batch(
-    source: &SessionIndexSource,
+    source: &SessionTranscriptSource,
     previous: Option<&Checkpoint>,
     current: &dyn Fn() -> bool,
 ) -> Result<Batch, String> {
@@ -116,7 +116,7 @@ pub(super) fn read_batch(
 }
 
 pub(super) fn read_batch_with_limit(
-    source: &SessionIndexSource,
+    source: &SessionTranscriptSource,
     previous: Option<&Checkpoint>,
     current: &dyn Fn() -> bool,
     batch_bytes: u64,
@@ -143,7 +143,7 @@ pub(super) fn read_batch_with_limit(
         });
     }
     let mut reusable = same;
-    if !same && source.format == SessionIndexFormat::JsonLines {
+    if !same && source.format == SessionTranscriptFormat::JsonLines {
         if let Some(checkpoint) = previous.filter(|checkpoint| {
             checkpoint.identity == file_identity
                 && metadata.len() > checkpoint.source_bytes
@@ -194,8 +194,10 @@ pub(super) fn read_batch_with_limit(
         }
         first = false;
         let value = match source.format {
-            SessionIndexFormat::JsonLines => next_line(&mut reader, &mut checkpoint)?,
-            SessionIndexFormat::JsonMessages => next_json_message(&mut reader, &mut checkpoint)?,
+            SessionTranscriptFormat::JsonLines => next_line(&mut reader, &mut checkpoint)?,
+            SessionTranscriptFormat::JsonMessages => {
+                next_json_message(&mut reader, &mut checkpoint)?
+            }
         };
         match value {
             Record::Value(bytes) => {
@@ -224,7 +226,8 @@ pub(super) fn read_batch_with_limit(
     if identity(&after) != checkpoint.identity
         || after.len() < metadata.len()
         || (fingerprint(&after, source.parser_version) != checkpoint.fingerprint
-            && (source.format != SessionIndexFormat::JsonLines || after.len() == metadata.len()))
+            && (source.format != SessionTranscriptFormat::JsonLines
+                || after.len() == metadata.len()))
     {
         return Err("会话文件在读取期间发生变化，请重试".into());
     }

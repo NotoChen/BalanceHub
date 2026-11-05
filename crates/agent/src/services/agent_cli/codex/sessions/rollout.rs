@@ -2,7 +2,7 @@ use crate::{
     models::CliSessionMessageRole,
     services::{
         agent_cli::contracts::{
-            SessionIndexFormat, SessionIndexMessage, SessionIndexMutation, SessionIndexSource,
+            SessionTranscriptFormat, SessionTranscriptMessage, SessionTranscriptMutation, SessionTranscriptSource,
         },
         cli_sessions::{json_text, normalize_timestamp},
     },
@@ -13,11 +13,11 @@ use std::path::Path;
 const INDEX_PARSER_VERSION: u32 = 2;
 mod decoder;
 
-pub(super) fn index_source(path: &Path) -> SessionIndexSource {
-    SessionIndexSource {
+pub(super) fn index_source(path: &Path) -> SessionTranscriptSource {
+    SessionTranscriptSource {
         path: path.to_path_buf(),
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionIndexFormat::JsonLines,
+        format: SessionTranscriptFormat::JsonLines,
         decode: decoder::decode,
     }
 }

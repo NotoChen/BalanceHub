@@ -13,7 +13,7 @@ pub(crate) const HISTORY: SessionHistoryAdapter = SessionHistoryAdapter {
     launch_environment: super::super::native_context::launch_environment,
     source,
     scan,
-    index,
+    transcript,
 };
 fn source() -> Result<SessionHistorySource, String> {
     let config_root =
@@ -159,22 +159,22 @@ fn scan_workspace(
     }
     Ok(())
 }
-fn index(record: &SessionHistoryRecord) -> Result<Vec<SessionIndexSource>, String> {
+fn transcript(record: &SessionHistoryRecord) -> Result<Vec<SessionTranscriptSource>, String> {
     let directory = record.locator.parent().ok_or("Grok Build 会话目录无效")?;
     let mut sources = Vec::new();
     for (name, decode) in [
         (
             "updates.jsonl",
-            decoder::update as fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionIndexMutation>,
+            decoder::update as fn(&Path, u64, &[u8], &mut Value) -> Vec<SessionTranscriptMutation>,
         ),
         ("chat_history.jsonl", decoder::chat),
     ] {
         let path = directory.join(name);
         if path.is_file() {
-            sources.push(SessionIndexSource {
+            sources.push(SessionTranscriptSource {
                 path,
                 parser_version: INDEX_PARSER_VERSION,
-                format: SessionIndexFormat::JsonLines,
+                format: SessionTranscriptFormat::JsonLines,
                 decode,
             });
         }

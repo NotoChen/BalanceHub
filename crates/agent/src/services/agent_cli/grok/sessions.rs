@@ -17,7 +17,7 @@ use std::{
 };
 
 use super::super::contracts::{
-    SessionIndexFormat, SessionIndexMessage, SessionIndexMutation, SessionIndexSource,
+    SessionTranscriptFormat, SessionTranscriptMessage, SessionTranscriptMutation, SessionTranscriptSource,
     SessionMetadataCursor, SessionMetadataLookupError, SessionMetadataLookupRequest,
     SessionMetadataLookupResult, SessionMetadataSnapshot,
 };

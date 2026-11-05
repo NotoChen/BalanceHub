@@ -88,16 +88,14 @@ pub use agent_session_resume::*;
 pub use agent_sessions::*;
 pub use app_settings::{
     default_liveness_interval, default_liveness_placeholder_pools,
-    default_liveness_random_min_interval, default_liveness_timeout,
-    default_session_index_max_size_mib, default_true,
+    default_liveness_random_min_interval, default_liveness_timeout, default_true,
 };
 pub use app_settings::{
     AppSettings, LivenessPlaceholderPool, NotificationChannel, NotificationChannelKind,
 };
 pub use check_in_task::*;
 pub use cli_sessions::{
-    CliSessionDetail, CliSessionIndexAgentStats, CliSessionIndexState, CliSessionIndexStatus,
-    CliSessionMessage, CliSessionMessageRole, CliSessionSummary,
+    CliSessionDetail, CliSessionMessage, CliSessionMessageRole, CliSessionSummary,
 };
 pub use cloud_sync::*;
 pub use enums::*;

@@ -297,7 +297,6 @@ defineExpose({ refresh });
               ><span
                 >{{ agentSessionSourceLabels[state.state] }} · 已读取
                 {{ state.loadedCount }} 条{{
-                  state.indexState === "fallback" ? " · 未使用索引缓存" : ""
                 }}</span
               >
               <p v-if="state.message">{{ state.message }}</p>

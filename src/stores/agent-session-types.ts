@@ -6,7 +6,6 @@ import type {
   AgentCliKind,
   AgentRuntimeScope,
   CliSessionDetail,
-  CliSessionIndexState,
   CliSessionSummary,
   TemporaryCliInstance,
   TemporaryCliPreference,
@@ -90,7 +89,6 @@ export interface AgentSessionSourceState {
   state: AgentSessionSourceStatus;
   loadedCount: number;
   message: string | null;
-  indexState: CliSessionIndexState;
 }
 
 export interface AgentSessionParentUpdate {

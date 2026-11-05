@@ -1,11 +1,7 @@
 //! 服务端宿主：没有窗口、托盘和系统通知，只提供数据目录、日志事件
 //! 和一条 WebSocket 事件流。
 
-use balancehub_core::{
-    host::Host,
-    models::{AppData, AppSettings},
-    state::CoreState,
-};
+use balancehub_core::{host::Host, models::AppData, state::CoreState};
 use serde::Serialize;
 use std::{
     path::PathBuf,
@@ -101,10 +97,6 @@ impl Host for ServerHost {
         if balancehub_core::services::cloud_sync::app_changed(previous, next) {
             balancehub_core::services::cloud_sync::signal().changed();
         }
-    }
-
-    fn settings_changed(&self, previous: &AppSettings, current: &AppSettings) {
-        balancehub_agent::settings_changed(previous, current);
     }
 
     /// 服务端同样有 Agent 共享资产库，参与 WebDAV 同步。

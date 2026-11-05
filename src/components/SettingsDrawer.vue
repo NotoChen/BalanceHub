@@ -63,9 +63,9 @@ const sections = [
   },
   {
     id: "terminal",
-    title: "终端与会话",
-    description: "默认终端与历史会话索引。",
-    keywords: "terminal iTerm PowerShell 默认终端 历史会话 会话索引 全文检索 搜索 存储位置 目录 总容量上限 清理 缓存",
+    title: "终端",
+    description: "默认终端与终端环境探测。",
+    keywords: "terminal iTerm PowerShell 默认终端 终端环境",
   },
   {
     id: "network",
@@ -106,9 +106,9 @@ function sectionDescription(section: { id: string; description: string }) {
 const accountsAvailable = computed(() =>
   supportsCommand("list_login_accounts"),
 );
-/// 终端设置与会话索引由 Agent crate 提供；宿主实现对应命令时即可见。
+/// 终端设置由 Agent crate 提供；宿主实现对应命令时即可见。
 const terminalAvailable = computed(() =>
-  supportsCommand("get_cli_session_index_status"),
+  supportsCommand("probe_terminals"),
 );
 const availableSections = computed(() =>
   sections.filter((section) => {

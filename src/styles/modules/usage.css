@@ -1,3 +1,22 @@
+/* 趋势弹窗的内容比窗口高：把弹窗限制在视口内，让正文自己滚动，
+   否则在 1020pt 高的窗口里下半部分会被窗口边缘直接裁掉。 */
+.surface-modal.usage-trend-modal.arco-modal {
+  display: inline-flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+  margin: 24px auto;
+}
+
+.surface-modal.usage-trend-modal .arco-modal-header {
+  flex: 0 0 auto;
+}
+
+.surface-modal.usage-trend-modal .arco-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 .usage-panel {
   display: grid;
   gap: 14px;

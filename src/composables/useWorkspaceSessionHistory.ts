@@ -3,7 +3,6 @@ import type { AgentSessionQueryApi } from "../api/agent-sessions.ts";
 import type { AgentSessionRow } from "../stores/agent-session-types.ts";
 import type {
   AgentCliKind,
-  CliSessionIndexState,
   TemporaryCliSessionMode,
 } from "../stores/provider-types.ts";
 import { useAgentSessions } from "./useAgentSessions.ts";
@@ -49,16 +48,7 @@ export function useWorkspaceSessionHistory(
   const workspaceSelectedSessionModel = computed(
     () => selectedSession.value?.session.model ?? "",
   );
-  const workspaceSessionIndexState = computed<CliSessionIndexState>(() => {
-    const states = sessions.sourceStates.value;
-    if (states.some((state) => state.indexState === "fallback"))
-      return "fallback";
-    return states.length &&
-      states.every((state) => state.indexState === "disabled")
-      ? "disabled"
-      : "ready";
-  });
-  const workspaceSessionIndexMessage = computed(() => {
+  const workspaceSessionStatusMessage = computed(() => {
     const messages = sessions.sourceStates.value.flatMap((state) =>
       state.message ? [state.message] : [],
     );
@@ -126,8 +116,7 @@ export function useWorkspaceSessionHistory(
     workspaceSessionsLoading: sessions.busy,
     workspaceSessionsLoadingMore: sessions.loadingMore,
     workspaceSessionsError,
-    workspaceSessionIndexState,
-    workspaceSessionIndexMessage,
+    workspaceSessionStatusMessage,
     workspaceSessionRoleFilter: sessions.roleFilter,
     workspaceSessionTotal: sessions.total,
     workspaceSessionHasMore: sessions.hasMore,

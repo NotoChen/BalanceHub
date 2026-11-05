@@ -9,7 +9,7 @@ pub(super) fn decode(
     sequence: u64,
     line: &[u8],
     state: &mut Value,
-) -> Vec<SessionIndexMutation> {
+) -> Vec<SessionTranscriptMutation> {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return Vec::new();
     };
@@ -168,8 +168,8 @@ pub(super) fn decode(
                         part.get("type").and_then(Value::as_str) == Some("image")
                     }) {
                         if let Some(content) = image_data(image) {
-                            result.push(SessionIndexMutation::Put {
-                                message: SessionIndexMessage {
+                            result.push(SessionTranscriptMutation::Put {
+                                message: SessionTranscriptMessage {
                                     id: format!("claude-{id}-{index}-image-{image_index}"),
                                     role: CliSessionMessageRole::Tool,
                                     content,
@@ -201,8 +201,8 @@ pub(super) fn decode(
         if text.trim().is_empty() {
             continue;
         }
-        result.push(SessionIndexMutation::Put {
-            message: SessionIndexMessage {
+        result.push(SessionTranscriptMutation::Put {
+            message: SessionTranscriptMessage {
                 id: format!("claude-{id}-{index}"),
                 role: output_role,
                 content: text,

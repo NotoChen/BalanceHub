@@ -30,7 +30,6 @@ export type BackgroundTaskKind =
   | "sync"
   | "cliProbe"
   | "cliLaunch"
-  | "sessionIndex"
   | "autoRefresh"
   | "autoCheckIn"
   | "autoLiveness";

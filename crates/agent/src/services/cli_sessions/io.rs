@@ -7,7 +7,7 @@ use std::{
 
 const MAX_SESSION_RECORD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_RETAINED_LINE_BUFFER_BYTES: usize = 1024 * 1024;
-pub(crate) fn session_index_source_fingerprint(
+pub(crate) fn session_source_fingerprint(
     path: &Path,
     parser_version: u32,
 ) -> Result<(String, u64), String> {

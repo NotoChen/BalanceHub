@@ -38,15 +38,6 @@ pub struct AppSettings {
     pub agent_cli_paths: BTreeMap<AgentCliKind, String>,
     #[serde(default)]
     pub temporary_cli_terminal_kind: TemporaryCliTerminalKind,
-    #[serde(default = "default_true")]
-    pub session_index_enabled: bool,
-    #[serde(default)]
-    pub session_index_directory: String,
-    #[serde(
-        default = "default_session_index_max_size_mib",
-        rename = "sessionIndexMaxSizeMiB"
-    )]
-    pub session_index_max_size_mib: u64,
     #[serde(default)]
     pub liveness_enabled: bool,
     #[serde(default)]
@@ -164,9 +155,6 @@ impl Default for AppSettings {
             liveness_cli_kind: AgentCliKind::Codex,
             agent_cli_paths: BTreeMap::new(),
             temporary_cli_terminal_kind: TemporaryCliTerminalKind::default(),
-            session_index_enabled: true,
-            session_index_directory: String::new(),
-            session_index_max_size_mib: default_session_index_max_size_mib(),
             liveness_enabled: false,
             liveness_model: String::new(),
             liveness_interval_mode: LivenessIntervalMode::Fixed,
@@ -206,10 +194,6 @@ impl Default for AppSettings {
             log_retention_days: default_log_retention_days(),
         }
     }
-}
-
-pub const fn default_session_index_max_size_mib() -> u64 {
-    64
 }
 
 impl AppSettings {
@@ -500,27 +484,4 @@ pub const fn default_log_retention_days() -> u64 {
 
 pub fn default_check_in_time() -> String {
     "00:00".to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn session_index_size_keeps_the_frontend_mib_field_name() {
-        let settings = AppSettings {
-            session_index_max_size_mib: 128,
-            ..AppSettings::default()
-        };
-        let value = serde_json::to_value(&settings).expect("settings should serialize");
-        assert_eq!(
-            value.get("sessionIndexMaxSizeMiB"),
-            Some(&serde_json::json!(128))
-        );
-        assert!(value.get("sessionIndexMaxSizeMib").is_none());
-
-        let decoded: AppSettings =
-            serde_json::from_value(value).expect("settings should deserialize");
-        assert_eq!(decoded.session_index_max_size_mib, 128);
-    }
 }

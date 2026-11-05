@@ -35,7 +35,7 @@ impl Drop for Lease {
 }
 
 pub(super) fn read_batch(
-    source: &SessionIndexSource,
+    source: &SessionTranscriptSource,
     previous: Option<&Checkpoint>,
     current: &dyn Fn() -> bool,
     batch_bytes: u64,

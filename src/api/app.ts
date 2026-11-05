@@ -3,7 +3,6 @@ import type { AgentConfigurationEdit } from "../stores/agent-configuration-types
 import type {
   AppSettings,
   CliRuntimeSnapshot,
-  CliSessionIndexStatus,
   CliEnvironmentProbeResult,
   TerminalEnvironmentProbeResult,
   ProviderModelSyncResult,
@@ -350,14 +349,6 @@ export function launchTemporaryCli(input: TemporaryCliLaunchInput) {
 
 export function previewTemporaryCliLaunch(input: TemporaryCliLaunchInput) {
   return invoke<TemporaryCliLaunchPreview>("preview_temporary_cli_launch", { input });
-}
-
-export function getCliSessionIndexStatus() {
-  return invoke<CliSessionIndexStatus>("get_cli_session_index_status");
-}
-
-export function clearCliSessionIndex() {
-  return invoke<void>("clear_cli_session_index");
 }
 
 export function getCliRuntimeSnapshot() {

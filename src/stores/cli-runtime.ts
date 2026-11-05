@@ -1,11 +1,9 @@
 import { defineStore } from "pinia";
 import {
-  clearCliSessionIndex as clearCliSessionIndexCommand,
   activateAgentRuntime as activateAgentRuntimeCommand,
   getCliRuntimeSnapshot as getCliRuntimeSnapshotCommand,
   getCachedCliTools,
   getAgentRuntimeSnapshot as getAgentRuntimeSnapshotCommand,
-  getCliSessionIndexStatus as getCliSessionIndexStatusCommand,
   getTemporaryCliInstance as getTemporaryCliInstanceCommand,
   launchTemporaryCli as launchTemporaryCliCommand,
   previewCliConfig as previewCliConfigCommand,
@@ -23,7 +21,6 @@ import type {
   AgentRuntimeSnapshot,
   CliEnvironmentProbeResult,
   CliRuntimeSnapshot,
-  CliSessionIndexStatus,
   CliToolProbeResult,
   TemporaryCliLaunchInput,
   TemporaryCliLaunchPreview,
@@ -117,12 +114,6 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
     },
     async previewLaunch(input: TemporaryCliLaunchInput): Promise<TemporaryCliLaunchPreview> {
       return previewTemporaryCliLaunchCommand(input);
-    },
-    async getSessionIndexStatus(): Promise<CliSessionIndexStatus> {
-      return getCliSessionIndexStatusCommand();
-    },
-    async clearSessionIndex(): Promise<void> {
-      return clearCliSessionIndexCommand();
     },
     acceptAgentRuntimeSnapshot(snapshot: AgentRuntimeSnapshot) {
       if (!acceptsAgentRuntimeSnapshot(this.agentRuntimeSnapshot, snapshot)) {

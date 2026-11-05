@@ -1,4 +1,5 @@
 mod file_io;
+mod legacy_session_index;
 mod migration;
 mod validation;
 
@@ -6,7 +7,7 @@ use crate::{limits, models::AppData};
 use file_io::{
     backup_file_path, data_file_path, replace_data_file, tmp_file_path, write_json_file_limited,
 };
-use migration::{read_app_data_file, BackupBeforeMigrate};
+use migration::{read_app_data_file, BackupBeforeMigrate, LoadedAppData};
 use std::{fs, path::Path};
 use validation::{normalize_provider_cached_values, validate_app_data_schema};
 
@@ -20,13 +21,23 @@ const DATA_FILE_NAME: &str = "data.json";
 
 pub fn load_app_data() -> Result<AppData, String> {
     let path = data_file_path()?;
-    let (mut data, migrated) = if path.exists() {
+    let LoadedAppData {
+        mut data,
+        migrated,
+        legacy_session_index_root,
+    } = if path.exists() {
         read_app_data_file(&path, BackupBeforeMigrate::Yes)?
     } else {
         // 干净目录同样走演示数据路径：开发脚本可以只用隔离根目录启动，
         // 不依赖预先复制一份安装版配置。
         recover_missing_app_data_file(&path)?.unwrap_or_default()
     };
+    // 只在已有配置的安装上升级清理；全新目录不扫描缓存。开发版与安装版
+    // 共用宿主缓存目录，清理又只在升级后执行一次，因此跳过调试构建，
+    // 避免 dev 启动时删除安装版仍在使用的派生索引。
+    if path.exists() && !cfg!(debug_assertions) {
+        cleanup_legacy_session_index(legacy_session_index_root.as_deref());
+    }
     validate_app_data_schema(&data)?;
     let mut normalized =
         normalize_provider_cached_values(&mut data) | limits::normalize_app_data(&mut data);
@@ -37,6 +48,24 @@ pub fn load_app_data() -> Result<AppData, String> {
         save_app_data(&data)?;
     }
     Ok(data)
+}
+
+/// 旧版本把会话正文索引写在 `<缓存目录>/session-index` 或旧设置指定的
+/// 自定义目录。索引已改为按需读取，升级后按旧命名清理这些派生文件；
+/// 清理失败只影响磁盘占用，不应阻断配置加载。
+fn cleanup_legacy_session_index(custom_directory: Option<&Path>) {
+    let cache_directory = match crate::host::cache_dir() {
+        Ok(directory) => directory,
+        Err(error) => {
+            log::warn!("获取缓存目录失败，跳过旧版会话检索索引清理：{error}");
+            return;
+        }
+    };
+    match legacy_session_index::cleanup(&cache_directory, custom_directory) {
+        Ok(true) => log::info!("已清理旧版会话检索索引"),
+        Ok(false) => {}
+        Err(error) => log::warn!("旧版会话检索索引清理未完成：{error}"),
+    }
 }
 
 pub fn save_app_data(data: &AppData) -> Result<(), String> {
@@ -55,7 +84,7 @@ pub fn save_app_data(data: &AppData) -> Result<(), String> {
 
 pub fn import_app_data(source: &Path) -> Result<AppData, String> {
     // 导入不会改写来源文件，无需在其旁边留迁移备份。
-    let (mut data, _migrated) = read_app_data_file(source, BackupBeforeMigrate::No)?;
+    let mut data = read_app_data_file(source, BackupBeforeMigrate::No)?.data;
     validate_app_data_schema(&data)?;
     normalize_provider_cached_values(&mut data);
     limits::normalize_app_data(&mut data);
@@ -75,8 +104,7 @@ pub fn export_app_data_json(data: &AppData) -> Result<String, String> {
 /// 浏览器版导入：接收上传的配置文本，走与文件导入相同的迁移和校验。
 pub fn import_app_data_json(text: &str) -> Result<AppData, String> {
     let label = Path::new("上传的配置");
-    let (mut data, _migrated) =
-        migration::read_app_data_text(text, label, BackupBeforeMigrate::No)?;
+    let mut data = migration::read_app_data_text(text, label, BackupBeforeMigrate::No)?.data;
     validate_app_data_schema(&data)?;
     normalize_provider_cached_values(&mut data);
     limits::normalize_app_data(&mut data);
@@ -119,7 +147,7 @@ fn merge_dev_sample_on_load(_path: &Path, _data: &mut AppData) -> Result<bool, S
     Ok(false)
 }
 
-fn recover_missing_app_data_file(path: &Path) -> Result<Option<(AppData, bool)>, String> {
+fn recover_missing_app_data_file(path: &Path) -> Result<Option<LoadedAppData>, String> {
     let candidates = [tmp_file_path(path), backup_file_path(path)];
     let mut errors = Vec::new();
 

@@ -197,7 +197,7 @@ pub(crate) fn cached_history_record_facts(
 }
 
 fn history_cache_fingerprint(path: &Path) -> Result<String, String> {
-    Ok(super::super::session_index_source_fingerprint(path, 1)?.0)
+    Ok(super::super::session_source_fingerprint(path, 1)?.0)
 }
 
 /// Only source/project metadata belongs here. Session bodies keep their normal

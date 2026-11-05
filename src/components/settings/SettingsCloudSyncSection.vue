@@ -17,6 +17,7 @@ const status = computed(() => state.value?.status);
 const backendOptions = [
   { label: "WebDAV", value: "webdav" },
   { label: "S3 兼容存储", value: "s3" },
+  { label: "GitHub 仓库", value: "github" },
 ];
 const endpointLabel = computed(() => {
   const settings = state.value?.settings;
@@ -26,14 +27,25 @@ const endpointLabel = computed(() => {
       ? `S3 · ${settings.s3Bucket} · ${settings.s3Endpoint}`
       : `S3 · ${settings.s3Bucket}`;
   }
+  if (settings.backend === "github") {
+    return `GitHub · ${settings.githubOwner}/${settings.githubRepo} · ${settings.githubBranch}`;
+  }
   return settings.serverUrl;
 });
 const configured = computed(() => {
   const settings = state.value?.settings;
   if (!settings?.hasPassphrase) return false;
-  return settings.backend === "s3"
-    ? Boolean(settings.s3Bucket && settings.s3AccessKey && settings.hasSecretKey)
-    : Boolean(settings.serverUrl);
+  if (settings.backend === "s3") {
+    return Boolean(
+      settings.s3Bucket && settings.s3AccessKey && settings.hasSecretKey,
+    );
+  }
+  if (settings.backend === "github") {
+    return Boolean(
+      settings.githubOwner && settings.githubRepo && settings.hasGithubToken,
+    );
+  }
+  return Boolean(settings.serverUrl);
 });
 const busy = computed(() =>
   Boolean(sync?.pending.value || status.value?.running),
@@ -41,6 +53,7 @@ const busy = computed(() =>
 const editing = ref(false);
 const dirty = ref(false);
 const passwordEdited = ref(false);
+const githubTokenEdited = ref(false);
 const secretEdited = ref(false);
 const passphraseEdited = ref(false);
 const draft = reactive({
@@ -50,6 +63,10 @@ const draft = reactive({
   password: "",
   passphrase: "",
   remoteRoot: "BalanceHub",
+  githubOwner: "",
+  githubRepo: "",
+  githubBranch: "main",
+  githubToken: "",
   s3Endpoint: "",
   s3Region: "us-east-1",
   s3Bucket: "",
@@ -57,15 +74,24 @@ const draft = reactive({
   s3SecretKey: "",
   deviceName: "这台电脑",
 });
-const draftReady = computed(() =>
-  draft.backend === "s3"
-    ? Boolean(
-        draft.s3Bucket &&
-          draft.s3AccessKey &&
-          (draft.s3SecretKey || state.value?.settings.hasSecretKey),
-      )
-    : Boolean(draft.serverUrl),
-);
+const draftReady = computed(() => {
+  if (draft.backend === "s3") {
+    return Boolean(
+      draft.s3Bucket &&
+        draft.s3AccessKey &&
+        (draft.s3SecretKey || state.value?.settings.hasSecretKey),
+    );
+  }
+  if (draft.backend === "github") {
+    return Boolean(
+      draft.githubOwner &&
+        draft.githubRepo &&
+        draft.githubBranch &&
+        (draft.githubToken || state.value?.settings.hasGithubToken),
+    );
+  }
+  return Boolean(draft.serverUrl);
+});
 let loaded = false;
 let draftRevision = 0;
 
@@ -80,16 +106,21 @@ function fill(settings: CloudSyncSettings) {
     serverUrl: settings.serverUrl,
     username: settings.username,
     remoteRoot: settings.remoteRoot,
+    githubOwner: settings.githubOwner,
+    githubRepo: settings.githubRepo,
+    githubBranch: settings.githubBranch,
     s3Endpoint: settings.s3Endpoint,
     s3Region: settings.s3Region,
     s3Bucket: settings.s3Bucket,
     s3AccessKey: settings.s3AccessKey,
     deviceName: settings.deviceName,
     password: "",
+    githubToken: "",
     s3SecretKey: "",
     passphrase: "",
   });
   passwordEdited.value = false;
+  githubTokenEdited.value = false;
   secretEdited.value = false;
   passphraseEdited.value = false;
   dirty.value = false;
@@ -116,6 +147,11 @@ function input(): CloudSyncSettingsInput {
     passphrase:
       passphraseEdited.value && draft.passphrase ? draft.passphrase : null,
     remoteRoot: draft.remoteRoot,
+    githubOwner: draft.githubOwner,
+    githubRepo: draft.githubRepo,
+    githubBranch: draft.githubBranch,
+    githubToken:
+      githubTokenEdited.value && draft.githubToken ? draft.githubToken : null,
     s3Endpoint: draft.s3Endpoint,
     s3Region: draft.s3Region,
     s3Bucket: draft.s3Bucket,
@@ -153,6 +189,7 @@ async function toggleAuto(value: string | number | boolean) {
   await sync.save({
     ...saved,
     password: null,
+    githubToken: null,
     s3SecretKey: null,
     passphrase: null,
     autoSync: Boolean(value),
@@ -194,8 +231,8 @@ const date = (value: number) =>
     </header>
     <div class="cloud-sync-body">
       <p class="cloud-sync-description">
-        在多台设备间同步中转站、应用偏好与共享资产，支持 WebDAV 与 S3
-        兼容存储。
+        在多台设备间同步中转站、应用偏好与共享资产，支持 WebDAV、S3
+        兼容存储与 GitHub 仓库。
       </p>
       <div v-if="!state" class="cloud-sync-state">
         <span>{{ sync.error.value || "正在读取同步设置…" }}</span
@@ -324,7 +361,7 @@ const date = (value: number) =>
           />
         </div>
         </template>
-        <template v-else>
+        <template v-else-if="draft.backend === 's3'">
           <div class="cloud-sync-field cloud-sync-field-wide">
             <label for="cloud-sync-s3-endpoint">服务地址</label
             ><a-input
@@ -405,6 +442,72 @@ const date = (value: number) =>
             />
           </div>
         </template>
+        <template v-else>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-github-owner">仓库所有者</label
+            ><a-input
+              v-model="draft.githubOwner"
+              placeholder="GitHub 用户名或组织"
+              :input-attrs="{
+                id: 'cloud-sync-github-owner',
+                'aria-label': 'GitHub 仓库所有者',
+                autocomplete: 'off',
+                spellcheck: false,
+              }"
+              @input="edited"
+            />
+          </div>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-github-repo">仓库名称</label
+            ><a-input
+              v-model="draft.githubRepo"
+              placeholder="balancehub-sync"
+              :input-attrs="{
+                id: 'cloud-sync-github-repo',
+                'aria-label': 'GitHub 仓库名称',
+                autocomplete: 'off',
+                spellcheck: false,
+              }"
+              @input="edited"
+            />
+          </div>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-github-branch">分支</label
+            ><a-input
+              v-model="draft.githubBranch"
+              placeholder="main"
+              :input-attrs="{
+                id: 'cloud-sync-github-branch',
+                'aria-label': 'GitHub 分支',
+                autocomplete: 'off',
+                spellcheck: false,
+              }"
+              @input="edited"
+            />
+          </div>
+          <div class="cloud-sync-field">
+            <label for="cloud-sync-github-token">个人访问令牌</label
+            ><a-input-password
+              v-model="draft.githubToken"
+              :placeholder="
+                state.settings.hasGithubToken
+                  ? '已保存，留空保留'
+                  : 'Fine-grained token，Contents 读写权限'
+              "
+              :input-attrs="{
+                id: 'cloud-sync-github-token',
+                'aria-label': 'GitHub 个人访问令牌',
+                autocomplete: 'new-password',
+              }"
+              @input="
+                edited();
+                githubTokenEdited = true;
+              "
+            /><small
+              >令牌需要该仓库 Contents 的读取与写入权限；仓库需已有提交和所选分支。</small
+            >
+          </div>
+        </template>
         <div class="cloud-sync-field cloud-sync-field-wide">
           <label for="cloud-sync-passphrase">同步密码</label
           ><a-input-password
@@ -429,7 +532,7 @@ const date = (value: number) =>
         </div>
         <div class="cloud-sync-field">
           <label for="cloud-sync-directory">{{
-            draft.backend === "s3" ? "同步前缀" : "同步目录"
+            draft.backend === "webdav" ? "同步目录" : "同步前缀"
           }}</label
           ><a-input
             v-model="draft.remoteRoot"
@@ -504,8 +607,9 @@ const date = (value: number) =>
           服务需支持文件读写、强 ETag
           和条件写入，测试连接会实际验证。WebDAV 使用应用密码；S3
           兼容存储使用 Access Key，并要求 s3:GetObject、s3:PutObject、s3:DeleteObject
-          与 s3:ListBucket 权限。连接使用应用的网络代理，建议填写 HTTPS
-          地址。
+          与 s3:ListBucket 权限；GitHub 使用具有该仓库 Contents
+          读写权限的个人访问令牌，文件以提交方式写入所选分支。连接使用应用的网络代理，建议填写
+          HTTPS 地址。
         </p>
         <a-button
           v-if="state?.hasRecovery"

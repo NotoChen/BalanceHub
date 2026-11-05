@@ -2,7 +2,7 @@ use crate::{
     models::{
         AgentCliKind, AgentConfigurationEdit, AgentConfigurationError, AgentConfigurationErrorKind,
         AgentHookInspection, AgentHookMutation, AgentHookPlan, CliEnvironmentProbeResult,
-        CliRuntimeSnapshot, CliSessionIndexStatus, TemporaryCliInstance, TemporaryCliLaunchInput,
+        CliRuntimeSnapshot, TemporaryCliInstance, TemporaryCliLaunchInput,
         TemporaryCliLaunchPreview, TemporaryCliLaunchResult, TerminalEnvironmentProbeResult,
         Workspace, WorkspaceDirectoryListing,
     },
@@ -29,24 +29,6 @@ pub(crate) async fn preview_temporary_cli_launch(
 ) -> Result<TemporaryCliLaunchPreview, String> {
     blocking("生成临时 CLI 启动预览", move || {
         services::temporary_cli::TemporaryCliLaunchService::new().preview(input)
-    })
-    .await
-}
-
-pub(crate) async fn get_cli_session_index_status() -> Result<CliSessionIndexStatus, String> {
-    let settings = crate::state::app_data().settings;
-    blocking("读取会话索引状态", move || {
-        let config = services::cli_sessions::index_config(&settings)?;
-        services::cli_sessions::index_status(&config, settings.session_index_max_size_mib)
-    })
-    .await
-}
-
-pub(crate) async fn clear_cli_session_index() -> Result<(), String> {
-    let settings = crate::state::app_data().settings;
-    blocking("清理会话索引", move || {
-        let config = services::cli_sessions::index_config(&settings)?;
-        services::cli_sessions::clear_index(&config)
     })
     .await
 }

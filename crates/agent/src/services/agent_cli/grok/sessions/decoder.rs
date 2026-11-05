@@ -9,7 +9,7 @@ pub(super) fn update(
     sequence: u64,
     line: &[u8],
     state: &mut Value,
-) -> Vec<SessionIndexMutation> {
+) -> Vec<SessionTranscriptMutation> {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return Vec::new();
     };
@@ -179,16 +179,16 @@ pub(super) fn update(
     } else {
         1
     };
-    let message = SessionIndexMessage {
+    let message = SessionTranscriptMessage {
         id,
         role,
         content,
         metadata,
     };
     vec![if append {
-        SessionIndexMutation::Append { message, priority }
+        SessionTranscriptMutation::Append { message, priority }
     } else {
-        SessionIndexMutation::Put { message, priority }
+        SessionTranscriptMutation::Put { message, priority }
     }]
 }
 
@@ -197,7 +197,7 @@ pub(super) fn chat(
     sequence: u64,
     line: &[u8],
     state: &mut Value,
-) -> Vec<SessionIndexMutation> {
+) -> Vec<SessionTranscriptMutation> {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return Vec::new();
     };
@@ -384,9 +384,9 @@ fn put(
     content: String,
     priority: i64,
     metadata: SessionMessageMetadata,
-) -> SessionIndexMutation {
-    SessionIndexMutation::Put {
-        message: SessionIndexMessage {
+) -> SessionTranscriptMutation {
+    SessionTranscriptMutation::Put {
+        message: SessionTranscriptMessage {
             id,
             role,
             content,
