@@ -11,6 +11,7 @@ import {
   Pause,
   RefreshCw,
   Search,
+  TriangleAlert,
 } from "@lucide/vue";
 import { Message } from "@arco-design/web-vue";
 import type { CliSessionDetail } from "../../stores/provider-types";
@@ -20,6 +21,7 @@ import type {
   SessionReaderNavigation,
 } from "../../stores/session-reader-types";
 import { copyText } from "../../composables/useClipboard";
+import { formatFileSize } from "../../utils/file-size";
 import {
   sessionModelLabel,
   sessionTime,
@@ -112,7 +114,13 @@ function stopSearchTimer() {
 }
 function search() {
   stopSearchTimer();
-  emit("navigate", { query: searchDraft.value.trim(), matchPosition: 0 });
+  // Keep the same full transcript or byte window; a bare revision cursor
+  // selects the search focus without jumping back to the newest window.
+  emit("navigate", {
+    cursor: page.value?.revision,
+    query: searchDraft.value.trim(),
+    matchPosition: 0,
+  });
 }
 function queueSearch(value: string) {
   searchDraft.value = value;
@@ -128,6 +136,7 @@ function match(direction: number) {
   const position = find.value?.position;
   if (total)
     emit("navigate", {
+      cursor: page.value?.revision,
       query: props.query,
       matchPosition:
         position == null
@@ -156,7 +165,11 @@ function navigateOutline(anchor: string) {
     // Repeated clicks on the same turn must also restore its scroll position.
     virtual.value.scrollToIndex(index, { align: "start" });
   }
-  emit("navigate", { anchor, query: props.query });
+  emit("navigate", {
+    cursor: page.value?.revision,
+    anchor,
+    query: props.query,
+  });
 }
 async function copy(value: string, label: string) {
   try {
@@ -321,8 +334,27 @@ onScopeDispose(() => {
     <div
       v-else-if="detail"
       class="session-reader-body"
-      :class="{ 'has-outline': outlineOpen }"
+      :class="{
+        'has-outline': outlineOpen,
+        'has-truncation': page?.truncated || page?.window,
+      }"
     >
+      <div v-if="page?.truncated" class="session-reader-truncated" role="status">
+        <TriangleAlert :size="14" aria-hidden="true" />
+        <span>会话原文过大，仅显示最近的内容；更早的消息未加载。</span>
+      </div>
+      <div
+        v-else-if="page?.window"
+        class="session-reader-truncated session-reader-window"
+        role="note"
+      >
+        <TriangleAlert :size="14" aria-hidden="true" />
+        <span
+          >会话原文较大，当前只读取了其中
+          {{ formatFileSize(page.window.end - page.window.start) }} 的一段（共
+          {{ formatFileSize(page.window.fileBytes) }}），可继续向更早的部分翻阅；搜索仅覆盖当前片段。</span
+        >
+      </div>
       <nav
         v-if="outlineOpen"
         ref="outlineViewport"
@@ -400,7 +432,8 @@ onScopeDispose(() => {
     </div>
     <div v-if="page" class="session-reader-pagebar">
       <label><input v-model="showContext" type="checkbox" />上下文</label>
-      <span v-if="page.totalMessages"
+      <span v-if="page.totalMessages">
+        <template v-if="page.window">片段 </template
         >{{ page.start + 1 }}–{{ page.start + detail!.messages.length }} /
         {{ page.totalMessages }} 条</span
       >
@@ -417,6 +450,15 @@ onScopeDispose(() => {
       </div>
       <div class="session-reader-page-actions">
         <button
+          v-if="page.window?.hasLater"
+          type="button"
+          :disabled="loading"
+          @click="
+            emit('navigate', { cursor: `${page.revision}:latest`, query })
+          "
+        >
+          回到最新</button
+        ><button
           type="button"
           :disabled="!page.previousCursor || loading"
           @click="emit('navigate', { cursor: page.previousCursor, query })"

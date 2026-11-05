@@ -240,6 +240,7 @@ export function useSessionReader(options: ReaderOptions) {
   }
   function refreshDetail() {
     return navigateDetail({
+      cursor: detail.value?.page.revision,
       anchor:
         detail.value?.find.activeMessageId ?? detail.value?.messages[0]?.id,
       query: detailQuery.value,

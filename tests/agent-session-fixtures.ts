@@ -165,6 +165,8 @@ export function sessionDetail(
         totalMessages: 3,
         start: 0,
         indexing: false,
+        truncated: false,
+        window: null,
       },
       outline: [
         {

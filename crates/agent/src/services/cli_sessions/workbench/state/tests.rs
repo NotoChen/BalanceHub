@@ -1,4 +1,13 @@
 use super::*;
+use crate::{
+    models::CliSessionMessageRole,
+    services::agent_cli::contracts::{
+        SessionTranscriptFormat, SessionTranscriptMessage, SessionTranscriptMutation,
+        SessionTranscriptSource,
+    },
+};
+use serde_json::Value;
+use std::{fs, path::Path};
 
 fn scope(revision: &str, explicit_workdir: Option<&str>) -> ScopeState {
     ScopeState {
@@ -101,4 +110,57 @@ fn snapshot_pressure_reclaims_the_least_recently_used_consumer() {
     assert_eq!(registry.snapshots.len(), 32);
     assert!(!registry.snapshots.contains_key("page-17"));
     assert!(registry.snapshots.contains_key("latest"));
+}
+
+fn decode(_: &Path, _: u64, bytes: &[u8], _: &mut Value) -> Vec<SessionTranscriptMutation> {
+    let value: Value = serde_json::from_slice(bytes).unwrap();
+    vec![SessionTranscriptMutation::Put {
+        message: SessionTranscriptMessage {
+            id: "message".into(),
+            role: CliSessionMessageRole::User,
+            content: value["content"].as_str().unwrap_or_default().into(),
+            metadata: Default::default(),
+        },
+        priority: 0,
+    }]
+}
+
+fn transcript(root: &Path, session: &str) -> Arc<Transcript> {
+    let path = root.join(format!("{session}.jsonl"));
+    fs::write(&path, format!("{{\"content\":\"{session}\"}}\n")).unwrap();
+    let source = SessionTranscriptSource {
+        path,
+        parser_version: 1,
+        format: SessionTranscriptFormat::JsonLines,
+        decode,
+    };
+    let budget = SessionReadBudget::new(
+        Instant::now() + Duration::from_secs(30),
+        Arc::new(AtomicBool::new(false)),
+        u64::MAX,
+    );
+    Arc::new(Transcript::from_sources("workspace", session, &[source], &budget).unwrap())
+}
+
+#[test]
+fn transcript_cache_keeps_recent_windows_and_finds_them_by_revision() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cache = TranscriptCacheData {
+        entries: lru::LruCache::unbounded(),
+        weights: HashMap::new(),
+        bytes: 0,
+    };
+    let revisions = (0..10)
+        .map(|index| {
+            let transcript = transcript(root.path(), &format!("session-{index}"));
+            let revision = transcript.revision().to_string();
+            cache.put(format!("key-{index}"), transcript);
+            revision
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(cache.entries.len(), CACHE_ENTRIES);
+    assert_eq!(cache.weights.len(), CACHE_ENTRIES);
+    assert_eq!(cache.bytes, cache.weights.values().sum::<usize>());
+    assert!(cache.find_by_revision(&revisions[0]).is_none());
+    assert!(cache.find_by_revision(&revisions[9]).is_some());
 }

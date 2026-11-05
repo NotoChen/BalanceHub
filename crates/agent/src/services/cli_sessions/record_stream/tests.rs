@@ -346,3 +346,111 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
         assert_eq!(previous.unwrap().skipped_records, 1);
     }
 }
+
+#[test]
+fn window_read_starts_at_the_next_complete_record() {
+    let fixture = Fixture::new();
+    let source = fixture.source("tail.jsonl", SessionTranscriptFormat::JsonLines);
+    let line = |number: usize| {
+        format!(
+            "{{\"id\":\"{number:02}\",\"text\":\"m{number:02}{}\"}}\n",
+            "x".repeat(900)
+        )
+    };
+    let content = (0..50).map(line).collect::<String>();
+    let line_len = content.len() / 50;
+    fs::write(&source.path, &content).unwrap();
+
+    // 窗口起点落在第 40 条记录中间：该半行必须丢弃，从下一条完整记录开始。
+    let batch = read_window(
+        &source,
+        WindowRequest::Latest,
+        (10 * line_len - 1) as u64,
+        &|| true,
+    )
+    .unwrap();
+    let ids = batch
+        .mutations
+        .iter()
+        .filter_map(|(_, mutation)| match mutation {
+            SessionTranscriptMutation::Put { message, .. } => Some(message.id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        (41..50)
+            .map(|number| format!("{number:02}"))
+            .collect::<Vec<_>>()
+    );
+
+    // 窗口覆盖整个文件时行为与前台读取一致。
+    let whole = read_window(&source, WindowRequest::Latest, u64::MAX, &|| true).unwrap();
+    assert_eq!(whole.mutations.len(), 50);
+}
+
+#[test]
+fn window_read_stops_at_the_requested_boundary_and_walks_back() {
+    let fixture = Fixture::new();
+    let source = fixture.source("window.jsonl", SessionTranscriptFormat::JsonLines);
+    let line = |number: usize| {
+        format!(
+            "{{\"id\":\"{number:02}\",\"text\":\"m{number:02}{}\"}}\n",
+            "x".repeat(900)
+        )
+    };
+    let content = (0..50).map(line).collect::<String>();
+    let line_len = content.len() / 50;
+    fs::write(&source.path, &content).unwrap();
+
+    // After 从上一窗口的 end 开始，只读窗口大小以内的完整记录。
+    let after = read_window(
+        &source,
+        WindowRequest::After((30 * line_len) as u64),
+        (10 * line_len) as u64,
+        &|| true,
+    )
+    .unwrap();
+    let ids = after
+        .mutations
+        .iter()
+        .filter_map(|(_, mutation)| match mutation {
+            SessionTranscriptMutation::Put { message, .. } => Some(message.id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ids.first().map(String::as_str), Some("30"));
+    assert_eq!(after.start, (30 * line_len) as u64);
+    assert!(after.end > after.start);
+
+    // Before 从同一位置向前读出一个窗口，边界对齐后从完整记录开始。
+    let before = read_window(
+        &source,
+        WindowRequest::Before(after.start),
+        (10 * line_len) as u64,
+        &|| true,
+    )
+    .unwrap();
+    let ids = before
+        .mutations
+        .iter()
+        .filter_map(|(_, mutation)| match mutation {
+            SessionTranscriptMutation::Put { message, .. } => Some(message.id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ids.last().map(String::as_str), Some("29"));
+    assert_eq!(before.end, after.start);
+}
+
+#[test]
+fn window_read_rejects_compressed_sources() {
+    let fixture = Fixture::new();
+    let source = fixture.source("tail.jsonl.zst", SessionTranscriptFormat::JsonLines);
+    fs::write(
+        &source.path,
+        zstd::stream::encode_all(&b"{}\n"[..], 1).unwrap(),
+    )
+    .unwrap();
+    assert!(read_window(&source, WindowRequest::Latest, 1024, &|| true).is_err());
+}

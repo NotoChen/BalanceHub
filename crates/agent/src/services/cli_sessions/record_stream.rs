@@ -244,6 +244,184 @@ pub(super) fn read_batch_with_limit(
     })
 }
 
+/// Which bounded part of a JSONL transcript to decode. `Default` keeps the
+/// search path's full read (up to the hard cap) and `Latest` gives the reader
+/// a window below it; `Before`, `After` and `Range` navigate between reader
+/// windows without merging their decoded state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WindowRequest {
+    Default,
+    Latest,
+    Before(u64),
+    After(u64),
+    Range { start: u64, end: u64 },
+}
+
+impl WindowRequest {
+    pub(super) fn cache_key(self) -> String {
+        match self {
+            Self::Default => "default".into(),
+            Self::Latest => "latest".into(),
+            Self::Before(offset) => format!("before:{offset}"),
+            Self::After(offset) => format!("after:{offset}"),
+            Self::Range { start, end } => format!("range:{start}:{end}"),
+        }
+    }
+}
+
+/// One decoded byte window. Its `start` and `end` are the offsets actually
+/// covered after aligning the start to the next whole record.
+pub(super) struct WindowBatch {
+    pub mutations: Vec<(u64, SessionTranscriptMutation)>,
+    pub skipped_records: u64,
+    pub start: u64,
+    pub end: u64,
+    pub file_bytes: u64,
+}
+
+/// Reads one bounded window of a JSONL transcript. Compressed and non-JSONL
+/// sources cannot be seeked this way and keep their explicit "too large" error.
+pub(super) fn read_window(
+    source: &SessionTranscriptSource,
+    request: WindowRequest,
+    window_bytes: u64,
+    current: &dyn Fn() -> bool,
+) -> Result<WindowBatch, String> {
+    if source.format != SessionTranscriptFormat::JsonLines
+        || super::source::compressed(&source.path)
+    {
+        return Err("该会话格式不支持分段读取".into());
+    }
+    if !current() {
+        return Err("会话读取已取消".into());
+    }
+    let mut file = super::workbench::open_session_file(&source.path)
+        .map_err(|error| format!("读取会话正文失败：{error}"))?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    let file_bytes = metadata.len();
+    let window_bytes = window_bytes.max(1);
+    let (requested_start, requested_end) = match request {
+        WindowRequest::Default | WindowRequest::Latest => {
+            (file_bytes.saturating_sub(window_bytes), file_bytes)
+        }
+        WindowRequest::Before(offset) => {
+            let end = offset.min(file_bytes);
+            (end.saturating_sub(window_bytes), end)
+        }
+        WindowRequest::After(offset) => {
+            let start = offset.min(file_bytes);
+            (start, file_bytes.min(start.saturating_add(window_bytes)))
+        }
+        WindowRequest::Range { start, end } => {
+            let start = start.min(file_bytes);
+            (start, end.min(file_bytes).max(start))
+        }
+    };
+    if requested_start >= requested_end {
+        return Ok(WindowBatch {
+            mutations: Vec::new(),
+            skipped_records: 0,
+            start: requested_start,
+            end: requested_start,
+            file_bytes,
+        });
+    }
+    let mut skip_partial_line = false;
+    if requested_start > 0 {
+        file.seek(SeekFrom::Start(requested_start - 1))
+            .map_err(|error| error.to_string())?;
+        let mut previous = [0u8; 1];
+        file.read_exact(&mut previous)
+            .map_err(|error| error.to_string())?;
+        skip_partial_line = previous[0] != b'\n';
+    }
+    file.seek(SeekFrom::Start(requested_start))
+        .map_err(|error| error.to_string())?;
+    let mut reader =
+        BufReader::with_capacity(16 * 1024, file.take(requested_end - requested_start));
+    let mut checkpoint = Checkpoint {
+        identity: identity(&metadata),
+        fingerprint: fingerprint(&metadata, source.parser_version),
+        source_bytes: file_bytes,
+        offset: requested_start,
+        ..Checkpoint::default()
+    };
+    if skip_partial_line {
+        checkpoint.offset += discard_partial_line(&mut reader, current)?;
+    }
+    let read_start = checkpoint.offset;
+    let mut mutations = Vec::new();
+    loop {
+        if !current() {
+            return Err("会话读取已取消".into());
+        }
+        match next_line(&mut reader, &mut checkpoint)? {
+            Record::Value(bytes) => {
+                for mutation in (source.decode)(
+                    &source.path,
+                    checkpoint.sequence,
+                    &bytes,
+                    &mut checkpoint.decoder,
+                ) {
+                    checkpoint.mutation_order = checkpoint.mutation_order.saturating_add(1);
+                    mutations.push((checkpoint.mutation_order, mutation));
+                }
+                checkpoint.sequence = checkpoint.sequence.saturating_add(1);
+            }
+            Record::Continue => {}
+            Record::End => break,
+        }
+    }
+    // Appends are safe because the window is fixed; a rewrite must not mix two
+    // file generations into one view. A window that starts inside one oversized
+    // record yields no whole record: keep the requested boundary so the page
+    // can still walk further back instead of asking for the same window again.
+    let start = if read_start >= requested_end {
+        requested_start
+    } else {
+        read_start
+    };
+    let end = checkpoint.offset.min(requested_end);
+    let after = std::fs::metadata(&source.path).map_err(|error| error.to_string())?;
+    if identity(&after) != checkpoint.identity || after.len() < requested_end {
+        return Err("会话文件在读取期间发生变化，请重试".into());
+    }
+    Ok(WindowBatch {
+        mutations,
+        skipped_records: checkpoint.skipped_records,
+        start,
+        end,
+        file_bytes,
+    })
+}
+
+fn discard_partial_line(
+    reader: &mut impl BufRead,
+    current: &dyn Fn() -> bool,
+) -> Result<u64, String> {
+    let mut consumed = 0u64;
+    loop {
+        if !current() {
+            return Err("会话读取已取消".into());
+        }
+        let buffer = reader.fill_buf().map_err(|error| error.to_string())?;
+        if buffer.is_empty() {
+            return Ok(consumed);
+        }
+        match buffer.iter().position(|byte| *byte == b'\n') {
+            Some(index) => {
+                reader.consume(index + 1);
+                return Ok(consumed + (index + 1) as u64);
+            }
+            None => {
+                let count = buffer.len();
+                reader.consume(count);
+                consumed += count as u64;
+            }
+        }
+    }
+}
+
 enum Record {
     Value(Vec<u8>),
     Continue,

@@ -156,13 +156,13 @@ pub(super) fn scan_source(
                                     transcript.skipped_records
                                 ));
                             }
-                            if transcript.oversized {
+                            if transcript.truncated {
                                 diagnostics
-                                    .push("有会话正文超过按需读取上限，未参与全文检索".into());
+                                    .push("有会话正文过大，全文检索只覆盖最近加载的内容".into());
                             }
                             let result = transcript.search(&full_request);
                             matched.merge_content(result.clone());
-                            if !transcript.complete && !transcript.oversized {
+                            if !transcript.complete && !transcript.truncated {
                                 incomplete.insert(row.session_ref.clone());
                                 pending = true;
                             }

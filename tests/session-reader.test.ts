@@ -186,7 +186,8 @@ test("refreshing a later page retains its first message when no search hit is se
   await context.reader.openDetail("ref:session-1");
   await context.reader.refreshDetail();
   assert.equal(context.requests.at(-1)?.anchor, "later-page-first");
-  assert.equal(context.requests.at(-1)?.cursor, null);
+  // The revision keeps the same transcript or byte window when refreshing.
+  assert.equal(context.requests.at(-1)?.cursor, "revision:fixture");
 });
 
 test("continuing a middle-of-message match appends its following chunk without rereading the start", async (t) => {

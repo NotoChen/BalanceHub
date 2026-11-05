@@ -26,6 +26,15 @@ export interface SessionSearchHit {
   terms: string[];
   kind: SessionMessageKind;
 }
+export interface SessionReadWindow {
+  /** 窗口首字节，已对齐到下一条完整记录。 */
+  start: number;
+  /** 窗口内最后一条记录的结束位置。 */
+  end: number;
+  fileBytes: number;
+  hasEarlier: boolean;
+  hasLater: boolean;
+}
 export interface SessionReadPage {
   revision: string;
   previousCursor: string | null;
@@ -33,6 +42,10 @@ export interface SessionReadPage {
   totalMessages: number;
   start: number;
   indexing: boolean;
+  /** 会话原文超过全量读取上限时，只显示截断的尾部内容。 */
+  truncated: boolean;
+  /** 当前页所属的字节窗口，仅大文件按需读取时存在。 */
+  window: SessionReadWindow | null;
 }
 export interface SessionFindState {
   query: string;

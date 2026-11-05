@@ -11,7 +11,7 @@ use crate::{
     models::*,
     services::agent_cli::contracts::{
         SessionContentSearchRequest, SessionContentSearchResult, SessionHistoryAdapter,
-        SessionHistoryRecord, SessionReadBudget, SessionTranscriptMessage,
+        SessionHistoryRecord, SessionReadBudget, SessionTranscriptFormat, SessionTranscriptMessage,
         SessionTranscriptMutation, SessionTranscriptSource,
     },
 };
@@ -22,9 +22,15 @@ const PAGE_MESSAGES: usize = 80;
 const PREVIEW_CHARS: usize = 8 * 1024;
 const PAGE_CHARS: usize = 256 * 1024;
 pub(crate) const CONTENT_PAGE_CHARS: usize = 128 * 1024;
-/// A single native transcript larger than this is not loaded into memory.
-/// Search reports it as partial instead of retrying an unbounded read forever.
-const MAX_TRANSCRIPT_BYTES: u64 = 256 * 1024 * 1024;
+/// A single native transcript larger than this is not decoded in full when it
+/// cannot be read as a window. Search keeps its own full-read limit.
+pub(crate) const MAX_TRANSCRIPT_BYTES: u64 = 256 * 1024 * 1024;
+/// A single-source JSONL transcript above this size is opened as a window, so
+/// the reader never decodes a multi-hundred-megabyte body at once.
+const WINDOWED_TRANSCRIPT_BYTES: u64 = 64 * 1024 * 1024;
+/// Bounded window decoded for an oversized transcript. Showing the latest
+/// turns keeps the detail view usable without loading a multi-gigabyte file.
+const TRANSCRIPT_WINDOW_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 struct Message {
@@ -182,12 +188,25 @@ pub(crate) fn sources_signature(sources: &[SessionTranscriptSource]) -> Result<S
     Ok(format!("{:x}", hash.finalize()))
 }
 
+/// The byte range a windowed transcript actually covers. `has_earlier` and
+/// `has_later` are derived at read time; the window never merges with another
+/// one, so every page is decoded from one self-contained file range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SourceWindow {
+    pub start: u64,
+    pub end: u64,
+    pub file_bytes: u64,
+}
+
 /// A decoded native transcript with the same visibility, ordering and usage
 /// semantics the reader had when its messages lived in a derived index.
 pub(crate) struct Transcript {
     pub(crate) complete: bool,
     pub(crate) skipped_records: u64,
-    pub(crate) oversized: bool,
+    /// The source exceeded the full-decode limit; only one byte window is
+    /// loaded. `complete` is false for such transcripts as well.
+    pub(crate) truncated: bool,
+    pub(crate) window: Option<SourceWindow>,
     revision: String,
     messages: Vec<Message>,
     usage: SessionUsageSummary,
@@ -211,22 +230,43 @@ impl Transcript {
         sources: &[SessionTranscriptSource],
         budget: &SessionReadBudget,
     ) -> Result<Self, String> {
+        Self::from_sources_with_window(
+            workspace,
+            session,
+            sources,
+            stream::WindowRequest::Default,
+            budget,
+        )
+    }
+
+    pub(crate) fn from_sources_with_window(
+        workspace: &str,
+        session: &str,
+        sources: &[SessionTranscriptSource],
+        window_request: stream::WindowRequest,
+        budget: &SessionReadBudget,
+    ) -> Result<Self, String> {
         let mut signatures = Vec::new();
         let mut scans = Vec::new();
         let mut complete = true;
-        let mut oversized = false;
+        let mut truncated = false;
         let mut skipped_records = 0u64;
+        // A window is only meaningful when one file holds the whole
+        // conversation. Multi-file sessions keep the previous per-source read
+        // and do not expose window navigation.
+        let allow_window = sources.len() == 1;
         for source in sources {
             budget.check()?;
             let path = source.path.to_string_lossy().into_owned();
             let signature = stream::source_signature(source)?;
-            let scan = read_source(&path, source, budget)?;
+            let scan = read_source(&path, source, allow_window, window_request, budget)?;
             complete &= scan.complete;
-            oversized |= scan.oversized;
+            truncated |= scan.truncated;
             skipped_records = skipped_records.saturating_add(scan.skipped_records);
             signatures.push((path, signature));
-            scans.push(scan.state);
+            scans.push(scan);
         }
+        let window = (scans.len() == 1).then(|| scans[0].window).flatten();
         signatures.sort();
         let mut hash = Sha256::new();
         hash.update(workspace.as_bytes());
@@ -238,16 +278,48 @@ impl Transcript {
             hash.update(signature.as_bytes());
             hash.update([0]);
         }
-        let revision = format!("{:x}", hash.finalize());
-        let (messages, usage) = visible_messages(scans);
+        let mut revision = format!("{:x}", hash.finalize());
+        if let Some(window) = window {
+            // The revision is the cursor's content identity, so a page never
+            // mixes two windows. The window request itself is recovered from
+            // this suffix when a message is expanded.
+            revision = format!("{revision}@{}-{}", window.start, window.end);
+        }
+        let (messages, usage) =
+            visible_messages(scans.into_iter().map(|scan| scan.state).collect());
         Ok(Self {
             complete,
             skipped_records,
-            oversized,
+            truncated,
+            window,
             revision,
             messages,
             usage,
         })
+    }
+
+    pub(crate) fn revision(&self) -> &str {
+        &self.revision
+    }
+
+    /// Whether this decoded slice contains the public message id. Used to
+    /// decide whether a search hit needs a full transcript instead of the
+    /// newest window.
+    pub(crate) fn has_message(&self, message_id: &str) -> bool {
+        self.messages
+            .iter()
+            .any(|message| message.public_id == message_id)
+    }
+
+    /// Approximate resident size of the decoded messages, used by the reader
+    /// cache's byte budget. Metadata and allocator overhead are folded into a
+    /// small per-message constant.
+    pub(crate) fn estimated_bytes(&self) -> usize {
+        self.messages
+            .iter()
+            .map(|message| message.content.len().saturating_add(512))
+            .sum::<usize>()
+            .max(1)
     }
 
     pub(crate) fn search(
@@ -295,9 +367,6 @@ impl Transcript {
         indexing: bool,
         budget: &SessionReadBudget,
     ) -> Result<CliSessionDetail, String> {
-        if self.oversized {
-            return Err("会话正文超过按需读取上限，无法打开".into());
-        }
         let mut headers = self
             .messages
             .iter()
@@ -383,35 +452,88 @@ impl Transcript {
                 .iter()
                 .position(|header| &header.message.public_id == id)
         });
+        let keep_revision = request.cursor.as_deref() == Some(self.revision.as_str());
         let focus = anchor.or_else(|| {
-            (request.cursor.is_none() && !matching.is_empty())
+            ((request.cursor.is_none() || keep_revision) && !matching.is_empty())
                 .then(|| matching[request.match_position.unwrap_or(0).min(matching.len() - 1)])
         });
+        let window = self.window;
+        let default_start = match focus {
+            Some(index) => index.saturating_sub(8),
+            // A window opens at the newest turn: the caller asked for the
+            // session's recent context, not the oldest byte of the window.
+            None if window.is_some() => last_page_start(&headers),
+            None => 0,
+        };
         let position =
             focus.and_then(|index| matching.iter().position(|candidate| *candidate == index));
         let (start, stop) = if let Some(cursor) = &request.cursor {
             let mut parts = cursor.split(':');
             let version = parts.next().ok_or("会话分页位置无效")?;
-            if version != self.revision {
-                return Err("会话内容已更新，请刷新后继续阅读".into());
+            // `earlier`, `later` and `latest` intentionally load a different
+            // byte window, so only the content hash has to match. Page
+            // indices are window-relative and still require the exact
+            // revision.
+            let same_content = version.split('@').next() == self.revision.split('@').next();
+            match parts.next() {
+                // A bare revision keeps the current transcript (full or one
+                // window) and applies the search focus, so searching again
+                // does not jump back to the newest window.
+                None if version == self.revision => (default_start, headers.len()),
+                Some("earlier") => {
+                    let end = parts
+                        .next()
+                        .ok_or("会话分页位置无效")?
+                        .parse::<u64>()
+                        .map_err(|_| "会话分页位置无效")?;
+                    if !same_content
+                        || parts.next().is_some()
+                        || window.is_none_or(|value| value.end != end)
+                    {
+                        return Err("会话分页位置已失效，请刷新".into());
+                    }
+                    (last_page_start(&headers), headers.len())
+                }
+                Some("later") => {
+                    let offset = parts
+                        .next()
+                        .ok_or("会话分页位置无效")?
+                        .parse::<u64>()
+                        .map_err(|_| "会话分页位置无效")?;
+                    if !same_content
+                        || parts.next().is_some()
+                        || window.is_none_or(|value| value.start != offset)
+                    {
+                        return Err("会话分页位置已失效，请刷新".into());
+                    }
+                    (0, headers.len())
+                }
+                Some("latest") => {
+                    if !same_content || parts.next().is_some() {
+                        return Err("会话分页位置已失效，请刷新".into());
+                    }
+                    (last_page_start(&headers), headers.len())
+                }
+                Some(value) => {
+                    if version != self.revision {
+                        return Err("会话内容已更新，请刷新后继续阅读".into());
+                    }
+                    let start = value.parse::<usize>().map_err(|_| "会话分页位置无效")?;
+                    let stop = parts
+                        .next()
+                        .map(str::parse::<usize>)
+                        .transpose()
+                        .map_err(|_| "会话分页位置无效")?
+                        .unwrap_or(headers.len());
+                    if parts.next().is_some() {
+                        return Err("会话分页位置无效".into());
+                    }
+                    (start, stop)
+                }
+                None => return Err("会话分页位置无效".into()),
             }
-            let start = parts
-                .next()
-                .ok_or("会话分页位置无效")?
-                .parse::<usize>()
-                .map_err(|_| "会话分页位置无效")?;
-            let stop = parts
-                .next()
-                .map(str::parse::<usize>)
-                .transpose()
-                .map_err(|_| "会话分页位置无效")?
-                .unwrap_or(headers.len());
-            if parts.next().is_some() {
-                return Err("会话分页位置无效".into());
-            }
-            (start, stop)
         } else {
-            (focus.unwrap_or(0).saturating_sub(8), headers.len())
+            (default_start, headers.len())
         };
         if start > stop || stop > headers.len() {
             return Err("会话分页位置已失效，请刷新".into());
@@ -423,7 +545,7 @@ impl Transcript {
             if chars >= PAGE_CHARS {
                 break;
             }
-            let content_offset = if request.cursor.is_none()
+            let content_offset = if (request.cursor.is_none() || keep_revision)
                 && focus.is_some_and(|index| {
                     headers[index].message.public_id == header.message.public_id
                 }) {
@@ -476,20 +598,42 @@ impl Transcript {
             previous_start -= 1;
         }
         let mut usage = self.usage.clone();
-        usage.partial |= indexing;
+        // A window only sees its own usage events, so the totals are a
+        // confirmed lower bound rather than the whole session.
+        usage.partial |= indexing || self.truncated || self.window.is_some();
+        let previous_cursor = if start > 0 {
+            Some(format!("{}:{previous_start}:{start}", self.revision))
+        } else {
+            window
+                .filter(|value| value.start > 0)
+                .map(|value| format!("{}:earlier:{}", self.revision, value.start))
+        };
+        let next_cursor = if end < headers.len() || indexing {
+            Some(format!("{}:{}", self.revision, end))
+        } else {
+            window
+                .filter(|value| value.end < value.file_bytes)
+                .map(|value| format!("{}:later:{}", self.revision, value.end))
+        };
         Ok(CliSessionDetail {
             usage,
             session: summary,
             messages,
             page: SessionReadPage {
                 revision: self.revision.clone(),
-                previous_cursor: (start > 0)
-                    .then(|| format!("{}:{previous_start}:{start}", self.revision)),
-                next_cursor: (end < headers.len() || indexing)
-                    .then(|| format!("{}:{end}", self.revision)),
+                previous_cursor,
+                next_cursor,
                 total_messages: headers.len(),
                 start,
                 indexing,
+                truncated: self.truncated,
+                window: window.map(|value| SessionReadWindow {
+                    start: value.start,
+                    end: value.end,
+                    file_bytes: value.file_bytes,
+                    has_earlier: value.start > 0,
+                    has_later: value.end < value.file_bytes,
+                }),
             },
             outline,
             find: SessionFindState {
@@ -547,6 +691,97 @@ impl Transcript {
     }
 }
 
+/// Rebuilds the window a message-expansion request belongs to. A plain
+/// revision belongs to a full or multi-source transcript, whose reader reads
+/// the source normally; a windowed revision carries its byte range after `@`.
+pub(crate) fn window_request_for_revision(revision: &str) -> Result<stream::WindowRequest, String> {
+    let Some((_, span)) = revision.split_once('@') else {
+        return Ok(stream::WindowRequest::Default);
+    };
+    let (start, end) = span.split_once('-').ok_or("会话分页位置无效")?;
+    let start = start
+        .parse::<u64>()
+        .map_err(|_| "会话分页位置无效".to_string())?;
+    let end = end
+        .parse::<u64>()
+        .map_err(|_| "会话分页位置无效".to_string())?;
+    Ok(stream::WindowRequest::Range { start, end })
+}
+
+/// Reads the window request a page cursor asks for before the transcript is
+/// loaded. `earlier` and `later` cross into the adjacent window; any other
+/// cursor stays in the window named by its revision.
+pub(crate) fn window_request_for_cursor(
+    cursor: Option<&str>,
+) -> Result<stream::WindowRequest, String> {
+    let Some(cursor) = cursor else {
+        return Ok(stream::WindowRequest::Latest);
+    };
+    let mut parts = cursor.split(':');
+    let revision = parts.next().ok_or("会话分页位置无效")?;
+    match parts.next() {
+        Some("earlier") => {
+            let end = parts
+                .next()
+                .ok_or("会话分页位置无效")?
+                .parse::<u64>()
+                .map_err(|_| "会话分页位置无效".to_string())?;
+            if parts.next().is_some() {
+                return Err("会话分页位置无效".into());
+            }
+            Ok(stream::WindowRequest::Before(end))
+        }
+        Some("later") => {
+            let start = parts
+                .next()
+                .ok_or("会话分页位置无效")?
+                .parse::<u64>()
+                .map_err(|_| "会话分页位置无效".to_string())?;
+            if parts.next().is_some() {
+                return Err("会话分页位置无效".into());
+            }
+            Ok(stream::WindowRequest::After(start))
+        }
+        Some("latest") => {
+            if parts.next().is_some() {
+                return Err("会话分页位置无效".into());
+            }
+            Ok(stream::WindowRequest::Latest)
+        }
+        Some(_) | None => window_request_for_revision(revision),
+    }
+}
+
+/// A cursor that stays on the loaded transcript names its exact revision, so
+/// the reader can reuse the cached decode. That is a bare revision (search,
+/// match cycling, outline and refresh) or `revision:start[:stop]` page bounds.
+/// `earlier`, `later` and `latest` deliberately name another window.
+pub(crate) fn same_transcript_cursor_revision(cursor: Option<&str>) -> Option<&str> {
+    let mut parts = cursor?.split(':');
+    let revision = parts.next()?;
+    match parts.next() {
+        None => Some(revision),
+        Some(value) if value.parse::<usize>().is_ok() => Some(revision),
+        Some(_) => None,
+    }
+}
+
+/// The start of the last page in a window: at most `PAGE_MESSAGES` messages
+/// and `PAGE_CHARS` preview characters, always including the final message.
+fn last_page_start(headers: &[Header<'_>]) -> usize {
+    let mut start = headers.len();
+    let mut chars = 0usize;
+    while start > 0 && headers.len() - start < PAGE_MESSAGES {
+        let length = headers[start - 1].message.length.min(PREVIEW_CHARS);
+        if chars > 0 && chars.saturating_add(length) > PAGE_CHARS {
+            break;
+        }
+        chars = chars.saturating_add(length);
+        start -= 1;
+    }
+    start
+}
+
 struct Header<'a> {
     message: &'a Message,
     metadata: SessionMessageMetadata,
@@ -555,17 +790,58 @@ struct Header<'a> {
 fn read_source(
     path: &str,
     source: &SessionTranscriptSource,
+    allow_window: bool,
+    request: stream::WindowRequest,
     budget: &SessionReadBudget,
 ) -> Result<SourceScan, String> {
     let file_bytes = std::fs::metadata(&source.path)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
+    let windowable = allow_window
+        && source.format == SessionTranscriptFormat::JsonLines
+        && !super::source::compressed(&source.path);
+    let window_request = match request {
+        stream::WindowRequest::Latest if windowable && file_bytes > WINDOWED_TRANSCRIPT_BYTES => {
+            Some(request)
+        }
+        stream::WindowRequest::Before(_)
+        | stream::WindowRequest::After(_)
+        | stream::WindowRequest::Range { .. } => {
+            if !windowable {
+                return Err("该会话格式不支持分段读取".into());
+            }
+            Some(request)
+        }
+        _ => None,
+    };
+    if let Some(request) = window_request {
+        let window = stream::read_window(source, request, TRANSCRIPT_WINDOW_BYTES, &|| {
+            budget.check().is_ok()
+        })?;
+        return Ok(window_scan(path, window));
+    }
     if file_bytes > MAX_TRANSCRIPT_BYTES {
+        if source.format != SessionTranscriptFormat::JsonLines
+            || super::source::compressed(&source.path)
+        {
+            return Err("会话正文超过按需读取上限，无法打开".into());
+        }
+        let tail = stream::read_window(
+            source,
+            stream::WindowRequest::Default,
+            TRANSCRIPT_WINDOW_BYTES,
+            &|| budget.check().is_ok(),
+        )?;
+        let mut state = SourceState::default();
+        for (order, mutation) in tail.mutations {
+            state.apply(path, order, mutation);
+        }
         return Ok(SourceScan {
-            state: SourceState::default(),
+            state,
             complete: false,
-            oversized: true,
-            skipped_records: 0,
+            truncated: true,
+            skipped_records: tail.skipped_records,
+            window: None,
         });
     }
     let mut state = SourceState::default();
@@ -602,13 +878,13 @@ fn read_source(
             }
         }
         let checkpoint = batch.checkpoint;
-        let oversized = checkpoint.source_bytes > MAX_TRANSCRIPT_BYTES;
-        if checkpoint.complete || stopped || oversized {
+        if checkpoint.complete || stopped {
             return Ok(SourceScan {
                 state,
                 complete: checkpoint.complete,
-                oversized,
+                truncated: false,
                 skipped_records: checkpoint.skipped_records,
+                window: None,
             });
         }
         if previous.as_ref() == Some(&checkpoint) {
@@ -619,18 +895,41 @@ fn read_source(
     Ok(SourceScan {
         state,
         complete: false,
-        oversized: false,
+        truncated: false,
         skipped_records: previous
             .as_ref()
             .map_or(0, |checkpoint| checkpoint.skipped_records),
+        window: None,
     })
+}
+
+fn window_scan(path: &str, window: stream::WindowBatch) -> SourceScan {
+    let mut state = SourceState::default();
+    for (order, mutation) in window.mutations {
+        state.apply(path, order, mutation);
+    }
+    let complete = window.start == 0 && window.end >= window.file_bytes;
+    SourceScan {
+        state,
+        complete,
+        // A bounded window can walk to adjacent windows; it is not the
+        // one-way truncated tail kept for formats that cannot be split.
+        truncated: false,
+        skipped_records: window.skipped_records,
+        window: Some(SourceWindow {
+            start: window.start,
+            end: window.end,
+            file_bytes: window.file_bytes,
+        }),
+    }
 }
 
 struct SourceScan {
     state: SourceState,
     complete: bool,
-    oversized: bool,
+    truncated: bool,
     skipped_records: u64,
+    window: Option<SourceWindow>,
 }
 
 fn visible_messages(states: Vec<SourceState>) -> (Vec<Message>, SessionUsageSummary) {

@@ -60,6 +60,29 @@ fn temp_root(label: &str) -> PathBuf {
     path
 }
 
+fn launch_instance(id: &str, started_at: &str) -> TemporaryCliInstance {
+    TemporaryCliInstance {
+        id: id.to_string(),
+        native_session: None,
+        provider_id: None,
+        provider_name: None,
+        session_title: String::new(),
+        account_label: String::new(),
+        api_key_local_id: None,
+        cli_kind: AgentCliKind::Codex,
+        workdir: "/workspace".to_string(),
+        terminal_kind: TemporaryCliTerminalKind::default(),
+        terminal_name: TemporaryCliTerminalKind::default().label().to_string(),
+        terminal_locator: None,
+        started_at: started_at.to_string(),
+        ended_at: None,
+        pid: Some(42),
+        status: TemporaryCliInstanceStatus::Running,
+        exit_code: None,
+        can_activate: false,
+    }
+}
+
 fn payload(event: &str, observed_at: i64) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({
         "hook_event_name": event,
@@ -281,7 +304,7 @@ fn enrichment_from_an_older_hook_cannot_commit_after_a_newer_hook() {
         .accepted
     );
     let old_outcome = repository
-        .refresh_with_launch_snapshots_outcome_at(&[], 10)
+        .refresh_with_launch_snapshots_outcome_at(&[], &BTreeSet::new(), 10)
         .unwrap();
     let old_request = old_outcome.enrichment_requests.into_iter().next().unwrap();
 
@@ -295,7 +318,7 @@ fn enrichment_from_an_older_hook_cannot_commit_after_a_newer_hook() {
         .accepted
     );
     let current_outcome = repository
-        .refresh_with_launch_snapshots_outcome_at(&[], 20)
+        .refresh_with_launch_snapshots_outcome_at(&[], &BTreeSet::new(), 20)
         .unwrap();
     let current_request = current_outcome.enrichment_requests[0].clone();
     let current = current_outcome.snapshot;
@@ -386,6 +409,70 @@ fn launch_snapshots_and_hooks_share_the_reducer_projection() {
         session.process.as_ref().map(|process| process.pid),
         Some(42)
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn vanished_launch_record_ends_the_runtime_session() {
+    let root = temp_root("launch-vanished");
+    let repository = AgentRuntimeRepository::new(&root).unwrap();
+    let present = BTreeSet::from(["instance-1".to_string()]);
+    let active = repository
+        .refresh_with_launch_snapshots_outcome_at(
+            &[launch_instance("instance-1", "10")],
+            &present,
+            20,
+        )
+        .unwrap()
+        .snapshot;
+    assert_eq!(active.sessions[0].state, AgentRuntimeState::Idle);
+    assert_eq!(active.sessions[0].ended_at, None);
+
+    // 启动记录被删除（App 关闭期间系统清理临时目录、崩溃或测试夹具）后，
+    // 投影不能一直停在最后一次观察到的活动状态。
+    let ended = repository
+        .refresh_with_launch_snapshots_outcome_at(&[], &BTreeSet::new(), 30)
+        .unwrap()
+        .snapshot;
+    assert_eq!(ended.sessions[0].state, AgentRuntimeState::Ended);
+    assert_eq!(ended.sessions[0].ended_at, Some(30));
+    assert_eq!(
+        ended.sessions[0].origin,
+        AgentRuntimeOrigin::BalancehubLaunch
+    );
+
+    let unchanged = repository
+        .refresh_with_launch_snapshots_outcome_at(&[], &BTreeSet::new(), 40)
+        .unwrap()
+        .snapshot;
+    assert_eq!(unchanged.sessions, ended.sessions);
+    assert_eq!(unchanged.revision, ended.revision);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn launch_record_outside_the_activity_cap_keeps_its_session_active() {
+    let root = temp_root("launch-cap");
+    let repository = AgentRuntimeRepository::new(&root).unwrap();
+    let present = BTreeSet::from(["instance-1".to_string()]);
+    let active = repository
+        .refresh_with_launch_snapshots_outcome_at(
+            &[launch_instance("instance-1", "10")],
+            &present,
+            20,
+        )
+        .unwrap()
+        .snapshot;
+
+    // 活动列表受数量上限约束，记录仍在磁盘上时不能被误判为已退出。
+    let again = repository
+        .refresh_with_launch_snapshots_outcome_at(&[], &present, 30)
+        .unwrap()
+        .snapshot;
+    assert_eq!(again.sessions[0].state, AgentRuntimeState::Idle);
+    assert_eq!(again.sessions[0].ended_at, None);
+    assert_eq!(again.sessions, active.sessions);
+    assert_eq!(again.revision, active.revision);
     fs::remove_dir_all(root).unwrap();
 }
 

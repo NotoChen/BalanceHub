@@ -3,13 +3,19 @@ use crate::{
         AgentSessionParent, AgentSessionRow, AgentSessionScope, AgentSessionSourceState,
         AgentSessionWorkspace, SessionSearchHit,
     },
-    services::agent_cli::contracts::{
-        SessionHistoryRecord, SessionHistorySource, SessionReadBudget,
+    services::{
+        agent_cli::contracts::{
+            SessionHistoryAdapter, SessionHistoryRecord, SessionHistorySource, SessionReadBudget,
+            SessionTranscriptSource,
+        },
+        cli_sessions::{
+            record_stream::WindowRequest,
+            transcript::{sources_signature, Transcript, MAX_TRANSCRIPT_BYTES},
+        },
     },
 };
 use std::{
     collections::HashMap,
-    num::NonZeroUsize,
     sync::{atomic::AtomicBool, Arc, Mutex, MutexGuard, OnceLock},
     time::{Duration, Instant},
 };
@@ -59,25 +65,67 @@ pub(super) struct SourceResources {
     pub used_at: Instant,
 }
 
+const CACHE_BYTES: usize = 256 * 1024 * 1024;
+const CACHE_ENTRIES: usize = 8;
+
 /// Reader pages and message expansion revisit the same native transcript.
 /// Keep only the few transcripts currently open; list searches never populate
-/// this cache, so a workspace-wide search does not retain every body.
+/// this cache, so a workspace-wide search does not retain every body. Large
+/// transcripts are cached per byte window, and the LRU is bounded by decoded
+/// size as well as entry count so a handful of long sessions cannot pin
+/// arbitrary memory.
 #[derive(Clone)]
 pub(super) struct TranscriptCache {
     inner: Arc<Mutex<TranscriptCacheData>>,
 }
 
 struct TranscriptCacheData {
-    entries: lru::LruCache<String, Arc<crate::services::cli_sessions::transcript::Transcript>>,
+    entries: lru::LruCache<String, Arc<Transcript>>,
+    weights: HashMap<String, usize>,
+    bytes: usize,
 }
 
 impl Default for TranscriptCache {
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(TranscriptCacheData {
-                entries: lru::LruCache::new(NonZeroUsize::new(4).expect("positive cache capacity")),
+                entries: lru::LruCache::unbounded(),
+                weights: HashMap::new(),
+                bytes: 0,
             })),
         }
+    }
+}
+
+impl TranscriptCacheData {
+    fn put(&mut self, key: String, transcript: Arc<Transcript>) {
+        let weight = transcript.estimated_bytes();
+        if let Some(previous) = self.weights.insert(key.clone(), weight) {
+            self.bytes = self.bytes.saturating_sub(previous);
+        }
+        self.entries.put(key, transcript);
+        self.bytes = self.bytes.saturating_add(weight);
+        // Keep at least the window the caller just asked for, even when that
+        // single window exceeds the budget.
+        while self.entries.len() > 1
+            && (self.bytes > CACHE_BYTES || self.entries.len() > CACHE_ENTRIES)
+        {
+            let Some((old_key, _)) = self.entries.pop_lru() else {
+                break;
+            };
+            if let Some(old_weight) = self.weights.remove(&old_key) {
+                self.bytes = self.bytes.saturating_sub(old_weight);
+            }
+        }
+    }
+
+    fn find_by_revision(&mut self, revision: &str) -> Option<Arc<Transcript>> {
+        let key = self
+            .entries
+            .iter()
+            .find(|(_, transcript)| transcript.revision() == revision)
+            .map(|(key, _)| key.clone())?;
+        self.entries.get(&key).cloned()
     }
 }
 
@@ -86,12 +134,63 @@ impl TranscriptCache {
         &self,
         workspace: &str,
         record: &SessionHistoryRecord,
-        adapter: &crate::services::agent_cli::contracts::SessionHistoryAdapter,
+        adapter: &SessionHistoryAdapter,
+        window: WindowRequest,
+        anchor: Option<&str>,
         budget: &SessionReadBudget,
-    ) -> Result<Arc<crate::services::cli_sessions::transcript::Transcript>, String> {
+    ) -> Result<Arc<Transcript>, String> {
         let sources = (adapter.transcript)(record)?;
-        let signature = crate::services::cli_sessions::transcript::sources_signature(&sources)?;
-        let key = format!("{workspace}\0{}\0{signature}", record.record_key);
+        let signature = sources_signature(&sources)?;
+        let prefix = format!("{workspace}\0{}\0{signature}", record.record_key);
+        let transcript = self.load_one(
+            &prefix,
+            workspace,
+            &record.record_key,
+            &sources,
+            window,
+            budget,
+        )?;
+        let Some(anchor) = anchor else {
+            return Ok(transcript);
+        };
+        if transcript.has_message(anchor) {
+            return Ok(transcript);
+        }
+        // A search hit can live outside the newest window. Files within the
+        // full-read limit fall back to the whole transcript for this explicit
+        // jump; larger files keep the bounded window because their search only
+        // covers the newest slice anyway.
+        let Some(source_window) = transcript.window else {
+            return Ok(transcript);
+        };
+        if source_window.file_bytes > MAX_TRANSCRIPT_BYTES {
+            return Ok(transcript);
+        }
+        let full = self.load_one(
+            &prefix,
+            workspace,
+            &record.record_key,
+            &sources,
+            WindowRequest::Default,
+            budget,
+        )?;
+        Ok(if full.has_message(anchor) {
+            full
+        } else {
+            transcript
+        })
+    }
+
+    fn load_one(
+        &self,
+        prefix: &str,
+        workspace: &str,
+        session: &str,
+        sources: &[SessionTranscriptSource],
+        window: WindowRequest,
+        budget: &SessionReadBudget,
+    ) -> Result<Arc<Transcript>, String> {
+        let key = format!("{prefix}\0{}", window.cache_key());
         {
             let mut data = self.inner.lock().unwrap_or_else(|error| error.into_inner());
             if let Some(transcript) = data.entries.get(&key) {
@@ -99,19 +198,24 @@ impl TranscriptCache {
                 return Ok(transcript.clone());
             }
         }
-        let transcript = Arc::new(
-            crate::services::cli_sessions::transcript::Transcript::from_sources(
-                workspace,
-                &record.record_key,
-                &sources,
-                budget,
-            )?,
-        );
-        if transcript.complete {
+        let transcript = Arc::new(Transcript::from_sources_with_window(
+            workspace, session, sources, window, budget,
+        )?);
+        // Complete, legacy-truncated and windowed transcripts all hold a
+        // bounded slice of the source, so they are safe to reuse.
+        if transcript.complete || transcript.truncated || transcript.window.is_some() {
             let mut data = self.inner.lock().unwrap_or_else(|error| error.into_inner());
-            data.entries.put(key, transcript.clone());
+            data.put(key, transcript.clone());
         }
         Ok(transcript)
+    }
+
+    /// Message expansion follows the revision of the page the user is
+    /// looking at. Reuse that exact decoded window instead of loading the
+    /// newest one when the older page is still cached.
+    pub(super) fn find_by_revision(&self, revision: &str) -> Option<Arc<Transcript>> {
+        let mut data = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+        data.find_by_revision(revision)
     }
 }
 

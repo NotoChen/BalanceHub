@@ -13,6 +13,7 @@ use crate::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
+    collections::BTreeSet,
     env, fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -266,6 +267,22 @@ fn validated_instance_dir(id: &str) -> Result<PathBuf, String> {
     Ok(instances_dir().join(id))
 }
 
+/// Lists every launch record still on disk, without the public activity cap.
+/// The unified runtime uses the full set to retire sessions whose record was
+/// deleted while the App was not watching; truncating the list first would
+/// wrongly end launches that are still running.
+pub(crate) fn runtime_instance_ids() -> BTreeSet<String> {
+    let Ok(entries) = fs::read_dir(instances_dir()) else {
+        return BTreeSet::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|id| validated_instance_dir(id).is_ok())
+        .collect()
+}
+
 fn load_instances(include_exited: bool) -> Vec<TemporaryCliInstance> {
     load_matching_instances(include_exited, |_| true)
 }
@@ -414,9 +431,26 @@ fn merge_instance(
 }
 
 fn instances_dir() -> PathBuf {
-    env::temp_dir()
-        .join(RUNTIME_DIR_NAME)
-        .join(INSTANCES_DIR_NAME)
+    // 单元测试与正在运行的桌面 App 共用系统临时目录。测试创建的启动记录一旦
+    // 被 App 读到，就会出现在活动会话汇总里；按测试进程隔离，避免污染真实列表。
+    #[cfg(test)]
+    {
+        use std::sync::OnceLock;
+        static TEST_DIR: OnceLock<PathBuf> = OnceLock::new();
+        TEST_DIR
+            .get_or_init(|| {
+                env::temp_dir()
+                    .join(format!("{RUNTIME_DIR_NAME}-test-{}", std::process::id()))
+                    .join(INSTANCES_DIR_NAME)
+            })
+            .clone()
+    }
+    #[cfg(not(test))]
+    {
+        env::temp_dir()
+            .join(RUNTIME_DIR_NAME)
+            .join(INSTANCES_DIR_NAME)
+    }
 }
 
 #[cfg(unix)]

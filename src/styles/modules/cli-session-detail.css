@@ -158,6 +158,20 @@
 .session-reader-body.has-outline {
   grid-template-columns: 190px minmax(0, 1fr);
 }
+.session-reader-body.has-truncation {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.session-reader-truncated {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--surface-line);
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+  font-size: 12px;
+}
 .session-reader-outline {
   min-height: 0;
   overflow: auto;

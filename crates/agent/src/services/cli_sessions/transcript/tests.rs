@@ -3,6 +3,7 @@ use crate::services::agent_cli::contracts::{SessionSearchTerm, SessionTranscript
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::{Seek, SeekFrom, Write},
     path::Path,
     sync::{atomic::AtomicBool, Arc},
     time::{Duration, Instant},
@@ -336,4 +337,252 @@ fn an_exhausted_budget_returns_a_partial_transcript() {
         Transcript::from_sources("workspace", "session", &[source], &budget(1)).unwrap();
     assert!(!transcript.complete);
     assert!(transcript.messages.is_empty());
+}
+
+/// Windowed transcripts decode one byte range at a time. The transcript here
+/// is a small fixture with window metadata attached, so the cursor branches
+/// can be exercised without writing a multi-megabyte session.
+#[test]
+fn windowed_pages_open_at_the_newest_messages_and_cross_window_boundaries() {
+    let lines = (0..100)
+        .map(|index| {
+            json!({"op":"put", "id":format!("m{index}"), "content":format!("message {index}")})
+        })
+        .collect::<Vec<_>>();
+    let (_root, source) = fixture("window-pages", &lines);
+    let mut transcript =
+        Transcript::from_sources("workspace", "session", &[source], &budget(u64::MAX)).unwrap();
+    let content = transcript.revision.clone();
+
+    let newest = format!("{content}@10-500");
+    transcript.window = Some(SourceWindow {
+        start: 10,
+        end: 500,
+        file_bytes: 1000,
+    });
+    transcript.revision = newest.clone();
+    let page = transcript
+        .read_page(summary(), &page_request(), false, &budget(u64::MAX))
+        .unwrap();
+    // The page opens on the newest messages inside the window, not its start.
+    assert_eq!(page.page.start, 20);
+    assert_eq!(page.messages.len(), 80);
+    assert_eq!(
+        page.page.window,
+        Some(SessionReadWindow {
+            start: 10,
+            end: 500,
+            file_bytes: 1000,
+            has_earlier: true,
+            has_later: true,
+        })
+    );
+    assert!(page
+        .page
+        .previous_cursor
+        .as_deref()
+        .is_some_and(|cursor| cursor.starts_with(&format!("{newest}:"))));
+    assert_eq!(page.page.next_cursor, Some(format!("{newest}:later:500")));
+
+    // Walking back loads the previous window and lands on its last page.
+    transcript.window = Some(SourceWindow {
+        start: 0,
+        end: 10,
+        file_bytes: 1000,
+    });
+    transcript.revision = format!("{content}@0-10");
+    let mut request = page_request();
+    request.cursor = Some(format!("{newest}:earlier:10"));
+    let page = transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .unwrap();
+    assert_eq!(page.page.start, 20);
+    assert_eq!(page.messages.len(), 80);
+    assert_eq!(
+        page.page.next_cursor,
+        Some(format!("{content}@0-10:later:10"))
+    );
+
+    // Walking forward loads the next window and lands on its first page.
+    transcript.window = Some(SourceWindow {
+        start: 500,
+        end: 1000,
+        file_bytes: 1000,
+    });
+    transcript.revision = format!("{content}@500-1000");
+    request.cursor = Some(format!("{newest}:later:500"));
+    let page = transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .unwrap();
+    assert_eq!(page.page.start, 0);
+    assert_eq!(page.messages.len(), 80);
+    assert_eq!(
+        page.page.previous_cursor,
+        Some(format!("{content}@500-1000:earlier:500"))
+    );
+
+    // A bare revision keeps this window and applies a new search focus, so
+    // re-searching or cycling matches does not jump back to the newest window.
+    request.cursor = Some(format!("{content}@500-1000"));
+    request.query = "90".into();
+    request.match_position = Some(0);
+    let page = transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .unwrap();
+    assert_eq!(page.page.start, 82);
+    assert_eq!(page.page.window.unwrap().start, 500);
+    assert_eq!(page.messages[0].content, "message 82");
+    assert_eq!(
+        window_request_for_cursor(request.cursor.as_deref()).unwrap(),
+        stream::WindowRequest::Range {
+            start: 500,
+            end: 1000
+        }
+    );
+    request.query.clear();
+    request.match_position = None;
+
+    // "回到最新" jumps back to the end of the newest window.
+    request.cursor = Some(format!("{newest}:latest"));
+    let page = transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .unwrap();
+    assert_eq!(page.page.start, 20);
+
+    // A cursor for an adjacent window only works at that exact boundary.
+    request.cursor = Some(format!("{newest}:later:501"));
+    assert!(transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .is_err());
+    // A cursor from another content revision is rejected.
+    request.cursor = Some("stale@500-1000:latest".into());
+    assert!(transcript
+        .read_page(summary(), &request, false, &budget(u64::MAX))
+        .is_err());
+}
+
+#[test]
+fn oversized_single_source_jsonl_opens_only_the_latest_window() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("large.jsonl");
+    let mut file = fs::File::create(&path).unwrap();
+    file.write_all(b"{\"op\":\"put\",\"id\":\"head\",\"content\":\"head\"}\n")
+        .unwrap();
+    // Sparse padding plus a real trailing record: the reader must not decode
+    // the padding as messages, but still open a bounded window near the end.
+    file.set_len(WINDOWED_TRANSCRIPT_BYTES + 1024).unwrap();
+    file.seek(SeekFrom::End(0)).unwrap();
+    file.write_all(b"\n{\"op\":\"put\",\"id\":\"tail\",\"content\":\"tail\"}\n")
+        .unwrap();
+    drop(file);
+
+    let transcript = Transcript::from_sources_with_window(
+        "workspace",
+        "session",
+        &[source(&path)],
+        stream::WindowRequest::Latest,
+        &budget(u64::MAX),
+    )
+    .unwrap();
+    assert!(!transcript.complete);
+    assert!(!transcript.truncated);
+    let window = transcript.window.expect("large JSONL opens a window");
+    assert!(window.start > 0);
+    assert!(window.end <= window.file_bytes);
+    assert!(transcript.revision.contains('@'));
+    assert_eq!(
+        transcript
+            .messages
+            .iter()
+            .filter(|message| message.content == "tail")
+            .count(),
+        1
+    );
+    assert!(transcript
+        .messages
+        .iter()
+        .all(|message| message.content != "head"));
+    let tail_id = transcript.messages[0].public_id.clone();
+    assert!(transcript.has_message(&tail_id));
+    assert!(!transcript.has_message("missing"));
+
+    let page = transcript
+        .read_page(summary(), &page_request(), false, &budget(u64::MAX))
+        .unwrap();
+    assert_eq!(page.messages.len(), 1);
+    assert_eq!(page.page.total_messages, 1);
+    assert!(page.page.window.is_some());
+    assert!(
+        page.usage.partial,
+        "a window's usage total only covers its own slice"
+    );
+    assert_eq!(
+        page.page.previous_cursor,
+        Some(format!("{}:earlier:{}", transcript.revision, window.start))
+    );
+    assert_eq!(page.page.next_cursor, None);
+}
+
+#[test]
+fn window_requests_are_recovered_from_cursors_and_revisions() {
+    assert_eq!(
+        window_request_for_cursor(None).unwrap(),
+        stream::WindowRequest::Latest
+    );
+    assert_eq!(
+        window_request_for_cursor(Some("hash:latest")).unwrap(),
+        stream::WindowRequest::Latest
+    );
+    assert_eq!(
+        window_request_for_cursor(Some("hash@10-20:latest")).unwrap(),
+        stream::WindowRequest::Latest
+    );
+    assert_eq!(
+        window_request_for_cursor(Some("hash:earlier:42")).unwrap(),
+        stream::WindowRequest::Before(42)
+    );
+    assert_eq!(
+        window_request_for_cursor(Some("hash:later:42")).unwrap(),
+        stream::WindowRequest::After(42)
+    );
+    assert_eq!(
+        window_request_for_cursor(Some("hash@10-20:0:80")).unwrap(),
+        stream::WindowRequest::Range { start: 10, end: 20 }
+    );
+    assert_eq!(
+        window_request_for_cursor(Some("plain")).unwrap(),
+        stream::WindowRequest::Default
+    );
+    assert!(window_request_for_cursor(Some("hash:earlier:")).is_err());
+    assert!(window_request_for_cursor(Some("hash:latest:1")).is_err());
+    assert_eq!(
+        window_request_for_revision("hash@10-20").unwrap(),
+        stream::WindowRequest::Range { start: 10, end: 20 }
+    );
+    assert_eq!(
+        window_request_for_revision("plain").unwrap(),
+        stream::WindowRequest::Default
+    );
+    assert!(window_request_for_revision("hash@bad").is_err());
+    assert_eq!(
+        same_transcript_cursor_revision(Some("hash@10-20:0:80")),
+        Some("hash@10-20")
+    );
+    assert_eq!(
+        same_transcript_cursor_revision(Some("hash@10-20:80")),
+        Some("hash@10-20")
+    );
+    assert_eq!(
+        same_transcript_cursor_revision(Some("hash@10-20")),
+        Some("hash@10-20")
+    );
+    assert_eq!(
+        same_transcript_cursor_revision(Some("plain")),
+        Some("plain")
+    );
+    assert_eq!(
+        same_transcript_cursor_revision(Some("hash@10-20:earlier:10")),
+        None
+    );
+    assert_eq!(same_transcript_cursor_revision(None), None);
 }

@@ -64,6 +64,18 @@ pub struct SessionSearchHit {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionReadWindow {
+    /// First byte of the window, aligned to the next whole record.
+    pub start: u64,
+    /// End of the last decoded record in this window.
+    pub end: u64,
+    pub file_bytes: u64,
+    pub has_earlier: bool,
+    pub has_later: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionReadPage {
     pub revision: String,
     pub previous_cursor: Option<String>,
@@ -71,6 +83,10 @@ pub struct SessionReadPage {
     pub total_messages: usize,
     pub start: usize,
     pub indexing: bool,
+    /// 会话原文过大时只加载一个按需窗口，页面不包含窗口外的消息。
+    pub truncated: bool,
+    /// 当前页所属的字节窗口，仅大文件按需读取时存在。
+    pub window: Option<SessionReadWindow>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

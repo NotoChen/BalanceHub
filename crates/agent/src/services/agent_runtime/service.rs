@@ -171,9 +171,11 @@ impl AgentRuntimeService {
                 .unwrap_or_else(|| "Agent runtime repository 不可用".to_string())
         })?;
         let launch_snapshots = cli_runtime::runtime_instances();
+        let present_instance_ids = cli_runtime::runtime_instance_ids();
         let result = repository
             .refresh_with_launch_snapshots_outcome_at(
                 &launch_snapshots,
+                &present_instance_ids,
                 chrono::Utc::now().timestamp_millis(),
             )
             .map_err(|error| format!("刷新 Agent runtime projection 失败: {error}"));

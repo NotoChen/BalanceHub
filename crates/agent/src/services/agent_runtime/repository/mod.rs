@@ -164,12 +164,10 @@ impl AgentRuntimeRepository {
         &self,
         launch_snapshots: &[TemporaryCliInstance],
     ) -> Result<AgentRuntimeSnapshot, AgentRuntimeRepositoryError> {
-        Ok(self
-            .refresh_with_launch_snapshots_outcome_at(
-                launch_snapshots,
-                chrono::Utc::now().timestamp_millis(),
-            )?
-            .snapshot)
+        self.refresh_with_launch_snapshots_at(
+            launch_snapshots,
+            chrono::Utc::now().timestamp_millis(),
+        )
     }
 
     #[cfg(test)]
@@ -178,14 +176,23 @@ impl AgentRuntimeRepository {
         launch_snapshots: &[TemporaryCliInstance],
         observed_at: i64,
     ) -> Result<AgentRuntimeSnapshot, AgentRuntimeRepositoryError> {
+        let present = launch_snapshots
+            .iter()
+            .map(|instance| instance.id.clone())
+            .collect();
         Ok(self
-            .refresh_with_launch_snapshots_outcome_at(launch_snapshots, observed_at)?
+            .refresh_with_launch_snapshots_outcome_at(launch_snapshots, &present, observed_at)?
             .snapshot)
     }
 
+    /// `present_instance_ids` is the full set of launch records still on disk,
+    /// including ones missing from `launch_snapshots` because of the public
+    /// activity cap. A projected BalanceHub launch that no longer has a record
+    /// is ended here: the launcher deleted it, so no process can still own it.
     pub fn refresh_with_launch_snapshots_outcome_at(
         &self,
         launch_snapshots: &[TemporaryCliInstance],
+        present_instance_ids: &BTreeSet<String>,
         observed_at: i64,
     ) -> Result<AgentRuntimeRefreshOutcome, AgentRuntimeRepositoryError> {
         let _guard = self.lock.lock().unwrap_or_else(|error| error.into_inner());
@@ -217,6 +224,12 @@ impl AgentRuntimeRepository {
             }
         }
         changed |= append_external_timeout_events(&mut events, &mut event_ids, observed_at);
+        changed |= append_vanished_launch_events(
+            &mut events,
+            &mut event_ids,
+            present_instance_ids,
+            observed_at,
+        );
         if !changed {
             self.spool
                 .acknowledge(&batch)
@@ -372,6 +385,57 @@ fn enrichment_request_for(
             _ => RuntimeEnrichmentPriority::Normal,
         },
     })
+}
+
+/// Ends BalanceHub launches whose launch record no longer exists. Without this,
+/// a record deleted while the App was closed (OS temp cleanup, crash, or a test
+/// fixture) leaves the last observed state in the projection forever, and the
+/// session keeps counting as active.
+fn append_vanished_launch_events(
+    events: &mut Vec<AgentRuntimeEvent>,
+    event_ids: &mut BTreeSet<String>,
+    present_instance_ids: &BTreeSet<String>,
+    observed_at: i64,
+) -> bool {
+    let current = reduce_events(events);
+    let vanished_sessions = current
+        .sessions()
+        .filter(|session| {
+            session.origin == AgentRuntimeOrigin::BalancehubLaunch
+                && session.state != AgentRuntimeState::Ended
+                && session
+                    .balancehub_instance_id
+                    .as_deref()
+                    .is_some_and(|id| !present_instance_ids.contains(id))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut changed = false;
+    for session in vanished_sessions {
+        let Some(instance_id) = session.balancehub_instance_id else {
+            continue;
+        };
+        let last_observed = session.state_observed_at.unwrap_or_default();
+        changed |= append_unique_event(
+            events,
+            event_ids,
+            AgentRuntimeEvent {
+                // The last observation keeps the ID stable across refreshes
+                // while still allowing a later resurrected session to be
+                // retired again once its record is gone.
+                event_id: format!("launch-vanished:{instance_id}:{last_observed}"),
+                runtime_id: Some(session.runtime_id),
+                balancehub_instance_id: Some(instance_id),
+                agent_session_id: session.agent_session_id,
+                runtime_scope: session.runtime_scope,
+                origin: AgentRuntimeOrigin::BalancehubLaunch,
+                agent_kind: session.agent_kind,
+                observed_at,
+                kind: AgentRuntimeEventKind::LaunchExited { exit_code: None },
+            },
+        );
+    }
+    changed
 }
 
 fn append_external_timeout_events(
