@@ -147,6 +147,33 @@ pub(super) fn load(
                 AgentAssetCategory::Skill | AgentAssetCategory::Mcp | AgentAssetCategory::Extension
             ),
             AgentCliKind::Grok => false,
+            AgentCliKind::QwenCode
+            | AgentCliKind::OpenCode
+            | AgentCliKind::Pi
+            | AgentCliKind::PrimeAgent
+            | AgentCliKind::Crush
+            | AgentCliKind::Copilot
+            | AgentCliKind::Droid
+            | AgentCliKind::Qoder
+            | AgentCliKind::CodeBuddy
+            | AgentCliKind::OpenClaw
+            | AgentCliKind::Jcode
+            | AgentCliKind::MothX
+            | AgentCliKind::KimiCode
+            | AgentCliKind::StepCode
+            | AgentCliKind::DevEco
+            | AgentCliKind::MiMoCode
+            | AgentCliKind::AtomCode
+            | AgentCliKind::Cline
+            | AgentCliKind::Penguin
+            | AgentCliKind::Goose
+            | AgentCliKind::Hermes
+            | AgentCliKind::Dsh
+            | AgentCliKind::Omp
+            | AgentCliKind::Morph
+            | AgentCliKind::MiniMaxCode
+            | AgentCliKind::Raycast
+            | AgentCliKind::Omo => false,
         };
         let note = if managed {
             "由组织管理，按组织策略执行"

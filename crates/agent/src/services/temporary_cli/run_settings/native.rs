@@ -31,11 +31,38 @@ pub(super) fn apply(
                 pair(&mut plan.args, "--rules", &settings.instructions);
             }
         }
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => {}
     }
     for directory in &settings.additional_directories {
         pair(
             &mut plan.args,
-            if kind == AgentCliKind::Gemini {
+            if kind == AgentCliKind::Gemini || kind == AgentCliKind::QwenCode {
                 "--include-directories"
             } else {
                 "--add-dir"
@@ -78,8 +105,10 @@ pub(super) fn append_prompt(
         settings.initial_prompt.trim().to_string()
     };
     if !prompt.is_empty() {
-        if kind == AgentCliKind::Gemini {
+        if kind == AgentCliKind::Gemini || kind == AgentCliKind::QwenCode {
             pair(&mut plan.args, "--prompt-interactive", &prompt);
+        } else if kind == AgentCliKind::OpenCode {
+            pair(&mut plan.args, "--prompt", &prompt);
         } else {
             plan.args.extend(["--".into(), prompt]);
         }

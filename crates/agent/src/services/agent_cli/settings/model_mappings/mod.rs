@@ -29,6 +29,33 @@ pub(super) fn field(
         AgentCliKind::Gemini => ("模型别名", "modelConfigs.customAliases", "为模型添加可复用的别名。目标填写实际模型 ID；继承配置可选择已有别名，保留其生成参数。主模型中选择该别名后生效。"),
         AgentCliKind::Grok => ("模型别名", "model.<别名>.model / name", "别名对应 Grok 自定义模型条目，实际模型与显示名称分别保存。连接地址、认证及生成参数继续使用条目的原生设置；新别名使用 Grok 默认连接。"),
         AgentCliKind::Codex => return None,
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => return None,
     };
     let mut field = BoundSetting::new("modelMappings", "model", label, key, Binding::ModelMappings)
         .describe(description);

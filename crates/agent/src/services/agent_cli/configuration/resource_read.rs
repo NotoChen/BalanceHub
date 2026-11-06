@@ -68,6 +68,7 @@ impl ParsedResource {
         let format = match path.extension().and_then(|extension| extension.to_str()) {
             Some("md" | "markdown") => AgentConfigurationFormat::Markdown,
             Some("toml") => AgentConfigurationFormat::Toml,
+            Some("yaml" | "yml") => AgentConfigurationFormat::Yaml,
             Some("jsonc") => AgentConfigurationFormat::Jsonc,
             _ => {
                 if let Ok(root) = native_support::parse(text, AgentConfigurationFormat::Json) {

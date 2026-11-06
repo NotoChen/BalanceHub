@@ -88,6 +88,35 @@ pub(crate) fn read(
         AgentCliKind::ClaudeCode => claude::query(context, &proxy),
         AgentCliKind::Gemini => gemini::query(context, &proxy),
         AgentCliKind::Grok => grok::query(context, &proxy),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => {
+            Err("当前 Agent 未提供可查询的模型目录，可使用已有配置或输入模型 ID".into())
+        }
     };
     let catalog = match queried {
         Ok(mut catalog) => {

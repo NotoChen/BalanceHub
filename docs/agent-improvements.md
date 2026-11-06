@@ -215,3 +215,5 @@ Magpie 0.1.2115 的 `magpie agents` 列出 50 余个 CLI，大部分只做「配
 - 前端的 Agent 名称、图标、能力开关和默认模型展示。
 
 本轮没有在未安装真实 CLI、没有原生日志样本的情况下新增 Agent。下一步候选按 Magpie 列表中的常见 CLI 排序：OpenCode、Qwen Code、Cursor CLI、Copilot CLI。接入前应先用真实版本确认配置路径、会话存储格式和继续命令；只做配置与模型切换的浅层支持属于另一个产品决策，不应与现有深度适配混在一个入口里。
+
+后续已新增 Qwen Code、OpenCode、Pi、Crush、Copilot CLI、Droid、Qoder、CodeBuddy、OpenClaw、jcode、MothX、Kimi Code、StepCode、DevEco Code、MiMo Code、AtomCode、Cline、Prime Agent、PenguinHarness、Goose、Hermes Agent、dsh、omp、Mister Morph、MiniMax Code、Raycast 与 OmO 的接入级支持。Qwen Code、OpenCode 和 Pi 提供 CLI 检测、原生配置编辑和临时启动时的模型选择；Crush、Copilot CLI、Droid、Qoder、CodeBuddy、OpenClaw、jcode、MothX、Kimi Code、StepCode、DevEco Code、MiMo Code、AtomCode、Cline、Prime Agent、PenguinHarness、Goose、Hermes Agent、dsh、omp、Mister Morph、MiniMax Code、Raycast 与 OmO 只做原生配置接入，由中转站卡片写入模型与凭据，不提供临时启动，也不复制会话读取、资产库与测活实现。各 Agent 均按上游安装包与官方文档核对配置路径、字段和模型选择规则，不把接入级能力混入深度适配 Agent 的会话或资产入口。YAML 主配置通过保留注释、顺序与缩进的文档编辑器读写，Goose 的 sidecar provider、dsh 的 profile patch 列表与 omp 的双文件结构按各自原生结构分别处理。Claude Desktop 仍是多文件桌面 3p 配置而非 CLI，Hanako 的加密凭据与实时 API 依赖也超出当前接入边界；其余候选因只支持账号登录、仅提供 Anthropic 协议或需要多文件暂存等原因暂未纳入。

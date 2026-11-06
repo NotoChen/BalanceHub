@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "agent-documentation",
-  "description": "允许主窗口使用默认浏览器打开四个 Agent 的官方配置文档和安装说明",
+  "description": "允许主窗口使用默认浏览器打开各 Agent 的官方配置文档和安装说明",
   "windows": [
     "main"
   ],
@@ -32,6 +32,153 @@
         },
         {
           "url": "https://docs.x.ai/build/overview#install"
+        },
+        {
+          "url": "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/"
+        },
+        {
+          "url": "https://qwenlm.github.io/qwen-code-docs/en/users/quickstart/"
+        },
+        {
+          "url": "https://opencode.ai/docs/config/"
+        },
+        {
+          "url": "https://opencode.ai/docs/"
+        },
+        {
+          "url": "https://pi.dev/docs/latest/configuration"
+        },
+        {
+          "url": "https://pi.dev/docs/latest/quickstart"
+        },
+        {
+          "url": "https://github.com/charmbracelet/crush#configuration"
+        },
+        {
+          "url": "https://github.com/charmbracelet/crush#installation"
+        },
+        {
+          "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models"
+        },
+        {
+          "url": "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli"
+        },
+        {
+          "url": "https://docs.factory.com/docs/model-independence/byok"
+        },
+        {
+          "url": "https://docs.factory.com/docs/droid-cli/quickstart"
+        },
+        {
+          "url": "https://docs.qoder.com/cli/settings-reference"
+        },
+        {
+          "url": "https://docs.qoder.com/cli/quickstart"
+        },
+        {
+          "url": "https://www.codebuddy.cn/docs/cli/models"
+        },
+        {
+          "url": "https://www.codebuddy.cn/docs/cli/quickstart"
+        },
+        {
+          "url": "https://docs.openclaw.ai/gateway/configuration"
+        },
+        {
+          "url": "https://docs.openclaw.ai/install"
+        },
+        {
+          "url": "https://jcode.sh/docs#providers"
+        },
+        {
+          "url": "https://github.com/1jehuang/jcode#installation"
+        },
+        {
+          "url": "https://github.com/oschina/mothx/blob/main/docs/en/configuration.md"
+        },
+        {
+          "url": "https://github.com/oschina/mothx/blob/main/docs/en/getting-started.md"
+        },
+        {
+          "url": "https://moonshotai.github.io/kimi-code/en/configuration/config-files.html"
+        },
+        {
+          "url": "https://moonshotai.github.io/kimi-code/en/"
+        },
+        {
+          "url": "https://platform.stepfun.com/docs/zh/step-code/quickstart"
+        },
+        {
+          "url": "https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/ide-deveco-code"
+        },
+        {
+          "url": "https://developer.huawei.com/consumer/cn/doc/ide-deveco-code-install"
+        },
+        {
+          "url": "https://mimo.mi.com/docs/zh-CN/tokenplan/integration/mimo-code"
+        },
+        {
+          "url": "https://atomcode.atomgit.com/docs/en/configuration.html"
+        },
+        {
+          "url": "https://atomcode.atomgit.com/docs/en/getting-started.html"
+        },
+        {
+          "url": "https://docs.cline.bot/provider-config/openai-compatible"
+        },
+        {
+          "url": "https://docs.cline.bot/getting-started/installing-cline"
+        },
+        {
+          "url": "https://github.com/PrimeIntellect-ai/prime-agent"
+        },
+        {
+          "url": "https://github.com/PrimeIntellect-ai/prime-agent#install"
+        },
+        {
+          "url": "https://github.com/Prism-Shadow/penguin-harness"
+        },
+        {
+          "url": "https://github.com/Prism-Shadow/penguin-harness#install"
+        },
+        {
+          "url": "https://goose-docs.ai/docs/guides/config-files"
+        },
+        {
+          "url": "https://goose-docs.ai/docs/getting-started/installation"
+        },
+        {
+          "url": "https://hermes-agent.nousresearch.com/docs/user-guide/configuration"
+        },
+        {
+          "url": "https://hermes-agent.nousresearch.com/docs/getting-started/installation"
+        },
+        {
+          "url": "https://www.dsh.so/news/dsh-quick-start"
+        },
+        {
+          "url": "https://www.dsh.so/"
+        },
+        {
+          "url": "https://omp.sh/docs"
+        },
+        {
+          "url": "https://omp.sh/"
+        },
+        {
+          "url": "https://github.com/quailyquaily/mistermorph/blob/master/docs/configuration.md"
+        },
+        {
+          "url": "https://github.com/quailyquaily/mistermorph"
+        },
+        {
+          "url": "https://agent.minimax.io/docs/cli/quick-start"
+        },
+        {
+          "url": "https://manual.raycast.com/ai"
+        },
+        {
+          "url": "https://ohmyopencode.org/docs"
         }
       ]
     }

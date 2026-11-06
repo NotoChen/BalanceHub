@@ -6,6 +6,7 @@ pub(crate) mod file_writer;
 pub(crate) mod json_source;
 pub(crate) mod native_history;
 pub(crate) mod text_document;
+pub(crate) mod yaml_source;
 
 pub(crate) use env_source::{env_value, remove_env_keys, rewrite_env_values};
 pub(crate) use json_source::{
@@ -22,6 +23,7 @@ use crate::{
     services::{agent_cli, oauth_accounts::native},
     util::read_text_file_limited,
 };
+use serde_json::{Map, Value as JsonValue};
 use std::{fs, path::Path, time::SystemTime};
 
 /// What a switch writes into the agent's own configuration: a relay address
@@ -275,6 +277,72 @@ fn snapshot(
     }
 }
 
+/// The name BalanceHub writes into an agent's own provider entry.
+pub(crate) fn provider_display_name(name: &str) -> String {
+    let name = name.trim();
+    if name.is_empty() {
+        "BalanceHub".into()
+    } else {
+        format!("BalanceHub · {name}")
+    }
+}
+
+/// A secret as the agent's config stores it: no surrounding whitespace and no
+/// control characters that could break the surrounding document.
+pub(crate) fn plain_secret(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty() && !value.chars().any(char::is_control)).then(|| value.to_string())
+}
+
+/// Merge `edit` into a JSON/JSONC document. A new document is pretty-printed;
+/// an existing one keeps its layout and comments. A document whose root is not
+/// an object is refused rather than replaced.
+pub(crate) fn merge_json_config(
+    source: &str,
+    context: &str,
+    edit: impl FnOnce(&mut Map<String, JsonValue>) -> Result<(), String>,
+) -> Result<String, String> {
+    let is_new = source.trim().is_empty();
+    let mut root = if is_new {
+        Map::new()
+    } else {
+        parse_jsonc_document(source)?
+            .as_object()
+            .cloned()
+            .ok_or_else(|| format!("{context}根节点不是对象"))?
+    };
+    edit(&mut root)?;
+    let desired = JsonValue::Object(root);
+    if is_new {
+        serde_json::to_string_pretty(&desired).map_err(|err| format!("生成{context}失败: {err}"))
+    } else {
+        rewrite_json_document(source, &desired, true)
+            .map_err(|err| format!("生成{context}失败: {err}"))
+    }
+}
+
+pub(crate) fn json_object_member<'a>(
+    root: &'a mut Map<String, JsonValue>,
+    key: &str,
+    context: &str,
+) -> Result<&'a mut Map<String, JsonValue>, String> {
+    root.entry(key.to_string())
+        .or_insert_with(|| JsonValue::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| format!("{context}中的 {key} 必须是对象"))
+}
+
+pub(crate) fn json_array_member<'a>(
+    root: &'a mut Map<String, JsonValue>,
+    key: &str,
+    context: &str,
+) -> Result<&'a mut Vec<JsonValue>, String> {
+    root.entry(key.to_string())
+        .or_insert_with(|| JsonValue::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| format!("{context}中的 {key} 必须是数组"))
+}
+
 pub(crate) fn normalize_endpoint(value: &str) -> Option<String> {
     let mut url = reqwest::Url::parse(value.trim()).ok()?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -287,6 +355,17 @@ pub(crate) fn normalize_endpoint(value: &str) -> Option<String> {
     Some(url.as_str().trim_end_matches('/').to_string())
 }
 
+/// OpenAI-compatible CLIs expect the API root, so a relay address without
+/// `/v1` receives it once. An address that already carries `/v1` is unchanged.
+pub(crate) fn openai_base_url(base_url: &str) -> String {
+    let normalized = base_url.trim().trim_end_matches('/');
+    if normalized.is_empty() || normalized.ends_with("/v1") {
+        normalized.to_string()
+    } else {
+        format!("{normalized}/v1")
+    }
+}
+
 pub(crate) fn config_error(cli_kind: AgentCliKind, message: &str) -> CliConfigSnapshot {
     CliConfigSnapshot {
         cli_kind,
@@ -296,6 +375,21 @@ pub(crate) fn config_error(cli_kind: AgentCliKind, message: &str) -> CliConfigSn
         modified_at: None,
         error_message: Some(message.to_string()),
     }
+}
+
+/// Returns the nested TOML table `key`, creating an empty table when absent.
+pub(crate) fn toml_table_member<'a>(
+    parent: &'a mut dyn toml_edit::TableLike,
+    key: &str,
+    context: &str,
+) -> Result<&'a mut dyn toml_edit::TableLike, String> {
+    if !parent.contains_key(key) {
+        parent.insert(key, toml_edit::Item::Table(toml_edit::Table::new()));
+    }
+    parent
+        .get_mut(key)
+        .and_then(toml_edit::Item::as_table_like_mut)
+        .ok_or_else(|| format!("{context}中的 {key} 必须是表"))
 }
 
 fn file_signature(path: &Path) -> Result<Option<FileSignature>, String> {

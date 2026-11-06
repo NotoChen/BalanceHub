@@ -50,7 +50,9 @@
 :root.theme-dark .brand-icon-codex,
 :root.theme-dark .brand-icon-opencode,
 :root.theme-dark .brand-icon-grokbuild,
-:root.theme-dark .agent-cli-icon-grok {
+:root.theme-dark .agent-cli-icon-grok,
+:root.theme-dark .agent-cli-icon-cline,
+:root.theme-dark .agent-cli-icon-primeAgent {
   filter: invert(1);
 }
 

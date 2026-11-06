@@ -61,5 +61,32 @@ pub fn service(agent_kind: AgentCliKind) -> Result<ManagedHookService, String> {
         AgentCliKind::Grok => Ok(ManagedHookService::Generic(GenericHookService::from_host(
             GenericAgent::Grok,
         )?)),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => Err("当前 Agent 未提供会话 Hook 接入能力".into()),
     }
 }

@@ -60,6 +60,35 @@ fn assert_native_files(
             );
         }
         AgentCliKind::ClaudeCode | AgentCliKind::Gemini => (),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => {
+            unreachable!("integration-tier agents have no native Hook fixture")
+        }
     }
     for marker in execution_markers {
         assert!(
@@ -188,6 +217,35 @@ fn file_only_lifecycle(kind: AgentCliKind, adopt_existing: bool) {
         AgentCliKind::Codex => (".codex", "codexEvent", "hooks.json"),
         AgentCliKind::Gemini => (".gemini", "geminiEvent", "settings.json"),
         AgentCliKind::Grok => (".grok", "grokEvent", "hooks/hooks.json"),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => {
+            unreachable!("integration-tier agents have no native Hook fixture")
+        }
     };
     let event = fixture[event_key].as_str().unwrap();
     let matcher = if kind == AgentCliKind::Codex {
@@ -343,6 +401,35 @@ fn file_only_lifecycle(kind: AgentCliKind, adopt_existing: bool) {
             AgentCliKind::Grok => expected
                 .grok_policy
                 .push_str("global/hooks:pre_tool_use[1].hooks[0]\n"),
+            AgentCliKind::QwenCode
+            | AgentCliKind::OpenCode
+            | AgentCliKind::Pi
+            | AgentCliKind::PrimeAgent
+            | AgentCliKind::Crush
+            | AgentCliKind::Copilot
+            | AgentCliKind::Droid
+            | AgentCliKind::Qoder
+            | AgentCliKind::CodeBuddy
+            | AgentCliKind::OpenClaw
+            | AgentCliKind::Jcode
+            | AgentCliKind::MothX
+            | AgentCliKind::KimiCode
+            | AgentCliKind::StepCode
+            | AgentCliKind::DevEco
+            | AgentCliKind::MiMoCode
+            | AgentCliKind::AtomCode
+            | AgentCliKind::Cline
+            | AgentCliKind::Penguin
+            | AgentCliKind::Goose
+            | AgentCliKind::Hermes
+            | AgentCliKind::Dsh
+            | AgentCliKind::Omp
+            | AgentCliKind::Morph
+            | AgentCliKind::MiniMaxCode
+            | AgentCliKind::Raycast
+            | AgentCliKind::Omo => {
+                unreachable!("integration-tier agents have no native Hook fixture")
+            }
         }
         let suspended = kind == AgentCliKind::ClaudeCode;
         assert_native_files(
@@ -393,6 +480,35 @@ fn file_only_lifecycle(kind: AgentCliKind, adopt_existing: bool) {
                 expected.document["hooksConfig"]["disabled"] = json!(["unrelated-user-hook"])
             }
             AgentCliKind::Grok => expected.grok_policy = GROK_POLICY.to_owned(),
+            AgentCliKind::QwenCode
+            | AgentCliKind::OpenCode
+            | AgentCliKind::Pi
+            | AgentCliKind::PrimeAgent
+            | AgentCliKind::Crush
+            | AgentCliKind::Copilot
+            | AgentCliKind::Droid
+            | AgentCliKind::Qoder
+            | AgentCliKind::CodeBuddy
+            | AgentCliKind::OpenClaw
+            | AgentCliKind::Jcode
+            | AgentCliKind::MothX
+            | AgentCliKind::KimiCode
+            | AgentCliKind::StepCode
+            | AgentCliKind::DevEco
+            | AgentCliKind::MiMoCode
+            | AgentCliKind::AtomCode
+            | AgentCliKind::Cline
+            | AgentCliKind::Penguin
+            | AgentCliKind::Goose
+            | AgentCliKind::Hermes
+            | AgentCliKind::Dsh
+            | AgentCliKind::Omp
+            | AgentCliKind::Morph
+            | AgentCliKind::MiniMaxCode
+            | AgentCliKind::Raycast
+            | AgentCliKind::Omo => {
+                unreachable!("integration-tier agents have no native Hook fixture")
+            }
         }
         assert_native_files(
             &inspector,

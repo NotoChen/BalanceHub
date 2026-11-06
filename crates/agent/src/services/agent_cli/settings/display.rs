@@ -93,6 +93,114 @@ pub(super) fn default_model(snapshot: &NativeSnapshot) -> AgentSettingValueSumma
                 "Grok 默认模型",
                 "未设置 models.default 或 GROK_DEFAULT_MODEL。当前未取得 Grok 登录账号的具体默认模型 ID。",
             ),
+            AgentCliKind::QwenCode => (
+                "Qwen Code 默认模型",
+                "未设置 model.name 或 OPENAI_MODEL。具体模型由 Qwen Code 的认证方式和原生设置确定；当前尚未取得确切模型 ID。",
+            ),
+            AgentCliKind::OpenCode => (
+                "OpenCode 默认模型",
+                "未设置 model。OpenCode 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Pi => (
+                "Pi 默认模型",
+                "未设置 defaultModel。Pi 会按原生配置和可用模型选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::PrimeAgent => (
+                "Prime Agent 默认模型",
+                "未设置 defaultModel。Prime Agent 会按原生配置和可用模型选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Crush => (
+                "Crush 默认模型",
+                "未设置 models.large。Crush 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Copilot => (
+                "Copilot CLI 默认模型",
+                "未设置 model。Copilot CLI 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Droid => (
+                "Droid 默认模型",
+                "未设置 sessionDefaultSettings.model。Droid 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Qoder => (
+                "Qoder 默认模型",
+                "未设置 model.name。Qoder 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::CodeBuddy => (
+                "CodeBuddy 默认模型",
+                "未设置 model。CodeBuddy 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::OpenClaw => (
+                "OpenClaw 默认模型",
+                "未设置 agents.defaults.model。OpenClaw 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Jcode => (
+                "jcode 默认模型",
+                "未设置 provider.default_model。jcode 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::MothX => (
+                "MothX 默认模型",
+                "未设置 defaultModel。MothX 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::KimiCode => (
+                "Kimi Code 默认模型",
+                "未设置 default_model。Kimi Code 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::StepCode => (
+                "StepCode 默认模型",
+                "未设置 defaultModel。StepCode 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::DevEco => (
+                "DevEco Code 默认模型",
+                "未设置 model。DevEco Code 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::MiMoCode => (
+                "MiMo Code 默认模型",
+                "未设置 model。MiMo Code 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::AtomCode => (
+                "AtomCode 默认模型",
+                "未设置 default_model。AtomCode 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Cline => (
+                "Cline 默认模型",
+                "未设置 providers.openai-compatible.settings.model。Cline 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Penguin => (
+                "PenguinHarness 默认模型",
+                "未设置 default_model.model_id。PenguinHarness 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Goose => (
+                "Goose 默认模型",
+                "未设置 providers.balancehub.model 或 GOOSE_MODEL。Goose 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Hermes => (
+                "Hermes Agent 默认模型",
+                "未设置 model.default。Hermes Agent 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Dsh => (
+                "dsh 默认模型",
+                "未设置 agent-default-model.model。dsh 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Omp => (
+                "omp 默认模型",
+                "未设置 modelRoles.default。omp 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Morph => (
+                "Mister Morph 默认模型",
+                "未设置 llm.model。Mister Morph 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::MiniMaxCode => (
+                "MiniMax Code 默认模型",
+                "未设置 defaultModel。MiniMax Code 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
+            AgentCliKind::Raycast => (
+                "Raycast 默认模型",
+                "Raycast 在应用内选择模型；providers.yaml 只提供连接与模型目录，当前没有可读取的默认模型字段。",
+            ),
+            AgentCliKind::Omo => (
+                "OmO 默认模型",
+                "未设置 defaultModel。OmO 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
         };
         AgentSettingValueSummary {
             value: None,

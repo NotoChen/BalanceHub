@@ -41,6 +41,41 @@ pub(crate) fn supports_form(kind: AgentCliKind, spec: &AgentConfigurationSourceS
             "settings" | "workspace-settings" | "system-defaults" | "system-settings"
         ),
         AgentCliKind::Grok => matches!(role, "config" | "workspace-config"),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Omo => {
+            matches!(role, "settings")
+        }
+        AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::MothX
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode => matches!(role, "settings"),
+        AgentCliKind::Cline => matches!(role, "providers"),
+        // Crush's active pick lives in its data file and OpenClaw accepts
+        // either a string or an object there, so structured editing is not
+        // offered; both files remain editable as raw documents. jcode, Kimi
+        // Code, StepCode, AtomCode and PenguinHarness keep their TOML
+        // selection in nested structures or beside a second model file and are
+        // edited raw as well.
+        AgentCliKind::Crush
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast => false,
     }
 }
 
@@ -134,16 +169,51 @@ fn bound_fields(
         true,
         None,
     );
+    let model_description = if snapshot.kind == AgentCliKind::OpenCode {
+        "OpenCode 的默认模型保存为 provider/model；修改前请确认 Provider 已在原生配置中定义。模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::Pi {
+        "Pi 的默认模型保存为 defaultModel，并与 defaultProvider 一起生效；Provider 与模型定义来自 models.json。修改前请确认所选模型属于当前 Provider，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::PrimeAgent {
+        "Prime Agent 沿用 Pi 的字段：默认模型保存为 defaultModel，并与 defaultProvider 一起生效；Provider 与模型定义来自 models.json。修改前请确认所选模型属于当前 Provider，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::Copilot {
+        "Copilot CLI 的默认模型保存为 balancehub/<模型 ID>，Provider 与模型定义来自 providers.json。修改前请确认 balancehub Provider 仍存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::Droid {
+        "Droid 的默认模型保存在 sessionDefaultSettings.model，自定义模型条目定义在 customModels。修改前请确认所选条目仍指向 BalanceHub Provider，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::Qoder {
+        "Qoder 的默认模型保存为 balancehub/<模型 ID>，Provider 与模型定义来自 providers.balancehub。修改前请确认该 Provider 仍存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::CodeBuddy {
+        "CodeBuddy 的默认模型保存在 settings.json 的 model，模型与端点来自 models.json。修改前请确认所选模型仍在列表中，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::Jcode {
+        "jcode 的默认模型保存在 config.toml 的 provider.default_model，Provider 与模型条目定义在 providers.balancehub。修改前请确认所选模型仍在该 Provider 下，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::MothX {
+        "MothX 的默认模型保存在 settings.json 的 defaultModel，与 defaultProvider 一起生效；模型条目定义在 providers.balancehub.models。修改前请确认所选模型仍在该 Provider 下，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::KimiCode {
+        "Kimi Code 的默认模型保存在 config.toml 的 default_model，对应 models.\"balancehub/<模型 ID>\" 表；该表再通过 provider = \"balancehub\" 指向 providers.balancehub。修改前请确认模型键与 Provider 表仍然存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::StepCode {
+        "StepCode 的默认模型由 config.toml 的 defaultProvider 与 defaultModel 共同决定，模型与端点定义在 models.json 的 providers.balancehub。修改前请确认所选模型仍在该 Provider 下，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::DevEco {
+        "DevEco Code 的默认模型保存为 balancehub/<模型 ID>，Provider 与模型定义来自 deveco.json、deveco.jsonc 或 config.json 中的 provider.balancehub。修改前请确认该 Provider 仍存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::MiMoCode {
+        "MiMo Code 的默认模型保存为 balancehub/<模型 ID>，Provider 与模型定义来自 mimocode.json、mimocode.jsonc 或 config.json 中的 provider.balancehub。修改前请确认该 Provider 仍存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::AtomCode {
+        "AtomCode 的默认模型由 config.toml 的 default_model 与 default_provider 共同决定，模型条目 models.\"balancehub/<模型 ID>\" 通过 account 指向 provider_accounts.balancehub。修改前请确认模型键与账户表仍然存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::Cline {
+        "Cline 的默认模型保存在 settings/providers.json 的 providers.openai-compatible.settings.model，模型列表与端点定义在 settings/models.json。修改前请确认 openai-compatible Provider 仍存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else if snapshot.kind == AgentCliKind::Penguin {
+        "PenguinHarness 的默认模型保存在 .project_config.toml 的 default_model.provider 与 default_model.model_id，模型条目需同时登记在 [[models]] 中，端点与 Key 来自 providers.balancehub。修改前请确认模型条目与 Provider 表仍然存在，模型是否可用仍由 Provider 配置和服务端决定。"
+    } else {
+        "优先列出原生配置和本机模型目录中的模型；也可以输入网关提供的模型 ID。模型是否可用仍由当前账号、服务端与 Agent 管理规则决定。"
+    };
     let mut model_field = BoundSetting::new(
-            "model",
-            "model",
-            "默认模型",
-            model_pointer(snapshot.kind),
-            Binding::Readonly,
-        )
-        .custom()
-        .describe("优先列出原生配置和本机模型目录中的模型；也可以输入网关提供的模型 ID。模型是否可用仍由当前账号、服务端与 Agent 管理规则决定。")
-        .current(model_observed(snapshot), "未设置");
+        "model",
+        "model",
+        "默认模型",
+        model_pointer(snapshot.kind),
+        Binding::Readonly,
+    )
+    .custom()
+    .describe(model_description)
+    .current(model_observed(snapshot), "未设置");
     display::set_summary(&mut model_field.ui, display::default_model(snapshot));
     fields.insert(0, model_field);
     bindings::additional_fields(snapshot, &mut fields);
@@ -293,6 +363,9 @@ pub(crate) fn render_form(
         if let Some(value) = value {
             if value.trim().is_empty() || value.chars().any(char::is_control) || value.len() > 512 {
                 return Err("请输入有效的模型名称，或移除此项设置。".into());
+            }
+            if source.source.agent_kind == AgentCliKind::OpenCode && !value.trim().contains('/') {
+                return Err("OpenCode 默认模型需要使用 provider/model 格式".into());
             }
         }
         storage.write(&mut root, "", value.as_deref(), &context.draft)?;

@@ -205,6 +205,7 @@ pub(super) fn read_context(
         };
         let format = match spec.format {
             AgentConfigurationFormat::Toml => config_document::ConfigDocumentFormat::Toml,
+            AgentConfigurationFormat::Yaml => config_document::ConfigDocumentFormat::Yaml,
             AgentConfigurationFormat::Jsonc => config_document::ConfigDocumentFormat::Jsonc,
             _ => config_document::ConfigDocumentFormat::Json,
         };

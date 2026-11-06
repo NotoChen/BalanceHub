@@ -11,11 +11,14 @@ pub(crate) mod configuration;
 pub(crate) mod contracts;
 mod discovery;
 pub(crate) mod environment;
+pub(crate) mod integration;
 pub(crate) mod lifecycle;
 mod liveness_support;
 pub(crate) mod maintenance;
 pub(crate) mod mcp_check;
+mod opencode_family;
 pub(crate) mod overview;
+mod pi_family;
 pub(crate) mod settings;
 
 use crate::models::{
@@ -393,7 +396,7 @@ mod tests {
                 capabilities.session_search,
                 registered_definition
                     .sessions
-                    .is_some_and(|adapter| adapter.supports_detail())
+                    .is_some_and(|adapter| adapter.supports_search())
             );
             assert_eq!(
                 capabilities.session_detail,
@@ -429,9 +432,23 @@ mod tests {
                 .capabilities()
                 .session_name
         );
-        assert!(definitions()
-            .iter()
-            .all(|definition| definition.capabilities().temporary_launch));
+        // Launch-capable Agents publish a temporary launch adapter; the
+        // configuration-only tier deliberately leaves it empty.
+        assert!(
+            definition(AgentCliKind::OpenCode)
+                .capabilities()
+                .temporary_launch
+        );
+        assert!(
+            !definition(AgentCliKind::Droid)
+                .capabilities()
+                .temporary_launch
+        );
+        assert!(
+            !definition(AgentCliKind::Jcode)
+                .capabilities()
+                .temporary_launch
+        );
         assert!(
             definition(AgentCliKind::Gemini)
                 .capabilities()

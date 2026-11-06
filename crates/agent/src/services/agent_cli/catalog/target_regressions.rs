@@ -320,7 +320,7 @@ fn grok_workspace_skills_apply_without_folder_trust_while_other_targets_remain_g
         discover_installations: false,
     });
     let snapshot = inspector.inspect().unwrap();
-    assert_eq!(snapshot.inventory.contexts.len(), 4);
+    assert_eq!(snapshot.inventory.contexts.len(), AgentCliKind::ALL.len());
     assert!(snapshot
         .inventory
         .contexts

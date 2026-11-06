@@ -165,6 +165,33 @@ fn fixture_contexts(
         AgentCliKind::Codex => ".codex",
         AgentCliKind::Gemini => ".gemini",
         AgentCliKind::Grok => ".grok",
+        AgentCliKind::QwenCode => ".qwen",
+        AgentCliKind::OpenCode => ".config/opencode",
+        AgentCliKind::Pi => ".pi/agent",
+        AgentCliKind::Crush => ".config/crush",
+        AgentCliKind::Copilot => ".copilot",
+        AgentCliKind::Droid => ".factory",
+        AgentCliKind::Qoder => ".qoder",
+        AgentCliKind::CodeBuddy => ".codebuddy",
+        AgentCliKind::OpenClaw => ".openclaw",
+        AgentCliKind::Jcode => ".jcode",
+        AgentCliKind::MothX => ".mothx",
+        AgentCliKind::KimiCode => ".kimi-code",
+        AgentCliKind::StepCode => ".stepcode",
+        AgentCliKind::DevEco => ".config/deveco",
+        AgentCliKind::MiMoCode => ".config/mimocode",
+        AgentCliKind::AtomCode => ".atomcode",
+        AgentCliKind::Cline => ".cline/data",
+        AgentCliKind::PrimeAgent => ".prime/agent",
+        AgentCliKind::Penguin => ".penguin/data/default_project",
+        AgentCliKind::Goose => ".config/goose",
+        AgentCliKind::Hermes => ".hermes",
+        AgentCliKind::Dsh => ".dsh",
+        AgentCliKind::Omp => ".omp/agent",
+        AgentCliKind::Morph => ".morph",
+        AgentCliKind::MiniMaxCode => ".minimax",
+        AgentCliKind::Raycast => ".config/raycast/ai",
+        AgentCliKind::Omo => ".omo/agent",
     };
     for context in &mut contexts {
         // Host CLI profile overrides must never redirect fixture discovery.
@@ -205,6 +232,35 @@ fn hook_file(kind: AgentCliKind) -> &'static str {
         AgentCliKind::ClaudeCode => ".claude/settings.json",
         AgentCliKind::Gemini => ".gemini/settings.json",
         AgentCliKind::Grok => ".grok/hooks/configured.json",
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => {
+            unreachable!("integration-tier agents have no native Hook fixture")
+        }
     }
 }
 
@@ -649,6 +705,35 @@ fn fixture_plugin(
         AgentCliKind::Codex => ".codex/plugins/cache/local/fixture/1.0.0/.codex-plugin/plugin.json",
         AgentCliKind::Grok => ".grok/plugins/fixture/plugin.json",
         AgentCliKind::Gemini => unreachable!("Gemini extension Hook files have a native parser"),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => {
+            unreachable!("integration-tier agents have no native Hook fixture")
+        }
     };
     let path = fixture.write(relative, serde_json::to_vec(&manifest).unwrap());
     match kind {
@@ -666,6 +751,35 @@ fn fixture_plugin(
         }
         AgentCliKind::Grok => {}
         AgentCliKind::Gemini => unreachable!(),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => {
+            unreachable!("integration-tier agents have no native Hook fixture")
+        }
     }
     path
 }

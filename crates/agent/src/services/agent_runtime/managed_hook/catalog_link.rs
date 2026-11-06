@@ -35,6 +35,33 @@ pub(crate) fn prepare_catalog_change(
     };
     let changed = match agent {
         AgentCliKind::Grok => standalone_owned(&manifest, before),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => false,
         _ => {
             let Some(before) = decode(agent, before) else {
                 return Ok(None);
@@ -59,6 +86,35 @@ pub(crate) fn prepare_catalog_change(
                     &manifest.ownership,
                 ),
                 AgentCliKind::Grok => unreachable!("standalone ownership handled above"),
+                AgentCliKind::QwenCode
+                | AgentCliKind::OpenCode
+                | AgentCliKind::Pi
+                | AgentCliKind::PrimeAgent
+                | AgentCliKind::Crush
+                | AgentCliKind::Copilot
+                | AgentCliKind::Droid
+                | AgentCliKind::Qoder
+                | AgentCliKind::CodeBuddy
+                | AgentCliKind::OpenClaw
+                | AgentCliKind::Jcode
+                | AgentCliKind::MothX
+                | AgentCliKind::KimiCode
+                | AgentCliKind::StepCode
+                | AgentCliKind::DevEco
+                | AgentCliKind::MiMoCode
+                | AgentCliKind::AtomCode
+                | AgentCliKind::Cline
+                | AgentCliKind::Penguin
+                | AgentCliKind::Goose
+                | AgentCliKind::Hermes
+                | AgentCliKind::Dsh
+                | AgentCliKind::Omp
+                | AgentCliKind::Morph
+                | AgentCliKind::MiniMaxCode
+                | AgentCliKind::Raycast
+                | AgentCliKind::Omo => {
+                    unreachable!("integration-tier agents do not support managed hooks")
+                }
             }
         }
     };
@@ -114,6 +170,33 @@ pub(crate) fn prepare_catalog_policy_change(
                             == 1
                     })
         }
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => false,
     };
     selected
         .then(|| detached_change(file, manifest))

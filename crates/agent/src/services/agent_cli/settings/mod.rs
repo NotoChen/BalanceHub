@@ -82,6 +82,32 @@ pub(crate) fn resolve(
         AgentCliKind::ClaudeCode => "--model / ANTHROPIC_MODEL / model",
         AgentCliKind::Gemini => "--model / model.name",
         AgentCliKind::Grok => "--model / models.default",
+        AgentCliKind::QwenCode => "--model / model.name / OPENAI_MODEL",
+        AgentCliKind::OpenCode => "--model / model",
+        AgentCliKind::Pi | AgentCliKind::PrimeAgent => "--model / defaultModel",
+        AgentCliKind::Crush => "models.large / models.small",
+        AgentCliKind::Copilot => "--model / model",
+        AgentCliKind::Droid => "--model / sessionDefaultSettings.model",
+        AgentCliKind::Qoder => "--model / model.name",
+        AgentCliKind::CodeBuddy => "--model / model",
+        AgentCliKind::OpenClaw => "--model / agents.defaults.model",
+        AgentCliKind::Jcode => "--model / provider.default_model",
+        AgentCliKind::MothX => "--model / defaultModel",
+        AgentCliKind::KimiCode => "--model / default_model",
+        AgentCliKind::StepCode => "--model / defaultModel",
+        AgentCliKind::DevEco => "--model / model",
+        AgentCliKind::MiMoCode => "--model / model",
+        AgentCliKind::AtomCode => "--model / default_model",
+        AgentCliKind::Cline => "--model / providers.openai-compatible.settings.model",
+        AgentCliKind::Penguin => "--model / default_model.model_id",
+        AgentCliKind::Goose => "--model / providers.balancehub.model / GOOSE_MODEL",
+        AgentCliKind::Hermes => "--model / model.default",
+        AgentCliKind::Dsh => "--model / agent-default-model.model",
+        AgentCliKind::Omp => "--model / modelRoles.default",
+        AgentCliKind::Morph => "--model / llm.model",
+        AgentCliKind::MiniMaxCode => "--model / defaultModel",
+        AgentCliKind::Raycast => "providers.yaml（模型由 Raycast 选择）",
+        AgentCliKind::Omo => "--model / defaultModel",
     };
     let default_model = if request.session_mode == TemporaryCliSessionMode::History {
         display::history_model(&request.inherited_model)
@@ -147,6 +173,30 @@ fn model_pointer(kind: AgentCliKind) -> &'static str {
         AgentCliKind::Codex | AgentCliKind::ClaudeCode => "/model",
         AgentCliKind::Gemini => "/model/name",
         AgentCliKind::Grok => "/models/default",
+        AgentCliKind::QwenCode => "/model/name",
+        AgentCliKind::OpenCode => "/model",
+        AgentCliKind::Pi | AgentCliKind::PrimeAgent => "/defaultModel",
+        AgentCliKind::Crush => "/models/large/model",
+        AgentCliKind::Copilot => "/model",
+        AgentCliKind::Droid => "/sessionDefaultSettings/model",
+        AgentCliKind::Qoder => "/model/name",
+        AgentCliKind::CodeBuddy => "/model",
+        AgentCliKind::OpenClaw => "/agents/defaults/model",
+        AgentCliKind::Jcode => "/provider/default_model",
+        AgentCliKind::MothX => "/defaultModel",
+        AgentCliKind::KimiCode => "/default_model",
+        AgentCliKind::StepCode => "/defaultModel",
+        AgentCliKind::DevEco | AgentCliKind::MiMoCode => "/model",
+        AgentCliKind::AtomCode => "/default_model",
+        AgentCliKind::Cline => "/providers/openai-compatible/settings/model",
+        AgentCliKind::Penguin => "/default_model/model_id",
+        AgentCliKind::Goose => "/providers/balancehub/model",
+        AgentCliKind::Hermes => "/model/default",
+        AgentCliKind::Dsh => "/agent-default-model/model",
+        AgentCliKind::Omp => "/modelRoles/default",
+        AgentCliKind::Morph => "/llm/model",
+        AgentCliKind::MiniMaxCode | AgentCliKind::Omo => "/defaultModel",
+        AgentCliKind::Raycast => "",
     }
 }
 
@@ -162,7 +212,39 @@ fn model_observed(snapshot: &NativeSnapshot) -> Option<Observed> {
         AgentCliKind::Gemini => snapshot
             .env("GEMINI_MODEL", None)
             .or_else(|| snapshot.get(pointer)),
-        AgentCliKind::Codex => snapshot.get(pointer),
+        AgentCliKind::Goose => snapshot
+            .get("/providers/balancehub/model")
+            .or_else(|| snapshot.get("/GOOSE_MODEL")),
+        AgentCliKind::QwenCode => snapshot
+            .env("OPENAI_MODEL", Some("/env/OPENAI_MODEL"))
+            .or_else(|| snapshot.env("QWEN_MODEL", None))
+            .or_else(|| snapshot.get(pointer)),
+        AgentCliKind::Codex
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => snapshot.get(pointer),
     }
 }
 
@@ -535,6 +617,33 @@ fn fields_for(
         AgentCliKind::ClaudeCode => claude::fields(snapshot, model, help, persistent),
         AgentCliKind::Gemini => gemini::fields(snapshot, model, help, persistent),
         AgentCliKind::Grok => grok::fields(snapshot, model, help, persistent),
+        AgentCliKind::QwenCode
+        | AgentCliKind::OpenCode
+        | AgentCliKind::Pi
+        | AgentCliKind::PrimeAgent
+        | AgentCliKind::Crush
+        | AgentCliKind::Copilot
+        | AgentCliKind::Droid
+        | AgentCliKind::Qoder
+        | AgentCliKind::CodeBuddy
+        | AgentCliKind::OpenClaw
+        | AgentCliKind::Jcode
+        | AgentCliKind::MothX
+        | AgentCliKind::KimiCode
+        | AgentCliKind::StepCode
+        | AgentCliKind::DevEco
+        | AgentCliKind::MiMoCode
+        | AgentCliKind::AtomCode
+        | AgentCliKind::Cline
+        | AgentCliKind::Penguin
+        | AgentCliKind::Goose
+        | AgentCliKind::Hermes
+        | AgentCliKind::Dsh
+        | AgentCliKind::Omp
+        | AgentCliKind::Morph
+        | AgentCliKind::MiniMaxCode
+        | AgentCliKind::Raycast
+        | AgentCliKind::Omo => Vec::new(),
     };
     if let Some(field) = model_mappings::field(snapshot, model, persistent) {
         fields.insert(0, field);

@@ -12,6 +12,7 @@ use std::fmt;
 #[serde(rename_all = "camelCase")]
 pub enum AgentConfigurationFormat {
     Toml,
+    Yaml,
     Json,
     Jsonc,
     Dotenv,

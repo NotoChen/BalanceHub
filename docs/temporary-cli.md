@@ -13,6 +13,10 @@ OAuth 账号卡片同样可以启动临时 CLI，并使用卡片自己的授权�
 
 临时 CLI 只影响本次启动。要把 Agent 本机的登录换成某个 OAuth 账号，使用卡片底栏的切换按钮，它按各 Agent 官方文件写入该账号的授权，详见 OAuth 账号文档的「切换到本机 Agent 授权」。
 
+Qwen Code、OpenCode 和 Pi 目前按接入级支持：提供 CLI 检测、原生配置编辑和临时启动时的模型选择；会话工作台、资产面板与测活尚未接入，相关面板会按能力隐藏。Pi 从卡片启动时使用隔离的 Agent 配置目录，个人扩展、Skill 与原生登录不会载入；会话仍写入原生会话目录，退出后可在 Pi 中继续。
+
+Crush、Copilot CLI、Droid、Qoder、CodeBuddy、OpenClaw、jcode、MothX、Kimi Code、StepCode、DevEco Code、MiMo Code、AtomCode、Cline、Prime Agent、PenguinHarness、Goose、Hermes Agent、dsh、omp、Mister Morph、MiniMax Code、Raycast 与 OmO 目前只提供原生配置接入：可以检测产品提供的 CLI、读取并编辑各自的 JSON/JSONC/TOML/YAML 配置，并通过中转站卡片的切换按钮写入模型与凭据；临时启动、会话工作台、资产面板与测活尚未接入，启动入口会按能力隐藏。这些 Agent 的配置路径与字段按上游安装包和官方文档核对，涉及多个配置文件时分别列出，不合并成第二套凭据存储。
+
 常用目录以名称展示，同名目录附带路径，悬停可查看完整路径；移出记录的操作在悬停或键盘聚焦时显示。其他目录可直接浏览、输入路径，或通过系统目录选择器打开。目录与配置区分别滚动；查看历史会话详情和选中会话继续仍是两个独立操作。
 
 ## 会话配置

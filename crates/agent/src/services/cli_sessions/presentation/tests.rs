@@ -34,6 +34,33 @@ fn every_native_decoder_preserves_failed_tool_status_and_exit_code() {
                     json!({"type":"assistant","content":[{"type":"tool_call","id":"call-1","name":"run_shell_command","input":{"command":"fixture-command"},"result":output}]}),
                 ],
             ),
+            AgentCliKind::QwenCode
+            | AgentCliKind::OpenCode
+            | AgentCliKind::Pi
+            | AgentCliKind::PrimeAgent
+            | AgentCliKind::Crush
+            | AgentCliKind::Copilot
+            | AgentCliKind::Droid
+            | AgentCliKind::Qoder
+            | AgentCliKind::CodeBuddy
+            | AgentCliKind::OpenClaw
+            | AgentCliKind::Jcode
+            | AgentCliKind::MothX
+            | AgentCliKind::KimiCode
+            | AgentCliKind::StepCode
+            | AgentCliKind::DevEco
+            | AgentCliKind::MiMoCode
+            | AgentCliKind::AtomCode
+            | AgentCliKind::Cline
+            | AgentCliKind::Penguin
+            | AgentCliKind::Goose
+            | AgentCliKind::Hermes
+            | AgentCliKind::Dsh
+            | AgentCliKind::Omp
+            | AgentCliKind::Morph
+            | AgentCliKind::MiniMaxCode
+            | AgentCliKind::Raycast
+            | AgentCliKind::Omo => continue,
         };
         std::fs::write(
             root.path().join(filename),

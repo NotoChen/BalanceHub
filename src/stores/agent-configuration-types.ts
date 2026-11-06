@@ -5,7 +5,7 @@ import type {
 } from "./provider-types";
 
 // Wire mirror of models/agent_configuration.rs. Rust owns capabilities and validation.
-export type AgentConfigurationFormat = "toml" | "json" | "jsonc" | "dotenv" | "markdown";
+export type AgentConfigurationFormat = "toml" | "yaml" | "json" | "jsonc" | "dotenv" | "markdown";
 export type AgentConfigurationContentState = "unknown" | "empty" | "nonEmpty";
 export type AgentConfigurationActionKind = "read" | "edit" | "create" | "open" | "reveal";
 export type AgentConfigurationEffectKind = "contributes" | "overridden" | "inactive" | "unknown";

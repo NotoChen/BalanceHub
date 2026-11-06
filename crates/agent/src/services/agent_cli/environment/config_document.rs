@@ -9,6 +9,7 @@ pub(crate) enum ConfigDocumentFormat {
     Json,
     Jsonc,
     Toml,
+    Yaml,
 }
 
 pub(crate) fn parse(bytes: &[u8], format: ConfigDocumentFormat) -> Option<Value> {
@@ -31,6 +32,13 @@ fn parse_uncached(bytes: &[u8], format: ConfigDocumentFormat) -> Option<Value> {
             let value = text.parse::<toml::Value>().ok()?;
             serde_json::to_value(value).ok()?
         }
+        ConfigDocumentFormat::Yaml => {
+            let value = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(text).ok()?;
+            let value = serde_json::to_value(value).ok()?;
+            // dsh keeps its profile patches as a YAML list; every other YAML
+            // native configuration is a mapping.
+            return (value.is_object() || value.is_array()).then_some(value);
+        }
     };
     value.is_object().then_some(value)
 }
@@ -41,6 +49,7 @@ pub(crate) fn serialize(value: &Value, format: ConfigDocumentFormat) -> Option<S
             serde_json::to_string_pretty(value).ok()
         }
         ConfigDocumentFormat::Toml => toml::to_string_pretty(value).ok(),
+        ConfigDocumentFormat::Yaml => serde_yaml_ng::to_string(value).ok(),
     }
 }
 

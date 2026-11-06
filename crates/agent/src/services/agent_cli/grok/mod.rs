@@ -82,15 +82,7 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
     }
 }
 fn normalize_base_url(base_url: &str) -> String {
-    let normalized = base_url.trim().trim_end_matches('/');
-    if normalized.is_empty() {
-        return String::new();
-    }
-    if normalized.ends_with("/v1") {
-        normalized.to_string()
-    } else {
-        format!("{normalized}/v1")
-    }
+    super::config_support::openai_base_url(base_url)
 }
 
 fn home_scan(request: AgentHomeCandidateScanRequest) -> AgentHomeCandidateScanResult {

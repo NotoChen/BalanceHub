@@ -394,6 +394,7 @@ pub(crate) fn parse(
         AgentConfigurationFormat::Json => ConfigDocumentFormat::Json,
         AgentConfigurationFormat::Jsonc => ConfigDocumentFormat::Jsonc,
         AgentConfigurationFormat::Toml => ConfigDocumentFormat::Toml,
+        AgentConfigurationFormat::Yaml => ConfigDocumentFormat::Yaml,
         AgentConfigurationFormat::Dotenv => {
             return super::codec::parse_env(text).map_err(|_| {
                 error(
