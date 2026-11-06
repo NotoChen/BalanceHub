@@ -2,6 +2,18 @@
 
 BalanceHub 的重要变更会记录在这里。
 
+## 0.6.10
+
+### 新增
+
+- Agent 能力扩展到 31 个 Agent，新增 Qwen Code、OpenCode、Pi、Crush、Copilot CLI、Droid、Qoder、CodeBuddy、OpenClaw、jcode、MothX、Kimi Code、StepCode、DevEco Code、MiMo Code、AtomCode、Cline、Prime Agent、PenguinHarness、Goose、Hermes Agent、dsh、omp、Mister Morph、MiniMax Code、Raycast 与 OmO。
+- Qwen Code、OpenCode 和 Pi 支持 CLI 检测、原生配置编辑与临时启动时的模型选择；其余 Agent 支持原生配置读取与编辑，并可由中转站卡片写入模型和凭据。
+
+### 优化
+
+- YAML 配置使用保留注释、顺序和缩进的文档编辑器；多文件切换按字节校验后原子提交，未变化的文件不写入。
+- 新增 Agent 的图标、中文名称、帮助链接和能力分组随原生配置能力同步展示；未接入的入口按能力隐藏。
+
 ## 0.6.9
 
 ### 新增
