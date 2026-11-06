@@ -7,7 +7,7 @@ import type {
   ProviderProtocol,
   ProviderQuotaDisplay,
 } from "../stores/providers";
-import type { AccountQuotaWindow } from "../stores/oauth-types";
+import type { AccountQuotaSample, AccountQuotaWindow } from "../stores/oauth-types";
 import { providerNeedsCheckIn } from "./provider-actions.ts";
 import { quotaPercent, quotaResetLabel } from "./oauth-display.ts";
 import { type QuotaLevel, quotaLevel } from "./quota-level.ts";
@@ -419,6 +419,8 @@ export interface ProviderQuotaWindowRow {
      和「有上限但缺数据」。 */
   used: number | null;
   limit: number | null;
+  /** 本应用观察到的读数；窗口条用它画趋势和预测。 */
+  history: AccountQuotaSample[];
 }
 
 /// 一张卡的窗口行：窗口名、重置倒计时和已用比例同一行，条长就是已用比例，
@@ -433,6 +435,7 @@ function quotaWindowRow(
     /// 站点直接给出的已用比例；有的接口只报比例，没有使用量/额度。
     usedPercent?: number | null;
     resetsAt?: number | null;
+    history?: AccountQuotaSample[];
   },
   now: number,
 ): ProviderQuotaWindowRow {
@@ -458,6 +461,7 @@ function quotaWindowRow(
     level: percent == null ? "unlimited" : quotaLevel(percent),
     used: Number.isFinite(window.used) ? used : null,
     limit: limit > 0 ? limit : null,
+    history: window.history ?? [],
   };
 }
 
@@ -487,7 +491,7 @@ export function providerQuotaBarWindow(
     unit: null,
     resetAt: row.resetAt,
     windowSeconds: null,
-    history: [],
+    history: row.history,
   };
 }
 
@@ -507,6 +511,7 @@ export function managedQuotaWindowRows(
         // OAuth 卡片都写成「未提供比例」。
         usedPercent: window.usedPercent,
         resetsAt: window.resetAt,
+        history: window.history,
       },
       now,
     ),

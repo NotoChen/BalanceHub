@@ -56,6 +56,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "127.0.0.1:8787".to_owned())
         .parse()
         .map_err(|_| "BALANCEHUB_SERVER_ADDR 不是有效的监听地址")?;
+    // 服务端没有内置登录；一旦监听公网地址，任何能连上的人都能调用 RPC。
+    // 这里不擅自拒绝，但必须把风险写到启动日志里。
+    if !addr.ip().is_loopback() {
+        log::warn!(
+            "监听地址 {addr} 不是回环地址，而服务端没有内置登录鉴权；请只在受信任网络中使用，\
+             或由带认证的反向代理转发，并通过 BALANCEHUB_ALLOWED_ORIGINS / \
+             BALANCEHUB_ALLOWED_HOSTS 限制访问来源"
+        );
+    }
     let web_dir = std::env::var_os("BALANCEHUB_WEB_DIR")
         .map(PathBuf::from)
         .or_else(|| {

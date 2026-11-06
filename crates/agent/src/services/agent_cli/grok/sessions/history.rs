@@ -31,10 +31,11 @@ fn scan(
     root: &Path,
     workdirs: &[PathBuf],
     budget: &SessionReadBudget,
-    _mode: SessionHistoryReadMode,
+    mode: SessionHistoryReadMode,
 ) -> Result<SessionHistoryScan, String> {
     // Grok already enumerates summary.json metadata. No transcript or resume
-    // inspection is involved in either mode.
+    // inspection is involved in either mode; the mode still separates cache
+    // entries so an identity read never displaces a summary read.
     let sessions_root = root.join("sessions");
     if !sessions_root.exists() {
         return Ok(SessionHistoryScan::new(workdirs));
@@ -60,7 +61,7 @@ fn scan(
                 continue;
             }
             let mut project = SessionHistoryWorkspace::new(Path::new(""));
-            if let Err(error) = scan_workspace(kind, &entry.path(), &mut project, budget) {
+            if let Err(error) = scan_workspace(kind, &entry.path(), &mut project, budget, mode) {
                 project.failed(error);
             }
             for error in project.diagnostics {
@@ -93,7 +94,9 @@ fn scan(
         match exact_workspace_roots(&canonical, workdir, &metadata_budget, Some(&markers)) {
             Ok(roots) => {
                 for root in roots {
-                    if let Err(error) = scan_workspace(kind, &root, &mut workspace, budget) {
+                    if let Err(error) =
+                        scan_workspace(kind, &root, &mut workspace, budget, mode)
+                    {
                         workspace.failed(error);
                     }
                 }
@@ -109,6 +112,7 @@ fn scan_workspace(
     root: &Path,
     workspace: &mut SessionHistoryWorkspace,
     budget: &SessionReadBudget,
+    mode: SessionHistoryReadMode,
 ) -> Result<(), String> {
     budget.check()?;
     let entries = fs::read_dir(root).map_err(|error| error.to_string())?;
@@ -128,7 +132,9 @@ fn scan_workspace(
         if !path.is_file() {
             continue;
         }
-        let record = crate::services::cli_sessions::workbench::cached_history_record(&path, || {
+        let record =
+            crate::services::cli_sessions::workbench::cached_history_record_with_mode(
+                &path, mode, None, || {
             Ok(
                 parse_summary(kind, &path, None)?.map(|(summary, child)| SessionHistoryRecord {
                     record_key: summary.id.clone(),
@@ -144,7 +150,8 @@ fn scan_workspace(
                     content_unavailable_reason: None,
                 }),
             )
-        });
+        },
+            );
         match record {
             Ok(Some(record)) => {
                 if workspace.workdir.as_os_str().is_empty()

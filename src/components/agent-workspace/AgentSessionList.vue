@@ -29,6 +29,8 @@ const props = withDefaults(
     selectionMode?: boolean;
     allowResume?: boolean;
     allowRelocation?: boolean;
+    /** Offer "只看此项目" in the per-row menu. */
+    allowWorkspaceFilter?: boolean;
     resumeBusy?: (sessionRef: string) => boolean;
     runtimeSessions?: AgentRuntimeSession[];
     activatingId?: string | null;
@@ -42,6 +44,7 @@ const props = withDefaults(
     selectionMode: false,
     allowResume: false,
     allowRelocation: false,
+    allowWorkspaceFilter: false,
     runtimeSessions: () => [],
     activatingId: null,
     disabled: false,
@@ -54,6 +57,7 @@ const emit = defineEmits<{
   detail: [row: AgentSessionRow];
   resume: [row: AgentSessionRow];
   relocate: [row: AgentSessionRow];
+  workspaceFilter: [workspaceId: string];
   parent: [sessionRef: string];
   activate: [session: AgentRuntimeSession];
   position: [position: SessionListPosition];
@@ -261,7 +265,7 @@ async function copy(value: string) {
               }}</span>
             </button>
             <div class="agent-session-row-actions">
-              <a-dropdown v-if="allowRelocation && entries[item.index].row.projectRelocationAvailable" trigger="click" position="br"><button type="button" :disabled="disabled" aria-label="更多会话操作"><MoreHorizontal :size="16" /></button><template #content><a-doption :disabled="entries[item.index].row.activityState === 'active'" @click="emit('relocate', entries[item.index].row)">迁移项目会话</a-doption></template></a-dropdown>
+              <a-dropdown v-if="(allowRelocation && entries[item.index].row.projectRelocationAvailable) || (allowWorkspaceFilter && entries[item.index].row.workspaceId)" trigger="click" position="br"><button type="button" :disabled="disabled" aria-label="更多会话操作"><MoreHorizontal :size="16" /></button><template #content><a-doption v-if="allowWorkspaceFilter && entries[item.index].row.workspaceId" @click="emit('workspaceFilter', entries[item.index].row.workspaceId)">只看此项目</a-doption><a-doption v-if="allowRelocation && entries[item.index].row.projectRelocationAvailable" :disabled="entries[item.index].row.activityState === 'active'" @click="emit('relocate', entries[item.index].row)">迁移项目会话</a-doption></template></a-dropdown>
               <button
                 type="button"
                 class="agent-session-detail-button"

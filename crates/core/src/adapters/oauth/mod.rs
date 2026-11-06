@@ -15,14 +15,6 @@ use async_trait::async_trait;
 
 pub struct OAuthAdapter;
 
-/// How many readings one quota window keeps. The cards draw a short trend and
-/// the saved document must not grow with every scheduled refresh.
-const QUOTA_HISTORY_SAMPLES: usize = 24;
-
-/// A change smaller than this is below what a percent meter can show, so a
-/// refresh that read the same value does not add another point.
-const QUOTA_HISTORY_EPSILON: f64 = 0.05;
-
 /// Carry the previous readings forward and append this refresh's value.
 ///
 /// Providers serve only the current quota, so a trend can only come from what
@@ -42,26 +34,7 @@ fn record_quota_history(
         if let Some(prior) = prior {
             window.history.clone_from(&prior.history);
         }
-        let Some(percent) = window.used_percent.filter(|value| value.is_finite()) else {
-            continue;
-        };
-        let unchanged = prior.is_some_and(|prior| {
-            prior
-                .history
-                .last()
-                .is_some_and(|sample| (sample.used_percent - percent).abs() < QUOTA_HISTORY_EPSILON)
-        });
-        if unchanged {
-            continue;
-        }
-        window.history.push(AccountQuotaSample {
-            at,
-            used_percent: percent,
-        });
-        if window.history.len() > QUOTA_HISTORY_SAMPLES {
-            let excess = window.history.len() - QUOTA_HISTORY_SAMPLES;
-            window.history.drain(..excess);
-        }
+        crate::quota_history::push_sample(&mut window.history, window.used_percent, at);
     }
 }
 

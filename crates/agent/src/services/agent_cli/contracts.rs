@@ -1649,7 +1649,7 @@ impl SessionHistoryScan {
 /// Identity enumeration has no dependency on transcript contents, display
 /// summaries or resume eligibility. Both modes use the same native scope and
 /// record-key rules; identity records never enter the resume-reference registry.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SessionHistoryReadMode {
     Identities,
     Summaries,

@@ -228,7 +228,7 @@ fn apply_refreshed(data: &mut AppData, refreshed: Vec<RefreshedProvider>) -> boo
 /// 签到成功后的静默刷新（check_in.rs）复用同一份清单，避免两处合并语义漂移。
 pub(super) fn apply_refresh_owned_fields(
     provider: &mut Provider,
-    refreshed: Provider,
+    mut refreshed: Provider,
     request_context: &ProviderRequestContext,
 ) -> bool {
     // 身份、额度和凭据必须作为同一个原子结果写回。只校验 URL/协议会让同站点旧账号
@@ -236,6 +236,11 @@ pub(super) fn apply_refresh_owned_fields(
     if !request_context.matches(provider) {
         return false;
     }
+    // 订阅窗口的趋势只能由本应用观察：先把上次的历史接到本次结果上，再追加
+    // 本次读数。普通刷新和签到后的静默刷新都经过这里，两处语义不会漂移。
+    refreshed
+        .quota
+        .record_window_history(&provider.quota, crate::util::unix_secs() as i64);
     ProviderOperationOutcome::<()>::refreshed(provider, refreshed).apply_to(provider);
     true
 }
@@ -353,7 +358,9 @@ fn send_progress(progress: Option<&Arc<dyn ProgressSink>>, event: ProviderBatchP
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ProviderInput, ProviderProtocol, ProviderStatus};
+    use crate::models::{
+        AccountQuotaSample, ProviderInput, ProviderProtocol, ProviderQuotaWindow, ProviderStatus,
+    };
 
     fn provider(id: &str) -> Provider {
         Provider::from_input(ProviderInput::default(), id.to_string())
@@ -402,6 +409,72 @@ mod tests {
         );
         // 用户拥有的字段：并发编辑不被覆盖。
         assert_eq!(merged.automation.check_in_time, "09:30");
+    }
+
+    #[test]
+    fn refresh_carries_subscription_window_history() {
+        let mut stored = provider("p1");
+        stored.quota.windows = vec![ProviderQuotaWindow {
+            label: "今日".to_string(),
+            used: 10.0,
+            limit: 100.0,
+            resets_at: Some(1_800_000_000),
+            history: vec![AccountQuotaSample {
+                at: 1_700_000_000,
+                used_percent: 10.0,
+            }],
+        }];
+        let request_context = ProviderRequestContext::capture(&stored);
+
+        // The adapter builds a fresh window list, so the stored series has to be
+        // carried over by the refresh merge rather than by the adapter.
+        let mut refreshed = stored.clone();
+        refreshed.quota.windows[0].used = 25.0;
+        refreshed.quota.windows[0].history.clear();
+
+        let mut data = AppData::default();
+        data.providers.push(stored);
+        assert!(apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context,
+            }],
+        ));
+
+        let window = &data.providers[0].quota.windows[0];
+        assert_eq!(window.history.len(), 2);
+        assert_eq!(window.history[0].used_percent, 10.0);
+        assert_eq!(window.history[1].used_percent, 25.0);
+    }
+
+    #[test]
+    fn refresh_does_not_duplicate_an_unchanged_window_reading() {
+        let mut stored = provider("p1");
+        stored.quota.windows = vec![ProviderQuotaWindow {
+            label: "今日".to_string(),
+            used: 10.0,
+            limit: 100.0,
+            resets_at: None,
+            history: vec![AccountQuotaSample {
+                at: 1_700_000_000,
+                used_percent: 10.0,
+            }],
+        }];
+        let request_context = ProviderRequestContext::capture(&stored);
+        let refreshed = stored.clone();
+
+        let mut data = AppData::default();
+        data.providers.push(stored);
+        assert!(apply_refreshed(
+            &mut data,
+            vec![RefreshedProvider {
+                provider: refreshed,
+                request_context,
+            }],
+        ));
+
+        assert_eq!(data.providers[0].quota.windows[0].history.len(), 1);
     }
 
     #[test]

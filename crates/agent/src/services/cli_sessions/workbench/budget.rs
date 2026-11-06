@@ -1,4 +1,6 @@
-use crate::services::agent_cli::contracts::{SessionHistoryRecord, SessionReadBudget};
+use crate::services::agent_cli::contracts::{
+    SessionHistoryReadMode, SessionHistoryRecord, SessionReadBudget,
+};
 use std::{
     cell::RefCell,
     fs::{File, Metadata},
@@ -113,7 +115,11 @@ struct CachedMetadataText {
     text: String,
 }
 pub(crate) struct HistoryReadCacheData {
-    records: lru::LruCache<PathBuf, CachedHistoryRecord>,
+    /// Identity and summary scans parse different record shapes from the same
+    /// file, so both variants are kept apart instead of overwriting each other.
+    /// Identity records can also embed the requested workspace, which therefore
+    /// forms part of the key when it changes the result.
+    records: lru::LruCache<(PathBuf, SessionHistoryReadMode, Option<PathBuf>), CachedHistoryRecord>,
     metadata: lru::LruCache<PathBuf, CachedMetadataText>,
 }
 impl Default for HistoryReadCacheData {
@@ -138,11 +144,13 @@ pub(crate) fn with_history_cache<T>(cache: &HistoryReadCache, read: impl FnOnce(
     let _restore = Restore(ACTIVE_HISTORY_CACHE.with(|active| active.replace(Some(cache.clone()))));
     read()
 }
-pub(crate) fn cached_history_record(
+pub(crate) fn cached_history_record_with_mode(
     path: &Path,
+    mode: SessionHistoryReadMode,
+    scope: Option<&Path>,
     read: impl FnOnce() -> Result<Option<SessionHistoryRecord>, String>,
 ) -> Result<Option<SessionHistoryRecord>, String> {
-    cached_history_record_facts(path, || {
+    cached_history_record_facts(path, mode, scope, || {
         read().map(|record| {
             record.map(|record| HistoryRecordFacts {
                 record,
@@ -155,6 +163,8 @@ pub(crate) fn cached_history_record(
 
 pub(crate) fn cached_history_record_facts(
     path: &Path,
+    mode: SessionHistoryReadMode,
+    scope: Option<&Path>,
     read: impl FnOnce() -> Result<Option<HistoryRecordFacts>, String>,
 ) -> Result<Option<HistoryRecordFacts>, String> {
     check_read_budget()?;
@@ -164,7 +174,11 @@ pub(crate) fn cached_history_record_facts(
         return read();
     };
     let fingerprint = history_cache_fingerprint(path)?;
-    let key = path.canonicalize().map_err(|error| error.to_string())?;
+    let key = (
+        path.canonicalize().map_err(|error| error.to_string())?,
+        mode,
+        scope.map(Path::to_path_buf),
+    );
     let cached = cache
         .lock()
         .unwrap_or_else(|error| error.into_inner())

@@ -157,6 +157,7 @@ fn evaluate_spec(provider: &Provider, root: &Value) -> Result<ProviderQuota, Str
             used: used.max(0.0),
             limit: limit.max(0.0),
             resets_at,
+            history: Vec::new(),
         });
         quota.known = true;
     }

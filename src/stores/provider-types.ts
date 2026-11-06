@@ -1,4 +1,4 @@
-import type { OAuthCredential, AccountSubscription, CpaGatewaySnapshot } from "./oauth-types";
+import type { OAuthCredential, AccountQuotaSample, AccountSubscription, CpaGatewaySnapshot } from "./oauth-types";
 import type { ModelPrice } from "../api/model-catalog";
 import type {
   SessionMessageMetadata,
@@ -366,6 +366,8 @@ export interface ProviderQuotaWindow {
   limit: number;
   /** unix 秒。 */
   resetsAt?: number | null;
+  /** 本应用刷新时观察到的读数；旧数据或首次刷新时为空。 */
+  history?: AccountQuotaSample[];
 }
 
 export interface ProviderCapabilities {

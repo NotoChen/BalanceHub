@@ -24,6 +24,7 @@ interface UseAppLifecycleOptions {
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
   const host = useHostPlatform();
   let providersChangedUnlisten: UnlistenFn | null = null;
+  let eventsReconnectedUnlisten: UnlistenFn | null = null;
   let disposed = false;
 
   onMounted(async () => {
@@ -57,6 +58,20 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
         return;
       }
       providersChangedUnlisten = unlisten;
+      // 服务端事件流断线重连后，断开期间的状态变更已经错过；重新拉取一次。
+      const unlistenReconnect = await listen(
+        "balancehub-events-reconnected",
+        () => {
+          if (!disposed) {
+            void options.reloadProviders();
+          }
+        },
+      );
+      if (disposed) {
+        unlistenReconnect();
+        return;
+      }
+      eventsReconnectedUnlisten = unlistenReconnect;
     } catch {
       // Browser preview has no Tauri backend; scheduling events are unavailable.
     }
@@ -74,6 +89,8 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     options.resetProviderPointerDrag(false);
     providersChangedUnlisten?.();
     providersChangedUnlisten = null;
+    eventsReconnectedUnlisten?.();
+    eventsReconnectedUnlisten = null;
   });
 
   watch(options.settings, (value) => {

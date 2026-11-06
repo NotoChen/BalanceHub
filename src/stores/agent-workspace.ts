@@ -29,6 +29,8 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
   const sessionRoleFilter = ref<AgentSessionRoleFilter>("all");
   const sessionEnvironment = ref<AgentRuntimeScope | null>(null);
   const sessionAgentFilter = ref<AgentCliKind | null>(null);
+  /** Native workspace ids used as the session project filter; empty means all. */
+  const sessionWorkspaceFilter = ref<string[]>([]);
   const agentFilter = ref<AgentCliKind | null>(null);
   const queries = ref<Partial<Record<AgentSearchScope, string>>>({});
   const searchScope = computed<AgentSearchScope>(() => page.value === "sessions" ? `sessions:${sessionView.value}` : page.value);
@@ -107,8 +109,19 @@ export const useAgentWorkspaceStore = defineStore("agent-workspace", () => {
     navigationRevision.value += 1;
   }
 
-  return { view, page, sessionEnvironment, sessionView, sessionRoleFilter, sessionAgentFilter, agentFilter, queries, query, sessionHistoryQuery, searchPlaceholder, workspacePath, navigationRevision,
-    operationDetails, libraryAssetId, openOperation, closeOperation, setView, openPage, openLibrary, openSessions, selectSessionView, selectAgent, selectWorkspace };
+  /** A project filter only makes sense inside one runtime scope. */
+  function selectSessionWorkspace(ids: string[]) {
+    if (
+      sessionWorkspaceFilter.value.length === ids.length &&
+      sessionWorkspaceFilter.value.every((id, index) => id === ids[index])
+    )
+      return;
+    sessionWorkspaceFilter.value = ids;
+    navigationRevision.value += 1;
+  }
+
+  return { view, page, sessionEnvironment, sessionView, sessionRoleFilter, sessionAgentFilter, sessionWorkspaceFilter, agentFilter, queries, query, sessionHistoryQuery, searchPlaceholder, workspacePath, navigationRevision,
+    operationDetails, libraryAssetId, openOperation, closeOperation, setView, openPage, openLibrary, openSessions, selectSessionView, selectAgent, selectWorkspace, selectSessionWorkspace };
 });
 
 if (import.meta.hot) {

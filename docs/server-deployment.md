@@ -70,7 +70,7 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
   /path/to/balancehub-server
 ```
 
-启动后访问 `http://127.0.0.1:8787`。健康检查是 `GET /api/health`，返回 `{"ok":true,"version":"…"}`。
+启动后访问 `http://127.0.0.1:8787`。健康检查是 `GET /api/health`，返回 `{"ok":true,"version":"…"}`；`GET /api/status` 另外返回运行时长、数据修订号、事件流连接数和最近一次后台刷新/签到/测活任务的状态与错误，适合接监控或排查「为什么没有自动刷新」。
 
 ## 环境变量
 
@@ -81,6 +81,8 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
 | `BALANCEHUB_CONFIG_DIR` | `$BALANCEHUB_ROOT/config` | 云端同步状态等宿主配置。 |
 | `BALANCEHUB_CACHE_DIR` | `$BALANCEHUB_ROOT/cache` | 临时缓存。 |
 | `BALANCEHUB_SERVER_ADDR` | `127.0.0.1:8787` | 监听地址。容器或局域网访问时改为 `0.0.0.0:8787`。 |
+| `BALANCEHUB_ALLOWED_HOSTS` | 回环地址、监听地址与 IP 直连 | 逗号分隔的额外 Host 白名单。反向代理改用其他域名时加入该域名；`*` 表示不校验 Host。 |
+| `BALANCEHUB_ALLOWED_ORIGINS` | 同源 | 逗号分隔的额外 Origin 白名单，例如 `https://balancehub.example.com`。 |
 | `BALANCEHUB_WEB_DIR` | 可执行文件旁的 `web/`，否则仓库 `dist/` | 前端静态文件目录。 |
 | `BALANCEHUB_LOG` | `info` | 日志级别：`error` / `warn` / `info` / `debug` / `trace`，输出到标准输出。 |
 | `TZ` | 系统默认 | 自动签到按本地时间判定执行点。 |
@@ -89,10 +91,13 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
 
 - `data.json`：中转站、OAuth 账号、CPA 网关与设置。
 - `data.json.v{N}.bak`：配置迁移前的原文件备份。
+- `data.lock`：配置目录的进程独占锁；运行期间一直持有，进程退出后自动释放，不需要手动删除。
 - `oauth-device-id`：本机（本服务端）的续期设备标识，不参与云端同步。
 - `components/checkin-browser/`：签到用的浏览器组件，首次安装时才会下载。
 
-**同一份数据目录只能由一个进程使用。** 写入互斥是进程内的；桌面版与服务端同时指向同一目录会互相覆盖。
+**同一份数据目录只能由一个进程使用。** 启动时会为配置目录加操作系统文件锁；桌面版与服务端同时指向同一目录时，后启动的一方会直接报错退出，避免双方各持一份快照互相覆盖。进程崩溃后锁会自动释放，可以直接重新启动。
+
+**服务端没有内置登录。** `/rpc` 只接受 `application/json`，跨站 `text/plain` 简单请求会收到 415；`Host` / `Origin` 不匹配的请求收到 403，包括 DNS rebinding 和 `Origin: null`。单次批处理最多 64 条命令。这些护栏挡住的是浏览器跨站请求，不能替代鉴权：把端口暴露给不受信任网络前，请在反向代理上加认证，并通过 `BALANCEHUB_ALLOWED_HOSTS` / `BALANCEHUB_ALLOWED_ORIGINS` 声明外部域名。监听非回环地址时启动日志会输出同样的提醒。
 
 ## 容器部署
 
@@ -116,6 +121,7 @@ docker run -d --name balancehub \
 要点：
 
 - 镜像内监听 `0.0.0.0:8787`，宿主侧是否对外开放由端口映射决定。默认示例只映射到 `127.0.0.1`。
+- `docker stop`、systemd `stop` 和 Ctrl+C 都会发送退出信号；服务端停止接受新连接，等在途请求结束后再退出。
 - 所有状态都在 `/data` 卷里；重建容器不会丢配置。
 - 需要签到和浏览器组件时不要裁掉运行层里的 Chromium 依赖；组件首次安装会下载自己的 Node、Playwright 与 Chromium 到 `/data/components/`。
 - 容器默认以 root 运行；改用其他用户时，先确保 `/data` 对该用户可写。
@@ -123,7 +129,16 @@ docker run -d --name balancehub \
 
 ## 反向代理
 
-服务端是同源应用：页面、`POST /rpc` 与 `GET /events`（WebSocket）在同一个端口。反代要同时转发这三条路径，并让 `/events` 允许升级、关闭缓冲：
+服务端是同源应用：页面、`POST /rpc` 与 `GET /events`（WebSocket）在同一个端口。反代要同时转发这三条路径，并让 `/events` 允许升级、关闭缓冲。
+
+反代改了外部域名后，服务端看到的 `Host` / `Origin` 不再是回环地址。启动服务端时要显式声明这个域名，否则请求会被请求护栏拒绝并返回 403：
+
+```sh
+BALANCEHUB_ALLOWED_HOSTS=balancehub.example.com \
+BALANCEHUB_ALLOWED_ORIGINS=https://balancehub.example.com \
+BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
+  /path/to/balancehub-server
+```
 
 ```nginx
 map $http_upgrade $connection_upgrade {

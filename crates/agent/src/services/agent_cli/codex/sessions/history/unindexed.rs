@@ -3,7 +3,7 @@
 use super::*;
 use crate::services::cli_sessions::{
     first_non_empty, normalize_timestamp, read_json_lines_limited, source,
-    workbench::cached_history_record,
+    workbench::cached_history_record_with_mode,
 };
 
 pub(super) struct Scan<'a> {
@@ -62,11 +62,10 @@ impl Scan<'_> {
                 continue;
             }
             let read = || read_record(self.kind, self.root, &path, self.mode);
-            let loaded = if self.mode == SessionHistoryReadMode::Identities {
-                read()
-            } else {
-                cached_history_record(&path, read)
-            };
+            // Identity records come from the file header and carry no workspace
+            // context, so both modes cache safely without an extra scope key.
+            let loaded =
+                cached_history_record_with_mode(&path, self.mode, None, read);
             let mut record = match loaded {
                 Ok(Some(record)) => record,
                 Ok(None) => continue,

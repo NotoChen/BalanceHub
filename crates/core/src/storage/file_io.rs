@@ -1,18 +1,113 @@
 use serde::Serialize;
 use std::{
-    fs::{self, File},
+    collections::HashMap,
+    fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
 };
 
 const DATA_FILE_NAME: &str = "data.json";
 const BACKUP_FILE_NAME: &str = "data.json.bak";
 const TMP_FILE_NAME: &str = "data.json.tmp";
+const LOCK_FILE_NAME: &str = "data.lock";
 
 pub(super) fn data_file_path() -> Result<PathBuf, String> {
     let config_dir =
         crate::host::config_dir().map_err(|error| format!("获取应用配置目录失败: {error}"))?;
     Ok(config_dir.join(DATA_FILE_NAME))
+}
+
+/// 同一份配置目录只允许一个进程写入。桌面版与服务端指向同一目录时，两边
+/// 各自持有完整快照，后写的一方会覆盖另一方的修改；这里用操作系统文件锁
+/// 在启动阶段直接拦下第二个进程。进程崩溃时内核会释放锁，残留的锁文件不
+/// 会阻塞下次启动。
+pub(super) fn lock_data_directory(path: &Path) -> Result<(), String> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, File>>> = OnceLock::new();
+    let directory = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(directory)
+        .map_err(|error| format!("创建配置目录失败({}): {error}", directory.display()))?;
+    let lock_path = directory.join(LOCK_FILE_NAME);
+    let mut locks = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if locks.contains_key(&lock_path) {
+        return Ok(());
+    }
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|error| format!("打开配置锁失败({}): {error}", lock_path.display()))?;
+    match try_lock_exclusive(&file) {
+        Ok(true) => {
+            locks.insert(lock_path, file);
+            Ok(())
+        }
+        Ok(false) => Err(format!(
+            "配置目录正在被另一个 BalanceHub 进程使用({})；请先退出桌面版或另一个服务端实例",
+            directory.display()
+        )),
+        Err(error) => Err(format!(
+            "锁定配置目录失败({}): {error}",
+            lock_path.display()
+        )),
+    }
+}
+
+#[cfg(unix)]
+fn try_lock_exclusive(file: &File) -> std::io::Result<bool> {
+    use std::os::fd::AsFd;
+    match rustix::fs::flock(
+        file.as_fd(),
+        rustix::fs::FlockOperation::NonBlockingLockExclusive,
+    ) {
+        Ok(()) => Ok(true),
+        Err(error)
+            if error == rustix::io::Errno::WOULDBLOCK || error == rustix::io::Errno::AGAIN =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(std::io::Error::from(error)),
+    }
+}
+
+#[cfg(windows)]
+fn try_lock_exclusive(file: &File) -> std::io::Result<bool> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::{
+        Foundation::ERROR_LOCK_VIOLATION,
+        Storage::FileSystem::{LockFileEx, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY},
+        System::IO::OVERLAPPED,
+    };
+    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+    let locked = unsafe {
+        LockFileEx(
+            file.as_raw_handle() as _,
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            u32::MAX,
+            u32::MAX,
+            &mut overlapped,
+        )
+    };
+    if locked != 0 {
+        return Ok(true);
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn try_lock_exclusive(_file: &File) -> std::io::Result<bool> {
+    Ok(true)
 }
 
 #[cfg(not(target_os = "windows"))]

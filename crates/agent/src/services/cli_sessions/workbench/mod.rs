@@ -12,9 +12,9 @@ pub(crate) use budget::with_history_cache;
 
 use crate::services::agent_cli::contracts::SessionReadBudget;
 pub(crate) use budget::{
-    cached_history_record, cached_history_record_facts, check_read_budget, open_session_file,
-    read_session_metadata_text_file_limited, read_session_text_file_limited, with_read_budget,
-    with_source_root, BudgetFile, HistoryRecordFacts,
+    cached_history_record_facts, cached_history_record_with_mode, check_read_budget,
+    open_session_file, read_session_metadata_text_file_limited, read_session_text_file_limited,
+    with_read_budget, with_source_root, BudgetFile, HistoryRecordFacts,
 };
 pub(crate) use counts::count;
 pub(crate) use query::query;

@@ -53,10 +53,19 @@
   font-weight: 650;
 }
 .agent-session-filters {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 160px;
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
   margin-bottom: 8px;
+}
+.agent-session-filters > .arco-select {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.agent-session-workspace-filter {
+  flex-grow: 0;
+  flex-basis: 220px;
 }
 .agent-session-filters .arco-select-view {
   min-width: 0;
@@ -191,11 +200,10 @@
   min-height: 0;
 }
 .agent-session-browser .agent-session-filters {
-  grid-template-columns: 160px minmax(0, 1fr);
   align-items: center;
 }
 .agent-session-order {
-  justify-self: end;
+  margin-left: auto;
   color: var(--surface-muted);
   font-size: 12px;
 }

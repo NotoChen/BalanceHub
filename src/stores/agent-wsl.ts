@@ -18,14 +18,25 @@ export const useAgentWslStore = defineStore("agent-wsl", () => {
   const starting = ref("");
   const error = ref("");
   let pending: Promise<void> | null = null;
+  let fetchedAt = 0;
+  // 面板每次激活都重新检测会让界面等一次 WSL 扫描；一直用首次结果又会把
+  // 新装或已停止的发行版永远停在旧状态。保留旧列表，超过后端缓存时间再
+  // 后台刷新，是这两者之间唯一不阻塞打开的折中。
+  const FRESH_MS = 30_000;
   void host.ensure();
 
-  function run(action: () => Promise<WslInventory>, startId = "") {
+  function run(
+    action: () => Promise<WslInventory>,
+    startId = "",
+    silent = false,
+  ) {
     if (pending) return pending;
     if (supported.value === false) return Promise.resolve();
-    loading.value = true;
-    starting.value = startId;
-    error.value = "";
+    if (!silent) {
+      loading.value = true;
+      starting.value = startId;
+      error.value = "";
+    }
     pending = withTimeout(
       host
         .ensure()
@@ -36,6 +47,7 @@ export const useAgentWslStore = defineStore("agent-wsl", () => {
       .then((value) => {
         if (!value) return;
         inventory.value = value;
+        fetchedAt = Date.now();
         error.value = value.error ?? "";
       })
       .catch((failure) => {
@@ -43,8 +55,10 @@ export const useAgentWslStore = defineStore("agent-wsl", () => {
           failure instanceof Error ? failure.message : String(failure);
       })
       .finally(() => {
-        loading.value = false;
-        starting.value = "";
+        if (!silent) {
+          loading.value = false;
+          starting.value = "";
+        }
         pending = null;
       });
     return pending;
@@ -53,7 +67,11 @@ export const useAgentWslStore = defineStore("agent-wsl", () => {
     return run(() => getWslInventory(force));
   }
   function ensure() {
-    return inventory.value ? Promise.resolve() : refresh(false);
+    if (!inventory.value) return refresh(false);
+    if (Date.now() - fetchedAt < FRESH_MS) return Promise.resolve();
+    // 激活不等待这次刷新：旧列表已经可读，结果回来后原地替换。
+    void run(() => getWslInventory(false), "", true);
+    return Promise.resolve();
   }
   function start(id: string) {
     return run(() => startWslDistribution(id), id);

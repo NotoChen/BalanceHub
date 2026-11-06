@@ -37,6 +37,8 @@ interface AgentSessionsOptions {
   query: Ref<string>;
   /** Optional exact directory scope; null reads all native projects. */
   explicitWorkdir?: Ref<string | null>;
+  /** Optional native workspace ids to narrow the current scope to projects. */
+  workspaceIds?: Ref<string[]>;
   /** Optional invalidation signal for changes to native source settings. */
   scopeKey?: Ref<string>;
   pageSize?: number;
@@ -80,6 +82,7 @@ export function useAgentSessions(options: AgentSessionsOptions) {
   const contextKey = computed(() =>
     JSON.stringify([
       options.explicitWorkdir?.value ?? null,
+      options.workspaceIds?.value ?? [],
       options.scopeKey?.value ?? "",
     ]),
   );
@@ -289,9 +292,14 @@ export function useAgentSessions(options: AgentSessionsOptions) {
         context !== contextKey.value
       )
         return;
-      const queryAll = !options.explicitWorkdir?.value;
-      const workspaceIds = queryAll ? [] : currentScope.workspaces.map((workspace) => workspace.id);
-      if (!queryAll && !workspaceIds.length) {
+      // 项目筛选直接按工作目录 id 收紧查询；显式目录范围则查询范围内的全部目录。
+      const selectedWorkspaceIds = options.workspaceIds?.value ?? [];
+      const workspaceIds = selectedWorkspaceIds.length
+        ? [...selectedWorkspaceIds]
+        : options.explicitWorkdir?.value
+          ? currentScope.workspaces.map((workspace) => workspace.id)
+          : [];
+      if (options.explicitWorkdir?.value && !workspaceIds.length) {
         error.value = "当前没有可查询的工作目录，请刷新目录范围";
         return;
       }
@@ -473,16 +481,19 @@ export function useAgentSessions(options: AgentSessionsOptions) {
 
   if (getCurrentInstance())
     onMounted(async () => {
+      // Source discovery completes in the background. Keep the list visible
+      // while acquiring the new scope; a tab switch alone does not reload it.
+      // 事件流重连后同样要重读：断线期间的来源变化事件已经丢失。
+      const reloadFromBackend = () => {
+        invalidateQuery(options.active.value);
+        stopScopeRequest();
+        scope.value = null;
+        scopeError.value = "";
+        if (options.active.value && options.autoLoad !== false) void load();
+      };
       const subscriptions: Promise<UnlistenFn>[] = [
-        listen("agent-session-sources-changed", () => {
-          // Source discovery completes in the background. Keep the list visible
-          // while acquiring the new scope; a tab switch alone does not reload it.
-          invalidateQuery(options.active.value);
-          stopScopeRequest();
-          scope.value = null;
-          scopeError.value = "";
-          if (options.active.value && options.autoLoad !== false) void load();
-        }),
+        listen("agent-session-sources-changed", reloadFromBackend),
+        listen("balancehub-events-reconnected", reloadFromBackend),
       ];
       for (const result of await Promise.allSettled(subscriptions)) {
         // The event bus is optional in isolated component tests.

@@ -48,6 +48,7 @@ pub(super) fn subscription_windows(data: &Value, site: &SiteMetadata) -> Vec<Pro
                 used: convert_quota_value(used.max(0), site).0,
                 limit,
                 resets_at: subscription_reset_at(subscription),
+                history: Vec::new(),
             }
         })
         .collect()

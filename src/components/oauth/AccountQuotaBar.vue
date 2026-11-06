@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { AccountQuotaWindow } from "../../stores/oauth-types";
 import {
+  quotaExhaustionLabel,
   quotaNumber,
   quotaPercent,
   quotaResetLabel,
@@ -24,7 +25,14 @@ const level = computed(() => quotaLevel(percent.value));
 const remaining = computed(() =>
   percent.value == null ? null : Math.max(0, 100 - percent.value),
 );
-const trendTitle = computed(() => quotaTrendSummary(props.window.history));
+const trendTitle = computed(() => {
+  const trend = quotaTrendSummary(props.window.history);
+  const exhaustion = quotaExhaustionLabel(
+    props.window,
+    props.now ?? Date.now(),
+  );
+  return [trend, exhaustion].filter(Boolean).join(" · ");
+});
 /// The allowance caption is a full sentence in the tooltip; the row itself only
 /// keeps the reset countdown, because a fixed-height card cannot spare a second
 /// caption line under every window.

@@ -19,6 +19,7 @@ const GATED: Record<string, string> = {
   "components/agent-workspace/AgentSessionList.vue|select": "勾选框只在 selectionMode 时渲染",
   "components/agent-workspace/AgentSessionList.vue|resume": "续跑入口由 allowResume 控制",
   "components/agent-workspace/AgentSessionList.vue|relocate": "迁移入口由 allowRelocation 控制",
+  "components/agent-workspace/AgentSessionList.vue|workspaceFilter": "「只看此项目」入口由 allowWorkspaceFilter 控制",
   "components/agent-workspace/AgentSessionList.vue|activate": "激活入口由 allowResume 控制",
   "components/agent-workspace/AgentSessionList.vue|position": "滚动位置只在传了 positionKey 时才回传",
   "components/agent-workspace/AgentCatalogRow.vue|select": "勾选框只在 selectable 时渲染",

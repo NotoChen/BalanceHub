@@ -5,7 +5,8 @@ mod validation;
 
 use crate::{limits, models::AppData};
 use file_io::{
-    backup_file_path, data_file_path, replace_data_file, tmp_file_path, write_json_file_limited,
+    backup_file_path, data_file_path, lock_data_directory, replace_data_file, tmp_file_path,
+    write_json_file_limited,
 };
 use migration::{read_app_data_file, BackupBeforeMigrate, LoadedAppData};
 use std::{fs, path::Path};
@@ -21,6 +22,7 @@ const DATA_FILE_NAME: &str = "data.json";
 
 pub fn load_app_data() -> Result<AppData, String> {
     let path = data_file_path()?;
+    lock_data_directory(&path)?;
     let LoadedAppData {
         mut data,
         migrated,

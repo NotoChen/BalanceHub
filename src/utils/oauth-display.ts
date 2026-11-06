@@ -183,8 +183,18 @@ export function quotaBurnRate(
   samples: AccountQuotaSample[],
 ): number | null {
   if (samples.length < 2) return null;
-  const first = samples[0];
-  const last = samples[samples.length - 1];
+  // 窗口重置或上限调整后，回落前的读数属于另一条基线；从最近一次回落之后
+  // 重新起算，否则整段净变化为负，预测会一直消失到旧样本被挤掉。
+  let start = 0;
+  for (let index = 1; index < samples.length; index += 1) {
+    if (samples[index].usedPercent < samples[index - 1].usedPercent) {
+      start = index;
+    }
+  }
+  const recent = start === 0 ? samples : samples.slice(start);
+  if (recent.length < 2) return null;
+  const first = recent[0];
+  const last = recent[recent.length - 1];
   const hours = (last.at - first.at) / 3600;
   if (!Number.isFinite(hours) || hours * 3600 < MIN_BURN_SPAN_SECONDS) return null;
   const rate = (last.usedPercent - first.usedPercent) / hours;

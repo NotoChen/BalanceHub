@@ -292,7 +292,13 @@ fn add_record(
     {
         return;
     }
-    let result = crate::services::cli_sessions::workbench::cached_history_record(path, || {
+    let scope = (mode == SessionHistoryReadMode::Identities).then_some(workspace.workdir.as_path());
+    let result =
+        crate::services::cli_sessions::workbench::cached_history_record_with_mode(
+            path,
+            mode,
+            scope,
+            || {
         if mode == SessionHistoryReadMode::Identities {
             return crate::services::cli_sessions::read_session_header(
                 path,
@@ -324,7 +330,8 @@ fn add_record(
                 }
             }),
         )
-    });
+        },
+        );
     match result {
         Ok(Some(mut record)) => {
             // The project marker can change without changing the transcript.

@@ -258,14 +258,12 @@ fn add_record(
             native_origin_workdir,
         }))
     };
-    // A long-path candidate requires origin evidence, while an exact native
-    // project directory does not. Never reuse a shorter identity-only header
-    // read as proof for a different candidate's stronger requirement.
-    let result = if mode == SessionHistoryReadMode::Identities {
-        read()
-    } else {
-        cached_history_record_facts(path, read)
-    };
+    // Identity and summary scans parse different record shapes from the same
+    // file; the cache keeps them apart by read mode, so an exact native project
+    // directory can reuse either one without weakening the other's requirements.
+    // Identity records carry the requested workspace, so it joins the key.
+    let scope = (mode == SessionHistoryReadMode::Identities).then_some(workspace.workdir.as_path());
+    let result = cached_history_record_facts(path, mode, scope, read);
     match result {
         Ok(Some(facts)) => {
             if let Some(selector) = selector.filter(|_| project_match == ProjectMatch::Prefix) {

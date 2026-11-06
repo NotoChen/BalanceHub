@@ -30,6 +30,12 @@ pub const MAX_PROVIDER_HEADERS: usize = 16;
 pub const MAX_HEADER_NAME_CHARS: usize = 128;
 pub const MAX_HEADER_VALUE_CHARS: usize = 2048;
 pub const MAX_QUOTA_WINDOWS: usize = 3;
+/// How many readings one quota window keeps. The cards draw a short trend and
+/// the saved document must not grow with every scheduled refresh.
+pub const QUOTA_HISTORY_SAMPLES: usize = 24;
+/// A change smaller than this is below what a percent meter can show, so a
+/// refresh that read the same value does not add another point.
+pub const QUOTA_HISTORY_EPSILON: f64 = 0.05;
 pub const MAX_QUOTA_EXPRESSION_CHARS: usize = 512;
 /// 按接口覆盖的请求约定。它替代的是手写脚本，不是批量导入入口；上限用于
 /// 挡住误粘贴整份配置，正常只会有几行改动。

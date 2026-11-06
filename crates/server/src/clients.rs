@@ -33,6 +33,16 @@ pub struct ClientRegistry {
 }
 
 impl ClientRegistry {
+    /// 当前有事件流连接的标签页数量；宽限期内已断开的连接不计入。
+    pub fn online(&self) -> usize {
+        self.inner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .values()
+            .filter(|entry| entry.sender.is_some())
+            .count()
+    }
+
     /// 登记一条事件流连接，返回本次连接的代次。
     pub fn connect(&self, client: &str, sender: mpsc::UnboundedSender<ServerEvent>) -> u64 {
         let mut inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());

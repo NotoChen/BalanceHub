@@ -793,11 +793,23 @@ fn key_auth(api_key: &str) -> ProviderAuth {
 }
 
 fn window(label: &str, used: f64, limit: f64, resets_at: i64) -> ProviderQuotaWindow {
+    let percent = (limit > 0.0).then(|| (used / limit * 100.0).clamp(0.0, 100.0));
+    // 演示卡片也带一段趋势，开发版一眼能看到窗口条上的折线和预测；
+    // 真实刷新会用实际读数覆盖这里。
+    let history = percent.map_or_else(Vec::new, |percent| {
+        (0..6)
+            .map(|index| AccountQuotaSample {
+                at: resets_at - (6 - index) * 1_800,
+                used_percent: (percent * (0.4 + 0.12 * index as f64)).min(percent),
+            })
+            .collect()
+    });
     ProviderQuotaWindow {
         label: label.into(),
         used,
         limit,
         resets_at: Some(resets_at),
+        history,
     }
 }
 

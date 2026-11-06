@@ -33,6 +33,7 @@ pub(super) fn subscription_windows(items: &[Value]) -> Vec<ProviderQuotaWindow> 
                 limit,
                 resets_at: timestamp_millis(window, &["resets_at", "resetsAt"])
                     .map(|value| value / 1000),
+                history: Vec::new(),
             });
             if windows.len() >= MAX_WINDOWS {
                 return windows;

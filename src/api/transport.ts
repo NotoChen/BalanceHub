@@ -76,6 +76,12 @@ const channelTargets = new Map<string, Set<WebChannelMarker>>();
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1_000;
+// 服务端每 25 秒发一条心跳；超过这个时间没有任何帧，说明连接很可能已被
+// 网络设备静默断开，浏览器却还没收到 close。
+const HEARTBEAT_TIMEOUT_MS = 60_000;
+let lastFrameAt = 0;
+let watchdog: ReturnType<typeof setInterval> | null = null;
+let hasConnectedOnce = false;
 
 function eventSocketUrl(): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
@@ -105,10 +111,22 @@ function ensureSocket() {
   // 没有浏览器定位能力的环境（测试、非浏览器宿主）不建立事件流。
   if (typeof WebSocket === "undefined" || typeof location === "undefined") return;
   socket = new WebSocket(eventSocketUrl());
+  lastFrameAt = Date.now();
+  if (watchdog !== null) clearInterval(watchdog);
+  watchdog = setInterval(() => {
+    if (Date.now() - lastFrameAt <= HEARTBEAT_TIMEOUT_MS) return;
+    // 主动关闭会走正常的断线重连，而不是继续显示一份已经过期的状态。
+    socket?.close();
+  }, 20_000);
   socket.onopen = () => {
     reconnectDelay = 1_000;
+    lastFrameAt = Date.now();
+    // 断线期间后端可能已经产生新状态；通知订阅方做一次补偿刷新。
+    if (hasConnectedOnce) dispatch("balancehub-events-reconnected", null);
+    hasConnectedOnce = true;
   };
   socket.onmessage = (message) => {
+    lastFrameAt = Date.now();
     if (typeof message.data !== "string") return;
     try {
       const body = JSON.parse(message.data) as { event?: string; payload?: unknown };
@@ -119,6 +137,10 @@ function ensureSocket() {
   };
   socket.onclose = () => {
     socket = null;
+    if (watchdog !== null) {
+      clearInterval(watchdog);
+      watchdog = null;
+    }
     if (reconnectTimer !== null) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;

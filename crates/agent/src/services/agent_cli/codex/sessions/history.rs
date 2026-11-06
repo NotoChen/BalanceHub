@@ -138,10 +138,13 @@ fn scan(
                         return;
                     }
                 };
-                let loaded = crate::services::cli_sessions::workbench::cached_history_record(
-                    &locator,
-                    || unindexed::read_record(kind, root, &locator, mode),
-                );
+                let loaded =
+                    crate::services::cli_sessions::workbench::cached_history_record_with_mode(
+                        &locator,
+                        mode,
+                        None,
+                        || unindexed::read_record(kind, root, &locator, mode),
+                    );
                 match loaded {
                     Ok(Some(mut record)) => {
                         if !record.summary.id.is_empty()

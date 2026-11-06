@@ -17,6 +17,7 @@ import {
   providerQuotaScopeLabel,
   providerQuotaHeadline,
   providerQuotaTone,
+  providerQuotaBarWindow,
   managedQuotaWindowRows,
   providerQuotaWindowRows,
   providerQuotaWindowWorstLevel,
@@ -205,7 +206,13 @@ test("subscription windows become one readable row of period quotas", () => {
 
   assert.equal(providerHasQuotaWindows(value), false);
   value.quota.windows = [
-    { label: "今日", used: 2.5, limit: 10, resetsAt: now / 1000 + 3 * 3600 },
+    {
+      label: "今日",
+      used: 2.5,
+      limit: 10,
+      resetsAt: now / 1000 + 3 * 3600,
+      history: [{ at: now / 1000 - 3600, usedPercent: 10 }],
+    },
     { label: "本周", used: 30, limit: 40 },
     { label: "本月", used: 0, limit: 0 },
     { label: "多余窗口", used: 1, limit: 2 },
@@ -219,6 +226,11 @@ test("subscription windows become one readable row of period quotas", () => {
   assert.equal(rows[0].level, "ok");
   assert.match(rows[0].caption, /3 小时/);
   assert.equal(rows[0].resetAt, now / 1000 + 3 * 3600);
+  assert.deepEqual(rows[0].history, [
+    { at: now / 1000 - 3600, usedPercent: 10 },
+  ]);
+  // 卡片窗口条复用 OAuth 的进度条，历史必须原样传过去才会画趋势。
+  assert.deepEqual(providerQuotaBarWindow(rows[0]).history, rows[0].history);
   assert.equal(rows[1].percent, 75);
   assert.equal(rows[1].level, "warn");
   assert.equal(rows[1].caption, "");
@@ -242,7 +254,7 @@ test("OAuth and CPA cards read their windows with the relay card's bar format", 
         unit: "%",
         resetAt: now / 1000 + 2 * 3600,
         windowSeconds: 5 * 3600,
-        history: [],
+        history: [{ at: now / 1000 - 1800, usedPercent: 30 }],
       },
       {
         id: "week",
@@ -275,6 +287,9 @@ test("OAuth and CPA cards read their windows with the relay card's bar format", 
   assert.deepEqual(rows.map((row) => row.label), ["5 小时", "每周", "每月"]);
   assert.equal(rows[0].percent, 42);
   assert.equal(rows[0].percentLabel, "42%");
+  assert.deepEqual(rows[0].history, [
+    { at: now / 1000 - 1800, usedPercent: 30 },
+  ]);
   assert.match(rows[0].caption, /2 小时/);
   assert.equal(rows[0].resetAt, now / 1000 + 2 * 3600);
   assert.equal(rows[1].level, "warn");

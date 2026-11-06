@@ -133,6 +133,7 @@ fn rate_limit_windows(value: &serde_json::Value) -> Vec<ProviderQuotaWindow> {
                 used: number_field(item, &["used"]).max(0.0),
                 limit,
                 resets_at: timestamp_millis(item, &["reset_at", "resetAt"]).map(|at| at / 1000),
+                history: Vec::new(),
             })
         })
         .take(MAX_WINDOWS)
@@ -152,6 +153,7 @@ fn subscription_windows(subscription: &serde_json::Value) -> Vec<ProviderQuotaWi
                 used: number_field(subscription, &[&format!("{period}_usage_usd")]).max(0.0),
                 limit,
                 resets_at: None,
+                history: Vec::new(),
             })
         })
         .collect()

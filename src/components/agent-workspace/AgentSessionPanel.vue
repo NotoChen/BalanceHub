@@ -58,12 +58,14 @@ const historyActive = computed(
 const selectedAgentKinds = computed<AgentCliKind[]>(() =>
   navigation.sessionAgentFilter ? [navigation.sessionAgentFilter] : [],
 );
+const workspaceIds = computed(() => navigation.sessionWorkspaceFilter);
 const history = reactive(
   useAgentSessions({
     active: historyActive,
     agentKinds: selectedAgentKinds,
     runtimeScope: sessionEnvironment,
     query,
+    workspaceIds,
     initialRoleFilter: navigation.sessionRoleFilter,
   }),
 );
@@ -77,12 +79,48 @@ const listPositionKey = computed(() =>
     history.scope?.revision,
     navigation.sessionAgentFilter,
     navigation.sessionEnvironment,
+    navigation.sessionWorkspaceFilter,
     history.roleFilter,
     query.value.trim(),
   ]),
 );
 const environments = computed(() => [...new Map((history.scope?.sources ?? []).map((source) => [JSON.stringify(source.runtimeScope), { value: JSON.stringify(source.runtimeScope), label: source.label, scope: source.runtimeScope }])).values()]);
-const environmentValue = computed({ get: () => sessionEnvironment.value ? JSON.stringify(sessionEnvironment.value) : "", set: (value: string) => { sessionEnvironment.value = environments.value.find((entry) => entry.value === value)?.scope ?? null; } });
+const environmentValue = computed({ get: () => sessionEnvironment.value ? JSON.stringify(sessionEnvironment.value) : "", set: (value: string) => { sessionEnvironment.value = environments.value.find((entry) => entry.value === value)?.scope ?? null; navigation.selectSessionWorkspace([]); } });
+/// 工作目录来自原生会话范围；已加载行可以补上范围刷新时暂时缺失的目录。
+const workspaceOptions = computed(() => {
+  const byId = new Map(
+    (history.scope?.workspaces ?? []).map((workspace) => [workspace.id, workspace]),
+  );
+  for (const row of history.rows) {
+    if (!byId.has(row.workspaceId) && row.session.workdir) {
+      byId.set(row.workspaceId, {
+        id: row.workspaceId,
+        path: row.session.workdir,
+        exists: true,
+        isHome: false,
+      });
+    }
+  }
+  return [...byId.values()].sort(
+    (left, right) =>
+      Number(right.isHome) - Number(left.isHome) ||
+      left.path.localeCompare(right.path),
+  );
+});
+const workspaceValue = computed({
+  get: () => navigation.sessionWorkspaceFilter[0] ?? "",
+  set: (value: string) => navigation.selectSessionWorkspace(value ? [value] : []),
+});
+// 范围刷新后项目可能已被删除或不再出现；悬空的项目筛选会让列表永远为空。
+watch(workspaceOptions, (options) => {
+  if (!history.scope) return;
+  if (
+    navigation.sessionWorkspaceFilter.some(
+      (id) => !options.some((option) => option.id === id),
+    )
+  )
+    navigation.selectSessionWorkspace([]);
+});
 const resumeRevision = ref("");
 const issueSources = computed(() =>
   history.sourceStates.filter((source) =>
@@ -98,7 +136,10 @@ const sourceReadSummary = computed(() => {
     : "本次来源读取完成";
 });
 const hasSearchFilters = computed(
-  () => Boolean(query.value.trim()) || history.roleFilter !== "all",
+  () =>
+    Boolean(query.value.trim()) ||
+    history.roleFilter !== "all" ||
+    navigation.sessionWorkspaceFilter.length > 0,
 );
 const detailRuntime = computed(() =>
   props.runtimeSnapshot.sessions.filter((session) =>
@@ -135,12 +176,18 @@ function refresh() {
 function clearSearchFilters() {
   query.value = "";
   history.roleFilter = "all";
+  navigation.selectSessionWorkspace([]);
+}
+function filterWorkspace(workspaceId: string) {
+  if (!workspaceId) return;
+  navigation.selectSessionWorkspace([workspaceId]);
 }
 watch(
   [
     historyActive,
     () => navigation.sessionAgentFilter,
     () => navigation.sessionEnvironment,
+    () => navigation.sessionWorkspaceFilter,
     query,
     () => history.roleFilter,
     () => history.scope?.revision,
@@ -221,6 +268,20 @@ defineExpose({ refresh });
       <aside class="agent-session-browser" aria-label="会话检索">
         <div class="agent-session-filters">
           <a-select v-if="environments.length > 1" v-model="environmentValue" aria-label="会话运行环境"><a-option value="">全部环境</a-option><a-option v-for="environment in environments" :key="environment.value" :value="environment.value">{{ environment.label }}</a-option></a-select>
+          <a-select
+            v-if="workspaceOptions.length > 1"
+            v-model="workspaceValue"
+            class="agent-session-workspace-filter"
+            aria-label="会话项目"
+          >
+            <a-option value="">全部项目</a-option>
+            <a-option
+              v-for="workspace in workspaceOptions"
+              :key="workspace.id"
+              :value="workspace.id"
+              >{{ workspace.isHome ? "主目录" : workspace.path }}</a-option
+            >
+          </a-select>
           <a-select v-model="history.roleFilter" aria-label="会话角色"
             ><a-option value="all">全部会话</a-option
             ><a-option value="main">主会话</a-option
@@ -333,6 +394,7 @@ defineExpose({ refresh });
           :agents="cliRuntime.agents"
           allow-resume
           allow-relocation
+          allow-workspace-filter
           :resume-busy="tasks.isReserved"
           :runtime-sessions="runtimeSnapshot.sessions"
           :activating-id="activatingId"
@@ -340,6 +402,7 @@ defineExpose({ refresh });
           @parent="history.openDetail"
           @resume="openResume"
           @relocate="openRelocation"
+          @workspace-filter="filterWorkspace"
           @activate="emit('activateRuntime', $event)"
           @position="listPosition = $event"
         />

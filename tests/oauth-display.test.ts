@@ -137,6 +137,16 @@ test("burn rate needs two readings far enough apart and a rising window", () => 
     ]),
     null,
   );
+  // 但重置后的新周期要能重新得到速度，而不是等旧样本被挤掉。
+  assert.equal(
+    quotaBurnRate([
+      { at: 0, usedPercent: 90 },
+      { at: 3600, usedPercent: 95 },
+      { at: 7200, usedPercent: 0 },
+      { at: 10800, usedPercent: 10 },
+    ]),
+    10,
+  );
 });
 
 test("exhaustion is predicted only when it lands before the reset", () => {

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// 前端收到后重新读取 Provider 视图，包括运行状态和内存中的挑战状态。
 pub const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
@@ -6,7 +6,7 @@ pub const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
 /// 后台调度器向面板报告当前自动任务，避免网络请求期间看起来像应用卡死。
 pub const BACKGROUND_TASK_EVENT: &str = "background-task";
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackgroundTaskEvent {
     pub task_id: String,

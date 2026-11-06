@@ -3,6 +3,7 @@
 use super::{
     budget::{with_history_cache, with_read_budget, with_source_root},
     scope::{build_scope, history_adapter, session_identity, workspace_for_path},
+    state,
     workspace_scan::scan_workspaces,
     AgentSessionActor,
 };
@@ -44,13 +45,16 @@ pub(crate) fn count(
             let mut handles = Vec::new();
             for source in batch {
                 let config = scope.sources.get(&source.id).ok_or("原生会话来源已失效")?;
+                // Reuse the same per-actor source cache as list queries: counts
+                // and paging read the same headers, and a fresh cache per request
+                // re-parses every session file on each refresh.
+                let cache = state::source_resources(actor, source).cache;
                 let source_budget = SessionReadBudget::new(
                     budget.deadline,
                     budget.cancelled.clone(),
                     budget.max_bytes,
                 );
                 handles.push(threads.spawn(move || {
-                    let cache = Default::default();
                     with_read_budget(&source_budget, || {
                         with_history_cache(&cache, || {
                             with_source_root(&config.config_root, || {

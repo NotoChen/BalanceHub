@@ -19,6 +19,7 @@ pub mod network;
 pub mod platform;
 pub mod provider_protocol_catalog;
 pub mod quota_expression;
+pub mod quota_history;
 pub mod runtime;
 pub mod services;
 pub mod state;

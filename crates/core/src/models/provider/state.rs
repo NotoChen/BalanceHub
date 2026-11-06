@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 use super::defaults;
 use crate::models::{
     default_liveness_interval, default_liveness_random_min_interval, default_liveness_timeout,
-    default_true, AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode, LivenessPromptMode,
-    LivenessRecord, ProviderApiKeyOption, ProviderCheckInMethod, ProviderCheckInRecord,
-    ProviderNotificationMode, ProviderProtocol, ProviderProxyMode, ProviderQuotaScope,
-    ProviderStatus, ProviderTurnstileMode,
+    default_true, AccountQuotaSample, AgentCliKind, AuthMode, AuthSource, LivenessIntervalMode,
+    LivenessPromptMode, LivenessRecord, ProviderApiKeyOption, ProviderCheckInMethod,
+    ProviderCheckInRecord, ProviderNotificationMode, ProviderProtocol, ProviderProxyMode,
+    ProviderQuotaScope, ProviderStatus, ProviderTurnstileMode,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +224,10 @@ pub struct ProviderQuotaWindow {
     /// 窗口下一次重置的 unix 秒；窗口不重置时为空。
     #[serde(default)]
     pub resets_at: Option<i64>,
+    /// 本应用自己观察到的窗口读数。站点只返回当前值，趋势和耗尽预测只能
+    /// 来自刷新历史；旧文档没有这一项时按空序列读取。
+    #[serde(default)]
+    pub history: Vec<AccountQuotaSample>,
 }
 
 impl ProviderQuotaWindow {
@@ -234,6 +238,25 @@ impl ProviderQuotaWindow {
 }
 
 impl ProviderQuota {
+    /// 把上一次刷新留下的窗口读数接到本次结果上，并追加本次读数。
+    ///
+    /// 套餐窗口没有稳定 id，按标签对应；站点不再返回某个窗口时，它重新出现
+    /// 会从新序列开始，避免把另一档额度的历史算进来。刷新失败但保留了旧窗口
+    /// 时，百分比没有变化，去重规则不会追加重复点。
+    pub fn record_window_history(&mut self, previous: &ProviderQuota, at: i64) {
+        for window in &mut self.windows {
+            let prior = previous
+                .windows
+                .iter()
+                .find(|prior| prior.label == window.label);
+            if let Some(prior) = prior {
+                window.history.clone_from(&prior.history);
+            }
+            let percent = window.percent();
+            crate::quota_history::push_sample(&mut window.history, percent, at);
+        }
+    }
+
     /// 压力最大的窗口决定账号是否还有余量，卡片据此给窗口着色。
     pub fn tightest_window(&self) -> Option<&ProviderQuotaWindow> {
         self.windows

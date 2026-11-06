@@ -282,7 +282,7 @@ fn quota_history_skips_a_reading_the_meter_cannot_show() {
 
 #[test]
 fn quota_history_starts_a_new_window_and_drops_the_oldest_point() {
-    let history = (0..super::QUOTA_HISTORY_SAMPLES as i64)
+    let history = (0..crate::limits::QUOTA_HISTORY_SAMPLES as i64)
         .map(|index| AccountQuotaSample {
             at: index,
             used_percent: index as f64,
@@ -300,7 +300,7 @@ fn quota_history_starts_a_new_window_and_drops_the_oldest_point() {
     super::record_quota_history(&mut next, Some(&previous), 99);
 
     let five_hour = &next.windows[0].history;
-    assert_eq!(five_hour.len(), super::QUOTA_HISTORY_SAMPLES);
+    assert_eq!(five_hour.len(), crate::limits::QUOTA_HISTORY_SAMPLES);
     assert_eq!(five_hour.first().unwrap().at, 1);
     assert_eq!(five_hour.last().unwrap().at, 99);
     // 新窗口没有历史可继承，但本次读数必须成为它的起点。
