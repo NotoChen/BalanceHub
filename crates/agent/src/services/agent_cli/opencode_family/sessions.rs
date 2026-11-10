@@ -56,7 +56,7 @@ pub(crate) fn xdg_data_dir_for_home(home: &Path, app: &str) -> PathBuf {
         if let Some(local) = configured_path("LOCALAPPDATA").filter(|path| path.is_absolute()) {
             return local.join(app);
         }
-        return home.join("AppData/Local").join(app);
+        home.join("AppData/Local").join(app)
     }
     #[cfg(not(target_os = "windows"))]
     {
