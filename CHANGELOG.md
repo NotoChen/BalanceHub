@@ -4,6 +4,12 @@ BalanceHub 的重要变更会记录在这里。
 
 ## 0.6.11
 
+### 新增
+
+- 集成级 Agent 补齐临时启动、隔离测活、原生会话读取与配置盘点，覆盖 Qwen Code、OpenCode、Pi、Crush、Copilot CLI、Droid、Qoder、CodeBuddy、OpenClaw、jcode、MothX、Kimi Code、StepCode、DevEco Code、MiMo Code、AtomCode、Cline、Prime Agent、PenguinHarness、Goose、Hermes Agent、dsh、omp、Mister Morph、MiniMax Code 与 OmO；测活与临时切换按各 CLI 实测能力提供（Qoder 暂无测活，PenguinHarness 暂不临时切换模型）。
+- 新增 Command Code 深度接入：原生配置读写、临时启动、隔离测活、原生会话读取与用户级托管 Hook。
+- Qwen Code、CodeBuddy、Qoder、Kimi Code 与 Droid 新增用户级会话 Hook；通用 MCP 盘点与 Agent 工作台目录同步扩展。
+
 ### 修正
 
 - 修复中转站卡片测活条只显示一小段的问题：横条改为固定展示最近 24 次自动测活，每一格对应一次，成功率与格子使用同一批记录，不再按小时合并。
