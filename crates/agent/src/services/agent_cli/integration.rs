@@ -1,17 +1,13 @@
 //! Shared scaffolding for integration-tier Agent CLIs.
 //!
 //! These Agents expose native configuration and, where the CLI's launch flags
-//! are verified, a temporary launch plan, but do not publish an asset inventory
-//! yet. An empty environment pipeline keeps the MCP / Skill / Hook surfaces off
-//! without inventing parser semantics; each Agent still owns its native config
-//! paths and formats.
+//! are verified, a temporary launch plan. Their MCP declarations are read from
+//! ordinary native documents by the shared integration inventory; Skill and
+//! Hook editing stay off because those surfaces need Agent-specific enablement
+//! and mutation semantics.
 
-use super::contracts::{
-    AgentAssetAssessmentIndex, AgentAssetAssessmentRequest, AgentAssetParseRequest,
-    AgentAssetResolveRequest, AgentContextDiscovery, AgentContextDiscoveryRequest,
-    AgentParseOutput, AgentResolveOutput, AgentSourceDiscoveryRequest, EnvironmentAdapter,
-    InitialSourceOutput,
-};
+use super::contracts::{AgentContextDiscovery, AgentContextDiscoveryRequest, EnvironmentAdapter};
+use super::environment::generic_mcp;
 use crate::models::AgentConfigurationContext;
 use std::path::{Path, PathBuf};
 
@@ -21,12 +17,12 @@ pub(crate) const fn environment(
 ) -> EnvironmentAdapter {
     EnvironmentAdapter::with_pipeline(
         discover_contexts,
-        no_sources,
+        generic_mcp::discover_sources,
         None,
         package_name,
-        no_parse,
-        no_resolve,
-        no_assess,
+        generic_mcp::parse_assets,
+        generic_mcp::resolve_assets,
+        generic_mcp::assess_assets,
     )
 }
 
@@ -70,16 +66,6 @@ pub(crate) fn contexts(
     parser_version: u32,
 ) -> Vec<AgentConfigurationContext> {
     super::environment::default_context(request, config_root, parser_version)
-}
-
-fn no_sources(_: AgentSourceDiscoveryRequest<'_>, _: &mut dyn InitialSourceOutput) {}
-
-fn no_parse(_: AgentAssetParseRequest<'_>, _: &mut dyn AgentParseOutput) {}
-
-fn no_resolve(_: AgentAssetResolveRequest<'_>, _: &mut dyn AgentResolveOutput) {}
-
-fn no_assess(_: AgentAssetAssessmentRequest<'_>) -> AgentAssetAssessmentIndex {
-    AgentAssetAssessmentIndex::default()
 }
 
 /// API keys and model IDs reach native config and process arguments. Reject

@@ -154,11 +154,12 @@ fn index_source(path: &Path) -> SessionTranscriptSource {
             .extension()
             .is_some_and(|extension| extension == "json")
         {
-            SessionTranscriptFormat::JsonMessages
+            SessionTranscriptFormat::Messages
         } else {
-            SessionTranscriptFormat::JsonLines
+            SessionTranscriptFormat::Lines
         },
         window_safe: true,
+        sqlite: None,
         decode: decoder::decode,
     }
 }

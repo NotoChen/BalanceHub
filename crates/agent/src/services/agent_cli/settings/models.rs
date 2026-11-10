@@ -54,7 +54,8 @@ pub(super) fn choices(snapshot: &NativeSnapshot) -> Vec<AgentSettingChoice> {
             | AgentCliKind::Morph
             | AgentCliKind::MiniMaxCode
             | AgentCliKind::Raycast
-            | AgentCliKind::Omo => {}
+            | AgentCliKind::Omo
+            | AgentCliKind::CommandCode => {}
         }
     }
     model_catalog::normalize(&mut configured);

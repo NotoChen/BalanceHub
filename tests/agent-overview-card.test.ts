@@ -392,6 +392,31 @@ test("long native version text remains available from the compact version entry"
   assert.deepEqual(card.events, ["installation"]);
 });
 
+test("configuration-only cards do not promise a launch entry", (t) => {
+  const agent = workspaceAgent();
+  const card = mountCard(t, {
+    agent: { ...agent, capabilities: { ...agent.capabilities,
+      temporaryLaunch: false, assetInventory: false, hookInventory: false, runtimeObservation: false } },
+  });
+  const badge = descendants(card.root).find((node) => node.type === "span"
+    && visibleText(node) === "配置接入");
+  assert.ok(badge);
+  assert.match(String(badge.props.title), /^已接入原生配置；/);
+  assert.doesNotMatch(String(badge.props.title), /CLI 启动能力/);
+});
+
+test("launch-capable integration cards keep the launch promise", (t) => {
+  const agent = workspaceAgent();
+  const card = mountCard(t, {
+    agent: { ...agent, capabilities: { ...agent.capabilities,
+      assetInventory: false, hookInventory: false, runtimeObservation: false } },
+  });
+  const badge = descendants(card.root).find((node) => node.type === "span"
+    && visibleText(node) === "配置接入");
+  assert.ok(badge);
+  assert.match(String(badge.props.title), /CLI 启动能力/);
+});
+
 test("the card names the last observed activity and stays quiet without evidence", async (t) => {
   const card = mountCard(t, { lastActivityAt: Date.now() - 90 * 60_000 });
   assert.match(card.text(), /最近活动 1 小时前/);

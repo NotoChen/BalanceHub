@@ -641,6 +641,9 @@ export interface AgentCliCapabilities {
   sessionName: boolean;
   liveness: boolean;
   defaultConfig: boolean;
+  assetInventory: boolean;
+  hookInventory: boolean;
+  runtimeObservation: boolean;
 }
 
 export interface TemporaryTerminalProbeResult {

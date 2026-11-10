@@ -181,7 +181,7 @@ pub(crate) fn search(
             // already searches the transcript it can decode in one pass.
             if sources.len() != 1
                 || !sources[0].window_safe
-                || sources[0].format != SessionTranscriptFormat::JsonLines
+                || sources[0].format != SessionTranscriptFormat::Lines
                 || compressed(&sources[0].path)
             {
                 return Err("该会话格式不支持按片段搜索".into());
@@ -289,8 +289,9 @@ mod tests {
         SessionTranscriptSource {
             path: path.to_path_buf(),
             parser_version: 1,
-            format: SessionTranscriptFormat::JsonLines,
+            format: SessionTranscriptFormat::Lines,
             window_safe: true,
+            sqlite: None,
             decode,
         }
     }

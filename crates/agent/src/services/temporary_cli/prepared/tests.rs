@@ -11,6 +11,38 @@ fn identity() -> AgentSessionLaunchIdentity {
 }
 
 #[test]
+fn history_source_identity_fills_gaps_but_never_replaces_the_launch_isolation() {
+    let mut adapter = EnvironmentPatch::default();
+    adapter.set("PI_CODING_AGENT_DIR", "/tmp/<launch>/omp-agent");
+    adapter.set("BALANCEHUB_OMP_API_KEY", "synthetic-key");
+    adapter.remove("PI_CONFIG_DIR");
+    let mut plan = TemporaryLaunchPlan {
+        args: Vec::new(),
+        environment: adapter,
+        auxiliary_files: Vec::new(),
+        isolated_home: None,
+    };
+    let mut source = EnvironmentPatch::default();
+    source.set("PI_CODING_AGENT_DIR", "/home/<user>/.omp/agent");
+    source.remove("PI_CODING_AGENT_DIR");
+    source.set(
+        "PI_CODING_AGENT_SESSION_DIR",
+        "/home/<user>/.omp/agent/sessions",
+    );
+    merge_source_environment(&mut plan, &source);
+    let values: Vec<_> = plan.environment.set_values().collect();
+    assert!(values.contains(&("PI_CODING_AGENT_DIR", "/tmp/<launch>/omp-agent")));
+    assert!(values.contains(&(
+        "PI_CODING_AGENT_SESSION_DIR",
+        "/home/<user>/.omp/agent/sessions"
+    )));
+    assert!(plan
+        .environment
+        .removed_names()
+        .any(|name| name == "PI_CONFIG_DIR"));
+}
+
+#[test]
 fn native_preparation_uses_no_provider_and_registers_identity_before_any_hook() {
     for cli_kind in [
         AgentCliKind::Codex,
@@ -130,7 +162,7 @@ fn provider_resume_uses_the_same_preparation_and_exact_native_identity() {
             run_settings: None,
             api_key_override: "",
             model_override: "",
-            inherited_model: "",
+            inherited_model: "inherited-model",
             session_name_override: "",
             session_title: "",
             resume_id: &identity.native_session_id,
@@ -144,6 +176,8 @@ fn provider_resume_uses_the_same_preparation_and_exact_native_identity() {
     .unwrap();
     let script = fs::read_to_string(&prepared.script).unwrap();
     assert!(script.contains("'resume' 'native-resume-123'"));
+    // 恢复历史会话没有显式模型时沿用原会话模型，而不是把空模型交给适配器。
+    assert!(script.contains("'-m' 'inherited-model'"));
     assert!(script.contains("OPENAI_API_KEY='sk-synthetic-key'"));
     assert!(!script.contains("bh_use_shell_cli"));
     assert_eq!(

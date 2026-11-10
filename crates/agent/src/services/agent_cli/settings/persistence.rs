@@ -76,6 +76,9 @@ pub(crate) fn supports_form(kind: AgentCliKind, spec: &AgentConfigurationSourceS
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast => false,
+        // The default model lives in config.json; settings.json can override
+        // it, so both files offer the structured model field.
+        AgentCliKind::CommandCode => matches!(role, "config" | "settings"),
     }
 }
 

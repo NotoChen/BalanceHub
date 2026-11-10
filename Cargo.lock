@@ -380,6 +380,7 @@ dependencies = [
  "balancehub-core",
  "base64 0.22.1",
  "chrono",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "junction",

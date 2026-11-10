@@ -195,10 +195,10 @@ fn add_record(
                 native_origin,
             )
         } else {
-            let Some(ParsedClaudeTranscript {
+            let Some(ParsedSessionTranscript {
                 summary,
                 native_origin_workdir,
-            }) = parse_transcript(kind, path)?
+            }) = parse_transcript(kind, path, "Claude", "claudeTranscript")?
             else {
                 return Ok(None);
             };

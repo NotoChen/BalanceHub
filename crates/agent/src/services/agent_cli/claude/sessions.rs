@@ -13,7 +13,7 @@ use super::super::contracts::{
 };
 
 const INDEX_PARSER_VERSION: u32 = 2;
-mod decoder;
+pub(crate) mod decoder;
 
 mod history;
 mod metadata;
@@ -37,21 +37,26 @@ fn index_source(path: &Path) -> SessionTranscriptSource {
     SessionTranscriptSource {
         path: path.to_path_buf(),
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionTranscriptFormat::JsonLines,
+        format: SessionTranscriptFormat::Lines,
         window_safe: true,
+        sqlite: None,
         decode: decoder::decode,
     }
 }
 
-struct ParsedClaudeTranscript {
-    summary: CliSessionSummary,
-    native_origin_workdir: Option<std::path::PathBuf>,
+/// Claude-compatible JSONL transcript facts. Qoder CLI writes the same
+/// record shape, so it reuses this parser and its decoder.
+pub(crate) struct ParsedSessionTranscript {
+    pub(crate) summary: CliSessionSummary,
+    pub(crate) native_origin_workdir: Option<std::path::PathBuf>,
 }
 
-fn parse_transcript(
+pub(crate) fn parse_transcript(
     cli_kind: AgentCliKind,
     path: &Path,
-) -> Result<Option<ParsedClaudeTranscript>, String> {
+    label: &str,
+    metadata_source: &str,
+) -> Result<Option<ParsedSessionTranscript>, String> {
     let mut summary = TranscriptSummary::default();
     let mut valid_record = false;
     let mut observe = |value: &Value| {
@@ -70,7 +75,7 @@ fn parse_transcript(
     let source_truncated = read_json_lines_limited(
         path,
         256 * 1024,
-        "读取 Claude 会话摘要",
+        &format!("读取 {label} 会话摘要"),
         |_, value| observe(&value),
     )?;
     if summary.session_id.is_none() && source_truncated && !valid_record {
@@ -104,7 +109,7 @@ fn parse_transcript(
         if fs::metadata(path).is_ok_and(|metadata| metadata.len() == 0) {
             return Ok(None);
         }
-        return Err("Claude 会话记录没有可解析的原生事件".into());
+        return Err(format!("{label} 会话记录没有可解析的原生事件"));
     }
 
     let native_origin_workdir = summary.native_origin_workdir.clone();
@@ -114,7 +119,7 @@ fn parse_transcript(
         .unwrap_or_default();
     let id = summary
         .session_id
-        .ok_or("Claude 会话记录没有有效的原生会话 ID")?;
+        .ok_or_else(|| format!("{label} 会话记录没有有效的原生会话 ID"))?;
     let first_message = summary.first_user_message.or_else(|| {
         if history::is_subagent_path(path) {
             summary.first_assistant_message
@@ -133,7 +138,7 @@ fn parse_transcript(
     let preview = first_message.and_then(|value| clean_text(value, 240));
     let model = summary.last_model.clone();
     let models = summary.models.into_iter().collect::<Vec<_>>();
-    Ok(Some(ParsedClaudeTranscript {
+    Ok(Some(ParsedSessionTranscript {
         summary: CliSessionSummary {
             id,
             title,
@@ -153,7 +158,7 @@ fn parse_transcript(
             cli_version: summary.cli_version.and_then(|value| clean_text(value, 50)),
             archived: false,
             can_resume: true,
-            metadata_source: "claudeTranscript".into(),
+            metadata_source: metadata_source.into(),
         },
         native_origin_workdir,
     }))

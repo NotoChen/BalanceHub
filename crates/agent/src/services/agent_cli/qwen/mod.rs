@@ -2,13 +2,16 @@ mod config;
 mod configuration;
 mod environment;
 mod launch;
+mod liveness;
+mod sessions;
 
 use super::discovery::paths::{
     node_cli_home_candidates, AgentHomeCandidateScanRequest, AgentHomeCandidateScanResult,
 };
 use super::{
     contracts::{
-        DefaultConfigAdapter, EndpointAdapter, TemporaryLaunchAdapter, TemporaryLaunchFeatures,
+        DefaultConfigAdapter, EndpointAdapter, LivenessAdapter, SessionAdapter,
+        TemporaryLaunchAdapter, TemporaryLaunchFeatures,
     },
     AgentCliDefinition,
 };
@@ -19,7 +22,7 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
         kind,
         label: "Qwen Code",
         executable: "qwen",
-        session_name_hint: "Qwen Code 暂未接入会话工作台；本次启动只能创建新会话",
+        session_name_hint: "Qwen Code 会话由原生会话 ID 继续；本次启动创建新会话",
         additional_env_keys: &[],
         home_scan,
         invalid_path_reason: None,
@@ -29,13 +32,16 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
         temporary_launch: Some(TemporaryLaunchAdapter::new(
             TemporaryLaunchFeatures {
                 model_selection: true,
-                session_resume: false,
+                session_resume: true,
                 session_name: false,
             },
             launch::build_plan,
         )),
-        sessions: None,
-        liveness: None,
+        sessions: Some(SessionAdapter::new(sessions::HISTORY, None)),
+        liveness: Some(LivenessAdapter::new(
+            liveness::build_plan,
+            liveness::parse_output,
+        )),
         default_config: Some(DefaultConfigAdapter::new(
             config::snapshot,
             config::candidates,

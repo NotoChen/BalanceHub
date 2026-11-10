@@ -195,6 +195,7 @@ fn fixture_contexts(
         AgentCliKind::MiniMaxCode => ".minimax",
         AgentCliKind::Raycast => ".config/raycast/ai",
         AgentCliKind::Omo => ".omo/agent",
+        AgentCliKind::CommandCode => ".commandcode",
     };
     for context in &mut contexts {
         context.config_root = request.home.join(directory).to_string_lossy().into_owned();

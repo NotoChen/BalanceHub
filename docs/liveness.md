@@ -1,13 +1,13 @@
 ---
 layout: default
 title: 测活配置
-description: 配置 Codex CLI、Claude Code、Gemini CLI 与 Grok Build 的真实请求测活。
+description: 配置 Agent CLI 的真实请求测活。
 page_class: document-page
 ---
 
 # 测活配置
 
-测活用于观察某个中转站在 Agent CLI 场景下是否可用。当前内置 Codex CLI、Claude Code、Gemini CLI 和 Grok Build；测活只通过所选本机 CLI 执行真实请求，不提供直接 HTTP 调用。它不是普通余额刷新，也不会替代请求日志。
+测活用于观察某个中转站在 Agent CLI 场景下是否可用。当前 32 种已接入 Agent 中，除 Qoder、PenguinHarness 与 Raycast 外的 29 种都支持测活，包括 Codex、Claude Code、Gemini CLI、Grok Build、Pi、OmO、omp、jcode、Qwen Code、OpenCode、Crush、Cline、Command Code 等；不支持的 Agent 不会出现在 **执行 Agent** 选项中。测活只通过所选本机 CLI 执行真实请求，不提供直接 HTTP 调用。它不是普通余额刷新，也不会替代请求日志。
 
 ## 全局与单站配置
 

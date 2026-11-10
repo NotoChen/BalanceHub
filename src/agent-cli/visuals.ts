@@ -158,6 +158,11 @@ export const agentCliVisuals = {
     orbitColor: "color-mix(in srgb, var(--color-text-1) 88%, transparent)",
     orbitGlow: "color-mix(in srgb, var(--color-text-1) 28%, transparent)",
   },
+  commandCode: {
+    source: new URL("../assets/logos/command-code.svg", import.meta.url).href,
+    orbitColor: "color-mix(in srgb, var(--color-text-1) 88%, transparent)",
+    orbitGlow: "color-mix(in srgb, var(--color-text-1) 28%, transparent)",
+  },
 } as const;
 
 export type AgentCliKind = keyof typeof agentCliVisuals;

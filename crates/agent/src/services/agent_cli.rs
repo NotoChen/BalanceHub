@@ -76,6 +76,10 @@ impl AgentCliDefinition {
                 .is_some_and(|adapter| adapter.supports_session_name()),
             liveness: self.liveness.is_some(),
             default_config: self.default_config.is_some(),
+            asset_inventory: self.environment.asset_inventory(),
+            hook_inventory: self.environment.hook_adapter().is_some(),
+            runtime_observation: self.temporary_launch.is_some()
+                || self.environment.hook_adapter().is_some(),
         }
     }
 
@@ -135,7 +139,9 @@ macro_rules! register_agent_clis {
 // 枚举身份、模块声明和注册表由同一份目录生成。
 crate::agent_cli_catalog::for_each_agent_cli!(register_agent_clis);
 
+pub(crate) use droid::hook_config_dir_for_home as droid_hook_config_dir_for_home;
 pub(crate) use gemini::merge_temporary_system_settings as merge_gemini_temporary_settings;
+pub(crate) use kimi::hook_config_dir_for_home as kimi_hook_config_dir_for_home;
 
 pub(crate) fn definitions() -> &'static [AgentCliDefinition] {
     debug_assert!(AgentCliKind::ALL.iter().all(|kind| {
@@ -424,6 +430,19 @@ mod tests {
                 capabilities.default_config,
                 registered_definition.default_config.is_some()
             );
+            assert_eq!(
+                capabilities.asset_inventory,
+                registered_definition.environment.asset_inventory()
+            );
+            assert_eq!(
+                capabilities.hook_inventory,
+                registered_definition.environment.hook_adapter().is_some()
+            );
+            assert_eq!(
+                capabilities.runtime_observation,
+                registered_definition.temporary_launch.is_some()
+                    || registered_definition.environment.hook_adapter().is_some()
+            );
         }
 
         assert!(!definition(AgentCliKind::Codex).capabilities().session_name);
@@ -439,16 +458,10 @@ mod tests {
                 .capabilities()
                 .temporary_launch
         );
-        assert!(
-            !definition(AgentCliKind::Droid)
-                .capabilities()
-                .temporary_launch
-        );
-        assert!(
-            !definition(AgentCliKind::Jcode)
-                .capabilities()
-                .temporary_launch
-        );
+        let jcode = definition(AgentCliKind::Jcode).capabilities();
+        assert!(jcode.temporary_launch);
+        assert!(jcode.session_resume);
+        assert!(jcode.liveness);
         assert!(
             definition(AgentCliKind::Gemini)
                 .capabilities()
@@ -462,6 +475,99 @@ mod tests {
         );
         assert!(definition(AgentCliKind::Grok).capabilities().liveness);
         assert!(definition(AgentCliKind::Grok).capabilities().default_config);
+        let hermes = definition(AgentCliKind::Hermes).capabilities();
+        assert!(hermes.temporary_launch);
+        assert!(hermes.session_resume);
+        assert!(hermes.liveness);
+        assert!(definition(AgentCliKind::Dsh).capabilities().liveness);
+        assert!(definition(AgentCliKind::QwenCode).capabilities().liveness);
+        assert!(definition(AgentCliKind::OpenCode).capabilities().liveness);
+        let pi = definition(AgentCliKind::Pi).capabilities();
+        assert!(pi.temporary_launch);
+        assert!(pi.session_resume);
+        assert!(pi.session_name);
+        assert!(pi.liveness);
+        let crush = definition(AgentCliKind::Crush).capabilities();
+        assert!(crush.temporary_launch);
+        assert!(crush.session_resume);
+        assert!(crush.liveness);
+        let cline = definition(AgentCliKind::Cline).capabilities();
+        assert!(cline.temporary_launch);
+        assert!(cline.session_resume);
+        assert!(cline.liveness);
+        assert!(definition(AgentCliKind::CodeBuddy).capabilities().liveness);
+        let goose = definition(AgentCliKind::Goose).capabilities();
+        assert!(goose.temporary_launch);
+        assert!(goose.session_resume);
+        assert!(goose.session_name);
+        assert!(goose.liveness);
+        assert!(definition(AgentCliKind::OpenClaw).capabilities().liveness);
+        let droid = definition(AgentCliKind::Droid).capabilities();
+        assert!(droid.temporary_launch);
+        assert!(droid.session_resume);
+        assert!(droid.liveness);
+        let copilot = definition(AgentCliKind::Copilot).capabilities();
+        assert!(copilot.temporary_launch);
+        assert!(copilot.session_resume);
+        assert!(copilot.session_name);
+        assert!(copilot.liveness);
+        assert!(definition(AgentCliKind::KimiCode).capabilities().liveness);
+        assert!(definition(AgentCliKind::MiMoCode).capabilities().liveness);
+        assert!(
+            definition(AgentCliKind::MiniMaxCode)
+                .capabilities()
+                .liveness
+        );
+        let step = definition(AgentCliKind::StepCode).capabilities();
+        assert!(step.temporary_launch);
+        assert!(step.session_resume);
+        assert!(step.liveness);
+        let prime = definition(AgentCliKind::PrimeAgent).capabilities();
+        assert!(prime.temporary_launch);
+        assert!(prime.session_resume);
+        assert!(prime.liveness);
+        let morph = definition(AgentCliKind::Morph).capabilities();
+        assert!(morph.temporary_launch);
+        assert!(morph.liveness);
+        assert!(definition(AgentCliKind::MothX).capabilities().liveness);
+        let omp = definition(AgentCliKind::Omp).capabilities();
+        assert!(omp.temporary_launch);
+        assert!(omp.session_resume);
+        assert!(!omp.session_name);
+        assert!(omp.liveness);
+        let omo = definition(AgentCliKind::Omo).capabilities();
+        assert!(omo.temporary_launch);
+        assert!(omo.session_resume);
+        assert!(omo.session_name);
+        assert!(omo.liveness);
+        let atomcode = definition(AgentCliKind::AtomCode).capabilities();
+        assert!(atomcode.temporary_launch);
+        assert!(atomcode.session_resume);
+        assert!(atomcode.liveness);
+        let deveco = definition(AgentCliKind::DevEco).capabilities();
+        assert!(deveco.temporary_launch);
+        assert!(deveco.session_resume);
+        assert!(deveco.liveness);
+        let mimo = definition(AgentCliKind::MiMoCode).capabilities();
+        assert!(mimo.temporary_launch);
+        assert!(mimo.session_resume);
+        assert!(mimo.liveness);
+        let kimi = definition(AgentCliKind::KimiCode).capabilities();
+        assert!(kimi.temporary_launch);
+        assert!(kimi.session_resume);
+        assert!(kimi.liveness);
+        let dsh = definition(AgentCliKind::Dsh).capabilities();
+        assert!(dsh.temporary_launch);
+        assert!(dsh.session_resume);
+        assert!(dsh.liveness);
+        let codebuddy = definition(AgentCliKind::CodeBuddy).capabilities();
+        assert!(codebuddy.temporary_launch);
+        assert!(codebuddy.session_resume);
+        assert!(codebuddy.liveness);
+        let openclaw = definition(AgentCliKind::OpenClaw).capabilities();
+        assert!(openclaw.temporary_launch);
+        assert!(openclaw.session_resume);
+        assert!(openclaw.liveness);
     }
 
     #[test]

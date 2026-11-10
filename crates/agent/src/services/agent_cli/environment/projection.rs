@@ -1733,7 +1733,7 @@ fn resolve_native_ref_index(
             .then_some(index);
     }
     let candidates = by_native.get(&(reference.category, reference.native_id.clone()))?;
-    (candidates.len() == 1).then_some(candidates[0])
+    (candidates.len() == 1).then(|| candidates[0])
 }
 
 fn resolve_relationship(request: RelationshipResolutionRequest<'_>) {

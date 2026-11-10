@@ -16,6 +16,7 @@ use yaml_edit::{Mapping, Sequence};
 const PROVIDER_ID: &str = "balancehub";
 const PI_ROW: &str = "llm-pi-ai";
 const PI_PLUGIN: &str = "@deepseek-ai/dsh-llm-pi-ai";
+pub(super) const API_KEY_ENV: &str = "BALANCEHUB_DSH_API_KEY";
 const DEFAULT_MODEL_ROW: &str = "agent-default-model";
 const PATCH_CONTEXT: &str = "dsh 补丁配置";
 const SETTINGS_CONTEXT: &str = "dsh 设置";
@@ -26,6 +27,10 @@ pub(super) fn data_dir_for_home(home: &Path) -> PathBuf {
         .map(|path| expand_tilde(&path.to_string_lossy(), home))
         .filter(|path| path.is_absolute())
         .unwrap_or_else(|| home.join(".dsh"))
+}
+
+pub(super) fn data_dir() -> Option<PathBuf> {
+    Some(data_dir_for_home(&user_home()?))
 }
 
 /// The patch list dsh reads: the active profile's, else the desktop app's or
@@ -84,6 +89,77 @@ pub(super) fn settings_path_for_home(home: &Path) -> PathBuf {
 
 pub(super) fn settings_path_for_root(root: &Path) -> PathBuf {
     root.join("settings.yaml")
+}
+
+/// The provider/model dsh currently starts a new session with, read from the
+/// saved pick or the active profile patch. A launch overlay must repeat the
+/// provider because a patch row replaces the whole config object.
+pub(super) fn active_default_model() -> Option<(String, String)> {
+    let root = data_dir()?;
+    let patch = std::fs::read_to_string(patch_path_for_root(&root)).ok()?;
+    let items = yaml_source::value(&patch).ok()?;
+    let items = items.as_array()?;
+    let saved = read_stable_optional(&settings_path_for_root(&root))
+        .ok()
+        .flatten()
+        .and_then(|file| yaml_source::value(&file.text).ok())
+        .and_then(|root| root.get(DEFAULT_MODEL_ROW).cloned());
+    let config = saved.or_else(|| last_config(items, DEFAULT_MODEL_ROW).cloned())?;
+    let provider = config
+        .get("provider")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let model = config
+        .get("model")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some((provider.to_string(), model.to_string()))
+}
+
+pub(super) fn temporary_patch(model: &str, base_url: &str) -> Result<String, String> {
+    serde_yaml_ng::to_string(&serde_json::json!([
+        {
+            "id": PI_ROW,
+            "name": PI_PLUGIN,
+            "config": {
+                "providers": {
+                    PROVIDER_ID: {
+                        "displayName": "BalanceHub",
+                        "apiKeyEnv": API_KEY_ENV,
+                        "api": "openai-completions",
+                        "baseURL": openai_base_url(base_url),
+                        "models": [{
+                            "id": model,
+                            "name": model,
+                        }],
+                    },
+                },
+            },
+        },
+        {
+            "id": DEFAULT_MODEL_ROW,
+            "config": {
+                "provider": PROVIDER_ID,
+                "model": model,
+            },
+        },
+    ]))
+    .map_err(|err| format!("生成 dsh 临时启动配置失败: {err}"))
+}
+
+pub(super) fn model_patch(provider: &str, model: &str) -> Result<String, String> {
+    serde_yaml_ng::to_string(&serde_json::json!([
+        {
+            "id": DEFAULT_MODEL_ROW,
+            "config": {
+                "provider": provider,
+                "model": model,
+            },
+        },
+    ]))
+    .map_err(|err| format!("生成 dsh 模型覆盖配置失败: {err}"))
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {

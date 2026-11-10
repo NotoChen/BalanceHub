@@ -1,6 +1,7 @@
 use super::super::contracts::{
     EnvironmentPatch, TemporaryLaunchConfiguration, TemporaryLaunchPlan, TemporaryLaunchRequest,
 };
+use crate::models::TemporaryCliSessionMode;
 
 pub(super) fn build_plan(
     request: TemporaryLaunchRequest<'_>,
@@ -34,6 +35,14 @@ pub(super) fn build_plan(
     }
     if !request.model.trim().is_empty() {
         args.extend(["--model".into(), request.model.trim().into()]);
+    }
+    if matches!(request.session_mode, TemporaryCliSessionMode::History) {
+        let resume_id = request.resume_id.trim();
+        if resume_id.is_empty() {
+            return Err("Qwen Code 续聊缺少原生会话 ID".into());
+        }
+        crate::services::agent_cli::integration::validate_native_value(resume_id, "会话 ID")?;
+        args.extend(["--resume".into(), resume_id.into()]);
     }
 
     Ok(TemporaryLaunchPlan {

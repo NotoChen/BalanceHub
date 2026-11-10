@@ -26,6 +26,23 @@ const GROK_EVENTS: &[&str] = &[
     "StopFailure",
     "SessionEnd",
 ];
+/// Command Code carries no tool lifecycle in the shared spool; its Stop event
+/// also marks the end of a turn, so the session pair matches the other Agents.
+const COMMAND_CODE_EVENTS: &[&str] = &["SessionStart", "Stop"];
+/// Qwen Code documents the Claude Code lifecycle set: session start/end plus
+/// prompt submission and the end of a turn.  Its docs define `"*"` as matching
+/// every source, so the group keeps an explicit matcher instead of relying on
+/// undocumented omission behavior.
+const QWEN_CODE_EVENTS: &[&str] = &["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
+/// CodeBuddy mirrors Claude Code lifecycle events, including prompt submission
+/// and session end, without a tool matcher outside the tool events.
+const CODEBUDDY_EVENTS: &[&str] = &["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
+/// Qoder documents the nested Hook form shared with Claude Code.
+const QODER_EVENTS: &[&str] = &["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
+/// Droid reads a user-level `hooks.json` whose root is keyed directly by
+/// event name, not by a nested `hooks` object.  The file is only created when
+/// it does not already exist; an existing file is never merged or rewritten.
+const DROID_EVENTS: &[&str] = &["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
 const HELPER_VERSION: &str = "agent-hook-v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +50,11 @@ pub(crate) enum GenericAgent {
     ClaudeCode,
     Gemini,
     Grok,
+    CommandCode,
+    QwenCode,
+    CodeBuddy,
+    Qoder,
+    Droid,
 }
 
 impl GenericAgent {
@@ -41,6 +63,11 @@ impl GenericAgent {
             Self::ClaudeCode => AgentCliKind::ClaudeCode,
             Self::Gemini => AgentCliKind::Gemini,
             Self::Grok => AgentCliKind::Grok,
+            Self::CommandCode => AgentCliKind::CommandCode,
+            Self::QwenCode => AgentCliKind::QwenCode,
+            Self::CodeBuddy => AgentCliKind::CodeBuddy,
+            Self::Qoder => AgentCliKind::Qoder,
+            Self::Droid => AgentCliKind::Droid,
         }
     }
     fn label(self) -> &'static str {
@@ -48,6 +75,11 @@ impl GenericAgent {
             Self::ClaudeCode => "Claude Code",
             Self::Gemini => "Gemini CLI",
             Self::Grok => "Grok Build",
+            Self::CommandCode => "Command Code",
+            Self::QwenCode => "Qwen Code",
+            Self::CodeBuddy => "CodeBuddy",
+            Self::Qoder => "Qoder",
+            Self::Droid => "Droid",
         }
     }
     fn key(self) -> &'static str {
@@ -58,16 +90,93 @@ impl GenericAgent {
             Self::ClaudeCode => CLAUDE_EVENTS,
             Self::Gemini => GEMINI_EVENTS,
             Self::Grok => GROK_EVENTS,
+            Self::CommandCode => COMMAND_CODE_EVENTS,
+            Self::QwenCode => QWEN_CODE_EVENTS,
+            Self::CodeBuddy => CODEBUDDY_EVENTS,
+            Self::Qoder => QODER_EVENTS,
+            Self::Droid => DROID_EVENTS,
         }
     }
     fn standalone(self) -> bool {
-        matches!(self, Self::Grok)
+        matches!(self, Self::Grok | Self::Droid)
+    }
+
+    fn standalone_file_name(self) -> &'static str {
+        match self {
+            Self::Grok => "balancehub-runtime.json",
+            Self::Droid => "hooks.json",
+            _ => unreachable!("non-standalone agents do not own a standalone Hook file"),
+        }
     }
 
     fn trust(self) -> AgentHookTrust {
         match self {
             Self::Grok => AgentHookTrust::Trusted,
-            Self::ClaudeCode | Self::Gemini => AgentHookTrust::NotApplicable,
+            Self::ClaudeCode
+            | Self::Gemini
+            | Self::CommandCode
+            | Self::QwenCode
+            | Self::CodeBuddy
+            | Self::Qoder
+            | Self::Droid => AgentHookTrust::NotApplicable,
+        }
+    }
+
+    /// Whether this Agent's lifecycle group needs an explicit matcher.  Qwen
+    /// Code documents `"*"` only for events that select a source or end
+    /// reason; the others either reject a matcher or match all when omitted.
+    fn uses_matcher(self, event: &str) -> bool {
+        match self {
+            Self::QwenCode => matches!(event, "SessionStart" | "SessionEnd"),
+            Self::CommandCode | Self::CodeBuddy | Self::Qoder | Self::Droid => false,
+            Self::ClaudeCode | Self::Gemini | Self::Grok => true,
+        }
+    }
+
+    /// Droid prefers a standalone `hooks.json` over the `hooks` key in
+    /// `settings.json`.  Creating `hooks.json` while settings hooks exist
+    /// would silently disable them, so installation stays blocked.
+    fn standalone_settings_conflict(self, config_path: &Path) -> Option<String> {
+        if self != Self::Droid {
+            return None;
+        }
+        let settings = config_path.parent()?.join("settings.json");
+        let metadata = match std::fs::symlink_metadata(&settings) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(error) => {
+                return Some(format!(
+                    "无法读取 Droid settings.json，未创建 hooks.json: {error}"
+                ))
+            }
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Some("Droid settings.json 不是普通文件，未创建 hooks.json".to_string());
+        }
+        if metadata.len() > 2 * 1024 * 1024 {
+            return Some("Droid settings.json 超过读取上限，未创建 hooks.json".to_string());
+        }
+        let bytes = match std::fs::read(&settings) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Some(format!(
+                    "无法读取 Droid settings.json，未创建 hooks.json: {error}"
+                ))
+            }
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            return Some("Droid settings.json 不是 UTF-8 文本，未创建 hooks.json".to_string());
+        };
+        match crate::services::agent_cli::config_support::parse_jsonc_document(&text) {
+            Ok(value) => value
+                .get("hooks")
+                .and_then(Value::as_object)
+                .is_some_and(|hooks| !hooks.is_empty())
+                .then(|| {
+                    "Droid 的 settings.json 已声明 hooks；创建 hooks.json 会覆盖这些规则，未写入"
+                        .to_string()
+                }),
+            Err(_) => Some("Droid settings.json 无法解析，未创建 hooks.json".to_string()),
         }
     }
 }
@@ -86,15 +195,16 @@ struct Definition {
     event_name: String,
     identity: String,
     handler: Value,
+    group: Value,
 }
 
 impl Definition {
-    fn group(&self) -> Value {
-        json!({"matcher":"*","hooks":[self.handler.clone()]})
+    fn group(&self) -> &Value {
+        &self.group
     }
 
     fn fingerprint(&self) -> String {
-        group_fingerprint(&self.group())
+        group_fingerprint(&self.group)
     }
 }
 
@@ -178,11 +288,44 @@ impl GenericHookService {
                         ),
                         "timeout": 2
                     }),
+                    GenericAgent::CommandCode => json!({
+                        "type": "command",
+                        "command": common::helper_command(
+                            &self.helper_path,
+                            &self.spool_root,
+                            self.agent.key(),
+                            &identity
+                        ),
+                        "timeout": 3
+                    }),
+                    GenericAgent::QwenCode
+                    | GenericAgent::CodeBuddy
+                    | GenericAgent::Qoder
+                    | GenericAgent::Droid => {
+                        json!({
+                            "type": "command",
+                            "command": common::helper_command(
+                                &self.helper_path,
+                                &self.spool_root,
+                                self.agent.key(),
+                                &identity
+                            ),
+                            "timeout": 10
+                        })
+                    }
+                };
+                // A matcher on an event that does not select a tool never
+                // fires; each adapter keeps it only where its docs define it.
+                let group = if self.agent.uses_matcher(event_name) {
+                    json!({"matcher":"*","hooks":[handler.clone()]})
+                } else {
+                    json!({"hooks":[handler.clone()]})
                 };
                 Definition {
                     event_name: (*event_name).to_string(),
                     identity,
                     handler,
+                    group,
                 }
             })
             .collect()
@@ -237,9 +380,10 @@ impl GenericHookService {
                         .map(|resource| resource.content_fingerprint.as_str());
                     if expected != Some(current.as_str()) {
                         conflict = true;
-                        diagnostics.push(
-                            "Grok Build BalanceHub Hook 文件已被修改，未覆盖用户变更".to_string(),
-                        );
+                        diagnostics.push(format!(
+                            "{} BalanceHub Hook 文件已被修改，未覆盖用户变更",
+                            self.agent.label()
+                        ));
                     } else if owned.enabled {
                         enabled = true;
                     }
@@ -303,9 +447,13 @@ impl GenericHookService {
                 }
             }
         } else if let Some(snapshot) = config.snapshot.as_ref() {
-            if !find_resources(&snapshot.value, self.agent).is_empty()
-                || (self.agent.standalone() && config.status == common::ConfigStatus::Present)
-            {
+            if self.agent.standalone() && config.status == common::ConfigStatus::Present {
+                conflict = true;
+                diagnostics.push(format!(
+                    "{} 已有独立 Hook 文件但缺少 ownership manifest，未覆盖用户变更",
+                    self.agent.label()
+                ));
+            } else if !find_resources(&snapshot.value, self.agent).is_empty() {
                 conflict = true;
                 diagnostics.push(
                     "发现 BalanceHub Hook 节点但缺少 ownership manifest，未删除或覆盖".to_string(),
@@ -378,10 +526,20 @@ impl GenericHookService {
         let conflict = inspection.state == AgentHookHealthState::Conflict
             || (manifest.as_ref().is_some_and(|m| m.enabled)
                 && config.status == common::ConfigStatus::Missing);
+        // Droid prefers `hooks.json` over the `hooks` key in `settings.json`.
+        // Creating the file while settings hooks exist would disable them, so
+        // installation is refused instead of overwriting that preference.
+        let settings_conflict = (matches!(
+            mutation,
+            AgentHookMutation::Install | AgentHookMutation::Enable
+        ) && config.status == common::ConfigStatus::Missing)
+            .then(|| self.agent.standalone_settings_conflict(&self.config_path))
+            .flatten();
+        let conflict = conflict || settings_conflict.is_some();
         let mut changes = Vec::new();
         if self.agent.standalone() {
             let definition = definitions.first().expect("standalone agent has events");
-            let fingerprint = standalone_fingerprint(&definitions, self.agent.label());
+            let fingerprint = standalone_fingerprint(&definitions, self.agent);
             let kind = if config.status == common::ConfigStatus::Present {
                 AgentHookChangeKind::Keep
             } else {
@@ -393,7 +551,7 @@ impl GenericHookService {
             ) || !resources.is_empty()
             {
                 changes.push(AgentHookChange {
-                    event_name: "balancehub-runtime.json".to_string(),
+                    event_name: self.agent.standalone_file_name().to_string(),
                     structural_identity: format!("balancehub:{}:file:v1", self.agent.key()),
                     fingerprint: if kind == AgentHookChangeKind::Keep {
                         config
@@ -516,6 +674,8 @@ impl GenericHookService {
             content_changes,
             summary: if let Some(error) = preview_error {
                 error
+            } else if let Some(message) = settings_conflict {
+                message
             } else if conflict {
                 "检测到配置或所有权冲突，未生成可应用变更".to_string()
             } else if changed == 0 && !has_content_changes {
@@ -541,7 +701,10 @@ impl GenericHookService {
             return Err("Hook 计划存在冲突或不受支持，未修改配置".to_string());
         }
         let parent = self.config_path.parent().ok_or("Hook 配置目录无效")?;
-        let config_root = if self.agent.standalone() {
+        let config_root = if self.agent == GenericAgent::Droid {
+            // Droid's file sits directly in the user-level `.factory` root.
+            parent
+        } else if self.agent.standalone() {
             parent.parent().ok_or("Hook 配置根目录无效")?
         } else {
             parent
@@ -714,7 +877,7 @@ fn add_nested_definition(
                     .any(|handler| handler_identity(handler) == Some(definition.identity.as_str()))
             })
     }) {
-        if existing != &definition.group() {
+        if existing != definition.group() {
             return Err(format!(
                 "Hook {} 已被修改，无法安全覆盖",
                 definition.event_name
@@ -722,7 +885,7 @@ fn add_nested_definition(
         }
         return Ok(());
     }
-    events.push(definition.group());
+    events.push(definition.group().clone());
     Ok(())
 }
 
@@ -860,7 +1023,7 @@ fn ownership_for(
 ) -> AgentHookOwnership {
     let resources = if service.agent.standalone() {
         vec![AgentHookOwnedResource {
-            event_name: "balancehub-runtime.json".to_string(),
+            event_name: service.agent.standalone_file_name().to_string(),
             structural_identity: format!("balancehub:{}:file:v1", service.agent.key()),
             content_fingerprint: common::revision_for_bytes(
                 &common::encode_json(value, service.agent.label()).unwrap_or_default(),
@@ -886,7 +1049,7 @@ fn ownership_for(
         resources,
     }
 }
-fn standalone_document(definitions: &[Definition]) -> Value {
+fn standalone_document(agent: GenericAgent, definitions: &[Definition]) -> Value {
     let mut hooks = Map::new();
     for definition in definitions {
         hooks.insert(
@@ -894,11 +1057,16 @@ fn standalone_document(definitions: &[Definition]) -> Value {
             json!([{"hooks":[definition.handler]}]),
         );
     }
-    json!({"hooks": hooks})
+    if agent == GenericAgent::Droid {
+        Value::Object(hooks)
+    } else {
+        json!({"hooks": hooks})
+    }
 }
-fn standalone_fingerprint(definitions: &[Definition], label: &str) -> String {
+fn standalone_fingerprint(definitions: &[Definition], agent: GenericAgent) -> String {
     common::revision_for_bytes(
-        &common::encode_json(&standalone_document(definitions), label).unwrap_or_default(),
+        &common::encode_json(&standalone_document(agent, definitions), agent.label())
+            .unwrap_or_default(),
     )
 }
 fn is_disabled(value: &Value, resources: &[AgentHookOwnedResource]) -> bool {
@@ -987,15 +1155,22 @@ mod tests {
             GenericAgent::ClaudeCode => root.join(".claude/settings.json"),
             GenericAgent::Gemini => root.join(".gemini/settings.json"),
             GenericAgent::Grok => root.join(".grok/hooks/balancehub-runtime.json"),
+            GenericAgent::CommandCode => root.join(".commandcode/settings.json"),
+            GenericAgent::QwenCode => root.join(".qwen/settings.json"),
+            GenericAgent::CodeBuddy => root.join(".codebuddy/settings.json"),
+            GenericAgent::Qoder => root.join(".qoder/settings.json"),
+            GenericAgent::Droid => root.join(".factory/hooks.json"),
         };
         if matches!(agent, GenericAgent::Grok) {
             fs::create_dir_all(root.join(".grok")).unwrap();
+        } else if matches!(agent, GenericAgent::Droid) {
+            fs::create_dir_all(root.join(".factory")).unwrap();
         } else {
             fs::create_dir_all(config.parent().unwrap()).unwrap();
         }
         fs::create_dir_all(root.join("app")).unwrap();
         fs::write(root.join("app/helper"), b"helper").unwrap();
-        if !matches!(agent, GenericAgent::Grok) {
+        if !matches!(agent, GenericAgent::Grok | GenericAgent::Droid) {
             fs::write(&config, b"{}\n").unwrap();
         }
         let service = GenericHookService::new(

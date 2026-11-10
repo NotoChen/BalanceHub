@@ -82,7 +82,14 @@ pub fn preview(
             format!("所选终端当前不可用，请重新扫描终端：{detail}")
         });
     }
-    let model = options.model_override.trim().to_string();
+    // 与真实启动保持一致：恢复历史会话时未指定模型就沿用原会话模型。
+    let model = if !options.model_override.trim().is_empty() {
+        options.model_override.trim().to_string()
+    } else if matches!(options.session_mode, TemporaryCliSessionMode::History) {
+        options.inherited_model.trim().to_string()
+    } else {
+        String::new()
+    };
     let wire_model = provider.model_config.wire_name(&model).to_string();
     let session_name = resolve_session_name(
         cli_kind,

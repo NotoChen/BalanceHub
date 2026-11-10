@@ -28,6 +28,10 @@ pub(super) fn data_dir_for_home(home: &Path) -> PathBuf {
     configured_path("PENGUIN_HOME").unwrap_or_else(|| home.join(".penguin/data"))
 }
 
+pub(super) fn data_dir() -> Option<PathBuf> {
+    Some(data_dir_for_home(&crate::services::cli_paths::user_home()?))
+}
+
 pub(super) fn project_dir_for_home(home: &Path) -> PathBuf {
     data_dir_for_home(home).join(project_name())
 }

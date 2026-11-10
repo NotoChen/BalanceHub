@@ -108,9 +108,10 @@ button.agent-overview-status:hover { color: var(--surface-accent); }
 .agent-card-file-empty { min-height: 24px; margin: 0; padding: 0 6px; color: var(--color-text-3); font-size: 12px; line-height: 24px; }
 
 .agent-card-statistic, .agent-card-file { transition: background 160ms ease, color 160ms ease, transform 160ms ease; }
-.agent-card-statistic:hover,
+.agent-card-statistic:hover:not(:disabled),
 .agent-card-configuration .workspace-card-chip.agent-card-file:hover:not(:disabled) { background: var(--surface-panel-soft); color: var(--surface-accent); }
-.agent-card-statistic:active, .agent-card-file:active:not(:disabled) { transform: translateY(1px); }
+.agent-card-statistic:active:not(:disabled), .agent-card-file:active:not(:disabled) { transform: translateY(1px); }
+.agent-card-statistic:disabled { cursor: default; }
 .agent-overview-card button:not(.card-icon-action):focus-visible { outline: 2px solid var(--surface-accent); outline-offset: 2px; }
 
 .agent-overview-card .agent-card-footer { --workspace-card-action-gap: 2px; padding-top: 8px; }
@@ -125,7 +126,7 @@ button.agent-overview-status:hover { color: var(--surface-accent); }
 @media (prefers-reduced-motion: reduce) {
   .agent-card-spinning { animation: none; }
   .agent-card-statistic, .agent-card-file { transition: none; }
-  .agent-card-statistic:active, .agent-card-file:active:not(:disabled) { transform: none; }
+  .agent-card-statistic:active:not(:disabled), .agent-card-file:active:not(:disabled) { transform: none; }
 }
 
 .agent-card-file:disabled { cursor: default; color: var(--color-text-3); }

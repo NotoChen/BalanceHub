@@ -58,7 +58,8 @@ pub(super) fn paths(kind: AgentCliKind, id: &str) -> Paths {
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {
             unreachable!("integration-tier agents have no model mappings")
         }
     }
@@ -109,7 +110,8 @@ pub(super) fn declared(kind: AgentCliKind, root: &Value) -> BTreeSet<String> {
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => return BTreeSet::new(),
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => return BTreeSet::new(),
     };
     root.pointer(pointer)
         .and_then(Value::as_object)

@@ -20,6 +20,10 @@ pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
     configured_path("CODEBUDDY_CONFIG_DIR").unwrap_or_else(|| home.join(".codebuddy"))
 }
 
+pub(super) fn config_dir() -> Option<PathBuf> {
+    Some(config_dir_for_home(&user_home()?))
+}
+
 pub(super) fn settings_path(root: &Path) -> PathBuf {
     root.join("settings.json")
 }

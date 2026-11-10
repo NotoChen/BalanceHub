@@ -35,6 +35,10 @@ pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
     home.join(".stepcode")
 }
 
+pub(super) fn config_dir() -> Option<PathBuf> {
+    Some(config_dir_for_home(&user_home()?))
+}
+
 pub(super) fn config_path(root: &Path) -> PathBuf {
     root.join("config.toml")
 }
@@ -263,4 +267,17 @@ fn object_member<'a>(
         .or_insert_with(|| JsonValue::Object(Map::new()))
         .as_object_mut()
         .ok_or_else(|| format!("StepCode 模型配置中的 {key} 必须是对象"))
+}
+
+/// The native session directory a provider launch points `--session-dir` at,
+/// so temporary config isolation does not move session history. Scan and
+/// launch share the same rules, so a relative override falls back instead of
+/// being re-based on the project workdir.
+pub(super) fn native_session_dir() -> Option<String> {
+    let root = config_dir()?;
+    Some(
+        super::super::pi_family::sessions::session_directory(&root, &super::sessions::SPEC)
+            .to_string_lossy()
+            .into_owned(),
+    )
 }

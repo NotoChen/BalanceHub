@@ -7,7 +7,7 @@ use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use super::super::integration::{validate_native_value, xdg_config_home, xdg_data_home};
 use crate::{
     models::{AgentCliKind, CliConfigSnapshot, Provider},
-    services::cli_paths::user_home,
+    services::cli_paths::{configured_path, user_home},
 };
 use serde_json::{json, Map, Value as JsonValue};
 use std::path::{Path, PathBuf};
@@ -31,6 +31,23 @@ pub(super) fn data_path_for_home(home: &Path) -> PathBuf {
         return config_path_for_home(home);
     }
     xdg_data_home(home).join("crush/crush.json")
+}
+
+/// Crush's global data directory holds `projects.json` and `crush.json`.
+pub(super) fn global_data_dir_for_home(home: &Path) -> PathBuf {
+    if let Some(path) = configured_path("CRUSH_GLOBAL_DATA") {
+        return path;
+    }
+    if cfg!(windows) {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").filter(|value| !value.is_empty()) {
+            return PathBuf::from(local).join("crush");
+        }
+    }
+    xdg_data_home(home).join("crush")
+}
+
+pub(super) fn global_data_dir() -> Option<PathBuf> {
+    Some(global_data_dir_for_home(&user_home()?))
 }
 
 pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
@@ -222,7 +239,10 @@ fn merge_config(
             .or_insert_with(|| JsonValue::Object(Map::new()))
             .as_object_mut()
             .ok_or_else(|| "Crush 配置中的 providers.balancehub 必须是对象".to_string())?;
-        entry.insert("type".into(), JsonValue::String("openai".into()));
+        // `completions` addresses OpenAI-compatible chat APIs. The legacy
+        // `openai` type is migrated to the Responses API, which most relays
+        // do not serve.
+        entry.insert("type".into(), JsonValue::String("completions".into()));
         entry.insert(
             "name".into(),
             JsonValue::String(provider_display_name(provider_name)),

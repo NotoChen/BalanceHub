@@ -192,6 +192,7 @@ fn fixture_contexts(
         AgentCliKind::MiniMaxCode => ".minimax",
         AgentCliKind::Raycast => ".config/raycast/ai",
         AgentCliKind::Omo => ".omo/agent",
+        AgentCliKind::CommandCode => ".commandcode",
     };
     for context in &mut contexts {
         // Host CLI profile overrides must never redirect fixture discovery.
@@ -258,7 +259,8 @@ fn hook_file(kind: AgentCliKind) -> &'static str {
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {
             unreachable!("integration-tier agents have no native Hook fixture")
         }
     }
@@ -731,7 +733,8 @@ fn fixture_plugin(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {
             unreachable!("integration-tier agents have no native Hook fixture")
         }
     };
@@ -777,7 +780,8 @@ fn fixture_plugin(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {
             unreachable!("integration-tier agents have no native Hook fixture")
         }
     }

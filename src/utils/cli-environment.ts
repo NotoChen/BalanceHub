@@ -71,6 +71,7 @@ const AGENT_CLI_PRODUCT_NAMES: Record<AgentCliKind, string> = {
   minimaxCode: "MiniMax Code",
   raycast: "Raycast",
   omo: "OmO",
+  commandCode: "Command Code",
 };
 
 export function fullAgentCliLabel(cliKind: AgentCliKind) {

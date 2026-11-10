@@ -11,7 +11,7 @@ use crate::{
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
-const PROVIDER_ID: &str = "balancehub";
+pub(super) const PROVIDER_ID: &str = "balancehub";
 const API: &str = "openai-completions";
 
 /// omp's root: `~/.omp`, or `~/$PI_CONFIG_DIR`.
@@ -42,6 +42,24 @@ pub(super) fn agent_dir_for_home(home: &Path) -> PathBuf {
         return dir;
     }
     root.join("agent")
+}
+
+pub(super) fn config_dir() -> Option<PathBuf> {
+    user_home().map(|home| agent_dir_for_home(&home))
+}
+
+/// omp's native session directory. Isolating `PI_CODING_AGENT_DIR` for a
+/// temporary launch would otherwise move new sessions into the launch folder;
+/// the explicit `--session-dir` keeps them in the user's real location. Scan
+/// and launch share the same rules, so a relative override is not re-based on
+/// the project workdir.
+pub(super) fn native_session_dir() -> Option<String> {
+    let root = config_dir()?;
+    Some(
+        super::super::pi_family::sessions::session_directory(&root, &super::sessions::SPEC)
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 /// The name omp's pi-utils accepts: lowercase letters, digits, `.`, `_` and
@@ -195,6 +213,20 @@ fn parse_config(config: &str, models: &str) -> Result<Option<(String, String)>, 
         .and_then(JsonValue::as_str)
         .and_then(plain_secret);
     Ok(api_key.map(|api_key| (base_url.to_string(), api_key)))
+}
+
+/// Standalone config files for a temporary process; the native agent folder
+/// is never read or written.
+pub(super) fn temporary_config(model: &str) -> Result<String, String> {
+    merge_config("", model)
+}
+
+pub(super) fn temporary_models(
+    model: &str,
+    base_url: &str,
+    api_key: &str,
+) -> Result<String, String> {
+    merge_models("", "BalanceHub", model, base_url, api_key)
 }
 
 fn merge_config(source: &str, model: &str) -> Result<String, String> {

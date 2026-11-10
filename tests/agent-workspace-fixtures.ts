@@ -12,7 +12,8 @@ import { assetContext, assetInstallation, assetInventory, assetRecord, assetSour
 export function workspaceAgent(kind: AgentCliKind = "codex"): AgentCliDescriptor {
   return { kind, label: `${kind === "codex" ? "Codex" : kind === "claudeCode" ? "Claude" : kind} CLI`, executable: kind === "claudeCode" ? "claude" : kind, sessionNameHint: "fixture",
     capabilities: { temporaryLaunch: true, modelSelection: true, sessionHistory: true, sessionSearch: true,
-      sessionDetail: true, sessionResume: true, sessionName: true, liveness: true, defaultConfig: true } };
+      sessionDetail: true, sessionResume: true, sessionName: true, liveness: true, defaultConfig: true,
+      assetInventory: true, hookInventory: true, runtimeObservation: true } };
 }
 
 export function catalogBinding(kind: AgentCliKind = "codex", id = `binding-${kind}`): AgentCatalogBinding {

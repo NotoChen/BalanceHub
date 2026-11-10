@@ -2,6 +2,7 @@ use super::super::contracts::{
     EnvironmentPatch, TemporaryAuxiliaryFile, TemporaryLaunchConfiguration, TemporaryLaunchPlan,
     TemporaryLaunchRequest,
 };
+use crate::models::TemporaryCliSessionMode;
 use super::config;
 
 const PROVIDER_ID: &str = "balancehub";
@@ -66,6 +67,23 @@ pub(super) fn build_plan(
             return Err("Pi 不支持从 OAuth 账号启动".into());
         }
     }
+    if matches!(request.session_mode, TemporaryCliSessionMode::New)
+        && !request.session_name.trim().is_empty()
+    {
+        crate::services::agent_cli::integration::validate_native_value(
+            request.session_name,
+            "会话名称",
+        )?;
+        args.extend(["--name".into(), request.session_name.trim().into()]);
+    }
+    if matches!(request.session_mode, TemporaryCliSessionMode::History) {
+        let resume_id = request.resume_id.trim();
+        if resume_id.is_empty() {
+            return Err("Pi 续聊缺少原生会话 ID".into());
+        }
+        crate::services::agent_cli::integration::validate_native_value(resume_id, "会话 ID")?;
+        args.extend(["--session".into(), resume_id.into()]);
+    }
     Ok(TemporaryLaunchPlan {
         args,
         environment,
@@ -74,7 +92,7 @@ pub(super) fn build_plan(
     })
 }
 
-fn temporary_models(model: &str, base_url: &str) -> Result<String, String> {
+pub(super) fn temporary_models(model: &str, base_url: &str) -> Result<String, String> {
     let mut providers = serde_json::Map::new();
     providers.insert(
         PROVIDER_ID.to_string(),
@@ -100,4 +118,96 @@ fn temporary_settings(model: &str) -> Result<String, String> {
         "defaultModel": model,
     }))
     .map_err(|err| format!("生成 Pi 临时设置失败: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn request<'a>(
+        configuration: TemporaryLaunchConfiguration<'a>,
+        model: &'a str,
+        session_name: &'a str,
+        resume_id: &'a str,
+        session_mode: TemporaryCliSessionMode,
+    ) -> TemporaryLaunchRequest<'a> {
+        TemporaryLaunchRequest {
+            configuration,
+            model,
+            session_name,
+            resume_id,
+            session_mode,
+            launch_directory: Path::new("/tmp/<launch>"),
+        }
+    }
+
+    #[test]
+    fn provider_launch_isolates_the_agent_dir_and_keeps_the_key_out_of_argv() {
+        let plan = build_plan(request(
+            TemporaryLaunchConfiguration::Provider {
+                provider_name: "Relay",
+                api_key: "sk-pi-test",
+                base_url: "https://relay.example.com",
+            },
+            "relay-model",
+            "Probe",
+            "",
+            TemporaryCliSessionMode::New,
+        ))
+        .unwrap();
+        assert_eq!(plan.args[0..5], ["--provider", "balancehub", "--model", "relay-model", "--session-dir"]);
+        assert_eq!(plan.args.last().unwrap(), "Probe");
+        assert!(plan.args.iter().any(|arg| arg == "--name"));
+        assert!(!plan.args.iter().any(|arg| arg.contains("sk-pi-test")));
+        assert!(plan.environment.set_values().any(|(name, value)| {
+            name == "PI_CODING_AGENT_DIR" && value.ends_with("/agent")
+        }));
+        assert!(plan
+            .environment
+            .set_values()
+            .any(|(name, value)| name == "BALANCEHUB_PI_API_KEY" && value == "sk-pi-test"));
+        let models = plan
+            .auxiliary_files
+            .iter()
+            .find(|file| file.path == "agent/models.json")
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&models.content).unwrap();
+        assert_eq!(
+            value["providers"]["balancehub"]["apiKey"],
+            "${BALANCEHUB_PI_API_KEY}"
+        );
+    }
+
+    #[test]
+    fn session_name_is_only_forwarded_to_a_new_session() {
+        let plan = build_plan(request(
+            TemporaryLaunchConfiguration::Native,
+            "",
+            "Probe",
+            "01a1c02b-e6ef-7657-8eb5-abd877eafac4",
+            TemporaryCliSessionMode::History,
+        ))
+        .unwrap();
+        assert_eq!(
+            plan.args,
+            ["--session", "01a1c02b-e6ef-7657-8eb5-abd877eafac4"]
+        );
+    }
+
+    #[test]
+    fn native_launch_selects_the_model_without_touching_the_environment() {
+        let plan = build_plan(request(
+            TemporaryLaunchConfiguration::Native,
+            "relay-model",
+            "",
+            "",
+            TemporaryCliSessionMode::New,
+        ))
+        .unwrap();
+        assert_eq!(plan.args, ["--model", "relay-model"]);
+        assert!(plan.environment.set_values().next().is_none());
+        assert!(plan.environment.removed_names().next().is_none());
+        assert!(plan.auxiliary_files.is_empty());
+    }
 }

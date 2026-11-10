@@ -12,6 +12,18 @@ pub fn decoder_for_agent(agent: &str) -> Option<&'static dyn HookEventDecoder> {
     match agent.trim().to_ascii_lowercase().as_str() {
         "codex" => Some(&CodexHookDecoder),
         "claudecode" | "claude_code" | "claude" => Some(&ClaudeHookDecoder),
+        // Command Code reuses Claude's Hook payload field names but is a
+        // different Agent; its events must not be attributed to Claude Code.
+        "commandcode" | "command_code" => Some(&CommandCodeHookDecoder),
+        // Qwen Code and CodeBuddy document Claude-shaped lifecycle payloads.
+        "qwencode" | "qwen_code" | "qwen" => Some(&QwenCodeHookDecoder),
+        "codebuddy" | "code_buddy" => Some(&CodeBuddyHookDecoder),
+        // Qoder documents the nested Hook form shared with Claude Code.
+        "qoder" => Some(&QoderHookDecoder),
+        // Kimi Code uses the same snake_case lifecycle payload.
+        "kimicode" | "kimi_code" | "kimi" => Some(&KimiCodeHookDecoder),
+        // Droid sends the shared snake_case lifecycle payload.
+        "droid" => Some(&DroidHookDecoder),
         "gemini" | "gemini_cli" => Some(&GeminiHookDecoder),
         "grok" | "grok_build" => Some(&GrokHookDecoder),
         _ => None,
@@ -119,13 +131,97 @@ impl HookEventDecoder for ClaudeHookDecoder {
         payload: &[u8],
         received_at: i64,
     ) -> Result<NormalizedHookEvent, HookDecodeError> {
-        decode_claude_payload(payload, received_at)
+        decode_claude_payload(payload, received_at, AgentCliKind::ClaudeCode)
+    }
+}
+
+/// Command Code documents the same lifecycle Hook payload shape as Claude
+/// Code (`hook_event_name`, `session_id`, `transcript_path`, `cwd`).  Only the
+/// Agent attribution differs, so the shared shape decoder is reused.
+pub struct CommandCodeHookDecoder;
+
+impl HookEventDecoder for CommandCodeHookDecoder {
+    fn decode(
+        &self,
+        payload: &[u8],
+        received_at: i64,
+    ) -> Result<NormalizedHookEvent, HookDecodeError> {
+        decode_claude_payload(payload, received_at, AgentCliKind::CommandCode)
+    }
+}
+
+/// Qwen Code documents a Claude-compatible Hook payload.
+pub struct QwenCodeHookDecoder;
+
+impl HookEventDecoder for QwenCodeHookDecoder {
+    fn decode(
+        &self,
+        payload: &[u8],
+        received_at: i64,
+    ) -> Result<NormalizedHookEvent, HookDecodeError> {
+        decode_claude_payload(payload, received_at, AgentCliKind::QwenCode)
+    }
+}
+
+/// CodeBuddy describes its Hook payload as Claude Code compatible.
+pub struct CodeBuddyHookDecoder;
+
+impl HookEventDecoder for CodeBuddyHookDecoder {
+    fn decode(
+        &self,
+        payload: &[u8],
+        received_at: i64,
+    ) -> Result<NormalizedHookEvent, HookDecodeError> {
+        decode_claude_payload(payload, received_at, AgentCliKind::CodeBuddy)
+    }
+}
+
+/// Qoder documents the nested Hook form shared with Claude Code.
+pub struct QoderHookDecoder;
+
+impl HookEventDecoder for QoderHookDecoder {
+    fn decode(
+        &self,
+        payload: &[u8],
+        received_at: i64,
+    ) -> Result<NormalizedHookEvent, HookDecodeError> {
+        decode_claude_payload(payload, received_at, AgentCliKind::Qoder)
+    }
+}
+
+/// Kimi Code documents snake_case lifecycle fields; transcript and timestamp
+/// are optional, so the shared Claude-shaped decoder covers it.
+pub struct KimiCodeHookDecoder;
+
+impl HookEventDecoder for KimiCodeHookDecoder {
+    fn decode(
+        &self,
+        payload: &[u8],
+        received_at: i64,
+    ) -> Result<NormalizedHookEvent, HookDecodeError> {
+        decode_claude_payload(payload, received_at, AgentCliKind::KimiCode)
+    }
+}
+
+/// Droid sends `hook_event_name`, `session_id`, `transcript_path` and `cwd`;
+/// its lifecycle events have no documented timestamp, so the receipt time is
+/// used. Only the Agent attribution differs.
+pub struct DroidHookDecoder;
+
+impl HookEventDecoder for DroidHookDecoder {
+    fn decode(
+        &self,
+        payload: &[u8],
+        received_at: i64,
+    ) -> Result<NormalizedHookEvent, HookDecodeError> {
+        decode_claude_payload(payload, received_at, AgentCliKind::Droid)
     }
 }
 
 fn decode_claude_payload(
     payload: &[u8],
     received_at: i64,
+    agent_kind: AgentCliKind,
 ) -> Result<NormalizedHookEvent, HookDecodeError> {
     let input: ClaudeHookInput =
         serde_json::from_slice(payload).map_err(|_| HookDecodeError::InvalidPayload)?;
@@ -138,7 +234,7 @@ fn decode_claude_payload(
     let title = clean(input.session_title);
     let observed_at = timestamp_or_received(input.observed_at.or(input.timestamp), received_at);
     let event_id = generated_event_id(
-        AgentCliKind::ClaudeCode,
+        agent_kind,
         &native_event,
         session_id.as_deref(),
         transcript_path.as_deref(),
@@ -148,7 +244,7 @@ fn decode_claude_payload(
     Ok(NormalizedHookEvent {
         schema_version,
         event_id,
-        agent_kind: AgentCliKind::ClaudeCode,
+        agent_kind,
         runtime_scope: AgentRuntimeScope::default(),
         native_event: native_event.clone(),
         lifecycle: lifecycle_for_native_event(&native_event)?,
@@ -405,6 +501,12 @@ mod tests {
     fn dispatch_uses_the_canonical_agent_keys() {
         assert!(decoder_for_agent("codex").is_some());
         assert!(decoder_for_agent("claudeCode").is_some());
+        assert!(decoder_for_agent("commandCode").is_some());
+        assert!(decoder_for_agent("qwenCode").is_some());
+        assert!(decoder_for_agent("codebuddy").is_some());
+        assert!(decoder_for_agent("qoder").is_some());
+        assert!(decoder_for_agent("kimiCode").is_some());
+        assert!(decoder_for_agent("droid").is_some());
         assert!(decoder_for_agent("gemini").is_some());
         assert!(decoder_for_agent("grok").is_some());
         assert!(decoder_for_agent("unknown-agent").is_none());

@@ -23,6 +23,9 @@ pub(super) const fn definition(kind: AgentCliKind) -> AgentCliDefinition {
         require_version_substring: None,
         endpoint: EndpointAdapter::new(super::config_support::openai_base_url),
         temporary_launch: None,
+        // Raycast keeps AI chats in a SQLCipher-encrypted local database and
+        // only exports them as an encrypted `.rayconfig`, so there is no
+        // readable native transcript to index.
         sessions: None,
         liveness: None,
         default_config: Some(DefaultConfigAdapter::new(

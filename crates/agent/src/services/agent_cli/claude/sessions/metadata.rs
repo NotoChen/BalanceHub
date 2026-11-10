@@ -1,7 +1,7 @@
 use super::{
     parse_transcript,
     projects::{ProjectCandidateState, ProjectLookup, ProjectMatch, ProjectSelector},
-    ParsedClaudeTranscript,
+    ParsedSessionTranscript,
 };
 use crate::{
     models::CliSessionSummary,
@@ -170,7 +170,7 @@ fn lookup_with_budget(
 enum MetadataFile {
     Missing,
     Pending(SessionMetadataCursor),
-    Parsed(Box<ParsedClaudeTranscript>, u64),
+    Parsed(Box<ParsedSessionTranscript>, u64),
 }
 
 fn read_candidate(
@@ -202,7 +202,7 @@ fn read_candidate(
     }
     let used = usize::try_from(budget.bytes.load(Ordering::Relaxed)).unwrap_or(usize::MAX);
     request.budget.check(used.saturating_add(length))?;
-    let parsed = parse_transcript(request.cli_kind, path).map_err(|error| {
+    let parsed = parse_transcript(request.cli_kind, path, "Claude", "claudeTranscript").map_err(|error| {
         check(request, budget)
             .err()
             .unwrap_or(SessionMetadataLookupError::Parse(error))

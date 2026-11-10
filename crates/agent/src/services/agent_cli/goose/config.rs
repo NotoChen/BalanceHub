@@ -29,6 +29,40 @@ pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
         .unwrap_or_else(|| home.join(".config/goose"))
 }
 
+/// Goose's data folder. `GOOSE_PATH_ROOT` moves every Goose directory below
+/// one root; otherwise the platform data directory is used.
+pub(super) fn data_dir_for_home(home: &Path) -> PathBuf {
+    if let Some(root) = configured_path("GOOSE_PATH_ROOT").filter(|path| path.is_absolute()) {
+        return root.join("data");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/Application Support/Block/goose")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        configured_path("APPDATA")
+            .filter(|path| path.is_absolute())
+            .map(|path| path.join("Block/goose/data"))
+            .unwrap_or_else(|| home.join("AppData/Roaming/Block/goose/data"))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        configured_path("XDG_DATA_HOME")
+            .filter(|path| path.is_absolute())
+            .map(|path| path.join("goose"))
+            .unwrap_or_else(|| home.join(".local/share/goose"))
+    }
+}
+
+pub(super) fn data_dir() -> Option<PathBuf> {
+    Some(data_dir_for_home(&user_home()?))
+}
+
+pub(super) fn sessions_db_path() -> Option<PathBuf> {
+    Some(data_dir()?.join("sessions/sessions.db"))
+}
+
 pub(super) fn config_path(root: &Path) -> PathBuf {
     root.join("config.yaml")
 }

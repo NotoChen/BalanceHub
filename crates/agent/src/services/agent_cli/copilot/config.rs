@@ -29,12 +29,12 @@ pub(super) fn providers_path(root: &Path) -> PathBuf {
     configured_path("COPILOT_PROVIDERS_CONFIG").unwrap_or_else(|| root.join("providers.json"))
 }
 
-fn root() -> Option<PathBuf> {
+pub(super) fn config_root() -> Option<PathBuf> {
     Some(config_dir_for_home(&user_home()?))
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {
-    let Some(root) = root() else {
+    let Some(root) = config_root() else {
         return config_error(cli_kind, "无法定位用户目录");
     };
     let settings = match read_stable_optional(&settings_path(&root)) {
@@ -71,7 +71,7 @@ pub(super) fn candidates(
     provider: &Provider,
     api_key_local_id: &str,
 ) -> Result<Vec<ProviderConfigurationCandidate>, String> {
-    let root = root().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let root = config_root().ok_or_else(|| "无法定位用户目录".to_string())?;
     let settings_path = settings_path(&root);
     let providers_path = providers_path(&root);
     if settings_path == providers_path {

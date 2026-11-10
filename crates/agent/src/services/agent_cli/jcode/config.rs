@@ -22,6 +22,10 @@ pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
     configured_path("JCODE_HOME").unwrap_or_else(|| home.join(".jcode"))
 }
 
+pub(super) fn config_dir() -> Option<PathBuf> {
+    Some(config_dir_for_home(&user_home()?))
+}
+
 pub(super) fn config_path(root: &Path) -> PathBuf {
     root.join("config.toml")
 }

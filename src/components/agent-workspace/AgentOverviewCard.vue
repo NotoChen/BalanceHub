@@ -122,18 +122,51 @@ const installationStatus = computed(() => {
   if (props.loading) return { label: "检测中", action: false, warning: false };
   return { label: props.inventoryReady ? "未安装" : "状态未读取", action: true, warning: false };
 });
-const hookSummary = computed(() => props.hookCount === null ? props.loading ? "正在读取" : "数量未确认" : `已配置 ${props.hookCount} 条规则`);
+const assetInventorySupported = computed(() => props.agent.capabilities.assetInventory);
+const hookInventorySupported = computed(() => props.agent.capabilities.hookInventory);
+const runtimeObservationSupported = computed(() => props.agent.capabilities.runtimeObservation);
+/// Integration-tier Agents expose native configuration and, where verified,
+/// a launch plan. They do not publish an asset catalog or live-session
+/// observation, so the card labels that boundary instead of rendering zeros.
+const configurationOnly = computed(() => !assetInventorySupported.value);
+/// The badge must not promise a launch entry that this Agent's capabilities
+/// hide; Qoder, MothX, PenguinHarness, MiniMax Code and Raycast are
+/// configuration-only.
+const configurationTitle = computed(() => props.agent.capabilities.temporaryLaunch
+  ? "已接入原生配置和 CLI 启动能力；Skill、MCP、插件清单与活跃会话观测暂未接入"
+  : "已接入原生配置；Skill、MCP、插件清单、CLI 启动与活跃会话观测暂未接入");
+const hookSummary = computed(() => !hookInventorySupported.value
+  ? "该 Agent 未接入 Hook 清单"
+  : props.hookCount === null ? props.loading ? "正在读取" : "数量未确认" : `已配置 ${props.hookCount} 条规则`);
+const historySupported = computed(() => props.agent.capabilities.sessionHistory);
+const historyUnavailable = computed(() => {
+  if (!props.inventoryReady) return "安装状态尚未读取";
+  // An Agent that is not installed has no native history to fail to read.
+  if (!versionSummary.value && !props.installations.length && !props.selectedPath && !props.canLaunch) {
+    return "Agent 未安装，暂无历史会话";
+  }
+  if (!historySupported.value) return "该 Agent 暂不支持会话统计";
+  return "";
+});
+const historyErrorVisible = computed(() => !historyUnavailable.value && Boolean(props.historyError));
 const historyValue = computed(() => {
+  if (historyUnavailable.value) return "—";
   const count = props.historyCount;
   if (props.historyError) return "读取失败";
   return count?.total != null ? count.total : props.historyLoading ? "统计中" : "—";
 });
 const historySummary = computed(() => {
+  if (historyUnavailable.value) return historyUnavailable.value;
   const count = props.historyCount;
   const summary = props.historyError ? `会话数量读取失败：${props.historyError}`
     : count?.total != null ? `共 ${count.total} 条历史会话` : "数量尚未读取";
   return `全部目录，${summary}${props.historyLoading ? "，正在统计" : ""}`;
 });
+/// `unsupported` means the installation has no release channel BalanceHub can
+/// check (for example a Git checkout). The installed version is still in the
+/// subtitle, so the card does not present the missing channel as a failed check.
+const showVersionStatus = computed(() => Boolean(versionSummary.value)
+  && currentTarget.value?.version.state !== "unsupported");
 /// Sessions that already ended still answer "when did I last use this CLI",
 /// so the card reports the newest observed activity it has evidence for.
 /// 只有一天以内的活动值得写在卡片上：「最近活动 3 天前」既不能促成任何操作，
@@ -151,10 +184,14 @@ const activityTitle = computed(() =>
     : "",
 );
 const runningSummary = computed(() =>
-  `共 ${props.runningCount} 个${activityLabel.value ? `，最近活动 ${activityLabel.value}` : ""}`,
+  !runtimeObservationSupported.value
+    ? "该 Agent 未接入活跃会话观测"
+    : `共 ${props.runningCount} 个${activityLabel.value ? `，最近活动 ${activityLabel.value}` : ""}`,
 );
-const runtimeSummary = computed(
-  () => `已观测并确认的活跃会话，${runningSummary.value}；未确认状态不计入`,
+const runtimeSummary = computed(() =>
+  !runtimeObservationSupported.value
+    ? "BalanceHub 尚未接入该 Agent 的活跃会话观测来源"
+    : `已观测并确认的活跃会话，${runningSummary.value}；未确认状态不计入`,
 );
 const assetLinks = [
   { value: "skill", label: "Skill" },
@@ -162,6 +199,7 @@ const assetLinks = [
   { value: "extension", label: "插件" },
 ] as const;
 function assetSummary(count: number | null) {
+  if (!assetInventorySupported.value) return "配置接入 · 暂无原生资源清单";
   return count === null ? props.loading ? "正在读取" : "数量未确认" : `共 ${count} 项`;
 }
 type Statistic = {
@@ -172,26 +210,33 @@ type Statistic = {
   summary: string;
   title?: string;
   loading?: boolean;
+  disabled?: boolean;
 };
 const statistics = computed<Statistic[]>(() => [
   ...assetLinks.map((link) => ({
     key: link.value,
     label: link.label,
-    value: props.counts[link.value] ?? "—",
+    value: assetInventorySupported.value ? props.counts[link.value] ?? "—" : "—",
     summary: assetSummary(props.counts[link.value]),
-    loading: props.counts[link.value] === null && props.loading,
+    loading: assetInventorySupported.value && props.counts[link.value] === null && props.loading,
+    disabled: !assetInventorySupported.value,
   })),
   {
-    key: "hook", label: "Hook", value: props.hookCount ?? "—",
-    summary: hookSummary.value, loading: props.hookCount === null && props.loading,
+    key: "hook", label: "Hook", value: hookInventorySupported.value ? props.hookCount ?? "—" : "—",
+    summary: hookSummary.value,
+    loading: hookInventorySupported.value && props.hookCount === null && props.loading,
+    disabled: !hookInventorySupported.value,
   },
   {
     key: "history", label: "历史会话", displayLabel: "历史", value: historyValue.value,
     summary: historySummary.value, loading: props.historyLoading,
+    disabled: Boolean(historyUnavailable.value),
   },
   {
-    key: "activeSessions", label: "活跃会话", displayLabel: "活跃", value: props.runningCount,
+    key: "activeSessions", label: "活跃会话", displayLabel: "活跃",
+    value: runtimeObservationSupported.value ? props.runningCount : "—",
     summary: runningSummary.value, title: runtimeSummary.value,
+    disabled: !runtimeObservationSupported.value,
   },
 ]);
 function openStatistic(key: Statistic["key"]) {
@@ -218,16 +263,18 @@ function openStatistic(key: Statistic["key"]) {
           <span v-else-if="modelSummary" class="agent-overview-model" :class="{ 'is-error': modelSummary.state === 'readError' }" :title="modelTitle">{{ modelLabel }}</span>
           <button v-if="installationStatus?.action" type="button" class="agent-overview-status" :class="{ 'is-warning': installationStatus.warning }" :aria-label="`${agent.label} 安装状态，${installationStatus.label}`" :title="showInstallationGuide ? '打开官方安装说明' : '查看版本与路径'" @click="showInstallationGuide ? emit('installationGuide') : emit('installation')">{{ installationStatus.label }}</button>
           <span v-else-if="installationStatus" class="agent-overview-status" role="status">{{ installationStatus.label }}</span>
+          <span v-if="configurationOnly" class="agent-overview-status" :title="configurationTitle">配置接入</span>
           <span v-if="activityLabel" class="agent-overview-activity" role="status" :title="activityTitle">最近活动 {{ activityLabel }}</span>
         </template>
-        <template v-if="versionSummary" #meta>
+        <template v-if="showVersionStatus" #meta>
           <button type="button" class="agent-overview-status" :aria-label="`查看 ${agent.label} 当前使用安装的版本状态`" @click="emit('installation')"><AgentVersionStatus :version="currentTarget?.version ?? null" :checking="versionChecking" :error="versionCheckError" compact /></button>
         </template>
       </WorkspaceCardHeader>
     </template>
     <nav class="agent-card-statistics" :aria-label="`${agent.label} 资源与会话`">
       <button v-for="statistic in statistics" :key="statistic.key" type="button" class="agent-card-statistic"
-        :class="{ 'is-running': statistic.key === 'activeSessions' && runningCount > 0, 'is-error': statistic.key === 'history' && historyError }"
+        :class="{ 'is-running': statistic.key === 'activeSessions' && runningCount > 0, 'is-error': statistic.key === 'history' && historyErrorVisible }"
+        :disabled="statistic.disabled || undefined"
         :title="statistic.title ?? `${statistic.label} · ${statistic.summary}`"
         :aria-label="`查看 ${agent.label} 的 ${statistic.label}，${statistic.summary}`"
         :aria-busy="statistic.loading || undefined" @click="openStatistic(statistic.key)">

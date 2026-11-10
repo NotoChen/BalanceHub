@@ -16,7 +16,7 @@ const MODEL_PREFIX: &str = "custom:balancehub/";
 
 /// `$FACTORY_HOME_OVERRIDE` is the parent whose `.factory` folder Droid uses;
 /// otherwise that parent is the user's home.
-pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
+pub(crate) fn config_dir_for_home(home: &Path) -> PathBuf {
     configured_path("FACTORY_HOME_OVERRIDE")
         .unwrap_or_else(|| home.to_path_buf())
         .join(".factory")

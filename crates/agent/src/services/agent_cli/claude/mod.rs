@@ -7,7 +7,7 @@ mod hook_catalog;
 mod launch;
 mod liveness;
 mod native_context;
-mod sessions;
+pub(super) mod sessions;
 
 pub(crate) use environment::ClaudeControlPayload;
 pub(crate) use environment::ClaudePluginPayload;

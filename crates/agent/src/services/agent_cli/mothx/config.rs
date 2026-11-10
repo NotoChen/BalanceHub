@@ -4,7 +4,7 @@ use super::super::config_support::{
     parse_jsonc_document, plain_secret, read_stable_optional, relay_snapshot, CliConfigTarget,
 };
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
-use super::super::integration::validate_native_value;
+use super::super::integration::{expand_tilde, validate_native_value};
 use crate::{
     models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::{configured_path, user_home},
@@ -12,7 +12,7 @@ use crate::{
 use serde_json::{Map, Value as JsonValue};
 use std::path::{Path, PathBuf};
 
-const PROVIDER_ID: &str = "balancehub";
+pub(super) const PROVIDER_ID: &str = "balancehub";
 
 /// MothX keeps `settings.json` in `$MOTHX_DIR`, else `%APPDATA%\mothx` on
 /// Windows and `~/.mothx` elsewhere.
@@ -189,4 +189,81 @@ fn merge_config(
         }
         Ok(())
     })
+}
+
+/// The user-level config root a temporary launch mirrors. Relative
+/// `MOTHX_DIR` values are rejected: auxiliary files are written beneath the
+/// launch directory and must not depend on the app process working directory.
+pub(super) fn native_config_root() -> Result<PathBuf, String> {
+    let home = user_home().ok_or_else(|| "无法定位用户目录".to_string())?;
+    let root = config_dir_for_home(&home);
+    if !root.is_absolute() {
+        return Err("MothX 配置目录必须是绝对路径".into());
+    }
+    Ok(root)
+}
+
+/// `sessionDir` is independent of `MOTHX_DIR`. A relative value resolves
+/// against the CLI's working directory, so it is not used for indexing or for
+/// a temporary launch that must keep pointing at the same store.
+pub(super) fn session_dir_for_root(root: &Path) -> Option<PathBuf> {
+    configured_dir(root, "sessionDir")
+}
+
+fn configured_dir(root: &Path, key: &str) -> Option<PathBuf> {
+    let home = user_home()?;
+    let text = read_stable_optional(&settings_path(root)).ok().flatten()?;
+    let value = parse_jsonc_document(&text.text).ok()?;
+    let raw = value.get(key)?.as_str()?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let path = expand_tilde(raw, &home);
+    path.is_absolute().then_some(path)
+}
+
+/// A native config file copied into a temporary launch. Missing or unreadable
+/// files are skipped: a launch still works, it just keeps the user's native
+/// MCP / allow / context settings out of the isolated config root.
+pub(super) fn optional_config_text(root: &Path, name: &str) -> Option<String> {
+    read_stable_optional(&root.join(name))
+        .ok()
+        .flatten()
+        .map(|file| file.text)
+}
+
+/// Builds the isolated `settings.json` for a provider launch. The native
+/// document is the base so user preferences, MCP declarations and disabled
+/// skills survive; provider credentials and the two storage roots are then
+/// pinned explicitly. Sessions and skills stay in their native locations, so
+/// the launched CLI keeps writing to the same session database the history
+/// reader indexes.
+pub(super) fn launch_settings(
+    native_root: &Path,
+    model: &str,
+    base_url: &str,
+    api_key: &str,
+) -> Result<String, String> {
+    let native = read_stable_optional(&settings_path(native_root))
+        .ok()
+        .flatten()
+        .map(|file| file.text)
+        .unwrap_or_default();
+    let merged = merge_config(&native, model, base_url, api_key)?;
+    let mut value = parse_jsonc_document(&merged)
+        .map_err(|_| "生成 MothX 临时设置失败".to_string())?;
+    let root = value
+        .as_object_mut()
+        .ok_or_else(|| "生成 MothX 临时设置失败".to_string())?;
+    for (key, fallback) in [
+        ("sessionDir", native_root.join("sessions")),
+        ("skillsDir", native_root.join("skills")),
+    ] {
+        let directory = configured_dir(native_root, key).unwrap_or(fallback);
+        root.insert(
+            key.into(),
+            JsonValue::String(directory.to_string_lossy().into_owned()),
+        );
+    }
+    serde_json::to_string_pretty(&value).map_err(|err| format!("生成 MothX 临时设置失败: {err}"))
 }

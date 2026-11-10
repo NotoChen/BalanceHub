@@ -2,7 +2,7 @@ use super::super::integration::expand_tilde;
 use super::super::pi_family::{self, FamilySpec};
 use crate::models::{AgentCliKind, CliConfigSnapshot, Provider};
 use crate::services::agent_cli::configuration::contracts::ProviderConfigurationCandidate;
-use crate::services::cli_paths::configured_path;
+use crate::services::cli_paths::{configured_path, user_home};
 use std::path::{Path, PathBuf};
 
 pub(super) const SPEC: FamilySpec = FamilySpec {
@@ -22,12 +22,29 @@ pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
         .unwrap_or_else(|| home.join(".prime/agent"))
 }
 
+pub(super) fn config_dir() -> Option<PathBuf> {
+    user_home().map(|home| config_dir_for_home(&home))
+}
+
 pub(super) fn settings_path(root: &Path) -> PathBuf {
     pi_family::settings_path(root)
 }
 
 pub(super) fn models_path(root: &Path) -> PathBuf {
     pi_family::models_path(root)
+}
+
+/// The native session directory a provider launch points `--session-dir` at,
+/// so temporary config isolation does not move session history. Scan and
+/// launch share the same rules, so a relative override falls back instead of
+/// being re-based on the project workdir.
+pub(super) fn native_session_dir() -> Option<String> {
+    let root = config_dir()?;
+    Some(
+        pi_family::sessions::session_directory(&root, &super::sessions::SPEC)
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {

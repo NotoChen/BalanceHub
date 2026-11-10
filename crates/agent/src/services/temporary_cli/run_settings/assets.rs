@@ -173,7 +173,8 @@ pub(super) fn load(
             | AgentCliKind::Morph
             | AgentCliKind::MiniMaxCode
             | AgentCliKind::Raycast
-            | AgentCliKind::Omo => false,
+            | AgentCliKind::Omo
+            | AgentCliKind::CommandCode => false,
         };
         let note = if managed {
             "由组织管理，按组织策略执行"

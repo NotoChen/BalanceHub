@@ -7,6 +7,8 @@ use super::config_support::{
     rewrite_json_document, CliConfigTarget,
 };
 use super::configuration::contracts::ProviderConfigurationCandidate;
+use super::contracts::{ParsedLivenessOutput, ParsedTokenUsage};
+use super::liveness_support::{extract_f64, extract_u64, token_sum};
 use crate::models::{AgentCliKind, CliConfigSnapshot, Provider};
 use crate::services::agent_cli::integration::validate_native_value;
 use crate::services::cli_paths::user_home;
@@ -14,6 +16,8 @@ use serde_json::{Map, Value as JsonValue};
 use std::path::{Path, PathBuf};
 
 pub(super) const PROVIDER_ID: &str = "balancehub";
+
+pub(crate) mod sessions;
 
 pub(super) struct FamilySpec {
     pub label: &'static str,
@@ -316,4 +320,87 @@ fn object_member<'a>(
         .or_insert_with(|| JsonValue::Object(Map::new()))
         .as_object_mut()
         .ok_or_else(|| format!("{} 模型配置中的 {key} 必须是对象", spec.label))
+}
+
+/// The `--mode json` event stream shared by Pi-shaped CLIs: the committed
+/// assistant `message_end` carries the answer, token usage, and the stop
+/// reason. A transport failure arrives as a `message_end` with
+/// `stopReason: error` plus `errorMessage`.
+pub(super) fn parse_message_end_events(
+    label: &str,
+    response_output: &str,
+    stdout: &str,
+) -> ParsedLivenessOutput {
+    let source = if response_output.trim().is_empty() {
+        stdout
+    } else {
+        response_output
+    };
+    let mut text = String::new();
+    let mut usage = ParsedTokenUsage::default();
+    let mut error = None;
+    for line in source.lines() {
+        let Ok(event) = serde_json::from_str::<JsonValue>(line.trim()) else {
+            continue;
+        };
+        if event.get("type").and_then(JsonValue::as_str) != Some("message_end") {
+            continue;
+        }
+        let Some(message) = event.get("message") else {
+            continue;
+        };
+        if message.get("role").and_then(JsonValue::as_str) != Some("assistant") {
+            continue;
+        }
+        text = message
+            .get("content")
+            .and_then(JsonValue::as_array)
+            .map(|content| {
+                content
+                    .iter()
+                    .filter_map(|block| {
+                        (block.get("type").and_then(JsonValue::as_str) == Some("text"))
+                            .then(|| block.get("text").and_then(JsonValue::as_str))
+                            .flatten()
+                    })
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        if let Some(value) = message.get("usage") {
+            usage = ParsedTokenUsage {
+                input_tokens: extract_u64(value, "input"),
+                cached_input_tokens: extract_u64(value, "cacheRead"),
+                output_tokens: extract_u64(value, "output"),
+                reasoning_output_tokens: extract_u64(value, "reasoning"),
+                total_tokens: extract_u64(value, "totalTokens"),
+                total_cost_usd: value
+                    .get("cost")
+                    .and_then(|cost| extract_f64(cost, "total"))
+                    .filter(|cost| *cost > 0.0),
+            };
+        }
+        if let Some(reason) = message.get("stopReason").and_then(JsonValue::as_str) {
+            if matches!(reason, "error" | "aborted") {
+                error = Some(format!("{label} 对话未完成: {reason}"));
+            }
+        }
+        if let Some(message) = message.get("errorMessage").and_then(JsonValue::as_str) {
+            if !message.trim().is_empty() {
+                error = Some(message.to_string());
+            }
+        }
+    }
+    if usage.total_tokens.is_none() {
+        usage.total_tokens = token_sum(&[
+            usage.input_tokens,
+            usage.cached_input_tokens,
+            usage.output_tokens,
+            usage.reasoning_output_tokens,
+        ]);
+    }
+    ParsedLivenessOutput {
+        response: text.trim().chars().take(240).collect(),
+        error,
+        usage,
+    }
 }

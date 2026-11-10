@@ -31,7 +31,13 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
   const workspaces = useWorkspaceStore();
   const kinds = computed(() => options.cliRuntime.value.agents.map((agent) => agent.kind));
   const historyActive = computed(() => options.active.value && navigation.page === "overview");
-  const history = reactive(useAgentHistorySummary(historyActive, kinds));
+  // Configuration-only Agents have no native session adapter. Asking for
+  // their counts would come back with no source and be rendered as a read
+  // failure on every card.
+  const historyKinds = computed(() => options.cliRuntime.value.agents
+    .filter((agent) => agent.capabilities.sessionHistory)
+    .map((agent) => agent.kind));
+  const history = reactive(useAgentHistorySummary(historyActive, historyKinds));
   const cli = useCliRuntimeStore();
   const catalogStore = useAgentCatalogStore();
   const lifecycleStore = useAgentLifecycleStore();
@@ -135,7 +141,8 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     ]);
   }
   async function refreshCard(kind: AgentCliKind) {
-    await Promise.allSettled([overview.refresh(kind, workspacePath.value, true), ...(historyActive.value ? [history.refresh(kind)] : [])]);
+    await Promise.allSettled([overview.refresh(kind, workspacePath.value, true),
+      ...(historyActive.value && historyKinds.value.includes(kind) ? [history.refresh(kind)] : [])]);
   }
   function openConfigurationFile(kind: AgentCliKind, sourceId: string) {
     selectedAgentKind.value = kind;

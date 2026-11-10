@@ -201,6 +201,10 @@ pub(super) fn default_model(snapshot: &NativeSnapshot) -> AgentSettingValueSumma
                 "OmO 默认模型",
                 "未设置 defaultModel。OmO 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
             ),
+            AgentCliKind::CommandCode => (
+                "Command Code 默认模型",
+                "未设置 model。Command Code 会按原生配置选择默认模型；当前尚未取得具体模型 ID。",
+            ),
         };
         AgentSettingValueSummary {
             value: None,

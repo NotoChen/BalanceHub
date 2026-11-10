@@ -3,13 +3,17 @@
 //! `<provider>/<model>`). OpenCode itself keeps its own richer adapter for
 //! `OPENCODE_CONFIG` and project-level precedence.
 
+pub(super) mod sessions;
+
 use super::config_support::{
     cli_config_target, config_error, latest_modified_at, match_provider_key, normalize_endpoint,
     oauth_snapshot, parse_jsonc_document, read_stable_optional, relay_snapshot,
     rewrite_json_document, CliConfigTarget,
 };
 use super::configuration::contracts::ProviderConfigurationCandidate;
+use super::contracts::{ParsedLivenessOutput, ParsedTokenUsage};
 use super::integration::validate_native_value;
+use super::liveness_support::{add_optional, extract_u64, token_sum};
 use crate::{
     models::{AgentCliKind, CliConfigSnapshot, Provider},
     services::cli_paths::user_home,
@@ -165,7 +169,7 @@ fn literal_or_environment(value: &str) -> Option<String> {
     Some(resolved.to_string())
 }
 
-fn merge_config(
+pub(super) fn merge_config(
     spec: &FamilySpec,
     source: &str,
     provider_name: &str,
@@ -232,4 +236,93 @@ fn object_member<'a>(
         .or_insert_with(|| JsonValue::Object(Map::new()))
         .as_object_mut()
         .ok_or_else(|| format!("{} 配置中的 {key} 必须是对象", spec.label))
+}
+
+/// The `run --format json` event stream shared by OpenCode-shaped CLIs:
+/// assistant text arrives on `text` events and per-step token usage on
+/// `step_finish`; transport failures surface as `error` events.
+pub(super) fn parse_run_events(
+    label: &str,
+    response_output: &str,
+    stdout: &str,
+) -> ParsedLivenessOutput {
+    let source = if response_output.trim().is_empty() {
+        stdout
+    } else {
+        response_output
+    };
+    let mut text = String::new();
+    let mut usage = ParsedTokenUsage::default();
+    let mut error = None;
+    for line in source.lines() {
+        let Ok(event) = serde_json::from_str::<JsonValue>(line.trim()) else {
+            continue;
+        };
+        match event.get("type").and_then(JsonValue::as_str) {
+            Some("text") => {
+                if let Some(chunk) = event
+                    .get("part")
+                    .and_then(|part| part.get("text"))
+                    .and_then(JsonValue::as_str)
+                {
+                    text.push_str(chunk);
+                }
+            }
+            Some("step_finish") => {
+                if let Some(tokens) = event.get("part").and_then(|part| part.get("tokens")) {
+                    add_usage(&mut usage, tokens);
+                }
+                if usage.total_cost_usd.is_none() {
+                    usage.total_cost_usd = event
+                        .get("part")
+                        .and_then(|part| part.get("cost"))
+                        .and_then(JsonValue::as_f64)
+                        .filter(|cost| *cost > 0.0);
+                }
+            }
+            Some("error") => {
+                error = event
+                    .get("error")
+                    .and_then(|error| {
+                        error
+                            .get("data")
+                            .and_then(|data| data.get("message"))
+                            .and_then(JsonValue::as_str)
+                            .or_else(|| error.get("message").and_then(JsonValue::as_str))
+                    })
+                    .map(str::to_owned)
+                    .or_else(|| Some(format!("{label} 测活执行失败")));
+            }
+            _ => {}
+        }
+    }
+    if usage.total_tokens.is_none() {
+        usage.total_tokens = token_sum(&[
+            usage.input_tokens,
+            usage.cached_input_tokens,
+            usage.output_tokens,
+            usage.reasoning_output_tokens,
+        ]);
+    }
+    ParsedLivenessOutput {
+        response: text.trim().chars().take(240).collect(),
+        error,
+        usage,
+    }
+}
+
+fn add_usage(usage: &mut ParsedTokenUsage, tokens: &JsonValue) {
+    add_optional(&mut usage.input_tokens, extract_u64(tokens, "input"));
+    add_optional(
+        &mut usage.cached_input_tokens,
+        tokens
+            .get("cache")
+            .and_then(|cache| extract_u64(cache, "read")),
+    );
+    add_optional(&mut usage.output_tokens, extract_u64(tokens, "output"));
+    add_optional(
+        &mut usage.reasoning_output_tokens,
+        extract_u64(tokens, "reasoning"),
+    );
+    add_optional(&mut usage.total_tokens, extract_u64(tokens, "total"));
 }

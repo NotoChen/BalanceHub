@@ -60,7 +60,8 @@ fn every_native_decoder_preserves_failed_tool_status_and_exit_code() {
             | AgentCliKind::Morph
             | AgentCliKind::MiniMaxCode
             | AgentCliKind::Raycast
-            | AgentCliKind::Omo => continue,
+            | AgentCliKind::Omo
+            | AgentCliKind::CommandCode => continue,
         };
         std::fs::write(
             root.path().join(filename),

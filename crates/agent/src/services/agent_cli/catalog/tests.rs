@@ -80,6 +80,7 @@ pub(super) fn fixture_contexts(
         AgentCliKind::MiniMaxCode => ".minimax",
         AgentCliKind::Raycast => ".config/raycast/ai",
         AgentCliKind::Omo => ".omo/agent",
+        AgentCliKind::CommandCode => ".commandcode",
     };
     let root = request.home.join(directory);
     let mut contexts = agent_cli::definition(request.agent_kind)

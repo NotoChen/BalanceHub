@@ -23,6 +23,14 @@ fn config_dir() -> Option<PathBuf> {
     configured_path("QWEN_HOME").or_else(|| user_home().map(|home| home.join(".qwen")))
 }
 
+/// Qwen writes project logs beneath the runtime base, which may differ from
+/// `QWEN_HOME` when a separate runtime directory is configured.
+pub(super) fn runtime_base_dir() -> Option<PathBuf> {
+    configured_path("QWEN_RUNTIME_DIR")
+        .filter(|path| path.is_absolute())
+        .or_else(config_dir)
+}
+
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {
     let Some(root) = config_dir() else {
         return config_error(cli_kind, "无法定位用户目录");

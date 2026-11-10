@@ -25,6 +25,10 @@ pub(super) fn config_path_for_home(home: &Path) -> PathBuf {
     config_dir_for_home(home).join("openclaw.json")
 }
 
+pub(super) fn state_dir() -> Option<PathBuf> {
+    Some(config_dir_for_home(&user_home()?))
+}
+
 pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
     let openclaw_home = openclaw_home(home);
     let mut dir = openclaw_home.join(".openclaw");
@@ -167,6 +171,96 @@ fn parse_config(text: &str) -> Result<Option<(String, String)>, ()> {
     Ok(api_key.map(|api_key| (base_url.to_string(), api_key)))
 }
 
+/// Temporary-launch provider document: no native file is read, and the
+/// launch directory owns the resulting config for the lifetime of the TUI.
+pub(super) fn temporary_provider_config(
+    model: &str,
+    base_url: &str,
+    api_key: &str,
+) -> Result<String, String> {
+    merge_config("", model, base_url, api_key)
+}
+
+/// Native launches keep `OPENCLAW_STATE_DIR` untouched so sessions still land
+/// in the user's own library. Only the model pointer moves: the native config
+/// is copied to the launch directory with that one value replaced.
+pub(super) fn temporary_native_config(model: &str) -> Result<String, String> {
+    let path = config_path().ok_or_else(|| "无法定位 OpenClaw 配置".to_string())?;
+    let source = read_stable_optional(&path)
+        .map_err(|error| format!("读取 OpenClaw 配置失败：{error}"))?
+        .map(|file| file.text)
+        .ok_or_else(|| "OpenClaw 原生配置不存在".to_string())?;
+    rewrite_native_model(&source, model)
+}
+
+fn rewrite_native_model(source: &str, model: &str) -> Result<String, String> {
+    let mut root = parse_jsonc_document(source)
+        .map_err(|_| "OpenClaw 配置文件格式无效".to_string())?;
+    let reference = native_model_reference(&root, model)?;
+    set_default_model(&mut root, &reference)?;
+    serde_json::to_string_pretty(&root)
+        .map_err(|error| format!("生成 OpenClaw 临时配置失败：{error}"))
+}
+
+fn native_model_reference(root: &JsonValue, model: &str) -> Result<String, String> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("模型 ID 不能为空".to_string());
+    }
+    if model.contains('/') {
+        return Ok(model.to_string());
+    }
+    if let Some(provider) = provider_with_model(root, model) {
+        return Ok(format!("{provider}/{model}"));
+    }
+    if let Some(reference) = current_default_model(root) {
+        if let Some((provider, _)) = reference.split_once('/') {
+            return Ok(format!("{provider}/{model}"));
+        }
+    }
+    Err("OpenClaw 原生模式需要使用 provider/model 形式的模型 ID".to_string())
+}
+
+fn provider_with_model(root: &JsonValue, model: &str) -> Option<String> {
+    root.pointer("/models/providers")?
+        .as_object()?
+        .iter()
+        .find_map(|(provider, entry)| {
+            entry
+                .get("models")?
+                .as_array()?
+                .iter()
+                .any(|item| item.get("id").and_then(JsonValue::as_str) == Some(model))
+                .then(|| provider.clone())
+        })
+}
+
+fn current_default_model(root: &JsonValue) -> Option<&str> {
+    let model = root.pointer("/agents/defaults/model")?;
+    model
+        .as_str()
+        .or_else(|| model.get("primary").and_then(JsonValue::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn set_default_model(root: &mut JsonValue, reference: &str) -> Result<(), String> {
+    let root = root
+        .as_object_mut()
+        .ok_or_else(|| "OpenClaw 配置根节点不是对象".to_string())?;
+    let agents = json_object_member(root, "agents", "OpenClaw 配置")?;
+    let defaults = json_object_member(agents, "defaults", "OpenClaw 配置")?;
+    match defaults.get_mut("model") {
+        Some(JsonValue::Object(existing)) => {
+            existing.insert("primary".into(), JsonValue::String(reference.into()));
+        }
+        _ => {
+            defaults.insert("model".into(), JsonValue::String(reference.into()));
+        }
+    }
+    Ok(())
+}
+
 fn merge_config(
     source: &str,
     model: &str,
@@ -242,4 +336,57 @@ fn merge_config(
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_model_rewrite_resolves_a_bare_model_against_the_native_provider() {
+        let source = r#"{
+          // Comments survive only while the native file is on disk.
+          "models": {
+            "providers": {
+              "openai": { "models": [{ "id": "gpt-4o" }, { "id": "gpt-5" }] }
+            }
+          },
+          "agents": { "defaults": { "model": { "primary": "openai/gpt-4o" } } }
+        }"#;
+        let rewritten = rewrite_native_model(source, "gpt-5").unwrap();
+        let value: JsonValue = serde_json::from_str(&rewritten).unwrap();
+        assert_eq!(
+            value
+                .pointer("/agents/defaults/model/primary")
+                .and_then(JsonValue::as_str),
+            Some("openai/gpt-5")
+        );
+        assert!(value
+            .pointer("/models/providers/openai/models/1/id")
+            .is_some());
+    }
+
+    #[test]
+    fn native_model_rewrite_keeps_a_string_model_shape_and_full_reference() {
+        let source = r#"{
+          "models": { "providers": {} },
+          "agents": { "defaults": { "model": "openai/gpt-4o" } }
+        }"#;
+        let rewritten = rewrite_native_model(source, "relay/custom-model").unwrap();
+        let value: JsonValue = serde_json::from_str(&rewritten).unwrap();
+        assert_eq!(
+            value.pointer("/agents/defaults/model").and_then(JsonValue::as_str),
+            Some("relay/custom-model")
+        );
+    }
+
+    #[test]
+    fn native_model_rewrite_rejects_a_bare_model_without_a_provider() {
+        let source = r#"{
+          "models": { "providers": {} },
+          "agents": { "defaults": {} }
+        }"#;
+        let error = rewrite_native_model(source, "gpt-5").unwrap_err();
+        assert!(error.contains("provider/model"));
+    }
 }

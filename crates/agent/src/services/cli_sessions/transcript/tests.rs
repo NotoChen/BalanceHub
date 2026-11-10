@@ -58,8 +58,9 @@ fn source(path: &Path) -> SessionTranscriptSource {
     SessionTranscriptSource {
         path: path.to_path_buf(),
         parser_version: 1,
-        format: SessionTranscriptFormat::JsonLines,
+        format: SessionTranscriptFormat::Lines,
         window_safe: true,
+        sqlite: None,
         decode,
     }
 }

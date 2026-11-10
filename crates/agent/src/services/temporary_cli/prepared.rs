@@ -10,13 +10,16 @@ use super::{
 use crate::{
     models::{
         AgentCliKind, AgentSessionLaunchIdentity, AppSettings, OAuthCredential, Provider,
-        ProviderAuth, ProviderProtocol, TemporaryCliInstance,
+        ProviderAuth, ProviderProtocol, TemporaryCliInstance, TemporaryCliSessionMode,
     },
     network,
     services::{
         agent_cli::{
             self,
-            contracts::{EnvironmentPatch, TemporaryLaunchConfiguration, TemporaryLaunchRequest},
+            contracts::{
+                EnvironmentPatch, TemporaryLaunchConfiguration, TemporaryLaunchPlan,
+                TemporaryLaunchRequest,
+            },
         },
         cli_runtime::{self, CliInstanceRegistration, RegisteredCliInstance},
     },
@@ -103,6 +106,29 @@ impl PreparedCliLaunch {
     }
 }
 
+/// 会话来源的环境负责补齐继续该历史会话所需的原生身份路径；本次启动适配器
+/// 已明确设置或移除的变量属于隔离方案（独立配置目录、Provider 覆盖），不能被
+/// 来源环境覆盖，否则 Provider 续聊会重新读回原生配置。
+fn merge_source_environment(plan: &mut TemporaryLaunchPlan, source: &EnvironmentPatch) {
+    let adapter_names: Vec<String> = plan
+        .environment
+        .set_values()
+        .map(|(name, _)| name.to_string())
+        .chain(plan.environment.removed_names().map(str::to_string))
+        .collect();
+    let adapter_owns = |name: &str| adapter_names.iter().any(|value| value == name);
+    for name in source.removed_names() {
+        if !adapter_owns(name) {
+            plan.environment.remove(name);
+        }
+    }
+    for (name, value) in source.set_values() {
+        if !adapter_owns(name) {
+            plan.environment.set(name, value);
+        }
+    }
+}
+
 pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCliLaunch, String> {
     let CliLaunchRequest {
         settings,
@@ -151,7 +177,16 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
             }
         }
     }
-    let model = options.model_override.trim().to_string();
+    // 恢复历史会话时模型可以不填，此时沿用它记录的原模型；否则中转站启动
+    // 会拿空模型交给适配器而失败。新建会话仍以用户明确选择为准。
+    let model = if !options.model_override.trim().is_empty() {
+        options.model_override.trim().to_string()
+    } else if provider.is_some() && matches!(options.session_mode, TemporaryCliSessionMode::History)
+    {
+        options.inherited_model.trim().to_string()
+    } else {
+        String::new()
+    };
     // 卡片声明了 wire_name 时，CLI 收到的才是上游认识的模型 ID；表单、预览和
     // 历史仍使用用户选择的 ID。
     let wire_model = provider
@@ -194,12 +229,7 @@ pub(crate) fn prepare_launch(request: CliLaunchRequest<'_>) -> Result<PreparedCl
         launch_directory,
     })?;
     if let Some(environment) = source_environment {
-        for name in environment.removed_names() {
-            plan.environment.remove(name);
-        }
-        for (name, value) in environment.set_values() {
-            plan.environment.set(name, value);
-        }
+        merge_source_environment(&mut plan, environment);
     }
     let is_wsl = native_session.is_some_and(|identity| {
         matches!(

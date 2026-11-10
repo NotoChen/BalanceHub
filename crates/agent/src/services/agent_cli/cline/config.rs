@@ -25,6 +25,16 @@ pub(super) fn data_dir_for_home(home: &Path) -> PathBuf {
         .unwrap_or_else(|| config_dir_for_home(home).join("data"))
 }
 
+/// Session artifacts live beside the provider data unless a dedicated
+/// session root is configured.
+pub(super) fn session_data_dir() -> Option<PathBuf> {
+    let home = user_home()?;
+    Some(
+        configured_path("CLINE_SESSION_DATA_DIR")
+            .unwrap_or_else(|| data_dir_for_home(&home).join("sessions")),
+    )
+}
+
 pub(super) fn providers_path(root: &Path) -> PathBuf {
     root.join("settings/providers.json")
 }

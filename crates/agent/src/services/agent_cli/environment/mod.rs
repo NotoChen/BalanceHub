@@ -6,6 +6,7 @@ pub(crate) mod access_registry;
 mod adapter_support;
 pub(crate) mod config_document;
 mod diagnostics;
+pub(crate) mod generic_mcp;
 mod hook_counts;
 mod identity;
 mod inventory;

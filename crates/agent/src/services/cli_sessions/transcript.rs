@@ -835,12 +835,18 @@ fn read_source(
     request: stream::WindowRequest,
     budget: &SessionReadBudget,
 ) -> Result<SourceScan, String> {
-    let file_bytes = std::fs::metadata(&source.path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
+    // A SQLite database is not the transcript's byte stream; its rows are
+    // batched by row key instead of file length.
+    let file_bytes = if source.sqlite.is_some() {
+        0
+    } else {
+        std::fs::metadata(&source.path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    };
     let windowable = allow_window
         && source.window_safe
-        && source.format == SessionTranscriptFormat::JsonLines
+        && source.format == SessionTranscriptFormat::Lines
         && !super::source::compressed(&source.path);
     let window_request = match request {
         stream::WindowRequest::Latest if windowable && file_bytes > WINDOWED_TRANSCRIPT_BYTES => {
@@ -864,7 +870,7 @@ fn read_source(
         return Ok(window_scan(path, window));
     }
     if file_bytes > MAX_TRANSCRIPT_BYTES {
-        if source.format != SessionTranscriptFormat::JsonLines
+        if source.format != SessionTranscriptFormat::Lines
             || super::source::compressed(&source.path)
         {
             return Err("会话正文超过按需读取上限，无法打开".into());

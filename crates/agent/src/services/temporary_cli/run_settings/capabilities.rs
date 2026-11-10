@@ -81,31 +81,48 @@ pub(super) fn inspect(
             result.retention_note =
                 "Pi 当前使用原生会话记录，接入级启动未提供临时会话隔离入口".into();
         }
+        AgentCliKind::Jcode => {
+            result.retention_note =
+                "jcode 当前使用原生会话记录，接入级启动未提供临时会话隔离入口".into();
+        }
+        AgentCliKind::Omo => {
+            result.retention_note =
+                "OmO 当前使用原生会话记录，接入级启动未提供临时会话隔离入口".into();
+        }
+        AgentCliKind::Omp => {
+            result.retention_note =
+                "omp 当前使用原生会话记录，接入级启动未提供临时会话隔离入口".into();
+        }
         AgentCliKind::Crush
         | AgentCliKind::Copilot
         | AgentCliKind::Droid
-        | AgentCliKind::Qoder
         | AgentCliKind::CodeBuddy
         | AgentCliKind::OpenClaw
-        | AgentCliKind::Jcode
-        | AgentCliKind::MothX
         | AgentCliKind::KimiCode
         | AgentCliKind::StepCode
         | AgentCliKind::DevEco
         | AgentCliKind::MiMoCode
         | AgentCliKind::AtomCode
         | AgentCliKind::Cline
-        | AgentCliKind::Penguin
         | AgentCliKind::PrimeAgent
         | AgentCliKind::Goose
         | AgentCliKind::Hermes
         | AgentCliKind::Dsh
-        | AgentCliKind::Omp
-        | AgentCliKind::Morph
+        | AgentCliKind::Morph => {
+            result.retention_note = format!(
+                "{} 当前使用原生会话记录，接入级启动未提供临时会话隔离入口",
+                crate::services::agent_cli::definition(request.cli_kind).label
+            );
+        }
+        AgentCliKind::Qoder
+        | AgentCliKind::MothX
+        | AgentCliKind::Penguin
         | AgentCliKind::MiniMaxCode
-        | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Raycast => {
             result.retention_note = "当前 Agent 仅提供原生配置接入，未提供临时启动".into();
+        }
+        AgentCliKind::CommandCode => {
+            result.can_discard_session = true;
         }
     }
     if !result.can_discard_session && result.retention_note.is_empty() {
@@ -157,7 +174,8 @@ pub(super) fn inspect(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => ["", "", "", ""],
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => ["", "", "", ""],
     };
     for (index, (supported, key, label)) in [
         (result.can_disable_skills, "disableSkills", "Skill"),
@@ -189,8 +207,16 @@ pub(super) fn inspect(
     if request.session_mode == TemporaryCliSessionMode::History {
         result.notices.push("继续历史会话时，未覆盖的会话参数由 Agent 从原记录恢复；下方当前值展示的是所选目录的启动配置。".into());
     }
-    if request.cli_kind == AgentCliKind::Pi && !request.provider_id.trim().is_empty() {
-        result.notices.push("Pi 的中转站启动使用独立 Agent 配置目录；个人扩展、Skill 与原生登录不会载入，会话仍写入原生会话目录。".into());
+    if matches!(
+        request.cli_kind,
+        AgentCliKind::Pi
+            | AgentCliKind::Omo
+            | AgentCliKind::Omp
+            | AgentCliKind::StepCode
+            | AgentCliKind::PrimeAgent
+    ) && !request.provider_id.trim().is_empty()
+    {
+        result.notices.push("中转站启动使用独立 Agent 配置目录；个人扩展、Skill 与原生登录不会载入，会话仍写入原生会话目录。".into());
     }
     let (retention, rules, prompt, instructions, directories) = match request.cli_kind {
         AgentCliKind::Codex => (
@@ -242,13 +268,33 @@ pub(super) fn inspect(
             "随首条消息传入工作要求",
             "原生工作目录范围",
         ),
+        AgentCliKind::Jcode => (
+            "JCODE_HOME / --resume",
+            "AGENTS.md / 原生规则加载",
+            "jcode [prompt]",
+            "随首条消息传入工作要求",
+            "原生工作目录范围",
+        ),
+        AgentCliKind::Omo => (
+            "OMO_CODING_AGENT_DIR / --session-dir",
+            "AGENTS.md / 原生规则加载",
+            "omo [message]",
+            "随首条消息传入工作要求",
+            "原生工作目录范围",
+        ),
+        AgentCliKind::Omp => (
+            "PI_CODING_AGENT_DIR / --session-dir",
+            "AGENTS.md / 原生规则加载",
+            "omp [message]",
+            "随首条消息传入工作要求",
+            "原生工作目录范围",
+        ),
         AgentCliKind::Crush
         | AgentCliKind::Copilot
         | AgentCliKind::Droid
         | AgentCliKind::Qoder
         | AgentCliKind::CodeBuddy
         | AgentCliKind::OpenClaw
-        | AgentCliKind::Jcode
         | AgentCliKind::MothX
         | AgentCliKind::KimiCode
         | AgentCliKind::StepCode
@@ -261,16 +307,21 @@ pub(super) fn inspect(
         | AgentCliKind::Goose
         | AgentCliKind::Hermes
         | AgentCliKind::Dsh
-        | AgentCliKind::Omp
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
-        | AgentCliKind::Raycast
-        | AgentCliKind::Omo => (
+        | AgentCliKind::Raycast => (
             "原生配置",
             "原生规则加载",
             "原生命令",
             "原生提示",
             "原生工作目录范围",
+        ),
+        AgentCliKind::CommandCode => (
+            "HOME / ~/.commandcode",
+            "AGENTS.md / 原生规则加载",
+            "command-code [prompt]",
+            "随首条消息传入工作要求",
+            "--add-dir",
         ),
     };
     let instructions = if request.session_mode == TemporaryCliSessionMode::History {

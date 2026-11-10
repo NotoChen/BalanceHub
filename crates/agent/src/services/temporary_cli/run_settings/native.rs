@@ -57,7 +57,8 @@ pub(super) fn apply(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {}
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {}
     }
     for directory in &settings.additional_directories {
         pair(

@@ -86,7 +86,8 @@ fn assert_native_files(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {
             unreachable!("integration-tier agents have no native Hook fixture")
         }
     }
@@ -243,7 +244,8 @@ fn file_only_lifecycle(kind: AgentCliKind, adopt_existing: bool) {
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {
             unreachable!("integration-tier agents have no native Hook fixture")
         }
     };
@@ -427,7 +429,8 @@ fn file_only_lifecycle(kind: AgentCliKind, adopt_existing: bool) {
             | AgentCliKind::Morph
             | AgentCliKind::MiniMaxCode
             | AgentCliKind::Raycast
-            | AgentCliKind::Omo => {
+            | AgentCliKind::Omo
+            | AgentCliKind::CommandCode => {
                 unreachable!("integration-tier agents have no native Hook fixture")
             }
         }
@@ -506,7 +509,8 @@ fn file_only_lifecycle(kind: AgentCliKind, adopt_existing: bool) {
             | AgentCliKind::Morph
             | AgentCliKind::MiniMaxCode
             | AgentCliKind::Raycast
-            | AgentCliKind::Omo => {
+            | AgentCliKind::Omo
+            | AgentCliKind::CommandCode => {
                 unreachable!("integration-tier agents have no native Hook fixture")
             }
         }

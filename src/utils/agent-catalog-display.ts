@@ -35,7 +35,7 @@ export function agentCatalogOperationDetail(operation: AgentCatalogOperation) {
   return [definition, `${verified}/${operation.targets.length} 个目标已验证`, ...targets].filter(Boolean).join("；");
 }
 export const agentLifecycleVersionLabels: Record<AgentLifecycleVersionState, string> = {
-  notChecked: "未检查", unsupported: "暂不支持检查", unknown: "版本待确认", checkFailed: "检查失败", upToDate: "已是最新",
+  notChecked: "未检查", unsupported: "版本来源未知", unknown: "版本待确认", checkFailed: "检查失败", upToDate: "已是最新",
   updateAvailable: "有更新", aheadOfLatest: "高于最新版本",
 };
 

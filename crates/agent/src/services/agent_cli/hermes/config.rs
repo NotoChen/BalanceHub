@@ -34,6 +34,11 @@ fn default_data_dir(home: &Path) -> PathBuf {
     home.join(".hermes")
 }
 
+/// The state root of the profile `hermes` starts in.
+pub(super) fn active_data_dir() -> Option<PathBuf> {
+    Some(active_dir_for_home(&user_home()?))
+}
+
 /// The profile `hermes` starts in: a `HERMES_HOME` that already names a
 /// profile, else the one `active_profile` makes sticky, else the root.
 pub(super) fn active_dir_for_home(home: &Path) -> PathBuf {

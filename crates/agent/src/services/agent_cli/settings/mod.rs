@@ -108,6 +108,7 @@ pub(crate) fn resolve(
         AgentCliKind::MiniMaxCode => "--model / defaultModel",
         AgentCliKind::Raycast => "providers.yaml（模型由 Raycast 选择）",
         AgentCliKind::Omo => "--model / defaultModel",
+        AgentCliKind::CommandCode => "--model / model",
     };
     let default_model = if request.session_mode == TemporaryCliSessionMode::History {
         display::history_model(&request.inherited_model)
@@ -197,6 +198,7 @@ fn model_pointer(kind: AgentCliKind) -> &'static str {
         AgentCliKind::Morph => "/llm/model",
         AgentCliKind::MiniMaxCode | AgentCliKind::Omo => "/defaultModel",
         AgentCliKind::Raycast => "",
+        AgentCliKind::CommandCode => "/model",
     }
 }
 
@@ -244,7 +246,8 @@ fn model_observed(snapshot: &NativeSnapshot) -> Option<Observed> {
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => snapshot.get(pointer),
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => snapshot.get(pointer),
     }
 }
 
@@ -643,7 +646,8 @@ fn fields_for(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => Vec::new(),
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => Vec::new(),
     };
     if let Some(field) = model_mappings::field(snapshot, model, persistent) {
         fields.insert(0, field);

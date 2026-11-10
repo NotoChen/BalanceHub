@@ -359,7 +359,8 @@ pub(super) fn additional_fields(snapshot: &NativeSnapshot, fields: &mut Vec<Boun
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => None,
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => None,
     };
     if let Some((pointer, label, hint)) = directories {
         let mut directories = BoundSetting::new(
@@ -417,7 +418,8 @@ pub(super) fn additional_fields(snapshot: &NativeSnapshot, fields: &mut Vec<Boun
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => &[],
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => &[],
     };
     for (id, label, pointer) in toggles {
         let mut field = BoundSetting::new(

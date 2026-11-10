@@ -18,6 +18,17 @@ pub(super) fn decode(
     {
         return Vec::new();
     }
+    decode_record("claude", &value, sequence, state)
+}
+
+/// Shared record decoder for Claude-compatible JSONL transcripts. `prefix`
+/// keeps message ids distinct when another CLI reuses the same log shape.
+pub(crate) fn decode_record(
+    prefix: &str,
+    value: &Value,
+    sequence: u64,
+    state: &mut Value,
+) -> Vec<SessionTranscriptMutation> {
     let role = match value.get("type").and_then(Value::as_str) {
         Some("user") => CliSessionMessageRole::User,
         Some("assistant") => CliSessionMessageRole::Assistant,
@@ -80,7 +91,7 @@ pub(super) fn decode(
                 .unwrap_or_default();
             let identity = serde_json::json!([message_id.unwrap_or(&id), request_id]).to_string();
             result.push(record(
-                format!("claude-usage-{identity}"),
+                format!("{prefix}-usage-{identity}"),
                 base.model.as_deref(),
                 crate::models::SessionTokenCounts {
                     input_tokens: number(usage, "input_tokens").map(|input| {
@@ -170,7 +181,7 @@ pub(super) fn decode(
                         if let Some(content) = image_data(image) {
                             result.push(SessionTranscriptMutation::Put {
                                 message: SessionTranscriptMessage {
-                                    id: format!("claude-{id}-{index}-image-{image_index}"),
+                                    id: format!("{prefix}-{id}-{index}-image-{image_index}"),
                                     role: CliSessionMessageRole::Tool,
                                     content,
                                     metadata: SessionMessageMetadata {
@@ -203,7 +214,7 @@ pub(super) fn decode(
         }
         result.push(SessionTranscriptMutation::Put {
             message: SessionTranscriptMessage {
-                id: format!("claude-{id}-{index}"),
+                id: format!("{prefix}-{id}-{index}"),
                 role: output_role,
                 content: text,
                 metadata,

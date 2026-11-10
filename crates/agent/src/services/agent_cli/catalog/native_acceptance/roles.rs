@@ -46,7 +46,8 @@ impl Case {
             | AgentCliKind::Morph
             | AgentCliKind::MiniMaxCode
             | AgentCliKind::Raycast
-            | AgentCliKind::Omo => {
+            | AgentCliKind::Omo
+            | AgentCliKind::CommandCode => {
                 unreachable!("integration-tier agents have no native asset roles")
             }
         }

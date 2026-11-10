@@ -1,3 +1,4 @@
+use super::super::config_support::openai_base_url;
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use super::super::opencode_family::{self, FamilySpec};
 use crate::{
@@ -34,6 +35,21 @@ fn file_in_dir(root: &Path) -> PathBuf {
 
 pub(super) fn config_path_for_config_root(root: &Path) -> PathBuf {
     file_in_dir(root)
+}
+
+pub(super) fn temporary_config(
+    model: &str,
+    base_url: &str,
+    api_key: &str,
+) -> Result<String, String> {
+    opencode_family::merge_config(
+        &SPEC,
+        "",
+        "BalanceHub",
+        model,
+        &openai_base_url(base_url),
+        api_key,
+    )
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {

@@ -31,6 +31,7 @@ impl Fixture {
             parser_version: 1,
             format,
             window_safe: true,
+            sqlite: None,
             decode,
         }
     }
@@ -81,7 +82,7 @@ fn read_budget() -> SessionReadBudget {
 #[test]
 fn compressed_checkpoints_resume_after_cancel_without_duplicating_or_losing_records() {
     let fixture = Fixture::new();
-    let source = fixture.source("compressed.jsonl.zst", SessionTranscriptFormat::JsonLines);
+    let source = fixture.source("compressed.jsonl.zst", SessionTranscriptFormat::Lines);
     let content = (0..100)
         .map(|number| format!("{{\"id\":\"{number}\",\"text\":\"完整记录 {number}\"}}\n"))
         .collect::<String>();
@@ -121,7 +122,7 @@ fn compressed_checkpoints_resume_after_cancel_without_duplicating_or_losing_reco
 #[test]
 fn batches_survive_checkpoint_serialization_and_only_read_appended_bytes() {
     let fixture = Fixture::new();
-    let source = fixture.source("append.jsonl", SessionTranscriptFormat::JsonLines);
+    let source = fixture.source("append.jsonl", SessionTranscriptFormat::Lines);
     let text: String = (0..2000)
         .map(|index| format!("{{\"id\":\"{index}\",\"text\":\"{}\"}}\n", "x".repeat(512)))
         .collect();
@@ -174,7 +175,7 @@ fn batches_survive_checkpoint_serialization_and_only_read_appended_bytes() {
 #[test]
 fn an_unfinished_trailing_line_is_retried_when_it_grows() {
     let fixture = Fixture::new();
-    let source = fixture.source("partial.jsonl", SessionTranscriptFormat::JsonLines);
+    let source = fixture.source("partial.jsonl", SessionTranscriptFormat::Lines);
     let first = "{\"id\":\"one\",\"text\":\"first\"}\n";
     fs::write(
         &source.path,
@@ -200,7 +201,7 @@ fn an_unfinished_trailing_line_is_retried_when_it_grows() {
 #[test]
 fn rewriting_truncating_replacing_or_changing_parser_version_resets_only_the_source() {
     let fixture = Fixture::new();
-    let mut source = fixture.source("rewrite.jsonl", SessionTranscriptFormat::JsonLines);
+    let mut source = fixture.source("rewrite.jsonl", SessionTranscriptFormat::Lines);
     fs::write(&source.path, "{\"id\":\"one\",\"text\":\"original\"}\n").unwrap();
     let mut previous = read_batch(&source, None, &|| true).unwrap().checkpoint;
     for text in [
@@ -235,7 +236,7 @@ fn rewriting_truncating_replacing_or_changing_parser_version_resets_only_the_sou
 #[test]
 fn sources_above_512_mib_start_normally_and_can_be_cancelled_between_batches() {
     let fixture = Fixture::new();
-    let source = fixture.source("large.jsonl", SessionTranscriptFormat::JsonLines);
+    let source = fixture.source("large.jsonl", SessionTranscriptFormat::Lines);
     let mut file = File::create(&source.path).unwrap();
     file.write_all(b"{\"id\":\"first\",\"text\":\"readable\"}\n")
         .unwrap();
@@ -254,7 +255,7 @@ fn sources_above_512_mib_start_normally_and_can_be_cancelled_between_batches() {
 #[test]
 fn json_messages_stream_across_checkpoints_with_escaped_strings_and_nested_values() {
     let fixture = Fixture::new();
-    let source = fixture.source("session.json", SessionTranscriptFormat::JsonMessages);
+    let source = fixture.source("session.json", SessionTranscriptFormat::Messages);
     let value = serde_json::json!({"sessionId":"native", "messages":[
         {"id":"one", "text":"引号 \" 和反斜线 \\ 及括号 [ }", "nested":{"a":[1, {"b":"\\\""}]}},
         {"id":"two", "text":"second"}
@@ -294,11 +295,11 @@ fn json_messages_stream_across_checkpoints_with_escaped_strings_and_nested_value
 fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
     let fixture = Fixture::new();
     for format in [
-        SessionTranscriptFormat::JsonLines,
-        SessionTranscriptFormat::JsonMessages,
+        SessionTranscriptFormat::Lines,
+        SessionTranscriptFormat::Messages,
     ] {
         let source = fixture.source(
-            if format == SessionTranscriptFormat::JsonLines {
+            if format == SessionTranscriptFormat::Lines {
                 "oversized.jsonl"
             } else {
                 "oversized.json"
@@ -306,7 +307,7 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
             format,
         );
         let mut file = File::create(&source.path).unwrap();
-        if format == SessionTranscriptFormat::JsonMessages {
+        if format == SessionTranscriptFormat::Messages {
             file.write_all(b"{\"messages\":[").unwrap();
         }
         file.write_all(b"{\"id\":\"huge\",\"text\":\"").unwrap();
@@ -315,7 +316,7 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
             file.write_all(&block).unwrap();
         }
         file.write_all(b"\"}").unwrap();
-        file.write_all(if format == SessionTranscriptFormat::JsonLines {
+        file.write_all(if format == SessionTranscriptFormat::Lines {
             b"\n"
         } else {
             b","
@@ -323,7 +324,7 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
         .unwrap();
         file.write_all(b"{\"id\":\"tail\",\"text\":\"searchable tail\"}")
             .unwrap();
-        if format == SessionTranscriptFormat::JsonMessages {
+        if format == SessionTranscriptFormat::Messages {
             file.write_all(b"]}").unwrap();
         }
         drop(file);
@@ -351,7 +352,7 @@ fn oversized_jsonl_and_json_records_yield_and_preserve_the_next_message() {
 #[test]
 fn window_read_starts_at_the_next_complete_record() {
     let fixture = Fixture::new();
-    let source = fixture.source("tail.jsonl", SessionTranscriptFormat::JsonLines);
+    let source = fixture.source("tail.jsonl", SessionTranscriptFormat::Lines);
     let line = |number: usize| {
         format!(
             "{{\"id\":\"{number:02}\",\"text\":\"m{number:02}{}\"}}\n",
@@ -393,7 +394,7 @@ fn window_read_starts_at_the_next_complete_record() {
 #[test]
 fn window_read_stops_at_the_requested_boundary_and_walks_back() {
     let fixture = Fixture::new();
-    let source = fixture.source("window.jsonl", SessionTranscriptFormat::JsonLines);
+    let source = fixture.source("window.jsonl", SessionTranscriptFormat::Lines);
     let line = |number: usize| {
         format!(
             "{{\"id\":\"{number:02}\",\"text\":\"m{number:02}{}\"}}\n",
@@ -447,7 +448,7 @@ fn window_read_stops_at_the_requested_boundary_and_walks_back() {
 #[test]
 fn window_read_rejects_compressed_sources() {
     let fixture = Fixture::new();
-    let source = fixture.source("tail.jsonl.zst", SessionTranscriptFormat::JsonLines);
+    let source = fixture.source("tail.jsonl.zst", SessionTranscriptFormat::Lines);
     fs::write(
         &source.path,
         zstd::stream::encode_all(&b"{}\n"[..], 1).unwrap(),

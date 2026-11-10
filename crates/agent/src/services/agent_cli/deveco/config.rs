@@ -1,4 +1,5 @@
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
+use super::super::config_support::openai_base_url;
 use super::super::opencode_family::{self, FamilySpec};
 use crate::{
     models::{AgentCliKind, CliConfigSnapshot, Provider},
@@ -34,6 +35,23 @@ fn file_in_dir(root: &Path) -> PathBuf {
 
 pub(super) fn config_path_for_config_root(root: &Path) -> PathBuf {
     file_in_dir(root)
+}
+
+/// 临时启动与测活共用的中转站配置。`api_key` 传入 `{env:...}` 占位符时，
+/// DevEco Code 会在读取配置时从环境变量展开。
+pub(super) fn temporary_config(
+    model: &str,
+    base_url: &str,
+    api_key: &str,
+) -> Result<String, String> {
+    opencode_family::merge_config(
+        &SPEC,
+        "",
+        "BalanceHub",
+        model,
+        &openai_base_url(base_url),
+        api_key,
+    )
 }
 
 pub(super) fn snapshot(cli_kind: AgentCliKind, providers: &[Provider]) -> CliConfigSnapshot {

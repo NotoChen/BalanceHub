@@ -38,6 +38,7 @@ macro_rules! for_each_agent_cli {
             MiniMaxCode => { key: "minimaxCode", module: minimax },
             Raycast => { key: "raycast", module: raycast },
             Omo => { key: "omo", module: omo },
+            CommandCode => { key: "commandCode", module: commandcode },
         }
     };
 }

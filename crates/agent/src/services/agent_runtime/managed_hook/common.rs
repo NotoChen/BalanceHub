@@ -290,19 +290,32 @@ pub(crate) fn config_path_for(home: &Path, agent: AgentCliKind) -> PathBuf {
         AgentCliKind::Gemini => home.join(".gemini/settings.json"),
         AgentCliKind::Grok => home.join(".grok/hooks/balancehub-runtime.json"),
         AgentCliKind::Codex => home.join(".codex/hooks.json"),
-        AgentCliKind::QwenCode
-        | AgentCliKind::OpenCode
+        AgentCliKind::CommandCode => home.join(".commandcode/settings.json"),
+        AgentCliKind::QwenCode => crate::services::cli_paths::configured_path("QWEN_HOME")
+            .unwrap_or_else(|| home.join(".qwen"))
+            .join("settings.json"),
+        AgentCliKind::CodeBuddy => {
+            crate::services::cli_paths::configured_path("CODEBUDDY_CONFIG_DIR")
+                .unwrap_or_else(|| home.join(".codebuddy"))
+                .join("settings.json")
+        }
+        AgentCliKind::Qoder => crate::services::cli_paths::configured_path("QODER_CONFIG_DIR")
+            .unwrap_or_else(|| home.join(".qoder"))
+            .join("settings.json"),
+        AgentCliKind::KimiCode => {
+            crate::services::agent_cli::kimi_hook_config_dir_for_home(home).join("config.toml")
+        }
+        AgentCliKind::Droid => {
+            crate::services::agent_cli::droid_hook_config_dir_for_home(home).join("hooks.json")
+        }
+        AgentCliKind::OpenCode
         | AgentCliKind::Pi
         | AgentCliKind::PrimeAgent
         | AgentCliKind::Crush
         | AgentCliKind::Copilot
-        | AgentCliKind::Droid
-        | AgentCliKind::Qoder
-        | AgentCliKind::CodeBuddy
         | AgentCliKind::OpenClaw
         | AgentCliKind::Jcode
         | AgentCliKind::MothX
-        | AgentCliKind::KimiCode
         | AgentCliKind::StepCode
         | AgentCliKind::DevEco
         | AgentCliKind::MiMoCode

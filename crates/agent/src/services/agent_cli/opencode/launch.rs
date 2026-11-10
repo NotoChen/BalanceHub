@@ -2,6 +2,7 @@ use super::super::contracts::{
     EnvironmentPatch, TemporaryAuxiliaryFile, TemporaryLaunchConfiguration, TemporaryLaunchPlan,
     TemporaryLaunchRequest,
 };
+use crate::models::TemporaryCliSessionMode;
 
 const PROVIDER_ID: &str = "balancehub";
 
@@ -53,6 +54,14 @@ pub(super) fn build_plan(
             return Err("OpenCode 不支持从 OAuth 账号启动".into());
         }
     }
+    if matches!(request.session_mode, TemporaryCliSessionMode::History) {
+        let resume_id = request.resume_id.trim();
+        if resume_id.is_empty() {
+            return Err("OpenCode 续聊缺少原生会话 ID".into());
+        }
+        crate::services::agent_cli::integration::validate_native_value(resume_id, "会话 ID")?;
+        args.extend(["--session".into(), resume_id.into()]);
+    }
     Ok(TemporaryLaunchPlan {
         args,
         environment,
@@ -61,7 +70,11 @@ pub(super) fn build_plan(
     })
 }
 
-fn temporary_config(model: &str, base_url: &str, api_key: &str) -> Result<String, String> {
+pub(super) fn temporary_config(
+    model: &str,
+    base_url: &str,
+    api_key: &str,
+) -> Result<String, String> {
     let mut models = serde_json::Map::new();
     models.insert(model.to_string(), serde_json::json!({ "name": model }));
     let mut provider = serde_json::Map::new();
@@ -155,5 +168,20 @@ mod tests {
         assert_eq!(plan.args, ["--model", "balancehub/model-1"]);
         assert!(plan.auxiliary_files.is_empty());
         assert_eq!(plan.environment.set_values().count(), 0);
+    }
+
+    #[test]
+    fn history_launch_resumes_the_exact_session() {
+        let plan = build_plan(TemporaryLaunchRequest {
+            configuration: TemporaryLaunchConfiguration::Native,
+            model: "",
+            session_name: "",
+            resume_id: "ses_abc123",
+            session_mode: TemporaryCliSessionMode::History,
+            launch_directory: std::path::Path::new("<launch>"),
+        })
+        .unwrap();
+
+        assert_eq!(plan.args, ["--session", "ses_abc123"]);
     }
 }

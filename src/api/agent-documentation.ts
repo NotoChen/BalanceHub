@@ -33,6 +33,7 @@ export const agentDocumentationUrls: Record<AgentCliKind, string> = {
   minimaxCode: "https://agent.minimax.io/docs/cli/quick-start",
   raycast: "https://manual.raycast.com/ai",
   omo: "https://ohmyopencode.org/docs",
+  commandCode: "https://commandcode.ai/docs/byok",
 };
 
 export const agentInstallationUrls: Record<AgentCliKind, string> = {
@@ -67,6 +68,7 @@ export const agentInstallationUrls: Record<AgentCliKind, string> = {
   minimaxCode: "https://agent.minimax.io/docs/cli/quick-start",
   raycast: "https://manual.raycast.com/ai",
   omo: "https://ohmyopencode.org/docs",
+  commandCode: "https://commandcode.ai",
 };
 
 export type AgentDocumentationPage = "configuration" | "installation";

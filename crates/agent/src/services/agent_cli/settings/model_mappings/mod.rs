@@ -55,7 +55,8 @@ pub(super) fn field(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => return None,
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => return None,
     };
     let mut field = BoundSetting::new("modelMappings", "model", label, key, Binding::ModelMappings)
         .describe(description);

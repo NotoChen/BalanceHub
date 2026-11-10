@@ -163,7 +163,7 @@ fn prefix_candidates_require_first_valid_native_origin_not_later_directory_chang
         &[json!({"sessionId":"unknown","type":"user","message":{"content":"no cwd"}})],
     );
     fixture.write(&a_dir, "changed/subagents/agent-unknown.jsonl", &[json!({"sessionId":"changed","isSidechain":true,"type":"assistant","message":{"content":"child without cwd"}})]);
-    let parsed = parse_transcript(AgentCliKind::ClaudeCode, &changed)
+    let parsed = parse_transcript(AgentCliKind::ClaudeCode, &changed, "Claude", "claudeTranscript")
         .unwrap()
         .unwrap();
     assert_eq!(parsed.native_origin_workdir, Some(a.clone()));

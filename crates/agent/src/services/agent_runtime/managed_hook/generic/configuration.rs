@@ -25,6 +25,17 @@ impl GenericHookService {
                 .clone()
                 .unwrap_or_else(|| "Hook 配置格式不受支持".to_owned()));
         }
+        if self.agent.standalone()
+            && config.status == ConfigStatus::Missing
+            && matches!(
+                mutation,
+                AgentHookMutation::Install | AgentHookMutation::Enable
+            )
+        {
+            if let Some(message) = self.agent.standalone_settings_conflict(&self.config_path) {
+                return Err(message);
+            }
+        }
         let mut value = config
             .snapshot
             .as_ref()
@@ -36,7 +47,7 @@ impl GenericHookService {
                 let disabled = matches!(self.agent, GenericAgent::Gemini)
                     && is_definitions_disabled(&value, definitions);
                 if self.agent.standalone() {
-                    value = standalone_document(definitions);
+                    value = standalone_document(self.agent, definitions);
                 } else {
                     for definition in definitions {
                         add_nested_definition(&mut value, definition, self.agent)?;

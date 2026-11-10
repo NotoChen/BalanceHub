@@ -263,8 +263,9 @@ fn update_search_merges_streamed_chunks_and_replaces_tool_states() {
     let indexed = crate::services::cli_sessions::read_indexed_messages(&[SessionTranscriptSource {
         path,
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionTranscriptFormat::JsonLines,
+        format: SessionTranscriptFormat::Lines,
         window_safe: true,
+        sqlite: None,
         decode: decoder::update,
     }]);
     assert_eq!(indexed.len(), 2);
@@ -428,8 +429,9 @@ fn chat_history_index_preserves_tool_and_thinking_block_order() {
     let messages = crate::services::cli_sessions::read_indexed_messages(&[SessionTranscriptSource {
         path: path.clone(),
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionTranscriptFormat::JsonLines,
+        format: SessionTranscriptFormat::Lines,
         window_safe: true,
+        sqlite: None,
         decode: decoder::chat,
     }]);
     use crate::models::SessionMessageKind;
@@ -628,8 +630,9 @@ fn source(
     SessionTranscriptSource {
         path: path.into(),
         parser_version: INDEX_PARSER_VERSION,
-        format: SessionTranscriptFormat::JsonLines,
+        format: SessionTranscriptFormat::Lines,
         window_safe: true,
+        sqlite: None,
         decode,
     }
 }

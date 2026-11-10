@@ -1029,6 +1029,7 @@ pub(crate) struct EnvironmentAdapter {
     discover_contexts: AgentContextDiscovery,
     discover_sources: AgentSourceDiscovery,
     discover_follow_up_sources: Option<AgentFollowUpSourceDiscovery>,
+    asset_inventory: bool,
     package_name: &'static str,
     parse: AgentAssetParser,
     resolve: AgentAssetResolver,
@@ -1061,6 +1062,7 @@ impl EnvironmentAdapter {
             discover_contexts,
             discover_sources,
             discover_follow_up_sources,
+            asset_inventory: true,
             package_name,
             parse,
             resolve,
@@ -1077,6 +1079,10 @@ impl EnvironmentAdapter {
             catalog_adapter: None,
             hook_adapter: None,
         }
+    }
+
+    pub(crate) const fn asset_inventory(&self) -> bool {
+        self.asset_inventory
     }
 
     pub(crate) const fn with_catalog_adapter(
@@ -1893,8 +1899,20 @@ pub(crate) struct SessionTranscriptMessage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionTranscriptFormat {
-    JsonLines,
-    JsonMessages,
+    Lines,
+    Messages,
+    /// One bounded JSON document. Used by agents that store one file per
+    /// message instead of a message list.
+    Document,
+}
+
+/// SQLite-backed transcript rows. The query must select exactly two columns:
+/// an integer row key and a JSON payload. `?1` is the last consumed row key,
+/// `?2` the row limit, and `?3` the native session scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SqliteTranscript {
+    pub query: &'static str,
+    pub scope: String,
 }
 
 /// Native adapters decode records; the shared index owns I/O, checkpoints and
@@ -1908,6 +1926,8 @@ pub(crate) struct SessionTranscriptSource {
     /// by earlier records must keep this false: a window would otherwise show
     /// only the tail of the straddling message.
     pub window_safe: bool,
+    /// When present the rows come from SQLite rather than the file at `path`.
+    pub sqlite: Option<SqliteTranscript>,
     pub decode: fn(&Path, u64, &[u8], &mut serde_json::Value) -> Vec<SessionTranscriptMutation>,
 }
 

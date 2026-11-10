@@ -122,7 +122,7 @@ fn parse_config(text: &str) -> Result<Option<(String, String)>, ()> {
     Ok(api_key.map(|api_key| (base_url.to_string(), api_key)))
 }
 
-fn merge_config(
+pub(super) fn merge_config(
     source: &str,
     provider_name: &str,
     model: &str,

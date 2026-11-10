@@ -2,7 +2,7 @@
 //! Names and paths alone never establish ownership: the saved complete native
 //! resource must occur exactly once in the captured document before the edit.
 
-use super::{codex, generic, GenericAgent};
+use super::{codex, generic, kimi, GenericAgent};
 use crate::models::{AgentCliKind, AgentRuntimeScope};
 use crate::services::agent_cli::config_support::parse_jsonc_document;
 use crate::services::agent_cli::environment::{
@@ -34,20 +34,16 @@ pub(crate) fn prepare_catalog_change(
         return Ok(None);
     };
     let changed = match agent {
-        AgentCliKind::Grok => standalone_owned(&manifest, before),
-        AgentCliKind::QwenCode
-        | AgentCliKind::OpenCode
+        AgentCliKind::Grok | AgentCliKind::Droid => standalone_owned(&manifest, before),
+        AgentCliKind::KimiCode => kimi::owned_resources_changed(before, after, &manifest.ownership),
+        AgentCliKind::OpenCode
         | AgentCliKind::Pi
         | AgentCliKind::PrimeAgent
         | AgentCliKind::Crush
         | AgentCliKind::Copilot
-        | AgentCliKind::Droid
-        | AgentCliKind::Qoder
-        | AgentCliKind::CodeBuddy
         | AgentCliKind::OpenClaw
         | AgentCliKind::Jcode
         | AgentCliKind::MothX
-        | AgentCliKind::KimiCode
         | AgentCliKind::StepCode
         | AgentCliKind::DevEco
         | AgentCliKind::MiMoCode
@@ -85,20 +81,42 @@ pub(crate) fn prepare_catalog_change(
                     &after,
                     &manifest.ownership,
                 ),
-                AgentCliKind::Grok => unreachable!("standalone ownership handled above"),
-                AgentCliKind::QwenCode
-                | AgentCliKind::OpenCode
+                AgentCliKind::CommandCode => generic::owned_resources_changed(
+                    GenericAgent::CommandCode,
+                    &before,
+                    &after,
+                    &manifest.ownership,
+                ),
+                AgentCliKind::QwenCode => generic::owned_resources_changed(
+                    GenericAgent::QwenCode,
+                    &before,
+                    &after,
+                    &manifest.ownership,
+                ),
+                AgentCliKind::CodeBuddy => generic::owned_resources_changed(
+                    GenericAgent::CodeBuddy,
+                    &before,
+                    &after,
+                    &manifest.ownership,
+                ),
+                AgentCliKind::Qoder => generic::owned_resources_changed(
+                    GenericAgent::Qoder,
+                    &before,
+                    &after,
+                    &manifest.ownership,
+                ),
+                AgentCliKind::Grok | AgentCliKind::Droid => {
+                    unreachable!("standalone ownership handled above")
+                }
+                AgentCliKind::KimiCode => unreachable!("TOML ownership handled above"),
+                AgentCliKind::OpenCode
                 | AgentCliKind::Pi
                 | AgentCliKind::PrimeAgent
                 | AgentCliKind::Crush
                 | AgentCliKind::Copilot
-                | AgentCliKind::Droid
-                | AgentCliKind::Qoder
-                | AgentCliKind::CodeBuddy
                 | AgentCliKind::OpenClaw
                 | AgentCliKind::Jcode
                 | AgentCliKind::MothX
-                | AgentCliKind::KimiCode
                 | AgentCliKind::StepCode
                 | AgentCliKind::DevEco
                 | AgentCliKind::MiMoCode
@@ -156,6 +174,34 @@ pub(crate) fn prepare_catalog_policy_change(
             original_group,
             &manifest.ownership,
         ),
+        AgentCliKind::CommandCode => generic::owned_resource_selected(
+            GenericAgent::CommandCode,
+            &document,
+            event,
+            original_group,
+            &manifest.ownership,
+        ),
+        AgentCliKind::QwenCode => generic::owned_resource_selected(
+            GenericAgent::QwenCode,
+            &document,
+            event,
+            original_group,
+            &manifest.ownership,
+        ),
+        AgentCliKind::CodeBuddy => generic::owned_resource_selected(
+            GenericAgent::CodeBuddy,
+            &document,
+            event,
+            original_group,
+            &manifest.ownership,
+        ),
+        AgentCliKind::Qoder => generic::owned_resource_selected(
+            GenericAgent::Qoder,
+            &document,
+            event,
+            original_group,
+            &manifest.ownership,
+        ),
         AgentCliKind::Grok => {
             standalone_owned(&manifest, before)
                 && document
@@ -170,15 +216,12 @@ pub(crate) fn prepare_catalog_policy_change(
                             == 1
                     })
         }
-        AgentCliKind::QwenCode
-        | AgentCliKind::OpenCode
+        AgentCliKind::OpenCode
         | AgentCliKind::Pi
         | AgentCliKind::PrimeAgent
         | AgentCliKind::Crush
         | AgentCliKind::Copilot
         | AgentCliKind::Droid
-        | AgentCliKind::Qoder
-        | AgentCliKind::CodeBuddy
         | AgentCliKind::OpenClaw
         | AgentCliKind::Jcode
         | AgentCliKind::MothX

@@ -14,6 +14,14 @@ pub struct AgentCliCapabilities {
     pub session_name: bool,
     pub liveness: bool,
     pub default_config: bool,
+    /// Native Skill / MCP / plugin inventory. Integration-tier Agents can
+    /// still edit native configuration without publishing an asset catalog.
+    pub asset_inventory: bool,
+    /// Native Hook definitions exposed by the Agent's catalog adapter.
+    pub hook_inventory: bool,
+    /// BalanceHub can observe live sessions through managed hooks or launches
+    /// it started itself. CLI liveness probing is not session observation.
+    pub runtime_observation: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

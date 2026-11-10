@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 mod compressed;
+mod sqlite;
 
 const BATCH_BYTES: u64 = 8 * 1024 * 1024;
 const BATCH_TIME: Duration = Duration::from_millis(120);
@@ -83,6 +84,14 @@ fn fingerprint(metadata: &Metadata, version: u32) -> String {
 }
 
 pub(super) fn source_signature(source: &SessionTranscriptSource) -> Result<String, String> {
+    if let Some(query) = &source.sqlite {
+        return Ok(format!(
+            "{}:{}:{}",
+            source.path.to_string_lossy(),
+            query.scope,
+            sqlite::fingerprint(&source.path)?
+        ));
+    }
     let file =
         super::workbench::open_session_file(&source.path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
@@ -127,6 +136,12 @@ pub(super) fn read_batch_with_limit(
     if super::source::compressed(&source.path) {
         return compressed::read_batch(source, previous, current, batch_bytes);
     }
+    if source.sqlite.is_some() {
+        return sqlite::read_batch(source, previous, current, batch_bytes);
+    }
+    if source.format == SessionTranscriptFormat::Document {
+        return read_json_value(source, previous, current);
+    }
     if !current() {
         return Err("会话读取已取消".into());
     }
@@ -146,7 +161,7 @@ pub(super) fn read_batch_with_limit(
         });
     }
     let mut reusable = same;
-    if !same && source.format == SessionTranscriptFormat::JsonLines {
+    if !same && source.format == SessionTranscriptFormat::Lines {
         if let Some(checkpoint) = previous.filter(|checkpoint| {
             checkpoint.identity == file_identity
                 && metadata.len() > checkpoint.source_bytes
@@ -197,10 +212,9 @@ pub(super) fn read_batch_with_limit(
         }
         first = false;
         let value = match source.format {
-            SessionTranscriptFormat::JsonLines => next_line(&mut reader, &mut checkpoint)?,
-            SessionTranscriptFormat::JsonMessages => {
-                next_json_message(&mut reader, &mut checkpoint)?
-            }
+            SessionTranscriptFormat::Lines => next_line(&mut reader, &mut checkpoint)?,
+            SessionTranscriptFormat::Messages => next_json_message(&mut reader, &mut checkpoint)?,
+            SessionTranscriptFormat::Document => return Err("会话格式不支持流式读取".into()),
         };
         match value {
             Record::Value(bytes) => {
@@ -229,8 +243,7 @@ pub(super) fn read_batch_with_limit(
     if identity(&after) != checkpoint.identity
         || after.len() < metadata.len()
         || (fingerprint(&after, source.parser_version) != checkpoint.fingerprint
-            && (source.format != SessionTranscriptFormat::JsonLines
-                || after.len() == metadata.len()))
+            && (source.format != SessionTranscriptFormat::Lines || after.len() == metadata.len()))
     {
         return Err("会话文件在读取期间发生变化，请重试".into());
     }
@@ -243,6 +256,71 @@ pub(super) fn read_batch_with_limit(
     Ok(Batch {
         checkpoint,
         reset: !reusable,
+        mutations,
+    })
+}
+
+/// One bounded JSON document, decoded once. Used by agents that store each
+/// message as its own file; the document itself is the record.
+fn read_json_value(
+    source: &SessionTranscriptSource,
+    previous: Option<&Checkpoint>,
+    current: &dyn Fn() -> bool,
+) -> Result<Batch, String> {
+    if !current() {
+        return Err("会话读取已取消".into());
+    }
+    let mut file = super::workbench::open_session_file(&source.path)
+        .map_err(|error| format!("读取会话正文失败：{error}"))?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if metadata.len() > RECORD_BYTES as u64 {
+        return Err("单条会话记录超过读取上限".into());
+    }
+    let file_identity = identity(&metadata);
+    let file_fingerprint = fingerprint(&metadata, source.parser_version);
+    let same = previous.is_some_and(|checkpoint| {
+        checkpoint.identity == file_identity && checkpoint.fingerprint == file_fingerprint
+    });
+    if same && previous.is_some_and(|checkpoint| checkpoint.complete) {
+        return Ok(Batch {
+            checkpoint: previous.unwrap().clone(),
+            reset: false,
+            mutations: Vec::new(),
+        });
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    let after = file.metadata().map_err(|error| error.to_string())?;
+    if identity(&after) != file_identity
+        || fingerprint(&after, source.parser_version) != file_fingerprint
+    {
+        return Err("会话文件在读取期间发生变化，请重试".into());
+    }
+    let mut checkpoint = if same {
+        previous.cloned().unwrap_or_default()
+    } else {
+        Checkpoint::default()
+    };
+    checkpoint.identity = file_identity;
+    checkpoint.fingerprint = file_fingerprint;
+    checkpoint.source_bytes = metadata.len();
+    checkpoint.offset = metadata.len();
+    checkpoint.complete = true;
+    let mut mutations = Vec::new();
+    for mutation in (source.decode)(
+        &source.path,
+        checkpoint.sequence,
+        &bytes,
+        &mut checkpoint.decoder,
+    ) {
+        checkpoint.mutation_order = checkpoint.mutation_order.saturating_add(1);
+        mutations.push((checkpoint.mutation_order, mutation));
+    }
+    checkpoint.sequence = checkpoint.sequence.saturating_add(1);
+    Ok(Batch {
+        checkpoint,
+        reset: !same,
         mutations,
     })
 }
@@ -295,9 +373,7 @@ pub(super) fn read_window(
     window_bytes: u64,
     current: &dyn Fn() -> bool,
 ) -> Result<WindowBatch, String> {
-    if source.format != SessionTranscriptFormat::JsonLines
-        || super::source::compressed(&source.path)
-    {
+    if source.format != SessionTranscriptFormat::Lines || super::source::compressed(&source.path) {
         return Err("该会话格式不支持分段读取".into());
     }
     if !current() {

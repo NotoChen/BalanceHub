@@ -187,8 +187,8 @@ fn transcript_uses_the_first_real_user_message() {
     .collect::<Vec<_>>()
     .join("\n");
     fs::write(&transcript, lines).unwrap();
-    let super::ParsedClaudeTranscript { summary, .. } =
-        parse_transcript(AgentCliKind::ClaudeCode, &transcript)
+    let super::ParsedSessionTranscript { summary, .. } =
+        parse_transcript(AgentCliKind::ClaudeCode, &transcript, "Claude", "claudeTranscript")
             .unwrap()
             .unwrap();
     assert_eq!(summary.preview.as_deref(), Some("actual request"));
@@ -214,8 +214,8 @@ fn transcript_without_cwd_does_not_invent_source_origin() {
         .to_string(),
     )
     .unwrap();
-    let super::ParsedClaudeTranscript { summary, .. } =
-        parse_transcript(AgentCliKind::ClaudeCode, &transcript)
+    let super::ParsedSessionTranscript { summary, .. } =
+        parse_transcript(AgentCliKind::ClaudeCode, &transcript, "Claude", "claudeTranscript")
             .unwrap()
             .unwrap();
     assert!(summary.workdir.is_empty());
@@ -260,8 +260,8 @@ fn transcript_prefers_latest_ai_title_and_collects_models() {
     .collect::<Vec<_>>()
     .join("\n");
     fs::write(&transcript, lines).unwrap();
-    let super::ParsedClaudeTranscript { summary, .. } =
-        parse_transcript(AgentCliKind::ClaudeCode, &transcript)
+    let super::ParsedSessionTranscript { summary, .. } =
+        parse_transcript(AgentCliKind::ClaudeCode, &transcript, "Claude", "claudeTranscript")
             .unwrap()
             .unwrap();
     assert_eq!(summary.id, "session-1");

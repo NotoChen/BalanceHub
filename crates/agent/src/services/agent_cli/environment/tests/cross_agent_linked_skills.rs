@@ -55,7 +55,8 @@ fn directory(kind: AgentCliKind) -> &'static str {
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => unreachable!(),
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => unreachable!(),
     }
 }
 

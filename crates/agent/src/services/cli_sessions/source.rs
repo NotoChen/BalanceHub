@@ -7,7 +7,7 @@ use std::{
 pub(crate) fn compressed(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".jsonl.zst"))
+        .is_some_and(|name| name.ends_with(".jsonl.zst") || name.ends_with(".jsonl.zstd"))
 }
 pub(crate) fn json_lines(path: &Path) -> bool {
     path.extension()
@@ -25,16 +25,21 @@ pub(crate) fn existing_variant(path: &Path) -> PathBuf {
     if path.exists() {
         return path.to_path_buf();
     }
-    let sibling = if compressed(path) {
-        logical_path(path)
-    } else {
-        PathBuf::from(format!("{}.zst", path.to_string_lossy()))
-    };
-    if sibling.exists() {
-        sibling
-    } else {
-        path.to_path_buf()
+    if compressed(path) {
+        let sibling = logical_path(path);
+        return if sibling.exists() {
+            sibling
+        } else {
+            path.to_path_buf()
+        };
     }
+    for suffix in [".zst", ".zstd"] {
+        let sibling = PathBuf::from(format!("{}{suffix}", path.to_string_lossy()));
+        if sibling.exists() {
+            return sibling;
+        }
+    }
+    path.to_path_buf()
 }
 pub(crate) fn reader(path: &Path) -> io::Result<Box<dyn BufRead + Send>> {
     let file = super::workbench::open_session_file(path)?;

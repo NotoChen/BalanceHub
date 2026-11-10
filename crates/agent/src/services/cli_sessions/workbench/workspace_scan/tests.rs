@@ -104,7 +104,8 @@ fn write_record(kind: AgentCliKind, root: &Path, workdir: &Path, id: &str) {
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {}
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {}
     }
 }
 

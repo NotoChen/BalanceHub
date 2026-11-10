@@ -1,7 +1,7 @@
 use super::super::config_support::{
     cli_config_target, config_error, latest_modified_at, match_provider_key, normalize_endpoint,
-    oauth_snapshot, plain_secret, read_stable_optional, relay_snapshot, toml_table_member,
-    CliConfigTarget,
+    oauth_snapshot, openai_base_url, plain_secret, read_stable_optional, relay_snapshot,
+    toml_table_member, CliConfigTarget,
 };
 use super::super::configuration::contracts::ProviderConfigurationCandidate;
 use super::super::integration::validate_native_value;
@@ -26,6 +26,10 @@ pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
     configured_path("ATOMCODE_HOME")
         .filter(|dir| dir.is_absolute())
         .unwrap_or_else(|| home.join(".atomcode"))
+}
+
+pub(super) fn config_dir() -> Option<PathBuf> {
+    Some(config_dir_for_home(&user_home()?))
 }
 
 pub(super) fn config_path(root: &Path) -> PathBuf {
@@ -161,6 +165,37 @@ fn merge_config(
             .parse::<TomlDocument>()
             .map_err(|_| "AtomCode 配置文件格式无效".to_string())?
     };
+    upsert_provider(&mut document, model, base_url.trim(), api_key, None, true)?;
+    Ok(text_document::restore_layout(source, &document.to_string()))
+}
+
+/// 临时启动与测活共用的 provider 配置。API Key 通过环境变量展开，启动目录
+/// 不落明文密钥；临时配置固定写死模型档案的重试上限。
+pub(super) fn temporary_config(
+    model: &str,
+    base_url: &str,
+    retry_max_attempts: Option<u32>,
+) -> Result<String, String> {
+    let mut document = TomlDocument::new();
+    upsert_provider(
+        &mut document,
+        model,
+        &openai_base_url(base_url),
+        "${BALANCEHUB_ATOMCODE_API_KEY}",
+        retry_max_attempts,
+        false,
+    )?;
+    Ok(document.to_string())
+}
+
+fn upsert_provider(
+    document: &mut TomlDocument,
+    model: &str,
+    base_url: &str,
+    api_key: &str,
+    retry_max_attempts: Option<u32>,
+    keep_existing_context: bool,
+) -> Result<(), String> {
     let key = model_key(model);
     {
         let table = document.as_table_mut();
@@ -172,17 +207,20 @@ fn merge_config(
             toml_table_member(document.as_table_mut(), "provider_accounts", "AtomCode 配置")?;
         let entry = toml_table_member(accounts, PROVIDER_ID, "AtomCode 配置")?;
         entry.insert("provider", toml_value("openai-compatible"));
-        entry.insert("base_url", toml_value(base_url.trim()));
-        entry.insert("api_key", toml_value(api_key.trim()));
+        entry.insert("base_url", toml_value(base_url));
+        entry.insert("api_key", toml_value(api_key));
     }
     {
         let models = toml_table_member(document.as_table_mut(), "models", "AtomCode 配置")?;
         let entry = toml_table_member(models, &key, "AtomCode 配置")?;
         entry.insert("account", toml_value(PROVIDER_ID));
         entry.insert("model", toml_value(model));
-        if !entry.contains_key("context_window") {
+        if !keep_existing_context || !entry.contains_key("context_window") {
             entry.insert("context_window", toml_value(DEFAULT_CONTEXT));
         }
+        if let Some(retries) = retry_max_attempts {
+            entry.insert("retry_max_attempts", toml_value(i64::from(retries)));
+        }
     }
-    Ok(text_document::restore_layout(source, &document.to_string()))
+    Ok(())
 }

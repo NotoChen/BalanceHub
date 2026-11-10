@@ -114,7 +114,8 @@ pub(crate) fn read(
         | AgentCliKind::Morph
         | AgentCliKind::MiniMaxCode
         | AgentCliKind::Raycast
-        | AgentCliKind::Omo => {
+        | AgentCliKind::Omo
+        | AgentCliKind::CommandCode => {
             Err("当前 Agent 未提供可查询的模型目录，可使用已有配置或输入模型 ID".into())
         }
     };

@@ -22,7 +22,7 @@ fn model_key(model: &str) -> String {
 
 /// Kimi Code reads `$KIMI_CODE_HOME/config.toml`, else `~/.kimi-code`; the
 /// legacy kimi-cli folder is used only while the new one does not exist.
-pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
+pub(crate) fn config_dir_for_home(home: &Path) -> PathBuf {
     if let Some(dir) = configured_path("KIMI_CODE_HOME") {
         return dir;
     }
@@ -38,6 +38,10 @@ pub(super) fn config_dir_for_home(home: &Path) -> PathBuf {
         return legacy;
     }
     code
+}
+
+pub(super) fn config_dir() -> Option<PathBuf> {
+    Some(config_dir_for_home(&user_home()?))
 }
 
 pub(super) fn config_path(root: &Path) -> PathBuf {
