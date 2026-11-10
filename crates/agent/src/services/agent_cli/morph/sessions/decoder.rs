@@ -384,7 +384,8 @@ fn hex_decode(text: &str) -> Option<Vec<u8>> {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
+    let (pairs, _) = bytes.as_chunks::<2>();
+    for pair in pairs {
         out.push(nibble(pair[0])? << 4 | nibble(pair[1])?);
     }
     Some(out)
