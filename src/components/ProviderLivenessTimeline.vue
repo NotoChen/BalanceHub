@@ -1,69 +1,40 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { LivenessRecord } from "../stores/providers";
+import { livenessTimelineSlots } from "../utils/provider-liveness";
 
 const props = defineProps<{
   records: LivenessRecord[];
 }>();
 
-const dayMs = 24 * 60 * 60 * 1000;
-const hourMs = 60 * 60 * 1000;
+/// 每一格是一次自动测活，最近的一次在最右端。次数不足 24 次时左侧留空，
+/// 不按小时合并，避免「24 格只亮 2 格」和成功率计数对不上。
+const livenessSlots = computed(() => livenessTimelineSlots(props.records ?? []));
 
-const livenessRecords = computed(() => {
-  const now = Date.now();
-  return props.records
-    .filter((record) => record.source === "automatic")
-    .filter((record) => {
-      const checkedAt = Number(record.checkedAt);
-      return Number.isFinite(checkedAt) && now - checkedAt >= 0 && now - checkedAt <= dayMs;
-    })
-    .slice(-24);
-});
+const recentRecords = computed(
+  () => livenessSlots.value.filter((record): record is LivenessRecord => record !== null),
+);
 
-const livenessSlots = computed(() => {
-  const slots: Array<LivenessRecord | null> = Array.from({ length: 24 }, () => null);
-  const now = Date.now();
-
-  for (const record of livenessRecords.value) {
-    const checkedAt = Number(record.checkedAt);
-    const hoursAgo = Math.floor((now - checkedAt) / hourMs);
-    if (hoursAgo < 0 || hoursAgo >= 24) {
-      continue;
-    }
-
-    const slotIndex = 23 - hoursAgo;
-    const previous = slots[slotIndex];
-    if (!previous || Number(previous.checkedAt) < checkedAt) {
-      slots[slotIndex] = record;
-    }
-  }
-
-  return slots;
-});
-
-const successfulCount = computed(() => livenessRecords.value.filter((record) => record.ok).length);
-
-const latestRecord = computed(() => {
-  return [...livenessRecords.value].sort((a, b) => Number(b.checkedAt) - Number(a.checkedAt))[0] || null;
-});
+const successfulCount = computed(() => recentRecords.value.filter((record) => record.ok).length);
 
 /// 延迟是最近一次自动测活的耗时：单写一个「3125 ms」读者无法判断这是延迟、
 /// 超时时间还是别的；加两个字说清它是什么，仍然只占同一行。
 const latestLatencyLabel = computed(() => {
-  const latency = latestRecord.value?.latencyMs;
+  const latest = recentRecords.value[recentRecords.value.length - 1];
+  const latency = latest?.latencyMs;
   return Number.isFinite(latency) ? `延迟 ${latency} ms` : "";
 });
 
 const summaryLabel = computed(() => {
-  if (livenessRecords.value.length === 0) {
+  if (recentRecords.value.length === 0) {
     return "暂无记录";
   }
-  return `${successfulCount.value}/${livenessRecords.value.length} 成功`;
+  return `${successfulCount.value}/${recentRecords.value.length} 成功`;
 });
 
 const ariaLabel = computed(() => {
   const latest = latestLatencyLabel.value ? `，最近一次${latestLatencyLabel.value}` : "";
-  return `近24小时自动测活：${summaryLabel.value}${latest}`;
+  return `最近24次自动测活：${summaryLabel.value}${latest}`;
 });
 
 function livenessPointTitle(record: LivenessRecord) {
@@ -77,10 +48,10 @@ function livenessPointTitle(record: LivenessRecord) {
 <template>
   <div
     class="provider-liveness-timeline"
-    :class="{ 'provider-liveness-timeline-empty': livenessRecords.length === 0 }"
+    :class="{ 'provider-liveness-timeline-empty': recentRecords.length === 0 }"
   >
     <div class="provider-liveness-summary">
-      <span>近24小时</span>
+      <span>最近24次</span>
       <strong>{{ summaryLabel }}</strong>
       <span v-if="latestLatencyLabel" class="provider-liveness-latency">
         {{ latestLatencyLabel }}
@@ -89,7 +60,7 @@ function livenessPointTitle(record: LivenessRecord) {
     <div class="provider-liveness-strip" role="img" :aria-label="ariaLabel">
       <span
         v-for="(record, index) in livenessSlots"
-        :key="record ? `${record.checkedAt}-${record.ok}` : `empty-${index}`"
+        :key="record ? `${record.checkedAt}-${index}` : `empty-${index}`"
         class="provider-liveness-segment"
         :class="[
           record
@@ -98,7 +69,7 @@ function livenessPointTitle(record: LivenessRecord) {
               : 'provider-liveness-segment-error'
             : 'provider-liveness-segment-empty',
         ]"
-        :title="record ? livenessPointTitle(record) : '该时段暂无测活记录'"
+        :title="record ? livenessPointTitle(record) : '暂无更早的自动测活记录'"
       />
     </div>
   </div>
