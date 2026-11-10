@@ -199,7 +199,9 @@ mod tests {
         assert!(plan
             .environment
             .set_values()
-            .any(|(name, value)| name == "JCODE_HOME" && value.ends_with("/jcode")));
+            .any(|(name, value)| {
+                name == "JCODE_HOME" && crate::test_support::ends_with_path(value, "/jcode")
+            }));
     }
 
     #[test]

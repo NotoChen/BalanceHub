@@ -171,7 +171,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "DSH_HOME"
-                && value == "/tmp/<liveness>/dsh-home"));
+                && crate::test_support::same_path(value, "/tmp/<liveness>/dsh-home")));
         assert!(!plan.files[0].content.contains("sk-dsh-test"));
         let patch: serde_yaml_ng::Value =
             serde_yaml_ng::from_str(&plan.files[0].content).unwrap();

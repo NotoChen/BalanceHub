@@ -102,10 +102,12 @@ fn database(root: &Path) -> PathBuf {
                  VALUES (?1, 0, ?2, NULL)",
                 params![
                     id,
-                    format!(
-                        r#"{{"type":"session","id":"{id}","cwd":"{workdir}"}}"#,
-                        workdir = workdir()
-                    )
+                    serde_json::json!({
+                        "type": "session",
+                        "id": id,
+                        "cwd": workdir(),
+                    })
+                    .to_string()
                 ],
             )
             .unwrap();

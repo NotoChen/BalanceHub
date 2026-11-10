@@ -179,7 +179,8 @@ mod tests {
         );
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-openclaw-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "OPENCLAW_STATE_DIR" && value.ends_with("/openclaw/state")
+            name == "OPENCLAW_STATE_DIR"
+                && crate::test_support::ends_with_path(value, "/openclaw/state")
         }));
         let file = plan.files.first().unwrap();
         assert_eq!(file.path, Path::new("/tmp/<liveness>/openclaw/openclaw.json"));
