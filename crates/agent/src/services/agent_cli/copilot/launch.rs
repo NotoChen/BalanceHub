@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(plan.args, ["--model", "balancehub/relay-model"]);
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-copilot-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "COPILOT_PROVIDERS_CONFIG" && value.ends_with("/copilot/providers.json")
+            name == "COPILOT_PROVIDERS_CONFIG" && crate::test_support::ends_with_path(value, "/copilot/providers.json")
         }));
         let file = plan.auxiliary_files.first().unwrap();
         let value: serde_json::Value = serde_json::from_str(&file.content).unwrap();

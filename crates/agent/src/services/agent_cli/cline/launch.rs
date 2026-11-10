@@ -151,9 +151,9 @@ mod tests {
         let env = plan.environment.set_values().collect::<Vec<_>>();
         assert!(env
             .iter()
-            .any(|(name, value)| *name == "CLINE_DIR" && value.ends_with("/cline")));
+            .any(|(name, value)| *name == "CLINE_DIR" && crate::test_support::ends_with_path(value, "/cline")));
         assert!(env.iter().any(|(name, value)| {
-            *name == "CLINE_DATA_DIR" && value.ends_with("/cline/data")
+            *name == "CLINE_DATA_DIR" && crate::test_support::ends_with_path(value, "/cline/data")
         }));
         let file = plan.auxiliary_files.first().unwrap();
         assert_eq!(file.path, "cline/data/settings/providers.json");

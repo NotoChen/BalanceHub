@@ -25,6 +25,13 @@ fn test_root(name: &str) -> PathBuf {
     root
 }
 
+fn workdir() -> String {
+    std::env::temp_dir()
+        .join("work/proj")
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn budget() -> SessionReadBudget {
     SessionReadBudget::new(
         Instant::now() + Duration::from_secs(5),
@@ -144,7 +151,7 @@ fn scan_lists_visible_sessions_and_skips_hidden_peek_and_cron() {
                 "record_json": {
                     "title": "会话标题",
                     "lastAssistantText": "模型最终回答",
-                    "workspaceDir": "/work/proj"
+                    "workspaceDir": workdir()
                 },
                 "updated_at_ms": 1_791_000_000_000i64,
                 "created_at_ms": 1_790_999_000_000i64,
@@ -153,21 +160,21 @@ fn scan_lists_visible_sessions_and_skips_hidden_peek_and_cron() {
             json!({
                 "session_id": "sess-hidden",
                 "visibility": "hidden",
-                "workspace_dir": "/work/proj"
+                "workspace_dir": workdir()
             }),
             json!({
                 "session_id": "sess-peek",
                 "session_kind": "peek",
-                "workspace_dir": "/work/proj"
+                "workspace_dir": workdir()
             }),
             json!({
                 "session_id": "sess-cron",
                 "session_kind": "cron",
-                "workspace_dir": "/work/proj"
+                "workspace_dir": workdir()
             }),
             json!({
                 "session_id": "sess-sub",
-                "workspace_dir": "/work/proj",
+                "workspace_dir": workdir(),
                 "parent_session_id": "sess-1"
             }),
         ],
@@ -182,7 +189,7 @@ fn scan_lists_visible_sessions_and_skips_hidden_peek_and_cron() {
     assert_eq!(summary.title, "会话标题");
     assert_eq!(summary.preview.as_deref(), Some("请检查构建"));
     assert_eq!(summary.model.as_deref(), Some("MiniMax-M2"));
-    assert_eq!(summary.workdir, "/work/proj");
+    assert_eq!(summary.workdir, workdir());
     assert_eq!(summary.metadata_source, METADATA_SOURCE);
     assert!(summary.can_resume);
     let created_at = chrono::DateTime::from_timestamp_millis(1_790_999_000_000)
@@ -204,7 +211,7 @@ fn scan_identity_mode_only_reads_ids_and_workdirs() {
         &root,
         &[json!({
             "session_id": "sess-1",
-            "workspace_dir": "/work/proj",
+            "workspace_dir": workdir(),
             "updated_at_ms": 1_791_000_000_000i64
         })],
         &[],
@@ -225,7 +232,7 @@ fn scan_identity_mode_only_reads_ids_and_workdirs() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].record_key, "sess-1");
     assert_eq!(records[0].summary.id, "sess-1");
-    assert_eq!(records[0].summary.workdir, "/work/proj");
+    assert_eq!(records[0].summary.workdir, workdir());
     let _ = fs::remove_dir_all(root);
 }
 

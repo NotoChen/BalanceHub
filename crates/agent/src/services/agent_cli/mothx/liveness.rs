@@ -181,7 +181,7 @@ mod tests {
         assert!(plan
             .environment
             .set_values()
-            .any(|(name, value)| name == "MOTHX_DIR" && value == "/tmp/<liveness>/.mothx"));
+            .any(|(name, value)| name == "MOTHX_DIR" && crate::test_support::same_path(value, "/tmp/<liveness>/.mothx")));
         let file = &plan.files[0];
         assert_eq!(file.path, request().isolated_home.join(".mothx/settings.json"));
         let parsed: Value = serde_json::from_str(&file.content).unwrap();

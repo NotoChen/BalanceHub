@@ -153,7 +153,7 @@ mod tests {
     fn plan_uses_an_isolated_home_and_references_the_key_by_env() {
         let plan = build_plan(request("sk-dsh-test", "https://relay.example.com/v1")).unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "--profile",
                 "headless",

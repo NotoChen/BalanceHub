@@ -161,7 +161,7 @@ mod tests {
         assert!(plan.args.iter().any(|arg| arg == "--name"));
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-pi-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "PI_CODING_AGENT_DIR" && value.ends_with("/agent")
+            name == "PI_CODING_AGENT_DIR" && crate::test_support::ends_with_path(value, "/agent")
         }));
         assert!(plan
             .environment

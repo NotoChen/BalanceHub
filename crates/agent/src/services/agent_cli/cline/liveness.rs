@@ -195,7 +195,7 @@ mod tests {
         );
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-cline-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "CLINE_DATA_DIR" && value.ends_with("/cline/data")
+            name == "CLINE_DATA_DIR" && crate::test_support::ends_with_path(value, "/cline/data")
         }));
         let file = plan.files.first().unwrap();
         assert_eq!(

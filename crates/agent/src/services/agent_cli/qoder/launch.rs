@@ -125,7 +125,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             ["-m", "relay-model", "-n", "新会话"]
         );
         assert!(plan.auxiliary_files.is_empty());
@@ -138,7 +138,7 @@ mod tests {
             TemporaryCliSessionMode::History,
         ))
         .unwrap();
-        assert_eq!(plan.args, ["-r", "sess-1"]);
+        assert_eq!(crate::test_support::slash_args(&plan.args), ["-r", "sess-1"]);
     }
 
     #[test]
@@ -156,7 +156,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             ["--settings", "/tmp/<launch>/qoder-settings.json"]
         );
         assert!(!plan.args.iter().any(|value| value.contains("sk-qoder-test")));

@@ -8,6 +8,8 @@ pub mod api;
 mod host;
 pub(crate) mod services;
 pub(crate) mod state;
+#[cfg(test)]
+mod test_support;
 
 // 与桌面 crate 相同的路径别名：迁入的模块继续使用 `crate::models::…`
 // 这类路径，不必逐文件区分类型来自哪个 crate。

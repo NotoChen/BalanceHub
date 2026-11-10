@@ -154,7 +154,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "MINIMAX_DATA_DIR"
-                && value == "/tmp/<launch>/minimax-data"));
+                && crate::test_support::same_path(value, "/tmp/<launch>/minimax-data")));
         assert!(plan
             .environment
             .removed_names()

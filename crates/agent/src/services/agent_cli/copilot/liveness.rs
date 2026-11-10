@@ -147,7 +147,7 @@ mod tests {
         );
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-copilot-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "COPILOT_HOME" && value.ends_with("/copilot")
+            name == "COPILOT_HOME" && crate::test_support::ends_with_path(value, "/copilot")
         }));
         let providers = plan
             .files

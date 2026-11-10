@@ -36,6 +36,13 @@ fn budget() -> SessionReadBudget {
     )
 }
 
+fn workdir() -> String {
+    std::env::temp_dir()
+        .join("openclaw-work")
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn database(root: &Path) -> PathBuf {
     let directory = root.join("agents/main/agent");
     fs::create_dir_all(&directory).unwrap();
@@ -96,7 +103,8 @@ fn database(root: &Path) -> PathBuf {
                 params![
                     id,
                     format!(
-                        r#"{{"type":"session","id":"{id}","cwd":"/tmp/openclaw-work"}}"#
+                        r#"{{"type":"session","id":"{id}","cwd":"{workdir}"}}"#,
+                        workdir = workdir()
                     )
                 ],
             )
@@ -141,7 +149,7 @@ fn sqlite_scan_reads_session_windows_and_skips_subagent_resume() {
         .unwrap();
     assert_eq!(main.record_key, MAIN_ID);
     assert_eq!(main.summary.preview.as_deref(), Some("hello agent:main:main"));
-    assert_eq!(main.summary.workdir, "/tmp/openclaw-work");
+    assert_eq!(main.summary.workdir, workdir());
     assert!(main.summary.can_resume);
     assert!(main.resume_reason.is_none());
     let sub = records

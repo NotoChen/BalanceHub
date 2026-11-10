@@ -175,7 +175,7 @@ mod tests {
     fn plan_writes_an_isolated_account_config_and_keeps_the_key_in_env() {
         let plan = build_plan(request()).unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "--config",
                 "/tmp/<liveness>/config.toml",

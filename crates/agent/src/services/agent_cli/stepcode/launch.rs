@@ -150,7 +150,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "STEP_CODING_AGENT_DIR"
-                && value == "/tmp/<launch>/agent"));
+                && crate::test_support::same_path(value, "/tmp/<launch>/agent")));
         let config = plan
             .auxiliary_files
             .iter()

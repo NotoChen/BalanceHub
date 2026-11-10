@@ -137,7 +137,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "STEP_CODING_AGENT_DIR"
-                && value == "/tmp/<liveness>/agent"));
+                && crate::test_support::same_path(value, "/tmp/<liveness>/agent")));
         assert!(plan
             .environment
             .set_values()

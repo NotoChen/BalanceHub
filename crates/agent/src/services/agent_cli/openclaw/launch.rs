@@ -116,7 +116,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "OPENCLAW_CONFIG_PATH"
-                && value == "/tmp/<launch>/openclaw.json"));
+                && crate::test_support::same_path(value, "/tmp/<launch>/openclaw.json")));
         assert!(!plan
             .environment
             .set_values()

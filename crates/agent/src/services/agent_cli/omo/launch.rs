@@ -145,7 +145,7 @@ mod tests {
             .removed_names()
             .any(|name| name == "PI_CODING_AGENT_DIR"));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "OMO_CODING_AGENT_DIR" && value.ends_with("/omo-agent")
+            name == "OMO_CODING_AGENT_DIR" && crate::test_support::ends_with_path(value, "/omo-agent")
         }));
         assert!(plan.environment.set_values().any(|(name, value)| {
             name == API_KEY_ENV && value == "sk-omo-test"

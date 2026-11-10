@@ -135,7 +135,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             ["--settings", "<launch>/droid/settings.json"]
         );
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-droid-test")));
@@ -162,7 +162,7 @@ mod tests {
         ))
         .unwrap();
 
-        assert_eq!(plan.args, ["--settings", "<launch>/droid/settings.json"]);
+        assert_eq!(crate::test_support::slash_args(&plan.args), ["--settings", "<launch>/droid/settings.json"]);
         let file = plan.auxiliary_files.first().unwrap();
         let value: serde_json::Value = serde_json::from_str(&file.content).unwrap();
         assert_eq!(
@@ -183,7 +183,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "--resume",
                 "5d3b2358-b9f9-4257-ab87-1d5f2f1d77ea"

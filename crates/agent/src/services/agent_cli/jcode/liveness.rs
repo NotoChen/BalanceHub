@@ -176,7 +176,7 @@ mod tests {
     fn plan_uses_the_environment_provider_and_keeps_the_key_out_of_argv() {
         let plan = build_plan(request()).unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "--socket",
                 "/tmp/<liveness>/jcode.sock",

@@ -119,7 +119,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "DEVECO_CONFIG"
-                && value == "/tmp/<launch>/deveco.json"));
+                && crate::test_support::same_path(value, "/tmp/<launch>/deveco.json")));
         let file = &plan.auxiliary_files[0];
         assert_eq!(file.path, "deveco.json");
         let parsed: Value = serde_json::from_str(&file.content).unwrap();

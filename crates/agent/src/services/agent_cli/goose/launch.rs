@@ -150,7 +150,7 @@ mod tests {
         );
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-goose-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "XDG_CONFIG_HOME" && value.ends_with("/goose-config")
+            name == "XDG_CONFIG_HOME" && crate::test_support::ends_with_path(value, "/goose-config")
         }));
         assert!(plan
             .environment

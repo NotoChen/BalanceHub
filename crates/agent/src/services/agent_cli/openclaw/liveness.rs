@@ -165,7 +165,7 @@ mod tests {
     fn plan_pins_an_isolated_config_and_keeps_the_key_out_of_argv() {
         let plan = build_plan(request()).unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "agent",
                 "exec",

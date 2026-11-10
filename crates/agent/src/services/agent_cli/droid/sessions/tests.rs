@@ -37,6 +37,13 @@ fn write_session(root: &Path, id: &str, lines: &[Value]) {
     }
 }
 
+fn workdir() -> String {
+    std::env::temp_dir()
+        .join("work/proj")
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn session_lines() -> Vec<Value> {
     vec![
         json!({
@@ -44,7 +51,7 @@ fn session_lines() -> Vec<Value> {
             "version": 2,
             "id": "sess-1",
             "title": "Fix parser",
-            "cwd": "/work/proj",
+            "cwd": workdir(),
             "parent": null
         }),
         json!({
@@ -125,7 +132,7 @@ fn scan_reads_session_start_and_latest_model() {
     assert_eq!(summary.title, "Fix parser");
     assert_eq!(summary.preview.as_deref(), Some("hello"));
     assert_eq!(summary.model.as_deref(), Some("claude-sonnet-4-5"));
-    assert_eq!(summary.workdir, "/work/proj");
+    assert_eq!(summary.workdir, workdir());
     assert_eq!(summary.created_at.as_deref(), Some("2026-11-09T10:00:00+00:00"));
     assert_eq!(summary.updated_at.as_deref(), Some("2026-11-09T10:00:06+00:00"));
     assert!(summary.can_resume);

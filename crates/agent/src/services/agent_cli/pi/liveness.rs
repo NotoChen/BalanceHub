@@ -112,7 +112,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "PI_CODING_AGENT_DIR"
-                && value == "/tmp/<liveness>/agent"));
+                && crate::test_support::same_path(value, "/tmp/<liveness>/agent")));
         assert!(!plan.files[0].content.contains("sk-pi-test"));
     }
 

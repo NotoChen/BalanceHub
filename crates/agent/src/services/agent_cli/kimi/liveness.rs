@@ -126,7 +126,7 @@ mod tests {
         );
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-kimi-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "KIMI_CODE_HOME" && value.ends_with("/kimi")
+            name == "KIMI_CODE_HOME" && crate::test_support::ends_with_path(value, "/kimi")
         }));
         let file = plan.files.first().unwrap();
         assert_eq!(file.path, Path::new("/tmp/<liveness>/kimi/config.toml"));

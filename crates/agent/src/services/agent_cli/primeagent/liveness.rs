@@ -123,7 +123,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "PRIME_AGENT_CODING_AGENT_DIR"
-                && value == "/tmp/<liveness>/agent"));
+                && crate::test_support::same_path(value, "/tmp/<liveness>/agent")));
         let models = &plan.files[0];
         assert_eq!(models.path, request().isolated_home.join("agent/models.json"));
         assert!(!models.content.contains("sk-prime-test"));

@@ -120,7 +120,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "--config",
                 "/tmp/<launch>/config.toml",
@@ -167,7 +167,7 @@ mod tests {
             TemporaryCliSessionMode::New,
         ))
         .unwrap();
-        assert_eq!(plan.args, ["--model", "native-model"]);
+        assert_eq!(crate::test_support::slash_args(&plan.args), ["--model", "native-model"]);
         assert!(plan.auxiliary_files.is_empty());
         assert!(plan.environment.set_values().next().is_none());
         assert!(plan.environment.removed_names().next().is_none());
@@ -182,6 +182,6 @@ mod tests {
             TemporaryCliSessionMode::History,
         ))
         .unwrap();
-        assert_eq!(plan.args, ["--resume", "session-1"]);
+        assert_eq!(crate::test_support::slash_args(&plan.args), ["--resume", "session-1"]);
     }
 }

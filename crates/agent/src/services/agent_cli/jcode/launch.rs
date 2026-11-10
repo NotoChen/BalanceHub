@@ -107,7 +107,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "--provider",
                 "openai-compatible",
@@ -157,7 +157,7 @@ mod tests {
             TemporaryCliSessionMode::New,
         ))
         .unwrap();
-        assert_eq!(plan.args, ["--model", "relay-model"]);
+        assert_eq!(crate::test_support::slash_args(&plan.args), ["--model", "relay-model"]);
         assert!(plan.environment.set_values().next().is_none());
         assert!(plan.environment.removed_names().next().is_none());
         assert!(plan.auxiliary_files.is_empty());
@@ -173,7 +173,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "--resume",
                 "session_owl_1794223705975_6358e9711aa3e638"

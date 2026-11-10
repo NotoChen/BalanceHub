@@ -156,7 +156,7 @@ mod tests {
         assert!(plan
             .environment
             .set_values()
-            .any(|(name, value)| name == "MOTHX_DIR" && value == "/tmp/<launch>/mothx"));
+            .any(|(name, value)| name == "MOTHX_DIR" && crate::test_support::same_path(value, "/tmp/<launch>/mothx")));
         for name in [
             "VIBECODING_PROVIDER",
             "VIBECODING_MODEL",

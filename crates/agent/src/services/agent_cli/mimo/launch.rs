@@ -128,7 +128,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "MIMOCODE_CONFIG"
-                && value.ends_with("/mimocode.json")));
+                && crate::test_support::ends_with_path(value, "/mimocode.json")));
         assert!(plan
             .environment
             .set_values()

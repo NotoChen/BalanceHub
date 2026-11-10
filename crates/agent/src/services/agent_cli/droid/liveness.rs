@@ -142,7 +142,7 @@ mod tests {
     fn plan_uses_the_generic_chat_completion_provider() {
         let plan = build_plan(request()).unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "exec",
                 "-m",

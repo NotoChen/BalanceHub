@@ -115,7 +115,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             ["tui", "--patch", "/tmp/<launch>/balancehub.yml"]
         );
         assert!(!plan.args.iter().any(|value| value.contains("sk-dsh-test")));
@@ -162,7 +162,7 @@ mod tests {
             TemporaryCliSessionMode::History,
         ))
         .unwrap();
-        assert_eq!(plan.args, ["tui", "--resume", "session-1"]);
+        assert_eq!(crate::test_support::slash_args(&plan.args), ["tui", "--resume", "session-1"]);
     }
 
     #[test]
@@ -174,7 +174,7 @@ mod tests {
             TemporaryCliSessionMode::New,
         ))
         .unwrap();
-        assert_eq!(plan.args, ["tui"]);
+        assert_eq!(crate::test_support::slash_args(&plan.args), ["tui"]);
         assert!(plan.auxiliary_files.is_empty());
         assert!(plan.environment.set_values().next().is_none());
     }

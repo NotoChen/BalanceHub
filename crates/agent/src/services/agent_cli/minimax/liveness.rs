@@ -165,7 +165,7 @@ mod tests {
     fn plan_writes_a_custom_openai_provider_config() {
         let plan = build_plan(request()).unwrap();
         assert_eq!(
-            plan.args,
+            crate::test_support::slash_args(&plan.args),
             [
                 "exec",
                 "--config",

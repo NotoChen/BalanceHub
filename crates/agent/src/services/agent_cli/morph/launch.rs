@@ -113,7 +113,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "MISTER_MORPH_CONFIG"
-                && value == "/tmp/<launch>/config.yaml"));
+                && crate::test_support::same_path(value, "/tmp/<launch>/config.yaml")));
         let file = &plan.auxiliary_files[0];
         assert_eq!(file.path, "config.yaml");
         assert!(!file.settings);

@@ -198,7 +198,7 @@ mod tests {
         );
         assert!(!plan.args.iter().any(|arg| arg.contains("sk-codebuddy-test")));
         assert!(plan.environment.set_values().any(|(name, value)| {
-            name == "CODEBUDDY_CONFIG_DIR" && value.ends_with("/codebuddy")
+            name == "CODEBUDDY_CONFIG_DIR" && crate::test_support::ends_with_path(value, "/codebuddy")
         }));
         // 原生第三方模型变量会覆盖隔离的 settings.json / models.json。
         let removed = plan.environment.removed_names().collect::<Vec<_>>();

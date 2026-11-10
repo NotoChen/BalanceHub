@@ -137,7 +137,7 @@ mod tests {
             .environment
             .set_values()
             .any(|(name, value)| name == "DEVECO_CONFIG_DIR"
-                && value == "/tmp/<liveness>/.config/deveco"));
+                && crate::test_support::same_path(value, "/tmp/<liveness>/.config/deveco")));
         assert!(plan
             .environment
             .set_values()
