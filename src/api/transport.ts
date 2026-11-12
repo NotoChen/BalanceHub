@@ -51,6 +51,7 @@ const channelEvents: Record<string, string> = {
   refresh_all_providers_with_progress: "provider-batch-progress",
   get_agent_asset_catalog: "agent-asset-catalog-progress",
   read_agent_catalog_content: "agent-catalog-content-progress",
+  get_agent_projects: "agent-project-progress",
 };
 
 /// 浏览器会话标识：区分同一站点下不同标签页的资产访问身份。

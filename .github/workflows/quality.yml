@@ -66,6 +66,10 @@ jobs:
         if: matrix.frontend
         run: npm test
 
+      - name: 校验 Agent 能力文档
+        if: matrix.frontend
+        run: node scripts/generate-agent-capabilities.mjs --check
+
       - name: 检查 Rust 格式
         if: matrix.format
         run: cargo fmt --all --check

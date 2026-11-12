@@ -266,6 +266,7 @@ useWindowGridSnap();
       :site-announcements-fatal-error="app.siteAnnouncementsFatalError"
       :site-announcements="app.siteAnnouncements"
       :site-announcement-errors="app.siteAnnouncementErrors"
+      :site-announcement-truncated-sources="app.siteAnnouncementTruncatedSources"
       :unread-site-announcement-count="app.unreadSiteAnnouncementCount"
       :marking-announcement-fingerprints="app.markingAnnouncementFingerprints"
       :site-announcement-is-read="app.announcementIsRead"

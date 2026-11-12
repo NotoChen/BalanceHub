@@ -231,6 +231,11 @@ pub(crate) struct Transcript {
     usage: SessionUsageSummary,
 }
 
+pub(crate) struct HandoffMessage {
+    pub(crate) role: CliSessionMessageRole,
+    pub(crate) content: String,
+}
+
 impl Transcript {
     pub(crate) fn load(
         workspace: &str,
@@ -331,6 +336,48 @@ impl Transcript {
 
     pub(crate) fn revision(&self) -> &str {
         &self.revision
+    }
+
+    /// 当前加载范围内的用量汇总。只加载了字节窗口时 `usage.partial` 由
+    /// 调用方结合 `window`/`truncated` 判断，不能当作整个会话的完整值。
+    pub(crate) fn usage(&self) -> SessionUsageSummary {
+        self.usage.clone()
+    }
+
+    /// 交接文件使用的最近对话：只保留用户和助手消息，跳过工具调用与
+    /// 空正文。单条消息按字符截断；返回的布尔值表示是否发生了截断。
+    pub(crate) fn handoff_messages(
+        &self,
+        limit: usize,
+        max_chars: usize,
+    ) -> (Vec<HandoffMessage>, bool) {
+        let mut truncated = false;
+        let mut selected = self
+            .messages
+            .iter()
+            .filter(|message| {
+                message.role != CliSessionMessageRole::Tool && !message.content.trim().is_empty()
+            })
+            .rev()
+            .take(limit)
+            .collect::<Vec<_>>();
+        selected.reverse();
+        let messages = selected
+            .into_iter()
+            .map(|message| {
+                let mut content = message.content.trim().to_string();
+                if content.chars().count() > max_chars {
+                    content = content.chars().take(max_chars).collect::<String>();
+                    content.push_str("\n…（消息过长，已截断）");
+                    truncated = true;
+                }
+                HandoffMessage {
+                    role: message.role,
+                    content,
+                }
+            })
+            .collect();
+        (messages, truncated)
     }
 
     /// Whether this decoded slice contains the public message id. Used to

@@ -102,8 +102,16 @@ export function useAppController() {
     for (const key of Object.keys(catalog.catalogs)) catalog.invalidate(key === "__native__" ? undefined : key);
   });
   const loginAccounts = useLoginAccounts(browserRuntime);
+  const checkInRecords = useCheckInRecords({
+    providers,
+    loadRecords: (providerId, month) => providerStore.getCheckInRecords(providerId, month),
+  });
   const checkIn = useCheckInActions({
-    reload: () => providerStore.reload(),
+    reload: async (providerIds) => {
+      // 签到成功会改变当月的记录；缓存不失效的话，再次打开日历读到的还是旧值。
+      checkInRecords.invalidateCheckInRecords(providerIds);
+      await providerStore.reload();
+    },
     browserRuntime,
   });
 
@@ -120,11 +128,6 @@ export function useAppController() {
       }
     },
     refreshCliRuntime: () => cliRuntimeStore.refresh(),
-  });
-
-  const checkInRecords = useCheckInRecords({
-    providers,
-    loadRecords: (providerId, month) => providerStore.getCheckInRecords(providerId, month),
   });
 
   const usage = useUsageSummary({

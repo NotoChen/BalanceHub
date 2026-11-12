@@ -128,6 +128,20 @@ test("a log line exposes the request it belongs to as a drill-down", async (t) =
   assert.equal(state.readingRequest.value, false);
 });
 
+test("the toolbar says when only the buffered tail of a larger file is shown", async (t) => {
+  const { state } = dialog(t, {
+    "../../api/oauth-accounts": {
+      getCpaLogSettings: async () => ({ enabled: true }),
+      readCpaRequestLogs: async () => ({ ...tail, lineCount: 12_000 }),
+      readCpaRequestLog: async () => ({ requestId: "", content: "" }),
+      clearCpaLogs: async () => ({ removed: 0 }),
+      setCpaLogSettings: async () => undefined,
+    },
+  });
+  await settle();
+  assert.match(state.truncatedLineNote.value, /仅显示最近 2 \/ 共 12000 行/);
+});
+
 test("the level and text filters narrow the buffer without another read", async (t) => {
   let reads = 0;
   const { state } = dialog(t, {

@@ -92,6 +92,7 @@ defineProps<{
   siteAnnouncementsFatalError: string;
   siteAnnouncements: SiteAnnouncement[];
   siteAnnouncementErrors: SiteAnnouncementSourceError[];
+  siteAnnouncementTruncatedSources: string[];
   unreadSiteAnnouncementCount: number;
   markingAnnouncementFingerprints: Set<string>;
   siteAnnouncementIsRead: (item: SiteAnnouncement) => boolean;
@@ -264,6 +265,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :fatal-error="siteAnnouncementsFatalError"
     :announcements="siteAnnouncements"
     :errors="siteAnnouncementErrors"
+    :truncated-sources="siteAnnouncementTruncatedSources"
     :unread-count="unreadSiteAnnouncementCount"
     :marking-fingerprints="markingAnnouncementFingerprints"
     :provider-protocols="providerProtocols"

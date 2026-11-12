@@ -1557,15 +1557,21 @@ export interface ProviderUsageSummary {
   modelHealth: ProviderModelHealth[];
   /** 周期内请求总数；站点只给前三站模型明细时仍由这里给出完整次数。 */
   requestCount: number;
+  /** 本次统计实际覆盖的分钟数；今日视图是从本地零点到现在。 */
+  windowMinutes: number;
 }
 
 /** 顶栏的全局用量趋势：多个站点合并结果，因此没有单一配额单位。 */
 export interface ProviderUsageOverview {
   requestCount: number;
   modelStats: ProviderUsageModelStat[];
+  /** 合并去重后的模型总数；modelStats 只保留排行前几项。 */
+  modelCount: number;
   modelHealth: ProviderModelHealth[];
   /** 读取失败的站点；单个站点失败不影响其余站点的汇总。 */
   errors: ProviderUsageSourceError[];
+  /** 各站实际窗口的最大值，用于计算汇总视图的平均 RPM/TPM。 */
+  windowMinutes: number;
 }
 
 export interface ProviderUsageSourceError {
@@ -1598,9 +1604,10 @@ export interface ProviderRequestLog {
 }
 
 export interface ProviderRequestLogStats {
-  quota: number;
-  rpm: number;
-  tpm: number;
+  /** 对应统计接口读取失败时为 null，界面显示「—」而不是 0。 */
+  quota: number | null;
+  rpm: number | null;
+  tpm: number | null;
   /** 站点不提供平均耗时统计时为 null。 */
   avgDurationMs: number | null;
 }
@@ -1710,6 +1717,15 @@ export interface TemporaryCliLaunchInput {
   resumeId: string;
   sessionTitle: string;
   terminalKind: TemporaryCliTerminalKind;
+}
+
+/**
+ * 打开临时启动选择器时的预置上下文。交接功能用它把目标目录和交接文件说明
+ * 带进现有启动流程，不在启动器里再实现一套启动逻辑。
+ */
+export interface TemporaryCliLaunchContext {
+  workdir?: string;
+  initialPrompt?: string;
 }
 
 export interface TemporaryCliLaunchPreview {
@@ -1837,6 +1853,8 @@ export interface SiteAnnouncementsSnapshot {
   fetchedAt: string;
   announcements: SiteAnnouncement[];
   errors: SiteAnnouncementSourceError[];
+  /** 公告条数触到单站上限的站点名；列表只包含上限内的部分。 */
+  truncatedSources: string[];
 }
 
 export interface AppSettings {

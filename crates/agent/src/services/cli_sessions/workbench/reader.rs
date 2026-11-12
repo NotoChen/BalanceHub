@@ -13,7 +13,7 @@ use crate::{
             source::compressed,
             transcript::{
                 same_transcript_cursor_revision, session_read_window, window_request_for_cursor,
-                window_request_for_revision, Transcript,
+                window_request_for_revision, HandoffMessage, Transcript,
             },
         },
     },
@@ -25,7 +25,7 @@ use std::{collections::HashSet, sync::Arc};
 /// returned cursor until `complete` is true.
 const SEARCH_WINDOWS_PER_CALL: u64 = 2;
 
-fn with_session<T>(
+pub(super) fn with_session<T>(
     actor: AgentSessionActor<'_>,
     revision: &str,
     session_ref: &str,
@@ -74,6 +74,36 @@ fn with_session<T>(
         super::resolve_session_ref(actor, revision, session_ref)?;
         Ok(result)
     })
+}
+
+/// 读取生成交接文件所需的最近消息。和阅读器共用同一次会话引用解析、
+/// 预算与字节窗口逻辑；超大会话只取最新窗口，不整文件解码。
+pub(super) fn handoff_material(
+    actor: AgentSessionActor<'_>,
+    revision: &str,
+    session_ref: &str,
+    budget: &SessionReadBudget,
+) -> Result<(crate::models::AgentSessionRow, Vec<HandoffMessage>, bool), String> {
+    with_session(
+        actor,
+        revision,
+        session_ref,
+        None,
+        budget,
+        |_| Ok((None, WindowRequest::Default)),
+        |reference, transcript| {
+            let (messages, message_truncated) = transcript.handoff_messages(24, 4000);
+            Ok((
+                reference.row.clone(),
+                messages,
+                transcript.truncated
+                    || transcript.window.is_some()
+                    || !transcript.complete
+                    || transcript.skipped_records > 0
+                    || message_truncated,
+            ))
+        },
+    )
 }
 
 pub(crate) fn detail(

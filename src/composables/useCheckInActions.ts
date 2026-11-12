@@ -15,7 +15,11 @@ interface CheckInController {
 }
 export const CHECK_IN_CONTEXT: InjectionKey<CheckInController> = Symbol("check-in-tasks");
 
-export function useCheckInActions(options: { reload: () => Promise<unknown>; browserRuntime: BrowserRuntimeController }) {
+export function useCheckInActions(options: {
+  /// 任务结束后要失效的缓存和重读的数据；providerIds 是本次完成的站点。
+  reload: (providerIds: string[]) => Promise<unknown>;
+  browserRuntime: BrowserRuntimeController;
+}) {
   const state = shallowRef<CheckInSnapshot>({ items: [], pending: [], error: "" });
   const tracker = createCheckInTracker({ list: listCheckInTasks, listen: listenCheckInTasks,
     submit: checkInProvider, submitAll: checkInAllProviders, resume: resumeCheckInTask, cancel: cancelCheckInTask,
@@ -55,7 +59,7 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
   const seen = new Set<string>();
   const prompted = new Set<string>();
   watch(tasks, (items) => {
-    let reload = false;
+    const finishedProviderIds = new Set<string>();
     for (const task of items) {
       if (task.phase === "waitingBrowser" && task.source === "manual" && !prompted.has(task.runId)) {
         prompted.add(task.runId);
@@ -63,14 +67,16 @@ export function useCheckInActions(options: { reload: () => Promise<unknown>; bro
       }
       if (task.finished && !seen.has(task.runId)) {
         seen.add(task.runId);
-        reload = true;
+        finishedProviderIds.add(task.providerId);
         if (task.source === "manual") {
           if (task.phase === "completed") Message.success(task.message);
           else if (task.phase !== "cancelled") Message.warning(task.message);
         }
       }
     }
-    if (reload) void options.reload().catch(() => {});
+    if (finishedProviderIds.size > 0) {
+      void options.reload([...finishedProviderIds]).catch(() => {});
+    }
   });
   watch(() => state.value.error, (error) => { if (error) Message.error(error); });
   onMounted(() => { void tracker.start(); window.addEventListener("focus", tracker.refresh); });

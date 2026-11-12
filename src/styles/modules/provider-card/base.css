@@ -642,6 +642,14 @@
   line-height: 1.2;
 }
 
+/* 卡片固定展示前三条额度窗口，其余窗口只留一句旁注：多订阅账号的存在
+   不能靠用户数条数才发现。 */
+.provider-card-quota-overflow {
+  color: var(--surface-ink-soft);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
 /* 备用地址生效时和同步时间同一读法：一句必须被看见的旁注，主机名结尾省略，
    完整地址在悬停提示里。 */
 .provider-card-endpoint {

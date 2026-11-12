@@ -735,7 +735,7 @@ test("model probe failures stay in their own step and a successful empty list cl
 });
 
 test("reopening request logs clears an unsubmitted search and the previously selected record", async (t) => {
-  const display = loadSource("utils/request-log-display.ts", { "./provider-display": providerDisplay });
+  const display = loadSource("utils/request-log-display.ts", { "./provider-display.ts": providerDisplay });
   const component = loadSource<{ default: { setup: (props: object, context: object) => { keywordDraft: Ref<string>; selectedLog: Ref<unknown>; submitSearch: (event?: { isComposing?: boolean; keyCode?: number }) => void } } }>("components/RequestLogsModal.vue", {
     "@arco-design/web-vue/es/icon": {}, "../utils/provider-display": providerDisplay,
     "../utils/request-log-display": display, "./RequestLogDetailsModal.vue": {},

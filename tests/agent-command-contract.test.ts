@@ -117,6 +117,8 @@ test("前端传的 Agent 命令参数与 Rust 读取的参数一致", () => {
   const rust = rustArguments();
   const frontend = frontendArguments();
   assert.ok(rust.size > 100, `分发表只解析到 ${rust.size} 条命令`);
+  // 进度通道由宿主注入，不属于分发表里的 JSON 参数。
+  const hostChannelArguments = new Set(["progress"]);
   const problems: string[] = [];
   let compared = 0;
   for (const [command, names] of frontend) {
@@ -125,7 +127,9 @@ test("前端传的 Agent 命令参数与 Rust 读取的参数一致", () => {
     compared += 1;
     const actual = new Set([...expected].map(camelCase));
     const missing = [...actual].filter((name) => !names.has(name));
-    const extra = [...names].filter((name) => !actual.has(name));
+    const extra = [...names].filter(
+      (name) => !actual.has(name) && !hostChannelArguments.has(name),
+    );
     if (missing.length || extra.length) {
       problems.push(
         `${command}: Rust 需要 [${[...actual].join(", ")}]，前端传 [${[...names].join(", ")}]`,

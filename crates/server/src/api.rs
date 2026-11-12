@@ -332,6 +332,7 @@ const PROGRESS_EVENTS: &[(&str, &str)] = &[
         "read_agent_catalog_content",
         "agent-catalog-content-progress",
     ),
+    ("get_agent_projects", "agent-project-progress"),
 ];
 
 /// 把流式结果只发给发起请求的那个标签页。

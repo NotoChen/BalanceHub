@@ -81,6 +81,35 @@
   outline-offset: 2px;
 }
 
+.provider-board-recommend {
+  display: inline-flex;
+  min-height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--surface-control-line);
+  border-radius: 6px;
+  background: var(--surface-panel);
+  color: var(--surface-ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.provider-board-recommend:hover {
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
+.provider-board-recommend:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 2px;
+}
+
 @media (max-width: 640px) {
   .provider-board-sort-hint {
     display: none;

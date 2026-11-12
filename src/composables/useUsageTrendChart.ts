@@ -1,6 +1,10 @@
 import { computed } from "vue";
 import type { ProviderUsageModelStat, ProviderUsageSummary } from "../stores/providers";
-import { usagePeriodTitle, type UsagePeriod } from "../utils/usage-trend.ts";
+import {
+  usagePeriodMinutes,
+  usagePeriodTitle,
+  type UsagePeriod,
+} from "../utils/usage-trend.ts";
 
 interface UseUsageTrendChartOptions {
   summary: ProviderUsageSummary | null;
@@ -35,11 +39,9 @@ export function useUsageTrendChart(options: UseUsageTrendChartOptions) {
     return points.some((point) => /^\d{2}-\d{2} \d{2}:00$/.test(point.date)) ? "按小时汇总" : "按天汇总";
   });
 
-  const usageTimeRangeMinutes = computed(() => {
-    if (options.period === "24h") return 24 * 60;
-    if (options.period === "7d") return 7 * 24 * 60;
-    return 30 * 24 * 60;
-  });
+  const usageTimeRangeMinutes = computed(() =>
+    usagePeriodMinutes(options.period, options.summary?.windowMinutes),
+  );
 
   const usageAverageRpm = computed(() => safeDivide(usageRequestTotal.value, usageTimeRangeMinutes.value));
 

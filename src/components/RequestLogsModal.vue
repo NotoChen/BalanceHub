@@ -3,7 +3,7 @@ import { computed, ref, watch } from "vue";
 import { IconFile, IconLeft, IconRefresh, IconRight, IconSearch } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderRequestLog, ProviderRequestLogsResult } from "../stores/providers";
 import RequestLogDetailsModal from "./RequestLogDetailsModal.vue";
-import { logIdentity, logTokenTotal, rawValue, logHasUsageData, logDuration, logDetails, logRequestId, logChannel, logTypeLabel, logStatusTone, formatLogQuotaValue, logPreview } from "../utils/request-log-display";
+import { logIdentity, logTokenTotal, rawValue, logHasUsageData, logDuration, logDetails, logRequestId, logChannel, logTypeLabel, logStatusTone, formatLogQuotaValue, logPreview, requestLogRateHint } from "../utils/request-log-display";
 import { formatNumberCompact, providerDisplayLabel } from "../utils/provider-display";
 
 const props = defineProps<{
@@ -46,28 +46,42 @@ const modalTitle = computed(() =>
 
 const rows = computed(() => props.result?.logs ?? []);
 
+/// Sub2API 的 RPM / TPM / 平均耗时来自全站近 5 分钟看板，既不跟时间范围，
+/// 也不跟关键词筛选；同一排的其他数字却按「30 天 + 筛选」统计。两种口径必须
+/// 各自标注，否则读者会把全站瞬时值当成筛选结果。
+const rateHint = computed(() =>
+  requestLogRateHint(props.provider?.identity.protocol),
+);
+
 const statCards = computed(() => {
   const stats = props.result?.stats;
   const cards = [
     {
       label: "消耗",
-      value: stats ? formatLogQuotaValue(stats.quota, props.result?.quotaDisplay) : "—",
+      value:
+        stats?.quota != null
+          ? formatLogQuotaValue(stats.quota, props.result?.quotaDisplay)
+          : "—",
       tone: "cost",
+      hint: "所选时间范围、关键词筛选后的消耗合计",
     },
     {
       label: "每分钟请求 · RPM",
-      value: stats ? formatNumberCompact(stats.rpm, 2) : "—",
+      value: stats?.rpm != null ? formatNumberCompact(stats.rpm, 2) : "—",
       tone: "rpm",
+      hint: rateHint.value,
     },
     {
       label: "每分钟 Tokens · TPM",
-      value: stats ? formatNumberCompact(stats.tpm, 2) : "—",
+      value: stats?.tpm != null ? formatNumberCompact(stats.tpm, 2) : "—",
       tone: "tpm",
+      hint: rateHint.value,
     },
     {
       label: props.result?.total == null ? "本页记录" : "总记录",
       value: props.result ? formatNumberCompact(props.result.total ?? rows.value.length, 0) : "—",
       tone: "count",
+      hint: "按当前筛选条件统计的记录条数",
     },
   ];
   // 只有站点真的给了平均耗时才多一格；凑满四格放一个「—」没有意义。
@@ -76,6 +90,7 @@ const statCards = computed(() => {
       label: "平均耗时",
       value: formatDuration(stats.avgDurationMs),
       tone: "duration",
+      hint: rateHint.value,
     });
   }
   return cards;
@@ -177,7 +192,12 @@ function openLogDetails(log: ProviderRequestLog) {
       </a-alert>
 
       <div class="request-logs-stats">
-        <div v-for="card in statCards" :key="card.label" :class="`request-logs-stat-${card.tone}`">
+        <div
+          v-for="card in statCards"
+          :key="card.label"
+          :class="`request-logs-stat-${card.tone}`"
+          :title="card.hint"
+        >
           <span>{{ card.label }}</span>
           <strong :title="card.value">{{ card.value }}</strong>
         </div>

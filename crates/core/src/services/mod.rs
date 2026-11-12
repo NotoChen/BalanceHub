@@ -11,5 +11,6 @@ pub mod notifications;
 pub mod oauth_accounts;
 pub mod provider_browser_login;
 pub mod provider_service;
+pub mod recommendation;
 pub mod scheduler;
 pub mod workspaces;

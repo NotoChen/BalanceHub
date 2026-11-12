@@ -4,7 +4,7 @@ use crate::models::{
     ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
     ProviderModelList, ProviderModelListState, ProviderModelScope, ProviderQuota,
     ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderStatus,
-    ProviderUsageSummary, SiteAnnouncement,
+    ProviderUsageSummary, SiteAnnouncementList,
 };
 use async_trait::async_trait;
 
@@ -414,7 +414,7 @@ pub trait AnnouncementCapability: Send + Sync {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String>;
+    ) -> Result<ProviderOperationOutcome<SiteAnnouncementList>, String>;
 
     async fn mark_announcement_read(
         &self,

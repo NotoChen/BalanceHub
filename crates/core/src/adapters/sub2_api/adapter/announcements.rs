@@ -10,7 +10,7 @@ use crate::{
         transport::build_client,
     },
     limits,
-    models::{AppSettings, Provider, SiteAnnouncement, SiteAnnouncementSource},
+    models::{AppSettings, Provider, SiteAnnouncementList, SiteAnnouncementSource},
 };
 use reqwest::Method;
 
@@ -19,7 +19,7 @@ impl Sub2ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<(Provider, Vec<SiteAnnouncement>), String> {
+    ) -> Result<(Provider, SiteAnnouncementList), String> {
         let client = build_client(settings, provider).await?;
         let (authenticated, data) = request_account_json(
             &client,
@@ -30,7 +30,9 @@ impl Sub2ApiAdapter {
             "读取 Sub2API 站点公告",
         )
         .await?;
-        let announcements = array_items(&data)
+        let items = array_items(&data);
+        let truncated = items.len() > limits::MAX_ANNOUNCEMENTS_PER_SOURCE;
+        let announcements = items
             .into_iter()
             .take(limits::MAX_ANNOUNCEMENTS_PER_SOURCE)
             .filter_map(|item| {
@@ -60,7 +62,13 @@ impl Sub2ApiAdapter {
                 )
             })
             .collect();
-        Ok((authenticated, announcements))
+        Ok((
+            authenticated,
+            SiteAnnouncementList {
+                announcements,
+                truncated,
+            },
+        ))
     }
 
     pub async fn mark_announcement_read(

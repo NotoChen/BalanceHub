@@ -8,15 +8,18 @@ mod assets;
 mod catalog;
 mod cli;
 mod configuration;
+mod handoff;
 mod instructions;
 mod lifecycle;
 mod maintenance;
 mod mcp_check;
 mod overview;
+mod project_report;
 mod session_resume;
 mod sessions;
 mod temporary_cli_settings;
 mod usage;
+mod usage_report;
 mod wsl;
 
 use serde::de::DeserializeOwned;
@@ -96,6 +99,7 @@ pub const COMMANDS: &[&str] = &[
     // 摘要
     "get_cached_agent_overview",
     "refresh_agent_overview",
+    "get_agent_environment_report",
     // 会话
     "count_agent_sessions",
     "get_agent_session_scope",
@@ -152,6 +156,9 @@ pub const COMMANDS: &[&str] = &[
     "render_agent_mcp_form",
     // 会话用量
     "estimate_session_usage",
+    "get_agent_usage_report",
+    "get_agent_projects",
+    "prepare_agent_handoff",
     // CLI 与环境
     "launch_temporary_cli",
     "preview_temporary_cli_launch",
@@ -422,6 +429,9 @@ async fn dispatch_inner(
             )
             .await,
         ),
+        "get_agent_environment_report" => {
+            text(overview::get_agent_environment_report(optional(args, "workspace")?).await)
+        }
 
         // ── 会话 ────────────────────────────────────────────────
         "count_agent_sessions" => {
@@ -623,6 +633,16 @@ async fn dispatch_inner(
         )),
 
         "estimate_session_usage" => text(usage::estimate_session_usage(arg(args, "usage")?).await),
+        "get_agent_usage_report" => text(
+            usage_report::get_agent_usage_report(client.to_owned(), arg(args, "request")?).await,
+        ),
+        "get_agent_projects" => text(
+            project_report::get_agent_projects(client.to_owned(), arg(args, "request")?, progress)
+                .await,
+        ),
+        "prepare_agent_handoff" => {
+            text(handoff::prepare_agent_handoff(client.to_owned(), arg(args, "request")?).await)
+        }
 
         // ── CLI 与环境 ─────────────────────────────────────────
         "launch_temporary_cli" => text(cli::launch_temporary_cli(arg(args, "input")?).await),

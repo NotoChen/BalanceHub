@@ -609,6 +609,10 @@ pub struct ProviderUsageSummary {
     /// 因此这个数不能由模型统计推出。
     #[serde(default)]
     pub request_count: i64,
+    /// 本次统计实际覆盖的时间窗口（分钟）。24 小时视图是本地今天零点
+    /// 到现在，不是固定 1440 分钟；平均 RPM/TPM 必须按实际窗口计算。
+    #[serde(default)]
+    pub window_minutes: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -673,9 +677,11 @@ pub struct ProviderRequestLogsResult {
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderRequestLogStats {
-    pub quota: f64,
-    pub rpm: f64,
-    pub tpm: f64,
+    /// 各项统计独立失败时为 None：读不到数字和读到 0 是两件事，
+    /// 界面上必须显示「—」而不是一个看起来正常的 0。
+    pub quota: Option<f64>,
+    pub rpm: Option<f64>,
+    pub tpm: Option<f64>,
     /// 站点统计的平均响应耗时（毫秒）；站点不提供时为 None，而不是 0。
     pub avg_duration_ms: Option<f64>,
 }
@@ -811,8 +817,13 @@ pub struct SiteAnnouncement {
 pub struct ProviderUsageOverview {
     pub request_count: i64,
     pub model_stats: Vec<ProviderUsageModelStat>,
+    /// 合并去重后的模型总数；`model_stats` 只保留排行前几项，
+    /// 界面上的「涉及模型」必须用这个总数而不是列表长度。
+    pub model_count: usize,
     pub model_health: Vec<ProviderModelHealth>,
     pub errors: Vec<ProviderUsageSourceError>,
+    /// 各站实际窗口的最大值，用于计算汇总视图的平均 RPM/TPM。
+    pub window_minutes: i64,
 }
 
 /// 汇总时某个站点没读到：单个站点失败不让整张面板变空。
@@ -833,12 +844,24 @@ pub struct SiteAnnouncementSourceError {
     pub message: String,
 }
 
+/// 一个公告源返回的列表：`truncated` 表示站点给出的公告超过单站上限，
+/// 当前列表只是其中一部分。
+#[derive(Debug, Clone, Serialize)]
+pub struct SiteAnnouncementList {
+    pub announcements: Vec<SiteAnnouncement>,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteAnnouncementsSnapshot {
     pub fetched_at: String,
     pub announcements: Vec<SiteAnnouncement>,
     pub errors: Vec<SiteAnnouncementSourceError>,
+    /// 公告条数触到单站上限的站点名：列表仍然只显示上限内的条数，
+    /// 但界面必须说明截断发生了，不能把「收到的条数」当成全部。
+    #[serde(default)]
+    pub truncated_sources: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

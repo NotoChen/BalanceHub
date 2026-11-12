@@ -94,6 +94,30 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
     { deep: false },
   );
 
+  /// 签到成功会改变当月记录：对应站点的缓存必须立即失效，打开的日历读新值，
+  /// 不能让用户再看到签到前的缓存。
+  function invalidateCheckInRecords(providerIds: readonly string[]) {
+    if (providerIds.length === 0) return;
+    const ids = new Set(providerIds);
+    let changed = false;
+    for (const key of [...checkInRecordsCache.keys()]) {
+      const providerId = providerIdFromCheckInRecordsCacheKey(key);
+      if (providerId && ids.has(providerId)) {
+        checkInRecordsCache.delete(key);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    cacheRevision.value += 1;
+    if (
+      checkInRecordsVisible.value &&
+      checkInRecordsProviderId.value &&
+      ids.has(checkInRecordsProviderId.value)
+    ) {
+      void loadCheckInRecords({ force: true });
+    }
+  }
+
   watch([checkInRecordsVisible, checkInRecordsProviderId], request.invalidate, { flush: "sync" });
   watch(checkInRecordsMonth, () => {
     request.invalidate();
@@ -110,6 +134,7 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
     checkInRecordsResult,
     openCheckInRecords,
     loadCheckInRecords,
+    invalidateCheckInRecords,
   };
 }
 

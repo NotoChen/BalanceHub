@@ -1,7 +1,9 @@
 use crate::{
     adapters::announcements::{build_site_announcement, SiteAnnouncementDraft},
     limits,
-    models::{AppSettings, Provider, SiteAnnouncement, SiteAnnouncementSource},
+    models::{
+        AppSettings, Provider, SiteAnnouncement, SiteAnnouncementList, SiteAnnouncementSource,
+    },
 };
 use reqwest::header::{ACCEPT, ORIGIN, REFERER, USER_AGENT};
 use serde_json::Value;
@@ -20,7 +22,7 @@ impl NewApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<(Provider, Vec<SiteAnnouncement>), String> {
+    ) -> Result<(Provider, SiteAnnouncementList), String> {
         let base_url = normalize_base_url(&provider.identity.base_url);
         if base_url.is_empty() {
             return Err("缺少中转站地址".to_string());
@@ -34,17 +36,22 @@ impl NewApiAdapter {
 
         let mut announcements = Vec::new();
         let mut failures = Vec::new();
+        let mut truncated = false;
         match notice {
             Ok(content) => announcements.extend(notice_announcement(provider, &content)),
             Err(message) => failures.push(format!("站点公告接口：{message}")),
         }
         match console {
-            Ok(items) => announcements.extend(
-                items
-                    .into_iter()
-                    .take(limits::MAX_ANNOUNCEMENTS_PER_SOURCE)
-                    .filter_map(|item| console_announcement(provider, &item)),
-            ),
+            Ok(items) => {
+                // 上限按原始条数判断，否则被过滤掉的空公告会掩盖截断。
+                truncated = items.len() > limits::MAX_ANNOUNCEMENTS_PER_SOURCE;
+                announcements.extend(
+                    items
+                        .into_iter()
+                        .take(limits::MAX_ANNOUNCEMENTS_PER_SOURCE)
+                        .filter_map(|item| console_announcement(provider, &item)),
+                );
+            }
             Err(message) => failures.push(format!("控制台公告接口：{message}")),
         }
         // 旧版本或裁剪过的 NewAPI 没有控制台公告接口，这时总公告仍然可用；
@@ -52,7 +59,13 @@ impl NewApiAdapter {
         if announcements.is_empty() && !failures.is_empty() {
             return Err(failures.join("；"));
         }
-        Ok((provider.clone(), announcements))
+        Ok((
+            provider.clone(),
+            SiteAnnouncementList {
+                announcements,
+                truncated,
+            },
+        ))
     }
 
     pub async fn mark_announcement_read(

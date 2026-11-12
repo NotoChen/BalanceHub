@@ -63,6 +63,11 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
       options.initialized.value &&
       Boolean(providerAnnouncementSourceSignature(options.providers.value)),
   );
+  /// 公告列表触到单站上限的站点；界面据此说明列表并不完整。
+  const siteAnnouncementTruncatedSources = computed(
+    () => siteAnnouncementsSnapshot.value?.truncatedSources ?? [],
+  );
+
   const unreadSiteAnnouncementCount = computed(
     () => siteAnnouncements.value.filter((item) => !announcementIsRead(item)).length,
   );
@@ -279,6 +284,7 @@ export function useSiteAnnouncements(options: UseSiteAnnouncementsOptions) {
     siteAnnouncementsFatalError,
     siteAnnouncements,
     siteAnnouncementErrors,
+    siteAnnouncementTruncatedSources,
     siteAnnouncementsLoaded,
     siteAnnouncementSourcesAvailable,
     markingAnnouncementFingerprints,

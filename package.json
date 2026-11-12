@@ -1,7 +1,7 @@
 {
   "name": "balancehub",
   "private": true,
-  "version": "0.6.11",
+  "version": "0.6.12",
   "description": "用于集中管理 AI 中转站账号的跨平台桌面应用。",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -18,7 +18,10 @@
     "cargo": "node scripts/cargo.mjs",
     "doctor": "node scripts/doctor.mjs",
     "doctor:platform": "node scripts/doctor.mjs --static-only",
+    "docs:capabilities": "node scripts/generate-agent-capabilities.mjs",
+    "docs:capabilities:check": "node scripts/generate-agent-capabilities.mjs --check",
     "preview": "vite preview",
+    "release:check": "node scripts/release-preflight.mjs",
     "tauri": "node scripts/tauri.mjs"
   },
   "dependencies": {

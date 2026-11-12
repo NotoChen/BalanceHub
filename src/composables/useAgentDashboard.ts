@@ -11,7 +11,7 @@ import { useAgentLifecycleStore } from "../stores/agent-lifecycle";
 import { useAgentOverviewStore } from "../stores/agent-overview";
 import { useAgentCardOrderStore } from "../stores/agent-card-order";
 import { useAgentConfigurationSourcesStore } from "../stores/agent-configuration-sources";
-import { agentEnvironmentKey, useAgentEnvironmentStore } from "../stores/agent-environment";
+import { agentEnvironmentErrorMessage, agentEnvironmentKey, useAgentEnvironmentStore } from "../stores/agent-environment";
 import { useAgentEnvironmentCenter } from "./useAgentEnvironmentCenter";
 import { useAgentHookConsole } from "./useAgentHookConsole";
 import { useAgentCatalogConsole } from "./useAgentCatalogConsole";
@@ -22,6 +22,8 @@ import { useAgentConfiguration } from "./useAgentConfiguration";
 import { activeAgentRuntimeSessions, isConfirmedAgentRuntimeSession } from "../utils/agent-runtime";
 import { availableCliKinds } from "../utils/cli-environment";
 import { withTimeout } from "../utils/promise-timeout";
+import { getAgentEnvironmentReport } from "../api/agent-overview";
+import type { AgentSelfCheckReport } from "../stores/agent-self-check-types";
 import type { AgentCliKind, AgentRuntimeSnapshot, CliRuntimeSnapshot } from "../stores/provider-types";
 
 export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: Ref<CliRuntimeSnapshot>; runtime: Ref<AgentRuntimeSnapshot> }) {
@@ -144,6 +146,43 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     await Promise.allSettled([overview.refresh(kind, workspacePath.value, true),
       ...(historyActive.value && historyKinds.value.includes(kind) ? [history.refresh(kind)] : [])]);
   }
+  const selfCheck = reactive({
+    visible: false,
+    loading: false,
+    error: "",
+    report: null as AgentSelfCheckReport | null,
+  });
+  let selfCheckRequest = 0;
+  /// 自检复用摘要缓存：先让摘要刷新到当前状态，再由 Rust 归并出报告。
+  /// 关闭面板或切换工作区都会递增请求号，晚到的结果不得回写。
+  async function runSelfCheck(force: boolean) {
+    const request = ++selfCheckRequest;
+    const workspace = workspacePath.value;
+    selfCheck.loading = true;
+    selfCheck.error = "";
+    try {
+      await overview.check(kinds.value, workspace, force);
+      const report = await withTimeout(getAgentEnvironmentReport(workspace), 20_000, "读取环境自检超时");
+      if (request !== selfCheckRequest || !selfCheck.visible || workspacePath.value !== workspace) return;
+      selfCheck.report = report;
+    } catch (error) {
+      if (request === selfCheckRequest && selfCheck.visible) selfCheck.error = agentEnvironmentErrorMessage(error);
+    } finally {
+      if (request === selfCheckRequest) selfCheck.loading = false;
+    }
+  }
+  function openSelfCheck() {
+    selfCheck.visible = true;
+    void runSelfCheck(false);
+  }
+  function closeSelfCheck() {
+    selfCheck.visible = false;
+    selfCheckRequest += 1;
+    selfCheck.loading = false;
+  }
+  function refreshSelfCheck() {
+    void runSelfCheck(true);
+  }
   function openConfigurationFile(kind: AgentCliKind, sourceId: string) {
     selectedAgentKind.value = kind;
     const source = overview.get(kind, workspacePath.value)?.configuration?.sources.find((item) => item.sourceId === sourceId);
@@ -184,6 +223,8 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
     focusedHookId.value = null;
     environment.assets.invalidateTransient();
     hooks.closePlan();
+    closeSelfCheck();
+    selfCheck.report = null;
   }
   watch(navigationRevision, invalidate, { flush: "sync" });
   watch(workspacePath, () => environment.selectWorkspace(workspacePath.value));
@@ -271,5 +312,6 @@ export function useAgentDashboard(options: { active: Ref<boolean>; cliRuntime: R
   });
   return { navigation, environment, configuration, hooks, catalog, resource, catalogStore, installation, lifecycleStore,
     launchKind, focusedHookId, workspaceOptions, loading, error, cards, runtimeSessions, installations, refresh, refreshCard, reorderCards,
+    selfCheck, openSelfCheck, closeSelfCheck, refreshSelfCheck,
     openConfigurationFile, openDocumentation, openNative, showHook, confirmHookPlan, invalidate };
 }

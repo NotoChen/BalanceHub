@@ -8,9 +8,9 @@ use crate::{
     models::ProviderQuotaWindow,
 };
 
-/// 卡片只给订阅窗口留一行，多出来的订阅在详情提示里也只是重复的“订阅 N”，
-/// 因此一次性收口到三个窗口，避免存储和渲染被无限订阅历史撑大。
-const MAX_WINDOWS: usize = 3;
+// 卡片只展示前三条窗口，但适配器不能提前丢弃后面的订阅：多订阅账号的
+// 第二组以后同样需要进入存储，由卡片显示溢出摘要。
+use crate::limits::MAX_QUOTA_WINDOWS;
 
 /// NewAPI 的订阅额度以 quota 单位返回，和钱包余额共用 `quota_per_unit`；
 /// 只有转换为同一个展示单位，卡片上的钱包数字和订阅窗口才能直接比较。
@@ -27,7 +27,7 @@ pub(super) fn subscription_windows(data: &Value, site: &SiteMetadata) -> Vec<Pro
         .collect::<Vec<_>>();
     entries
         .iter()
-        .take(MAX_WINDOWS)
+        .take(MAX_QUOTA_WINDOWS)
         .enumerate()
         .map(|(index, subscription)| {
             let total =
@@ -117,6 +117,31 @@ mod tests {
         assert_eq!(windows[0].used, 2.0);
         assert_eq!(windows[0].resets_at, Some(1_800_000_000));
         assert_eq!(windows[0].percent(), Some(20.0));
+    }
+
+    #[test]
+    fn subscriptions_beyond_the_first_three_are_kept_for_the_card_summary() {
+        let subscriptions = (1..=4)
+            .map(|index| {
+                json!({
+                    "subscription": {
+                        "id": index,
+                        "status": "active",
+                        "amount_total": 1_000_000 * index,
+                        "amount_used": 0
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        let windows = subscription_windows(&json!({ "subscriptions": subscriptions }), &site());
+
+        assert_eq!(
+            windows
+                .iter()
+                .map(|window| window.label.as_str())
+                .collect::<Vec<_>>(),
+            ["订阅1", "订阅2", "订阅3", "订阅4"]
+        );
     }
 
     #[test]

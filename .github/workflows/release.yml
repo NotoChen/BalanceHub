@@ -26,11 +26,16 @@ jobs:
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 设置 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: 发布前预检
+        run: node scripts/release-preflight.mjs ${{ github.ref_name }} --allow-existing-tag
 
       - name: 生成发布说明
         id: release_notes

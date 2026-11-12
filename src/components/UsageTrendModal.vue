@@ -17,6 +17,7 @@ import { useUsageTrendChart } from "../composables/useUsageTrendChart";
 import { formatNumberCompact, formatQuotaValue, providerDisplayLabel, providerQuotaWindowRows } from "../utils/provider-display";
 import { quotaResetLabel } from "../utils/oauth-display";
 import {
+  usageOverviewStats,
   usagePeriodOptions,
   type UsagePeriod,
 } from "../utils/usage-trend";
@@ -81,8 +82,10 @@ const subscriptionNote = computed(() => {
   const reset = (provider.quota.windows ?? [])
     .map((window) => window.resetsAt)
     .find((value) => value && value * 1000 > Date.now());
+  // 卡片只画前三条，趋势面板报的是账号实际拥有的窗口总数。
+  const total = provider.quota.windows?.length ?? rows.length;
   return {
-    label: rows.length > 1 ? `${rows.length} 个订阅窗口` : "订阅额度",
+    label: total > 1 ? `${total} 个订阅窗口` : "订阅额度",
     detail: reset ? quotaResetLabel(reset) : "",
   };
 });
@@ -124,21 +127,9 @@ const usageStatCards = computed(() => [
 
 /// 汇总视图没有单一配额单位，能说的是次数、模型排行和响应质量；
 /// 站点读数失败时照常展示其余站点，并把失败站点列在底部。
-const overviewStats = computed(() => {
-  const overview = props.overview;
-  const minutes = props.period === "24h" ? 24 * 60 : props.period === "7d" ? 7 * 24 * 60 : 30 * 24 * 60;
-  const modelStats = overview?.modelStats ?? [];
-  return {
-    requests: overview?.requestCount ?? 0,
-    models: modelStats.length,
-    rpm: (overview?.requestCount ?? 0) / minutes,
-    modelStats,
-    /// 排行条以汇总列表里最大的次数为满格，和单站的模型排行同一口径。
-    maxCalls: Math.max(1, ...modelStats.map((item) => item.requestCount)),
-    modelHealth: overview?.modelHealth ?? [],
-    errors: overview?.errors ?? [],
-  };
-});
+const overviewStats = computed(() =>
+  usageOverviewStats(props.overview, props.period),
+);
 
 function overviewCallPercent(item: ProviderUsageModelStat) {
   return barPercent(item.requestCount, overviewStats.value.maxCalls);
@@ -366,7 +357,7 @@ function formatRate(value: number) {
           <section v-if="usageModelHealth.length" class="usage-model-panel usage-health-panel">
             <div class="usage-model-panel-header">
               <strong>响应质量</strong>
-              <span>站点近 24 小时采样 · 成功率低的在前</span>
+              <span>成功率来自站点近 24 小时采样，与上方所选周期不同 · 成功率低的在前</span>
             </div>
             <div class="usage-model-list">
               <div v-for="item in usageModelHealth" :key="`health-${item.modelName}`" class="usage-model-row">
@@ -380,7 +371,7 @@ function formatRate(value: number) {
                 <small>
                   <template v-if="item.avgLatencyMs !== null">平均耗时 {{ item.avgLatencyMs }} ms</template>
                   <template v-if="item.avgTps !== null"> · {{ item.avgTps.toFixed(1) }} tok/s</template>
-                  <template v-if="item.requestCount > 0"> · 同一周期 {{ formatNumberCompact(item.requestCount, 0) }} 次</template>
+                  <template v-if="item.requestCount > 0"> · 所选周期 {{ formatNumberCompact(item.requestCount, 0) }} 次</template>
                 </small>
               </div>
             </div>

@@ -19,6 +19,7 @@ mod refresh;
 mod temporary_cli_profiles;
 mod transaction;
 mod usage;
+pub use usage::ProviderUsageSource;
 mod workspaces;
 
 use crate::models::{

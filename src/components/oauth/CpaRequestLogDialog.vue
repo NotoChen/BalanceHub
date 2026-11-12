@@ -51,6 +51,14 @@ const shown = computed(() => {
       (!query || line.raw.toLowerCase().includes(query)),
   );
 });
+/// 工具栏里的「N 行」是本应用缓冲的行数，不是日志文件总行数；后端能给出
+/// 文件行数且大于缓冲时，必须明确说这里只显示了最近一段。
+const truncatedLineNote = computed(() => {
+  const total = tail.value?.lineCount;
+  const buffered = tail.value?.lines.length ?? 0;
+  if (total == null || total <= buffered) return "";
+  return `仅显示最近 ${buffered} / 共 ${total} 行`;
+});
 let timer: ReturnType<typeof setInterval> | undefined;
 /// The gateway caps a read at 500 lines; the buffer keeps a few reads' worth so
 /// following for a while does not grow without bound.
@@ -336,7 +344,9 @@ function reset() {
           }}<template v-if="filter.trim() || levelFilter !== 'all'"
             > / {{ tail.lines.length }}</template
           >
-          行<template v-if="tail.latestAt">
+          行<template v-if="truncatedLineNote">
+            · {{ truncatedLineNote }}</template
+          ><template v-if="tail.latestAt">
             · 最新 {{ accountTimestamp(tail.latestAt) }}</template
           ></span
         >

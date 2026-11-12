@@ -3,9 +3,9 @@ use serde_json::Value;
 
 use super::json::{number_field, string_field, timestamp_millis};
 
-/// 订阅窗口按日/周/月三层限额返回，卡片只为其中一行留位置，因此只保留前三个：
-/// 日限额最先决定今天还能不能继续用，周/月只是补充背景。
-const MAX_WINDOWS: usize = 3;
+// 订阅窗口按日/周/月三层限额返回，卡片只展示前三个；适配器保留多个订阅
+// 分组，不能在第一组三条之后就把后面的分组整体丢掉。
+use crate::limits::MAX_QUOTA_WINDOWS;
 
 pub(super) fn subscription_windows(items: &[Value]) -> Vec<ProviderQuotaWindow> {
     let mut windows = Vec::new();
@@ -35,7 +35,7 @@ pub(super) fn subscription_windows(items: &[Value]) -> Vec<ProviderQuotaWindow> 
                     .map(|value| value / 1000),
                 history: Vec::new(),
             });
-            if windows.len() >= MAX_WINDOWS {
+            if windows.len() >= MAX_QUOTA_WINDOWS {
                 return windows;
             }
         }
@@ -99,12 +99,19 @@ mod tests {
     }
 
     #[test]
-    fn window_list_is_capped_so_the_card_row_stays_one_line() {
+    fn every_subscription_group_reaches_the_card_instead_of_the_first_three_windows() {
         let windows = subscription_windows(&[
-            json!({ "progress": { "group_name": "A", "daily": { "limit_usd": 1.0 }, "weekly": { "limit_usd": 2.0 } } }),
+            json!({ "progress": { "group_name": "A", "daily": { "limit_usd": 1.0 }, "weekly": { "limit_usd": 2.0 }, "monthly": { "limit_usd": 5.0 } } }),
             json!({ "progress": { "group_name": "B", "daily": { "limit_usd": 3.0 }, "weekly": { "limit_usd": 4.0 } } }),
         ]);
 
-        assert_eq!(windows.len(), 3);
+        // 第一组已经占满三条，但第二组不能整体消失。
+        assert_eq!(
+            windows
+                .iter()
+                .map(|window| window.label.as_str())
+                .collect::<Vec<_>>(),
+            ["A 今日", "A 本周", "A 本月", "B 今日", "B 本周"]
+        );
     }
 }

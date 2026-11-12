@@ -1,5 +1,5 @@
 use crate::models::ProviderRequestLog;
-use chrono::Local;
+use chrono::{Local, Timelike};
 use serde_json::Value;
 
 use super::json::{integer_field, number_field, string_field};
@@ -57,6 +57,18 @@ pub(super) fn usage_dates(period: &str) -> (String, String) {
         start.format("%Y-%m-%d").to_string(),
         end.format("%Y-%m-%d").to_string(),
     )
+}
+
+/// 统计窗口覆盖的分钟数：最近 N 个自然日包含今天已过去的部分，
+/// 不是完整的 N×24 小时；平均 RPM/TPM 按实际窗口计算。
+pub(super) fn usage_window_minutes(period: &str) -> i64 {
+    let days = match period.trim().to_ascii_lowercase().as_str() {
+        "24h" | "1d" => 1,
+        "7d" => 7,
+        _ => 30,
+    };
+    let elapsed_today = Local::now().time().num_seconds_from_midnight() as i64;
+    (days - 1) * 24 * 60 + (elapsed_today / 60).max(1)
 }
 
 pub(super) fn urlencoding(value: &str) -> String {

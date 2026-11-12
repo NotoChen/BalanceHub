@@ -32,6 +32,7 @@ pub const COMMANDS: &[&str] = &[
     "mark_site_announcement_read",
     "get_provider_usage",
     "get_usage_overview",
+    "get_provider_recommendations",
     "get_provider_request_logs",
     "get_provider_check_in_records",
     "get_provider_invite_link",
@@ -169,6 +170,15 @@ pub async fn handle(
         "get_usage_overview" => {
             let period: String = arg(args, "period")?;
             to_value(service.usage_summary_overview(&period).await?)
+        }
+        "get_provider_recommendations" => {
+            let model: Option<String> = optional(args, "model")?;
+            let data = blocking(|| ProviderService::new().load_app_data()).await?;
+            to_value(crate::services::recommendation::recommend(
+                &data.providers,
+                model.as_deref().unwrap_or_default(),
+                chrono::Utc::now(),
+            ))
         }
         "get_provider_request_logs" => {
             let id: String = arg(args, "id")?;

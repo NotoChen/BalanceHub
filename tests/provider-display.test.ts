@@ -19,6 +19,7 @@ import {
   providerQuotaTone,
   providerQuotaBarWindow,
   managedQuotaWindowRows,
+  providerQuotaWindowOverflow,
   providerQuotaWindowRows,
   providerQuotaWindowWorstLevel,
   providerHasNoAvailableBalance,
@@ -217,9 +218,12 @@ test("subscription windows become one readable row of period quotas", () => {
     { label: "本月", used: 0, limit: 0 },
     { label: "多余窗口", used: 1, limit: 2 },
   ];
-  // 卡片只留一行，第四个窗口折在 Rust 侧就已经截断；这里再兜底一次。
+  // 卡片只展示三条窗口，其余窗口进入溢出摘要，而不是被悄悄丢掉。
   const rows = providerQuotaWindowRows(value, now);
   assert.deepEqual(rows.map((row) => row.label), ["今日", "本周", "本月"]);
+  const overflow = providerQuotaWindowOverflow(value);
+  assert.equal(overflow.count, 1);
+  assert.deepEqual(overflow.labels, ["多余窗口"]);
   assert.equal(rows[0].percent, 25);
   assert.equal(rows[0].percentLabel, "25%");
   // 进度条画已用比例，和 OAuth 卡片的窗口条同向：空条表示还有余量。
@@ -400,6 +404,20 @@ test("a subscription account with an empty wallet is judged by its windows", () 
   assert.equal(providerHasNoAvailableBalance(value), false);
   assert.equal(providerQuotaTone(value), "normal");
   assert.equal(providerQuotaHeadline(value).value, "不限量");
+
+  // 卡片只画前三条，但第四条窗口用尽同样要影响等级、主数字和“已用尽”判断。
+  value.quota.windows = [
+    { label: "今日", used: 2, limit: 10 },
+    { label: "本周", used: 4, limit: 20 },
+    { label: "本月", used: 5, limit: 30 },
+    { label: "第二组 今日", used: 10, limit: 10 },
+  ];
+  assert.equal(providerQuotaWindowRows(value).length, 3);
+  assert.equal(providerQuotaWindowOverflow(value).count, 1);
+  assert.equal(providerQuotaWindowWorstLevel(value), "high");
+  assert.equal(providerQuotaTone(value), "high");
+  assert.equal(providerQuotaHeadline(value).label, "第二组 今日剩余");
+  assert.equal(providerHasNoAvailableBalance(value), false);
 });
 
 test("the card headline shows the tightest window's remaining amount", () => {

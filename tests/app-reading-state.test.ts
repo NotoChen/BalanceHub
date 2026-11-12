@@ -7,6 +7,7 @@ import { useUsageSummary } from "../src/composables/useUsageSummary.ts";
 import { useCheckInRecords } from "../src/composables/useCheckInRecords.ts";
 import { useProviderConnectionTest } from "../src/composables/useProviderConnectionTest.ts";
 import { useUsageTrendChart } from "../src/composables/useUsageTrendChart.ts";
+import { usageOverviewStats } from "../src/utils/usage-trend.ts";
 import { emptyDraft } from "../src/utils/provider-input.ts";
 import type { Provider, ProviderRequestLogsResult, ProviderUsageSummary, ProviderUsageOverview, ProviderCheckInRecordsResult, ProviderConnectionTestResult } from "../src/stores/provider-types.ts";
 
@@ -25,7 +26,7 @@ async function settle() { for (let index = 0; index < 12; index++) await Promise
 const provider = (id: string) => ({ identity: { id } }) as Provider;
 const quotaDisplay = { quotaDisplayType: "currency", currencySymbol: "$" };
 const logs = (id: string, page = 0): ProviderRequestLogsResult => ({ providerId: id, providerName: id, page, pageSize: 20, total: 1, quotaDisplay, stats: { quota: 0, rpm: 0, tpm: 0 }, logs: [], message: "" });
-const usage = (id: string, used = 0.005): ProviderUsageSummary => ({ providerId: id, providerName: id, quotaDisplay, points: [{ date: "2026-09-26", used, requestCount: 1, tokenUsed: 2 }], modelStats: [], modelPoints: [], modelHealth: [], requestCount: 1 });
+const usage = (id: string, used = 0.005): ProviderUsageSummary => ({ providerId: id, providerName: id, quotaDisplay, points: [{ date: "2026-09-26", used, requestCount: 1, tokenUsed: 2 }], modelStats: [], modelPoints: [], modelHealth: [], requestCount: 1, windowMinutes: 30 * 24 * 60 });
 const record = (month: string): ProviderCheckInRecordsResult => ({ providerId: "a", month, records: [], quotaDisplay, message: "" });
 
 test("closing a view releases its busy state before the IPC settles and old work cannot finish a new request", async (t) => {
@@ -118,7 +119,7 @@ test("the toolbar overview reads every site once and a late card read cannot rep
   assert.equal(panel.usageProvider.value, null, "汇总视图不绑定单个中转站");
   assert.equal(panel.usageVisible.value, true);
   assert.ok(periods.length >= 1 && periods.every((period) => period === "24h"), `读取了 ${JSON.stringify(periods)}`);
-  overview.resolve({ requestCount: 12, modelStats: [], modelHealth: [], errors: [{ providerId: "a", providerName: "A", message: "离线" }] });
+  overview.resolve({ requestCount: 12, modelStats: [], modelHealth: [], errors: [{ providerId: "a", providerName: "A", message: "离线" }], windowMinutes: 600 });
   await settle();
   assert.equal(panel.usageOverview.value?.requestCount, 12);
   // 打开另一张卡片的用量：汇总结果和卡片结果不能互相顶替。
@@ -152,6 +153,37 @@ test("returning to a cached check-in month releases another month's loading stat
   assert.equal(panel.checkInRecordsResult.value?.month, month);
 });
 
+test("a successful check-in invalidates the cached month and refreshes an open calendar", async (t) => {
+  let calls = 0;
+  const panel = scoped(t, () => useCheckInRecords({
+    providers: ref([provider("a")]),
+    loadRecords: async (_id, month) => { calls++; return record(month); },
+  }));
+  panel.openCheckInRecords(provider("a"));
+  await settle();
+  assert.equal(calls, 1);
+  assert.ok(panel.checkInRecordsResult.value);
+
+  // 签到成功后，即使日历已经关掉，下一次打开也必须重新读取。
+  panel.checkInRecordsVisible.value = false;
+  panel.invalidateCheckInRecords(["a"]);
+  assert.equal(panel.checkInRecordsResult.value, null);
+  panel.openCheckInRecords(provider("a"));
+  await settle();
+  assert.equal(calls, 2);
+
+  // 日历开着时失效缓存会立即重读，用户不用手动点刷新。
+  panel.invalidateCheckInRecords(["a"]);
+  await settle();
+  assert.equal(calls, 3);
+  assert.ok(panel.checkInRecordsResult.value);
+
+  // 其他站点签到不影响当前站点的缓存。
+  panel.invalidateCheckInRecords(["b"]);
+  await settle();
+  assert.equal(calls, 3);
+});
+
 test("connection tests are single-flight and editing credentials invalidates the old result immediately", async (t) => {
   const pending = deferred<ProviderConnectionTestResult>();
   const draft = reactive(emptyDraft());
@@ -180,6 +212,40 @@ test("small usage amounts retain chart contrast and zero-only data does not inve
   const empty = useUsageTrendChart({ summary: usage("a", 0), period: "24h" });
   assert.equal(empty.usagePeakPoint.value, null);
   assert.ok(Number.isFinite(empty.usageChartPoints.value[0].y));
+});
+
+test("average rates use the actual statistical window", () => {
+  const summary = usage("a");
+  summary.requestCount = 10;
+  summary.points = [{ date: "2026-09-26", used: 1, requestCount: 10, tokenUsed: 2000 }];
+  summary.windowMinutes = 600;
+  const chart = useUsageTrendChart({ summary, period: "24h" });
+  assert.equal(chart.usageAverageRpm.value, 10 / 600);
+  assert.equal(chart.usageAverageTpm.value, 2000 / 600);
+});
+
+test("the overview reports the merged model total, not the truncated ranking length", () => {
+  const modelStats = Array.from({ length: 10 }, (_, index) => ({
+    modelName: `model-${index}`,
+    used: 0,
+    requestCount: 10 - index,
+    tokenUsed: 0,
+  }));
+  const stats = usageOverviewStats(
+    {
+      requestCount: 100,
+      modelStats,
+      modelCount: 14,
+      modelHealth: [],
+      errors: [],
+      windowMinutes: 600,
+    },
+    "24h",
+  );
+  assert.equal(stats.models, 14);
+  assert.equal(stats.modelStats.length, 10);
+  // 汇总视图的 RPM 也用后端给的实际窗口，而不是固定的 1440 分钟。
+  assert.equal(stats.rpm, 100 / 600);
 });
 
 test("response quality lists the least reliable routes first and drops unsampled models", () => {

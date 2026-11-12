@@ -19,6 +19,8 @@ mod agent_cli;
 mod agent_configuration;
 #[path = "models/agent_environment.rs"]
 mod agent_environment;
+#[path = "models/agent_handoff.rs"]
+mod agent_handoff;
 #[path = "models/agent_hook.rs"]
 mod agent_hook;
 #[path = "models/agent_instructions.rs"]
@@ -29,6 +31,8 @@ mod agent_lifecycle;
 mod agent_mcp_check;
 #[path = "models/agent_overview.rs"]
 mod agent_overview;
+#[path = "models/agent_project.rs"]
+mod agent_project;
 #[path = "models/agent_runtime.rs"]
 mod agent_runtime;
 #[path = "models/agent_wsl.rs"]
@@ -38,6 +42,9 @@ pub use agent_wsl::*;
 mod agent_session_resume;
 #[path = "models/agent_sessions.rs"]
 mod agent_sessions;
+#[path = "models/agent_usage.rs"]
+mod agent_usage;
+pub use agent_usage::*;
 #[path = "models/app_settings.rs"]
 mod app_settings;
 #[path = "models/check_in_task.rs"]
@@ -60,6 +67,9 @@ mod liveness;
 mod login_account;
 #[path = "models/provider.rs"]
 mod provider;
+#[path = "models/provider_recommendation.rs"]
+mod provider_recommendation;
+pub use provider_recommendation::*;
 #[path = "models/provider_app_import.rs"]
 mod provider_app_import;
 pub use provider_app_import::*;
@@ -80,9 +90,11 @@ pub use agent_mcp_check::*;
 #[path = "models/model_metadata.rs"]
 mod model_metadata;
 pub use agent_environment::*;
+pub use agent_handoff::*;
 pub use agent_hook::*;
 pub use agent_lifecycle::*;
 pub use agent_overview::*;
+pub use agent_project::*;
 pub use agent_runtime::*;
 pub use agent_session_resume::*;
 pub use agent_sessions::*;

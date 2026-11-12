@@ -31,8 +31,10 @@ const UNKNOWN_PID_TIMEOUT_MILLIS: u128 = 24 * 60 * 60 * 1000;
 // Exit records are tiny and contain no credentials. Keep them long enough for
 // the unified runtime repository to recover exit evidence after the App has
 // been offline, while the global item cap bounds disk usage.
-const EXITED_INSTANCE_RETENTION_MILLIS: u128 = 7 * 24 * 60 * 60 * 1000;
-const MAX_ACTIVE_INSTANCES: usize = 80;
+pub(crate) const EXITED_INSTANCE_RETENTION_DAYS: u32 = 7;
+const EXITED_INSTANCE_RETENTION_MILLIS: u128 =
+    EXITED_INSTANCE_RETENTION_DAYS as u128 * 24 * 60 * 60 * 1000;
+pub(crate) const MAX_ACTIVE_INSTANCES: usize = 80;
 
 static INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 

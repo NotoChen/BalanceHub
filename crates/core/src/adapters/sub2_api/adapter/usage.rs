@@ -5,7 +5,7 @@ use crate::{
             auth::request_account_json,
             json::{integer_field, number_field, object_array, string_field},
             profile::quota_display,
-            usage::{normalize_log, urlencoding, usage_dates},
+            usage::{normalize_log, urlencoding, usage_dates, usage_window_minutes},
         },
         transport::{build_client, ProviderTransport},
     },
@@ -78,6 +78,7 @@ impl Sub2ApiAdapter {
                 // statistics. Do not fabricate per-model daily zero points.
                 model_points: Vec::new(),
                 model_health: Vec::new(),
+                window_minutes: usage_window_minutes(period),
             },
         ))
     }
@@ -130,9 +131,9 @@ impl Sub2ApiAdapter {
 }
 
 /// 统计是日志列表的补充：Sub2API 把它拆在 `/usage/stats`（按同一筛选汇总消耗）
-/// 与 `/usage/dashboard/stats`（近 5 分钟 RPM / TPM）。任一接口失败只让对应数字
-/// 归零，不影响已经读到的日志列表；每次调用返回的 provider 都要继续传下去，
-/// 否则中途轮换的令牌会被丢掉。
+/// 与 `/usage/dashboard/stats`（全站近 5 分钟 RPM / TPM）。任一接口失败只让对应
+/// 数字变成 `None`（界面显示「—」），不影响已经读到的日志列表；每次调用返回的
+/// provider 都要继续传下去，否则中途轮换的令牌会被丢掉。
 async fn fetch_request_log_stats(
     client: &ProviderTransport,
     provider: &Provider,
@@ -158,9 +159,12 @@ async fn fetch_request_log_stats(
     {
         Ok((next, data)) => {
             current = next;
-            number_field(&data, &["total_actual_cost", "totalActualCost"])
+            Some(number_field(
+                &data,
+                &["total_actual_cost", "totalActualCost"],
+            ))
         }
-        Err(_) => 0.0,
+        Err(_) => None,
     };
     let (rpm, tpm, avg_duration_ms) = match request_account_json(
         client,
@@ -177,12 +181,12 @@ async fn fetch_request_log_stats(
             let duration =
                 number_field(&data, &["average_duration_ms", "averageDurationMs"]).max(0.0);
             (
-                number_field(&data, &["rpm"]),
-                number_field(&data, &["tpm"]),
+                Some(number_field(&data, &["rpm"])),
+                Some(number_field(&data, &["tpm"])),
                 (duration > 0.0).then_some(duration),
             )
         }
-        Err(_) => (0.0, 0.0, None),
+        Err(_) => (None, None, None),
     };
     (
         current,

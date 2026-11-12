@@ -10,7 +10,7 @@ use crate::{
         ProviderApiKeyPatch, ProviderCapabilities, ProviderCheckInRecordsResult,
         ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
         ProviderInput, ProviderRequestLogsQuery, ProviderRequestLogsResult,
-        ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
+        ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncementList,
     },
 };
 use async_trait::async_trait;
@@ -230,7 +230,7 @@ impl AnnouncementCapability for NewApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String> {
+    ) -> Result<ProviderOperationOutcome<SiteAnnouncementList>, String> {
         NewApiAdapter::list_announcements(self, settings, provider)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))

@@ -1,5 +1,14 @@
-import type { ProviderRequestLog, ProviderRequestLogsResult } from "../stores/provider-types";
-import { formatQuotaValue } from "./provider-display";
+import type { ProviderProtocol, ProviderRequestLog, ProviderRequestLogsResult } from "../stores/provider-types";
+import { formatQuotaValue } from "./provider-display.ts";
+
+/// Sub2API 的 RPM / TPM / 平均耗时来自全站近 5 分钟看板，不跟时间范围和
+/// 关键词筛选；NewAPI 的统计接口接受与列表相同的窗口和模型筛选。两种口径
+/// 必须在卡片提示里各自说清。
+export function requestLogRateHint(protocol: ProviderProtocol | undefined) {
+  return protocol === "sub2Api"
+    ? "站点全站近 5 分钟统计，不受时间范围和关键词筛选影响"
+    : "所选时间范围、关键词筛选后的站点统计";
+}
 
 export function logIdentity(log: ProviderRequestLog, index: number) {
   return log.id || log.requestId || `${log.createdAt}-${index}`;

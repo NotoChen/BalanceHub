@@ -1,10 +1,13 @@
 //! Native session scope and query ownership. Native parsing stays in the registry adapters.
 mod budget;
 mod counts;
+mod handoff;
+mod project_report;
 mod query;
 mod reader;
 mod scope;
 mod state;
+mod usage_report;
 mod workspace_scan;
 
 #[cfg(test)]
@@ -17,6 +20,8 @@ pub(crate) use budget::{
     with_read_budget, with_source_root, BudgetFile, HistoryRecordFacts,
 };
 pub(crate) use counts::count;
+pub(crate) use handoff::prepare_handoff;
+pub(crate) use project_report::{collect_project_report, finalize_project_report};
 pub(crate) use query::query;
 pub(crate) use reader::{detail, message_content, search};
 #[cfg(test)]
@@ -26,11 +31,36 @@ use std::{
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
+pub(crate) use usage_report::{collect_usage_report, finalize_usage_report, validate_usage_period};
 
 pub(crate) const QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const DETAIL_TIMEOUT: Duration = Duration::from_secs(20);
 pub(crate) const SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const COUNT_TIMEOUT: Duration = Duration::from_secs(20);
+pub(crate) const USAGE_REPORT_TIMEOUT: Duration = Duration::from_secs(45);
+pub(crate) const PROJECT_REPORT_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const HANDOFF_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// 项目视图的进度回调。服务层只产生结构化进度，宿主负责转发到 IPC 或事件流。
+pub(crate) type ProjectProgressReporter =
+    std::sync::Arc<dyn Fn(crate::models::AgentProjectProgress) + Send + Sync>;
+
+fn emit_progress(
+    reporter: &Option<ProjectProgressReporter>,
+    phase: crate::models::AgentProjectProgressPhase,
+    completed: u64,
+    total: u64,
+    message: impl Into<String>,
+) {
+    if let Some(reporter) = reporter {
+        reporter(crate::models::AgentProjectProgress {
+            phase,
+            completed,
+            total,
+            message: message.into(),
+        });
+    }
+}
 
 /// 会话读取的调用方身份：桌面传窗口标签，浏览器版传客户端标识。
 #[derive(Clone, Copy)]

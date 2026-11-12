@@ -21,6 +21,8 @@ const props = defineProps<{
   fatalError: string;
   announcements: SiteAnnouncement[];
   errors: SiteAnnouncementSourceError[];
+  /// 公告条数触到单站上限的站点；列表只是其中一部分。
+  truncatedSources: string[];
   unreadCount: number;
   markingFingerprints: Set<string>;
   providerProtocols: ProviderProtocolDescriptor[];
@@ -90,6 +92,11 @@ function entryTitle(item: SiteAnnouncement) {
           <div>
             <span>按站点分组，组内按发布时间排列</span>
             <i v-if="errors.length > 0">{{ errors.length }} 个站点读取失败</i>
+            <i
+              v-if="truncatedSources.length > 0"
+              :title="truncatedSources.join('、')"
+              >部分站点公告较多，列表已截断</i
+            >
           </div>
           <div class="site-announcements-toolbar-actions">
             <a-tooltip content="重新读取站点公告">

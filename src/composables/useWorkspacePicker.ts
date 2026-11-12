@@ -10,6 +10,7 @@ import type {
   Provider,
   ProviderApiKeyOption,
   TemporaryCliInstance,
+  TemporaryCliLaunchContext,
   TemporaryCliLaunchInput,
   TemporaryCliLaunchPreview,
   TemporaryCliLaunchResult,
@@ -148,6 +149,7 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
   async function openWorkspacePicker(
     provider: Provider,
     cliKind?: AgentCliKind,
+    context?: TemporaryCliLaunchContext,
   ) {
     const requestId = ++pickerRequestId;
     workspacePickerProvider.value = provider;
@@ -173,7 +175,19 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     );
     workspaceSessionName.value = "";
     runDrafts.clear();
-    workspaceRunSettings.value = defaultTemporaryCliRunSettings();
+    const initialPrompt = context?.initialPrompt?.trim() ?? "";
+    if (initialPrompt) {
+      // 交接启动的说明与目标 CLI 无关。为每个可选 CLI 预置同一份草稿，
+      // 切换目标 Agent 时首条消息不会丢失。
+      for (const option of workspaceCliOptions.value) {
+        const draft = defaultTemporaryCliRunSettings();
+        draft.initialPrompt = initialPrompt;
+        runDrafts.set(option.value, draft);
+      }
+    }
+    workspaceRunSettings.value = copyTemporaryCliRunSettings(
+      runDrafts.get(initialCliKind) ?? defaultTemporaryCliRunSettings(),
+    );
     workspaceSessionMode.value = "new";
     sessionHistory.resetWorkspaceSessions();
     sessionHistory.workspaceSessionRoleFilter.value = "main";
@@ -182,6 +196,11 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     workspacePickerVisible.value = true;
 
     workspacePickerCliKind.value = initialCliKind;
+    // CLI 探测尚未返回时可选列表为空，上面的草稿不会生成；这里直接
+    // 补到当前草稿，保证交接启动的首条消息不丢。
+    if (initialPrompt) {
+      workspaceRunSettings.value.initialPrompt = initialPrompt;
+    }
     workspaceSelectedModel.value =
       workspaceNewSessionModels.get(initialCliKind) ?? "";
     workspaceTerminalKind.value = workspaceTerminalOptions.value.some(
@@ -219,7 +238,9 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     }
 
     const initialPath =
-      preference?.workspacePath || options.workspaces.value[0]?.path;
+      context?.workdir?.trim() ||
+      preference?.workspacePath ||
+      options.workspaces.value[0]?.path;
     const loaded = await browseWorkspaceDirectory(initialPath);
     if (!isCurrentPickerRequest(requestId, provider)) return;
     if (!loaded && initialPath && workspacePickerVisible.value) {

@@ -3,6 +3,7 @@ import { computed, ref, watch, type CSSProperties } from "vue";
 import { SearchX, ServerPlus } from "@lucide/vue";
 import ProviderCard from "./ProviderCard.vue";
 import ProviderBoardToolbar from "./ProviderBoardToolbar.vue";
+import ProviderRecommendationModal from "./ProviderRecommendationModal.vue";
 import ProviderSectionCards from "./ProviderSectionCards.vue";
 import type {
   CliRuntimeSnapshot,
@@ -52,6 +53,7 @@ const props = withDefaults(defineProps<{
 const cliStore = useCliRuntimeStore();
 const boardRef = ref<HTMLElement | null>(null);
 const activeFilter = ref<ProviderFilter>("all");
+const recommendationVisible = ref(false);
 const hasSearch = computed(() => Boolean(props.searchQuery.trim()));
 const selectedFilterLabel = computed(() =>
   providerFilters.find((option) => option.value === activeFilter.value)!.label,
@@ -172,6 +174,7 @@ function providerSwitchingCliKind(provider: Provider) {
       :has-search="hasSearch"
       @select="activeFilter = $event"
       @reset="clearFilters"
+      @recommend="recommendationVisible = true"
     />
     <ProviderSectionCards
       v-for="section in providerSections"
@@ -257,6 +260,13 @@ function providerSwitchingCliKind(provider: Provider) {
       :cli-orbits="providerCliOrbits(draggedProvider)"
       :active-cli-counts="providerActiveCliCounts(draggedProvider)"
       aria-hidden
+    />
+
+    <ProviderRecommendationModal
+      :visible="recommendationVisible"
+      :providers="providers"
+      @close="recommendationVisible = false"
+      @switch="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
     />
   </section>
 </template>

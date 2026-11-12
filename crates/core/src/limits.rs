@@ -29,7 +29,9 @@ pub const MAX_API_KEY_REMARK_CHARS: usize = MAX_PROVIDER_REMARK_CHARS;
 pub const MAX_PROVIDER_HEADERS: usize = 16;
 pub const MAX_HEADER_NAME_CHARS: usize = 128;
 pub const MAX_HEADER_VALUE_CHARS: usize = 2048;
-pub const MAX_QUOTA_WINDOWS: usize = 3;
+/// 一个账号可能同时有多个订阅分组，每组各有日/周/月三条窗口；上限要能装下
+/// 常见的多分组站点，卡片只展示前三条，其余由溢出摘要说明。
+pub const MAX_QUOTA_WINDOWS: usize = 12;
 /// How many readings one quota window keeps. The cards draw a short trend and
 /// the saved document must not grow with every scheduled refresh.
 pub const QUOTA_HISTORY_SAMPLES: usize = 24;

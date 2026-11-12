@@ -23,6 +23,16 @@ fn overview_target(provider: &crate::models::Provider) -> bool {
 /// 汇总视图只展示排在前面的模型，排行铺满屏幕没有意义。
 const MODEL_LIMIT: usize = 10;
 
+/// 一个站点的用量读取结果。调用方既可能是全站汇总，也可能是本地会话
+/// 用量对账；两侧共享同一轮并发读取、凭据持久化和归并名处理。
+#[derive(Debug, Clone)]
+pub struct ProviderUsageSource {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub summary: Option<ProviderUsageSummary>,
+    pub error: Option<String>,
+}
+
 /// 用量排行按卡片声明的归并名聚合：同款模型的多个上游 ID（以及汇总视图里
 /// 不同中转站的同名模型）合成一行，避免排行被拆散。
 fn merge_model_stats(
@@ -52,6 +62,15 @@ fn apply_usage_aliases(provider: &crate::models::Provider, stats: &mut [Provider
     for stat in stats {
         let model = stat.model_name.trim();
         stat.model_name = provider.model_config.usage_alias(model).to_string();
+    }
+}
+
+/// 响应质量行和用量排行一样落在卡片声明的归并名上，否则同一模型会在
+/// 「模型额度排行」和「响应质量」里显示成两个名字。
+fn apply_health_aliases(provider: &crate::models::Provider, health: &mut [ProviderModelHealth]) {
+    for row in health {
+        let model = row.model_name.trim();
+        row.model_name = provider.model_config.usage_alias(model).to_string();
     }
 }
 
@@ -92,6 +111,28 @@ fn sort_by_usage(stats: &mut [ProviderUsageModelStat]) {
     });
 }
 
+/// 汇总视图是「全部中转站合计」，同名模型合并成一行后再排行。列表只留
+/// 前 `MODEL_LIMIT` 项，模型总数单独记录，供界面显示真实覆盖范围。
+fn finalize_overview(mut overview: ProviderUsageOverview) -> ProviderUsageOverview {
+    overview.model_stats = merge_model_stats(overview.model_stats);
+    overview.model_health = merge_model_health(overview.model_health);
+    overview
+        .model_stats
+        .sort_by_key(|stat| std::cmp::Reverse(stat.request_count));
+    overview.model_count = overview.model_stats.len();
+    overview.model_stats.truncate(MODEL_LIMIT);
+    // 失败率高的站点先列，和单个站点的响应质量面板同一顺序；未采样的
+    // 模型没有成功率可排，放在最后。
+    overview.model_health.sort_by(|left, right| {
+        let rank = |rate: Option<f64>| rate.unwrap_or(f64::INFINITY);
+        rank(left.success_rate)
+            .partial_cmp(&rank(right.success_rate))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    overview.model_health.truncate(MODEL_LIMIT);
+    overview
+}
+
 impl ProviderService {
     pub async fn usage_summary(
         &self,
@@ -121,17 +162,20 @@ impl ProviderService {
         .ok_or_else(|| "本地配置已变更，本次用量结果已忽略".to_string())?;
         let mut summary = operation.value;
         apply_usage_aliases(&provider, &mut summary.model_stats);
+        apply_health_aliases(&provider, &mut summary.model_health);
         summary.model_stats = merge_model_stats(summary.model_stats);
         sort_by_usage(&mut summary.model_stats);
         Ok(summary)
     }
 
-    /// 汇总视图（不带中转站）把能回答用量的站点合成一份结果。逐个在后台并发读取：
-    /// 一个站点慢或失败不该拖住其余站点，失败原因随汇总结果返回。
-    pub async fn usage_summary_overview(
+    /// 逐站读取用量。`provider_ids` 为空时读取全部能回答用量的站点；
+    /// 非空时只读取这些站点，供本地用量对账按账号归属做对比。
+    /// 一个站点慢或失败不该拖住其余站点，失败原因随结果返回。
+    pub async fn usage_summary_sources(
         &self,
         period: &str,
-    ) -> Result<ProviderUsageOverview, String> {
+        provider_ids: &[String],
+    ) -> Result<Vec<ProviderUsageSource>, String> {
         let state = crate::host::core_state();
         let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
@@ -144,6 +188,9 @@ impl ProviderService {
             .providers
             .iter()
             .filter(|provider| overview_target(provider))
+            .filter(|provider| {
+                provider_ids.is_empty() || provider_ids.iter().any(|id| id == &provider.identity.id)
+            })
             .cloned()
             .collect::<Vec<_>>();
         let entries = futures_util::future::join_all(targets.iter().map(|provider| {
@@ -168,47 +215,61 @@ impl ProviderService {
         }))
         .await;
 
+        let mut sources = Vec::with_capacity(entries.len());
+        for (provider, name, outcome) in entries {
+            let mut source = ProviderUsageSource {
+                provider_id: provider.identity.id.clone(),
+                provider_name: name,
+                summary: None,
+                error: None,
+            };
+            match outcome {
+                Ok(mut summary) => {
+                    apply_usage_aliases(provider, &mut summary.model_stats);
+                    apply_health_aliases(provider, &mut summary.model_health);
+                    summary.model_stats = merge_model_stats(summary.model_stats);
+                    sort_by_usage(&mut summary.model_stats);
+                    source.summary = Some(summary);
+                }
+                Err(error) => source.error = Some(error),
+            }
+            sources.push(source);
+        }
+        Ok(sources)
+    }
+
+    /// 汇总视图（不带中转站）把能回答用量的站点合成一份结果。
+    pub async fn usage_summary_overview(
+        &self,
+        period: &str,
+    ) -> Result<ProviderUsageOverview, String> {
+        let sources = self.usage_summary_sources(period, &[]).await?;
         let mut overview = ProviderUsageOverview {
             request_count: 0,
             model_stats: Vec::new(),
+            model_count: 0,
             model_health: Vec::new(),
             errors: Vec::new(),
+            window_minutes: 0,
         };
-        for (provider, name, outcome) in entries {
-            let summary = match outcome {
-                Ok(summary) => summary,
-                Err(error) => {
+        for source in sources {
+            let summary = match source.summary {
+                Some(summary) => summary,
+                None => {
                     overview.errors.push(ProviderUsageSourceError {
-                        provider_id: provider.identity.id.clone(),
-                        provider_name: name.clone(),
-                        message: error,
+                        provider_id: source.provider_id,
+                        provider_name: source.provider_name,
+                        message: source.error.unwrap_or_else(|| "用量读取失败".to_string()),
                     });
                     continue;
                 }
             };
             overview.request_count += summary.request_count;
-            let mut stats = summary.model_stats;
-            apply_usage_aliases(provider, &mut stats);
-            overview.model_stats.extend(stats);
+            overview.window_minutes = overview.window_minutes.max(summary.window_minutes);
+            overview.model_stats.extend(summary.model_stats);
             overview.model_health.extend(summary.model_health);
         }
-        // 汇总视图是「全部中转站合计」，同名模型合并成一行后再排行。
-        overview.model_stats = merge_model_stats(overview.model_stats);
-        overview.model_health = merge_model_health(overview.model_health);
-        overview
-            .model_stats
-            .sort_by_key(|stat| std::cmp::Reverse(stat.request_count));
-        overview.model_stats.truncate(MODEL_LIMIT);
-        // 失败率高的站点先列，和单个站点的响应质量面板同一顺序；未采样的
-        // 模型没有成功率可排，放在最后。
-        overview.model_health.sort_by(|left, right| {
-            let rank = |rate: Option<f64>| rate.unwrap_or(f64::INFINITY);
-            rank(left.success_rate)
-                .partial_cmp(&rank(right.success_rate))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        overview.model_health.truncate(MODEL_LIMIT);
-        Ok(overview)
+        Ok(finalize_overview(overview))
     }
 
     pub async fn request_logs(
@@ -401,8 +462,8 @@ mod tests {
     }
 
     #[test]
-    fn overview_keeps_only_the_busiest_models() {
-        let mut stats = (0..MODEL_LIMIT + 3)
+    fn overview_model_count_is_kept_before_the_top_list_is_truncated() {
+        let stats = (0..MODEL_LIMIT + 3)
             .map(|index| ProviderUsageModelStat {
                 model_name: format!("model-{index}"),
                 used: 0.0,
@@ -410,9 +471,57 @@ mod tests {
                 token_used: 0,
             })
             .collect::<Vec<_>>();
-        stats.sort_by_key(|stat| std::cmp::Reverse(stat.request_count));
-        stats.truncate(MODEL_LIMIT);
-        assert_eq!(stats.len(), MODEL_LIMIT);
-        assert_eq!(stats[0].request_count, (MODEL_LIMIT + 2) as i64);
+        let overview = finalize_overview(ProviderUsageOverview {
+            request_count: 0,
+            model_stats: stats,
+            model_count: 0,
+            model_health: Vec::new(),
+            errors: Vec::new(),
+            window_minutes: 0,
+        });
+        // 界面上的「涉及模型」来自 model_count，不能等于被截断的列表长度。
+        assert_eq!(overview.model_count, MODEL_LIMIT + 3);
+        assert_eq!(overview.model_stats.len(), MODEL_LIMIT);
+        assert_eq!(
+            overview.model_stats[0].request_count,
+            (MODEL_LIMIT + 2) as i64
+        );
+    }
+
+    #[test]
+    fn health_rows_merge_under_the_declared_alias() {
+        let mut provider = provider(
+            "https://relay.example.com",
+            ProviderProtocol::NewApi,
+            AuthMode::Session,
+            ProviderStatus::Ok,
+        );
+        provider.model_config.overrides.insert(
+            "gpt-5.5-2026".into(),
+            ProviderModelOverride {
+                alias: "gpt-5.5".into(),
+                ..Default::default()
+            },
+        );
+        let mut health = vec![
+            ProviderModelHealth {
+                model_name: "gpt-5.5-2026".into(),
+                success_rate: Some(99.0),
+                avg_latency_ms: Some(100),
+                avg_tps: None,
+            },
+            ProviderModelHealth {
+                model_name: "gpt-5.5".into(),
+                success_rate: Some(80.0),
+                avg_latency_ms: Some(300),
+                avg_tps: None,
+            },
+        ];
+        apply_health_aliases(&provider, &mut health);
+        let merged = merge_model_health(health);
+        // 同一个模型的两个上游 ID 在响应质量里也只剩一行，且取更差的那次采样。
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].model_name, "gpt-5.5");
+        assert_eq!(merged[0].success_rate, Some(80.0));
     }
 }

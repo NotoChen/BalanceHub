@@ -120,7 +120,7 @@ const creditsLabel = computed(() => {
       <ProviderCardCooldownNote :provider="provider" />
       <ProviderModelPreview
         class="provider-card-models-tail"
-        :models="provider.capabilities.availableModels"
+        :models="provider.visibleModels"
         :state="provider.capabilities.availableModelsState"
         :sync-time="modelSyncTime"
         :interactive="interactive"
@@ -169,7 +169,7 @@ const creditsLabel = computed(() => {
            的数字，也不自己画一套芯片。 -->
       <ProviderModelPreview
         class="provider-card-models-tail"
-        :models="provider.capabilities.availableModels"
+        :models="provider.visibleModels"
         :state="provider.capabilities.availableModelsState"
         :sync-time="modelSyncTime"
         :interactive="interactive"

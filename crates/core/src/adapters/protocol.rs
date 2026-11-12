@@ -11,7 +11,7 @@ use crate::models::{
     AppSettings, Provider, ProviderApiKeyOption, ProviderCapabilities,
     ProviderCheckInRecordsResult, ProviderCheckInResult, ProviderConnectionTestResult,
     ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
-    ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
+    ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncementList,
 };
 use contracts::ProviderOperationOutcome;
 
@@ -297,7 +297,7 @@ impl ProtocolAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String> {
+    ) -> Result<ProviderOperationOutcome<SiteAnnouncementList>, String> {
         let definition = definition(provider.identity.protocol);
         definition
             .announcements

@@ -2,9 +2,11 @@
 import { computed, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { storeToRefs } from "pinia";
 import {
+  ChartColumn,
   ChevronDown,
   CircleAlert,
   CircleHelp,
+  FolderGit2,
   RefreshCw,
   X,
 } from "@lucide/vue";
@@ -18,6 +20,7 @@ import type {
   AgentRuntimeSnapshot,
   CliRuntimeSnapshot,
   Provider,
+  TemporaryCliLaunchContext,
 } from "../../stores/provider-types";
 import type {
   AgentSessionRow,
@@ -31,6 +34,9 @@ import AgentSessionRelocationModal from './AgentSessionRelocationModal.vue';
 import AgentWorkspaceIcon from "./AgentWorkspaceIcon.vue";
 import AgentRuntimeList from "../AgentRuntimeList.vue";
 import SessionReader from "./SessionReader.vue";
+import UsageReconciliationModal from "./UsageReconciliationModal.vue";
+import AgentProjectModal from "./AgentProjectModal.vue";
+import AgentHandoffModal from "./AgentHandoffModal.vue";
 
 const props = defineProps<{
   active: boolean;
@@ -45,6 +51,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   refreshRuntime: [];
   activateRuntime: [session: AgentRuntimeSession];
+  launch: [provider: Provider, cliKind: AgentCliKind, context?: TemporaryCliLaunchContext];
 }>();
 const navigation = useAgentWorkspaceStore();
 const { sessionHistoryQuery: query, sessionEnvironment } = storeToRefs(navigation);
@@ -71,8 +78,25 @@ const history = reactive(
 );
 const resumeRow = ref<AgentSessionRow | null>(null);
 const relocationRow = ref<AgentSessionRow | null>(null);
+const usageVisible = ref(false);
+const projectsVisible = ref(false);
 const relocationRevision = ref('');
 function openRelocation(row: AgentSessionRow) { if (!history.scope) return; relocationRevision.value = history.scope.revision; relocationRow.value = row; }
+const handoffRow = ref<AgentSessionRow | null>(null);
+const handoffRevision = ref("");
+function openHandoff(row: AgentSessionRow) {
+  if (!history.scope) return;
+  handoffRevision.value = history.scope.revision;
+  handoffRow.value = row;
+}
+function launchFromHandoff(
+  provider: Provider,
+  cliKind: AgentCliKind,
+  context?: TemporaryCliLaunchContext,
+) {
+  handoffRow.value = null;
+  emit("launch", provider, cliKind, context);
+}
 const listPosition = shallowRef<SessionListPosition | null>(null);
 const listPositionKey = computed(() =>
   JSON.stringify([
@@ -195,6 +219,7 @@ watch(
   () => {
     resumeRow.value = null;
     relocationRow.value = null;
+    handoffRow.value = null;
   },
   { flush: "sync" },
 );
@@ -246,6 +271,13 @@ defineExpose({ refresh });
       ></a-tooltip>
       <div class="agent-inline-actions">
         <a-button
+          v-if="navigation.sessionView === 'history'"
+          size="small"
+          @click="projectsVisible = true"
+          ><template #icon><FolderGit2 :size="14" /></template>项目视图</a-button
+        ><a-button size="small" @click="usageVisible = true"
+          ><template #icon><ChartColumn :size="14" /></template>用量对账</a-button
+        ><a-button
           v-if="navigation.sessionView === 'history'"
           size="small"
           :loading="history.busy"
@@ -442,7 +474,11 @@ defineExpose({ refresh });
             history.detailRow.resumeReason
           }}</span>
           <div class="agent-session-detail-actions">
-            <template v-for="runtime in detailRuntime" :key="runtime.runtimeId"
+            <a-button
+              v-if="history.detailRow?.session.workdir"
+              @click="history.detailRow && openHandoff(history.detailRow)"
+              >交接上下文</a-button
+            ><template v-for="runtime in detailRuntime" :key="runtime.runtimeId"
               ><a-button
                 v-if="runtime.actions.canActivateTerminal"
                 :loading="activatingId === runtime.runtimeId"
@@ -488,6 +524,21 @@ defineExpose({ refresh });
       >
     </p>
 
+    <UsageReconciliationModal :visible="usageVisible" @close="usageVisible = false" />
+    <AgentProjectModal
+      :visible="projectsVisible"
+      @close="projectsVisible = false"
+      @filter="navigation.selectSessionWorkspace($event)"
+    />
+    <AgentHandoffModal
+      :visible="Boolean(handoffRow)"
+      :row="handoffRow"
+      :scope-revision="handoffRevision"
+      :providers="providers"
+      :agents="cliRuntime.agents"
+      @close="handoffRow = null"
+      @launch="launchFromHandoff"
+    />
     <AgentSessionRelocationModal :visible="Boolean(relocationRow)" :row="relocationRow" :scope-revision="relocationRevision" @close="relocationRow = null" />
     <AgentSessionResumeModal
       :visible="Boolean(resumeRow)"

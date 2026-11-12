@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { GripVertical, X } from "@lucide/vue";
+import { GripVertical, Sparkles, X } from "@lucide/vue";
 import RadioChoiceGroup from "./RadioChoiceGroup.vue";
 import {
   providerFilters,
@@ -19,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [filter: ProviderFilter];
   reset: [];
+  recommend: [];
 }>();
 
 const filtersRef = ref<HTMLElement | null>(null);
@@ -71,5 +72,15 @@ function reset() {
       <GripVertical :size="13" aria-hidden="true" />
       拖拽排序
     </span>
+    <button
+      type="button"
+      class="provider-board-recommend"
+      aria-label="打开中转站推荐"
+      title="按余额、额度窗口、测活和价格排序"
+      @click="emit('recommend')"
+    >
+      <Sparkles :size="13" aria-hidden="true" />
+      推荐
+    </button>
   </div>
 </template>

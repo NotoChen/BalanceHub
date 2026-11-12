@@ -3,6 +3,11 @@ import { computed } from "vue";
 import { IconCalendarClock, IconLeft, IconRefresh, IconRight } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderCheckInRecord, ProviderCheckInRecordsResult } from "../stores/providers";
 import { formatQuotaValue, providerDisplayLabel } from "../utils/provider-display";
+import {
+  checkInLocalDateKey,
+  checkInRecordDays,
+  checkInTodayRecord,
+} from "../utils/check-in-records";
 
 const props = defineProps<{
   visible: boolean;
@@ -45,7 +50,7 @@ const calendarDays = computed(() => {
     record: ProviderCheckInRecord | null;
     today: boolean;
   }[] = [];
-  const today = localDateKey(new Date());
+  const today = checkInLocalDateKey(new Date());
 
   for (let index = 0; index < startOffset; index += 1) {
     cells.push({ key: `empty-start-${index}`, date: "", day: null, record: null, today: false });
@@ -66,13 +71,17 @@ const calendarDays = computed(() => {
   return cells;
 });
 
-const checkedDays = computed(() => props.result?.records.length ?? 0);
+// 日历格子按日期去重，摘要也不能按记录条数计：同一天的多条记录仍是一天。
+const checkedDays = computed(() => checkInRecordDays(props.result?.records ?? []));
 
 const quotaTotal = computed(() =>
   (props.result?.records ?? []).reduce((total, record) => total + (record.quotaDelta ?? 0), 0),
 );
 
-const todayRecord = computed(() => recordByDate.value.get(localDateKey(new Date())) ?? null);
+// 历史月份没有「今日奖励」：本月的今天不属于正在查看的那个月。
+const todayRecord = computed(() =>
+  checkInTodayRecord(props.result?.records ?? [], props.month),
+);
 
 const monthTitle = computed(() => {
   const [year, month] = parseMonth(props.month);
@@ -84,10 +93,6 @@ function parseMonth(value: string) {
   const year = Number(yearRaw) || new Date().getFullYear();
   const month = Number(monthRaw) || new Date().getMonth() + 1;
   return [year, month] as const;
-}
-
-function localDateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function shiftMonth(offset: number) {

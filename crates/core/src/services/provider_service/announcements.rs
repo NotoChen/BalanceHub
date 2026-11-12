@@ -20,6 +20,8 @@ struct AnnouncementSourceGroup {
 struct AnnouncementSourceResult {
     source: Provider,
     announcements: Vec<SiteAnnouncement>,
+    /// 站点公告超过单站上限，当前列表被截断。
+    truncated: bool,
     error: Option<String>,
 }
 
@@ -43,7 +45,11 @@ impl ProviderService {
 
         let mut announcements = Vec::new();
         let mut errors = Vec::new();
+        let mut truncated_sources = Vec::new();
         for (_, result) in results {
+            if result.truncated {
+                truncated_sources.push(result.source.display_label());
+            }
             announcements.extend(result.announcements);
             if let Some(message) = result.error {
                 let provider_name = result.source.display_label();
@@ -62,6 +68,7 @@ impl ProviderService {
             fetched_at: unix_millis().to_string(),
             announcements,
             errors,
+            truncated_sources,
         })
     }
 
@@ -101,7 +108,8 @@ impl ProviderService {
                         Ok(Some(_)) => {
                             return AnnouncementSourceResult {
                                 source,
-                                announcements: operation.value,
+                                announcements: operation.value.announcements,
+                                truncated: operation.value.truncated,
                                 error: None,
                             };
                         }
@@ -118,6 +126,7 @@ impl ProviderService {
         AnnouncementSourceResult {
             source,
             announcements: Vec::new(),
+            truncated: false,
             error: Some(compact_errors(attempt_errors)),
         }
     }

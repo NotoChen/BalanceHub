@@ -465,15 +465,29 @@ function quotaWindowRow(
   };
 }
 
-/// 订阅制中转站的额度在周期窗口里，钱包只是溢出账户。Rust 侧已收口到三条，
-/// 卡片高度固定，这里再兜底一次，前端不指望上游永远只给三条。
+/// 订阅制中转站的额度在周期窗口里，钱包只是溢出账户。卡片高度固定，
+/// 只展示前三条；其余窗口由 providerQuotaWindowOverflow 说明，不能静默消失。
 export function providerQuotaWindowRows(
   provider: Provider,
   now = Date.now(),
 ): ProviderQuotaWindowRow[] {
   return (provider.quota.windows ?? [])
-    .slice(0, 3)
+    .slice(0, QUOTA_WINDOW_ROWS)
     .map((window) => quotaWindowRow(window, now));
+}
+
+const QUOTA_WINDOW_ROWS = 3;
+
+/// 卡片固定展示三条窗口，多订阅账号的其余窗口在这里收口成一句摘要。
+export function providerQuotaWindowOverflow(provider: Provider): {
+  count: number;
+  labels: string[];
+} {
+  const overflow = (provider.quota.windows ?? []).slice(QUOTA_WINDOW_ROWS);
+  return {
+    count: overflow.length,
+    labels: overflow.map((window) => window.label),
+  };
 }
 
 /// 卡片正文把窗口行喂给 AccountQuotaBar：四类卡片共用同一支条，适配层也只能
@@ -495,8 +509,8 @@ export function providerQuotaBarWindow(
   };
 }
 
-/// 账号卡与网关卡列出窗口的条数与中转站卡相同：最多三条，Rust 已按已用
-/// 比例排好序，三条之外的摘要放在卡片底部。条数由额度区块决定，不由卡型决定。
+/// 账号卡与网关卡列出窗口的条数与中转站卡相同：最多三条，三条之外的
+/// 摘要放在卡片底部。条数由额度区块决定，不由卡型决定。
 export function managedQuotaWindowRows(
   windows: readonly AccountQuotaWindow[],
   now = Date.now(),
@@ -523,10 +537,15 @@ export function providerHasQuotaWindows(provider: Provider): boolean {
   return (provider.quota.windows?.length ?? 0) > 0;
 }
 
-/// 不限量的窗口没有可比比例，不参与“是否用尽”的判断。窗口数量在 Rust 侧
-/// 已收口到三条，因此从行数据取比例不会再漏掉被卡片裁掉的窗口。
+/// 卡片只展示前三条窗口，但额度等级、主数字和“是否用尽”必须看账号的全部
+/// 窗口：第四组窗口用尽同样意味着这个账号已经不能继续用。
+function allWindowRows(provider: Provider, now = Date.now()): ProviderQuotaWindowRow[] {
+  return (provider.quota.windows ?? []).map((window) => quotaWindowRow(window, now));
+}
+
+/// 不限量的窗口没有可比比例，不参与“是否用尽”的判断。
 function limitedWindowRows(provider: Provider): ProviderQuotaWindowRow[] {
-  return providerQuotaWindowRows(provider).filter((row) => row.percent != null);
+  return allWindowRows(provider).filter((row) => row.percent != null);
 }
 
 /// 窗口压力决定订阅制账号的额度等级：没有窗口时返回 null，交给钱包余额判断。
@@ -570,7 +589,7 @@ export function providerQuotaHeadline(
       title: "",
     };
   }
-  const rows = providerQuotaWindowRows(provider, now);
+  const rows = allWindowRows(provider, now);
   const limited = rows.filter((row) => row.percent != null);
   // 窗口全部不限量：没有“剩余”可言，直接说明额度不受限。
   if (!limited.length) {

@@ -2,8 +2,8 @@
 
 use crate::{
     api::blocking,
-    models::{AgentCliKind, AgentOverviewSnapshot},
-    services::agent_cli::overview::OverviewRefresh,
+    models::{AgentCliKind, AgentOverviewSnapshot, AgentSelfCheckReport},
+    services::agent_cli::overview::{self_check_report, OverviewRefresh},
 };
 use std::{path::PathBuf, time::Duration};
 
@@ -40,6 +40,51 @@ pub(crate) async fn refresh_agent_overview(
             configuration: &configuration,
             force,
         })
+    })
+    .await
+}
+
+pub(crate) async fn get_agent_environment_report(
+    workspace: Option<String>,
+) -> Result<AgentSelfCheckReport, String> {
+    let service = crate::state::services().overview()?;
+    let workspace = workspace.filter(|path| !path.is_empty()).map(PathBuf::from);
+    let session_scope = blocking("读取 Agent 会话来源", || {
+        crate::services::cli_sessions::workbench::get_scope(
+            crate::services::cli_sessions::workbench::AgentSessionActor {
+                client: "environment-self-check",
+            },
+            None,
+        )
+    })
+    .await;
+    let hooks = blocking("检查 Agent Hook 状态", || {
+        let mut hooks = std::collections::BTreeMap::new();
+        for definition in crate::services::agent_cli::definitions() {
+            let Ok(service) =
+                crate::services::agent_runtime::managed_hook::service(definition.kind)
+            else {
+                continue;
+            };
+            hooks.insert(
+                definition.kind,
+                crate::services::agent_runtime::managed_hook::inspect(&service),
+            );
+        }
+        Ok(hooks)
+    })
+    .await?;
+    blocking("读取 Agent 环境自检", move || {
+        let (session_scope, session_scope_error) = match session_scope {
+            Ok(scope) => (Some(scope), String::new()),
+            Err(error) => (None, error),
+        };
+        Ok(self_check_report(
+            service.cached(workspace.as_deref()),
+            session_scope.as_ref(),
+            &session_scope_error,
+            &hooks,
+        ))
     })
     .await
 }

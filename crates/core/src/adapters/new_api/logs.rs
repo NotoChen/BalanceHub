@@ -103,9 +103,9 @@ async fn fetch_request_log_stats(
         .or_else(|| extract_f64_field(&data, &["quota", "Quota"]).map(|value| value as i64))
         .unwrap_or(0);
     Ok(ProviderRequestLogStats {
-        quota: convert_quota_value(raw_quota, context.site).0,
-        rpm: extract_f64_field(&data, &["rpm", "RPM"]).unwrap_or_default(),
-        tpm: extract_f64_field(&data, &["tpm", "TPM"]).unwrap_or_default(),
+        quota: Some(convert_quota_value(raw_quota, context.site).0),
+        rpm: extract_f64_field(&data, &["rpm", "RPM"]),
+        tpm: extract_f64_field(&data, &["tpm", "TPM"]),
         avg_duration_ms: None,
     })
 }

@@ -24,16 +24,37 @@ pub struct ModelCatalogService {
     attempt: Mutex<Option<(Instant, Option<String>)>>,
 }
 impl ModelCatalogService {
-    pub fn estimate(&self, mut usage: SessionUsageSummary) -> Result<SessionUsageSummary, String> {
-        let catalog = self.catalog.lock().map_err(|_| "模型资料暂不可用")?;
+    pub fn estimate(&self, usage: SessionUsageSummary) -> Result<SessionUsageSummary, String> {
+        self.estimate_with(usage, None)
+    }
+
+    /// 与 `estimate` 同一套价格计算，但允许按中转站卡片的模型高级配置覆盖：
+    /// `catalog` 声明优先的 models.dev 供应商目录，`overrides[id].price`
+    /// 按字段覆盖目录价格。本地会话用量对账用它在账号归属可信时按账号计价。
+    pub fn estimate_with(
+        &self,
+        mut usage: SessionUsageSummary,
+        config: Option<&ProviderModelConfig>,
+    ) -> Result<SessionUsageSummary, String> {
+        let ids = usage
+            .models
+            .iter()
+            .filter_map(|model| model.model.clone())
+            .collect::<Vec<_>>();
+        let prices = self
+            .snapshot_for(&ids, config)?
+            .models
+            .into_iter()
+            .map(|metadata| (metadata.id, metadata.price))
+            .collect::<BTreeMap<_, _>>();
         usage.estimated_cost_microusd = None;
         usage.unpriced_records = 0;
         for model in &mut usage.models {
             model.estimated_cost_microusd = model
                 .model
                 .as_ref()
-                .and_then(|id| catalog.models.get(id))
-                .and_then(|metadata| estimate(&model.tokens, &metadata.price));
+                .and_then(|id| prices.get(id))
+                .and_then(|price| estimate(&model.tokens, price));
             if let Some(price) = model.estimated_cost_microusd {
                 usage.estimated_cost_microusd = Some(
                     usage
@@ -351,4 +372,115 @@ fn decode(root: &Value) -> Result<BTreeMap<String, ModelMetadata>, String> {
         return Err("模型资料目录为空".to_owned());
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn metadata(id: &str, price: ModelPrice) -> ModelMetadata {
+        ModelMetadata {
+            id: id.into(),
+            name: id.into(),
+            provider: String::new(),
+            context_window: None,
+            output_limit: None,
+            reasoning: None,
+            tool_call: None,
+            input_modalities: Vec::new(),
+            output_modalities: Vec::new(),
+            price,
+        }
+    }
+
+    fn service() -> ModelCatalogService {
+        let service =
+            ModelCatalogService::new(std::env::temp_dir().join("balancehub-catalog-test"));
+        let mut catalog = service.catalog.lock().unwrap();
+        catalog.updated_at = chrono::Utc::now().timestamp();
+        catalog.models.insert(
+            "claude-sonnet-4-5".into(),
+            metadata(
+                "claude-sonnet-4-5",
+                ModelPrice {
+                    input: Some(3.0),
+                    output: Some(15.0),
+                    cache_read: Some(0.3),
+                    cache_write: Some(3.75),
+                },
+            ),
+        );
+        catalog.models.insert(
+            "claude-haiku-4-5".into(),
+            metadata(
+                "claude-haiku-4-5",
+                ModelPrice {
+                    input: Some(1.0),
+                    output: Some(5.0),
+                    ..ModelPrice::default()
+                },
+            ),
+        );
+        drop(catalog);
+        service
+    }
+
+    fn usage() -> SessionUsageSummary {
+        SessionUsageSummary {
+            models: vec![SessionModelUsage {
+                model: Some("claude-sonnet-4-5".into()),
+                tokens: SessionTokenCounts {
+                    input_tokens: Some(1_000_000),
+                    output_tokens: Some(100_000),
+                    cache_read_tokens: Some(200_000),
+                    ..SessionTokenCounts::default()
+                },
+                records: 2,
+                estimated_cost_microusd: None,
+            }],
+            records: 2,
+            ..SessionUsageSummary::default()
+        }
+    }
+
+    #[test]
+    fn estimate_with_uses_card_overrides_by_field() {
+        let service = service();
+        let config = ProviderModelConfig {
+            overrides: BTreeMap::from([(
+                "claude-sonnet-4-5".to_string(),
+                ProviderModelOverride {
+                    price: ModelPrice {
+                        output: Some(30.0),
+                        ..ModelPrice::default()
+                    },
+                    ..ProviderModelOverride::default()
+                },
+            )]),
+            ..ProviderModelConfig::default()
+        };
+        let priced = service.estimate_with(usage(), Some(&config)).unwrap();
+        // 输入 800k × $3 + 缓存读 200k × $0.3 + 输出 100k × 覆盖后的 $30
+        assert_eq!(priced.estimated_cost_microusd, Some(5_460_000));
+        assert_eq!(priced.unpriced_records, 0);
+    }
+
+    #[test]
+    fn estimate_keeps_unknown_models_unpriced() {
+        let service = service();
+        let mut usage = usage();
+        usage.models.push(SessionModelUsage {
+            model: None,
+            tokens: SessionTokenCounts {
+                input_tokens: Some(10),
+                output_tokens: Some(10),
+                ..SessionTokenCounts::default()
+            },
+            records: 1,
+            estimated_cost_microusd: None,
+        });
+        let priced = service.estimate(usage).unwrap();
+        assert_eq!(priced.estimated_cost_microusd, Some(3_960_000));
+        assert_eq!(priced.unpriced_records, 1);
+    }
 }

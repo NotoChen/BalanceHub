@@ -381,6 +381,28 @@ mod tests {
     }
 
     #[test]
+    fn capability_matrix_matches_snapshot() {
+        let rendered = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&descriptors())
+                .expect("capability matrix should serialize")
+        );
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/services/agent_cli/capabilities.snapshot.json");
+        if std::env::var_os("UPDATE_AGENT_CAPABILITIES").is_some() {
+            std::fs::write(&path, &rendered).expect("capability snapshot should be writable");
+            return;
+        }
+        let expected = std::fs::read_to_string(&path).expect("capability snapshot should exist");
+        assert_eq!(
+            rendered, expected,
+            "Agent 能力矩阵已变化；确认变更后运行 UPDATE_AGENT_CAPABILITIES=1 \
+             npm run cargo -- test -p balancehub-agent --lib capability_matrix_matches_snapshot \
+             更新快照，再运行 npm run docs:capabilities 更新文档"
+        );
+    }
+
+    #[test]
     fn capabilities_are_derived_from_registered_adapters() {
         for registered_definition in definitions() {
             let capabilities = registered_definition.capabilities();

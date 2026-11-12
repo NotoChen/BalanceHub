@@ -1,5 +1,7 @@
 //! Persistent version/configuration summaries. Resources belong to the catalog.
+mod environment;
 mod fingerprint;
+pub(crate) use environment::self_check_report;
 
 use super::{cache, configuration::ConfigurationService};
 use crate::models::*;

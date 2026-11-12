@@ -2,7 +2,7 @@ use crate::models::{
     Provider, ProviderModelHealth, ProviderUsageModelPoint, ProviderUsageModelStat,
     ProviderUsagePoint, ProviderUsageSummary,
 };
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Timelike};
 use reqwest::{Method, Url};
 use std::collections::BTreeMap;
 
@@ -20,7 +20,7 @@ pub async fn fetch_usage_summary(
     provider: &Provider,
     period: &str,
 ) -> Result<ProviderUsageSummary, String> {
-    let (start_timestamp, end_timestamp, hourly) = usage_window(period);
+    let (start_timestamp, end_timestamp, hourly, window_minutes) = usage_window(period);
     let (base_url, api_user, credential) = provider_user_management_context(provider)?;
     let site =
         fetch_site_metadata_or(client, &base_url, site_metadata_from_provider(provider)).await?;
@@ -127,6 +127,7 @@ pub async fn fetch_usage_summary(
             .collect(),
         model_health,
         request_count,
+        window_minutes,
     })
 }
 
@@ -184,16 +185,19 @@ fn extract_model_name(item: &serde_json::Value) -> String {
         .unwrap_or_else(|| "未知模型".to_string())
 }
 
-/// “24 小时”在两种协议下必须是同一段时间：Sub2API 的用量接口按自然日取数，
-/// 这里也按自然日取（今天零点到现在），两边的小时桶才对得上。
-fn usage_window(period: &str) -> (i64, i64, bool) {
-    let now = crate::util::unix_secs() as i64;
-    let start_of_today = now - now.rem_euclid(86_400);
+/// “今日”在两种协议下必须是同一段时间：Sub2API 的用量接口按本机自然日取数，
+/// 这里也从本机零点开始，而不是 UTC 零点。返回实际覆盖的分钟数，供
+/// RPM/TPM 使用，避免把“今天已过去的一段”当成完整 24 小时。
+fn usage_window(period: &str) -> (i64, i64, bool, i64) {
+    let local_now = Local::now();
+    let end = local_now.timestamp();
+    let elapsed_today = local_now.time().num_seconds_from_midnight() as i64;
+    let start_of_today = end - elapsed_today;
     match period.trim().to_ascii_lowercase().as_str() {
-        "24h" | "1d" => (start_of_today, now, true),
+        "24h" | "1d" => (start_of_today, end, true, (elapsed_today / 60).max(1)),
         days => {
             let days = if days == "7d" { 7 } else { 30 };
-            (now - days * 86_400, now, false)
+            (end - days * 86_400, end, false, days * 24 * 60)
         }
     }
 }
@@ -230,6 +234,7 @@ fn format_local_date(timestamp: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{parse_model_health, usage_window};
+    use chrono::{Local, Timelike};
     use serde_json::json;
 
     #[test]
@@ -254,20 +259,25 @@ mod tests {
         assert!(parse_model_health(&json!({ "models": [] })).is_empty());
     }
 
-    /// Sub2API 的 24 小时视图是今天零点到现在，NewAPI 必须落在同一段时间里，
+    /// Sub2API 的今日视图是本地零点到现在，NewAPI 必须落在同一段时间里，
     /// 否则同一个周期切换卡片会把“今天”和“过去 24 小时”混着比。
     #[test]
     fn the_day_window_starts_at_local_midnight_and_keeps_hours() {
-        let (start, end, hourly) = usage_window("24h");
-        let now = crate::util::unix_secs() as i64;
+        let (start, end, hourly, window_minutes) = usage_window("24h");
+        let local_now = Local::now();
+        let expected_start =
+            local_now.timestamp() - local_now.time().num_seconds_from_midnight() as i64;
         assert!(hourly);
-        assert_eq!(start % 86_400, 0);
-        assert!(end >= start && end <= now);
-        assert!(now - end < 5);
-        let (week_start, week_end, hourly) = usage_window("7d");
+        assert!((start - expected_start).abs() <= 1);
+        assert!(end >= start);
+        let expected_minutes = (local_now.time().num_seconds_from_midnight() as i64 / 60).max(1);
+        assert!((window_minutes - expected_minutes).abs() <= 1);
+        let (week_start, week_end, hourly, week_minutes) = usage_window("7d");
         assert!(!hourly);
         assert_eq!(week_end - week_start, 7 * 86_400);
-        let (month_start, month_end, _) = usage_window("30d");
+        assert_eq!(week_minutes, 7 * 24 * 60);
+        let (month_start, month_end, _, month_minutes) = usage_window("30d");
         assert_eq!(month_end - month_start, 30 * 86_400);
+        assert_eq!(month_minutes, 30 * 24 * 60);
     }
 }

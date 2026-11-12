@@ -274,6 +274,13 @@ pub(crate) async fn get_usage_overview(period: String) -> Result<serde_json::Val
 }
 
 #[tauri::command]
+pub(crate) async fn get_provider_recommendations(
+    model: Option<String>,
+) -> Result<serde_json::Value, String> {
+    dispatch_value("get_provider_recommendations", json!({ "model": model })).await
+}
+
+#[tauri::command]
 pub(crate) async fn get_provider_request_logs(
     id: String,
     query: ProviderRequestLogsQuery,

@@ -15,6 +15,7 @@ import type {
   AgentRuntimeSession,
   Provider,
   ProviderApiKeyOption,
+  TemporaryCliLaunchContext,
 } from "../stores/providers";
 import type { ProviderAppImportTarget } from "../stores/provider-types";
 import type { ProviderCardTone } from "../utils/provider-display";
@@ -123,7 +124,11 @@ const emit = defineEmits<{
   toggle: [provider: Provider];
   refresh: [provider: Provider];
   probeCapabilities: [provider: Provider];
-  launchTemporaryCli: [provider: Provider, cliKind?: AgentCliKind];
+  launchTemporaryCli: [
+    provider: Provider,
+    cliKind?: AgentCliKind,
+    context?: TemporaryCliLaunchContext,
+  ];
   cpaRenewAll: [provider: Provider];
   reauthorizeOauthCard: [provider: Provider];
   edit: [provider: Provider];
@@ -256,6 +261,7 @@ const emit = defineEmits<{
     @refreshing="agentRefreshing = $event"
     @refresh-runtime="emit('refreshRuntime')"
     @activate-runtime="emit('activateRuntime', $event)"
-    @launch="(provider, kind) => emit('launchTemporaryCli', provider, kind)"
+    @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
+    @launch="(provider, kind, context) => emit('launchTemporaryCli', provider, kind, context)"
   />
 </template>

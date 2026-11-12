@@ -1,6 +1,10 @@
 import { computed, ref } from "vue";
 import { Message, Modal } from "@arco-design/web-vue";
-import type { AgentCliKind, Provider } from "../stores/providers";
+import type {
+  AgentCliKind,
+  Provider,
+  TemporaryCliLaunchContext,
+} from "../stores/providers";
 import { refreshAllCpa, startOAuthLogin } from "../api/oauth-accounts";
 import { useOAuthAccountStore } from "../stores/oauth-accounts";
 import { hasUsableProviderApiKey } from "../utils/provider-api-key-options";
@@ -12,7 +16,11 @@ import { providerScopeNoun } from "../utils/provider-protocol";
 interface UseProviderActionsOptions {
   providers: { value: Provider[] };
   refreshByIds: (ids: string[]) => Promise<unknown>;
-  openWorkspacePicker: (provider: Provider, cliKind?: AgentCliKind) => void;
+  openWorkspacePicker: (
+    provider: Provider,
+    cliKind?: AgentCliKind,
+    context?: TemporaryCliLaunchContext,
+  ) => void;
   probeCapabilities: (id: string) => Promise<{ provider: Provider; message: string }>;
   getInviteLink: (id: string) => Promise<string>;
   reload: () => Promise<unknown>;
@@ -74,7 +82,11 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     void options.refreshByIds([provider.identity.id]);
   }
 
-  function launchTemporaryCli(provider: Provider, cliKind?: AgentCliKind) {
+  function launchTemporaryCli(
+    provider: Provider,
+    cliKind?: AgentCliKind,
+    context?: TemporaryCliLaunchContext,
+  ) {
     // Rust decides whether the stored credential can start a CLI; the relay
     // address and API key checks only apply to relay cards.
     if (!provider.actions.temporaryCli) {
@@ -91,7 +103,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
         return;
       }
     }
-    options.openWorkspacePicker(provider, cliKind);
+    options.openWorkspacePicker(provider, cliKind, context);
   }
 
   function checkInProvider(provider: Provider) {

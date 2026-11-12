@@ -1,0 +1,642 @@
+[
+  {
+    "kind": "codex",
+    "label": "Codex CLI",
+    "executable": "codex",
+    "sessionNameHint": "Codex CLI 当前不支持启动前命名；启动后可在终端输入 /new 名称 或 /rename",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": true,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "claudeCode",
+    "label": "Claude Code",
+    "executable": "claude",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": true,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": true,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "gemini",
+    "label": "Gemini CLI",
+    "executable": "gemini",
+    "sessionNameHint": "Gemini CLI 没有启动前会话命名参数，标题由 Gemini 自动生成",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": true,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "grok",
+    "label": "Grok Build",
+    "executable": "grok",
+    "sessionNameHint": "Grok Build 不支持启动前命名；启动后可在终端输入 /rename",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": true,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "qwenCode",
+    "label": "Qwen Code",
+    "executable": "qwen",
+    "sessionNameHint": "Qwen Code 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "opencode",
+    "label": "OpenCode",
+    "executable": "opencode",
+    "sessionNameHint": "OpenCode 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "pi",
+    "label": "Pi",
+    "executable": "pi",
+    "sessionNameHint": "Pi 会话由原生会话 ID 继续；新建会话可填写名称",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": true,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "crush",
+    "label": "Crush",
+    "executable": "crush",
+    "sessionNameHint": "Crush 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "copilot",
+    "label": "Copilot CLI",
+    "executable": "copilot",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": true,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "droid",
+    "label": "Droid",
+    "executable": "droid",
+    "sessionNameHint": "Droid 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "qoder",
+    "label": "Qoder",
+    "executable": "qodercli",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": true,
+      "liveness": false,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "codebuddy",
+    "label": "CodeBuddy",
+    "executable": "codebuddy",
+    "sessionNameHint": "CodeBuddy 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "openclaw",
+    "label": "OpenClaw",
+    "executable": "openclaw",
+    "sessionNameHint": "OpenClaw 会话由原生会话键继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "jcode",
+    "label": "jcode",
+    "executable": "jcode",
+    "sessionNameHint": "jcode 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "mothx",
+    "label": "MothX",
+    "executable": "mothx",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "kimiCode",
+    "label": "Kimi Code",
+    "executable": "kimi",
+    "sessionNameHint": "Kimi Code 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "stepCode",
+    "label": "StepCode",
+    "executable": "step",
+    "sessionNameHint": "StepCode 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "deveco",
+    "label": "DevEco Code",
+    "executable": "deveco",
+    "sessionNameHint": "DevEco Code 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "mimoCode",
+    "label": "MiMo Code",
+    "executable": "mimo",
+    "sessionNameHint": "MiMo Code 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "atomcode",
+    "label": "AtomCode",
+    "executable": "atomcode",
+    "sessionNameHint": "AtomCode 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "cline",
+    "label": "Cline",
+    "executable": "cline",
+    "sessionNameHint": "Cline 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "primeAgent",
+    "label": "Prime Agent",
+    "executable": "prime-agent",
+    "sessionNameHint": "Prime Agent 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "penguin",
+    "label": "PenguinHarness",
+    "executable": "penguin",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": false,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": false,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "goose",
+    "label": "Goose",
+    "executable": "goose",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": true,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "hermes",
+    "label": "Hermes Agent",
+    "executable": "hermes",
+    "sessionNameHint": "Hermes Agent 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "dsh",
+    "label": "dsh",
+    "executable": "dsh",
+    "sessionNameHint": "dsh 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "omp",
+    "label": "omp",
+    "executable": "omp",
+    "sessionNameHint": "omp 会话由原生会话 ID 继续；本次启动创建新会话",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "morph",
+    "label": "Mister Morph",
+    "executable": "morph",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": false,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "minimaxCode",
+    "label": "MiniMax Code",
+    "executable": "mcode",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": false,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "raycast",
+    "label": "Raycast",
+    "executable": "raycast",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": false,
+      "modelSelection": false,
+      "sessionHistory": false,
+      "sessionSearch": false,
+      "sessionDetail": false,
+      "sessionResume": false,
+      "sessionName": false,
+      "liveness": false,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": false
+    }
+  },
+  {
+    "kind": "omo",
+    "label": "OmO",
+    "executable": "omo",
+    "sessionNameHint": "OmO 会话由原生会话 ID 继续；新建会话可填写名称",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": true,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  },
+  {
+    "kind": "commandCode",
+    "label": "Command Code",
+    "executable": "command-code",
+    "sessionNameHint": "",
+    "capabilities": {
+      "temporaryLaunch": true,
+      "modelSelection": true,
+      "sessionHistory": true,
+      "sessionSearch": true,
+      "sessionDetail": true,
+      "sessionResume": true,
+      "sessionName": true,
+      "liveness": true,
+      "defaultConfig": true,
+      "assetInventory": true,
+      "hookInventory": false,
+      "runtimeObservation": true
+    }
+  }
+]

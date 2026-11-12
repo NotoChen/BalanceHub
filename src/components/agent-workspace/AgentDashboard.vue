@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, toRef, watch } from "vue";
-import { RefreshCw, History } from "@lucide/vue";
+import { RefreshCw, History, ShieldCheck, Sparkles } from "@lucide/vue";
 import { useAgentMaintenanceStore } from "../../stores/agent-maintenance";
 import AgentHistoryDrawer from "./AgentHistoryDrawer.vue";
 import AgentMaintenancePlanModal from "./AgentMaintenancePlanModal.vue";
@@ -11,7 +11,7 @@ import { useCardDragSort } from "../../composables/useCardDragSort";
 import { agentWorkspacePages, type AgentWorkspacePage } from "../../stores/agent-workspace";
 import { useAgentWslStore } from "../../stores/agent-wsl";
 import type { AgentCatalogOperation } from "../../stores/agent-catalog-types";
-import type { AgentCliKind, AgentRuntimeSession, AgentRuntimeSnapshot, CliRuntimeSnapshot, Provider } from "../../stores/provider-types";
+import type { AgentCliKind, AgentRuntimeSession, AgentRuntimeSnapshot, CliRuntimeSnapshot, Provider, TemporaryCliLaunchContext } from "../../stores/provider-types";
 import AgentOverviewCard from "./AgentOverviewCard.vue";
 import AgentWorkspaceIcon from "./AgentWorkspaceIcon.vue";
 import AgentCliIcon from "../AgentCliIcon.vue";
@@ -37,14 +37,18 @@ import AgentAssetPlanModal from "../settings/agent-environment/AgentAssetPlanMod
 import AgentAssetAccessModal from "../settings/agent-environment/AgentAssetAccessModal.vue";
 import AgentAssetOperationList from "../settings/agent-environment/AgentAssetOperationList.vue";
 import AgentHookPlanModal from "../settings/agent-environment/AgentHookPlanModal.vue";
+import AgentSelfCheckModal from "./AgentSelfCheckModal.vue";
+import ProviderRecommendationModal from "../ProviderRecommendationModal.vue";
 
 const props = defineProps<{
   active: boolean; providers: Provider[]; cliRuntime: CliRuntimeSnapshot; runtimeSnapshot: AgentRuntimeSnapshot;
   runtimeLoading: boolean; activatingId: string | null;
 }>();
 const emit = defineEmits<{
-  refreshing: [loading: boolean]; refreshRuntime: []; activateRuntime: [session: AgentRuntimeSession]; launch: [provider: Provider, kind: AgentCliKind];
+  refreshing: [loading: boolean]; refreshRuntime: []; activateRuntime: [session: AgentRuntimeSession]; launch: [provider: Provider, kind: AgentCliKind, context?: TemporaryCliLaunchContext];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
 }>();
+const recommendationVisible = ref(false);
 const sessionPanel = ref<InstanceType<typeof AgentSessionPanel> | null>(null);
 const instructionsPanel = ref<InstanceType<typeof AgentInstructionsPanel> | null>(null);
 const wslPanel = ref<InstanceType<typeof AgentWslPanel> | null>(null);
@@ -183,7 +187,7 @@ defineExpose({ refresh });
     <div ref="content" class="agent-dashboard-content" :class="{ 'has-catalog': model.navigation.page !== 'overview' && model.navigation.page !== 'sessions', 'has-session-history': model.navigation.page === 'sessions' && model.navigation.sessionView === 'history' }" @scroll="cancelCardDrag">
       <p v-if="taskRecoveryError" class="agent-workspace-error" role="alert">{{ taskRecoveryError }}<a-button type="text" size="small" :loading="model.catalogStore.recovering || model.lifecycleStore.recovering" @click="recoverTasks">重新读取任务状态</a-button></p>
       <template v-if="model.navigation.page === 'overview'">
-        <header class="agent-section-toolbar agent-overview-toolbar"><p>{{ model.cards.length }} 个 Agent</p><a-button size="small" :loading="model.lifecycleStore.checkingVersions" @click="model.lifecycleStore.refresh('force')"><template #icon><RefreshCw :size="16" /></template>检查更新</a-button></header>
+        <header class="agent-section-toolbar agent-overview-toolbar"><p>{{ model.cards.length }} 个 Agent</p><div class="agent-inline-actions"><a-button size="small" @click="recommendationVisible = true"><template #icon><Sparkles :size="16" /></template>中转站推荐</a-button><a-button size="small" @click="model.openSelfCheck()"><template #icon><ShieldCheck :size="16" /></template>环境自检</a-button><a-button size="small" :loading="model.lifecycleStore.checkingVersions" @click="model.lifecycleStore.refresh('force')"><template #icon><RefreshCw :size="16" /></template>检查更新</a-button></div></header>
         <p v-if="model.error || model.lifecycleStore.error" class="agent-workspace-error" role="alert">{{ model.error || model.lifecycleStore.error }}</p>
         <div v-if="!model.cards.length" class="agent-workspace-empty">{{ model.navigation.query ? '没有匹配的 Agent' : '正在读取已注册 Agent' }}</div>
         <TransitionGroup v-else tag="div" name="agent-card-sort" class="agent-overview-grid"><AgentOverviewCard v-for="card in orderedCards" :key="card.agent.kind" v-bind="card" :loading="model.loading"
@@ -202,7 +206,7 @@ defineExpose({ refresh });
       <AgentCatalogPanel v-else-if="!['sessions', 'instructions', 'environments'].includes(model.navigation.page)" ref="catalogPanel" :focused-asset-id="model.navigation.page === 'library' ? model.navigation.libraryAssetId : null" @edit="editLibraryDefinition" :catalog="model.catalog.catalog" :page="model.navigation.page" :query="model.navigation.query" :agent-filter="model.navigation.agentFilter" :agents="cliRuntime.agents" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
       <AgentInstructionsPanel v-if="instructionsOpened" v-show="model.navigation.page === 'instructions'" ref="instructionsPanel" :active="active && model.navigation.page === 'instructions'" :agents="cliRuntime.agents" :workspace="model.navigation.workspacePath" :query="model.navigation.queries.instructions ?? ''" />
       <AgentWslPanel v-if="wsl.supported === true && environmentsOpened" v-show="model.navigation.page === 'environments'" ref="wslPanel" :active="active && model.navigation.page === 'environments'" :agents="cliRuntime.agents" :query="model.navigation.queries.environments ?? ''" />
-      <AgentSessionPanel v-if="sessionOpened" v-show="model.navigation.page === 'sessions'" ref="sessionPanel" :active="active" :providers="providers" :installations="model.installations" :cli-runtime="cliRuntime" :runtime-snapshot="runtimeSnapshot" :runtime-sessions="model.runtimeSessions" :runtime-loading="runtimeLoading" :activating-id="activatingId" @refresh-runtime="emit('refreshRuntime')" @activate-runtime="emit('activateRuntime', $event)" />
+      <AgentSessionPanel v-if="sessionOpened" v-show="model.navigation.page === 'sessions'" ref="sessionPanel" :active="active" :providers="providers" :installations="model.installations" :cli-runtime="cliRuntime" :runtime-snapshot="runtimeSnapshot" :runtime-sessions="model.runtimeSessions" :runtime-loading="runtimeLoading" :activating-id="activatingId" @refresh-runtime="emit('refreshRuntime')" @activate-runtime="emit('activateRuntime', $event)" @launch="(provider, kind, context) => emit('launch', provider, kind, context)" />
     </div>
     <a-drawer :visible="Boolean(model.navigation.operationDetails)" width="min(820px, calc(100vw - 32px))" :footer="false" title="任务详情" class="agent-workspace-drawer" closable mask-closable esc-to-close unmount-on-close @cancel="model.navigation.closeOperation">
       <div v-if="model.navigation.operationDetails" class="agent-modal-body">
@@ -230,5 +234,7 @@ defineExpose({ refresh });
     <AgentAssetAccessModal :confirmation="native.accessConfirmation" @close="native.closeAccessConfirmation" @confirm="native.confirmAccess" />
     <AgentHookPlanModal :visible="model.hooks.planVisible" :plan="model.hooks.pendingPlan" :can-apply="model.hooks.canApplyPlan" @close="model.hooks.closePlan" @confirm="model.confirmHookPlan" />
     <AgentLaunchProviderModal :visible="Boolean(model.launchKind)" :agent-label="launchLabel" :providers="providers" @close="model.launchKind = null" @select="launch" />
+    <AgentSelfCheckModal :visible="model.selfCheck.visible" :loading="model.selfCheck.loading" :error="model.selfCheck.error" :report="model.selfCheck.report" @close="model.closeSelfCheck()" @refresh="model.refreshSelfCheck()" />
+    <ProviderRecommendationModal :visible="recommendationVisible" :providers="providers" @close="recommendationVisible = false" @switch="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)" />
   </main>
 </template>

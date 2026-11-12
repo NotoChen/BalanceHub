@@ -121,6 +121,7 @@ bridge!(get_agent_mcp_check { "id": id: String });
 bridge!(cancel_agent_mcp_check { "id": id: String });
 bridge!(get_cached_agent_overview { "workspace": workspace: Option<String> });
 bridge!(refresh_agent_overview { "agentKind": agent_kind: AgentCliKind, "workspace": workspace: Option<String>, "force": force: bool });
+bridge!(get_agent_environment_report { "workspace": workspace: Option<String> });
 bridge!(resume_agent_session { "request": request: AgentSessionResumeRequest });
 bridge!(get_agent_session_resume_operation { "operationId": operation_id: String });
 bridge!(list_agent_session_resume_operations {});
@@ -133,6 +134,8 @@ bridge!(search_agent_session { "request": request: AgentSessionSearchRequest });
 bridge!(get_agent_session_message_content { "request": request: AgentSessionMessageRequest });
 bridge!(get_agent_model_catalog { "context": context: AgentModelCatalogContext, "refresh": refresh: bool });
 bridge!(estimate_session_usage { "usage": usage: SessionUsageSummary });
+bridge!(get_agent_usage_report { "request": request: AgentUsageReportRequest });
+bridge!(prepare_agent_handoff { "request": request: AgentHandoffRequest });
 bridge!(get_temporary_cli_settings { "request": request: TemporaryCliSettingsRequest });
 bridge!(get_temporary_cli_assets { "request": request: TemporaryCliSettingsRequest, "refresh": refresh: bool });
 bridge!(list_temporary_cli_profiles {});
@@ -180,6 +183,21 @@ pub(crate) async fn read_agent_catalog_content(
 }
 
 #[tauri::command]
+pub(crate) async fn get_agent_projects(
+    window: Window,
+    request: AgentProjectReportRequest,
+    progress: Channel<Value>,
+) -> Result<Value, Value> {
+    balancehub_agent::api::dispatch(
+        "get_agent_projects",
+        json!({ "request": request }),
+        window.label(),
+        Some(Arc::new(ChannelSink(progress))),
+    )
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn cancel_agent_session_query(
     window: Window,
     request: AgentSessionCancelRequest,
@@ -213,6 +231,7 @@ mod tests {
         bridged.extend([
             "get_agent_asset_catalog",
             "read_agent_catalog_content",
+            "get_agent_projects",
             "cancel_agent_session_query",
         ]);
         let expected: BTreeSet<&str> = balancehub_agent::api::COMMANDS.iter().copied().collect();

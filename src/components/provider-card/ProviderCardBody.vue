@@ -17,6 +17,7 @@ import {
   providerQuotaTone,
   providerQuotaTotalKnown,
   providerQuotaUnlimited,
+  providerQuotaWindowOverflow,
   providerQuotaWindowRows,
   usedPercent,
   usedPercentLabel,
@@ -69,6 +70,7 @@ const quotaProgressVisible = computed(
 /// 中转站卡的窗口读法只有一套。不限量窗口也要列出来，否则卡片会退回钱包
 /// 余额，读起来像两套额度制度。
 const quotaWindowRows = computed(() => providerQuotaWindowRows(props.provider));
+const quotaWindowOverflow = computed(() => providerQuotaWindowOverflow(props.provider));
 </script>
 
 <template>
@@ -112,6 +114,12 @@ const quotaWindowRows = computed(() => providerQuotaWindowRows(props.provider));
       :window="providerQuotaBarWindow(row)"
       compact
     />
+    <span
+      v-if="quotaWindowOverflow.count > 0"
+      class="provider-card-quota-overflow"
+      :title="quotaWindowOverflow.labels.join('、')"
+      >另有 {{ quotaWindowOverflow.count }} 个额度窗口</span
+    >
   </div>
   <!-- 钱包余额的比例条和窗口条同一排法：条独占一行，比例贴在条右端。 -->
   <div v-else-if="quotaProgressVisible" class="provider-card-progress-row">
@@ -136,7 +144,7 @@ const quotaWindowRows = computed(() => providerQuotaWindowRows(props.provider));
 <!-- 模型行是正文最后一层，多余的高度留在额度和模型之间，芯片紧贴页脚
      分界线；有测活时间线时由时间线收口。行数固定三行，不由卡型决定。 -->
 <ProviderModelPreview
-  :models="provider.capabilities.availableModels"
+  :models="provider.visibleModels"
   :state="provider.capabilities.availableModelsState"
   :sync-time="modelSyncTime"
   :interactive="interactive"

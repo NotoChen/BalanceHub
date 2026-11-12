@@ -9,7 +9,8 @@ use crate::{
         AppSettings, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption,
         ProviderApiKeyPatch, ProviderCapabilities, ProviderConnectionTestResult,
         ProviderCredentialCompletionResult, ProviderInput, ProviderRequestLogsQuery,
-        ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary, SiteAnnouncement,
+        ProviderRequestLogsResult, ProviderSiteProbeResult, ProviderUsageSummary,
+        SiteAnnouncementList,
     },
 };
 use async_trait::async_trait;
@@ -195,7 +196,7 @@ impl AnnouncementCapability for Sub2ApiAdapter {
         &self,
         settings: &AppSettings,
         provider: &Provider,
-    ) -> Result<ProviderOperationOutcome<Vec<SiteAnnouncement>>, String> {
+    ) -> Result<ProviderOperationOutcome<SiteAnnouncementList>, String> {
         Sub2ApiAdapter::list_announcements(self, settings, provider)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
