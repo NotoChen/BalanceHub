@@ -394,6 +394,12 @@ mod tests {
             return;
         }
         let expected = std::fs::read_to_string(&path).expect("capability snapshot should exist");
+        // 快照在 Windows 检出时可能带 CRLF，而序列化结果始终是 LF；
+        // 比较 JSON 内容而不是原始文本，避免行尾符让不同平台得出不同结论。
+        let rendered: serde_json::Value =
+            serde_json::from_str(&rendered).expect("capability matrix should parse");
+        let expected: serde_json::Value =
+            serde_json::from_str(&expected).expect("capability snapshot should parse");
         assert_eq!(
             rendered, expected,
             "Agent 能力矩阵已变化；确认变更后运行 UPDATE_AGENT_CAPABILITIES=1 \
