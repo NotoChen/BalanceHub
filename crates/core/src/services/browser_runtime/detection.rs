@@ -164,11 +164,12 @@ pub(super) fn executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return false;
-        }
+        metadata.permissions().mode() & 0o111 != 0
     }
-    true
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 fn candidates() -> Vec<(String, PathBuf)> {
