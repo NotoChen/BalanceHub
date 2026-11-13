@@ -117,6 +117,34 @@ impl Sub2ApiAdapter {
         Ok((authenticated, "密码已更新".to_string()))
     }
 
+    pub async fn redeem_code(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        code: &str,
+    ) -> Result<(Provider, String), String> {
+        let code = code.trim();
+        if code.is_empty() {
+            return Err("请输入兑换码".to_string());
+        }
+        let client = build_client(settings, provider).await?;
+        let (authenticated, data) = request_account_json(
+            &client,
+            provider,
+            Method::POST,
+            "/redeem",
+            Some(json!({ "code": code })),
+            "兑换 Sub2API 卡密",
+        )
+        .await?;
+        // Sub2API 的兑换结果带本地化文案和新的余额/并发数；站点给了文案就
+        // 原样展示，没有时用统一提示，余额刷新由服务层继续完成。
+        let message = string_field(&data, &["message"])
+            .filter(|message| !message.trim().is_empty())
+            .unwrap_or_else(|| "兑换成功，余额已更新".to_string());
+        Ok((authenticated, message))
+    }
+
     pub async fn probe_capabilities(
         &self,
         settings: &AppSettings,
@@ -132,6 +160,15 @@ impl Sub2ApiAdapter {
             ..Default::default()
         };
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
+            let client = build_client(settings, provider).await?;
+            let pricing = super::super::pricing::probe_pricing(&client, provider).await;
+            capabilities.pricing = pricing.snapshot;
+            let (_, states) =
+                super::super::optional_probe::probe_optional(&client, provider, pricing.state)
+                    .await;
+            for state in states {
+                capabilities.set_optional_state(state);
+            }
             return Ok((provider.clone(), (capabilities, String::new(), None)));
         }
         let client = build_client(settings, provider).await?;
@@ -155,6 +192,14 @@ impl Sub2ApiAdapter {
                 String::new()
             }
         };
+        let pricing = super::super::pricing::probe_pricing(&client, &authenticated).await;
+        capabilities.pricing = pricing.snapshot;
+        let (authenticated, states) =
+            super::super::optional_probe::probe_optional(&client, &authenticated, pricing.state)
+                .await;
+        for state in states {
+            capabilities.set_optional_state(state);
+        }
         Ok((
             authenticated,
             (
@@ -201,5 +246,60 @@ impl Sub2ApiAdapter {
             )
             .ok_or_else(|| "当前协议不支持邀请链接".to_string())?,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::test_support::{serve, Reply};
+    use crate::models::ProviderProtocol;
+
+    fn sub2_provider(provider: &mut Provider) {
+        provider.identity.protocol = ProviderProtocol::Sub2Api;
+        provider.auth.mode = AuthMode::AccessToken;
+        provider.auth.access_token = "fixture-jwt".to_string();
+    }
+
+    #[tokio::test]
+    async fn redemption_posts_the_code_and_returns_the_site_message() {
+        let (mut provider, requests, server) = serve(vec![Reply(
+            200,
+            r#"{"code":0,"data":{"message":"兑换成功","new_balance":12.5}}"#,
+        )]);
+        sub2_provider(&mut provider);
+        let (_, message) = Sub2ApiAdapter
+            .redeem_code(&AppSettings::default(), &provider, " CODE-42 ")
+            .await
+            .unwrap();
+        server.join().unwrap();
+        let request = requests.recv().unwrap();
+        assert!(request.starts_with("POST /relay/api/v1/redeem "));
+        assert!(request.contains("\"code\":\"CODE-42\""));
+        assert_eq!(message, "兑换成功");
+    }
+
+    #[tokio::test]
+    async fn redemption_rejects_an_empty_code_before_sending() {
+        let (mut provider, _requests, _server) = serve(Vec::new());
+        sub2_provider(&mut provider);
+        let error = Sub2ApiAdapter
+            .redeem_code(&AppSettings::default(), &provider, " ")
+            .await
+            .unwrap_err();
+        assert!(error.contains("请输入兑换码"));
+    }
+
+    #[tokio::test]
+    async fn redemption_surfaces_the_site_error_message() {
+        let (mut provider, _requests, server) =
+            serve(vec![Reply(200, r#"{"code":400,"message":"卡密已被使用"}"#)]);
+        sub2_provider(&mut provider);
+        let error = Sub2ApiAdapter
+            .redeem_code(&AppSettings::default(), &provider, "USED")
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(error.contains("卡密已被使用"));
     }
 }

@@ -2,22 +2,76 @@
 import { computed } from "vue";
 import {
   IconApps,
+  IconBarChart,
   IconCalendar,
   IconClockCircle,
   IconExperiment,
+  IconFile,
   IconLink,
+  IconNotification,
   IconRefresh,
   IconSafe,
+  IconSubscribe,
+  IconTag,
+  IconUserGroup,
 } from "@arco-design/web-vue/es/icon";
-import type { AuthMode, Provider, ProviderProtocolDescriptor } from "../stores/providers";
+import type {
+  AuthMode,
+  Provider,
+  ProviderOptionalCapability,
+  ProviderProtocolDescriptor,
+} from "../stores/providers";
 import {
   providerAuthModeDescriptor,
   providerProtocolDescriptor,
 } from "../utils/provider-protocol";
 import { providerDisplayLabel, providerModelScopeLabel } from "../utils/provider-display";
 
-type ProbeStepKey = "checkIn" | "apiKeys" | "invitation" | "models";
-type ProbeStepStatus = "running" | "supported" | "unsupported" | "skipped" | "error" | "pending";
+type ProbeStepKey =
+  | "checkIn"
+  | "apiKeys"
+  | "invitation"
+  | "pricing"
+  | "models"
+  | "usage"
+  | "requestLogs"
+  | "announcements"
+  | "subscription"
+  | "groups";
+type ProbeStepStatus =
+  | "running"
+  | "supported"
+  | "unsupported"
+  | "skipped"
+  | "unknown"
+  | "error"
+  | "pending";
+
+const OPTIONAL_STEPS: Array<{
+  key: ProbeStepKey;
+  capability: ProviderOptionalCapability;
+  label: string;
+  icon: typeof IconCalendar;
+}> = [
+  { key: "pricing", capability: "pricing", label: "站点定价", icon: IconTag },
+  { key: "usage", capability: "usage", label: "用量趋势", icon: IconBarChart },
+  { key: "requestLogs", capability: "requestLogs", label: "请求日志", icon: IconFile },
+  { key: "announcements", capability: "announcements", label: "站点公告", icon: IconNotification },
+  { key: "subscription", capability: "subscription", label: "订阅额度", icon: IconSubscribe },
+  { key: "groups", capability: "groups", label: "站点分组", icon: IconUserGroup },
+];
+
+/// 模型列表既有独立的同步动作，也由能力探测记录结论，因此和上面六个接口分开
+/// 列出，但读取同一份 `capabilities.optional`。
+const OPTIONAL_CAPABILITY_BY_STEP: Partial<Record<ProbeStepKey, ProviderOptionalCapability>> = {
+  pricing: "pricing",
+  usage: "usage",
+  requestLogs: "requestLogs",
+  announcements: "announcements",
+  subscription: "subscription",
+  groups: "groups",
+  models: "models",
+};
 
 const props = defineProps<{
   visible: boolean;
@@ -47,7 +101,14 @@ const protocolDescriptor = computed(() =>
 );
 const capabilityError = computed(() => props.provider?.capabilities.errorMessage?.trim() || "");
 const modelError = computed(() => props.provider?.capabilities.availableModelsState.error || "");
-const partialError = computed(() => capabilityError.value || modelError.value);
+const optionalProbeErrors = computed(() =>
+  (props.provider?.capabilities.optional ?? [])
+    .filter((state) => !state.known && state.error)
+    .map((state) => state.error?.trim() || ""),
+);
+const partialError = computed(
+  () => capabilityError.value || modelError.value || optionalProbeErrors.value[0] || "",
+);
 const scopedErrors = computed(() => parseScopedErrors(capabilityError.value));
 const unscopedPartialError = computed(() =>
   capabilityError.value && scopedErrors.value.size === 0 ? capabilityError.value : "",
@@ -75,6 +136,9 @@ const steps = computed(() => {
     makeStep("checkIn", "签到能力", IconCalendar, checkInMethod()),
     makeStep("apiKeys", "密钥管理", IconSafe, apiKeyMethod()),
     makeStep("invitation", "邀请能力", IconLink, invitationMethod()),
+    ...OPTIONAL_STEPS.map((step) =>
+      makeStep(step.key, step.label, step.icon, optionalMethod(step.key)),
+    ),
     makeStep("models", "模型列表", IconApps, modelMethod()),
   ];
 });
@@ -92,14 +156,34 @@ function makeStep(key: ProbeStepKey, label: string, icon: typeof IconCalendar, m
   };
 }
 
+function optionalState(key: ProbeStepKey) {
+  const capability = OPTIONAL_CAPABILITY_BY_STEP[key];
+  if (!capability) return undefined;
+  return props.provider?.capabilities.optional?.find(
+    (state) => state.capability === capability,
+  );
+}
+
+function isOptionalKey(key: ProbeStepKey) {
+  return OPTIONAL_CAPABILITY_BY_STEP[key] !== undefined;
+}
+
 function stepStatus(key: ProbeStepKey): ProbeStepStatus {
   const provider = props.provider;
   if (!provider) return "pending";
   if (isSkipped(provider, key)) return "skipped";
   if (props.running) return "running";
   if (props.error) return "error";
-  if (stepError(key)) return "error";
   if (!probeFinished.value) return "pending";
+
+  // 可选接口有明确的探测结论时优先使用；未知状态显示为「未确认」而不是
+  // 「失败」，避免把一次认证/网络错误当成站点不支持。
+  const optional = optionalState(key);
+  if (optional) {
+    if (optional.known) return optional.supported ? "supported" : "unsupported";
+    return "unknown";
+  }
+  if (stepError(key)) return "error";
 
   const capabilities = provider.capabilities;
   if (key === "checkIn") {
@@ -115,11 +199,17 @@ function stepStatus(key: ProbeStepKey): ProbeStepStatus {
       ? "supported"
       : "unsupported";
   }
-  return capabilities.availableModelsState.updatedAt ? "supported" : "unsupported";
+  if (key === "models") {
+    return capabilities.availableModelsState.updatedAt ? "supported" : "unsupported";
+  }
+  return "unknown";
 }
 
 function isSkipped(provider: Provider, key: ProbeStepKey) {
-  if (key === "models") return !provider.actions.models.canSync;
+  if (key === "models") {
+    return !provider.actions.models.canSync && !optionalState(key);
+  }
+  if (isOptionalKey(key)) return !optionalState(key) && !optionalOperationMethod(key);
   return provider.auth.mode === "apiKey" || protocolDescriptor.value?.capabilities.account === false;
 }
 
@@ -128,6 +218,7 @@ function stepStatusLabel(status: ProbeStepStatus) {
   if (status === "supported") return "支持";
   if (status === "unsupported") return "不支持";
   if (status === "skipped") return "已跳过";
+  if (status === "unknown") return "未确认";
   if (status === "error") return "失败";
   return "等待";
 }
@@ -140,6 +231,7 @@ function stepDetail(key: ProbeStepKey, status: ProbeStepStatus) {
   if (status === "pending") return "尚未开始";
   if (status === "skipped") {
     if (key === "models") return provider.actions.models.unavailableReason || "当前认证信息不支持读取模型";
+    if (isOptionalKey(key)) return "当前协议未声明该站点接口";
     if (protocolDescriptor.value?.capabilities.account === false) {
       return "当前协议不提供账号级能力";
     }
@@ -147,6 +239,25 @@ function stepDetail(key: ProbeStepKey, status: ProbeStepStatus) {
   }
 
   const capabilities = provider.capabilities;
+  if (key === "models" && status === "supported") {
+    const count = capabilities.availableModels.length;
+    if (capabilities.availableModelsState.fallbackReason) {
+      return `Key 接口失败，已读取 ${count} 个账号可用模型：${capabilities.availableModelsState.fallbackReason}`;
+    }
+    return count > 0
+      ? `已读取 ${count} 个${providerModelScopeLabel(capabilities.availableModelsState.scope)}`
+      : "模型接口已正常响应，当前列表为空";
+  }
+  const optional = optionalState(key);
+  if (optional) {
+    if (status === "unknown") {
+      return optional.error || optional.reason || "探测没有得到明确结论";
+    }
+    if (status === "unsupported") {
+      return optional.reason || optional.error || "站点接口不可用";
+    }
+    return optional.reason || "接口可用";
+  }
   if (key === "checkIn") {
     if (!capabilities.checkInSupported) return "站点接口未确认可用的签到方式";
     const modes = capabilities.checkInAuthModes
@@ -164,15 +275,13 @@ function stepDetail(key: ProbeStepKey, status: ProbeStepStatus) {
       ? "已确认邀请信息接口可用"
       : "未读取到可用的邀请信息";
   }
-  const count = capabilities.availableModels.length;
-  if (capabilities.availableModelsState.fallbackReason) {
-    return `Key 接口失败，已读取 ${count} 个账号可用模型：${capabilities.availableModelsState.fallbackReason}`;
-  }
-  return count > 0 ? `已读取 ${count} 个${providerModelScopeLabel(capabilities.availableModelsState.scope)}` : "模型接口已正常响应，当前列表为空";
+  return "未读取到该接口的探测结果";
 }
 
 function stepError(key: ProbeStepKey) {
   if (props.error) return props.error;
+  const optional = optionalState(key);
+  if (optional?.error) return optional.error;
   if (key === "models") return modelError.value;
   if (unscopedPartialError.value) return unscopedPartialError.value;
   return scopedErrors.value.get(key) || "";
@@ -208,6 +317,22 @@ function apiKeyMethod() {
 
 function invitationMethod() {
   return protocolDescriptor.value?.operationMethods.invitation || "协议未声明邀请接口";
+}
+
+function optionalOperationMethod(key: ProbeStepKey) {
+  const methods = protocolDescriptor.value?.operationMethods;
+  if (!methods) return "";
+  if (key === "pricing") return methods.pricing || "";
+  if (key === "usage") return methods.usage || "";
+  if (key === "requestLogs") return methods.requestLogs || "";
+  if (key === "announcements") return methods.announcements || "";
+  if (key === "subscription") return methods.subscription || "";
+  if (key === "groups") return methods.groups || "";
+  return "";
+}
+
+function optionalMethod(key: ProbeStepKey) {
+  return optionalOperationMethod(key) || "协议未声明该站点接口";
 }
 
 function modelMethod() {

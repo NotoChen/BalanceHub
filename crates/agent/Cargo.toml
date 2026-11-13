@@ -1,6 +1,6 @@
 [package]
 name = "balancehub-agent"
-version = "0.6.12"
+version = "0.6.13"
 description = "BalanceHub 的 Agent CLI、会话与本机工具能力；桌面与无界面后端共用。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"

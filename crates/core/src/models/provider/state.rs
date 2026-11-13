@@ -206,6 +206,10 @@ pub struct ProviderQuota {
     pub currency_symbol: String,
     #[serde(default = "defaults::currency_exchange_rate")]
     pub currency_exchange_rate: f64,
+    /// 账号当前使用的站点分组。NewAPI 的模型价格要乘分组倍率才是实际收费，
+    /// 刷新时由站点返回；API Key 卡片取当前 Key 所属分组。
+    #[serde(default)]
+    pub group: String,
     /// Subscription-billed relays (NewAPI 订阅、Sub2API 订阅分组) keep their real
     /// quota in period windows while the wallet only holds overflow, so the card
     /// needs those windows to answer "还有多少" for such an account.
@@ -314,6 +318,73 @@ pub struct ProviderCapabilities {
     pub available_models: Vec<String>,
     #[serde(default)]
     pub available_models_state: ProviderModelListState,
+    /// 可选站点接口的探测结果。签到、密钥管理和邀请仍有专用字段，其余能力
+    /// 统一放在这里，UI 据此显隐入口并说明不支持原因。
+    #[serde(default)]
+    pub optional: Vec<ProviderOptionalCapabilityState>,
+    /// 站点价目快照；和能力探测结果分开维护，普通刷新也会更新。
+    #[serde(default)]
+    pub pricing: crate::models::ProviderPricingSnapshot,
+}
+
+/// 除签到、密钥管理和邀请之外，BalanceHub 会按需读取的站点接口。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderOptionalCapability {
+    #[default]
+    Pricing,
+    Usage,
+    RequestLogs,
+    Announcements,
+    Subscription,
+    Groups,
+    Models,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderOptionalCapabilityState {
+    pub capability: ProviderOptionalCapability,
+    /// 是否得到了明确结论。网络错误或认证失败时保持 false，调用方继续按
+    /// 协议默认能力处理，而不是把一次失败当成「站点不支持」。
+    pub known: bool,
+    pub supported: bool,
+    /// 不支持或确认支持时的说明，供能力详情展示。
+    pub reason: Option<String>,
+    /// 探测请求本身失败的原因。
+    pub error: Option<String>,
+}
+
+impl ProviderOptionalCapabilityState {
+    pub fn supported(capability: ProviderOptionalCapability, reason: impl Into<String>) -> Self {
+        Self {
+            capability,
+            known: true,
+            supported: true,
+            reason: Some(reason.into()).filter(|reason| !reason.trim().is_empty()),
+            error: None,
+        }
+    }
+
+    pub fn unsupported(capability: ProviderOptionalCapability, reason: impl Into<String>) -> Self {
+        Self {
+            capability,
+            known: true,
+            supported: false,
+            reason: Some(reason.into()).filter(|reason| !reason.trim().is_empty()),
+            error: None,
+        }
+    }
+
+    pub fn unknown(capability: ProviderOptionalCapability, error: impl Into<String>) -> Self {
+        Self {
+            capability,
+            known: false,
+            supported: false,
+            reason: None,
+            error: Some(error.into()).filter(|error| !error.trim().is_empty()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -363,6 +434,27 @@ impl ProviderCapabilities {
     pub fn clear_available_models(&mut self) {
         self.available_models.clear();
         self.available_models_state = ProviderModelListState::default();
+    }
+
+    pub fn optional_state(
+        &self,
+        capability: ProviderOptionalCapability,
+    ) -> Option<&ProviderOptionalCapabilityState> {
+        self.optional
+            .iter()
+            .find(|state| state.capability == capability)
+    }
+
+    /// 同一能力只保留一条结果；后一次探测覆盖前一次。
+    pub fn set_optional_state(&mut self, state: ProviderOptionalCapabilityState) {
+        match self
+            .optional
+            .iter_mut()
+            .find(|existing| existing.capability == state.capability)
+        {
+            Some(existing) => *existing = state,
+            None => self.optional.push(state),
+        }
     }
 }
 

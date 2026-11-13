@@ -1,6 +1,6 @@
 [package]
 name = "balancehub-core"
-version = "0.6.12"
+version = "0.6.13"
 description = "BalanceHub 网络协议、数据模型与调度核心；不依赖桌面窗口。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"

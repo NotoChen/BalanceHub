@@ -44,6 +44,10 @@ export interface ProviderProtocolCapabilitiesDescriptor {
   apiKeyManagement: boolean;
   usage: boolean;
   account: boolean;
+  /** 允许在应用内修改用户名和显示名。 */
+  accountProfile: boolean;
+  /** 提供兑换码入口。 */
+  accountRedemption: boolean;
   checkIn: boolean;
   announcements: boolean;
   /// 可填写的备用地址数量上限；0 表示该协议的请求不经过中转站传输层，
@@ -61,7 +65,17 @@ export interface ProviderProtocolCapabilitiesDescriptor {
   modelsUrl: boolean;
   /// 该协议允许按接口改写的数量上限；0 表示没有请求目录。
   maxEndpointOverrides: number;
+  /// 请求日志支持的筛选维度；界面只渲染这里列出的控件。
+  requestLogFilters: ProviderRequestLogFilter[];
 }
+
+export type ProviderRequestLogFilter =
+  | "model"
+  | "tokenName"
+  | "group"
+  | "logType"
+  | "timeRange"
+  | "requestId";
 
 export interface ProviderEndpointHeaderDescriptor {
   name: string;
@@ -93,6 +107,11 @@ export interface ProviderProtocolOperationMethodsDescriptor {
   invitation: string | null;
   models: string;
   announcements: string | null;
+  pricing: string | null;
+  usage: string | null;
+  requestLogs: string | null;
+  subscription: string | null;
+  groups: string | null;
 }
 
 export interface ProviderCredentialAssistantDescriptor {
@@ -190,10 +209,20 @@ export interface ProviderActions {
   cpaGateway: boolean;
   appImports: ProviderAppImportOption[];
   accountManagement: boolean;
+  /** 编辑站点账号的用户名和显示名。 */
+  editProfile: boolean;
+  /** 使用兑换码补充余额。 */
+  redeemCode: boolean;
   checkIn: boolean;
   checkedInToday: boolean;
   apiKeyManagement: boolean;
   invitation: boolean;
+  /** 站点级用量趋势；能力探测确认不支持时为 false。 */
+  usage: boolean;
+  /** 站点请求日志；能力探测确认不支持时为 false。 */
+  requestLogs: boolean;
+  /** 站点公告；能力探测确认不支持时为 false。 */
+  announcements: boolean;
   refreshModelsOnly: boolean;
   models: {
     canSync: boolean;
@@ -355,6 +384,8 @@ export interface ProviderQuota {
   displayType: string;
   currencySymbol: string;
   currencyExchangeRate: number;
+  /** 账号当前使用的站点分组；NewAPI 价格要乘分组倍率。 */
+  group?: string;
   /** 订阅制中转站的周期额度窗口；钱包在这里只是溢出账户。 */
   windows?: ProviderQuotaWindow[];
 }
@@ -385,6 +416,50 @@ export interface ProviderCapabilities {
   errorMessage?: string | null;
   availableModels: string[];
   availableModelsState: ProviderModelListState;
+  /** 定价、用量、日志、公告、订阅、分组、模型的探测结果。 */
+  optional: ProviderOptionalCapabilityState[];
+  /** 站点价目快照；推荐、用量对账和模型详情共用。 */
+  pricing: ProviderPricingSnapshot;
+}
+
+export type ProviderOptionalCapability =
+  | "pricing"
+  | "usage"
+  | "requestLogs"
+  | "announcements"
+  | "subscription"
+  | "groups"
+  | "models";
+
+export interface ProviderOptionalCapabilityState {
+  capability: ProviderOptionalCapability;
+  /** 是否得到明确结论；网络错误时为 false。 */
+  known: boolean;
+  supported: boolean;
+  reason: string | null;
+  error: string | null;
+}
+
+export type ProviderPricingSource = "none" | "newApi" | "sub2Api";
+
+export interface ProviderModelPrice {
+  /** USD / 百万 token。 */
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  /** 按次计费单价（USD / 次）；有值时不再按 token 估算。 */
+  perRequest: number | null;
+  group: string;
+}
+
+export interface ProviderPricingSnapshot {
+  models: Record<string, ProviderModelPrice>;
+  groups: Record<string, number>;
+  group: string;
+  source: ProviderPricingSource;
+  updatedAt: string | null;
+  error: string | null;
 }
 
 export type ProviderModelScope = "account" | "apiKey";
@@ -1398,6 +1473,11 @@ export interface ProviderModelSyncResult {
   message: string;
 }
 
+export interface ProviderAccountMutationResult {
+  provider: Provider;
+  message: string;
+}
+
 export interface ProviderCredentialCompletionStep {
   name: string;
   ok: boolean;
@@ -1580,8 +1660,25 @@ export interface ProviderUsageSourceError {
   message: string;
 }
 
+export type ProviderRequestLogTimeRange = "24h" | "7d" | "30d" | "90d";
+
+export interface ProviderRequestLogFilters {
+  model: string;
+  tokenName: string;
+  group: string;
+  requestId: string;
+  logType: number | null;
+  range: ProviderRequestLogTimeRange;
+}
+
 export interface ProviderRequestLogsQuery {
-  keyword: string;
+  model: string;
+  tokenName: string;
+  group: string;
+  requestId: string;
+  logType: number | null;
+  startTimestamp: number | null;
+  endTimestamp: number | null;
   page: number;
   pageSize: number;
 }

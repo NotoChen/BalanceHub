@@ -310,6 +310,31 @@ pub(crate) async fn change_provider_password(
 }
 
 #[tauri::command]
+pub(crate) async fn change_provider_profile(
+    id: String,
+    username: String,
+    display_name: String,
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "change_provider_profile",
+        json!({
+            "id": id,
+            "username": username,
+            "displayName": display_name,
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn redeem_provider_code(
+    id: String,
+    code: String,
+) -> Result<serde_json::Value, String> {
+    dispatch_value("redeem_provider_code", json!({ "id": id, "code": code })).await
+}
+
+#[tauri::command]
 pub(crate) async fn get_provider_check_in_records(
     id: String,
     month: String,

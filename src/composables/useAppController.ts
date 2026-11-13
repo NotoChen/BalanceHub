@@ -25,6 +25,7 @@ import { useAgentLifecycleEvents } from "./useAgentLifecycleEvents";
 import { useCheckInActions } from "./useCheckInActions";
 import { useCheckInRecords } from "./useCheckInRecords";
 import { useCliRuntime } from "./useCliRuntime";
+import { useAccountProfile } from "./useAccountProfile";
 import { usePasswordChange } from "./usePasswordChange";
 import { useOnboardingController } from "./useOnboardingController";
 import { useProviderEditor } from "./useProviderEditor";
@@ -144,6 +145,13 @@ export function useAppController() {
     providers,
     changePassword: (providerId, originalPassword, password) =>
       providerStore.changePassword(providerId, originalPassword, password),
+  });
+
+  const accountProfile = useAccountProfile({
+    providers,
+    changeProfile: (providerId, username, displayName) =>
+      providerStore.changeProfile(providerId, username, displayName),
+    redeemCode: (providerId, code) => providerStore.redeemCode(providerId, code),
   });
 
   const providerEditor = useProviderEditor({ store: providerStore, browserRuntime, loginAccounts });
@@ -304,6 +312,7 @@ export function useAppController() {
     openUsage: usage.openUsage,
     openRequestLogs: requestLogs.openRequestLogs,
     openPasswordChange: passwordChange.openPasswordChange,
+    openAccountProfile: accountProfile.openAccountProfile,
     openCheckInRecords: checkInRecords.openCheckInRecords,
     toggleProvider,
     removeProvider,
@@ -432,6 +441,7 @@ export function useAppController() {
     ...usage,
     ...requestLogs,
     ...passwordChange,
+    ...accountProfile,
     ...apiKeyManager,
     ...availableModels,
     ...siteAnnouncements,

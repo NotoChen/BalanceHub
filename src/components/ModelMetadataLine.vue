@@ -8,6 +8,8 @@ const capacity = (value: number) =>
     : value >= 1000
       ? `${+(value / 1000).toFixed(1)}K`
       : String(value);
+/// 站点价格由倍率或 per-token 单价换算，保留 6 位并去掉浮点尾差。
+const amount = (value: number) => `$${+value.toFixed(6)}`;
 const labels = computed(() =>
   !props.model
     ? []
@@ -24,11 +26,34 @@ const labels = computed(() =>
         ...(props.model.toolCall ? ["工具调用"] : []),
       ],
 );
-const price = computed(() =>
-  props.model?.price.input != null && props.model.price.output != null
-    ? `公开参考价格：输入 $${props.model.price.input} / 输出 $${props.model.price.output}，每百万 token。实际费用以中转站账单为准。`
-    : "价格资料不完整，无法估算费用",
-);
+const price = computed(() => {
+  const model = props.model;
+  if (!model) return "";
+  const group = model.priceGroup ? `（分组 ${model.priceGroup}）` : "";
+  if (model.perRequest != null) {
+    const source =
+      model.priceSource === "site" ? `站点价格${group}` : "价格";
+    return `${source}：按次计费 ${amount(model.perRequest)}/次。`;
+  }
+  const parts = [
+    model.price.input != null ? `输入 ${amount(model.price.input)}` : "",
+    model.price.output != null ? `输出 ${amount(model.price.output)}` : "",
+  ].filter(Boolean);
+  if (!parts.length) return "价格资料不完整，无法估算费用";
+  const amounts = `${parts.join(" / ")}，每百万 token`;
+  if (model.priceSource === "site") {
+    return model.priceGroup
+      ? `站点价格（分组 ${model.priceGroup}）：${amounts}。`
+      : `站点价格：${amounts}。`;
+  }
+  if (model.priceSource === "manual") {
+    return `卡片覆盖价格：${amounts}。`;
+  }
+  if (model.priceSource === "catalog") {
+    return `公开参考价格：${amounts}。实际费用以中转站账单为准。`;
+  }
+  return `价格：${amounts}。`;
+});
 </script>
 <template>
   <span

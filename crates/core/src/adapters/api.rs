@@ -18,11 +18,12 @@ use crate::{
         is_full_api_key_value, AppSettings, AuthMode, Provider, ProviderApiKeyOption,
         ProviderCapabilities, ProviderConnectionTestResult, ProviderConnectionTestStep,
         ProviderCredentialCompletionResult, ProviderCredentialCompletionStep, ProviderInput,
+        ProviderOptionalCapability, ProviderOptionalCapabilityState, ProviderPricingSnapshot,
         ProviderQuotaDisplay, ProviderQuotaScope, ProviderSiteProbeResult, ProviderStatus,
     },
 };
 use reqwest::{header::ACCEPT, header::RETRY_AFTER, header::USER_AGENT, Url};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub struct ApiAdapter;
 
@@ -97,6 +98,37 @@ impl ApiAdapter {
                     format!("通用 API Key 已连接，模型接口返回 {} 个模型", models.len());
                 let (mut available, mut used, mut quota_display) =
                     (None, None, ProviderQuotaDisplay::default());
+                let mut ok = true;
+                // `/models` 只证明密钥能通过鉴权，余额耗尽或模型被封禁时它仍然会
+                // 返回列表。连接测试是用户主动点击的动作，顺手做一次最小真实调用
+                // 才能说明这把 Key 现在真的可用。
+                if let Some(model) = pick_liveness_model(provider, &models) {
+                    match fetch_chat_completion(&client, provider, &model).await {
+                        Ok(()) => {
+                            message.push_str(&format!("；已用 {model} 完成一次真实调用"));
+                            steps.push(ProviderConnectionTestStep {
+                                name: "模型调用".to_string(),
+                                ok: true,
+                                message: format!("已用 {model} 完成一次最小对话请求"),
+                                available: None,
+                                used: None,
+                                quota_display: ProviderQuotaDisplay::default(),
+                            });
+                        }
+                        Err(error) => {
+                            ok = false;
+                            message.push_str(&format!("；真实调用失败：{}", error.message));
+                            steps.push(ProviderConnectionTestStep {
+                                name: "模型调用".to_string(),
+                                ok: false,
+                                message: error.message,
+                                available: None,
+                                used: None,
+                                quota_display: ProviderQuotaDisplay::default(),
+                            });
+                        }
+                    }
+                }
                 if provider.quota_spec.is_configured() {
                     match fetch_quota(&client, provider).await {
                         Ok(quota) => {
@@ -144,7 +176,7 @@ impl ApiAdapter {
                     message.push_str("；未声明余额接口");
                 }
                 Ok(ProviderConnectionTestResult {
-                    ok: true,
+                    ok,
                     message,
                     available,
                     used,
@@ -186,6 +218,22 @@ impl ApiAdapter {
         _settings: &AppSettings,
         _provider: &Provider,
     ) -> Result<(ProviderCapabilities, String, Option<String>), String> {
+        let optional = [
+            ProviderOptionalCapability::Pricing,
+            ProviderOptionalCapability::Usage,
+            ProviderOptionalCapability::RequestLogs,
+            ProviderOptionalCapability::Announcements,
+            ProviderOptionalCapability::Subscription,
+            ProviderOptionalCapability::Groups,
+        ]
+        .into_iter()
+        .map(|capability| {
+            ProviderOptionalCapabilityState::unsupported(
+                capability,
+                "通用 API Key 只提供模型接口，不提供站点级数据接口",
+            )
+        })
+        .collect();
         Ok((
             ProviderCapabilities {
                 check_in_known: true,
@@ -194,6 +242,8 @@ impl ApiAdapter {
                 api_key_management_supported: false,
                 invitation_known: true,
                 invitation_supported: false,
+                optional,
+                pricing: ProviderPricingSnapshot::default(),
                 ..ProviderCapabilities::default()
             },
             String::new(),
@@ -386,6 +436,120 @@ fn models_url(provider: &Provider) -> Result<Url, String> {
     Url::parse(&endpoint).map_err(|err| format!("模型列表地址无效: {err}"))
 }
 
+fn chat_completions_url(provider: &Provider) -> Result<Url, String> {
+    let raw = provider.identity.base_url.trim();
+    if raw.is_empty() {
+        return Err("缺少模型 Base URL 或中转站地址".to_string());
+    }
+    let normalized = raw.trim_end_matches('/');
+    if normalized.ends_with("/chat/completions") {
+        return Url::parse(normalized).map_err(|err| format!("模型调用地址无效: {err}"));
+    }
+    let last_segment = normalized.rsplit('/').next().unwrap_or_default();
+    // 已经带版本段的网关不再重复追加 `/v1`；OpenRouter、Fireworks 这类
+    // 地址的版本段前面还有自己的路径前缀。
+    let endpoint = if is_version_segment(last_segment) {
+        format!("{normalized}/chat/completions")
+    } else {
+        format!("{normalized}/v1/chat/completions")
+    };
+    Url::parse(&endpoint).map_err(|err| format!("模型调用地址无效: {err}"))
+}
+
+fn is_version_segment(segment: &str) -> bool {
+    segment.len() >= 2
+        && segment.starts_with('v')
+        && segment[1..]
+            .chars()
+            .all(|character| character.is_ascii_digit())
+}
+
+/// 连接测试里的真实调用优先使用卡片自己配置的测活模型。没有配置时从模型
+/// 列表里挑一个至少不是 embedding、语音或图片专用接口的模型，避免拿一个
+/// 必然不支持对话的模型去误判整张卡片。
+fn pick_liveness_model(provider: &Provider, models: &[String]) -> Option<String> {
+    let configured = provider.liveness.model.trim();
+    if !configured.is_empty() {
+        return Some(configured.to_string());
+    }
+    models
+        .iter()
+        .find(|model| is_chat_capable_model(model))
+        .cloned()
+}
+
+fn is_chat_capable_model(model: &str) -> bool {
+    const NON_CHAT_MARKERS: &[&str] = &[
+        "embed",
+        "rerank",
+        "whisper",
+        "tts",
+        "moderation",
+        "dall-e",
+        "stable-diffusion",
+        "flux",
+        "image",
+        "audio",
+        "speech",
+        "transcribe",
+        "ocr",
+    ];
+    let normalized = model.to_ascii_lowercase();
+    !NON_CHAT_MARKERS
+        .iter()
+        .any(|marker| normalized.contains(marker))
+}
+
+async fn fetch_chat_completion(
+    client: &ProviderTransport,
+    provider: &Provider,
+    model: &str,
+) -> Result<(), AdapterError> {
+    let url = chat_completions_url(provider)?;
+    let request = client
+        .post(url)
+        .header(USER_AGENT, USER_AGENT_VALUE)
+        .header(ACCEPT, "application/json")
+        .json(&json!({
+            "model": model,
+            "messages": [{ "role": "user", "content": "Reply with OK." }],
+            "stream": false,
+        }));
+    let request = apply_auth_scheme(
+        request,
+        provider.request.auth_scheme,
+        &provider.auth.api_key,
+    );
+    let response = client.send(request, "真实模型调用").await?;
+    let status = response.status;
+    let body = response.body;
+    if !status.is_success() {
+        let detail = body.chars().take(240).collect::<String>();
+        return Err(AdapterError::from_status(
+            format!("真实模型调用失败: HTTP {status} {detail}"),
+            status,
+            response.headers.get(RETRY_AFTER),
+        ));
+    }
+    let value = serde_json::from_str::<Value>(&body)
+        .map_err(|err| AdapterError::transient(format!("解析模型调用响应失败: {err}")))?;
+    if value.get("error").is_some_and(|error| !error.is_null()) {
+        return Err(AdapterError::transient(
+            "模型调用返回错误，响应里没有可用结果".to_string(),
+        ));
+    }
+    if !value
+        .get("choices")
+        .and_then(Value::as_array)
+        .is_some_and(|choices| !choices.is_empty())
+    {
+        return Err(AdapterError::transient(
+            "模型调用已返回，但响应里没有 choices".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn host_name(base_url: &str) -> Option<String> {
     Url::parse(base_url.trim())
         .ok()
@@ -423,7 +587,10 @@ fn connection_failure(message: String) -> ProviderConnectionTestResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AgentCliKind, ProviderIdentityInput, ProviderInput, ProviderProtocol};
+    use crate::adapters::test_support::{serve, Reply};
+    use crate::models::{
+        AgentCliKind, AppSettings, ProviderIdentityInput, ProviderInput, ProviderProtocol,
+    };
 
     fn provider() -> Provider {
         Provider::from_input(
@@ -492,5 +659,92 @@ mod tests {
         assert!(parse_models(r#"{"success":false,"data":[]}"#).is_err());
         assert!(parse_models(r#"{"data":[{}]}"#).is_err());
         assert!(parse_models("<html>challenge</html>").is_err());
+    }
+
+    #[test]
+    fn chat_url_appends_v1_to_a_bare_gateway_address() {
+        assert_eq!(
+            chat_completions_url(&provider()).unwrap().as_str(),
+            "https://relay.example.com/openai/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn chat_url_keeps_an_existing_version_segment() {
+        let mut provider = provider();
+        provider.identity.base_url = "https://open.bigmodel.cn/api/paas/v4".to_string();
+        assert_eq!(
+            chat_completions_url(&provider).unwrap().as_str(),
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        );
+    }
+
+    #[test]
+    fn chat_url_keeps_an_explicit_endpoint() {
+        let mut provider = provider();
+        provider.identity.base_url = "https://relay.example.com/v1/chat/completions".to_string();
+        assert_eq!(
+            chat_completions_url(&provider).unwrap().as_str(),
+            "https://relay.example.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn configured_liveness_model_wins_and_embedding_models_are_skipped() {
+        let mut provider = provider();
+        provider.liveness.model = String::new();
+        let models = vec![
+            "text-embedding-3-small".to_string(),
+            "gpt-4o-mini".to_string(),
+        ];
+        assert_eq!(
+            pick_liveness_model(&provider, &models),
+            Some("gpt-4o-mini".to_string())
+        );
+        assert_eq!(
+            pick_liveness_model(&provider, &["text-embedding-3-large".to_string()]),
+            None
+        );
+        provider.liveness.model = "custom-model".to_string();
+        assert_eq!(
+            pick_liveness_model(&provider, &models),
+            Some("custom-model".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_liveness_posts_a_minimal_non_streaming_request() {
+        let (provider, requests, server) = serve(vec![Reply(
+            200,
+            r#"{"choices":[{"message":{"role":"assistant","content":"OK"}}]}"#,
+        )]);
+        let client = build_client(&AppSettings::default(), &provider)
+            .await
+            .unwrap();
+        fetch_chat_completion(&client, &provider, "gpt-4o-mini")
+            .await
+            .unwrap();
+        server.join().unwrap();
+        let request = requests.recv().unwrap();
+        assert!(request.starts_with("POST /relay/v1/chat/completions "));
+        assert!(request
+            .to_ascii_lowercase()
+            .contains("authorization: bearer sk-fixture-model-key"));
+        assert!(request.contains("\"model\":\"gpt-4o-mini\""));
+        assert!(request.contains("\"stream\":false"));
+    }
+
+    #[tokio::test]
+    async fn chat_liveness_surfaces_an_http_rejection() {
+        let (provider, _requests, server) =
+            serve(vec![Reply(401, r#"{"error":{"message":"invalid key"}}"#)]);
+        let client = build_client(&AppSettings::default(), &provider)
+            .await
+            .unwrap();
+        let error = fetch_chat_completion(&client, &provider, "gpt-4o-mini")
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(error.message.contains("HTTP 401"));
     }
 }

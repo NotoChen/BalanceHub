@@ -2,7 +2,8 @@ use crate::{
     adapters::{detector::ProtocolDetector, protocol::ProtocolAdapter},
     models::{
         normalize_invite_link, provider_domain, AuthMode, Provider, ProviderCapabilityProbeResult,
-        ProviderInput, ProviderModelSyncResult, ProviderProtocol, ProviderProtocolDetectionResult,
+        ProviderInput, ProviderModelSyncResult, ProviderOptionalCapability,
+        ProviderOptionalCapabilityState, ProviderProtocol, ProviderProtocolDetectionResult,
         ProviderSiteProbeResult,
     },
     util::unix_millis as current_timestamp_millis,
@@ -79,13 +80,20 @@ impl ProviderService {
             .capabilities
             .available_models_state
             .clone();
-        let models_result = if provider_domain::model_list::action(&effective_provider).can_sync {
+        let models_action = provider_domain::model_list::action(&effective_provider);
+        let models_result = if models_action.can_sync {
             Some(
                 ProtocolAdapter
                     .fetch_available_models(&data.settings, &effective_provider)
                     .await,
             )
         } else {
+            capabilities.set_optional_state(ProviderOptionalCapabilityState::unsupported(
+                ProviderOptionalCapability::Models,
+                models_action
+                    .unavailable_reason
+                    .unwrap_or("当前认证方式无法读取模型列表"),
+            ));
             None
         };
         let mut model_count = None;
@@ -97,10 +105,19 @@ impl ProviderService {
                         .await?
                         .ok_or_else(|| "本地配置已变更，本次模型结果已忽略".to_string())?;
                     operation_context = ProviderRequestContext::capture(&persisted);
-                    model_count = Some(operation.value.models.len());
+                    let count = operation.value.models.len();
+                    model_count = Some(count);
                     capabilities.set_available_models(operation.value);
+                    capabilities.set_optional_state(ProviderOptionalCapabilityState::supported(
+                        ProviderOptionalCapability::Models,
+                        format!("已读取 {count} 个模型"),
+                    ));
                 }
                 Err(err) => {
+                    capabilities.set_optional_state(ProviderOptionalCapabilityState::unknown(
+                        ProviderOptionalCapability::Models,
+                        err.clone(),
+                    ));
                     capabilities.available_models_state.error = Some(err);
                 }
             }
@@ -178,7 +195,14 @@ impl ProviderService {
                     if mutation_context.matches(stored_provider) {
                         match stored_result {
                             Ok(models) => {
+                                let count = models.models.len();
                                 stored_provider.capabilities.set_available_models(models);
+                                stored_provider.capabilities.set_optional_state(
+                                    ProviderOptionalCapabilityState::supported(
+                                        ProviderOptionalCapability::Models,
+                                        format!("已读取 {count} 个模型"),
+                                    ),
+                                );
                             }
                             Err(error) => {
                                 if stored_provider
@@ -190,6 +214,12 @@ impl ProviderService {
                                 {
                                     return Ok(MutationDecision::unchanged(true));
                                 }
+                                stored_provider.capabilities.set_optional_state(
+                                    ProviderOptionalCapabilityState::unknown(
+                                        ProviderOptionalCapability::Models,
+                                        error.clone(),
+                                    ),
+                                );
                                 stored_provider.capabilities.available_models_state.error =
                                     Some(error);
                             }

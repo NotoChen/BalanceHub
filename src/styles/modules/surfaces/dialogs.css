@@ -178,6 +178,59 @@
   animation: provider-editor-spin 760ms linear infinite;
 }
 
+/* 通用 API Key 的常见网关入口：只填地址和名称，不改变协议能力。 */
+.provider-gateway-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 16px;
+}
+
+.provider-gateway-presets-label {
+  color: var(--surface-muted);
+  font-size: 11px;
+}
+
+.provider-gateway-preset {
+  border: 1px solid var(--surface-line);
+  border-radius: 999px;
+  background: var(--surface-panel);
+  color: var(--surface-ink-soft);
+  cursor: pointer;
+  font-size: 11.5px;
+  line-height: 1;
+  padding: 6px 10px;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.provider-gateway-preset:hover,
+.provider-gateway-preset:focus-visible {
+  border-color: var(--surface-accent);
+  color: var(--surface-accent);
+  outline: none;
+}
+
+.provider-gateway-preset.active {
+  border-color: var(--surface-accent);
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
+.provider-gateway-preset:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+:root.theme-dark .provider-gateway-preset {
+  background: #1c2836;
+}
+
+:root.theme-dark .provider-gateway-preset.active {
+  background: #26384e;
+  color: #b7d4fb;
+}
+
 @keyframes provider-editor-spin {
   to { transform: rotate(360deg); }
 }

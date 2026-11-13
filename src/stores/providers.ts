@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 import {
   changeProviderPassword as changeProviderPasswordCommand,
+  changeProviderProfile as changeProviderProfileCommand,
+  redeemProviderCode as redeemProviderCodeCommand,
   completeProviderCredentials as completeProviderCredentialsCommand,
   createProviderApiKey as createProviderApiKeyCommand,
   updateProviderApiKey as updateProviderApiKeyCommand,
@@ -343,6 +345,16 @@ export const useProviderStore = defineStore("providers", {
       // 避免用户随后保存编辑表单时把旧密码写回去。
       await this.reloadProvider(id).catch(() => {});
       return message;
+    },
+    async changeProfile(id: string, username: string, displayName: string) {
+      const result = await changeProviderProfileCommand(id, username, displayName);
+      this.upsertProvider(result.provider);
+      return result;
+    },
+    async redeemCode(id: string, code: string) {
+      const result = await redeemProviderCodeCommand(id, code);
+      this.upsertProvider(result.provider);
+      return result;
     },
     async getCheckInRecords(id: string, month: string) {
       return getProviderCheckInRecordsCommand(id, month);

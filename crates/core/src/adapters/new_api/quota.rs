@@ -41,6 +41,8 @@ struct UserData {
     email: Option<String>,
     #[serde(rename = "display_name")]
     display_name: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
     quota: i64,
     #[serde(rename = "used_quota")]
     used_quota: i64,
@@ -57,6 +59,7 @@ struct QuotaProfile {
     username: String,
     user_id: String,
     login_username: String,
+    group: String,
 }
 
 pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -> Provider {
@@ -117,6 +120,7 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
             next.quota.unlimited = profile.quota_unlimited;
             next.quota.display_type = profile.quota_display.quota_display_type;
             next.quota.currency_symbol = profile.quota_display.currency_symbol;
+            next.quota.group = profile.group;
             next.identity.display_name = profile.display_name;
             next.identity.username = profile.username;
             next.identity.user_id = profile.user_id;
@@ -256,6 +260,11 @@ async fn fetch_quota(
         username: data.username.unwrap_or_default(),
         user_id: value_to_string(data.id),
         login_username,
+        group: data
+            .group
+            .map(|group| group.trim().to_string())
+            .filter(|group| !group.is_empty())
+            .unwrap_or_default(),
     })
 }
 
@@ -300,7 +309,34 @@ async fn fetch_token_quota(
         username: extract_string_field(&data, &["name", "Name"]).unwrap_or_default(),
         user_id: String::new(),
         login_username: String::new(),
+        group: token_group(&data, provider),
     })
+}
+
+/// API Key 卡片的分组来自 Key 自己：优先取额度接口返回的 group，其次是本机
+/// 为该 Key 保存的分组。两者都没有时留空，由价目接口回退到 default。
+fn token_group(data: &Value, provider: &Provider) -> String {
+    extract_string_field(data, &["group", "Group"])
+        .map(|group| group.trim().to_string())
+        .filter(|group| !group.is_empty())
+        .or_else(|| {
+            let current = provider.auth.api_key.trim();
+            provider
+                .auth
+                .api_key_options
+                .iter()
+                .find(|option| option.key.trim() == current && !option.group.trim().is_empty())
+                .map(|option| option.group.trim().to_string())
+        })
+        .or_else(|| {
+            provider
+                .auth
+                .api_key_options
+                .iter()
+                .find(|option| !option.group.trim().is_empty())
+                .map(|option| option.group.trim().to_string())
+        })
+        .unwrap_or_default()
 }
 
 /// 订阅接口是 NewAPI 后来才有的能力，旧站点会 404 或返回空列表。订阅窗口

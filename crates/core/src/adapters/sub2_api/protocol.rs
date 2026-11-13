@@ -1,9 +1,9 @@
 use super::Sub2ApiAdapter;
 use crate::{
     adapters::protocol::contracts::{
-        AccessTokenCapability, AccountCapability, AnnouncementCapability,
-        ApiKeyManagementCapability, CapabilityProbe, ConnectionCapability, CredentialCapability,
-        ProviderOperationOutcome, UsageCapability,
+        AccessTokenCapability, AccountCapability, AccountRedemptionCapability,
+        AnnouncementCapability, ApiKeyManagementCapability, CapabilityProbe, ConnectionCapability,
+        CredentialCapability, ProviderOperationOutcome, UsageCapability,
     },
     models::{
         AppSettings, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption,
@@ -171,6 +171,20 @@ impl AccountCapability for Sub2ApiAdapter {
         provider: &Provider,
     ) -> Result<ProviderOperationOutcome<String>, String> {
         Sub2ApiAdapter::invite_link(self, settings, provider)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+}
+
+#[async_trait]
+impl AccountRedemptionCapability for Sub2ApiAdapter {
+    async fn redeem_code(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        code: &str,
+    ) -> Result<ProviderOperationOutcome<String>, String> {
+        Sub2ApiAdapter::redeem_code(self, settings, provider, code)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
     }

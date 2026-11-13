@@ -6,6 +6,7 @@ import BatchOperationProgressModal from "./BatchOperationProgressModal.vue";
 import CheckInCalendarModal from "./CheckInCalendarModal.vue";
 import CapabilityProbeModal from "./CapabilityProbeModal.vue";
 import LivenessDetailsModal from "./LivenessDetailsModal.vue";
+import AccountProfileModal from "./AccountProfileModal.vue";
 import PasswordChangeModal from "./PasswordChangeModal.vue";
 import RequestLogsModal from "./RequestLogsModal.vue";
 import SiteAnnouncementsModal from "./SiteAnnouncementsModal.vue";
@@ -17,6 +18,7 @@ import type {
   Provider,
   ProviderCheckInRecordsResult,
   ProviderProtocolDescriptor,
+  ProviderRequestLogFilters,
   ProviderRequestLogsResult,
   ProviderUsageOverview,
   ProviderUsageSummary,
@@ -46,12 +48,17 @@ defineProps<{
   requestLogsLoading: boolean;
   requestLogsError: string;
   requestLogsResult: ProviderRequestLogsResult | null;
-  requestLogsKeyword: string;
+  requestLogsFilters: ProviderRequestLogFilters;
   requestLogsPage: number;
   requestLogsPageSize: number;
   passwordChangeProvider: Provider | null;
   passwordChangeLoading: boolean;
   passwordChangeError: string;
+  accountProfileProvider: Provider | null;
+  accountProfileLoading: boolean;
+  accountProfileError: string;
+  redeemLoading: boolean;
+  redeemError: string;
   livenessDetailsProvider: Provider | null;
   cliRuntimeLoading: boolean;
   cliRuntime: CliRuntimeSnapshot;
@@ -107,11 +114,14 @@ const emit = defineEmits<{
   copyAvailableModel: [model: string];
   copyAvailableModels: [models: string[]];
   refreshUsageSummary: [];
-  searchRequestLogs: [keyword: string];
+  searchRequestLogs: [filters: ProviderRequestLogFilters];
+  resetRequestLogFilters: [];
   loadRequestLogs: [];
   setRequestLogsPage: [page: number];
   setRequestLogsPageSize: [pageSize: number];
   submitPasswordChange: [originalPassword: string, password: string];
+  submitAccountProfile: [username: string, displayName: string];
+  submitRedeemCode: [code: string];
   refreshCliRuntime: [];
   activateCliInstance: [instance: AgentRuntimeSession];
   loadCheckInRecords: [options?: { force?: boolean }];
@@ -132,6 +142,7 @@ const usageVisible = defineModel<boolean>("usageVisible", { required: true });
 const usagePeriod = defineModel<UsagePeriod>("usagePeriod", { required: true });
 const requestLogsVisible = defineModel<boolean>("requestLogsVisible", { required: true });
 const passwordChangeVisible = defineModel<boolean>("passwordChangeVisible", { required: true });
+const accountProfileVisible = defineModel<boolean>("accountProfileVisible", { required: true });
 const livenessDetailsVisible = defineModel<boolean>("livenessDetailsVisible", { required: true });
 const cliInstancesVisible = defineModel<boolean>("cliInstancesVisible", { required: true });
 const checkInRecordsVisible = defineModel<boolean>("checkInRecordsVisible", { required: true });
@@ -225,10 +236,12 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :loading="requestLogsLoading"
     :error="requestLogsError"
     :result="requestLogsResult"
-    :keyword="requestLogsKeyword"
+    :filters="requestLogsFilters"
+    :protocols="providerProtocols"
     :page="requestLogsPage"
     :page-size="requestLogsPageSize"
     @search="emit('searchRequestLogs', $event)"
+    @reset="emit('resetRequestLogFilters')"
     @refresh="emit('loadRequestLogs')"
     @page-change="emit('setRequestLogsPage', $event)"
     @page-size-change="emit('setRequestLogsPageSize', $event)"
@@ -240,6 +253,17 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :loading="passwordChangeLoading"
     :error="passwordChangeError"
     @submit="(originalPassword, password) => emit('submitPasswordChange', originalPassword, password)"
+  />
+
+  <AccountProfileModal
+    v-model:visible="accountProfileVisible"
+    :provider="accountProfileProvider"
+    :loading="accountProfileLoading"
+    :error="accountProfileError"
+    :redeem-loading="redeemLoading"
+    :redeem-error="redeemError"
+    @submit-profile="(username, displayName) => emit('submitAccountProfile', username, displayName)"
+    @submit-redeem="(code) => emit('submitRedeemCode', code)"
   />
 
   <LivenessDetailsModal

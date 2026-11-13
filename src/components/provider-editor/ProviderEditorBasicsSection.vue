@@ -10,6 +10,12 @@ import type {
 } from "../../stores/providers";
 import type { ProtocolSelectionSource } from "../../composables/provider-editor-shared";
 import { providerProtocolLabel, providerScopeNoun } from "../../utils/provider-protocol";
+import {
+  applyProviderGatewayPreset,
+  gatewayPresetForBaseUrl,
+  PROVIDER_GATEWAY_PRESETS,
+  type ProviderGatewayPreset,
+} from "../../utils/provider-gateway-presets";
 import RadioChoiceGroup from "../RadioChoiceGroup.vue";
 
 const props = defineProps<{
@@ -83,6 +89,18 @@ const baseUrlPlaceholder = computed(() =>
     ? "http://127.0.0.1:8317"
     : "https://relay.example.com",
 );
+/// 通用 API Key 只认 OpenAI 兼容地址；给出常见网关入口，省去用户自己拼版本段。
+const gatewayPresets = computed(() =>
+  props.draft.identity.protocol === "api" ? PROVIDER_GATEWAY_PRESETS : [],
+);
+const activeGatewayPreset = computed(() =>
+  gatewayPresetForBaseUrl(props.draft.identity.baseUrl),
+);
+
+function applyGatewayPreset(preset: ProviderGatewayPreset) {
+  applyProviderGatewayPreset(props.draft.identity, preset);
+  emit("probe-site");
+}
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
@@ -151,6 +169,19 @@ function protocolLabel(protocol: ProviderProtocol) {
             </div>
           </template>
         </a-form-item>
+
+        <div v-if="gatewayPresets.length" class="provider-gateway-presets" role="group" aria-label="常用网关">
+          <span class="provider-gateway-presets-label">常用网关</span>
+          <button
+            v-for="preset in gatewayPresets"
+            :key="preset.label"
+            type="button"
+            class="provider-gateway-preset"
+            :class="{ active: activeGatewayPreset?.label === preset.label }"
+            :disabled="disabled"
+            @click="applyGatewayPreset(preset)"
+          >{{ preset.label }}</button>
+        </div>
 
         <a-form-item class="provider-field" field="identity.remark" label="备注">
           <a-input

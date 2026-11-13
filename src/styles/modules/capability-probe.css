@@ -1,3 +1,8 @@
+.surface-modal.capability-probe-modal .arco-modal-body {
+  max-height: calc(100dvh - 170px);
+  overflow: auto;
+}
+
 .capability-probe-panel {
   display: grid;
   gap: 16px;
@@ -222,6 +227,8 @@
 
 .capability-probe-step.is-unsupported .capability-probe-step-icon,
 .capability-probe-step.is-unsupported .capability-probe-step-state,
+.capability-probe-step.is-unknown .capability-probe-step-icon,
+.capability-probe-step.is-unknown .capability-probe-step-state,
 .capability-probe-step.is-skipped .capability-probe-step-icon,
 .capability-probe-step.is-skipped .capability-probe-step-state {
   background: var(--surface-panel-soft);

@@ -75,6 +75,110 @@ impl ProviderService {
     }
 }
 
+impl ProviderService {
+    pub async fn update_profile(
+        &self,
+        id: String,
+        username: String,
+        display_name: String,
+    ) -> Result<(Provider, String), String> {
+        let state = crate::host::core_state();
+        let _network_gate = state.refresh_gate.lock().await;
+        let data = self.snapshot_async().await?;
+        let provider = find_provider(&data, &id)?;
+        let provider = self
+            .prepare_operation_provider(&data.settings, &provider)
+            .await?;
+        let request_context = ProviderRequestContext::capture(&provider);
+        let operation = ProtocolAdapter
+            .update_profile(&data.settings, &provider, &username, &display_name)
+            .await?;
+        let persisted = self
+            .persist_operation_credentials(&request_context, &operation.credentials)
+            .await?;
+        let message = operation.value;
+
+        let username = username.trim().to_string();
+        let display_name = display_name.trim().to_string();
+        let context = persisted
+            .as_ref()
+            .map(ProviderRequestContext::capture)
+            .unwrap_or(request_context);
+        let synced = self
+            .mutate_decided_async(move |data| {
+                let Some(stored) = data
+                    .providers
+                    .iter_mut()
+                    .find(|stored| context.matches(stored))
+                else {
+                    return Ok(MutationDecision::unchanged(false));
+                };
+                let changed = stored.identity.username != username
+                    || stored.identity.display_name != display_name;
+                stored.identity.username = username;
+                stored.identity.display_name = display_name;
+                Ok(if changed {
+                    MutationDecision::changed(true)
+                } else {
+                    MutationDecision::unchanged(true)
+                })
+            })
+            .await
+            .map_err(|error| format!("站点资料已更新，但本地资料保存失败：{error}"))?;
+
+        let data = self.snapshot_async().await?;
+        let provider = find_provider(&data, &id)?;
+        Ok((
+            provider,
+            if synced {
+                message
+            } else {
+                format!("{message}；本地配置已变更，未覆盖现有账号资料")
+            },
+        ))
+    }
+
+    pub async fn redeem_code(
+        &self,
+        id: String,
+        code: String,
+    ) -> Result<(Provider, String), String> {
+        let message = {
+            let state = crate::host::core_state();
+            let _network_gate = state.refresh_gate.lock().await;
+            let data = self.snapshot_async().await?;
+            let provider = find_provider(&data, &id)?;
+            let provider = self
+                .prepare_operation_provider(&data.settings, &provider)
+                .await?;
+            let operation = ProtocolAdapter
+                .redeem_code(&data.settings, &provider, &code)
+                .await?;
+            self.persist_operation_credentials(
+                &ProviderRequestContext::capture(&provider),
+                &operation.credentials,
+            )
+            .await?;
+            operation.value
+        };
+
+        // 兑换成功已经发生，后续余额刷新失败不能回滚成“兑换失败”；返回当前
+        // 本地快照，并在下一次刷新时补齐余额。
+        if let Ok(result) = self.refresh_by_ids(vec![id.clone()]).await {
+            if let Some(provider) = result
+                .updated_providers
+                .into_iter()
+                .find(|provider| provider.identity.id == id)
+            {
+                return Ok((provider, message));
+            }
+        }
+        let data = self.snapshot_async().await?;
+        let provider = find_provider(&data, &id)?;
+        Ok((provider, message))
+    }
+}
+
 fn sync_password_if_context_unchanged(
     stored: &mut Provider,
     snapshot: &Provider,

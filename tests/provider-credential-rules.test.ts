@@ -73,6 +73,12 @@ const descriptors: ProviderProtocolDescriptor[] = [
       apiKeys: "",
       invitation: "",
       models: "",
+      announcements: null,
+      pricing: null,
+      usage: null,
+      requestLogs: null,
+      subscription: null,
+      groups: null,
     },
     credentialAssistant: {
       enabled: true,

@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { IconFile, IconLeft, IconRefresh, IconRight, IconSearch } from "@arco-design/web-vue/es/icon";
-import type { Provider, ProviderRequestLog, ProviderRequestLogsResult } from "../stores/providers";
+import type {
+  Provider,
+  ProviderProtocolDescriptor,
+  ProviderRequestLog,
+  ProviderRequestLogFilters,
+  ProviderRequestLogsResult,
+  ProviderRequestLogTimeRange,
+} from "../stores/providers";
 import RequestLogDetailsModal from "./RequestLogDetailsModal.vue";
 import { logIdentity, logTokenTotal, rawValue, logHasUsageData, logDuration, logDetails, logRequestId, logChannel, logTypeLabel, logStatusTone, formatLogQuotaValue, logPreview, requestLogRateHint } from "../utils/request-log-display";
 import { formatNumberCompact, providerDisplayLabel } from "../utils/provider-display";
+import { providerProtocolDescriptor } from "../utils/provider-protocol";
 
 const props = defineProps<{
   visible: boolean;
@@ -12,32 +20,44 @@ const props = defineProps<{
   loading: boolean;
   error: string;
   result: ProviderRequestLogsResult | null;
-  keyword: string;
+  filters: ProviderRequestLogFilters;
+  protocols: ProviderProtocolDescriptor[];
   page: number;
   pageSize: number;
 }>();
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
-  search: [keyword: string];
+  search: [filters: ProviderRequestLogFilters];
+  reset: [];
   refresh: [];
   pageChange: [page: number];
   pageSizeChange: [pageSize: number];
 }>();
 
-const keywordDraft = ref(props.keyword);
+const filtersDraft = ref<ProviderRequestLogFilters>({ ...props.filters });
 const selectedLog = ref<ProviderRequestLog | null>(null);
 
-watch([() => props.visible, () => props.provider?.identity.id, () => props.keyword, () => props.page, () => props.pageSize], () => {
+watch([() => props.visible, () => props.provider?.identity.id, () => props.page, () => props.pageSize], () => {
   selectedLog.value = null;
 }, { flush: "sync" });
 
 watch(
-  [() => props.visible, () => props.provider?.identity.id, () => props.keyword],
+  [() => props.visible, () => props.provider?.identity.id, () => props.filters],
   () => {
-    keywordDraft.value = props.keyword;
+    filtersDraft.value = { ...props.filters };
   },
   { flush: "sync" },
+);
+
+/// 协议声明自己认识哪些日志筛选字段；界面只渲染这些控件，避免把站点
+/// 不支持的参数发出去后仍显示成“已筛选”。
+const availableFilters = computed(
+  () =>
+    providerProtocolDescriptor(
+      props.protocols,
+      props.provider?.identity.protocol ?? "newApi",
+    )?.capabilities.requestLogFilters ?? [],
 );
 
 const modalTitle = computed(() =>
@@ -47,7 +67,7 @@ const modalTitle = computed(() =>
 const rows = computed(() => props.result?.logs ?? []);
 
 /// Sub2API 的 RPM / TPM / 平均耗时来自全站近 5 分钟看板，既不跟时间范围，
-/// 也不跟关键词筛选；同一排的其他数字却按「30 天 + 筛选」统计。两种口径必须
+/// 也不跟筛选条件；同一排的其他数字却按「所选范围 + 筛选」统计。两种口径必须
 /// 各自标注，否则读者会把全站瞬时值当成筛选结果。
 const rateHint = computed(() =>
   requestLogRateHint(props.provider?.identity.protocol),
@@ -63,7 +83,7 @@ const statCards = computed(() => {
           ? formatLogQuotaValue(stats.quota, props.result?.quotaDisplay)
           : "—",
       tone: "cost",
-      hint: "所选时间范围、关键词筛选后的消耗合计",
+      hint: "所选时间范围和筛选条件下的消耗合计",
     },
     {
       label: "每分钟请求 · RPM",
@@ -128,14 +148,72 @@ const tableClasses = computed(() => ({
   "request-logs-table-simple": !showUsageColumns.value,
 }));
 
+const RANGE_OPTIONS: { label: string; value: ProviderRequestLogTimeRange }[] = [
+  { label: "最近 24 小时", value: "24h" },
+  { label: "最近 7 天", value: "7d" },
+  { label: "最近 30 天", value: "30d" },
+  { label: "最近 90 天", value: "90d" },
+];
+
+const LOG_TYPE_OPTIONS = [
+  { label: "消费", value: 2 },
+  { label: "充值", value: 1 },
+  { label: "管理", value: 3 },
+  { label: "系统", value: 4 },
+  { label: "错误", value: 5 },
+];
+
+const rangeLabel = computed(() => {
+  const range = filtersDraft.value.range;
+  return RANGE_OPTIONS.find((option) => option.value === range)?.label ?? "";
+});
+
+const activeFilterSummary = computed(() => {
+  const parts: string[] = [];
+  if (filtersDraft.value.model) parts.push(`模型 ${filtersDraft.value.model}`);
+  if (filtersDraft.value.tokenName) parts.push(`Key ${filtersDraft.value.tokenName}`);
+  if (filtersDraft.value.group) parts.push(`分组 ${filtersDraft.value.group}`);
+  if (filtersDraft.value.requestId) parts.push(`请求 ${filtersDraft.value.requestId}`);
+  if (filtersDraft.value.logType != null) {
+    const logType = filtersDraft.value.logType;
+    const type = LOG_TYPE_OPTIONS.find((option) => option.value === logType);
+    if (type) parts.push(type.label);
+  }
+  parts.push(rangeLabel.value);
+  return parts.join(" · ");
+});
+
+const hasNarrowedFilters = computed(
+  () =>
+    Boolean(
+      filtersDraft.value.model ||
+        filtersDraft.value.tokenName ||
+        filtersDraft.value.group ||
+        filtersDraft.value.requestId,
+    ) ||
+    filtersDraft.value.logType != null ||
+    filtersDraft.value.range !== "30d",
+);
+
 function submitSearch(event?: KeyboardEvent) {
   if (event?.isComposing || event?.keyCode === 229) return;
-  emit("search", keywordDraft.value.trim());
+  emit("search", { ...filtersDraft.value });
 }
 
-function clearSearch() {
-  keywordDraft.value = "";
-  emit("search", "");
+function clearFilters() {
+  filtersDraft.value = {
+    model: "",
+    tokenName: "",
+    group: "",
+    requestId: "",
+    logType: null,
+    range: "30d",
+  };
+  emit("reset");
+}
+
+function setLogType(value: unknown) {
+  filtersDraft.value.logType = typeof value === "number" ? value : null;
 }
 
 function openLogDetails(log: ProviderRequestLog) {
@@ -164,15 +242,22 @@ function openLogDetails(log: ProviderRequestLog) {
     <div class="request-logs-panel">
       <div class="request-logs-toolbar">
         <a-input
-          v-model="keywordDraft"
+          v-if="availableFilters.includes('model')"
+          v-model="filtersDraft.model"
           allow-clear
           placeholder="按模型名称筛选"
           aria-label="按模型名称筛选请求日志"
           @press-enter="submitSearch"
-          @clear="clearSearch"
         >
           <template #prefix><icon-search /></template>
         </a-input>
+        <a-select
+          v-if="availableFilters.includes('timeRange')"
+          v-model="filtersDraft.range"
+          :options="RANGE_OPTIONS"
+          class="request-logs-range"
+          aria-label="请求日志时间范围"
+        />
         <a-button type="primary" @click="submitSearch()">
           <template #icon><icon-search /></template>
           搜索
@@ -183,9 +268,53 @@ function openLogDetails(log: ProviderRequestLog) {
         </a-button>
       </div>
 
-      <div v-if="keyword" class="request-logs-filter-summary">
-        <span>模型筛选：<strong>{{ keyword }}</strong></span>
-        <a-button type="text" size="mini" @click="clearSearch">清除筛选</a-button>
+      <div
+        v-if="
+          availableFilters.includes('tokenName') ||
+          availableFilters.includes('group') ||
+          availableFilters.includes('requestId') ||
+          availableFilters.includes('logType')
+        "
+        class="request-logs-filter-grid"
+      >
+        <a-input
+          v-if="availableFilters.includes('tokenName')"
+          v-model="filtersDraft.tokenName"
+          allow-clear
+          placeholder="Key 名称"
+          aria-label="按 Key 名称筛选请求日志"
+          @press-enter="submitSearch"
+        />
+        <a-input
+          v-if="availableFilters.includes('group')"
+          v-model="filtersDraft.group"
+          allow-clear
+          placeholder="分组"
+          aria-label="按分组筛选请求日志"
+          @press-enter="submitSearch"
+        />
+        <a-input
+          v-if="availableFilters.includes('requestId')"
+          v-model="filtersDraft.requestId"
+          allow-clear
+          placeholder="请求 ID"
+          aria-label="按请求 ID 筛选请求日志"
+          @press-enter="submitSearch"
+        />
+        <a-select
+          v-if="availableFilters.includes('logType')"
+          :model-value="filtersDraft.logType ?? undefined"
+          :options="LOG_TYPE_OPTIONS"
+          allow-clear
+          placeholder="全部类型"
+          aria-label="按日志类型筛选请求日志"
+          @update:model-value="setLogType"
+        />
+      </div>
+
+      <div v-if="hasNarrowedFilters" class="request-logs-filter-summary">
+        <span>筛选：<strong>{{ activeFilterSummary }}</strong></span>
+        <a-button type="text" size="mini" @click="clearFilters">清除筛选</a-button>
       </div>
       <a-alert v-if="error" type="error" show-icon>
         <div class="panel-load-error"><span>{{ error }}</span><a-button size="small" @click="emit('refresh')">重试</a-button></div>
@@ -205,7 +334,7 @@ function openLogDetails(log: ProviderRequestLog) {
 
       <a-spin :loading="loading">
         <div v-if="rows.length === 0" class="api-key-empty" role="status">
-          {{ loading ? '正在读取请求日志…' : error ? '请求日志未能加载' : keyword ? '没有匹配的请求记录，可清除筛选后查看全部' : '暂无请求日志' }}
+          {{ loading ? '正在读取请求日志…' : error ? '请求日志未能加载' : hasNarrowedFilters ? '没有匹配的请求记录，可清除筛选后查看全部' : '暂无请求日志' }}
         </div>
         <div v-else class="request-logs-table-wrap">
           <table class="request-logs-table" :class="tableClasses" aria-label="请求日志">

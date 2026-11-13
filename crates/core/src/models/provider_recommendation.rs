@@ -19,6 +19,8 @@ pub struct ProviderRecommendation {
     pub model_wire_name: String,
     pub input_price: Option<f64>,
     pub output_price: Option<f64>,
+    /// 站点按次计费单价（USD / 次）；有值时不能与 token 单价横向比较。
+    pub per_request_price: Option<f64>,
     /// 最近测活窗口内的成功率（0..1）；没有记录时为 None。
     pub liveness_success_rate: Option<f64>,
     pub liveness_samples: usize,

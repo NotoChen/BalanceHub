@@ -92,16 +92,17 @@ impl Sub2ApiAdapter {
         let client = build_client(settings, provider).await?;
         let page = query.page + 1;
         // 统计接口必须带时间范围，且要和列表使用同一段窗口，否则“消耗”会和
-        // 列表里的记录对不上；30 天与 NewAPI 的请求日志窗口一致。
-        let (start_date, end_date) = usage_dates("30d");
-        let keyword = query.keyword.trim();
+        // 列表里的记录对不上。Sub2API 只按自然日筛选，时间戳在这里转换成
+        // 本地日期；没有传范围时沿用 30 天。
+        let (start_date, end_date) = query_dates(&query);
+        let model = query.model.trim();
         let mut path = format!(
             "/usage?page={page}&page_size={}&start_date={start_date}&end_date={end_date}",
             query.page_size.max(1)
         );
-        if !keyword.is_empty() {
+        if !model.is_empty() {
             path.push_str("&model=");
-            path.push_str(&urlencoding(keyword));
+            path.push_str(&urlencoding(model));
         }
         let (authenticated, data) =
             request_account_json(&client, provider, Method::GET, &path, None, "读取请求日志")
@@ -112,7 +113,7 @@ impl Sub2ApiAdapter {
             .collect::<Vec<_>>();
         let total = data.get("total").map(|_| integer_field(&data, &["total"]));
         let (authenticated, stats) =
-            fetch_request_log_stats(&client, &authenticated, keyword, &start_date, &end_date).await;
+            fetch_request_log_stats(&client, &authenticated, model, &start_date, &end_date).await;
         Ok((
             authenticated,
             ProviderRequestLogsResult {
@@ -130,6 +131,26 @@ impl Sub2ApiAdapter {
     }
 }
 
+/// Sub2API 的日志接口只接受自然日范围。查询里带了完整时间戳时换算成本地
+/// 日期，任一端缺失或无效则回退到默认 30 天，避免生成空日期参数。
+fn query_dates(query: &ProviderRequestLogsQuery) -> (String, String) {
+    let local_date = |timestamp: i64| {
+        chrono::DateTime::from_timestamp(timestamp, 0).map(|datetime| {
+            datetime
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+    };
+    match (
+        query.start_timestamp.and_then(local_date),
+        query.end_timestamp.and_then(local_date),
+    ) {
+        (Some(start), Some(end)) => (start, end),
+        _ => usage_dates("30d"),
+    }
+}
+
 /// 统计是日志列表的补充：Sub2API 把它拆在 `/usage/stats`（按同一筛选汇总消耗）
 /// 与 `/usage/dashboard/stats`（全站近 5 分钟 RPM / TPM）。任一接口失败只让对应
 /// 数字变成 `None`（界面显示「—」），不影响已经读到的日志列表；每次调用返回的
@@ -137,15 +158,15 @@ impl Sub2ApiAdapter {
 async fn fetch_request_log_stats(
     client: &ProviderTransport,
     provider: &Provider,
-    keyword: &str,
+    model: &str,
     start_date: &str,
     end_date: &str,
 ) -> (Provider, ProviderRequestLogStats) {
     let mut current = provider.clone();
     let mut stats_path = format!("/usage/stats?start_date={start_date}&end_date={end_date}");
-    if !keyword.is_empty() {
+    if !model.is_empty() {
         stats_path.push_str("&model=");
-        stats_path.push_str(&urlencoding(keyword));
+        stats_path.push_str(&urlencoding(model));
     }
     let quota = match request_account_json(
         client,
@@ -197,4 +218,91 @@ async fn fetch_request_log_stats(
             avg_duration_ms,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::test_support::{serve, Reply};
+    use crate::models::{AuthMode, ProviderProtocol};
+
+    fn local_date(timestamp: i64) -> String {
+        chrono::DateTime::from_timestamp(timestamp, 0)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string()
+    }
+
+    #[test]
+    fn missing_timestamps_fall_back_to_the_default_window() {
+        let query = ProviderRequestLogsQuery::default();
+        assert_eq!(query_dates(&query), usage_dates("30d"));
+        assert_eq!(
+            query_dates(&ProviderRequestLogsQuery {
+                start_timestamp: Some(1_767_225_600),
+                end_timestamp: None,
+                ..Default::default()
+            }),
+            usage_dates("30d")
+        );
+    }
+
+    #[test]
+    fn timestamps_are_converted_to_local_dates() {
+        let start = 1_767_225_600;
+        let end = 1_767_312_000;
+        assert_eq!(
+            query_dates(&ProviderRequestLogsQuery {
+                start_timestamp: Some(start),
+                end_timestamp: Some(end),
+                ..Default::default()
+            }),
+            (local_date(start), local_date(end))
+        );
+    }
+
+    #[tokio::test]
+    async fn request_logs_send_the_model_and_share_the_date_window_with_stats() {
+        let (mut provider, requests, server) = serve(vec![
+            Reply(200, r#"{"code":0,"data":{"items":[],"total":0}}"#),
+            Reply(200, r#"{"code":0,"data":{"total_actual_cost":0}}"#),
+            Reply(200, r#"{"code":0,"data":{"rpm":0,"tpm":0}}"#),
+        ]);
+        provider.identity.protocol = ProviderProtocol::Sub2Api;
+        provider.auth.mode = AuthMode::AccessToken;
+        provider.auth.access_token = "fixture-jwt".to_string();
+        let start = 1_767_225_600;
+        let end = 1_767_312_000;
+        Sub2ApiAdapter
+            .request_logs(
+                &AppSettings::default(),
+                &provider,
+                ProviderRequestLogsQuery {
+                    model: " gpt-4o ".to_string(),
+                    page: 1,
+                    page_size: 20,
+                    start_timestamp: Some(start),
+                    end_timestamp: Some(end),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        server.join().unwrap();
+
+        let expected = format!(
+            "start_date={}&end_date={}",
+            local_date(start),
+            local_date(end)
+        );
+        let list = requests.recv().unwrap();
+        assert!(list.starts_with("GET /relay/api/v1/usage?page=2&page_size=20&"));
+        assert!(list.contains(&expected));
+        assert!(list.contains("&model=gpt-4o"));
+        let stats = requests.recv().unwrap();
+        assert!(stats.starts_with("GET /relay/api/v1/usage/stats?"));
+        assert!(stats.contains(&expected));
+        assert!(stats.contains("&model=gpt-4o"));
+    }
 }

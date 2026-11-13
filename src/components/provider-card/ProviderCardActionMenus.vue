@@ -9,12 +9,14 @@ import {
   IconCalendar,
   IconCopy,
   IconFile,
+  IconGift,
   IconLink,
   IconLoading,
   IconLock,
   IconSettings,
   IconSync,
   IconThunderbolt,
+  IconUser,
 } from "@arco-design/web-vue/es/icon";
 import { PackagePlus } from "@lucide/vue";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
@@ -23,6 +25,8 @@ import {
   supportsAccountManagement,
   supportsCheckIn,
   supportsInvitation,
+  supportsRequestLogs,
+  supportsUsage,
 } from "../../utils/provider-actions";
 import { providerCardScopeNoun } from "../../utils/provider-display";
 import type { ProviderAppImportTarget } from "../../stores/provider-types";
@@ -46,6 +50,7 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
+  openAccountProfile: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
@@ -93,10 +98,10 @@ const accountManagementAvailable = computed(() =>
   supportsAccountManagement(props.provider),
 );
 const canViewUsage = computed(
-  () => props.provider.runtime.enabled && accountManagementAvailable.value,
+  () => props.provider.runtime.enabled && supportsUsage(props.provider),
 );
 const canViewRequestLogs = computed(
-  () => props.provider.runtime.enabled && accountManagementAvailable.value,
+  () => props.provider.runtime.enabled && supportsRequestLogs(props.provider),
 );
 const canViewLiveness = computed(
   () =>
@@ -116,10 +121,19 @@ const hasDataActions = computed(
     canViewLiveness.value ||
     canViewCheckInRecords.value,
 );
-const canProbeSite = computed(
-  () => props.provider.runtime.enabled && accountManagementAvailable.value,
-);
+/// 能力探测既覆盖账号能力，也覆盖定价、用量、公告等站点接口；
+/// API Key 卡片同样可以探测（结果会明确标出哪些接口不可用）。
+const canProbeSite = computed(() => props.provider.runtime.enabled);
 const canChangePassword = computed(() => accountManagementAvailable.value);
+const canManageAccount = computed(
+  () =>
+    props.provider.actions.editProfile ||
+    props.provider.actions.redeemCode,
+);
+/// 只有兑换能力的协议不显示“账号资料”，否则菜单名和打开后的内容对不上。
+const accountMenuLabel = computed(() =>
+  props.provider.actions.editProfile ? "账号资料" : "兑换余额",
+);
 const hasManagedApiKeys = computed(() =>
   Boolean(
     props.provider.auth.apiKey.trim() ||
@@ -136,7 +150,8 @@ const hasSiteActions = computed(
     canProbeSite.value ||
     showSiteApiKeyManagement.value ||
     canViewAvailableModels.value ||
-    canChangePassword.value,
+    canChangePassword.value ||
+    canManageAccount.value,
 );
 const hasSecondaryActions = computed(
   () =>
@@ -167,7 +182,7 @@ function openDataAction(
   }
 }
 
-function openSiteAction(action: "probe" | "keys" | "models" | "password") {
+function openSiteAction(action: "probe" | "keys" | "models" | "profile" | "password") {
   if (action === "probe") {
     if (!props.provider.runtime.enabled || props.probingCapabilities) {
       return;
@@ -177,6 +192,8 @@ function openSiteAction(action: "probe" | "keys" | "models" | "password") {
     emit("openApiKeyManager", props.provider);
   } else if (action === "models") {
     emit("openAvailableModels", props.provider);
+  } else if (action === "profile") {
+    emit("openAccountProfile", props.provider);
   } else {
     emit("openPasswordChange", props.provider);
   }
@@ -387,6 +404,23 @@ function copyProviderSecret(field: "apiKey" | "accessToken" | "sessionCookie") {
             class="provider-card-action-icon provider-card-action-icon-models"
           />
           <span>可用模型</span>
+        </button>
+        <button
+          role="menuitem"
+          tabindex="-1"
+          v-if="canManageAccount"
+          type="button"
+          @click="openSiteAction('profile')"
+        >
+          <icon-gift
+            v-if="!provider.actions.editProfile"
+            class="provider-card-action-icon provider-card-action-icon-profile"
+          />
+          <icon-user
+            v-else
+            class="provider-card-action-icon provider-card-action-icon-profile"
+          />
+          <span>{{ accountMenuLabel }}</span>
         </button>
         <button
           role="menuitem"

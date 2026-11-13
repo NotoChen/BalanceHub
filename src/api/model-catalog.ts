@@ -5,6 +5,7 @@ export interface ModelPrice {
   cacheRead: number | null;
   cacheWrite: number | null;
 }
+export type ModelPriceSource = "none" | "catalog" | "site" | "manual";
 export interface ModelMetadata {
   id: string;
   name: string;
@@ -16,6 +17,12 @@ export interface ModelMetadata {
   inputModalities: string[];
   outputModalities: string[];
   price: ModelPrice;
+  /** 站点按次计费单价（USD / 次）；有值时不再按 token 估算。 */
+  perRequest: number | null;
+  /** 价格来源：models.dev 参考价、站点实价或卡片手动覆盖。 */
+  priceSource: ModelPriceSource;
+  /** 站点价格采用的分组；非站点价格时为空。 */
+  priceGroup: string;
 }
 export interface ModelMetadataSnapshot {
   models: ModelMetadata[];

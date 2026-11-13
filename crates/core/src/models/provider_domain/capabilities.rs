@@ -2,7 +2,7 @@ use chrono::{Datelike, Local};
 
 use crate::models::{
     provider_domain::{auth, check_in},
-    AuthMode, Provider, ProviderCheckInMethod, ProviderProtocol,
+    AuthMode, Provider, ProviderCheckInMethod, ProviderOptionalCapability, ProviderProtocol,
 };
 
 pub fn supports_account_management(provider: &Provider) -> bool {
@@ -69,6 +69,36 @@ pub fn supports_invitation(provider: &Provider) -> bool {
     !provider.capabilities.invite_link.trim().is_empty() || supports_account_management(provider)
 }
 
+/// 可选接口是否可用：探测得到明确结论时以探测结果为准，否则沿用协议默认
+/// 能力。一次网络错误不会把入口永久隐藏。
+pub fn optional_supported(
+    provider: &Provider,
+    capability: ProviderOptionalCapability,
+    fallback: bool,
+) -> bool {
+    match provider.capabilities.optional_state(capability) {
+        Some(state) if state.known => state.supported,
+        _ => fallback,
+    }
+}
+
+/// 给已经确认不支持的入口提供可读原因；未知或支持时返回 None。
+pub fn optional_unavailable_reason(
+    provider: &Provider,
+    capability: ProviderOptionalCapability,
+) -> Option<&str> {
+    let state = provider.capabilities.optional_state(capability)?;
+    if !state.known || state.supported {
+        return None;
+    }
+    state
+        .reason
+        .as_deref()
+        .or(state.error.as_deref())
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+}
+
 pub fn check_in_user(provider: &Provider) -> String {
     let api_user = provider.auth.api_user.trim();
     if !api_user.is_empty() {
@@ -121,7 +151,9 @@ fn local_ymd_from_stored(value: &Option<String>) -> Option<(i32, u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ProviderAuth, ProviderIdentityInput, ProviderInput};
+    use crate::models::{
+        ProviderAuth, ProviderIdentityInput, ProviderInput, ProviderOptionalCapabilityState,
+    };
 
     #[test]
     fn agentrouter_password_check_in_ignores_standard_endpoint_probe() {
@@ -244,6 +276,48 @@ mod tests {
         provider.auth.access_token = "token".to_string();
 
         assert!(!supports_check_in(&provider));
+    }
+
+    #[test]
+    fn optional_capability_follows_confirmed_probe_results() {
+        let mut provider = provider();
+        assert!(optional_supported(
+            &provider,
+            ProviderOptionalCapability::Usage,
+            true
+        ));
+        provider
+            .capabilities
+            .set_optional_state(ProviderOptionalCapabilityState::unsupported(
+                ProviderOptionalCapability::Usage,
+                "站点未提供用量接口",
+            ));
+        assert!(!optional_supported(
+            &provider,
+            ProviderOptionalCapability::Usage,
+            true
+        ));
+        assert_eq!(
+            optional_unavailable_reason(&provider, ProviderOptionalCapability::Usage),
+            Some("站点未提供用量接口")
+        );
+
+        // 一次网络失败只表示「没确认」，不隐藏入口。
+        provider
+            .capabilities
+            .set_optional_state(ProviderOptionalCapabilityState::unknown(
+                ProviderOptionalCapability::Usage,
+                "读取超时",
+            ));
+        assert!(optional_supported(
+            &provider,
+            ProviderOptionalCapability::Usage,
+            true
+        ));
+        assert_eq!(
+            optional_unavailable_reason(&provider, ProviderOptionalCapability::Usage),
+            None
+        );
     }
 
     #[test]

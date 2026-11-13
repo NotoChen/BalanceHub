@@ -258,6 +258,57 @@ impl NewApiAdapter {
         Ok((provider, value))
     }
 
+    pub async fn update_profile(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        username: &str,
+        display_name: &str,
+    ) -> Result<(Provider, String), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::account::update_user_profile(&client, &authenticated, username, display_name),
+            |candidate| {
+                let retry_client = client.clone();
+                async move {
+                    super::account::update_user_profile(
+                        &retry_client,
+                        &candidate,
+                        username,
+                        display_name,
+                    )
+                    .await
+                }
+            },
+        )
+        .await?;
+        Ok((provider, value))
+    }
+
+    pub async fn redeem_code(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        code: &str,
+    ) -> Result<(Provider, String), String> {
+        let client = build_client(settings, provider).await?;
+        let authenticated = authenticated_provider(&client, provider).await?;
+        let (provider, value) = retry_with_access_token(
+            &client,
+            &authenticated,
+            super::account::redeem_code(&client, &authenticated, code),
+            |candidate| {
+                let retry_client = client.clone();
+                async move { super::account::redeem_code(&retry_client, &candidate, code).await }
+            },
+        )
+        .await?;
+        Ok((provider, value))
+    }
+
     pub async fn probe_capabilities(
         &self,
         settings: &AppSettings,
@@ -323,6 +374,12 @@ impl NewApiAdapter {
         match crate::adapters::transport::build_client(settings, provider).await {
             Ok(client) => {
                 let mut refreshed = super::quota::refresh_provider(&client, provider).await;
+                if provider.runtime.enabled {
+                    // 价目是推荐与对账的价格来源；失败只记录在快照里，不影响
+                    // 余额和模型列表的刷新结果。
+                    let pricing = super::pricing::probe_pricing(&client, &refreshed).await;
+                    refreshed.capabilities.pricing = pricing.snapshot;
+                }
                 if !crate::models::provider_domain::model_list::action(&refreshed).can_sync {
                     return refreshed;
                 }
@@ -512,6 +569,11 @@ pub async fn probe_capabilities(
         capabilities.api_key_management_supported = false;
         capabilities.invitation_known = true;
         capabilities.invitation_supported = false;
+        let pricing = super::pricing::probe_pricing(client, provider).await;
+        capabilities.pricing = pricing.snapshot;
+        for state in super::optional_probe::probe_optional(client, provider, pricing.state).await {
+            capabilities.set_optional_state(state);
+        }
         return (capabilities, invite_link, None);
     }
 
@@ -571,6 +633,12 @@ pub async fn probe_capabilities(
             capabilities.invitation_supported = false;
             errors.push(format!("邀请链接: {message}"));
         }
+    }
+
+    let pricing = super::pricing::probe_pricing(client, provider).await;
+    capabilities.pricing = pricing.snapshot;
+    for state in super::optional_probe::probe_optional(client, provider, pricing.state).await {
+        capabilities.set_optional_state(state);
     }
 
     let error = if errors.is_empty() {

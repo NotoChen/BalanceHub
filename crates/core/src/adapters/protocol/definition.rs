@@ -1,5 +1,6 @@
 use super::contracts::{
-    AccessTokenCapability, AccountCapability, AnnouncementCapability, ApiKeyManagementCapability,
+    AccessTokenCapability, AccountCapability, AccountProfileCapability,
+    AccountRedemptionCapability, AnnouncementCapability, ApiKeyManagementCapability,
     CapabilityProbe, CheckInCapability, ConnectionCapability, CredentialCapability,
     UsageCapability,
 };
@@ -35,6 +36,13 @@ pub struct ProviderProtocolCapabilities {
     pub models_url: bool,
     /// 该协议允许按接口改写的数量；0 表示没有可改写的请求目录。
     pub max_endpoint_overrides: usize,
+    /// 请求日志实际支持的筛选维度。界面只显示这里声明的控件，避免把协议
+    /// 不认识的字段发出去后仍显示“已筛选”。
+    pub request_log_filters: &'static [crate::models::ProviderRequestLogFilter],
+    /// 该协议允许在应用内修改账号资料。
+    pub account_profile: bool,
+    /// 该协议提供余额兑换码入口。
+    pub account_redemption: bool,
 }
 
 pub struct ProviderProtocolAuthSchema {
@@ -125,6 +133,8 @@ pub struct ProviderProtocolDefinition {
     pub api_keys: Option<&'static dyn ApiKeyManagementCapability>,
     pub usage: Option<&'static dyn UsageCapability>,
     pub account: Option<&'static dyn AccountCapability>,
+    pub account_profile: Option<&'static dyn AccountProfileCapability>,
+    pub account_redemption: Option<&'static dyn AccountRedemptionCapability>,
     pub capability_probe: &'static dyn CapabilityProbe,
     pub check_in: Option<&'static dyn CheckInCapability>,
     pub announcements: Option<&'static dyn AnnouncementCapability>,
@@ -137,6 +147,11 @@ pub struct ProviderProtocolOperationMethods {
     pub invitation: Option<&'static str>,
     pub models: &'static str,
     pub announcements: Option<&'static str>,
+    pub pricing: Option<&'static str>,
+    pub usage: Option<&'static str>,
+    pub request_logs: Option<&'static str>,
+    pub subscription: Option<&'static str>,
+    pub groups: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -172,6 +187,8 @@ impl ProviderProtocolDefinition {
             api_key_management: self.api_keys.is_some(),
             usage: self.usage.is_some(),
             account: self.account.is_some(),
+            account_profile: self.account_profile.is_some(),
+            account_redemption: self.account_redemption.is_some(),
             check_in: self.check_in.is_some(),
             announcements: self.announcements.is_some(),
             // 回退发生在 `ProviderTransport`：中转站请求都以填写的主地址为前缀。
@@ -204,6 +221,21 @@ impl ProviderProtocolDefinition {
             models_url: self.kind == ProviderProtocol::Api,
             // 请求目录与传输层的匹配共用 `provider_domain::endpoints`；其他
             // 协议有自己的客户端，不经过按接口改写这一层。
+            request_log_filters: match self.kind {
+                ProviderProtocol::NewApi => &[
+                    crate::models::ProviderRequestLogFilter::Model,
+                    crate::models::ProviderRequestLogFilter::TokenName,
+                    crate::models::ProviderRequestLogFilter::Group,
+                    crate::models::ProviderRequestLogFilter::LogType,
+                    crate::models::ProviderRequestLogFilter::TimeRange,
+                    crate::models::ProviderRequestLogFilter::RequestId,
+                ],
+                ProviderProtocol::Sub2Api => &[
+                    crate::models::ProviderRequestLogFilter::Model,
+                    crate::models::ProviderRequestLogFilter::TimeRange,
+                ],
+                _ => &[],
+            },
             max_endpoint_overrides: if matches!(
                 self.kind,
                 ProviderProtocol::NewApi | ProviderProtocol::Sub2Api

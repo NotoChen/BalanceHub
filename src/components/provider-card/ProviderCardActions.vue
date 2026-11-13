@@ -66,6 +66,7 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
+  openAccountProfile: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
@@ -277,6 +278,8 @@ const menuListeners = {
   openRequestLogs: (provider: Provider) => emit("openRequestLogs", provider),
   openPasswordChange: (provider: Provider) =>
     emit("openPasswordChange", provider),
+  openAccountProfile: (provider: Provider) =>
+    emit("openAccountProfile", provider),
   openLivenessDetails: (provider: Provider) =>
     emit("openLivenessDetails", provider),
   openCheckInRecords: (provider: Provider) =>

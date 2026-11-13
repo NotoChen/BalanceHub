@@ -615,11 +615,38 @@ pub struct ProviderUsageSummary {
     pub window_minutes: i64,
 }
 
+/// 请求日志支持的筛选维度。协议在能力视图里声明自己认识哪些字段，界面据此
+/// 决定显示哪些控件；未声明的维度不会静默发送给站点后当作“已筛选”。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderRequestLogFilter {
+    Model,
+    TokenName,
+    Group,
+    LogType,
+    TimeRange,
+    RequestId,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderRequestLogsQuery {
     #[serde(default)]
-    pub keyword: String,
+    pub model: String,
+    #[serde(default)]
+    pub token_name: String,
+    #[serde(default)]
+    pub group: String,
+    #[serde(default)]
+    pub request_id: String,
+    /// NewAPI 的日志类型：1 充值、2 消费、3 管理、4 系统、5 错误。
+    #[serde(default)]
+    pub log_type: Option<i64>,
+    /// unix 秒。两个都为空时各协议使用自己的默认窗口。
+    #[serde(default)]
+    pub start_timestamp: Option<i64>,
+    #[serde(default)]
+    pub end_timestamp: Option<i64>,
     #[serde(default)]
     pub page: u64,
     #[serde(default = "default_request_logs_page_size")]
@@ -629,7 +656,13 @@ pub struct ProviderRequestLogsQuery {
 impl Default for ProviderRequestLogsQuery {
     fn default() -> Self {
         Self {
-            keyword: String::new(),
+            model: String::new(),
+            token_name: String::new(),
+            group: String::new(),
+            request_id: String::new(),
+            log_type: None,
+            start_timestamp: None,
+            end_timestamp: None,
             page: 0,
             page_size: default_request_logs_page_size(),
         }

@@ -90,6 +90,7 @@ function report(overrides: Partial<ProviderRecommendationReport> = {}): Provider
         modelWireName: "",
         inputPrice: null,
         outputPrice: null,
+        perRequestPrice: null,
         livenessSuccessRate: 0.9,
         livenessSamples: 10,
         quotaRemainingPercent: 80,

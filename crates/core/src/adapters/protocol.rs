@@ -230,6 +230,35 @@ impl ProtocolAdapter {
             .await
     }
 
+    pub async fn update_profile(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        username: &str,
+        display_name: &str,
+    ) -> Result<ProviderOperationOutcome<String>, String> {
+        let definition = definition(provider.identity.protocol);
+        definition
+            .account_profile
+            .ok_or_else(|| definition.unsupported("修改账号资料"))?
+            .update_profile(settings, provider, username, display_name)
+            .await
+    }
+
+    pub async fn redeem_code(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        code: &str,
+    ) -> Result<ProviderOperationOutcome<String>, String> {
+        let definition = definition(provider.identity.protocol);
+        definition
+            .account_redemption
+            .ok_or_else(|| definition.unsupported("兑换码兑换"))?
+            .redeem_code(settings, provider, code)
+            .await
+    }
+
     pub async fn probe_capabilities(
         &self,
         settings: &AppSettings,

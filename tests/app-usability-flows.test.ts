@@ -734,22 +734,28 @@ test("model probe failures stay in their own step and a successful empty list cl
   assert.match(modelStep.detail, /当前列表为空/);
 });
 
-test("reopening request logs clears an unsubmitted search and the previously selected record", async (t) => {
+test("reopening request logs clears an unsubmitted filter and the previously selected record", async (t) => {
   const display = loadSource("utils/request-log-display.ts", { "./provider-display.ts": providerDisplay });
-  const component = loadSource<{ default: { setup: (props: object, context: object) => { keywordDraft: Ref<string>; selectedLog: Ref<unknown>; submitSearch: (event?: { isComposing?: boolean; keyCode?: number }) => void } } }>("components/RequestLogsModal.vue", {
+  const component = loadSource<{ default: { setup: (props: object, context: object) => {
+    filtersDraft: Ref<{ model: string; tokenName: string; group: string; requestId: string; logType: number | null; range: string }>;
+    selectedLog: Ref<unknown>;
+    submitSearch: (event?: { isComposing?: boolean; keyCode?: number }) => void;
+  } } }>("components/RequestLogsModal.vue", {
     "@arco-design/web-vue/es/icon": {}, "../utils/provider-display": providerDisplay,
+    "../utils/provider-protocol": providerProtocol,
     "../utils/request-log-display": display, "./RequestLogDetailsModal.vue": {},
   }).default;
   const emitted: unknown[][] = [];
-  const props = reactive({ visible: true, provider: provider("a"), keyword: "", page: 0, pageSize: 20, loading: false, error: "", result: null });
+  const filters = { model: "", tokenName: "", group: "", requestId: "", logType: null, range: "30d" };
+  const props = reactive({ visible: true, provider: provider("a"), filters, protocols: [], page: 0, pageSize: 20, loading: false, error: "", result: null });
   const { value: panel } = scoped(t, () => component.setup(props, { expose() {}, emit: (...args: unknown[]) => emitted.push(args) }));
-  panel.keywordDraft.value = "尚未提交";
+  panel.filtersDraft.value.model = "尚未提交";
   panel.selectedLog.value = { requestId: "old-record" };
   panel.submitSearch({ isComposing: true });
   assert.deepEqual(emitted, [], "confirming Chinese input must not submit a search");
   props.visible = false;
   props.visible = true;
-  assert.equal(panel.keywordDraft.value, "");
+  assert.equal(panel.filtersDraft.value.model, "");
   assert.equal(panel.selectedLog.value, null);
 });
 

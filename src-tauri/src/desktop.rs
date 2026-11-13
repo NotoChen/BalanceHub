@@ -220,6 +220,8 @@ pub(crate) fn run() {
             get_provider_recommendations,
             get_provider_request_logs,
             change_provider_password,
+            change_provider_profile,
+            redeem_provider_code,
             get_provider_check_in_records,
             probe_provider_capabilities,
             sync_available_models,

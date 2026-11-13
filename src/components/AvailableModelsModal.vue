@@ -162,7 +162,7 @@ const canRefresh = computed(() => Boolean(props.provider?.actions.models.canSync
             <span>每页 {{ MODELS_PER_PAGE }} 个</span>
             <a-pagination v-model:current="page" :total="filteredModels.length" :page-size="MODELS_PER_PAGE" size="small" simple />
           </div>
-          <p class="available-model-metadata-note"><template v-if="metadata.loading.value">正在补充模型资料…</template><template v-else-if="metadata.error.value">模型资料暂不可用，不影响模型选择。<a-button type="text" size="mini" @click="metadata.refresh">重试</a-button></template><template v-else-if="metadata.snapshot.value?.updatedAt">资料来自 models.dev，实际能力与费用以中转站为准。</template></p>
+          <p class="available-model-metadata-note"><template v-if="metadata.loading.value">正在补充模型资料…</template><template v-else-if="metadata.error.value">模型资料暂不可用，不影响模型选择。<a-button type="text" size="mini" @click="metadata.refresh">重试</a-button></template><template v-else-if="metadata.snapshot.value?.updatedAt">模型资料来自 models.dev，价格优先使用站点价目；实际能力与费用以中转站为准。</template></p>
         </div>
       </a-spin>
     </div>

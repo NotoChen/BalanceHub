@@ -80,6 +80,7 @@ const emit = defineEmits<{
   openUsage: [provider: Provider];
   openRequestLogs: [provider: Provider];
   openPasswordChange: [provider: Provider];
+  openAccountProfile: [provider: Provider];
   openLivenessDetails: [provider: Provider];
   openCheckInRecords: [provider: Provider];
   addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
@@ -210,6 +211,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @open-usage="emit('openUsage', $event)"
           @open-request-logs="emit('openRequestLogs', $event)"
           @open-password-change="emit('openPasswordChange', $event)"
+          @open-account-profile="emit('openAccountProfile', $event)"
           @open-liveness-details="emit('openLivenessDetails', $event)"
           @open-check-in-records="emit('openCheckInRecords', $event)"
           @add-provider-to-app="(provider, target) => emit('addProviderToApp', provider, target)"

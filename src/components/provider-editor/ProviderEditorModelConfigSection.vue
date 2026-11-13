@@ -287,7 +287,7 @@ function modelOverrideBadges(over: ProviderModelOverride) {
         </details>
       </div>
       <p v-else class="provider-empty-note">
-        覆盖会优先于 models.dev 目录；未填写的字段仍由目录补全。
+        覆盖会优先于站点价目和 models.dev 目录；未填写的价格由站点价目补全，其余字段仍由目录补全。
       </p>
     </div>
   </section>

@@ -160,7 +160,8 @@ onBeforeUnmount(() => {
     <div class="usage-reconciliation-body">
       <p class="usage-reconciliation-note">
         本地统计读取本机原生会话日志；账号归属来自 BalanceHub
-        的启动记录。参考费用按 models.dev 公开价格估算，实际费用以中转站账单为准。
+        的启动记录。参考费用优先使用站点价目，缺失时回退到 models.dev
+        公开参考价；实际费用以中转站账单为准。
       </p>
       <div class="usage-reconciliation-controls">
         <a-radio-group v-model="period" type="button" :options="usagePeriodOptions" />

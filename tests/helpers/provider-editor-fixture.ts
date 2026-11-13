@@ -33,7 +33,7 @@ export function protocolFixture(kind: ProviderProtocol): ProviderProtocolDescrip
       // 测试里的三种协议都经过中转站传输层，备用地址上限取同一常量。
       maxBackupUrls: 16,
     },
-    operationMethods: { checkIn: null, apiKeys: null, invitation: null, models: "", announcements: null },
+    operationMethods: { checkIn: null, apiKeys: null, invitation: null, models: "", announcements: null, pricing: null, usage: null, requestLogs: null, subscription: null, groups: null },
     credentialAssistant: { enabled: kind !== "api", accessTokenFlow: kind === "newApi" ? "sessionGeneration" : kind === "sub2Api" ? "credentialCompletion" : "none", accessTokenSkipFields: kind === "newApi" ? ["newApiSession.refreshCookie"] : [], apiKeyRequiredFields: kind === "newApi" ? ["apiUser"] : [], apiKeyRequiredAnyFields: kind === "newApi" ? ["sessionCookie", "accessToken", "newApiSession.refreshCookie"] : [] },
   };
 }

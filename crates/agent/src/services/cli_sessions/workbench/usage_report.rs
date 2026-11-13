@@ -777,6 +777,7 @@ pub(crate) fn finalize_usage_report(
             match catalog.estimate_with(
                 usage.clone(),
                 provider.map(|provider| &provider.model_config),
+                provider.map(|provider| &provider.capabilities.pricing),
             ) {
                 Ok(priced) => usage = priced,
                 Err(error) => {

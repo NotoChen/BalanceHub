@@ -10,6 +10,7 @@ export interface ProviderRecommendation {
   modelWireName: string;
   inputPrice: number | null;
   outputPrice: number | null;
+  perRequestPrice: number | null;
   livenessSuccessRate: number | null;
   livenessSamples: number;
   quotaRemainingPercent: number | null;

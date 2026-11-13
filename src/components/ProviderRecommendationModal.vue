@@ -62,6 +62,11 @@ const checkedAt = computed(() => {
   return date.toLocaleTimeString("zh-CN", { hour12: false });
 });
 
+/// 站点按次单价通常小于 $0.01，固定两位会显示成 0.00。
+function priceAmount(value: number, digits = 2) {
+  return +value.toFixed(digits);
+}
+
 async function load() {
   const id = ++request;
   loading.value = true;
@@ -195,8 +200,9 @@ onBeforeUnmount(() => {
                   测活 {{ percentLabel(entry.livenessSuccessRate) }}（近 {{ entry.livenessSamples }} 次）
                 </span>
                 <span v-else>暂无测活记录</span>
-                <span v-if="entry.inputPrice !== null">输入 ${{ entry.inputPrice.toFixed(2) }}/M</span>
-                <span v-if="entry.outputPrice !== null">输出 ${{ entry.outputPrice.toFixed(2) }}/M</span>
+                <span v-if="entry.inputPrice !== null">输入 ${{ priceAmount(entry.inputPrice) }}/M</span>
+                <span v-if="entry.outputPrice !== null">输出 ${{ priceAmount(entry.outputPrice) }}/M</span>
+                <span v-if="entry.perRequestPrice !== null">按次 ${{ priceAmount(entry.perRequestPrice, 4) }}/次</span>
                 <span v-if="entry.modelSupported === true">模型可用</span>
                 <span v-else-if="entry.modelSupported === false">模型不在列表</span>
                 <span v-else-if="model">模型列表未同步</span>

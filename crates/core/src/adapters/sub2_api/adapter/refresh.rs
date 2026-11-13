@@ -174,7 +174,7 @@ impl Sub2ApiAdapter {
         next.auth.refresh_token = working.auth.refresh_token.clone();
         next.auth.access_token_expires_at = working.auth.access_token_expires_at;
 
-        match authentication {
+        let (mut next, failure) = match authentication {
             Ok((authenticated, user)) => {
                 apply_rotated_tokens(&mut next, &authenticated);
                 apply_user(&mut next, &user);
@@ -240,7 +240,12 @@ impl Sub2ApiAdapter {
                 };
                 (provider_with_error(&next, message), Some(failure))
             }
-        }
+        };
+        // 价目是推荐与对账的价格来源；读取失败只写入快照错误，不影响余额、
+        // 模型列表和订阅窗口的刷新结果。
+        let pricing = super::super::pricing::probe_pricing(client, &next).await;
+        next.capabilities.pricing = pricing.snapshot;
+        (next, failure)
     }
 }
 

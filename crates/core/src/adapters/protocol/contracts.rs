@@ -383,6 +383,30 @@ pub trait AccountCapability: Send + Sync {
     ) -> Result<ProviderOperationOutcome<String>, String>;
 }
 
+/// 账号资料修改：不同站点可修改的字段不同，只有明确实现该能力的协议才在
+/// 界面上出现入口。
+#[async_trait]
+pub trait AccountProfileCapability: Send + Sync {
+    async fn update_profile(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        username: &str,
+        display_name: &str,
+    ) -> Result<ProviderOperationOutcome<String>, String>;
+}
+
+/// 兑换码充值。兑换成功后调用方负责刷新余额，但刷新失败不得把兑换回滚成失败。
+#[async_trait]
+pub trait AccountRedemptionCapability: Send + Sync {
+    async fn redeem_code(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        code: &str,
+    ) -> Result<ProviderOperationOutcome<String>, String>;
+}
+
 #[async_trait]
 pub trait CapabilityProbe: Send + Sync {
     async fn probe_capabilities(

@@ -1,6 +1,6 @@
 [package]
 name = "balancehub-server"
-version = "0.6.12"
+version = "0.6.13"
 description = "BalanceHub 无界面后端：中转站额度、签到与账号状态。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"

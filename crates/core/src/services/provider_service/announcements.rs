@@ -161,6 +161,13 @@ fn announcement_source_groups(providers: &[Provider]) -> Vec<AnnouncementSourceG
         {
             continue;
         }
+        if !crate::models::provider_domain::capabilities::optional_supported(
+            provider,
+            crate::models::ProviderOptionalCapability::Announcements,
+            true,
+        ) {
+            continue;
+        }
         let key = announcement_source_key(provider);
         if let Some(index) = indexes.get(&key).copied() {
             groups[index].providers.push(provider.clone());

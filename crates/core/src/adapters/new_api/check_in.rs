@@ -304,10 +304,7 @@ async fn check_in_status_probe(
     }
     serde_json::from_str::<Value>(&body)
         .map_err(|err| format!("解析签到状态失败: {err}: {}", trim_message(&body)))?;
-    if check_in_message_indicates_disabled(&trim_message(&body)) {
-        return Ok(false);
-    }
-    Ok(true)
+    Ok(!check_in_message_indicates_disabled(&trim_message(&body)))
 }
 
 fn already_checked_in() -> ProviderCheckInResult {

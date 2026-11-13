@@ -1,9 +1,10 @@
 use crate::{
     adapters::protocol::ProtocolAdapter,
     models::{
-        AuthMode, ProviderModelHealth, ProviderProtocol, ProviderRequestLogsQuery,
-        ProviderRequestLogsResult, ProviderStatus, ProviderUsageModelStat, ProviderUsageOverview,
-        ProviderUsageSourceError, ProviderUsageSummary,
+        provider_domain, AuthMode, ProviderModelHealth, ProviderOptionalCapability,
+        ProviderProtocol, ProviderRequestLogsQuery, ProviderRequestLogsResult, ProviderStatus,
+        ProviderUsageModelStat, ProviderUsageOverview, ProviderUsageSourceError,
+        ProviderUsageSummary,
     },
 };
 
@@ -18,6 +19,11 @@ fn overview_target(provider: &crate::models::Provider) -> bool {
         ProviderProtocol::NewApi | ProviderProtocol::Sub2Api
     ) && !matches!(provider.runtime.status, ProviderStatus::Error)
         && !matches!(provider.auth.mode, AuthMode::ApiKey)
+        && provider_domain::capabilities::optional_supported(
+            provider,
+            ProviderOptionalCapability::Usage,
+            true,
+        )
 }
 
 /// 汇总视图只展示排在前面的模型，排行铺满屏幕没有意义。
@@ -147,6 +153,12 @@ impl ProviderService {
         // 与汇总视图同一判断，直接说明原因而不是先登录再报错。
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("用量趋势按站点统计，API Key 卡片请在卡片上查看 Key 额度".to_string());
+        }
+        if let Some(reason) = provider_domain::capabilities::optional_unavailable_reason(
+            &provider,
+            ProviderOptionalCapability::Usage,
+        ) {
+            return Err(reason.to_string());
         }
         let provider = self
             .prepare_operation_provider(&data.settings, &provider)
@@ -285,6 +297,12 @@ impl ProviderService {
         // 直接说明原因而不是先登录再报错。
         if matches!(provider.auth.mode, AuthMode::ApiKey) {
             return Err("请求日志按站点统计，API Key 卡片不提供请求日志".to_string());
+        }
+        if let Some(reason) = provider_domain::capabilities::optional_unavailable_reason(
+            &provider,
+            ProviderOptionalCapability::RequestLogs,
+        ) {
+            return Err(reason.to_string());
         }
         let provider = self
             .prepare_operation_provider(&data.settings, &provider)

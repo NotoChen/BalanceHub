@@ -105,7 +105,8 @@ fn draft(provider: &Provider, model: &str, now: DateTime<Utc>) -> Draft {
     let liveness = liveness_stats(provider, now);
     let quota = quota_stats(provider);
     let support = model_support(provider, model);
-    let price = model_price(provider, model);
+    let quote = price_quote(provider, model);
+    let price = quote.price.clone();
 
     let mut reasons = Vec::new();
     let mut blockers = Vec::new();
@@ -139,11 +140,22 @@ fn draft(provider: &Provider, model: &str, now: DateTime<Utc>) -> Draft {
         reasons.push("暂无测活记录".to_string());
     }
     reasons.push(quota.label.clone());
+    let price_label = match quote.source {
+        PriceSource::Manual => "卡片覆盖价格".to_string(),
+        PriceSource::Site if !quote.group.trim().is_empty() => {
+            format!("站点价格（分组 {}）", quote.group.trim())
+        }
+        PriceSource::Site => "站点价格".to_string(),
+        PriceSource::None => String::new(),
+    };
     if let Some(input) = price.input {
-        reasons.push(format!("输入 ${:.2}/M", input));
+        reasons.push(price_reason(&price_label, "输入", input));
     }
     if let Some(output) = price.output {
-        reasons.push(format!("输出 ${:.2}/M", output));
+        reasons.push(price_reason(&price_label, "输出", output));
+    }
+    if let Some(per_request) = quote.per_request {
+        reasons.push(price_reason(&price_label, "按次", per_request));
     }
     if support == Some(true) {
         reasons.push(format!("模型列表包含 {model}"));
@@ -197,6 +209,7 @@ fn draft(provider: &Provider, model: &str, now: DateTime<Utc>) -> Draft {
         },
         input_price: price.input,
         output_price: price.output,
+        per_request_price: quote.per_request,
         liveness_success_rate: liveness.success_rate,
         liveness_samples: liveness.samples,
         quota_remaining_percent: quota.remaining_percent,
@@ -217,18 +230,93 @@ fn draft(provider: &Provider, model: &str, now: DateTime<Utc>) -> Draft {
     }
 }
 
-/// 只有卡片自己声明的覆盖价能区分中转站：models.dev 目录按模型 ID
-/// 全局匹配，同一模型在所有站点上价格相同，放进排序只会制造虚假差异。
-fn model_price(provider: &Provider, model: &str) -> ModelPrice {
-    if model.is_empty() {
-        return ModelPrice::default();
+fn price_reason(label: &str, kind: &str, price: f64) -> String {
+    let unit = if kind == "按次" { "/次" } else { "/M" };
+    if label.is_empty() {
+        format!("{kind} ${price:.2}{unit}")
+    } else {
+        format!("{label}：{kind} ${price:.2}{unit}")
     }
-    provider
-        .model_config
-        .overrides
-        .get(model)
-        .map(|over| over.price.clone())
-        .unwrap_or_default()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PriceSource {
+    None,
+    Manual,
+    Site,
+}
+
+struct PriceQuote {
+    price: ModelPrice,
+    per_request: Option<f64>,
+    source: PriceSource,
+    group: String,
+}
+
+impl PriceQuote {
+    fn empty() -> Self {
+        Self {
+            price: ModelPrice::default(),
+            per_request: None,
+            source: PriceSource::None,
+            group: String::new(),
+        }
+    }
+}
+
+/// 价格优先级：卡片手动覆盖 > 站点真实价目 > 无。models.dev 目录按模型 ID
+/// 全局匹配，同一模型在所有站点上价格相同，不能用来区分中转站。
+fn price_quote(provider: &Provider, model: &str) -> PriceQuote {
+    if model.is_empty() {
+        return PriceQuote::empty();
+    }
+    let site = provider.capabilities.pricing.model(model).or_else(|| {
+        let wire = provider.model_config.wire_name(model);
+        if wire == model {
+            None
+        } else {
+            provider.capabilities.pricing.model(wire)
+        }
+    });
+    let site_price = site.map(|price| price.token_price()).unwrap_or_default();
+    let site_group = site.map(|price| price.group.clone()).unwrap_or_default();
+    let site_per_request = site.and_then(|price| price.per_request);
+
+    let over = provider.model_config.overrides.get(model);
+    let manually_priced = over.is_some_and(|over| {
+        [
+            over.price.input,
+            over.price.output,
+            over.price.cache_read,
+            over.price.cache_write,
+        ]
+        .into_iter()
+        .any(|price| price.is_some())
+    });
+    if let Some(over) = over {
+        if manually_priced {
+            return PriceQuote {
+                price: ModelPrice {
+                    input: over.price.input.or(site_price.input),
+                    output: over.price.output.or(site_price.output),
+                    cache_read: over.price.cache_read.or(site_price.cache_read),
+                    cache_write: over.price.cache_write.or(site_price.cache_write),
+                },
+                per_request: None,
+                source: PriceSource::Manual,
+                group: site_group,
+            };
+        }
+    }
+    if site.is_some() {
+        return PriceQuote {
+            price: site_price,
+            per_request: site_per_request,
+            source: PriceSource::Site,
+            group: site_group,
+        };
+    }
+    PriceQuote::empty()
 }
 
 fn model_support(provider: &Provider, model: &str) -> Option<bool> {
@@ -686,6 +774,33 @@ mod tests {
     }
 
     #[test]
+    fn site_price_lookup_follows_the_model_wire_name() {
+        let mut provider = provider("wire-price", "Wire Price");
+        provider.capabilities.pricing.models.insert(
+            "upstream-model-id".to_string(),
+            crate::models::ProviderModelPrice {
+                input: Some(2.0),
+                output: Some(4.0),
+                group: "vip".to_string(),
+                ..Default::default()
+            },
+        );
+        provider.model_config.overrides.insert(
+            "display-model".to_string(),
+            crate::models::ProviderModelOverride {
+                wire_name: "upstream-model-id".to_string(),
+                ..Default::default()
+            },
+        );
+        let report = recommend(&[provider], "display-model", now());
+        assert_eq!(report.entries[0].input_price, Some(2.0));
+        assert!(report.entries[0]
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("站点价格（分组 vip）")));
+    }
+
+    #[test]
     fn empty_model_skips_model_filtering() {
         let mut provider = provider("any", "Any");
         provider.capabilities.available_models = vec!["model-a".to_string()];
@@ -693,6 +808,93 @@ mod tests {
         assert_eq!(report.entries[0].model_supported, None);
         assert!(report.entries[0].eligible);
         assert!(report.entries[0].model.is_empty());
+    }
+
+    #[test]
+    fn site_prices_drive_the_ranking_and_are_explained() {
+        let mut cheap = provider("cheap-site", "Cheap Site");
+        let mut pricey = provider("pricey-site", "Pricey Site");
+        for provider in [&mut cheap, &mut pricey] {
+            provider.capabilities.available_models = vec!["model-a".to_string()];
+        }
+        cheap.capabilities.pricing.models.insert(
+            "model-a".to_string(),
+            crate::models::ProviderModelPrice {
+                input: Some(1.0),
+                output: Some(2.0),
+                group: "default".to_string(),
+                ..Default::default()
+            },
+        );
+        pricey.capabilities.pricing.models.insert(
+            "model-a".to_string(),
+            crate::models::ProviderModelPrice {
+                input: Some(8.0),
+                output: Some(16.0),
+                group: "default".to_string(),
+                ..Default::default()
+            },
+        );
+        let report = recommend(&[pricey, cheap], "model-a", now());
+        assert_eq!(
+            report.recommended_provider_id.as_deref(),
+            Some("cheap-site")
+        );
+        assert!(report.entries[0]
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("站点价格（分组 default）")));
+    }
+
+    #[test]
+    fn manual_price_still_overrides_site_price() {
+        let mut provider = provider("manual", "Manual");
+        provider.capabilities.available_models = vec!["model-a".to_string()];
+        provider.capabilities.pricing.models.insert(
+            "model-a".to_string(),
+            crate::models::ProviderModelPrice {
+                input: Some(5.0),
+                output: Some(10.0),
+                ..Default::default()
+            },
+        );
+        provider.model_config.overrides.insert(
+            "model-a".to_string(),
+            crate::models::ProviderModelOverride {
+                price: ModelPrice {
+                    input: Some(1.0),
+                    ..ModelPrice::default()
+                },
+                ..Default::default()
+            },
+        );
+        let report = recommend(&[provider], "model-a", now());
+        assert_eq!(report.entries[0].input_price, Some(1.0));
+        assert_eq!(report.entries[0].output_price, Some(10.0));
+        assert!(report.entries[0]
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("卡片覆盖价格")));
+    }
+
+    #[test]
+    fn per_request_site_prices_do_not_pose_as_token_prices() {
+        let mut provider = provider("per-request", "Per Request");
+        provider.capabilities.available_models = vec!["model-a".to_string()];
+        provider.capabilities.pricing.models.insert(
+            "model-a".to_string(),
+            crate::models::ProviderModelPrice {
+                per_request: Some(0.02),
+                ..Default::default()
+            },
+        );
+        let report = recommend(&[provider], "model-a", now());
+        assert_eq!(report.entries[0].input_price, None);
+        assert_eq!(report.entries[0].per_request_price, Some(0.02));
+        assert!(report.entries[0]
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("按次 $0.02/次")));
     }
 
     #[test]

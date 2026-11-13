@@ -1,9 +1,10 @@
 use super::NewApiAdapter;
 use crate::{
     adapters::protocol::contracts::{
-        AccessTokenCapability, AccountCapability, AnnouncementCapability,
-        ApiKeyManagementCapability, CapabilityProbe, CheckInCapability, ConnectionCapability,
-        CredentialCapability, ProviderOperationOutcome, UsageCapability,
+        AccessTokenCapability, AccountCapability, AccountProfileCapability,
+        AccountRedemptionCapability, AnnouncementCapability, ApiKeyManagementCapability,
+        CapabilityProbe, CheckInCapability, ConnectionCapability, CredentialCapability,
+        ProviderOperationOutcome, UsageCapability,
     },
     models::{
         AppSettings, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption,
@@ -181,6 +182,35 @@ impl AccountCapability for NewApiAdapter {
         provider: &Provider,
     ) -> Result<ProviderOperationOutcome<String>, String> {
         NewApiAdapter::invite_link(self, settings, provider)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+}
+
+#[async_trait]
+impl AccountProfileCapability for NewApiAdapter {
+    async fn update_profile(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        username: &str,
+        display_name: &str,
+    ) -> Result<ProviderOperationOutcome<String>, String> {
+        NewApiAdapter::update_profile(self, settings, provider, username, display_name)
+            .await
+            .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
+    }
+}
+
+#[async_trait]
+impl AccountRedemptionCapability for NewApiAdapter {
+    async fn redeem_code(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+        code: &str,
+    ) -> Result<ProviderOperationOutcome<String>, String> {
+        NewApiAdapter::redeem_code(self, settings, provider, code)
             .await
             .map(|result| ProviderOperationOutcome::from_authenticated_result(provider, result))
     }

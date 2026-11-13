@@ -86,6 +86,7 @@ fn evaluate_spec(provider: &Provider, root: &Value) -> Result<ProviderQuota, Str
             spec.currency_symbol.clone()
         },
         currency_exchange_rate: provider.quota.currency_exchange_rate,
+        group: provider.quota.group.clone(),
         windows: Vec::new(),
     };
     let mut errors = Vec::new();

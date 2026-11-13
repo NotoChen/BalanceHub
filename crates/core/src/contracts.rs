@@ -56,12 +56,31 @@ pub struct ProviderActions {
     pub cpa_gateway: bool,
     pub app_imports: Vec<crate::models::ProviderAppImportOption>,
     pub account_management: bool,
+    /// 编辑站点账号的用户名和显示名。
+    pub edit_profile: bool,
+    /// 使用兑换码补充余额。
+    pub redeem_code: bool,
     pub check_in: bool,
     pub checked_in_today: bool,
     pub api_key_management: bool,
     pub invitation: bool,
+    /// 站点级用量趋势。协议支持、账号认证且能力探测未否定时可用。
+    pub usage: bool,
+    /// 站点请求日志。条件与用量趋势相同，但单独记录探测结果。
+    pub request_logs: bool,
+    /// 站点公告。公告是公开接口时 API Key 卡片同样可用。
+    pub announcements: bool,
     pub refresh_models_only: bool,
     pub models: provider_domain::model_list::ProviderModelListAction,
+}
+
+/// 账号资料或兑换码操作后的结果：界面用返回的 provider 直接更新卡片，
+/// 不再依赖一次额外的全量刷新。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAccountMutationView {
+    pub provider: ProviderView,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,6 +156,23 @@ impl From<Provider> for ProviderView {
             provider.auth.oauth.as_ref().is_some_and(|oauth| {
                 !provider.auth.access_token.is_empty() && !oauth.refresh_pending
             });
+        let account_management =
+            provider_domain::capabilities::supports_account_management(&provider);
+        let protocol_capabilities = protocol_definition.capabilities();
+        let usage = account_management
+            && protocol_capabilities.usage
+            && provider_domain::capabilities::optional_supported(
+                &provider,
+                crate::models::ProviderOptionalCapability::Usage,
+                true,
+            );
+        let request_logs = account_management
+            && protocol_capabilities.usage
+            && provider_domain::capabilities::optional_supported(
+                &provider,
+                crate::models::ProviderOptionalCapability::RequestLogs,
+                true,
+            );
         let actions = ProviderActions {
             // An OAuth card hands its own vendor token to that vendor's CLI; a
             // relay card needs a complete API key. Either way the launch itself
@@ -164,12 +200,24 @@ impl From<Provider> for ProviderView {
             account_management: provider_domain::capabilities::supports_account_management(
                 &provider,
             ),
+            edit_profile: provider_domain::capabilities::supports_account_management(&provider)
+                && protocol_capabilities.account_profile,
+            redeem_code: provider_domain::capabilities::supports_account_management(&provider)
+                && protocol_capabilities.account_redemption,
             check_in: provider_domain::capabilities::supports_check_in(&provider),
             checked_in_today: provider_domain::capabilities::checked_in_today(&provider),
             api_key_management: provider_domain::capabilities::supports_api_key_management(
                 &provider,
             ),
             invitation: provider_domain::capabilities::supports_invitation(&provider),
+            usage,
+            request_logs,
+            announcements: protocol_capabilities.announcements
+                && provider_domain::capabilities::optional_supported(
+                    &provider,
+                    crate::models::ProviderOptionalCapability::Announcements,
+                    true,
+                ),
             refresh_models_only: provider.identity.protocol == ProviderProtocol::Api,
             models: provider_domain::model_list::action(&provider),
         };
@@ -264,6 +312,10 @@ pub struct ProviderProtocolCapabilitiesView {
     pub api_key_management: bool,
     pub usage: bool,
     pub account: bool,
+    /// 允许在应用内修改用户名和显示名。
+    pub account_profile: bool,
+    /// 提供兑换码入口。
+    pub account_redemption: bool,
     pub check_in: bool,
     pub announcements: bool,
     pub max_backup_urls: usize,
@@ -274,6 +326,8 @@ pub struct ProviderProtocolCapabilitiesView {
     pub models_url: bool,
     /// 按接口改写的数量上限；0 表示该协议没有请求目录。
     pub max_endpoint_overrides: usize,
+    /// 请求日志支持的筛选维度，与协议实现读取的字段保持一致。
+    pub request_log_filters: Vec<crate::models::ProviderRequestLogFilter>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -313,6 +367,11 @@ pub struct ProviderProtocolOperationMethodsView {
     pub invitation: Option<&'static str>,
     pub models: &'static str,
     pub announcements: Option<&'static str>,
+    pub pricing: Option<&'static str>,
+    pub usage: Option<&'static str>,
+    pub request_logs: Option<&'static str>,
+    pub subscription: Option<&'static str>,
+    pub groups: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -361,6 +420,8 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                     api_key_management: capabilities.api_key_management,
                     usage: capabilities.usage,
                     account: capabilities.account,
+                    account_profile: capabilities.account_profile,
+                    account_redemption: capabilities.account_redemption,
                     check_in: capabilities.check_in,
                     announcements: capabilities.announcements,
                     max_backup_urls: capabilities.max_backup_urls,
@@ -370,6 +431,7 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                     max_quota_windows: capabilities.max_quota_windows,
                     models_url: capabilities.models_url,
                     max_endpoint_overrides: capabilities.max_endpoint_overrides,
+                    request_log_filters: capabilities.request_log_filters.to_vec(),
                 },
                 operation_methods: ProviderProtocolOperationMethodsView {
                     check_in: definition.operation_methods.check_in,
@@ -377,6 +439,11 @@ pub fn provider_protocol_views() -> Vec<ProviderProtocolDescriptorView> {
                     invitation: definition.operation_methods.invitation,
                     models: definition.operation_methods.models,
                     announcements: definition.operation_methods.announcements,
+                    pricing: definition.operation_methods.pricing,
+                    usage: definition.operation_methods.usage,
+                    request_logs: definition.operation_methods.request_logs,
+                    subscription: definition.operation_methods.subscription,
+                    groups: definition.operation_methods.groups,
                 },
                 endpoints: crate::models::provider_domain::endpoints::catalog(definition.kind)
                     .iter()
@@ -587,7 +654,7 @@ impl From<ProviderModelSyncResult> for ProviderModelSyncResultView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AuthMode, ProviderInput, ProviderProtocol};
+    use crate::models::{AuthMode, ProviderInput, ProviderProtocol, ProviderRequestLogFilter};
 
     #[test]
     fn batch_progress_events_use_frontend_names_and_revisioned_provider_views() {
@@ -754,6 +821,9 @@ mod tests {
             .contains(&"newApiSession.refreshCookie"));
         assert_eq!(new_api.operation_methods.api_keys, Some("GET /api/token/"));
         assert!(new_api.capabilities.max_endpoint_overrides > 0);
+        assert!(new_api.capabilities.account_profile);
+        assert!(new_api.capabilities.account_redemption);
+        assert_eq!(new_api.capabilities.request_log_filters.len(), 6);
         assert!(new_api
             .endpoints
             .iter()
@@ -766,6 +836,20 @@ mod tests {
             .find(|mode| mode.mode == AuthMode::Password)
             .expect("NewAPI password schema");
         assert!(password.note.contains("2FA"));
+
+        let sub2 = views
+            .iter()
+            .find(|view| view.kind == ProviderProtocol::Sub2Api)
+            .expect("Sub2API descriptor");
+        assert!(!sub2.capabilities.account_profile);
+        assert!(sub2.capabilities.account_redemption);
+        assert_eq!(
+            sub2.capabilities.request_log_filters,
+            [
+                ProviderRequestLogFilter::Model,
+                ProviderRequestLogFilter::TimeRange
+            ]
+        );
 
         let generic = views
             .iter()

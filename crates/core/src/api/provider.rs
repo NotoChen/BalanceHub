@@ -6,9 +6,9 @@ use std::{future::Future, sync::Arc, time::Duration};
 use super::{arg, blocking, optional, to_value};
 use crate::{
     contracts::{
-        provider_views, ProgressSink, ProviderBatchProgressEvent, ProviderBatchResultView,
-        ProviderCapabilityProbeResultView, ProviderModelSyncResultView, ProviderSaveResultView,
-        ProviderView, RefreshResultView,
+        provider_views, ProgressSink, ProviderAccountMutationView, ProviderBatchProgressEvent,
+        ProviderBatchResultView, ProviderCapabilityProbeResultView, ProviderModelSyncResultView,
+        ProviderSaveResultView, ProviderView, RefreshResultView,
     },
     models::{ProviderApiKeyPatch, ProviderInput, ProviderRequestLogsQuery, ProviderSaveOptions},
     services::provider_service::ProviderService,
@@ -37,6 +37,8 @@ pub const COMMANDS: &[&str] = &[
     "get_provider_check_in_records",
     "get_provider_invite_link",
     "change_provider_password",
+    "change_provider_profile",
+    "redeem_provider_code",
     "complete_provider_credentials",
     "generate_provider_access_token_for_input",
     "create_provider_api_key_for_input",
@@ -199,6 +201,25 @@ pub async fn handle(
             let original: String = arg(args, "originalPassword")?;
             let password: String = arg(args, "password")?;
             to_value(service.change_password(id, original, password).await?)
+        }
+        "change_provider_profile" => {
+            let id: String = arg(args, "id")?;
+            let username: String = arg(args, "username")?;
+            let display_name: String = arg(args, "displayName")?;
+            let (provider, message) = service.update_profile(id, username, display_name).await?;
+            to_value(ProviderAccountMutationView {
+                provider: ProviderView::from(provider),
+                message,
+            })
+        }
+        "redeem_provider_code" => {
+            let id: String = arg(args, "id")?;
+            let code: String = arg(args, "code")?;
+            let (provider, message) = service.redeem_code(id, code).await?;
+            to_value(ProviderAccountMutationView {
+                provider: ProviderView::from(provider),
+                message,
+            })
         }
         "complete_provider_credentials" => {
             let input: ProviderInput = arg(args, "input")?;

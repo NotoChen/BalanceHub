@@ -10,6 +10,8 @@ mod keys;
 mod logs;
 mod models;
 pub use models::fetch_models_with_account_auth;
+mod optional_probe;
+mod pricing;
 mod protocol;
 mod quota;
 mod response;

@@ -31,6 +31,7 @@ interface UseProviderActionsOptions {
   openUsage: (provider: Provider) => void;
   openRequestLogs: (provider: Provider) => void;
   openPasswordChange: (provider: Provider) => void;
+  openAccountProfile: (provider: Provider) => void;
   openCheckInRecords: (provider: Provider) => void;
   toggleProvider: (provider: Provider, enabled: boolean) => Promise<void>;
   removeProvider: (provider: Provider) => Promise<void>;
@@ -241,6 +242,10 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     options.openPasswordChange(provider);
   }
 
+  function openAccountProfile(provider: Provider) {
+    options.openAccountProfile(provider);
+  }
+
   function openLivenessDetails(provider: Provider) {
     livenessDetailsProviderId.value = provider.identity.id;
     livenessDetailsVisible.value = true;
@@ -292,6 +297,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     openUsage,
     openRequestLogs,
     openPasswordChange,
+    openAccountProfile,
     openLivenessDetails,
     openCheckInRecords,
     addProviderToApp,

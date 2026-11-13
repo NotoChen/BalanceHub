@@ -208,7 +208,11 @@ function decodeHtmlEntity(entity: string) {
 export function providerAnnouncementSourceSignature(providers: Provider[]) {
   const sources = new Set<string>();
   for (const provider of providers) {
-    if (!provider.runtime.enabled || provider.identity.protocol === "api") continue;
+    if (!provider.runtime.enabled) continue;
+    // 能力探测确认公告不可用的卡片不应继续充当公告来源，否则顶栏会在
+    // 打开面板后只得到空列表。
+    if (provider.actions?.announcements === false) continue;
+    if (provider.identity.protocol === "api") continue;
     sources.add(
       `${provider.identity.protocol}:${announcementSiteOrigin(provider.identity.baseUrl)}`,
     );

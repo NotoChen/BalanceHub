@@ -45,22 +45,24 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
                 return Err("模型资料查询数量或名称超出范围".to_owned());
             }
             let state = crate::host::core_state();
-            let (model_config, settings) = {
+            let (model_config, site_pricing, settings) = {
                 let data = state.data.read().unwrap_or_else(|error| error.into_inner());
-                let model_config = provider_id.and_then(|id| {
+                let provider = provider_id.and_then(|id| {
                     data.providers
                         .iter()
                         .find(|provider| provider.identity.id == id)
-                        .map(|provider| provider.model_config.clone())
                 });
-                (model_config, data.settings.clone())
+                let model_config = provider.map(|provider| provider.model_config.clone());
+                let site_pricing = provider.map(|provider| provider.capabilities.pricing.clone());
+                (model_config, site_pricing, data.settings.clone())
             };
             let service = state.model_catalog()?;
             let snapshot: ModelMetadataSnapshot =
-                service.snapshot_for(&ids, model_config.as_ref())?;
+                service.snapshot_for(&ids, model_config.as_ref(), site_pricing.as_ref())?;
             if refresh || snapshot.updated_at.is_none() {
                 let _ = service.refresh(&settings, refresh).await;
-                let current = service.snapshot_for(&ids, model_config.as_ref())?;
+                let current =
+                    service.snapshot_for(&ids, model_config.as_ref(), site_pricing.as_ref())?;
                 if current.updated_at != snapshot.updated_at {
                     crate::host::emit("model-metadata-updated", json!(null));
                 }
@@ -69,11 +71,12 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
             if snapshot.stale {
                 let updated_at = snapshot.updated_at.clone();
                 let service_config = model_config.clone();
+                let service_pricing = site_pricing.clone();
                 let service = std::sync::Arc::clone(&service);
                 crate::runtime::spawn(async move {
                     let _ = service.refresh(&settings, false).await;
                     if service
-                        .snapshot_for(&[], service_config.as_ref())
+                        .snapshot_for(&[], service_config.as_ref(), service_pricing.as_ref())
                         .is_ok_and(|current| current.updated_at != updated_at)
                     {
                         crate::host::emit("model-metadata-updated", json!(null));

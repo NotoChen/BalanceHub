@@ -12,6 +12,7 @@ import type {
   ProviderApiKeyOption,
   ProviderApiKeyPatch,
   ProviderApiKeyEditorContext,
+  ProviderAccountMutationResult,
   ProviderCapabilityProbeResult,
   ProviderCheckInRecordsResult,
   ProviderCheckInPolicyPreview,
@@ -449,6 +450,14 @@ export function getProviderRequestLogs(id: string, query: ProviderRequestLogsQue
 
 export function changeProviderPassword(id: string, originalPassword: string, password: string) {
   return invoke<string>("change_provider_password", { id, originalPassword, password });
+}
+
+export function changeProviderProfile(id: string, username: string, displayName: string) {
+  return invoke<ProviderAccountMutationResult>("change_provider_profile", { id, username, displayName });
+}
+
+export function redeemProviderCode(id: string, code: string) {
+  return invoke<ProviderAccountMutationResult>("redeem_provider_code", { id, code });
 }
 
 export function getProviderCheckInRecords(id: string, month: string) {

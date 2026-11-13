@@ -166,6 +166,7 @@ impl Provider {
                 display_type: defaults::quota_display_type(),
                 currency_symbol: defaults::currency_symbol(),
                 currency_exchange_rate: defaults::currency_exchange_rate(),
+                group: String::new(),
                 windows: Vec::new(),
             },
             capabilities: ProviderCapabilities::default(),
@@ -469,6 +470,7 @@ impl Provider {
             self.quota.used = 0.0;
             // 订阅窗口属于旧账号/旧站点，换凭据后必须一起失效。
             self.quota.windows.clear();
+            self.quota.group.clear();
             let account_protocol = matches!(
                 self.identity.protocol,
                 ProviderProtocol::NewApi | ProviderProtocol::Sub2Api
@@ -1152,11 +1154,21 @@ mod tests {
         let mut provider = Provider::from_input(input.clone(), "provider-test".to_string());
         provider.capabilities.available_models = vec!["cached-model".to_string()];
         provider.capabilities.probed_at = Some("123".to_string());
+        provider.quota.group = "vip".to_string();
+        provider.capabilities.pricing.models.insert(
+            "cached-model".to_string(),
+            crate::models::ProviderModelPrice {
+                input: Some(1.0),
+                ..crate::models::ProviderModelPrice::default()
+            },
+        );
 
         input.auth.login_password = "new-password".to_string();
         provider.apply_input(input);
 
         assert!(provider.capabilities.available_models.is_empty());
+        assert!(provider.capabilities.pricing.models.is_empty());
+        assert!(provider.quota.group.is_empty());
         assert_eq!(provider.capabilities.probed_at, None);
         assert!(matches!(provider.runtime.status, ProviderStatus::Warning));
     }
