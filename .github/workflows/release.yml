@@ -49,19 +49,29 @@ jobs:
         with:
           script: |
             const tag = context.ref.replace("refs/tags/", "");
-            let existing = null;
-            try {
-              existing = (await github.rest.repos.getReleaseByTag({
-                ...context.repo,
-                tag,
-              })).data;
-            } catch (error) {
-              if (error.status !== 404) throw error;
-            }
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              ...context.repo,
+              per_page: 100,
+            });
+            const matching = releases
+              .filter((release) => release.tag_name === tag)
+              .sort((left, right) =>
+                right.created_at.localeCompare(left.created_at),
+              );
+            const existing = matching.find((release) => release.draft) ?? null;
 
-            if (existing && !existing.draft) {
+            if (matching.some((release) => !release.draft)) {
               core.setFailed(`Release ${tag} 已发布，拒绝覆盖现有版本`);
               return;
+            }
+
+            for (const duplicate of matching.filter(
+              (release) => release.draft && release.id !== existing?.id,
+            )) {
+              await github.rest.repos.deleteRelease({
+                ...context.repo,
+                release_id: duplicate.id,
+              });
             }
 
             if (existing) {
