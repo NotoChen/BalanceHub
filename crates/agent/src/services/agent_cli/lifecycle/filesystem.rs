@@ -58,19 +58,21 @@ pub(super) fn owned_writable_directory(path: &Path) -> bool {
     let Ok(metadata) = fs::symlink_metadata(path) else {
         return false;
     };
-    if !metadata.is_dir() || metadata.file_type().is_symlink() || metadata.permissions().readonly()
-    {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o300 == 0o300
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
+    metadata.is_dir()
+        && !metadata.file_type().is_symlink()
+        && !metadata.permissions().readonly()
+        && writable_owner(&metadata)
+}
+
+#[cfg(unix)]
+fn writable_owner(metadata: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o300 == 0o300
+}
+
+#[cfg(not(unix))]
+fn writable_owner(_metadata: &fs::Metadata) -> bool {
+    true
 }
 
 pub(super) fn changed() -> AgentLifecycleError {
