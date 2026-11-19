@@ -75,6 +75,19 @@ pub(crate) async fn set_provider_enabled(
 }
 
 #[tauri::command]
+pub(crate) async fn set_provider_model_binding(
+    id: String,
+    cli_kind: crate::models::AgentCliKind,
+    model: Option<String>,
+) -> Result<serde_json::Value, String> {
+    dispatch_value(
+        "set_provider_model_binding",
+        json!({ "id": id, "cliKind": cli_kind, "model": model }),
+    )
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn remove_provider(id: String) -> Result<serde_json::Value, String> {
     dispatch_value("remove_provider", json!({ "id": id })).await
 }
@@ -397,6 +410,11 @@ pub(crate) async fn refresh_all_providers_with_progress(
         Some(std::sync::Arc::new(ChannelProgress(on_event))),
     )
     .await
+}
+
+#[tauri::command]
+pub(crate) async fn cancel_provider_refresh() -> Result<serde_json::Value, String> {
+    dispatch_value("cancel_provider_refresh", json!({})).await
 }
 
 #[tauri::command]

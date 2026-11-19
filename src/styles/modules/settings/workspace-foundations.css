@@ -194,11 +194,54 @@
   display: grid;
 }
 
-.settings-theme-layout {
+.settings-automation-summary-list {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 18px;
-  padding: 16px;
+  margin: 0;
+  list-style: none;
+  padding: 2px 0;
+}
+
+.settings-automation-summary-list li {
+  display: grid;
+  grid-template-columns: auto 76px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  border-bottom: 1px solid var(--surface-line);
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 9px 15px;
+}
+
+.settings-automation-summary-list li:last-child {
+  border-bottom: none;
+}
+
+.settings-automation-summary-list strong {
+  color: var(--surface-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* 状态胶囊用强调色表示「开」，关闭时退回中性表面，浅色和深色主题共用。 */
+.settings-automation-summary-state {
+  border-radius: 999px;
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.6;
+  padding: 0 7px;
+}
+
+.settings-automation-summary-list li.is-off .settings-automation-summary-state {
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+}
+
+.settings-automation-summary-list li.is-off strong {
+  color: var(--surface-muted);
+  font-weight: 600;
 }
 
 .settings-theme-options {
@@ -281,116 +324,6 @@
   border: 2px solid #ffffff;
   background: #165dff;
   box-shadow: 0 0 0 1px #165dff;
-}
-
-.settings-appearance-preview {
-  position: relative;
-  min-height: 174px;
-  overflow: hidden;
-  border: 1px solid #dfe3e8;
-  border-radius: 8px;
-  background: var(--surface-panel-soft);
-  padding: 12px;
-}
-
-.settings-appearance-preview.is-dark {
-  border-color: #343944;
-  background: #1a1d23;
-}
-
-.settings-preview-toolbar {
-  display: flex;
-  height: 24px;
-  align-items: center;
-  gap: 4px;
-  border-radius: 5px 5px 0 0;
-  background: var(--surface-panel);
-  padding: 0 8px;
-}
-
-.settings-appearance-preview.is-dark .settings-preview-toolbar {
-  background: #272b33;
-}
-
-.settings-preview-toolbar > span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #c9ced6;
-}
-
-.settings-preview-canvas {
-  display: grid;
-  height: 112px;
-  grid-template-columns: 42px minmax(0, 1fr);
-  border-radius: 0 0 5px 5px;
-  background: var(--surface-panel-soft);
-}
-
-.settings-appearance-preview.is-dark .settings-preview-canvas {
-  background: #20242b;
-}
-
-.settings-preview-sidebar {
-  display: grid;
-  align-content: start;
-  gap: 7px;
-  border-right: 1px solid #e6e9ed;
-  background: #f0f2f5;
-  padding: 12px 8px;
-}
-
-.settings-appearance-preview.is-dark .settings-preview-sidebar {
-  border-color: #343944;
-  background: #252932;
-}
-
-.settings-preview-sidebar > i {
-  height: 5px;
-  border-radius: 3px;
-  background: #ccd2da;
-}
-
-.settings-preview-content {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  padding: 12px;
-}
-
-.settings-preview-content > span {
-  width: 42%;
-  height: 7px;
-  border-radius: 3px;
-  background: #93b3f8;
-}
-
-.settings-preview-content > div {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-}
-
-.settings-preview-content i {
-  height: 28px;
-  border: 1px solid #e1e5ea;
-  border-radius: 5px;
-  background: var(--surface-panel);
-}
-
-.settings-appearance-preview.is-dark .settings-preview-sidebar > i,
-.settings-appearance-preview.is-dark .settings-preview-content i {
-  border-color: #3a3f49;
-  background: #30353e;
-}
-
-.settings-appearance-preview > b {
-  position: absolute;
-  right: 17px;
-  bottom: 17px;
-  color: var(--surface-muted);
-  font-size: 9px;
-  font-weight: 600;
 }
 
 .settings-field-grid {

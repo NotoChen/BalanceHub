@@ -67,9 +67,7 @@ const descriptionText = computed(() => {
   if (!props.draft.identity.baseUrl.trim()) {
     missing.push("中转站地址");
   }
-  missing.push(...missingCredentialRequirements(props.draft, schema).map((fields) =>
-    fields.map((field) => schema.fields.find((candidate) => candidate.field === field)?.label || fieldLabel(field)).join("或"),
-  ));
+  missing.push(...missingFieldEntries.value.map((entry) => entry.label));
   if (missing.length > 0) {
     return `填写${missing.join("、")}后，可以自动补全配置。`;
   }
@@ -86,6 +84,35 @@ const descriptionText = computed(() => {
   const targetText = targets.length > 0 ? `，并同步${targets.join("和")}` : "";
   return `保存时会自动${schema.description}${targetText}，也可以现在补全。`;
 });
+
+/// 缺哪个字段就列出哪个字段，点击直接聚焦到输入框；不再只写一句
+/// “填写登录凭据后继续”，把定位工作留给用户。
+const missingFieldEntries = computed(() => {
+  const schema = currentAuthMode.value;
+  if (!schema) return [];
+  const entries = new Map<string, string>();
+  for (const group of missingCredentialRequirements(props.draft, schema)) {
+    for (const field of group) {
+      entries.set(
+        field,
+        schema.fields.find((candidate) => candidate.field === field)?.label || fieldLabel(field),
+      );
+    }
+  }
+  return [...entries].map(([field, label]) => ({ field, label }));
+});
+
+function focusCredentialField(field: string) {
+  if (typeof document === "undefined") return;
+  const wrapper = document.querySelector<HTMLElement>(
+    `[data-credential-field="${field}"]`,
+  );
+  if (!wrapper || wrapper.offsetParent === null) return;
+  const input = wrapper.querySelector<HTMLElement>("input, textarea");
+  if (!input) return;
+  input.focus();
+  input.scrollIntoView({ block: "center", behavior: "smooth" });
+}
 
 const actionText = computed(() => {
   if (props.state === "failed") return "重新尝试";
@@ -121,6 +148,16 @@ function stepStatusLabel(status: CredentialCompletionStep["status"]) {
       >
         {{ actionText }}
       </a-button>
+    </div>
+
+    <div v-if="missingFieldEntries.length" class="credential-completion-missing" role="status">
+      <span>还缺：</span>
+      <button
+        v-for="entry in missingFieldEntries"
+        :key="entry.field"
+        type="button"
+        @click="focusCredentialField(entry.field)"
+      >{{ entry.label }}</button>
     </div>
 
     <ul v-if="steps.length > 0" class="credential-completion-steps">

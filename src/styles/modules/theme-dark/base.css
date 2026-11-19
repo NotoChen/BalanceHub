@@ -45,7 +45,6 @@
   color: var(--topbar-action-color, #ffffff);
 }
 
-:root.theme-dark .panel-title,
 :root.theme-dark .provider-card-api-endpoint-value,
 :root.theme-dark .provider-card-balance strong {
   color: #f2f3f5;
@@ -83,15 +82,6 @@
 :root.theme-dark .empty-state h3,
 :root.theme-dark .onboarding-header h2,
 :root.theme-dark .onboarding-step h3,
-:root.theme-dark .settings-section-title strong,
-:root.theme-dark .settings-preview strong {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .panel-header {
-  border-color: var(--glass-border);
-}
-
 :root.theme-dark .provider-card-placeholder {
   border-color: #2f56a6;
   background: rgba(64, 128, 255, 0.12);
@@ -152,24 +142,6 @@
 
 :root.theme-dark .provider-liveness-timeline-empty .provider-liveness-segment {
   background: #292b33;
-}
-
-:root.theme-dark .settings-section-title span,
-:root.theme-dark .settings-preview span {
-  color: #a9aeb8;
-}
-
-:root.theme-dark .settings-section-title strong {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .settings-version {
-  background: rgba(36, 38, 47, 0.82);
-  color: #f2f3f5;
-}
-
-:root.theme-dark .settings-section-expanded {
-  background: rgba(36, 38, 47, 0.82);
 }
 
 :root.theme-dark .liveness-record {
@@ -270,11 +242,6 @@
   border-color: var(--glass-border);
 }
 
-:root.theme-dark .settings-preview {
-  border-color: var(--glass-border);
-  background: var(--glass-card-muted);
-}
-
 :root.theme-dark .provider-advanced-section {
   border-color: var(--glass-border);
   background: var(--glass-card-muted);
@@ -309,7 +276,6 @@
   color: #f2f3f5;
 }
 
-:root.theme-dark .settings-body,
 :root.theme-dark .arco-drawer,
 :root.theme-dark .arco-drawer-body,
 :root.theme-dark .arco-drawer-footer,

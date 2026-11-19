@@ -45,9 +45,18 @@ pub(crate) async fn get_agent_usage_report(
         if !request.include_site_usage {
             return Ok(Vec::new());
         }
+        // 只读本地会话确实归属过的站点。启动记录读取放在阻塞线程池里，
+        // 和本机解码同时进行；空集合表示没有可对比的站点，不发起请求。
+        let site_provider_ids = blocking("汇总会话归属", || {
+            Ok::<_, String>(workbench::attributed_provider_ids())
+        })
+        .await?;
+        if site_provider_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         match tokio::time::timeout(
             SITE_TIMEOUT,
-            ProviderService::new().usage_summary_sources(&period, &[]),
+            ProviderService::new().usage_summary_sources(&period, &site_provider_ids),
         )
         .await
         {

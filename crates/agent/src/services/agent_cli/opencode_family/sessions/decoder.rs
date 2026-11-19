@@ -294,7 +294,11 @@ fn usage_from_message(
         reasoning_tokens: number(tokens, "reasoning"),
         cache_read_tokens: tokens.get("cache").and_then(|cache| number(cache, "read")),
         cache_write_tokens: tokens.get("cache").and_then(|cache| number(cache, "write")),
-    };
+    }
+    .with_cache_in_input()
+    // OpenCode 的 input 是 nonCachedInputTokens，output 是 visibleOutputTokens，
+    // 推理单独计数；落库时两项都要并入，才能满足统计约定和费用估算。
+    .with_reasoning_in_output();
     if counts == SessionTokenCounts::default() {
         return None;
     }
@@ -355,4 +359,34 @@ fn push(
         },
         priority: 1,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn usage_folds_cache_and_reasoning_into_contract_fields() {
+        let message = json!({
+            "tokens": {
+                "input": 100,
+                "output": 20,
+                "reasoning": 5,
+                "cache": { "read": 30, "write": 10 }
+            }
+        });
+        let Some(SessionTranscriptMutation::Usage(record)) =
+            usage_from_message(Some("message-1"), Some("model-1"), &message)
+        else {
+            panic!("expected a usage record");
+        };
+        // OpenCode 的 input 是 nonCachedInputTokens、output 是 visibleOutputTokens；
+        // 统计约定要求输入含缓存、输出含推理。
+        assert_eq!(record.tokens.input_tokens, Some(140));
+        assert_eq!(record.tokens.output_tokens, Some(25));
+        assert_eq!(record.tokens.cache_read_tokens, Some(30));
+        assert_eq!(record.tokens.cache_write_tokens, Some(10));
+        assert_eq!(record.tokens.reasoning_tokens, Some(5));
+    }
 }

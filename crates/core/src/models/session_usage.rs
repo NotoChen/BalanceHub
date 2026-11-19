@@ -89,6 +89,32 @@ fn sum_known_cost(left: Option<u64>, right: Option<u64>) -> Option<u64> {
 }
 
 impl SessionTokenCounts {
+    /// 原生 usage 把缓存读写单独计数时（Anthropic 风格），落库前把缓存
+    /// 并入 `input_tokens`，维持“输入含缓存”的统计约定。漏掉这一步会让
+    /// 总 token 少算缓存，费用估算也会因“输入 - 缓存”下溢而放弃整条记录。
+    /// 输入本身未知时保持未知，不用缓存值伪造总量。
+    pub fn with_cache_in_input(mut self) -> Self {
+        if let Some(input) = self.input_tokens {
+            self.input_tokens = Some(
+                input
+                    .saturating_add(self.cache_read_tokens.unwrap_or_default())
+                    .saturating_add(self.cache_write_tokens.unwrap_or_default()),
+            );
+        }
+        self
+    }
+
+    /// 原生 usage 把推理从输出中拆开时，落库前并入 `output_tokens`，维持
+    /// “输出含推理”的统计约定；费用估算只按输出计价，漏掉会少算推理。
+    /// 输出本身未知时保持未知。推理已经是输出的子集时不要调用。
+    pub fn with_reasoning_in_output(mut self) -> Self {
+        if let Some(output) = self.output_tokens {
+            self.output_tokens =
+                Some(output.saturating_add(self.reasoning_tokens.unwrap_or_default()));
+        }
+        self
+    }
+
     pub fn add(&mut self, other: &Self, first: bool) {
         for (target, value) in [
             (&mut self.input_tokens, other.input_tokens),
@@ -180,5 +206,53 @@ mod tests {
         assert_eq!(total.tokens.output_tokens, Some(10));
         assert_eq!(total.estimated_cost_microusd, Some(4));
         assert!(!total.partial);
+    }
+
+    #[test]
+    fn including_cache_folds_separate_cache_counts_into_input() {
+        let counts = SessionTokenCounts {
+            input_tokens: Some(120),
+            cache_read_tokens: Some(40),
+            cache_write_tokens: Some(10),
+            ..SessionTokenCounts::default()
+        }
+        .with_cache_in_input();
+        assert_eq!(counts.input_tokens, Some(170));
+        // 缓存字段保留，费用估算仍按缓存价单独计价。
+        assert_eq!(counts.cache_read_tokens, Some(40));
+        assert_eq!(counts.cache_write_tokens, Some(10));
+    }
+
+    #[test]
+    fn with_reasoning_in_output_folds_separate_reasoning_into_output() {
+        let counts = SessionTokenCounts {
+            output_tokens: Some(30),
+            reasoning_tokens: Some(12),
+            ..SessionTokenCounts::default()
+        }
+        .with_reasoning_in_output();
+        assert_eq!(counts.output_tokens, Some(42));
+        // 推理字段保留，供界面单独展示明细。
+        assert_eq!(counts.reasoning_tokens, Some(12));
+    }
+
+    #[test]
+    fn with_reasoning_in_output_keeps_unknown_output_unknown() {
+        let counts = SessionTokenCounts {
+            reasoning_tokens: Some(12),
+            ..SessionTokenCounts::default()
+        }
+        .with_reasoning_in_output();
+        assert_eq!(counts.output_tokens, None);
+    }
+
+    #[test]
+    fn including_cache_keeps_unknown_input_unknown() {
+        let counts = SessionTokenCounts {
+            cache_read_tokens: Some(40),
+            ..SessionTokenCounts::default()
+        }
+        .with_cache_in_input();
+        assert_eq!(counts.input_tokens, None);
     }
 }

@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, ref, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type { AppSettings, Provider } from "../stores/providers";
+import type { CliEnvironmentProbeResult } from "../stores/provider-types";
 
 interface UseOnboardingControllerOptions {
   initialized: Ref<boolean>;
@@ -8,14 +9,17 @@ interface UseOnboardingControllerOptions {
   providers: Ref<Provider[]>;
   settings: Ref<AppSettings>;
   settingsForm: AppSettings;
+  cliEnvironmentProbe: Ref<CliEnvironmentProbeResult | null>;
   flushSettingsSave: () => Promise<boolean>;
   importAppData: () => Promise<unknown>;
   openAddProvider: () => void;
-  openSettings: () => void;
+  detectCliTools: () => Promise<CliEnvironmentProbeResult>;
+  openAgentWorkspace: () => void;
 }
 
 export function useOnboardingController(options: UseOnboardingControllerOptions) {
   const hiddenForSession = ref(false);
+  const detectingCli = ref(false);
   let completing = false;
   let disposed = false;
   onScopeDispose(() => { disposed = true; });
@@ -23,7 +27,8 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
   const onboardingProviderCount = computed(() => options.providers.value.length);
   const onboardingCliConfigured = computed(() =>
     Boolean(
-      Object.values(options.settings.value.agentCliPaths).some((path) => path?.trim()) ||
+      options.cliEnvironmentProbe.value?.tools.some((tool) => tool.available) ||
+        Object.values(options.settings.value.agentCliPaths).some((path) => path?.trim()) ||
         Object.values(options.settingsForm.agentCliPaths).some((path) => path?.trim()),
     ),
   );
@@ -41,13 +46,33 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
     options.openAddProvider();
   }
 
-  function openOnboardingSettings() {
+  async function detectOnboardingCliTools() {
+    if (detectingCli.value) return;
+    detectingCli.value = true;
+    try {
+      await options.detectCliTools();
+    } catch (error) {
+      if (!disposed) {
+        Message.error(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      detectingCli.value = false;
+    }
+  }
+
+  function openOnboardingAgentWorkspace() {
     hiddenForSession.value = true;
-    options.openSettings();
+    options.openAgentWorkspace();
   }
 
   async function importOnboardingData() {
     await options.importAppData();
+  }
+
+  /// 关闭窗口只隐藏本次会话，不写 onboardingCompleted；只有「进入应用」才
+  /// 代表用户确认完成初始化。
+  function dismissOnboarding() {
+    hiddenForSession.value = true;
   }
 
   async function completeOnboarding() {
@@ -71,9 +96,12 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
     onboardingVisible,
     onboardingProviderCount,
     onboardingCliConfigured,
+    detectingOnboardingCli: detectingCli,
     openOnboardingAddProvider,
-    openOnboardingSettings,
+    detectOnboardingCliTools,
+    openOnboardingAgentWorkspace,
     importOnboardingData,
+    dismissOnboarding,
     completeOnboarding,
   };
 }

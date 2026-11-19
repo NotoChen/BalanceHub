@@ -334,7 +334,7 @@ onBeforeUnmount(() => {
         </section>
         <p class="usage-reconciliation-footnote">
           按会话最近更新时间筛选：窗口开始前产生、窗口内又活跃的会话会整体计入；
-          未记录 token 的字段显示为未知。
+          输入含缓存 token，输出含推理 token，未记录的字段显示为未知。
         </p>
       </template>
       <p v-else-if="!loading" class="usage-reconciliation-state">

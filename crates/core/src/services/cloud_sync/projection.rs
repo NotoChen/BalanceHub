@@ -36,6 +36,10 @@ struct PortableProvider {
     identity: ProviderIdentityInput,
     auth: PortableAuth,
     cli: ProviderCliInput,
+    /// 每台设备可能给同一个中转站绑定不同 Agent 的模型；这是账号级偏好，
+    /// 不属于设备专属的临时启动设置，需要随云同步一起走。
+    #[serde(default)]
+    agent_models: BTreeMap<String, String>,
     enabled: bool,
 }
 
@@ -121,6 +125,7 @@ pub fn app_documents(data: &AppData) -> Result<SyncDocuments, String> {
             cli: ProviderCliInput {
                 preferred_model: provider.cli.preferred_model.clone(),
             },
+            agent_models: provider.cli.agent_models.clone(),
             enabled: provider.runtime.enabled,
         };
         documents.insert(
@@ -342,6 +347,7 @@ pub(super) fn apply_app_documents(
             provider.identity.user_id = value.identity.user_id;
             provider.identity.backup_urls = value.identity.backup_urls;
             provider.cli.preferred_model = value.cli.preferred_model;
+            provider.cli.agent_models = value.agent_models;
             provider.runtime.enabled = value.enabled;
             providers.insert(id.to_owned(), provider);
         }

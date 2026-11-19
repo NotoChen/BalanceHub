@@ -66,7 +66,11 @@ pub(super) fn decode(
                         cache_read_tokens: usage::number(usage_value, "cacheReadTokens"),
                         cache_write_tokens: usage::number(usage_value, "cacheWriteTokens"),
                         reasoning_tokens: usage::number(usage_value, "reasoningTokens"),
-                    },
+                    }
+                    .with_cache_in_input()
+                    // 原生日志把推理单列，单步推理甚至可能大于同一步输出，
+                    // 因此它不是输出的子集，落库时要并入输出。
+                    .with_reasoning_in_output(),
                     false,
                     false,
                     Some(&message_id),

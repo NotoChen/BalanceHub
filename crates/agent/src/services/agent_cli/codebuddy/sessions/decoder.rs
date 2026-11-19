@@ -292,7 +292,8 @@ fn push_usage(
                 ],
             ),
             reasoning_tokens: number(value, &["reasoning_tokens", "reasoningOutputTokens"]),
-        },
+        }
+        .with_cache_in_input(),
         false,
         false,
         message_id.as_deref(),

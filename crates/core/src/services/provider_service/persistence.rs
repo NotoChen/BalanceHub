@@ -35,6 +35,40 @@ impl ProviderService {
             .ok_or("中转站已移除".into())
     }
 
+    /// Persist the model one Agent CLI should write for this provider. The
+    /// recommendation flow ranks a concrete model; keeping that choice here
+    /// makes later launches and switches use the same binding.
+    pub async fn set_agent_model(
+        &self,
+        id: String,
+        cli_kind: crate::models::AgentCliKind,
+        model: String,
+    ) -> Result<Provider, String> {
+        let result_id = id.clone();
+        self.mutate_decided_async(move |data| {
+            let provider = data
+                .providers
+                .iter_mut()
+                .find(|p| p.identity.id == id)
+                .ok_or("中转站已移除")?;
+            let normalized = model.trim();
+            let already_bound = provider.cli.agent_models.contains_key(cli_kind.key());
+            if provider.cli.model_for(cli_kind) == normalized
+                && (normalized.is_empty() || already_bound)
+            {
+                return Ok(MutationDecision::unchanged(()));
+            }
+            provider.cli.bind_agent_model(cli_kind, &model);
+            Ok(MutationDecision::changed(()))
+        })
+        .await?;
+        self.providers_by_ids_async(&[result_id])
+            .await?
+            .into_iter()
+            .next()
+            .ok_or("中转站已移除".into())
+    }
+
     pub fn save_provider(
         &self,
         mut input: ProviderInput,

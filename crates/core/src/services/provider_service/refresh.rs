@@ -25,13 +25,23 @@ impl ProviderService {
     ) -> Result<(RefreshResult, Vec<ProviderBatchProgressItem>), String> {
         let state = crate::host::core_state();
         let _gate = state.refresh_gate.lock().await;
-        self.refresh_all_inner(progress).await
+        // 取消按批次生效：这一批拿到的编号只会被本批的取消命中，
+        // 不会把标记留给后面的卡片刷新或调度刷新。
+        let generation = state.begin_refresh_batch();
+        self.refresh_all_inner(progress, generation).await
+    }
+
+    /// 停止开始新的中转站刷新。已经在途的 HTTP 请求会正常收尾并落盘，
+    /// 但排队中的站点直接标记为跳过，刷新闸门随后释放。
+    pub fn cancel_refresh() {
+        crate::host::core_state().request_refresh_cancel();
     }
 
     pub async fn refresh_by_ids(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
         let state = crate::host::core_state();
         let _gate = state.refresh_gate.lock().await;
-        self.refresh_by_ids_inner(ids).await
+        let generation = state.begin_refresh_batch();
+        self.refresh_by_ids_inner(ids, generation).await
     }
 
     /// 调度器专用：刷新闸门被手动刷新占用时返回 `None` 跳过本轮，避免重复打请求。
@@ -43,12 +53,14 @@ impl ProviderService {
         let Ok(_gate) = state.refresh_gate.try_lock() else {
             return None;
         };
-        Some(self.refresh_by_ids_inner(ids).await)
+        let generation = state.begin_refresh_batch();
+        Some(self.refresh_by_ids_inner(ids, generation).await)
     }
 
     async fn refresh_all_inner(
         &self,
         progress: Arc<dyn ProgressSink>,
+        cancel_generation: u64,
     ) -> Result<(RefreshResult, Vec<ProviderBatchProgressItem>), String> {
         let data = self.snapshot_async().await?;
         let mut progress_items = data
@@ -71,9 +83,13 @@ impl ProviderService {
             },
         );
         let settings = Arc::new(data.settings);
-        let refreshed =
-            refresh_providers_concurrently(settings, data.providers, Some(Arc::clone(&progress)))
-                .await?;
+        let refreshed = refresh_providers_concurrently(
+            settings,
+            data.providers,
+            Some(Arc::clone(&progress)),
+            cancel_generation,
+        )
+        .await?;
         for item in &refreshed {
             if let Some(slot) = progress_items
                 .iter_mut()
@@ -97,7 +113,11 @@ impl ProviderService {
         Ok((RefreshResult { updated_providers }, progress_items))
     }
 
-    async fn refresh_by_ids_inner(&self, ids: Vec<String>) -> Result<RefreshResult, String> {
+    async fn refresh_by_ids_inner(
+        &self,
+        ids: Vec<String>,
+        cancel_generation: u64,
+    ) -> Result<RefreshResult, String> {
         let data = self.snapshot_async().await?;
         let settings = Arc::new(data.settings);
         let id_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
@@ -108,6 +128,7 @@ impl ProviderService {
                 .filter(|provider| id_set.contains(provider.identity.id.as_str()))
                 .collect(),
             None,
+            cancel_generation,
         )
         .await?;
         let refreshed_ids = refreshed
@@ -251,6 +272,7 @@ async fn refresh_providers_concurrently(
     settings: Arc<AppSettings>,
     providers: Vec<Provider>,
     progress: Option<Arc<dyn ProgressSink>>,
+    cancel_generation: u64,
 ) -> Result<Vec<ProviderBatchProgressItem>, String> {
     const MAX_CONCURRENT_REFRESH: usize = 6;
 
@@ -263,6 +285,19 @@ async fn refresh_providers_concurrently(
         let settings = Arc::clone(&settings);
         let progress = progress.clone();
         async move {
+            // 取消后不再启动新的站点请求；已经开始的请求在各自任务里收尾。
+            if crate::host::core_state().refresh_cancelled(cancel_generation) {
+                let item = ProviderBatchProgressItem::skipped(&provider, "刷新已取消");
+                send_progress(
+                    progress.as_ref(),
+                    ProviderBatchProgressEvent::ProviderFinished {
+                        operation: ProviderBatchOperation::Refresh,
+                        item: item.clone(),
+                        provider: None,
+                    },
+                );
+                return Ok(item);
+            }
             let mut item = ProviderBatchProgressItem::new(
                 &provider,
                 ProviderBatchStatus::Running,

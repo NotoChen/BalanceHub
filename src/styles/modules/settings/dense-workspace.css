@@ -157,11 +157,6 @@
   color: #b87812;
 }
 
-.settings-theme-layout {
-  gap: 22px;
-  padding: 18px;
-}
-
 .settings-theme-option {
   min-height: 58px;
   border-color: #dce4ed;
@@ -173,10 +168,4 @@
   border-color: #8fb3ee;
   background: #f1f6ff;
   box-shadow: inset 0 0 0 1px rgba(22, 93, 255, 0.08);
-}
-
-.settings-appearance-preview {
-  border-color: #d6e0eb;
-  border-radius: 10px;
-  background: #edf2f7;
 }

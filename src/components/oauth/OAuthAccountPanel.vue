@@ -206,8 +206,12 @@ async function saveMetadata() {
       <div class="oauth-account-toolbar-actions">
         <a-button size="small" @click="credentialEditor = true"
           ><template #icon><FileCode2 :size="13" /></template>授权原文</a-button
-        ><a-button size="small" :loading="busy" @click="refresh"
-          ><template #icon><RefreshCw :size="13" /></template>刷新</a-button
+        ><a-button
+          size="small"
+          :loading="busy"
+          title="重新读取订阅与额度，确认当前授权仍然有效"
+          @click="refresh"
+          ><template #icon><RefreshCw :size="13" /></template>检查授权</a-button
         >
       </div>
     </div>

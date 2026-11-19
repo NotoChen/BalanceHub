@@ -198,7 +198,8 @@ fn decode_message(
             cache_read_tokens: number(metrics, &["cacheReadTokens", "cache_read_tokens"]),
             cache_write_tokens: number(metrics, &["cacheWriteTokens", "cache_write_tokens"]),
             reasoning_tokens: number(metrics, &["reasoningTokens", "reasoning_tokens"]),
-        };
+        }
+        .with_cache_in_input();
         if tokens != SessionTokenCounts::default() {
             result.push(usage::record(
                 format!("cline-usage-{id}"),

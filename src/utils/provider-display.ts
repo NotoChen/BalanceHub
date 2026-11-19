@@ -466,24 +466,29 @@ function quotaWindowRow(
 }
 
 /// 订阅制中转站的额度在周期窗口里，钱包只是溢出账户。卡片高度固定，
-/// 只展示前三条；其余窗口由 providerQuotaWindowOverflow 说明，不能静默消失。
+/// 只展示前 limit 条（卡片默认三条，列表布局两条）；其余窗口由
+/// providerQuotaWindowOverflow 说明，不能静默消失。
 export function providerQuotaWindowRows(
   provider: Provider,
   now = Date.now(),
+  limit = QUOTA_WINDOW_ROWS,
 ): ProviderQuotaWindowRow[] {
   return (provider.quota.windows ?? [])
-    .slice(0, QUOTA_WINDOW_ROWS)
+    .slice(0, Math.max(0, limit))
     .map((window) => quotaWindowRow(window, now));
 }
 
 const QUOTA_WINDOW_ROWS = 3;
 
-/// 卡片固定展示三条窗口，多订阅账号的其余窗口在这里收口成一句摘要。
-export function providerQuotaWindowOverflow(provider: Provider): {
+/// 卡片固定展示 limit 条窗口，多订阅账号的其余窗口在这里收口成一句摘要。
+export function providerQuotaWindowOverflow(
+  provider: Provider,
+  limit = QUOTA_WINDOW_ROWS,
+): {
   count: number;
   labels: string[];
 } {
-  const overflow = (provider.quota.windows ?? []).slice(QUOTA_WINDOW_ROWS);
+  const overflow = (provider.quota.windows ?? []).slice(Math.max(0, limit));
   return {
     count: overflow.length,
     labels: overflow.map((window) => window.label),
@@ -509,13 +514,14 @@ export function providerQuotaBarWindow(
   };
 }
 
-/// 账号卡与网关卡列出窗口的条数与中转站卡相同：最多三条，三条之外的
-/// 摘要放在卡片底部。条数由额度区块决定，不由卡型决定。
+/// 账号卡与网关卡列出窗口的条数与中转站卡相同：默认最多三条，列表布局
+/// 最多两条；其余摘要放在卡片底部。条数由额度区块决定，不由卡型决定。
 export function managedQuotaWindowRows(
   windows: readonly AccountQuotaWindow[],
   now = Date.now(),
+  limit = 3,
 ): ProviderQuotaWindowRow[] {
-  return windows.slice(0, 3).map((window) =>
+  return windows.slice(0, Math.max(0, limit)).map((window) =>
     quotaWindowRow(
       {
         label: window.label,

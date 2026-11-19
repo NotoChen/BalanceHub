@@ -123,11 +123,6 @@
   color: #dceaff;
 }
 
-:root.theme-dark .settings-appearance-preview {
-  border-color: #3a4554;
-  background: #202731;
-}
-
 :root.theme-dark .provider-credential-active-panel {
   border-color: #49628b;
   background: #232f44;

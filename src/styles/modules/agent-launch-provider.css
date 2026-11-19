@@ -116,6 +116,27 @@
   font-size: 11px;
 }
 
+/* 启动前的两个结论：还剩多少、最近测活是否通过。放在账号信息之前，读起来
+   是「这个站能不能用」，而不是又一段身份资料。 */
+.agent-launch-provider-facts {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  color: var(--surface-ink-soft);
+  font-size: 11px;
+}
+
+.agent-launch-provider-quota {
+  color: var(--surface-ink);
+  font-weight: 600;
+}
+
+.agent-launch-provider-health.is-bad {
+  color: var(--surface-danger);
+}
+
 .agent-launch-provider-identity > * {
   min-width: 0;
   max-width: 100%;

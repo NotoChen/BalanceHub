@@ -15,6 +15,8 @@ import {
   providerCardTitle,
   providerDefaultApiKeyOption,
   providerIdentityDisplayName,
+  providerIdentityId,
+  providerIdentitySecondaryUsername,
   providerIdentityUsername,
   providerProtocolLabel,
   providerTransportProtocol,
@@ -30,10 +32,16 @@ const props = withDefaults(
     tone: ProviderCardTone;
     interactive?: boolean;
     activeCliCounts?: Partial<Record<AgentCliKind, number>>;
+    /// 列表布局：账号的次级身份（用户名、用户 ID）并入标题导轨，
+    /// 正文不再单独占一行。
+    list?: boolean;
+    refreshQueued?: boolean;
   }>(),
   {
     interactive: true,
     activeCliCounts: () => ({}),
+    list: false,
+    refreshQueued: false,
   },
 );
 
@@ -98,6 +106,18 @@ const identityLine = computed(() =>
     ? ""
     : providerIdentityDisplayName(props.provider) ||
       providerIdentityUsername(props.provider),
+);
+/// 列表行把「站点名 + 协议 + 账号 + 用户名 / 用户 ID」收进同一块身份导轨。
+/// 卡片布局仍在正文里单列用户名和 ID；列表里这一行由标题栏补上，
+/// 正文对应节点隐藏，同一份身份信息不会出现两次。
+const listIdentity = computed(() => ({
+  username: isApiKeyAuth.value
+    ? ""
+    : providerIdentitySecondaryUsername(props.provider),
+  id: isApiKeyAuth.value ? "" : providerIdentityId(props.provider),
+}));
+const listIdentityTitle = computed(() =>
+  [listIdentity.value.username, listIdentity.value.id].filter(Boolean).join(" · "),
 );
 /// 状态点在 warning 上按中转站卡自己的语义说话：这是「待签到」，只有带异常
 /// 消息时才是「需关注」。
@@ -213,6 +233,18 @@ async function openSite() {
           :title="identityLine"
         >{{ identityLine }}</span>
       </span>
+      <!-- 列表行为账号补上用户名和用户 ID：站点、协议、账号名与身份同处
+           标题导轨，正文只保留额度和模型。 -->
+      <span
+        v-if="list && (listIdentity.username || listIdentity.id)"
+        class="provider-card-user-meta provider-card-header-account"
+        :title="listIdentityTitle"
+        role="group"
+        aria-label="账号身份"
+      >
+        <span v-if="listIdentity.username" :title="listIdentity.username">{{ listIdentity.username }}</span>
+        <span v-if="listIdentity.id" :title="listIdentity.id">ID {{ listIdentity.id }}</span>
+      </span>
   </template>
   <template #meta>
     <ProviderCardHeaderMeta
@@ -221,6 +253,7 @@ async function openSite() {
       :interactive="interactive"
       :active-cli-counts="activeCliCounts"
       :warning-label="statusWarningLabel"
+      :refresh-queued="refreshQueued"
       @open-cli-instances="
         (target, cliKind) => emit('openCliInstances', target, cliKind)
       "

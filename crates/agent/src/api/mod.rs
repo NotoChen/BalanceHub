@@ -666,6 +666,7 @@ async fn dispatch_inner(
             arg(args, "id")?,
             arg(args, "cliKind")?,
             arg(args, "apiKeyLocalId")?,
+            optional(args, "model")?,
         )
         .await),
         "get_cached_cli_tools" => text(cli::get_cached_cli_tools().await),
@@ -751,6 +752,34 @@ mod tests {
         for command in COMMANDS {
             assert!(seen.insert(command), "命令 {command} 重复登记");
         }
+    }
+
+    /// 注册表是前端发现能力的唯一来源；漏掉分发分支会让宿主声称支持，
+    /// 实际调用却返回“不支持”。
+    #[test]
+    fn every_registered_command_has_a_dispatch_arm() {
+        let source = include_str!("mod.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+        let dispatch = source
+            .split("async fn dispatch_inner")
+            .nth(1)
+            .unwrap_or_default();
+        let arms = dispatch
+            .lines()
+            .filter_map(|line| {
+                let rest = line.trim_start().strip_prefix('"')?;
+                let (name, rest) = rest.split_once('"')?;
+                rest.trim_start().starts_with("=>").then_some(name)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let missing = COMMANDS
+            .iter()
+            .copied()
+            .filter(|command| !arms.contains(command))
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "命令缺少分发分支：{missing:?}");
     }
 
     #[test]

@@ -264,7 +264,12 @@ impl ConfigurationService {
             .ok_or_else(|| {
                 AgentConfigurationError::new(AgentConfigurationErrorKind::UnsupportedFormat)
             })?;
-        let candidates = adapter.candidates(kind, provider, key).map_err(|_| {
+        // Each Agent CLI has its own model catalogue. Resolve the per-Agent
+        // binding here so adapters keep a single provider field to read and
+        // `preferred_model` remains the fallback.
+        let mut bound = provider.clone();
+        bound.cli.preferred_model = provider.cli.model_for(kind).to_string();
+        let candidates = adapter.candidates(kind, &bound, key).map_err(|_| {
             AgentConfigurationError::new(AgentConfigurationErrorKind::SourceUnavailable)
         })?;
         if candidates.is_empty() || candidates.len() > MAX_DOCUMENTS {

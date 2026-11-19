@@ -2,6 +2,7 @@ import { onScopeDispose, ref, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import { Channel } from "../api/transport.ts";
 import {
+  cancelProviderRefresh,
   refreshAllProvidersWithProgress,
   type ProviderBatchOperation,
   type ProviderBatchProgressEvent,
@@ -26,6 +27,8 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
   const startedAt = ref<number | null>(null);
   const finishedAt = ref<number | null>(null);
   const completed = ref(false);
+  const canceling = ref(false);
+  const cancelled = ref(false);
   let runSequence = 0;
   let disposed = false;
   let cancelWait: (() => void) | undefined;
@@ -163,6 +166,8 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     items.value = [];
     startedAt.value = Date.now();
     finishedAt.value = null;
+    canceling.value = false;
+    cancelled.value = false;
     options.setRefreshInProgress?.(true);
 
     // Bound a silent IPC/backend stall without imposing a total time limit on
@@ -224,9 +229,26 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
         cancelWait = undefined;
         releaseRefreshing();
         running.value = false;
+        canceling.value = false;
         finishedAt.value = Date.now();
         options.setRefreshInProgress?.(false);
       }
+    }
+  }
+
+  /// 取消只阻止尚未开始的中转站；在途请求由 Rust 收尾，界面等最终结果
+  /// 回来后再释放忙碌状态，避免下一次刷新撞上刷新闸门。
+  async function cancelRefresh() {
+    if (!running.value || canceling.value) return;
+    canceling.value = true;
+    try {
+      await cancelProviderRefresh();
+      cancelled.value = true;
+    } catch (cause) {
+      canceling.value = false;
+      Message.error(
+        `取消刷新失败：${cause instanceof Error ? cause.message : String(cause)}`,
+      );
     }
   }
 
@@ -250,6 +272,9 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     startedAt,
     finishedAt,
     completed,
+    canceling,
+    cancelled,
     runRefresh,
+    cancelRefresh,
   };
 }

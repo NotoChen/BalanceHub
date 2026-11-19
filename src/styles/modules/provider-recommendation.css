@@ -22,6 +22,28 @@
   line-height: 1.6;
 }
 
+/* 从 Agent 上下文打开时，先把「替谁挑、现在在哪」说清楚，下面的排序才不是
+   脱离上下文的通用榜单。 */
+.provider-recommendation-context {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-line);
+  border-radius: 10px;
+  background: var(--surface-panel-soft);
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.provider-recommendation-context strong {
+  color: var(--surface-ink);
+}
+
+.provider-recommendation-context code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  color: var(--surface-ink);
+}
+
 .provider-recommendation-controls {
   display: flex;
   gap: 8px;
@@ -123,6 +145,12 @@
   font-weight: 600;
 }
 
+/* 「当前」不是推荐结论，用中性色，避免和绿色的「推荐」抢同一层含义。 */
+.provider-recommendation-badge.is-current {
+  background: var(--surface-accent-soft);
+  color: var(--surface-accent);
+}
+
 .provider-recommendation-facts {
   display: flex;
   flex-wrap: wrap;
@@ -130,6 +158,12 @@
   color: var(--color-text-3);
   font-size: 11px;
 }
+
+.provider-recommendation-site.is-good { color: rgb(var(--success-6)); }
+.provider-recommendation-site.is-warn { color: rgb(var(--warning-6)); }
+.provider-recommendation-site.is-bad { color: rgb(var(--danger-6)); }
+
+.provider-recommendation-data-age { color: rgb(var(--warning-6)); }
 
 .provider-recommendation-reasons {
   margin: 0;

@@ -78,8 +78,21 @@
 .onboarding-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
+}
+
+.onboarding-footer > span {
+  max-width: 360px;
+  color: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.onboarding-footer > div {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .onboarding-actions {

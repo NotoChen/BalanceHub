@@ -61,32 +61,13 @@ body[arco-theme="dark"] {
 :root.theme-dark .surface-modal .arco-textarea { color: var(--surface-ink); }
 :root.theme-dark .surface-modal-title-copy > strong,
 :root.theme-dark .surface-modal .arco-modal-title,
-:root.theme-dark .settings-overview-hero h2,
-:root.theme-dark .settings-overview-metric strong,
-:root.theme-dark .settings-overview-surface > header strong,
 :root.theme-dark .settings-workspace-v3 .settings-card-header > div > strong { color: var(--surface-ink); }
-:root.theme-dark .settings-overview-metric,
-:root.theme-dark .settings-overview-surface,
 :root.theme-dark .settings-workspace-v3 .settings-card,
 :root.theme-dark .app-update-modal .app-update-version-summary,
 :root.theme-dark .app-update-modal .app-update-release-scroll { background: var(--surface-panel); }
 :root.theme-dark .app-update-modal .arco-modal-body,
 :root.theme-dark .available-models-modal .arco-modal-body,
 :root.theme-dark .workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
-:root.theme-dark .settings-overview-hero { border-color: #31527a; background: linear-gradient(120deg, #1c3150 0%, #1c293a 68%, #1c3c3b 100%); }
-:root.theme-dark .settings-overview-hero p,
-:root.theme-dark .settings-overview-metric small,
-:root.theme-dark .settings-overview-metric > div > span,
-:root.theme-dark .settings-overview-surface > header span,
 :root.theme-dark .settings-workspace-v3 .settings-card-header > div > span { color: var(--surface-muted); }
-:root.theme-dark .settings-overview-toggle-row strong,
 :root.theme-dark .settings-workspace-v3 .settings-theme-option strong { color: var(--surface-ink-soft); }
-:root.theme-dark .settings-overview-toggle-icon,
-:root.theme-dark .settings-workspace-v3 .settings-theme-option,
-:root.theme-dark .settings-workspace-v3 .settings-appearance-preview,
-:root.theme-dark .settings-overview-metric-icon { background: var(--surface-panel-soft); }
-:root.theme-dark .settings-overview-attention-item:hover,
-:root.theme-dark .settings-overview-attention-item:focus-visible { background: var(--surface-panel-soft); }
-:root.theme-dark .settings-overview-empty-state { color: var(--surface-success); }
-:root.theme-dark .settings-overview-toggle-row,
-:root.theme-dark .settings-overview-surface > footer { border-color: var(--surface-line); }
+:root.theme-dark .settings-workspace-v3 .settings-theme-option { background: var(--surface-panel-soft); }

@@ -63,7 +63,7 @@ bridge!(activate_agent_runtime { "runtimeId": runtime_id: String });
 bridge!(get_temporary_cli_instance { "instanceId": instance_id: String });
 bridge!(forget_workspace { "path": path: String });
 bridge!(browse_workspace_directories { "path": path: Option<String> });
-bridge!(preview_cli_config { "id": id: String, "cliKind": cli_kind: AgentCliKind, "apiKeyLocalId": api_key_local_id: String });
+bridge!(preview_cli_config { "id": id: String, "cliKind": cli_kind: AgentCliKind, "apiKeyLocalId": api_key_local_id: String, "model": model: Option<String> });
 bridge!(get_cached_cli_tools {});
 bridge!(probe_cli_tools { "deep": deep: bool });
 bridge!(probe_terminals {});

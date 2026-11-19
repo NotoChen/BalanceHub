@@ -13,9 +13,11 @@ use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue, COOKIE, ORIGIN, REFERER},
     Client, IntoUrl, Method, Request, RequestBuilder, StatusCode, Url,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
+    path::PathBuf,
     sync::{Arc, Mutex as StdMutex, OnceLock},
 };
 use tokio::sync::Mutex as AsyncMutex;
@@ -86,17 +88,62 @@ struct EndpointFailover {
     bases: Arc<[String]>,
 }
 
-/// 某个中转站最近一次回退到的备用地址。只活在进程内：它是网络状况的读数，
-/// 不属于用户配置，重启后重新探测即可。
-#[derive(Debug, Clone)]
+/// 某个中转站最近一次回退到的备用地址。它不是用户配置，但需要跨重启保留：
+/// 刚切到备用地址就重启时，卡片仍然知道当前生效的是哪个地址，下一轮请求也
+/// 不会立刻再撞一次刚失败的主地址。超过 `PRIMARY_RETRY_SECS` 后自然失效。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EndpointHealth {
     base: String,
     switched_at: u64,
 }
 
+const ENDPOINT_HEALTH_FILE: &str = "endpoint-health.json";
+const ENDPOINT_HEALTH_MAX_BYTES: usize = 64 * 1024;
+
+fn endpoint_health_path() -> Option<PathBuf> {
+    crate::host::data_dir_optional().map(|directory| directory.join(ENDPOINT_HEALTH_FILE))
+}
+
+fn load_endpoint_health() -> HashMap<String, EndpointHealth> {
+    let Some(path) = endpoint_health_path() else {
+        return HashMap::new();
+    };
+    if !path.exists() {
+        return HashMap::new();
+    }
+    let text = match crate::util::read_text_file_limited(
+        &path,
+        ENDPOINT_HEALTH_MAX_BYTES,
+        "读取备用地址状态",
+    ) {
+        Ok(text) => text,
+        Err(error) => {
+            log::warn!("{error}；本次启动从主地址重新探测");
+            return HashMap::new();
+        }
+    };
+    match serde_json::from_str(&text) {
+        Ok(health) => health,
+        Err(error) => {
+            log::warn!("备用地址状态格式无效，已忽略：{error}");
+            HashMap::new()
+        }
+    }
+}
+
+fn save_endpoint_health(health: &HashMap<String, EndpointHealth>) {
+    let Some(path) = endpoint_health_path() else {
+        return;
+    };
+    if let Err(error) = crate::util::cache::write(&path, health) {
+        log::warn!("保存备用地址状态失败：{error}");
+    }
+}
+
 fn endpoint_health() -> &'static StdMutex<HashMap<String, EndpointHealth>> {
     static HEALTH: OnceLock<StdMutex<HashMap<String, EndpointHealth>>> = OnceLock::new();
-    HEALTH.get_or_init(Default::default)
+    HEALTH.get_or_init(|| StdMutex::new(load_endpoint_health()))
 }
 
 /// 卡片展示用的备用地址读数：当前生效的是第几个备用地址、地址原文和切换时间。
@@ -110,6 +157,11 @@ pub struct ActiveBackup {
 pub fn active_backup(provider: &Provider) -> Option<ActiveBackup> {
     let health = endpoint_health().lock().ok()?;
     let entry = health.get(&provider.identity.id)?;
+    // 超过重试窗口后下一次请求已经重新从主地址开始，卡片不能继续显示
+    // 「备用地址生效」。
+    if unix_secs().saturating_sub(entry.switched_at) > PRIMARY_RETRY_SECS {
+        return None;
+    }
     let (position, raw) = provider
         .identity
         .backup_urls
@@ -207,8 +259,15 @@ impl EndpointFailover {
         let Ok(mut health) = endpoint_health().lock() else {
             return;
         };
+        let now = unix_secs();
+        // 顺手清掉已经失效的记录，避免文件里留下永远不会再被读取的地址。
+        let before = health.len();
+        health.retain(|_, entry| now.saturating_sub(entry.switched_at) <= PRIMARY_RETRY_SECS);
+        let pruned = health.len() != before;
         if index == 0 {
-            health.remove(&self.provider_id);
+            if pruned || health.remove(&self.provider_id).is_some() {
+                save_endpoint_health(&health);
+            }
             return;
         }
         let base = self.bases[index].clone();
@@ -217,15 +276,19 @@ impl EndpointFailover {
             .get(&self.provider_id)
             .is_some_and(|entry| entry.base == base)
         {
+            if pruned {
+                save_endpoint_health(&health);
+            }
             return;
         }
         health.insert(
             self.provider_id.clone(),
             EndpointHealth {
                 base,
-                switched_at: unix_secs(),
+                switched_at: now,
             },
         );
+        save_endpoint_health(&health);
     }
 }
 
@@ -1207,6 +1270,42 @@ mod tests {
 
     fn failover_transport(provider: &Provider) -> ProviderTransport {
         build_client_blocking(&AppSettings::default(), provider).expect("transport should build")
+    }
+
+    #[test]
+    fn backup_health_round_trips_and_stops_displaying_after_the_retry_window() {
+        let provider = failover_provider(
+            "endpoint-health-expiry",
+            "https://primary.invalid",
+            &["https://backup.invalid"],
+        );
+        let id = provider.identity.id.clone();
+        let latest = EndpointHealth {
+            base: "https://backup.invalid".to_string(),
+            switched_at: unix_secs(),
+        };
+        let text = serde_json::to_string(&HashMap::from([(id.clone(), latest.clone())])).unwrap();
+        let restored: HashMap<String, EndpointHealth> = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            restored.get(&id).map(|entry| entry.base.as_str()),
+            Some("https://backup.invalid")
+        );
+
+        endpoint_health().lock().unwrap().insert(id.clone(), latest);
+        assert_eq!(
+            active_backup(&provider).map(|active| active.backup_index),
+            Some(1)
+        );
+
+        endpoint_health().lock().unwrap().insert(
+            id.clone(),
+            EndpointHealth {
+                base: "https://backup.invalid".to_string(),
+                switched_at: 0,
+            },
+        );
+        assert!(active_backup(&provider).is_none());
+        endpoint_health().lock().unwrap().remove(&id);
     }
 
     fn failover_provider(id: &str, base_url: &str, backups: &[&str]) -> Provider {

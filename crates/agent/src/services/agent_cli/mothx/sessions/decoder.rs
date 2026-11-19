@@ -422,7 +422,8 @@ fn usage_from_message(
         reasoning_tokens: number(usage, "reasoning"),
         cache_read_tokens: number(usage, "cacheRead"),
         cache_write_tokens: number(usage, "cacheWrite"),
-    };
+    }
+    .with_cache_in_input();
     if counts == SessionTokenCounts::default() {
         return None;
     }

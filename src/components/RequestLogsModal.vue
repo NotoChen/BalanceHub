@@ -33,6 +33,7 @@ const emit = defineEmits<{
   refresh: [];
   pageChange: [page: number];
   pageSizeChange: [pageSize: number];
+  reconcile: [];
 }>();
 
 const filtersDraft = ref<ProviderRequestLogFilters>({ ...props.filters });
@@ -113,7 +114,44 @@ const statCards = computed(() => {
       hint: rateHint.value,
     });
   }
+  if (rows.value.length) {
+    cards.push({
+      label: "本页错误率",
+      value: `${Math.round((pageErrors.value.length / rows.value.length) * 100)}%`,
+      tone: "error",
+      hint: `本页 ${rows.value.length} 条请求中 ${pageErrors.value.length} 条失败；只统计当前页，不代表所选时间范围`,
+    });
+  }
   return cards;
+});
+
+const pageErrors = computed(() => rows.value.filter((log) => logStatusTone(log) === "error"));
+
+/// 站点统计接口不按模型或 Key 汇总，这里用当前页记录给出可见的集中度。
+/// 明确写「本页」，避免读者把一页样本当成完整时间范围。
+const pageAggregates = computed(() => {
+  const logs = rows.value;
+  if (!logs.length) return [];
+  const top = (values: string[]) => {
+    const counts = new Map<string, number>();
+    for (const value of values.map((item) => item.trim()).filter(Boolean)) {
+      counts.set(value, (counts.get(value) || 0) + 1);
+    }
+    return [...counts.entries()].sort((left, right) => right[1] - left[1])[0];
+  };
+  const items: Array<{ label: string; value: string }> = [];
+  const model = top(logs.map((log) => log.modelName));
+  if (model) items.push({ label: "主要模型", value: `${model[0]} · ${model[1]} 次` });
+  const key = top(logs.map((log) => log.tokenName));
+  if (key) items.push({ label: "主要 Key", value: `${key[0]} · ${key[1]} 次` });
+  const durations = logs
+    .map((log) => log.durationMs)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  if (durations.length) {
+    const average = durations.reduce((total, value) => total + value, 0) / durations.length;
+    items.push({ label: "本页平均耗时", value: formatDuration(average) });
+  }
+  return items;
 });
 
 function formatDuration(value: number) {
@@ -266,6 +304,9 @@ function openLogDetails(log: ProviderRequestLog) {
           <template #icon><icon-refresh /></template>
           刷新
         </a-button>
+        <!-- 站点日志只能回答“站点记了多少”；本地会话对账回答“本机 Agent 用了
+             多少”。两个入口放在同一排，方便带着当前时间范围去核对。 -->
+        <a-button @click="emit('reconcile')">本地会话对账</a-button>
       </div>
 
       <div
@@ -331,6 +372,12 @@ function openLogDetails(log: ProviderRequestLog) {
           <strong :title="card.value">{{ card.value }}</strong>
         </div>
       </div>
+      <p v-if="pageAggregates.length" class="request-logs-aggregates" aria-label="本页请求分布">
+        <span v-for="item in pageAggregates" :key="item.label">
+          <small>{{ item.label }}</small>
+          <strong>{{ item.value }}</strong>
+        </span>
+      </p>
 
       <a-spin :loading="loading">
         <div v-if="rows.length === 0" class="api-key-empty" role="status">

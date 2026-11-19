@@ -27,11 +27,15 @@ const props = withDefaults(defineProps<{
   startedAt: number | null;
   finishedAt: number | null;
   completed: boolean;
+  canceling?: boolean;
+  cancelled?: boolean;
   checkInTasks?: CheckInTask[];
   checkInPending?: string[];
   skippedCount?: number | null;
   submitting?: boolean;
 }>(), {
+  canceling: false,
+  cancelled: false,
   checkInTasks: () => [],
   checkInPending: () => [],
   skippedCount: 0,
@@ -43,6 +47,7 @@ const emit = defineEmits<{
   resumeCheckIn: [task: CheckInTask];
   cancelCheckIn: [task: CheckInTask];
   showCheckInWindow: [task: CheckInTask];
+  cancelRefresh: [];
 }>();
 
 type RowStatus = ProviderBatchStatus | "waiting" | "unconfirmed" | "cancelled";
@@ -81,9 +86,14 @@ const waitingOnly = computed(() => props.running && waitingCount.value > 0
   && !runningCount.value && !count("pending"));
 const hasIssues = computed(() => Boolean(props.error) || failedCount.value > 0 || unconfirmedCount.value > 0);
 const progressStatus = computed(() => props.error || failedCount.value > 0 ? "danger"
-  : props.completed && !unconfirmedCount.value && !cancelledCount.value ? "success" : "normal");
+  : props.completed && !unconfirmedCount.value && !cancelledCount.value && !props.cancelled ? "success" : "normal");
 const summaryTitle = computed(() => {
-  if (!isCheckIn.value) return props.running ? "正在逐站刷新" : props.error ? "刷新中断，请查看各站点结果" : props.completed ? "刷新已完成" : "正在准备刷新";
+  if (!isCheckIn.value) {
+    if (props.cancelled) {
+      return props.running ? "刷新已取消，正在等待在途请求收尾" : "刷新已取消";
+    }
+    return props.running ? "正在逐站刷新" : props.error ? "刷新中断，请查看各站点结果" : props.completed ? "刷新已完成" : "正在准备刷新";
+  }
   if (props.submitting) return "正在创建签到任务";
   if (waitingOnly.value) return props.checkInTasks.some((task) => task.canShowWindow)
     ? "请在已打开的窗口中完成登录或验证，完成后自动继续"
@@ -281,6 +291,11 @@ function durationLabel() {
 
       <footer class="batch-operation-footer">
         <span v-if="running" class="batch-operation-footer-hint">可以关闭窗口，任务会继续在后台执行</span>
+        <a-button
+          v-if="!isCheckIn && running"
+          :loading="canceling"
+          @click="emit('cancelRefresh')"
+        >{{ canceling ? "正在取消…" : "取消刷新" }}</a-button>
         <a-button @click="emit('update:visible', false)">关闭</a-button>
       </footer>
     </div>

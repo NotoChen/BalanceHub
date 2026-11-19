@@ -20,6 +20,11 @@ pub struct CoreState {
     /// 串行化“基于快照修改并落盘”的事务。持有该锁时不会长期占用 `data` 写锁，
     /// 因此 JSON 序列化和磁盘替换期间读取方仍可继续读取上一份完整状态。
     pub mutation_gate: Mutex<()>,
+    /// 每次刷新批次开始时递增。取消标记只记录「取消发生在第几批」，
+    /// 新批次拿到更大的编号后不会继承上一批的取消，避免一次点击永久
+    /// 关掉后续所有卡片刷新。
+    refresh_generation: AtomicU64,
+    refresh_cancel_generation: AtomicU64,
     model_catalog: OnceLock<Arc<ModelCatalogService>>,
     revision: AtomicU64,
     load_error: RwLock<Option<String>>,
@@ -39,10 +44,29 @@ impl CoreState {
             data: RwLock::new(data),
             refresh_gate: tokio::sync::Mutex::new(()),
             mutation_gate: Mutex::new(()),
+            refresh_generation: AtomicU64::new(0),
+            refresh_cancel_generation: AtomicU64::new(0),
             model_catalog: OnceLock::new(),
             revision: AtomicU64::new(1),
             load_error: RwLock::new(load_error),
         }
+    }
+
+    /// 开始一个刷新批次，返回只属于这一批的编号。
+    pub fn begin_refresh_batch(&self) -> u64 {
+        self.refresh_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// 取消当前正在执行的批次；没有批次运行时标记落在旧编号上，
+    /// 下一批拿到新编号后自然不受影响。
+    pub fn request_refresh_cancel(&self) {
+        let generation = self.refresh_generation.load(Ordering::SeqCst);
+        self.refresh_cancel_generation
+            .store(generation, Ordering::SeqCst);
+    }
+
+    pub fn refresh_cancelled(&self, generation: u64) -> bool {
+        self.refresh_cancel_generation.load(Ordering::SeqCst) >= generation
     }
 
     pub fn model_catalog(&self) -> Result<Arc<ModelCatalogService>, String> {
@@ -96,5 +120,25 @@ mod tests {
         assert_eq!(state.next_revision(), 2);
         assert_eq!(state.next_revision(), 3);
         assert_eq!(state.current_revision(), 3);
+    }
+
+    #[test]
+    fn refresh_cancel_only_applies_to_the_batch_it_was_requested_for() {
+        crate::host::testing::install();
+        let state = CoreState::new(AppData::default());
+        let first = state.begin_refresh_batch();
+        assert!(!state.refresh_cancelled(first));
+        state.request_refresh_cancel();
+        assert!(state.refresh_cancelled(first));
+
+        // 批次结束后才到达的取消不能留给下一批；否则之后每次卡片刷新
+        // 都会被标记为已取消。
+        let second = state.begin_refresh_batch();
+        assert!(!state.refresh_cancelled(second));
+
+        state.request_refresh_cancel();
+        assert!(state.refresh_cancelled(second));
+        let third = state.begin_refresh_batch();
+        assert!(!state.refresh_cancelled(third));
     }
 }

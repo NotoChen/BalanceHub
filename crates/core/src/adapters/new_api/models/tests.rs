@@ -290,6 +290,8 @@ async fn card_refresh_retains_cached_models_and_reports_an_account_model_failure
         Reply(200, r#"{"success":true,"data":{"subscriptions":[]}}"#),
         // 价目刷新失败不影响模型列表结果。
         Reply(500, r#"{"success":false,"message":"pricing unavailable"}"#),
+        // 表现接口与价目并发请求，站点没有该接口也不影响模型列表。
+        Reply(404, r#"{"success":false,"message":"not found"}"#),
         Reply(
             503,
             r#"{"success":false,"message":"model service unavailable"}"#,
@@ -331,7 +333,7 @@ async fn card_refresh_retains_cached_models_and_reports_an_account_model_failure
         ProviderStatus::Warning
     ));
     let requests = requests.iter().collect::<Vec<_>>();
-    assert!(requests[4].starts_with("GET /relay/api/user/models "));
+    assert!(requests[5].starts_with("GET /relay/api/user/models "));
 }
 
 #[tokio::test]
@@ -340,6 +342,8 @@ async fn card_refresh_records_a_successful_empty_account_list() {
         Reply(200, SITE),
         Reply(200, QUOTA),
         Reply(200, r#"{"success":true,"data":{"subscriptions":[]}}"#),
+        // 价目与模型表现各读取一次；两者都不影响账号模型列表。
+        Reply(200, r#"{"success":true,"data":[]}"#),
         Reply(200, r#"{"success":true,"data":[]}"#),
         Reply(200, r#"{"success":true,"data":[]}"#),
     ]);

@@ -7,9 +7,11 @@ import { useCliRuntimeStore } from "../stores/cli-runtime";
 import { useAgentConfigurationStore } from "../stores/agent-configuration";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspaceStore } from "../stores/workspaces";
+import { useAgentWorkspaceStore } from "../stores/agent-workspace";
 import { useApiKeyManager } from "./useApiKeyManager";
 import { useAppDataTransfer } from "./useAppDataTransfer";
 import { useAppLifecycle } from "./useAppLifecycle";
+import { useAppExitGuard } from "./useAppExitGuard";
 import { useAppUpdater } from "./useAppUpdater";
 import { useAppVersion } from "./useAppVersion";
 import { useAvailableModels } from "./useAvailableModels";
@@ -29,6 +31,7 @@ import { useAccountProfile } from "./useAccountProfile";
 import { usePasswordChange } from "./usePasswordChange";
 import { useOnboardingController } from "./useOnboardingController";
 import { useProviderEditor } from "./useProviderEditor";
+import { useProviderDetail } from "./useProviderDetail";
 import { supportsCommand } from "./useHostCapabilities";
 import { useProviderActions } from "./useProviderActions";
 import { useProviderWorkspaceController } from "./useProviderWorkspaceController";
@@ -37,6 +40,7 @@ import { useSettingsController } from "./useSettingsController";
 import { useSiteAnnouncements } from "./useSiteAnnouncements";
 import { useSystemNotification } from "./useSystemNotification";
 import { useUsageSummary } from "./useUsageSummary";
+import { useUsageReconciliation } from "./useUsageReconciliation";
 import { useWindowDrag } from "./useWindowDrag";
 import { useWorkspacePicker } from "./useWorkspacePicker";
 import {
@@ -50,6 +54,7 @@ export function useAppController() {
   const providerStore = useProviderStore();
   const settingsStore = useSettingsStore();
   const workspaceStore = useWorkspaceStore();
+  const agentWorkspaceStore = useAgentWorkspaceStore();
   const cliRuntimeStore = useCliRuntimeStore();
   const configurationTasks = useAgentConfigurationStore();
   onMounted(() => { void configurationTasks.recover(); });
@@ -155,6 +160,8 @@ export function useAppController() {
   });
 
   const providerEditor = useProviderEditor({ store: providerStore, browserRuntime, loginAccounts });
+  const providerDetail = useProviderDetail(providers);
+  const usageReconciliation = useUsageReconciliation();
   const providerCredentials = useProviderCredentials((id) => {
     const provider = providers.value.find((p) => p.identity.id === id);
     if (!provider) { Message.error("中转站已不存在"); return; }
@@ -184,6 +191,7 @@ export function useAppController() {
     removeLocalKey: (providerId, localId) => providerStore.removeLocalApiKey(providerId, localId),
     deleteRemoteKey: (providerId, tokenId) => providerStore.deleteApiKey(providerId, tokenId),
     getProvider: (providerId) => providers.value.find((provider) => provider.identity.id === providerId),
+    refreshByIds: (ids) => providerStore.refreshByIds(ids),
     getBoundAgentLabels: (providerId, localId, current) => [
       ...new Set(
         cliRuntime.value.configs
@@ -223,8 +231,10 @@ export function useAppController() {
     agentRuntime: agentRuntimeSnapshot,
     refreshAgentRuntime: () => cliRuntimeStore.refreshAgentRuntimeSnapshot(),
     activateAgentRuntime: (runtimeId) => cliRuntimeStore.activateAgentRuntime(runtimeId),
-    previewConfig: (providerId, cliKind, apiKeyLocalId) =>
-      cliRuntimeStore.previewConfig(providerId, cliKind, apiKeyLocalId),
+    previewConfig: (providerId, cliKind, apiKeyLocalId, model) =>
+      cliRuntimeStore.previewConfig(providerId, cliKind, apiKeyLocalId, model),
+    bindAgentModel: (providerId, cliKind, model) =>
+      providerStore.setAgentModel(providerId, cliKind, model),
   });
 
   async function removeProvider(provider: Provider) {
@@ -269,12 +279,12 @@ export function useAppController() {
     providers,
     settings,
     settingsForm: settingsController.settingsForm,
+    cliEnvironmentProbe,
     flushSettingsSave: settingsController.flushSettingsSave,
     importAppData: appDataTransfer.importAppData,
     openAddProvider: providerEditor.openAddProvider,
-    openSettings: () => {
-      settingsController.settingsDrawerVisible.value = true;
-    },
+    detectCliTools: () => cliRuntimeStore.probeCliTools(true),
+    openAgentWorkspace: () => agentWorkspaceStore.setView("agents"),
   });
 
   const workspacePicker = useWorkspacePicker({
@@ -330,7 +340,7 @@ export function useAppController() {
     reorderProviders: (ids) => providerStore.reorderProviders(ids),
     removeProvider: (id) => providerStore.removeProvider(id),
     toggleProvider: (id, enabled) => providerStore.toggleProvider(id, enabled),
-    checkInProvider: (provider) => checkIn.checkInProviderAction(provider),
+    openDetail: (provider) => providerDetail.openProviderDetail(provider),
   });
 
   useAppLifecycle({
@@ -402,12 +412,26 @@ export function useAppController() {
     temporaryCliLaunchTasks: workspacePicker.temporaryCliLaunchTasks,
     probingCapabilitiesProviderId: providerActions.probingCapabilitiesProviderId,
   });
+  const appExitGuard = useAppExitGuard({
+    activeTasks: backgroundTaskCenter.activeTasks,
+  });
+  // 只有还在排队的站点才显示「排队中」。批量刷新里已经结束的卡片必须
+  // 立刻回到自己的成功/失败状态，不能在整个批次结束前一直被盖住。
+  const refreshQueuedProviderIds = computed(
+    () =>
+      new Set(
+        batchOperation.items.value
+          .filter((item) => item.status === "pending")
+          .map((item) => item.providerId),
+      ),
+  );
 
   return reactive({
     initialized,
     loadError,
     loading,
     providers,
+    settings,
     providerProtocols,
     workspaces,
     temporaryCliPreferences,
@@ -415,6 +439,7 @@ export function useAppController() {
     agentRuntimeSnapshot,
     cliRuntimeLoading,
     refreshInProgress,
+    refreshQueuedProviderIds,
     startWindowDrag,
     retryLoadAppData: () => providerStore.initialize(),
     ...settingsController,
@@ -432,11 +457,15 @@ export function useAppController() {
     batchOperationStartedAt: batchOperation.startedAt,
     batchOperationFinishedAt: batchOperation.finishedAt,
     batchOperationCompleted: batchOperation.completed,
+    batchOperationCanceling: batchOperation.canceling,
+    batchOperationCancelled: batchOperation.cancelled,
+    batchOperationCancel: batchOperation.cancelRefresh,
     globalCheckInInProgress,
     activeBackgroundTasks: backgroundTaskCenter.activeTasks,
     recentBackgroundTasks: backgroundTaskCenter.recentTasks,
     backgroundTaskCount: backgroundTaskCenter.activeTaskCount,
     clearRecentBackgroundTasks: backgroundTaskCenter.clearRecentTasks,
+    ...appExitGuard,
     ...checkInRecords,
     ...usage,
     ...requestLogs,
@@ -448,6 +477,8 @@ export function useAppController() {
     ...cliRuntimeController,
     ...workspacePicker,
     ...providerEditor,
+    ...providerDetail,
+    ...usageReconciliation,
     editorApiKeyRemoteManaged,
     selectManagedApiKey,
     selectManagedApiKeyForCard,

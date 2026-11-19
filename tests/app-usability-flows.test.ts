@@ -13,6 +13,7 @@ import * as providerDisplay from "../src/utils/provider-display.ts";
 import * as providerProtocol from "../src/utils/provider-protocol.ts";
 import * as apiKeySettings from "../src/utils/provider-api-key-settings.ts";
 import * as apiKeyOptions from "../src/utils/provider-api-key-options.ts";
+import * as credentialRules from "../src/composables/provider-credential-rules.ts";
 import { keyEditorContext } from "./helpers/api-key-fixture.ts";
 import { loadSource } from "./helpers/load-source.ts";
 import type { AppSettings, AuthMode, Provider, ProviderAuthFieldDescriptor, ProviderAuthModeDescriptor, SiteAnnouncement, SiteAnnouncementsSnapshot } from "../src/stores/provider-types.ts";
@@ -56,6 +57,7 @@ test("authentication sections stay visible and retain credentials across support
     "./ProviderCredentialFields.vue": {},
     "./ProviderApiKeyVault.vue": {},
     "../../composables/useHostCapabilities": { supportsCommand: () => true },
+    "../../composables/provider-credential-rules": credentialRules,
   }).default;
   for (const protocol of ["newApi", "sub2Api", "api"] as const) {
     const draft = reactive(emptyDraft());
@@ -586,6 +588,33 @@ test("large model lists expose every page and searching resets to the first matc
     "../composables/useModelMetadata": { useModelMetadata: () => ({
       models: ref(new Map()), snapshot: ref(null), loading: ref(false), error: ref(""), refresh: async () => {},
     }) },
+    "../utils/model-price": {
+      modelPriceComparison: () => null,
+      modelPriceDetail: () => "",
+      modelPriceSourceLabel: () => "",
+      modelPriceSummary: () => "",
+      modelPriceTierDetail: () => "",
+      modelTimePricingDetail: () => "",
+      pricingScopeNote: () => "",
+    },
+    "../utils/model-comparison": {
+      formatLatency: (value: number) => `${value}ms`,
+      formatSuccessRate: (value: number) => `${value}%`,
+      formatThroughput: (value: number) => `${value} t/s`,
+      modelComparisonProviders: () => [],
+      providerModelPerformance: () => undefined,
+    },
+    "../composables/useModelComparison": {
+      useModelComparison: () => ({
+        model: ref(""),
+        rows: ref([]),
+        loading: ref(false),
+        error: ref(""),
+        open: async () => {},
+        close: () => {},
+      }),
+    },
+    "./ModelComparisonPanel.vue": {},
     "./ModelMetadataLine.vue": {},
   }).default;
   const names = Array.from({ length: 620 }, (_, index) => `model-${String(index).padStart(3, "0")}`);
@@ -718,6 +747,9 @@ test("model probe failures stay in their own step and a successful empty list cl
     "@arco-design/web-vue/es/icon": {},
     "../utils/provider-display": providerDisplay,
     "../utils/provider-protocol": providerProtocol,
+    "../utils/provider-capabilities": {
+      providerOptionalCapabilityLabel: (capability: string) => capability,
+    },
   }).default;
   const value = modelProvider("a");
   value.capabilities.availableModelsState = { scope: "account", updatedAt: "123", error: "HTTP 503" };
@@ -775,14 +807,17 @@ test("finishing onboarding saves the current draft through the same queue withou
   let opened = 0;
   const { value: panel } = scoped(t, () => useOnboardingController({
     initialized: ref(true), loadError: ref(null), providers: ref([]), settings: ref(saved), settingsForm: draft,
+    cliEnvironmentProbe: ref(null),
     flushSettingsSave: () => { saves++; assert.equal(draft.onboardingCompleted, true); assert.equal(draft.themeMode, "dark"); return pending.promise; },
-    importAppData: async () => {}, openAddProvider() {}, openSettings: () => { opened++; },
+    importAppData: async () => {}, openAddProvider() {},
+    detectCliTools: async () => ({ tools: [] }),
+    openAgentWorkspace: () => { opened++; },
   }));
   const saving = panel.completeOnboarding();
   await panel.completeOnboarding();
   assert.equal(saves, 1);
   assert.equal(panel.onboardingVisible.value, false);
-  panel.openOnboardingSettings();
+  panel.openOnboardingAgentWorkspace();
   assert.equal(opened, 1, "the main interface stays usable before persistence completes");
   pending.resolve(true);
   await saving;
@@ -796,8 +831,9 @@ test("onboarding save failures retain edits and release the action for retry", a
   let saves = 0;
   const { value: panel } = scoped(t, () => useOnboardingController({
     initialized: ref(true), loadError: ref(null), providers: ref([]), settings: ref({ ...draft }), settingsForm: draft,
+    cliEnvironmentProbe: ref(null),
     flushSettingsSave: async () => ++saves > 1,
-    importAppData: async () => {}, openAddProvider() {}, openSettings() {},
+    importAppData: async () => {}, openAddProvider() {}, detectCliTools: async () => ({ tools: [] }), openAgentWorkspace() {},
   }));
   await panel.completeOnboarding();
   assert.equal(panel.onboardingVisible.value, true);
@@ -805,4 +841,25 @@ test("onboarding save failures retain edits and release the action for retry", a
   await panel.completeOnboarding();
   assert.equal(saves, 2);
   assert.equal(panel.onboardingVisible.value, false);
+});
+
+test("onboarding CLI detection reports failure and always releases its busy state", async (t) => {
+  const feedback = messages();
+  const { useOnboardingController } = loadSource<typeof import("../src/composables/useOnboardingController.ts")>("composables/useOnboardingController.ts", { "@arco-design/web-vue": feedback });
+  const draft = reactive({ onboardingCompleted: false, agentCliPaths: {}, themeMode: "dark" } as AppSettings);
+  let attempts = 0;
+  const { value: panel } = scoped(t, () => useOnboardingController({
+    initialized: ref(true), loadError: ref(null), providers: ref([]), settings: ref({ ...draft }), settingsForm: draft,
+    cliEnvironmentProbe: ref(null),
+    flushSettingsSave: async () => true,
+    importAppData: async () => {}, openAddProvider() {},
+    detectCliTools: async () => { attempts++; throw new Error("探测超时"); },
+    openAgentWorkspace() {},
+  }));
+
+  await panel.detectOnboardingCliTools();
+
+  assert.equal(attempts, 1);
+  assert.equal(panel.detectingOnboardingCli.value, false, "失败后必须释放检测按钮");
+  assert.deepEqual(feedback.sent, ["探测超时"]);
 });

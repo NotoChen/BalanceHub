@@ -169,9 +169,12 @@ export function useWorkspacePicker(options: UseWorkspacePickerOptions) {
     }
     workspaceNewSessionModels.set(
       initialCliKind,
-      preference?.cliKind === initialCliKind
-        ? preference.model
-        : provider.cli.preferredModel?.trim() || "",
+      context?.model?.trim() ||
+        (preference?.cliKind === initialCliKind
+          ? preference.model
+          : provider.cli.agentModels?.[initialCliKind]?.trim() ||
+            provider.cli.preferredModel?.trim() ||
+            ""),
     );
     workspaceSessionName.value = "";
     runDrafts.clear();

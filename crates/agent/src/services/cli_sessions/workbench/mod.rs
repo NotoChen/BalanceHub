@@ -31,7 +31,9 @@ use std::{
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
-pub(crate) use usage_report::{collect_usage_report, finalize_usage_report, validate_usage_period};
+pub(crate) use usage_report::{
+    attributed_provider_ids, collect_usage_report, finalize_usage_report, validate_usage_period,
+};
 
 pub(crate) const QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const DETAIL_TIMEOUT: Duration = Duration::from_secs(20);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { IconCloud, IconLink, IconRefresh } from "@arco-design/web-vue/es/icon";
 import type {
   ProviderInput,
@@ -35,6 +35,24 @@ const emit = defineEmits<{
 }>();
 
 const normalizedBaseUrl = computed(() => normalizeBaseUrl(props.draft.identity.baseUrl));
+const baseUrlTouched = ref(false);
+/// 地址在提交前就能判断格式：空值、缺协议、非 HTTP(S) 各有不同提示。只
+/// 在用户离开字段后显示，避免新表单一打开就满屏红字。
+const baseUrlError = computed(() => {
+  if (!baseUrlTouched.value) return "";
+  const raw = props.draft.identity.baseUrl.trim();
+  if (!raw) return "请填写中转站地址";
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return "仅支持 http:// 或 https:// 地址";
+    }
+    if (!url.hostname) return "地址缺少主机名";
+  } catch {
+    return "地址格式无效，例如 https://relay.example.com";
+  }
+  return "";
+});
 const detectionIsCurrent = computed(() =>
   Boolean(props.draft.identity.name.trim() && normalizedBaseUrl.value === props.siteNameSourceBaseUrl),
 );
@@ -140,7 +158,7 @@ function protocolLabel(protocol: ProviderProtocol) {
             v-model="draft.identity.baseUrl"
             :placeholder="baseUrlPlaceholder"
             allow-clear
-            @blur="emit('probe-site')"
+            @blur="baseUrlTouched = true; emit('probe-site')"
           >
             <template #prefix><IconLink /></template>
             <template #suffix>
@@ -158,8 +176,10 @@ function protocolLabel(protocol: ProviderProtocol) {
               </a-tooltip>
             </template>
           </a-input>
-          <template v-if="draft.identity.baseUrl.trim()" #extra>
+          <template v-if="baseUrlError || draft.identity.baseUrl.trim()" #extra>
+            <span v-if="baseUrlError" class="provider-field-error" role="alert">{{ baseUrlError }}</span>
             <div
+              v-if="!baseUrlError"
               class="provider-site-detection"
               :class="{ loading: probingSite, ready: siteProbeResult?.ok, warning: protocolDetectionResult && !protocolDetectionResult.detectedProtocol }"
               role="status"
@@ -167,6 +187,21 @@ function protocolLabel(protocol: ProviderProtocol) {
               <span class="provider-site-detection-copy"><strong>{{ detectedName }}</strong><span>{{ detectionLabel }}</span></span>
               <span v-if="detectionIsCurrent && siteProbeResult?.message" class="provider-site-detection-message">{{ siteProbeResult.message }}</span>
             </div>
+            <ul
+              v-if="detectionIsCurrent && protocolDetectionResult?.candidates?.length"
+              class="provider-site-detection-candidates"
+              aria-label="协议识别证据"
+            >
+              <li
+                v-for="candidate in protocolDetectionResult.candidates"
+                :key="candidate.protocol"
+                :class="{ matched: candidate.ok }"
+                :title="candidate.message"
+              >
+                <strong>{{ candidate.label }}</strong>
+                <small>{{ candidate.ok ? (candidate.role === "explicit" ? "已确认" : "匹配") : candidate.message }}</small>
+              </li>
+            </ul>
           </template>
         </a-form-item>
 

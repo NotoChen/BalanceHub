@@ -40,7 +40,7 @@ test("CLI default configuration remains editable for the currently bound API Key
   assert.doesNotMatch(picker, /:disabled="isCurrentAgentKey\(option\)"/);
   assert.match(
     runtime,
-    /cliConfigKeyPickerVisible\.value = false;\s*await previewProviderCliConfig\(provider, cliKind, option\.localId\.trim\(\)\);/s,
+    /cliConfigKeyPickerVisible\.value = false;\s*await previewProviderCliConfig\(\s*provider,\s*cliKind,\s*option\.localId\.trim\(\),\s*model,\s*\);/s,
   );
   assert.match(runtime, /cliConfigRequestRevision \+= 1;/);
   assert.doesNotMatch(runtime, /已在使用这把 API Key/);
@@ -54,7 +54,7 @@ test("CLI preview preserves stable Key selection and uses the shared configurati
   assert.doesNotMatch(runtime, /options\.switchConfig|preview\.originalFiles|preview\.files/);
   assert.match(
     api,
-    /invoke<AgentConfigurationEdit>\("preview_cli_config", \{ id, cliKind, apiKeyLocalId \}\)/,
+    /invoke<AgentConfigurationEdit>\("preview_cli_config", \{\s*id,\s*cliKind,\s*apiKeyLocalId,\s*model: model\?\.trim\(\) \|\| null,\s*\}\)/,
   );
   assert.doesNotMatch(api, /switch_cli_config/);
 });
@@ -86,6 +86,12 @@ test("pure API Key cards keep management local and never expose a fake refresh a
   assert.match(switcher, /defineEmits<\{/);
   assert.match(switcher, /IconSwap/);
   assert.match(switcher, /管理 API Key/);
+  // 切 Key 前必须能在同一行看到分组、模型限额和剩余额度。
+  assert.match(switcher, /function apiKeyFacts/);
+  assert.match(switcher, /option\.modelLimitsEnabled/);
+  assert.match(switcher, /option\.modelLimits/);
+  assert.match(switcher, /option\.unlimitedQuota/);
+  assert.match(switcher, /provider-card-api-key-switcher-facts/);
   assert.match(cardHeader, /emit\('copyApiKey', provider\)/);
   assert.match(cardMenus, /props\.provider\.auth\.mode !== "apiKey"/);
   assert.match(cardMenus, /props\.provider\.actions\.apiKeyManagement \|\| hasManagedApiKeys\.value/);

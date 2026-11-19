@@ -1,6 +1,9 @@
 use serde::Serialize;
 
-use crate::models::{AuthMode, Provider, ProviderModelScope, ProviderProtocol};
+use crate::models::{
+    AuthMode, Provider, ProviderModelScope, ProviderOptionalCapability,
+    ProviderOptionalCapabilityState, ProviderProtocol,
+};
 
 use super::{auth, capabilities};
 
@@ -10,6 +13,22 @@ pub struct ProviderModelListAction {
     pub can_sync: bool,
     pub scope: ProviderModelScope,
     pub unavailable_reason: Option<&'static str>,
+}
+
+impl ProviderModelListAction {
+    /// 缺少地址、登录或 API Key 时不能发起模型请求，但这是本地前置条件，
+    /// 不是站点能力结论。能力台账只能记为“未确认”，否则补全凭据前会一直
+    /// 显示“不支持读取模型”。
+    pub fn unavailable_capability_state(&self) -> Option<ProviderOptionalCapabilityState> {
+        if self.can_sync {
+            return None;
+        }
+        Some(ProviderOptionalCapabilityState::unknown(
+            ProviderOptionalCapability::Models,
+            self.unavailable_reason
+                .unwrap_or("当前认证信息无法读取模型列表"),
+        ))
+    }
 }
 
 pub fn can_use_account_models(provider: &Provider) -> bool {
@@ -175,6 +194,29 @@ mod tests {
         provider.auth.access_token = "fixture-account-token".into();
         assert_eq!(scope(&provider), ProviderModelScope::ApiKey);
         assert!(!action(&provider).can_sync);
+    }
+
+    #[test]
+    fn missing_local_credentials_do_not_mark_the_models_capability_unsupported() {
+        let mut provider = account();
+        provider.identity.protocol = ProviderProtocol::Sub2Api;
+        provider.auth.mode = AuthMode::ApiKey;
+        let pending = action(&provider);
+        assert!(!pending.can_sync);
+        let state = pending
+            .unavailable_capability_state()
+            .expect("缺少凭据时应记录未确认状态");
+        // 这是本地还不能发起请求，不是站点没有模型接口。
+        assert!(!state.known);
+        assert!(!state.supported);
+        assert_eq!(
+            state.error.as_deref(),
+            Some("请先填写 API Key，再获取该 Key 的可用模型")
+        );
+
+        provider.auth.api_key = "sk-fixture".into();
+        assert!(action(&provider).can_sync);
+        assert!(action(&provider).unavailable_capability_state().is_none());
     }
 
     #[test]

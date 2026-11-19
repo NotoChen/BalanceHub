@@ -50,13 +50,52 @@ pub(crate) fn waits_for_agent_update(settings: &AppSettings, provider: &Provider
 pub struct LivenessContext {
     pub cli_kind: AgentCliKind,
     pub cli_path: String,
+    /// 实际发给上游的模型名（已应用 wireName 映射）。
     pub model: String,
+    /// 用户配置的模型 ID；用于前端把记录对回卡片上的模型。
+    pub model_id: String,
+    /// CLI 实际请求的地址（已按 Agent 端点规则归一化）。
     pub base_url: String,
+    /// 归一化之前的站点地址；用于前端把记录对回卡片/Agent 地址。
+    pub provider_base_url: String,
     pub prompt: String,
     pub timeout_seconds: u64,
     pub command_preview: String,
 }
 
+/// 失败记录也要能对上「哪个 Agent、哪个模型、哪个地址」。上下文构建失败时
+/// 这些值仍然可以从配置里算出来，不再写一条无归属的空记录。
+struct FailureTarget {
+    cli_kind: String,
+    model: String,
+    model_id: String,
+    base_url: String,
+    provider_base_url: String,
+}
+
+impl FailureTarget {
+    fn from_context(context: &LivenessContext) -> Self {
+        Self {
+            cli_kind: context.cli_kind.key().to_string(),
+            model: context.model.clone(),
+            model_id: context.model_id.clone(),
+            base_url: context.base_url.clone(),
+            provider_base_url: context.provider_base_url.clone(),
+        }
+    }
+
+    fn from_provider(settings: &AppSettings, provider: &Provider) -> Self {
+        let cli_kind = effective_cli_kind(settings, provider);
+        let model_id = effective_model(settings, provider);
+        Self {
+            cli_kind: cli_kind.key().to_string(),
+            model: provider.model_config.wire_name(&model_id).to_string(),
+            model_id,
+            base_url: agent_cli::provider_base_url(cli_kind, provider),
+            provider_base_url: agent_cli::provider_raw_base_url(cli_kind, provider).to_string(),
+        }
+    }
+}
 impl LivenessRunner {
     pub fn build_context(
         settings: &AppSettings,
@@ -66,10 +105,8 @@ impl LivenessRunner {
         if !provider_domain::auth::has_api_key(provider) {
             return Err("缺少 API Key，测活需要 API Key".to_string());
         }
-        let model = provider
-            .model_config
-            .wire_name(&effective_model(settings, provider))
-            .to_string();
+        let model_id = effective_model(settings, provider);
+        let model = provider.model_config.wire_name(&model_id).to_string();
         let prompt = prompt_override
             .and_then(|value| {
                 let value = value.trim().to_string();
@@ -83,6 +120,7 @@ impl LivenessRunner {
             .liveness()
             .ok_or_else(|| format!("{} 当前不支持测活", definition.label))?;
         let cli = agent_cli::find(settings, cli_kind, true)?;
+        let provider_base_url = agent_cli::provider_raw_base_url(cli_kind, provider).to_string();
         let base_url = agent_cli::provider_base_url(cli_kind, provider);
         let preview_home = PathBuf::from(format!(
             "/tmp/balancehub-agent-liveness-{}-<random>",
@@ -105,7 +143,9 @@ impl LivenessRunner {
             cli_kind,
             cli_path: cli.path,
             model,
+            model_id,
             base_url,
+            provider_base_url,
             prompt,
             timeout_seconds,
             command_preview,
@@ -135,6 +175,7 @@ impl LivenessRunner {
                     message,
                     String::new(),
                     String::new(),
+                    &FailureTarget::from_provider(settings, provider),
                 ));
             }
         };
@@ -151,14 +192,16 @@ impl LivenessRunner {
         checked_at: String,
         source: String,
     ) -> LivenessRecord {
+        let failure_target = FailureTarget::from_context(&context);
         let definition = agent_cli::definition(context.cli_kind);
         let Some(adapter) = definition.liveness() else {
             return failure_record(
                 checked_at,
                 source,
                 format!("{} 当前不支持测活", definition.label),
-                context.command_preview,
-                context.prompt,
+                context.command_preview.clone(),
+                context.prompt.clone(),
+                &failure_target,
             );
         };
         let isolated_home = unique_liveness_home(provider, context.cli_kind);
@@ -168,8 +211,9 @@ impl LivenessRunner {
                 checked_at,
                 source,
                 format!("创建测活 CLI 临时目录失败: {err}"),
-                context.command_preview,
-                context.prompt,
+                context.command_preview.clone(),
+                context.prompt.clone(),
+                &failure_target,
             );
         }
         let plan = match adapter.build_plan(LivenessRequest {
@@ -188,8 +232,9 @@ impl LivenessRunner {
                     checked_at,
                     source,
                     message,
-                    context.command_preview,
-                    context.prompt,
+                    context.command_preview.clone(),
+                    context.prompt.clone(),
+                    &failure_target,
                 );
             }
         };
@@ -199,8 +244,9 @@ impl LivenessRunner {
                 checked_at,
                 source,
                 message,
-                context.command_preview,
-                context.prompt,
+                context.command_preview.clone(),
+                context.prompt.clone(),
+                &failure_target,
             );
         }
 
@@ -227,8 +273,9 @@ impl LivenessRunner {
                     checked_at,
                     source,
                     format!("启动测活 CLI 失败: {err}"),
-                    context.command_preview,
-                    context.prompt,
+                    context.command_preview.clone(),
+                    context.prompt.clone(),
+                    &failure_target,
                 );
             }
         };
@@ -244,7 +291,9 @@ impl LivenessRunner {
                 ok: false,
                 latency_ms,
                 model: context.model,
+                model_id: context.model_id,
                 base_url: context.base_url,
+                provider_base_url: context.provider_base_url,
                 prompt: context.prompt,
                 response_preview: String::new(),
                 response_raw: sanitize_output(&format!("{}\n{}", outcome.stderr, outcome.stdout)),
@@ -285,7 +334,9 @@ impl LivenessRunner {
             ok: exit_ok && !parsed.response.is_empty(),
             latency_ms,
             model: context.model,
+            model_id: context.model_id,
             base_url: context.base_url,
+            provider_base_url: context.provider_base_url,
             prompt: context.prompt,
             response_preview: parsed.response,
             response_raw: if response_raw.trim().is_empty() {
@@ -394,15 +445,18 @@ fn failure_record(
     message: String,
     command_preview: String,
     prompt: String,
+    target: &FailureTarget,
 ) -> LivenessRecord {
     LivenessRecord {
         checked_at,
         source,
-        cli_kind: String::new(),
+        cli_kind: target.cli_kind.clone(),
         ok: false,
         latency_ms: 0,
-        model: String::new(),
-        base_url: String::new(),
+        model: target.model.clone(),
+        model_id: target.model_id.clone(),
+        base_url: target.base_url.clone(),
+        provider_base_url: target.provider_base_url.clone(),
         prompt,
         response_preview: String::new(),
         response_raw: String::new(),

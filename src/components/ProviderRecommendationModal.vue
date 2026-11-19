@@ -5,13 +5,20 @@ import type { AgentCliKind, Provider } from "../stores/provider-types";
 import type { ProviderRecommendationReport } from "../stores/provider-recommendation-types";
 import { getProviderRecommendations } from "../api/provider-recommendation";
 import { withTimeout } from "../utils/promise-timeout";
+import type { RecommendationAgentContext } from "../utils/provider-recommendation-context.ts";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import "../styles/modules/provider-recommendation.css";
 
-const props = defineProps<{ visible: boolean; providers: readonly Provider[] }>();
+const props = defineProps<{
+  visible: boolean;
+  providers: readonly Provider[];
+  /// 从 Agent 上下文打开时带上它的当前绑定：默认目标、默认模型和「当前」
+  /// 标记都从这里来，用户不必再手动找回自己是哪个 Agent。
+  agent?: RecommendationAgentContext | null;
+}>();
 const emit = defineEmits<{
   close: [];
-  switch: [provider: Provider, cliKind: AgentCliKind];
+  switch: [provider: Provider, cliKind: AgentCliKind, model: string];
 }>();
 
 const cliStore = useCliRuntimeStore();
@@ -40,9 +47,14 @@ const cliOptions = computed(() =>
 watch(
   cliOptions,
   (options) => {
-    if (!options.some((option) => option.kind === selectedCli.value)) {
-      selectedCli.value = options[0]?.kind ?? "";
-    }
+    // 只修正失效的选择。探测结果每 30 秒会被父组件替换一次，不能借机把
+    // 用户在「切换目标」里手动选中的 CLI 改回 Agent 上下文。
+    if (options.some((option) => option.kind === selectedCli.value)) return;
+    const contextKind = props.agent?.kind;
+    selectedCli.value =
+      contextKind && options.some((option) => option.kind === contextKind)
+        ? contextKind
+        : (options[0]?.kind ?? "");
   },
   { immediate: true },
 );
@@ -66,6 +78,10 @@ const checkedAt = computed(() => {
 function priceAmount(value: number, digits = 2) {
   return +value.toFixed(digits);
 }
+
+/// 打开时从 Agent 上下文带进来的模型只负责这一次加载；消费掉标记后，
+/// 后续用户改模型仍走正常的防抖重算。
+let contextModelChange = false;
 
 async function load() {
   const id = ++request;
@@ -107,12 +123,36 @@ function refresh() {
 function switchTo(providerId: string) {
   const provider = props.providers.find((item) => item.identity.id === providerId);
   if (!provider || !selectedCli.value) return;
-  emit("switch", provider, selectedCli.value);
+  // The report ranks a concrete model. Pass it through so the write does not
+  // silently land on the provider's global preferred model instead.
+  emit("switch", provider, selectedCli.value, model.value.trim());
   emit("close");
 }
 
 function percentLabel(value: number | null) {
   return value === null ? "" : `${value.toFixed(0)}%`;
+}
+
+/// 后端时间字段同时存在毫秒数字串、秒数字串和 RFC3339，展示时统一成短时间。
+function timestampLabel(value: string | number | null) {
+  if (value === null || value === "") return "时间未知";
+  const numeric = typeof value === "number" ? value : Number(value);
+  const date = Number.isFinite(numeric)
+    ? new Date(numeric > 1_000_000_000_000 ? numeric : numeric * 1000)
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return date.toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/// 站点成功率保留一位小数，避免 99.5% 被四舍五入成 100%。
+function sitePercentLabel(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 watch(
@@ -123,11 +163,31 @@ watch(
       loading.value = false;
       return;
     }
+    const agent = props.agent;
+    if (agent?.kind) {
+      // Agent 上下文优先：用户是从某个 Agent 的推荐入口进来的，默认目标
+      // 就应该是它；只有这个 CLI 不可用时才回落到第一个可用项。
+      selectedCli.value = cliOptions.value.some(
+        (option) => option.kind === agent.kind,
+      )
+        ? agent.kind
+        : (cliOptions.value[0]?.kind ?? "");
+    }
+    if (agent?.model && model.value !== agent.model) {
+      contextModelChange = true;
+      model.value = agent.model;
+    }
     void load();
   },
   { immediate: true },
 );
-watch(model, scheduleLoad);
+watch(model, () => {
+  if (contextModelChange) {
+    contextModelChange = false;
+    return;
+  }
+  scheduleLoad();
+});
 onBeforeUnmount(() => {
   request += 1;
   if (debounce) clearTimeout(debounce);
@@ -154,7 +214,12 @@ onBeforeUnmount(() => {
     </template>
     <div class="provider-recommendation-body">
       <p class="provider-recommendation-note">
-        按余额、额度窗口剩余与重置时间、最近 24 次测活成功率和模型价格排序；只读取现有卡片数据，不发起额外请求。
+        按余额、额度窗口剩余与重置时间、最近 24 次测活成功率、站点模型表现和模型价格排序；只读取现有卡片数据，不发起额外请求。
+      </p>
+      <p v-if="agent" class="provider-recommendation-context">
+        为 <strong>{{ agent.label }}</strong> 的当前绑定挑选
+        <span v-if="agent.model"> · 模型 <code>{{ agent.model }}</code></span>
+        <span> · 现在来自 {{ agent.providerLabel }}</span>
       </p>
       <div class="provider-recommendation-controls">
         <a-select
@@ -193,6 +258,10 @@ onBeforeUnmount(() => {
                 <span v-if="entry.eligible" class="provider-recommendation-score">{{ entry.score }} 分</span>
                 <span v-else class="provider-recommendation-score is-blocked">不可用</span>
                 <span v-if="index === 0 && entry.eligible" class="provider-recommendation-badge">推荐</span>
+                <span
+                  v-if="agent && entry.providerId === agent.providerId"
+                  class="provider-recommendation-badge is-current"
+                >当前</span>
               </div>
               <div class="provider-recommendation-facts">
                 <span>{{ entry.quotaLabel }}</span>
@@ -206,6 +275,29 @@ onBeforeUnmount(() => {
                 <span v-if="entry.modelSupported === true">模型可用</span>
                 <span v-else-if="entry.modelSupported === false">模型不在列表</span>
                 <span v-else-if="model">模型列表未同步</span>
+                <span
+                  v-if="entry.siteSuccessRate != null"
+                  class="provider-recommendation-site"
+                  :class="entry.siteSuccessRate >= 0.995 ? 'is-good' : entry.siteSuccessRate >= 0.95 ? 'is-warn' : 'is-bad'"
+                >
+                  站点表现 {{ sitePercentLabel(entry.siteSuccessRate) }}
+                </span>
+                <span v-if="entry.siteAvgTps != null">{{ entry.siteAvgTps.toFixed(1) }} t/s</span>
+                <span v-if="entry.siteAvgLatencyMs != null">
+                  延迟 {{ entry.siteAvgLatencyMs >= 1000 ? `${(entry.siteAvgLatencyMs / 1000).toFixed(2)}s` : `${Math.round(entry.siteAvgLatencyMs)}ms` }}
+                </span>
+                <span v-if="entry.cooldownUntil" class="provider-recommendation-data-age">
+                  冷却至 {{ timestampLabel(entry.cooldownUntil) }}
+                </span>
+                <span v-if="entry.quotaStale" class="provider-recommendation-data-age" :title="`余额读取于 ${timestampLabel(entry.quotaUpdatedAt)}`">
+                  余额截至 {{ timestampLabel(entry.quotaUpdatedAt) }}
+                </span>
+                <span v-if="entry.livenessStale" class="provider-recommendation-data-age" :title="`测活记录于 ${timestampLabel(entry.livenessUpdatedAt)}`">
+                  测活截至 {{ timestampLabel(entry.livenessUpdatedAt) }}
+                </span>
+                <span v-if="entry.pricingStale" class="provider-recommendation-data-age" :title="`价格读取于 ${timestampLabel(entry.pricingUpdatedAt)}`">
+                  价格截至 {{ timestampLabel(entry.pricingUpdatedAt) }}
+                </span>
               </div>
               <ul v-if="entry.blockers.length" class="provider-recommendation-blockers">
                 <li v-for="blocker in entry.blockers" :key="blocker">{{ blocker }}</li>

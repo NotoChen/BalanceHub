@@ -715,6 +715,12 @@
   gap: 13px;
 }
 
+/* 列表布局用来把身份/额度收进左列的分组容器。卡片布局里它不生成盒子，
+   子项仍然按原来的顺序参与正文的纵向排布。 */
+.provider-card-body-main {
+  display: contents;
+}
+
 /* 模型行是正文的最后一层，上方用一条分隔线收口：标题一行、芯片最多三行。
    四类卡片（中转站、API Key、账号授权、CPA 网关）都走这一块，卡型只决定
    数据，不再决定长相。 */
@@ -785,14 +791,15 @@
 
 /* 模型名排成浅底芯片：名字长短不一，芯片把每个名字圈成一项，
    gpt-5.6-sol 和 deepseek-v3 一眼能分开。
-   模型区和页脚一样是卡片的固定层：恒定三行高，芯片少了也不收缩，卡片之间
+   模型区和页脚一样是卡片的固定层：默认恒定三行高，芯片少了也不收缩，卡片之间
    的数字、模型和按钮始终对齐在同一水平线上。每行 20px（18px 行高 + 上下
-   描边），行间 5px，三行即 3 × 20 + 2 × 5 = 70px。 */
+   描边），行间 5px，三行即 3 × 20 + 2 × 5 = 70px。列表布局把
+   --provider-card-model-rows 改成 1，同一套公式得到一行 20px。 */
 .provider-card-model-list {
   display: flex;
   width: 100%;
   min-width: 0;
-  height: 70px;
+  height: calc(var(--provider-card-model-rows, 3) * 25px - 5px);
   flex-wrap: wrap;
   align-content: flex-start;
   align-items: center;
@@ -802,10 +809,10 @@
   overflow: hidden;
 }
 
-/* 没有模型时说明文字占住同样的三行，卡片高度不随同步状态跳动。 */
+/* 没有模型时说明文字占住同样的几行，卡片高度不随同步状态跳动。 */
 .provider-card-model-empty {
   display: flex;
-  height: 70px;
+  height: calc(var(--provider-card-model-rows, 3) * 25px - 5px);
   align-items: center;
   color: #a9aeb8;
   font-size: 10px;

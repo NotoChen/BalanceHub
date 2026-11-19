@@ -2,6 +2,8 @@
 import { computed, nextTick, reactive, ref, toRef, watch } from "vue";
 import { RefreshCw, History, ShieldCheck, Sparkles } from "@lucide/vue";
 import { useAgentMaintenanceStore } from "../../stores/agent-maintenance";
+import { useWorkspaceLayoutStore } from "../../stores/workspace-layout";
+import WorkspaceLayoutSwitch from "../WorkspaceLayoutSwitch.vue";
 import AgentHistoryDrawer from "./AgentHistoryDrawer.vue";
 import AgentMaintenancePlanModal from "./AgentMaintenancePlanModal.vue";
 import AgentMaintenanceOperation from "./AgentMaintenanceOperation.vue";
@@ -12,6 +14,9 @@ import { agentWorkspacePages, type AgentWorkspacePage } from "../../stores/agent
 import { useAgentWslStore } from "../../stores/agent-wsl";
 import type { AgentCatalogOperation } from "../../stores/agent-catalog-types";
 import type { AgentCliKind, AgentRuntimeSession, AgentRuntimeSnapshot, CliRuntimeSnapshot, Provider, TemporaryCliLaunchContext } from "../../stores/provider-types";
+import { providerApiKeyDisplayName, providerDefaultApiKeyOption, providerDisplayLabel } from "../../utils/provider-display";
+import type { RecommendationAgentContext } from "../../utils/provider-recommendation-context";
+import { latestAgentLivenessRecord } from "../../utils/provider-liveness";
 import AgentOverviewCard from "./AgentOverviewCard.vue";
 import AgentWorkspaceIcon from "./AgentWorkspaceIcon.vue";
 import AgentCliIcon from "../AgentCliIcon.vue";
@@ -46,9 +51,51 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   refreshing: [loading: boolean]; refreshRuntime: []; activateRuntime: [session: AgentRuntimeSession]; launch: [provider: Provider, kind: AgentCliKind, context?: TemporaryCliLaunchContext];
-  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind, model?: string];
 }>();
 const recommendationVisible = ref(false);
+/// The Agent runtime snapshot knows which provider/key each CLI currently
+/// writes. Surface that binding on the card instead of hiding it inside the
+/// switch flow; the model comes from the per-Agent binding with the provider
+/// default as fallback.
+function bindingFor(kind: AgentCliKind) {
+  const snapshot = props.cliRuntime.configs.find((entry) => entry.cliKind === kind && entry.providerId);
+  const provider = snapshot ? props.providers.find((entry) => entry.identity.id === snapshot.providerId) : null;
+  if (!provider) return null;
+  const localId = snapshot?.apiKeyLocalId?.trim() || "";
+  const option = localId
+    ? provider.auth.apiKeyOptions.find((entry) => entry.localId.trim() === localId)
+    : providerDefaultApiKeyOption(provider);
+  const baseUrl = provider.liveness?.agentBaseUrls?.[kind]?.trim() || provider.identity.baseUrl;
+  const model = provider.cli.agentModels?.[kind]?.trim() || provider.cli.preferredModel?.trim() || "";
+  const record = latestAgentLivenessRecord(provider, kind, model, baseUrl);
+  return {
+    providerId: provider.identity.id,
+    providerLabel: providerDisplayLabel(provider),
+    keyLabel: option ? providerApiKeyDisplayName(option) : "",
+    model,
+    health: record ? (record.ok ? "最近成功" : "最近失败") : "",
+    baseUrl,
+  };
+}
+
+/// 顶部「中转站推荐」在筛选了某个 Agent 时带上它的当前绑定；没有筛选就是
+/// 全局比价，不硬塞一个默认 Agent。
+const recommendationAgent = computed<RecommendationAgentContext | null>(() => {
+  const kind = model.navigation.agentFilter;
+  if (!kind) return null;
+  const binding = bindingFor(kind);
+  if (!binding) return null;
+  return {
+    kind,
+    label: props.cliRuntime.agents.find((agent) => agent.kind === kind)?.label || kind,
+    providerId: binding.providerId,
+    providerLabel: binding.providerLabel,
+    model: binding.model,
+  };
+});
+const layoutStore = useWorkspaceLayoutStore();
+const layout = computed(() => layoutStore.layoutFor("agents"));
 const sessionPanel = ref<InstanceType<typeof AgentSessionPanel> | null>(null);
 const instructionsPanel = ref<InstanceType<typeof AgentInstructionsPanel> | null>(null);
 const wslPanel = ref<InstanceType<typeof AgentWslPanel> | null>(null);
@@ -187,10 +234,13 @@ defineExpose({ refresh });
     <div ref="content" class="agent-dashboard-content" :class="{ 'has-catalog': model.navigation.page !== 'overview' && model.navigation.page !== 'sessions', 'has-session-history': model.navigation.page === 'sessions' && model.navigation.sessionView === 'history' }" @scroll="cancelCardDrag">
       <p v-if="taskRecoveryError" class="agent-workspace-error" role="alert">{{ taskRecoveryError }}<a-button type="text" size="small" :loading="model.catalogStore.recovering || model.lifecycleStore.recovering" @click="recoverTasks">重新读取任务状态</a-button></p>
       <template v-if="model.navigation.page === 'overview'">
-        <header class="agent-section-toolbar agent-overview-toolbar"><p>{{ model.cards.length }} 个 Agent</p><div class="agent-inline-actions"><a-button size="small" @click="recommendationVisible = true"><template #icon><Sparkles :size="16" /></template>中转站推荐</a-button><a-button size="small" @click="model.openSelfCheck()"><template #icon><ShieldCheck :size="16" /></template>环境自检</a-button><a-button size="small" :loading="model.lifecycleStore.checkingVersions" @click="model.lifecycleStore.refresh('force')"><template #icon><RefreshCw :size="16" /></template>检查更新</a-button></div></header>
+        <header class="agent-section-toolbar agent-overview-toolbar"><p>{{ model.cards.length }} 个 Agent</p><div class="agent-inline-actions"><WorkspaceLayoutSwitch :model-value="layout" @update:model-value="layoutStore.setBoardLayout('agents', $event)" /><a-button size="small" @click="recommendationVisible = true"><template #icon><Sparkles :size="16" /></template>中转站推荐</a-button><a-button size="small" @click="model.openSelfCheck()"><template #icon><ShieldCheck :size="16" /></template>环境自检</a-button><a-button size="small" :loading="model.lifecycleStore.checkingVersions" @click="model.lifecycleStore.refresh('force')"><template #icon><RefreshCw :size="16" /></template>检查更新</a-button></div></header>
         <p v-if="model.error || model.lifecycleStore.error" class="agent-workspace-error" role="alert">{{ model.error || model.lifecycleStore.error }}</p>
-        <div v-if="!model.cards.length" class="agent-workspace-empty">{{ model.navigation.query ? '没有匹配的 Agent' : '正在读取已注册 Agent' }}</div>
-        <TransitionGroup v-else tag="div" name="agent-card-sort" class="agent-overview-grid"><AgentOverviewCard v-for="card in orderedCards" :key="card.agent.kind" v-bind="card" :loading="model.loading"
+        <div v-if="!model.cards.length" class="agent-workspace-empty">
+          <span>{{ model.navigation.query ? '没有匹配的 Agent，可清空搜索后查看全部' : model.loading ? '正在检测本机 Agent CLI…' : '未发现可用的 Agent CLI。安装后可在这里管理配置、Skill 和会话。' }}</span>
+          <a-button v-if="!model.loading && !model.navigation.query" size="small" @click="model.refresh()">重新检测</a-button>
+        </div>
+        <TransitionGroup v-else tag="div" name="agent-card-sort" class="agent-overview-grid" :class="{ 'is-list': layout === 'list' }"><AgentOverviewCard v-for="card in orderedCards" :key="card.agent.kind" v-bind="card" :binding="bindingFor(card.agent.kind)" :loading="model.loading" :list="layout === 'list'"
           class="agent-card-sortable" :class="{ 'agent-card-sort-placeholder': drag.state.dragging && drag.state.id === card.agent.kind, 'agent-card-sort-target': drag.overId === card.agent.kind }"
           tabindex="0" :aria-label="`${card.agent.label}，可拖拽排序，按 Alt 加方向键调整位置`"
           @pointerdown="drag.handlePointerDown(card, $event)" @dragstart.prevent @click.capture="suppressDragClick" @keydown="moveCard(card.agent.kind, $event)"
@@ -200,7 +250,7 @@ defineExpose({ refresh });
           @installation="model.installation.open(card.agent.kind)" @installation-guide="model.openDocumentation(card.agent.kind, 'installation')"
           @history="model.navigation.openSessions('history', card.agent.kind)" @runtime="model.navigation.openSessions('active', card.agent.kind)" @launch="model.launchKind = card.agent.kind" /></TransitionGroup>
         <span class="agent-card-sort-announcement" role="status">{{ sortAnnouncement }}</span>
-        <Teleport to="body"><AgentOverviewCard v-if="drag.draggedItem" v-bind="drag.draggedItem" :loading="model.loading" class="agent-card-sort-preview" :style="drag.dragStyle()" aria-hidden="true" inert /></Teleport>
+        <Teleport to="body"><AgentOverviewCard v-if="drag.draggedItem" v-bind="drag.draggedItem" :loading="model.loading" :list="layout === 'list'" class="agent-card-sort-preview" :style="drag.dragStyle()" aria-hidden="true" inert /></Teleport>
       </template>
       <AgentHookPanel v-else-if="model.navigation.page === 'hook'" :catalog="model.catalog.catalog" :agents="cliRuntime.agents" :agent-filter="model.navigation.agentFilter" :query="model.navigation.query" :focused-asset-id="model.focusedHookId" :center="model.environment" :hooks="model.hooks" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @installation="openHookInstallation" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
       <AgentCatalogPanel v-else-if="!['sessions', 'instructions', 'environments'].includes(model.navigation.page)" ref="catalogPanel" :focused-asset-id="model.navigation.page === 'library' ? model.navigation.libraryAssetId : null" @edit="editLibraryDefinition" :catalog="model.catalog.catalog" :page="model.navigation.page" :query="model.navigation.query" :agent-filter="model.navigation.agentFilter" :agents="cliRuntime.agents" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
@@ -235,6 +285,6 @@ defineExpose({ refresh });
     <AgentHookPlanModal :visible="model.hooks.planVisible" :plan="model.hooks.pendingPlan" :can-apply="model.hooks.canApplyPlan" @close="model.hooks.closePlan" @confirm="model.confirmHookPlan" />
     <AgentLaunchProviderModal :visible="Boolean(model.launchKind)" :agent-label="launchLabel" :providers="providers" @close="model.launchKind = null" @select="launch" />
     <AgentSelfCheckModal :visible="model.selfCheck.visible" :loading="model.selfCheck.loading" :error="model.selfCheck.error" :report="model.selfCheck.report" @close="model.closeSelfCheck()" @refresh="model.refreshSelfCheck()" />
-    <ProviderRecommendationModal :visible="recommendationVisible" :providers="providers" @close="recommendationVisible = false" @switch="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)" />
+    <ProviderRecommendationModal :visible="recommendationVisible" :providers="providers" :agent="recommendationAgent" @close="recommendationVisible = false" @switch="(provider, cliKind, model) => emit('switchCliConfig', provider, cliKind, model)" />
   </main>
 </template>

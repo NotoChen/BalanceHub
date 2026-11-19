@@ -14,6 +14,8 @@ const DEFAULT_MINIMUM_SIZE = {
 
 interface GridGeometry {
   view: "providers" | "agents";
+  /** 列表布局下行宽等于内容宽度，不能再拿它计算窗口最小宽度或吸附列。 */
+  listLayout: boolean;
   cardWidth: number;
   minimumCardWidth?: number;
   cardHeight: number;
@@ -57,6 +59,7 @@ function readGridGeometry(): GridGeometry | null {
       + viewport.scrollTop;
     return {
       view: "agents",
+      listLayout: grid.matches(".is-list"),
       cardWidth: Math.max(...cards.map((card) => Math.round(card.getBoundingClientRect().width))),
       cardHeight: Math.max(...cards.map((card) => Math.round(card.getBoundingClientRect().height))),
       columnGap: readPixels(gridStyle.columnGap, FALLBACK_GRID_GAP),
@@ -98,6 +101,7 @@ function readGridGeometry(): GridGeometry | null {
 
   return {
     view: "providers",
+    listLayout: board.matches(".is-list"),
     cardWidth,
     minimumCardWidth: readPixels(boardStyle.getPropertyValue("--provider-grid-card-min"), FALLBACK_CARD_WIDTH),
     cardHeight,
@@ -122,7 +126,9 @@ function minimumSize(geometry: GridGeometry | null): LogicalWindowSize {
   return {
     width: Math.max(
       DEFAULT_MINIMUM_SIZE.width,
-      Math.round(geometry.horizontalChrome + (geometry.minimumCardWidth ?? geometry.cardWidth)),
+      geometry.listLayout
+        ? 0
+        : Math.round(geometry.horizontalChrome + (geometry.minimumCardWidth ?? geometry.cardWidth)),
     ),
     height: Math.max(
       geometry.view === "agents" ? DEFAULT_MINIMUM_SIZE.height : 0,
@@ -245,8 +251,9 @@ export function useWindowGridSnap() {
     if (!isCurrentLayout(expectedLayout) || expectedResize !== resizeRevision || expandedWindow) return;
     const target = {
       // Provider columns fill the available width; snapping to a measured,
-      // stretched card would fight the width the user has just chosen.
-      width: geometry.view === "providers" ? Math.round(requested.width) : Math.max(
+      // stretched card would fight the width the user has just chosen. The
+      // list layout is the same: its single column is the viewport itself.
+      width: geometry.view === "providers" || geometry.listLayout ? Math.round(requested.width) : Math.max(
         minimumSize(geometry).width,
         snapToTrack(
           requested.width,
@@ -300,8 +307,10 @@ export function useWindowGridSnap() {
     root.toggleAttribute("data-window-expanded", expandedWindow);
     root.style.setProperty("--provider-grid-gap", `${FALLBACK_GRID_GAP}px`);
 
-    // Provider columns and gaps are owned by the responsive CSS grid.
-    if (geometry?.view !== "agents") return;
+    // Provider columns and gaps are owned by the responsive CSS grid. The
+    // Agent list is a single full-width column, so there is no cover width to
+    // distribute either.
+    if (geometry?.view !== "agents" || geometry.listLayout) return;
     const dashboard = document.querySelector<HTMLElement>(".agent-dashboard");
     const viewport = dashboard?.querySelector<HTMLElement>(".agent-dashboard-content");
     const grid = viewport?.querySelector<HTMLElement>(".agent-overview-grid");

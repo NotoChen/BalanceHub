@@ -1,11 +1,10 @@
 import { computed, type Ref } from "vue";
 import { Message } from "@arco-design/web-vue";
 import type { AppSettings, Provider } from "../stores/providers";
-import { providerNeedsCheckIn } from "../utils/provider-actions";
 import { providerLivenessEnabled } from "../utils/provider-liveness";
 import { useProviderCardTone } from "./useProviderCardTone";
 import { useCardDragSort } from "./useCardDragSort";
-import { providerBoardSection } from "../utils/provider-board-sections";
+import { providerBoardSection, providerBoardSections } from "../utils/provider-board-sections";
 import { useOAuthAccountStore } from "../stores/oauth-accounts";
 
 interface UseProviderWorkspaceControllerOptions {
@@ -21,7 +20,8 @@ interface UseProviderWorkspaceControllerOptions {
   reorderProviders: (ids: string[]) => Promise<unknown>;
   removeProvider: (id: string) => Promise<unknown>;
   toggleProvider: (id: string, enabled: boolean) => Promise<unknown>;
-  checkInProvider: (provider: Provider) => Promise<unknown>;
+  /// 卡片点击打开详情面；编辑是详情里的独立动作，签到也只由按钮触发。
+  openDetail: (provider: Provider) => void;
 }
 
 export function useProviderWorkspaceController(options: UseProviderWorkspaceControllerOptions) {
@@ -35,13 +35,20 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
     getId: (provider) => provider.identity.id,
     gridSelector: ".overview-provider-grid",
     dataId: "providerId",
-    dragGroup: (provider) => providerBoardSection(provider, showProviderLivenessTimeline(provider)),
+    dragGroup: providerBoardSection,
     reorder: options.reorderProviders,
     onError: (error) => Message.error(error instanceof Error ? error.message : String(error)),
   });
 
-  const livenessProviders = computed(() => dragSort.orderedGroups.value.get("liveness") ?? []);
-  const regularProviders = computed(() => [...dragSort.orderedGroups.value.entries()].filter(([key]) => key !== "liveness").flatMap(([, providers]) => providers));
+  /// Render order follows the live drag order while keeping the fixed object
+  /// type sections; the same definition drives grouping, rendering and drag.
+  const providerSections = computed(() => providerBoardSections
+    .map((section) => ({
+      key: section.key,
+      label: section.label,
+      providers: dragSort.orderedGroups.value.get(section.key) ?? [],
+    }))
+    .filter((section) => section.providers.length > 0));
 
   const cardTone = useProviderCardTone({
     providers: options.providers,
@@ -76,9 +83,9 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
       return;
     }
 
-    if (providerNeedsCheckIn(provider)) {
-      await options.checkInProvider(provider);
-    }
+    // Card click opens the detail view; check-in stays an explicit action so
+    // a navigation click never silently spends a check-in attempt.
+    options.openDetail(provider);
   }
 
   return {
@@ -89,8 +96,7 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
     providerDragStyle: dragSort.dragStyle,
     resetProviderPointerDrag: dragSort.reset,
     ...cardTone,
-    livenessProviders,
-    regularProviders,
+    providerSections,
     showProviderLivenessTimeline,
     handleProviderCardClick,
     removeProvider,

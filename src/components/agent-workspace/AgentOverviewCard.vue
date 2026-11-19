@@ -21,6 +21,14 @@ import type { AgentSessionCount } from "../../stores/agent-session-types";
 import type { AgentConfigurationSnapshot } from "../../stores/agent-configuration-types";
 import "../../styles/modules/agent-card.css";
 
+interface AgentBindingSummary {
+  providerLabel: string;
+  keyLabel: string;
+  model: string;
+  health: string;
+  baseUrl: string;
+}
+
 const props = withDefaults(defineProps<{
   agent: AgentCliDescriptor;
   installations: AgentInstallation[];
@@ -45,7 +53,11 @@ const props = withDefaults(defineProps<{
   configurationError?: string;
   configurationStale?: boolean;
   modelSummary?: AgentSettingValueSummary | null;
-}>(), { configurationSnapshot: null, configurationLoading: false, configurationError: "", configurationStale: true, modelSummary: null, lastActivityAt: null });
+  /// 当前 CLI 实际写入的中转站、Key 与模型；未配置时为空。
+  binding?: AgentBindingSummary | null;
+  /// 列表布局：保持同一套卡片 DOM，由样式把正文折成一行。
+  list?: boolean;
+}>(), { configurationSnapshot: null, configurationLoading: false, configurationError: "", configurationStale: true, modelSummary: null, binding: null, lastActivityAt: null, list: false });
 const emit = defineEmits<{
   assets: [category: "skill" | "mcp" | "extension"];
   hooks: [];
@@ -100,6 +112,17 @@ const modelTitle = computed(() => {
     visualConfigurationSource.value
       ? "点击查看或切换默认模型"
       : "此安装的配置不能在可视化编辑器中修改",
+  ].filter(Boolean).join("\n");
+});
+const bindingTitle = computed(() => {
+  const binding = props.binding;
+  if (!binding) return "";
+  return [
+    `中转站：${binding.providerLabel}`,
+    binding.keyLabel ? `API Key：${binding.keyLabel}` : "",
+    binding.model ? `模型：${binding.model}` : "模型：未绑定，沿用 Agent 默认",
+    binding.health ? `测活：${binding.health}` : "",
+    `地址：${binding.baseUrl}`,
   ].filter(Boolean).join("\n");
 });
 const installed = computed(() => props.installations.filter((installation) => installation.availability === "available"));
@@ -250,7 +273,7 @@ function openStatistic(key: Statistic["key"]) {
 </script>
 
 <template>
-  <WorkspaceCard class="agent-overview-card" :fixed-height="false" :data-agent-kind="agent.kind" :aria-label="agent.label" :style="{ '--workspace-card-state': cardAccent }">
+  <WorkspaceCard class="agent-overview-card" :class="{ 'workspace-card-list': list }" :fixed-height="false" :data-agent-kind="agent.kind" :aria-label="agent.label" :style="{ '--workspace-card-state': cardAccent }">
     <template #header>
       <WorkspaceCardHeader :title="agent.label" heading-tag="h2">
         <template #title><a class="agent-overview-name" :href="agentDocumentationUrls[agent.kind]" title="打开官方文档" :aria-label="`打开 ${agent.label} 官方文档`" @click.prevent="emit('documentation')">{{ agent.label }}</a></template>
@@ -261,6 +284,7 @@ function openStatistic(key: Statistic["key"]) {
           <button v-if="versionSummary" type="button" class="agent-overview-version" title="版本与路径：查看本机安装、检查更新" :aria-label="`${agent.label} 版本与路径，${versionSummary}`" @click="emit('installation')"><span>{{ versionSummary }}</span><IconDown :size="10" aria-hidden="true" /></button>
           <button v-if="modelSummary && visualConfigurationSource" type="button" class="agent-overview-model" :class="{ 'is-error': modelSummary.state === 'readError' }" :title="modelTitle" :aria-label="`${agent.label} 默认模型：${modelSummary.label}。查看或切换`" @click="openVisualConfiguration"><span>{{ modelLabel }}</span></button>
           <span v-else-if="modelSummary" class="agent-overview-model" :class="{ 'is-error': modelSummary.state === 'readError' }" :title="modelTitle">{{ modelLabel }}</span>
+          <span v-if="binding" class="agent-overview-binding" :title="bindingTitle">{{ binding.providerLabel }}<template v-if="binding.keyLabel"> · {{ binding.keyLabel }}</template></span>
           <button v-if="installationStatus?.action" type="button" class="agent-overview-status" :class="{ 'is-warning': installationStatus.warning }" :aria-label="`${agent.label} 安装状态，${installationStatus.label}`" :title="showInstallationGuide ? '打开官方安装说明' : '查看版本与路径'" @click="showInstallationGuide ? emit('installationGuide') : emit('installation')">{{ installationStatus.label }}</button>
           <span v-else-if="installationStatus" class="agent-overview-status" role="status">{{ installationStatus.label }}</span>
           <span v-if="configurationOnly" class="agent-overview-status" :title="configurationTitle">配置接入</span>
@@ -282,7 +306,7 @@ function openStatistic(key: Statistic["key"]) {
         <strong :class="{ 'is-unknown': typeof statistic.value !== 'number', 'is-text': typeof statistic.value === 'string' && statistic.value !== '—' }">{{ statistic.value }}</strong>
       </button>
     </nav>
-    <AgentCardConfigurationSummary :label="agent.label" :snapshot="configurationSnapshot" :loading="configurationLoading" :error="configurationError" :stale="configurationStale"
+    <AgentCardConfigurationSummary :label="agent.label" :list="list" :snapshot="configurationSnapshot" :loading="configurationLoading" :error="configurationError" :stale="configurationStale"
       @open-file="emit('openFile', $event)" @refresh="emit('refresh')" />
     <AgentCardActions :label="agent.label" :can-configure="Boolean(visualConfigurationSource)" :can-launch="canLaunch" :show-installation-guide="showInstallationGuide" :refreshing="refreshing || configurationLoading"
       @configure="openVisualConfiguration" @installation-guide="emit('installationGuide')" @launch="emit('launch')"

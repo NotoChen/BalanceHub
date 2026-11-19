@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 
 /** Geometry for fitting Provider model chips within the visible rows. */
 export function chipsFitRows(widths: readonly number[], availableWidth: number, rows: number, gap = 5) {
@@ -14,10 +14,18 @@ export function chipsFitRows(widths: readonly number[], availableWidth: number, 
 }
 
 export function useBoundedChipPreview(options: {
-  count: Ref<number>; total: Ref<number>; rows: number; revision: Ref<unknown>;
+  count: Ref<number>; total: Ref<number>; rows: Ref<number> | number; revision: Ref<unknown>;
   listRef: Ref<HTMLElement | null>; measureRef: Ref<HTMLElement | null>; moreRef: Ref<HTMLElement | null>;
+  /// 可见区是否还留着「+N」芯片。列表布局把总数写在标题里，不再为它预留宽度。
+  reserveMore?: Ref<boolean> | boolean;
 }) {
   const { listRef, measureRef, moreRef } = options;
+  const rowLimit = computed(() => typeof options.rows === "number" ? options.rows : options.rows.value);
+  const reserveMore = computed(() =>
+    typeof options.reserveMore === "boolean" || options.reserveMore === undefined
+      ? options.reserveMore ?? true
+      : options.reserveMore.value,
+  );
   const visibleCount = ref(options.count.value);
   let observer: ResizeObserver | null = null;
   let frame: number | null = null;
@@ -31,8 +39,8 @@ export function useBoundedChipPreview(options: {
     for (let count = widths.length; count >= 0; count -= 1) {
       const candidate = widths.slice(0, count);
       const hidden = Math.max(0, options.total.value - count);
-      if (hidden) { more.textContent = `+${hidden}`; candidate.push(more.offsetWidth); }
-      if (chipsFitRows(candidate, list.clientWidth, options.rows)) { visibleCount.value = count; return; }
+      if (hidden && reserveMore.value) { more.textContent = `+${hidden}`; candidate.push(more.offsetWidth); }
+      if (chipsFitRows(candidate, list.clientWidth, rowLimit.value)) { visibleCount.value = count; return; }
     }
     visibleCount.value = 0;
   }
@@ -50,7 +58,7 @@ export function useBoundedChipPreview(options: {
     if (typeof ResizeObserver !== "undefined" && listRef.value) { observer = new ResizeObserver(schedule); observer.observe(listRef.value); }
     schedule();
   }
-  watch([options.revision, options.count, options.total], () => { void reset(); });
+  watch([options.revision, options.count, options.total, rowLimit, reserveMore], () => { void reset(); });
   onMounted(() => {
     void reset();
     if (typeof window !== "undefined") window.addEventListener?.("focus", schedule);

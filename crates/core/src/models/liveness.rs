@@ -12,8 +12,16 @@ pub struct LivenessRecord {
     pub cli_kind: String,
     pub ok: bool,
     pub latency_ms: u128,
+    /// 实际发给上游的模型名（已应用 wireName 映射）。
     pub model: String,
+    /// 用户配置的模型 ID；旧记录没有该字段，前端会退回 `model`。
+    #[serde(default)]
+    pub model_id: String,
+    /// CLI 实际请求的地址（已按 Agent 端点规则归一化）。
     pub base_url: String,
+    /// 归一化之前的站点地址；旧记录没有该字段，前端会退回 `base_url`。
+    #[serde(default)]
+    pub provider_base_url: String,
     pub prompt: String,
     pub response_preview: String,
     #[serde(default)]

@@ -151,8 +151,9 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
       id: string,
       cliKind: AgentCliKind,
       apiKeyLocalId: string,
+      model?: string,
     ): Promise<AgentConfigurationEdit> {
-      return previewCliConfigCommand(id, cliKind, apiKeyLocalId);
+      return previewCliConfigCommand(id, cliKind, apiKeyLocalId, model);
     },
     async refresh(): Promise<CliRuntimeSnapshot> {
       this.cliRuntimeLoading = true;

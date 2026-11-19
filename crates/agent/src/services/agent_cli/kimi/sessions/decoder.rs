@@ -183,7 +183,8 @@ fn decode_message(value: &Value, sequence: u64, state: &mut Value) -> Vec<Sessio
                 cache_read_tokens: usage_value.get("inputCacheRead").and_then(Value::as_u64),
                 cache_write_tokens: usage_value.get("inputCacheCreation").and_then(Value::as_u64),
                 reasoning_tokens: None,
-            },
+            }
+            .with_cache_in_input(),
             false,
             false,
             Some(&format!("kimi-{id}")),

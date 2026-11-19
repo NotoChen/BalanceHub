@@ -13,14 +13,18 @@ const props = withDefaults(
     state: ProviderModelListState;
     syncTime?: string;
     interactive?: boolean;
+    /// 模型区固定三行。列表布局保留三行，让纵向空间真正用于模型；标题里的
+    /// 总数已经说明还有多少，列表里不再插入占位的「+N」芯片。
+    rows?: number;
+    showOverflow?: boolean;
   }>(),
-  { syncTime: "", interactive: true },
+  { syncTime: "", interactive: true, rows: 3, showOverflow: true },
 );
 const emit = defineEmits<{ open: [] }>();
 
-/// 模型区固定三行，和页脚一样是卡片的固定层，不随卡型改行数。
-const MODEL_ROWS = 3;
-/// 测量上限只是防止把上千个模型全部塞进隐藏测量层；三行远到不了。
+/// 模型区是卡片的固定层，不随卡型改行数。
+const rows = computed(() => Math.max(1, Math.round(props.rows)));
+/// 测量上限只是防止把上千个模型全部塞进隐藏测量层；几行远到不了。
 const MODEL_MEASURE_LIMIT = 72;
 
 const selection = computed(() =>
@@ -32,13 +36,15 @@ const models = computed(() => selection.value.names);
 const listRef = ref<HTMLElement | null>(null);
 const measureRef = ref<HTMLElement | null>(null);
 const moreRef = ref<HTMLElement | null>(null);
+const reserveMore = computed(() => props.showOverflow);
 const { visibleCount } = useBoundedChipPreview({
   listRef,
   measureRef,
   moreRef,
   count: computed(() => models.value.length),
   total,
-  rows: MODEL_ROWS,
+  rows,
+  reserveMore,
   revision: selection,
 });
 const visibleModels = computed(() => models.value.slice(0, visibleCount.value));
@@ -72,7 +78,11 @@ const entryTitle = computed(() =>
 </script>
 
 <template>
-  <section class="provider-card-models" aria-label="可用模型">
+  <section
+    class="provider-card-models"
+    aria-label="可用模型"
+    :style="{ '--provider-card-model-rows': rows }"
+  >
     <button
       type="button"
       class="provider-card-model-entry"
@@ -104,7 +114,7 @@ const entryTitle = computed(() =>
           {{ name }}
         </span>
         <span
-          v-if="hidden > 0"
+          v-if="hidden > 0 && showOverflow"
           class="workspace-card-chip workspace-card-chip-more"
           :title="`另有 ${hidden} 个模型`"
         >

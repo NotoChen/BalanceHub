@@ -2,11 +2,13 @@
 @import "./modules/topbar.css";
 @import "./modules/card-actions.css";
 @import "./modules/workspace-card.css";
+@import "./modules/workspace-list.css";
 @import "./modules/managed-card.css";
 @import "./modules/provider-layout.css";
 @import "./modules/provider-filters.css";
 @import "./modules/provider-card/base.css";
 @import "./modules/provider-card/actions.css";
+@import "./modules/provider-card/list.css";
 @import "./modules/provider-liveness.css";
 @import "./modules/agent-runtime.css";
 @import "./modules/site-announcements.css";
@@ -30,6 +32,7 @@
 @import "./modules/available-models.css";
 @import "./modules/provider-duplicate-modal.css";
 @import "./modules/capability-probe.css";
+@import "./modules/provider-detail.css";
 @import "./modules/liveness-details.css";
 @import "./modules/checkin-calendar.css";
 @import "./modules/usage.css";
@@ -37,11 +40,11 @@
 @import "./modules/onboarding.css";
 @import "./modules/app-update.css";
 @import "./modules/batch-operation.css";
+@import "./modules/app-exit-confirm.css";
 @import "./modules/responsive.css";
 @import "./modules/surfaces/foundation.css";
 @import "./modules/surfaces/nav-rail.css";
 @import "./modules/surfaces/settings-shell.css";
-@import "./modules/surfaces/overview.css";
 @import "./modules/surfaces/settings-content.css";
 @import "./modules/surfaces/provider-editor.css";
 @import "./modules/surfaces/dialogs.css";

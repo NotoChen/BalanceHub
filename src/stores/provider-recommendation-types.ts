@@ -13,9 +13,21 @@ export interface ProviderRecommendation {
   perRequestPrice: number | null;
   livenessSuccessRate: number | null;
   livenessSamples: number;
+  /** 站点近 24 小时观测到的该模型成功率（0..1）。 */
+  siteSuccessRate: number | null;
+  siteAvgTps: number | null;
+  siteAvgLatencyMs: number | null;
   quotaRemainingPercent: number | null;
   quotaLabel: string;
   resetsAt: number | null;
+  quotaUpdatedAt: string | null;
+  pricingUpdatedAt: string | null;
+  livenessUpdatedAt: string | null;
+  livenessStale: boolean;
+  quotaStale: boolean;
+  pricingStale: boolean;
+  cooldownUntil: number | null;
+  cooldownReason: string | null;
   reasons: string[];
   blockers: string[];
 }

@@ -93,9 +93,14 @@ function report(overrides: Partial<ProviderRecommendationReport> = {}): Provider
         perRequestPrice: null,
         livenessSuccessRate: 0.9,
         livenessSamples: 10,
+        siteSuccessRate: null,
+        siteAvgTps: null,
+        siteAvgLatencyMs: null,
         quotaRemainingPercent: 80,
         quotaLabel: "余额 $8.00",
         resetsAt: null,
+        livenessUpdatedAt: null,
+        livenessStale: false,
         reasons: ["测活成功率 90%（近 10 次）"],
         blockers: [],
       },
@@ -213,6 +218,111 @@ test("switching is ignored without an available CLI", async (t) => {
   assert.equal(state.selectedCli.value, "");
   state.switchTo("alpha");
   assert.deepEqual(emitted, []);
+});
+
+test("agent context sets the default target and model before ranking", async (t) => {
+  const models: (string | undefined)[] = [];
+  const { state } = modal(t, {
+    "../api/provider-recommendation": {
+      getProviderRecommendations: async (model?: string) => {
+        models.push(model);
+        return report({ model: model ?? "" });
+      },
+    },
+  }, {
+    visible: true,
+    providers: [provider("alpha"), provider("beta")],
+    agent: {
+      kind: "codex",
+      label: "Codex",
+      providerId: "beta",
+      providerLabel: "Beta",
+      model: "gpt-5",
+    },
+  });
+  await settle();
+  assert.equal(state.selectedCli.value, "codex");
+  assert.equal(state.model.value, "gpt-5");
+  assert.deepEqual(models, ["gpt-5"]);
+});
+
+test("CLI 探测晚到时仍按 Agent 上下文选择目标", async (t) => {
+  const probe = reactive({
+    cliEnvironmentProbe: { tools: [] as Array<{ kind: string; label: string; available: boolean }> },
+  });
+  const { state } = modal(t, {
+    "../stores/cli-runtime": {
+      useCliRuntimeStore: () => ({
+        get cliEnvironmentProbe() {
+          return probe.cliEnvironmentProbe;
+        },
+      }),
+    },
+  }, {
+    visible: true,
+    providers: [provider("alpha")],
+    agent: {
+      kind: "codex",
+      label: "Codex",
+      providerId: "alpha",
+      providerLabel: "Alpha",
+      model: "gpt-5",
+    },
+  });
+  await settle();
+  assert.equal(state.selectedCli.value, "");
+
+  probe.cliEnvironmentProbe = {
+    tools: [
+      { kind: "claudeCode", label: "Claude Code", available: true },
+      { kind: "codex", label: "Codex", available: true },
+    ],
+  };
+  await settle();
+  assert.equal(state.selectedCli.value, "codex");
+});
+
+test("CLI 探测刷新不会把用户手动选择的切换目标改回去", async (t) => {
+  const probe = reactive({
+    cliEnvironmentProbe: {
+      tools: [
+        { kind: "codex", label: "Codex", available: true },
+        { kind: "claudeCode", label: "Claude Code", available: true },
+      ],
+    },
+  });
+  const { state } = modal(t, {
+    "../stores/cli-runtime": {
+      useCliRuntimeStore: () => ({
+        get cliEnvironmentProbe() {
+          return probe.cliEnvironmentProbe;
+        },
+      }),
+    },
+  }, {
+    visible: true,
+    providers: [provider("alpha"), provider("beta")],
+    agent: {
+      kind: "codex",
+      label: "Codex",
+      providerId: "alpha",
+      providerLabel: "Alpha",
+      model: "gpt-5",
+    },
+  });
+  await settle();
+  assert.equal(state.selectedCli.value, "codex");
+
+  state.selectedCli.value = "claudeCode";
+  // 仪表盘每 30 秒会替换一次探测结果；替换后用户的选择必须保留。
+  probe.cliEnvironmentProbe = {
+    tools: [
+      { kind: "codex", label: "Codex", available: true },
+      { kind: "claudeCode", label: "Claude Code", available: true },
+    ],
+  };
+  await settle();
+  assert.equal(state.selectedCli.value, "claudeCode");
 });
 
 test("changing the model re-runs the recommendation after the debounce", async (t) => {

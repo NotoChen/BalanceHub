@@ -34,8 +34,9 @@ pub async fn probe_optional(
     client: &ProviderTransport,
     provider: &Provider,
     pricing: ProviderOptionalCapabilityState,
+    performance: ProviderOptionalCapabilityState,
 ) -> Vec<ProviderOptionalCapabilityState> {
-    let mut states = vec![pricing];
+    let mut states = vec![pricing, performance];
     if matches!(provider.auth.mode, AuthMode::ApiKey) {
         states.extend([
             ProviderOptionalCapabilityState::unsupported(

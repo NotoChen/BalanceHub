@@ -21,6 +21,7 @@ impl ProviderService {
                     message: format!("读取本地配置失败：{error}"),
                     site: None,
                     ambiguous: false,
+                    candidates: Vec::new(),
                 }
             }
         };
@@ -73,7 +74,17 @@ impl ProviderService {
         let effective_provider = persisted_provider
             .ok_or_else(|| "本地配置已变更，本次能力探测结果已忽略".to_string())?;
         let mut operation_context = ProviderRequestContext::capture(&effective_provider);
-        let (mut capabilities, invite_link, error) = operation.value;
+        let (probed, invite_link, error) = operation.value;
+        let probed_at = current_timestamp_millis().to_string();
+        // A failed probe returns a default capability set. Merge field by field
+        // so an expired session does not erase the last successful pricing,
+        // performance or capability observation.
+        let mut capabilities = effective_provider.capabilities.merge_probe(
+            probed,
+            &invite_link,
+            error.as_deref(),
+            &probed_at,
+        );
         // Only a successful model response (including []) replaces the snapshot.
         capabilities.available_models = effective_provider.capabilities.available_models.clone();
         capabilities.available_models_state = effective_provider
@@ -88,12 +99,11 @@ impl ProviderService {
                     .await,
             )
         } else {
-            capabilities.set_optional_state(ProviderOptionalCapabilityState::unsupported(
-                ProviderOptionalCapability::Models,
-                models_action
-                    .unavailable_reason
-                    .unwrap_or("当前认证方式无法读取模型列表"),
-            ));
+            // 本地还缺地址或凭据时根本没发起请求，不能据此判定站点不支持
+            // 模型接口；只记录“本次未能检查”，保留之前的明确结论。
+            if let Some(state) = models_action.unavailable_capability_state() {
+                capabilities.record_optional_check(state, &probed_at, "probe");
+            }
             None
         };
         let mut model_count = None;
@@ -108,22 +118,29 @@ impl ProviderService {
                     let count = operation.value.models.len();
                     model_count = Some(count);
                     capabilities.set_available_models(operation.value);
-                    capabilities.set_optional_state(ProviderOptionalCapabilityState::supported(
-                        ProviderOptionalCapability::Models,
-                        format!("已读取 {count} 个模型"),
-                    ));
+                    capabilities.record_optional_check(
+                        ProviderOptionalCapabilityState::supported(
+                            ProviderOptionalCapability::Models,
+                            format!("已读取 {count} 个模型"),
+                        ),
+                        &probed_at,
+                        "probe",
+                    );
                 }
                 Err(err) => {
-                    capabilities.set_optional_state(ProviderOptionalCapabilityState::unknown(
-                        ProviderOptionalCapability::Models,
-                        err.clone(),
-                    ));
+                    capabilities.record_optional_check(
+                        ProviderOptionalCapabilityState::unknown(
+                            ProviderOptionalCapability::Models,
+                            err.clone(),
+                        ),
+                        &probed_at,
+                        "probe",
+                    );
                     capabilities.available_models_state.error = Some(err);
                 }
             }
         }
         capabilities.error_message = error;
-        let probed_at = current_timestamp_millis().to_string();
         let message = model_count
             .map(|count| format!("站点能力已探测，已获取 {count} 个模型"))
             .unwrap_or_else(|| "站点能力已探测".to_string());
@@ -137,7 +154,6 @@ impl ProviderService {
             {
                 Some(stored_provider) if mutation_context.matches(stored_provider) => {
                     stored_provider.capabilities = capabilities;
-                    stored_provider.capabilities.invite_link = invite_link;
                     stored_provider.capabilities.probed_at = Some(probed_at);
                     Ok(MutationDecision::changed(()))
                 }
@@ -157,6 +173,10 @@ impl ProviderService {
         &self,
         id: String,
     ) -> Result<ProviderModelSyncResult, String> {
+        // 与能力探测共用网络认证闸门：探测会写回整份能力快照，模型同步若
+        // 并发写入模型列表，探测落盘时会把更新的列表覆盖回旧值。
+        let state = crate::host::core_state();
+        let _network_gate = state.refresh_gate.lock().await;
         let data = self.snapshot_async().await?;
         let provider = find_provider(&data, &id)?;
         // Key discovery must not wait for, or depend on, account login.
@@ -193,32 +213,30 @@ impl ProviderService {
                     .find(|stored| stored.identity.id == provider_id)
                 {
                     if mutation_context.matches(stored_provider) {
+                        let checked_at = current_timestamp_millis().to_string();
                         match stored_result {
                             Ok(models) => {
                                 let count = models.models.len();
                                 stored_provider.capabilities.set_available_models(models);
-                                stored_provider.capabilities.set_optional_state(
+                                stored_provider.capabilities.record_optional_check(
                                     ProviderOptionalCapabilityState::supported(
                                         ProviderOptionalCapability::Models,
                                         format!("已读取 {count} 个模型"),
                                     ),
+                                    &checked_at,
+                                    "manual",
                                 );
                             }
                             Err(error) => {
-                                if stored_provider
-                                    .capabilities
-                                    .available_models_state
-                                    .error
-                                    .as_ref()
-                                    == Some(&error)
-                                {
-                                    return Ok(MutationDecision::unchanged(true));
-                                }
-                                stored_provider.capabilities.set_optional_state(
+                                // 同步失败只更新检查时间和错误，不推翻上次的
+                                // 明确结论；模型快照本身同样保留。
+                                stored_provider.capabilities.record_optional_check(
                                     ProviderOptionalCapabilityState::unknown(
                                         ProviderOptionalCapability::Models,
                                         error.clone(),
                                     ),
+                                    &checked_at,
+                                    "manual",
                                 );
                                 stored_provider.capabilities.available_models_state.error =
                                     Some(error);

@@ -113,6 +113,35 @@
   flex-direction: column;
   background: var(--surface-panel);
 }
+.cli-launcher-provider-facts {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  border-bottom: 1px solid var(--surface-line);
+  margin: 0;
+  padding: 10px 24px;
+}
+.cli-launcher-provider-facts > div {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
+}
+.cli-launcher-provider-facts dt {
+  color: var(--surface-muted);
+  font-size: 11px;
+}
+.cli-launcher-provider-facts dd {
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: var(--surface-ink-soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cli-launcher-runtime {
   display: grid;
   flex: 0 0 auto;

@@ -97,8 +97,9 @@ async function settle() {
   for (let index = 0; index < 40; index += 1) await Promise.resolve();
 }
 
-async function mountSnap(t: TestContext, options: { view?: View; size?: Size; agentHeight?: number; maximized?: boolean } = {}) {
+async function mountSnap(t: TestContext, options: { view?: View; size?: Size; agentHeight?: number; maximized?: boolean; list?: boolean } = {}) {
   const initial = options.size ?? { width: 1100, height: 720 };
+  const listLayout = options.list ?? false;
   const topbar = new LayoutElement("topbar", initial.width, 64, 0);
   const provider = new LayoutElement("provider-board", initial.width, initial.height - 64);
   provider.styles.set("--provider-grid-card-min", "300px");
@@ -114,6 +115,11 @@ async function mountSnap(t: TestContext, options: { view?: View; size?: Size; ag
   const agentGrid = new LayoutElement("agent-overview-grid", initial.width - 40, 456, 164).append(...agentCards);
   const agentViewport = new LayoutElement("agent-dashboard-content").append(agentGrid);
   dashboard.append(agentViewport);
+  if (listLayout) {
+    provider.classes.add("is-list");
+    providerGrid.classes.add("is-list");
+    agentGrid.classes.add("is-list");
+  }
   const body = new LayoutElement("body").append(topbar, provider, dashboard);
   const root = new LayoutElement("root");
   const frames = new Map<number, () => void>();
@@ -157,6 +163,7 @@ async function mountSnap(t: TestContext, options: { view?: View; size?: Size; ag
   function layout(size: Size) {
     for (const board of [provider, dashboard]) { board.width = size.width; board.height = size.height - 64; }
     for (const grid of [providerGrid, agentGrid]) grid.width = size.width - 40;
+    if (listLayout) agentCards.forEach((card) => { card.width = agentGrid.width; });
     const columns = Math.max(1, Math.floor((agentGrid.width + 16) / 352));
     const rows = Math.ceil(agentCards.length / columns);
     agentGrid.height = rows * Math.max(...agentCards.map((card) => card.height)) + (rows - 1) * 16;
@@ -292,6 +299,17 @@ test("Agent resize measures its visible card height and ignores the retained Pro
   await settle();
   assert.deepEqual(window.sizes, [{ width: 728, height: 644 }]);
   assert.deepEqual(window.appliedConstraints, { width: 376, height: 480 });
+});
+
+test("Agent list layout keeps the chosen width and the base minimum", async (t) => {
+  const window = await mountSnap(t, { view: "agents", list: true });
+  // 列表行等于内容宽度，不能把当前窗口宽度当成最小宽度。
+  assert.deepEqual(window.appliedConstraints, { width: 376, height: 480 });
+  await window.resize(760, 640);
+  window.release();
+  await settle();
+  // 单列列表没有卡列可吸附，宽度保持用户拖到的位置。
+  assert.deepEqual(window.sizes, [{ width: 760, height: 644 }]);
 });
 
 test("Agent geometry follows taller measured cards without a Provider height floor", async (t) => {

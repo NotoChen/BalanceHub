@@ -134,10 +134,31 @@
   color: var(--surface-muted);
 }
 
-.credential-completion-tags {
+/* 缺口字段各自成颗按钮：点哪颗就聚焦到哪个输入框，不再让用户自己找。 */
+.credential-completion-missing {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  color: var(--surface-muted);
+  font-size: 12px;
+}
+
+.credential-completion-missing button {
+  border: 1px solid var(--surface-line);
+  border-radius: 999px;
+  padding: 1px 9px;
+  background: var(--surface-panel-soft);
+  color: var(--surface-danger);
+  font: inherit;
+  cursor: pointer;
+}
+
+.credential-completion-missing button:hover,
+.credential-completion-missing button:focus-visible {
+  border-color: var(--surface-accent);
+  color: var(--surface-accent);
+  outline: none;
 }
 
 .credential-completion-steps {
@@ -147,7 +168,6 @@
   padding: 0;
   list-style: none;
 }
-
 .credential-completion-steps li {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);

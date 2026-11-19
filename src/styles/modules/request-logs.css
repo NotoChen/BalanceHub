@@ -72,6 +72,40 @@
   color: var(--surface-teal);
 }
 
+.request-logs-stat-error strong {
+  color: var(--surface-danger);
+}
+
+.request-logs-aggregates {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.request-logs-aggregates span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.request-logs-aggregates small {
+  color: var(--surface-muted);
+  font-size: 11px;
+}
+
+.request-logs-aggregates strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--surface-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .request-logs-table-wrap {
   max-height: 56vh;
   overflow: auto;
@@ -243,10 +277,6 @@
   color: var(--surface-ink-soft);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.request-log-empty {
-  color: #c9cdd4;
 }
 
 .request-log-status {
@@ -510,11 +540,7 @@
   color: #f2f3f5;
 }
 
-:root.theme-dark .api-key-create-label {
-  color: #f2f3f5;
-}
-
-:root.theme-dark .usage-summary-cards strong,
+:root.theme-dark :root.theme-dark .usage-summary-cards strong,
 :root.theme-dark .request-logs-stats strong {
   color: #f2f3f5;
 }

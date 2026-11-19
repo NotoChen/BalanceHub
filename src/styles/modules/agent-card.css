@@ -61,6 +61,19 @@ button.agent-overview-model { cursor: pointer; }
 button.agent-overview-version:hover,
 button.agent-overview-model:hover { color: var(--surface-accent); }
 .agent-overview-model.is-error { color: rgb(var(--danger-6)); }
+.agent-overview-binding {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface-accent-soft);
+  padding: 0 5px;
+  color: var(--surface-accent);
+  font-size: 11px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .agent-overview-status { justify-self: start; flex: 0 0 auto; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--color-text-3); font: inherit; font-size: 11px; line-height: 18px; white-space: nowrap; }
 button.agent-overview-status { cursor: pointer; }
 button.agent-overview-status:hover { color: var(--surface-accent); }

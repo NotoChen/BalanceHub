@@ -1,7 +1,28 @@
 use balancehub_core::state::CoreState;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use crate::models::AppData;
+
+/// 前端一旦观察到刷新、签到、测活或 Agent 任务，就把标记同步到这里。
+/// 关闭窗口或点菜单退出时先看这一位，避免在用户不知情的情况下中断工作。
+#[derive(Default)]
+pub struct ExitGuardState(AtomicBool);
+
+impl ExitGuardState {
+    pub fn set_running(&self, running: bool) {
+        self.0.store(running, Ordering::Release);
+    }
+
+    pub fn running(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
 
 /// 桌面进程的应用状态。
 ///

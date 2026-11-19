@@ -165,13 +165,6 @@
 }
 
 @media (max-width: 900px) {
-  .settings-theme-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-appearance-preview {
-    min-height: 160px;
-  }
 }
 
 @media (max-width: 760px) {

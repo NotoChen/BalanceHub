@@ -19,11 +19,14 @@ const props = withDefaults(
     interactive?: boolean;
     activeCliCounts?: Partial<Record<AgentCliKind, number>>;
     warningLabel?: string;
+    /// 全局刷新已排队到这张卡：状态标改说「排队中」，不让用户以为刷新没反应。
+    refreshQueued?: boolean;
   }>(),
   {
     interactive: true,
     activeCliCounts: () => ({}),
     warningLabel: "需关注",
+    refreshQueued: false,
   },
 );
 
@@ -42,7 +45,9 @@ const activeCliSignals = computed(() =>
     })),
 );
 const statusLabel = computed(() =>
-  providerCardStatusLabel(props.tone, props.warningLabel),
+  props.refreshQueued
+    ? "排队中"
+    : providerCardStatusLabel(props.tone, props.warningLabel),
 );
 /// 悬停说明只补卡片没写出来的异常消息，重复状态词属于噪音。
 const statusTitle = computed(() => providerCardStatusTitle(props.provider));

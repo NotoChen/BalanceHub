@@ -2,6 +2,8 @@
 import { computed, ref } from "vue";
 import { GripVertical, Sparkles, X } from "@lucide/vue";
 import RadioChoiceGroup from "./RadioChoiceGroup.vue";
+import WorkspaceLayoutSwitch from "./WorkspaceLayoutSwitch.vue";
+import type { WorkspaceLayout } from "../stores/workspace-layout";
 import {
   providerFilters,
   type ProviderFilterCounts,
@@ -14,12 +16,14 @@ const props = defineProps<{
   visibleCount: number;
   totalCount: number;
   hasSearch: boolean;
+  layout: WorkspaceLayout;
 }>();
 
 const emit = defineEmits<{
   select: [filter: ProviderFilter];
   reset: [];
   recommend: [];
+  "update:layout": [layout: WorkspaceLayout];
 }>();
 
 const filtersRef = ref<HTMLElement | null>(null);
@@ -72,6 +76,10 @@ function reset() {
       <GripVertical :size="13" aria-hidden="true" />
       拖拽排序
     </span>
+    <WorkspaceLayoutSwitch
+      :model-value="layout"
+      @update:model-value="emit('update:layout', $event)"
+    />
     <button
       type="button"
       class="provider-board-recommend"

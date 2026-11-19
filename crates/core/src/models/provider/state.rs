@@ -104,6 +104,36 @@ pub struct ProviderIdentityInput {
 pub struct ProviderCli {
     #[serde(default)]
     pub preferred_model: String,
+    /// Per-Agent model overrides keyed by [`AgentCliKind::key`]. One provider
+    /// can serve several Agent CLIs with different model catalogues, so a
+    /// single `preferred_model` cannot describe every binding.
+    #[serde(default)]
+    pub agent_models: BTreeMap<String, String>,
+}
+
+impl ProviderCli {
+    /// Model a concrete Agent CLI should write, falling back to the provider
+    /// default. This is the single read point for every adapter.
+    pub fn model_for(&self, kind: AgentCliKind) -> &str {
+        self.agent_models
+            .get(kind.key())
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .unwrap_or_else(|| self.preferred_model.trim())
+    }
+
+    /// Bind (or clear) the model this Agent CLI should use. An empty model
+    /// removes the override so the provider default applies again.
+    pub fn bind_agent_model(&mut self, kind: AgentCliKind, model: &str) {
+        let model = model.trim();
+        if model.is_empty() {
+            self.agent_models.remove(kind.key());
+        } else {
+            self.agent_models
+                .insert(kind.key().to_string(), model.to_string());
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -242,6 +272,20 @@ impl ProviderQuotaWindow {
 }
 
 impl ProviderQuota {
+    /// 切换调用 Key 后，所有按 Key 维度采集的额度读数都失效。
+    ///
+    /// 保留展示单位和 scope（协议决定），但把余额、分组和窗口清空；卡片会
+    /// 回到“未同步”，而不是继续展示旧 Key 的窗口。
+    pub fn clear_key_observations(&mut self) {
+        self.available = 0.0;
+        self.used = 0.0;
+        self.known = false;
+        self.total_known = false;
+        self.unlimited = false;
+        self.group.clear();
+        self.windows.clear();
+    }
+
     /// 把上一次刷新留下的窗口读数接到本次结果上，并追加本次读数。
     ///
     /// 套餐窗口没有稳定 id，按标签对应；站点不再返回某个窗口时，它重新出现
@@ -325,6 +369,9 @@ pub struct ProviderCapabilities {
     /// 站点价目快照；和能力探测结果分开维护，普通刷新也会更新。
     #[serde(default)]
     pub pricing: crate::models::ProviderPricingSnapshot,
+    /// 站点观测到的模型运行表现；成功后同样由普通刷新更新。
+    #[serde(default)]
+    pub performance: crate::models::ProviderPerformanceSnapshot,
 }
 
 /// 除签到、密钥管理和邀请之外，BalanceHub 会按需读取的站点接口。
@@ -333,6 +380,7 @@ pub struct ProviderCapabilities {
 pub enum ProviderOptionalCapability {
     #[default]
     Pricing,
+    Performance,
     Usage,
     RequestLogs,
     Announcements,
@@ -353,6 +401,12 @@ pub struct ProviderOptionalCapabilityState {
     pub reason: Option<String>,
     /// 探测请求本身失败的原因。
     pub error: Option<String>,
+    /// 这条结论由谁写入：能力探测、普通刷新或手动操作。旧配置没有这个字段。
+    pub source: Option<String>,
+    /// 最近一次检查该接口的时间；检查失败也会更新。
+    pub last_checked_at: Option<String>,
+    /// 最近一次得到可用结论的时间；失败时保留上一次成功的时间。
+    pub last_success_at: Option<String>,
 }
 
 impl ProviderOptionalCapabilityState {
@@ -363,6 +417,9 @@ impl ProviderOptionalCapabilityState {
             supported: true,
             reason: Some(reason.into()).filter(|reason| !reason.trim().is_empty()),
             error: None,
+            source: None,
+            last_checked_at: None,
+            last_success_at: None,
         }
     }
 
@@ -373,6 +430,9 @@ impl ProviderOptionalCapabilityState {
             supported: false,
             reason: Some(reason.into()).filter(|reason| !reason.trim().is_empty()),
             error: None,
+            source: None,
+            last_checked_at: None,
+            last_success_at: None,
         }
     }
 
@@ -383,6 +443,9 @@ impl ProviderOptionalCapabilityState {
             supported: false,
             reason: None,
             error: Some(error.into()).filter(|error| !error.trim().is_empty()),
+            source: None,
+            last_checked_at: None,
+            last_success_at: None,
         }
     }
 }
@@ -434,6 +497,21 @@ impl ProviderCapabilities {
     pub fn clear_available_models(&mut self) {
         self.available_models.clear();
         self.available_models_state = ProviderModelListState::default();
+        // 模型列表是当前配置和凭据的观测：列表清空后，能力台账不能继续
+        // 显示上一次读取的模型数量和成功时间。协议层「支持读取」的结论
+        // 仍然保留，只把证据标记为待重新读取。
+        if let Some(state) = self
+            .optional
+            .iter_mut()
+            .find(|state| state.capability == ProviderOptionalCapability::Models)
+        {
+            state.last_checked_at = None;
+            state.last_success_at = None;
+            state.error = None;
+            if state.known && state.supported {
+                state.reason = Some("配置或凭据变更后待重新读取".to_string());
+            }
+        }
     }
 
     pub fn optional_state(
@@ -455,6 +533,303 @@ impl ProviderCapabilities {
             Some(existing) => *existing = state,
             None => self.optional.push(state),
         }
+    }
+
+    /// 记录一次接口检查，同时保留上次的明确结论。
+    ///
+    /// 网络错误或认证失败只能说明「这次没读到」，不能推翻上次确认的支持或
+    /// 不支持结论；但检查时间和错误仍要更新，用户才能区分「刚检查过但失败」
+    /// 和「很久没检查」。所有能力探测、模型同步和普通刷新都走这里，避免各
+    /// 自维护一套“失败要不要覆盖”的判断。
+    pub fn record_optional_check(
+        &mut self,
+        mut state: ProviderOptionalCapabilityState,
+        checked_at: &str,
+        source: &str,
+    ) {
+        let previous = self.optional_state(state.capability).cloned();
+        let previous_known = previous.as_ref().is_some_and(|existing| existing.known);
+        state.source = Some(source.to_string());
+        state.last_checked_at = Some(checked_at.to_string());
+        state.last_success_at = if state.known && state.supported {
+            Some(checked_at.to_string())
+        } else {
+            previous
+                .as_ref()
+                .and_then(|existing| existing.last_success_at.clone())
+        };
+        match previous {
+            // 本轮没有得到结论：保留已知结论、说明和上次成功时间，只记录
+            // 本轮确实检查过以及本轮错误。
+            Some(mut existing) if previous_known && !state.known => {
+                existing.source = state.source;
+                existing.last_checked_at = state.last_checked_at;
+                if state.error.is_some() {
+                    existing.error = state.error;
+                }
+                self.set_optional_state(existing);
+            }
+            // 成功的 known 结论（包括明确不支持）仍然覆盖旧值；从未确认过
+            // 的接口也保留 unknown，让用户看到「检查过但没确认」。
+            _ => self.set_optional_state(state),
+        }
+    }
+
+    /// 把一次能力探测结果合并到已有快照。
+    ///
+    /// 探测失败时适配器只能返回默认结构；如果直接整包替换，就会把上次成功
+    /// 读到的价格、模型表现和已知能力一起清掉。这里只接受探测确实产生的
+    /// 观测：失败或未触达的字段沿用旧值，明确的“支持/不支持”结论仍然生效。
+    pub fn merge_probe(
+        &self,
+        probed: ProviderCapabilities,
+        invite_link: &str,
+        probe_error: Option<&str>,
+        checked_at: &str,
+    ) -> ProviderCapabilities {
+        let mut next = self.clone();
+        if probed.subscription.is_some() {
+            next.subscription = probed.subscription;
+        }
+        if probed.gateway.is_some() {
+            next.gateway = probed.gateway;
+        }
+        if probed.check_in_known {
+            next.check_in_known = true;
+            next.check_in_supported = probed.check_in_supported;
+            next.check_in_auth_modes = probed.check_in_auth_modes;
+        }
+        if probed.api_key_management_known {
+            next.api_key_management_known = true;
+            next.api_key_management_supported = probed.api_key_management_supported;
+        }
+        if probed.invitation_known {
+            next.invitation_known = true;
+            next.invitation_supported = probed.invitation_supported;
+        }
+        if !invite_link.trim().is_empty() {
+            next.invite_link = invite_link.to_string();
+        } else if probe_error.is_none() && probed.invitation_known && !probed.invitation_supported {
+            // 一次成功的探测明确确认邀请能力不可用时，旧邀请链接不应继续展示。
+            next.invite_link.clear();
+        }
+        if probe_touched_pricing(&probed.pricing) {
+            next.pricing = probed.pricing;
+        }
+        if probe_touched_performance(&probed.performance) {
+            next.performance = probed.performance;
+        }
+        for state in probed.optional {
+            next.record_optional_check(state, checked_at, "probe");
+        }
+        next
+    }
+}
+
+fn probe_touched_pricing(snapshot: &crate::models::ProviderPricingSnapshot) -> bool {
+    snapshot.updated_at.is_some()
+        || snapshot.error.is_some()
+        || snapshot.source != crate::models::ProviderPricingSource::None
+        || !snapshot.models.is_empty()
+        || !snapshot.groups.is_empty()
+}
+
+fn probe_touched_performance(snapshot: &crate::models::ProviderPerformanceSnapshot) -> bool {
+    snapshot.updated_at.is_some() || snapshot.error.is_some() || !snapshot.models.is_empty()
+}
+
+#[cfg(test)]
+mod capability_merge_tests {
+    use super::*;
+    use crate::models::{
+        ProviderModelPerformance, ProviderModelPrice, ProviderOptionalCapability,
+        ProviderOptionalCapabilityState, ProviderPricingSnapshot, ProviderPricingSource,
+    };
+
+    fn observed() -> ProviderCapabilities {
+        let mut capabilities = ProviderCapabilities {
+            check_in_known: true,
+            check_in_supported: true,
+            api_key_management_known: true,
+            api_key_management_supported: true,
+            invitation_known: true,
+            invitation_supported: true,
+            invite_link: "https://example.com/invite".into(),
+            probed_at: Some("1000".into()),
+            ..ProviderCapabilities::default()
+        };
+        capabilities.available_models = vec!["model-a".into()];
+        capabilities.pricing.mark_loaded(
+            ProviderPricingSource::NewApi,
+            std::collections::BTreeMap::from([(
+                "model-a".into(),
+                ProviderModelPrice {
+                    input: Some(1.0),
+                    ..ProviderModelPrice::default()
+                },
+            )]),
+            std::collections::BTreeMap::new(),
+            String::new(),
+            Default::default(),
+        );
+        capabilities.performance.mark_loaded(
+            std::collections::BTreeMap::from([(
+                "model-a".into(),
+                ProviderModelPerformance {
+                    success_rate: Some(99.0),
+                    ..ProviderModelPerformance::default()
+                },
+            )]),
+            Some(1),
+            Some(2),
+        );
+        capabilities.set_optional_state(ProviderOptionalCapabilityState::supported(
+            ProviderOptionalCapability::Usage,
+            "已读取用量",
+        ));
+        capabilities
+    }
+
+    #[test]
+    fn failed_probe_keeps_previous_observations() {
+        let previous = observed();
+        let failed = ProviderCapabilities {
+            error_message: Some("认证失败".into()),
+            ..ProviderCapabilities::default()
+        };
+        let merged = previous.merge_probe(failed, "", Some("认证失败"), "1000");
+        assert_eq!(merged.available_models, vec!["model-a"]);
+        assert_eq!(merged.pricing.model("model-a").unwrap().input, Some(1.0));
+        assert_eq!(
+            merged.performance.model("model-a").unwrap().success_rate,
+            Some(99.0)
+        );
+        assert!(merged.check_in_supported);
+        assert!(merged.api_key_management_supported);
+        assert!(merged.invitation_supported);
+        assert_eq!(merged.invite_link, "https://example.com/invite");
+        assert!(
+            merged
+                .optional_state(ProviderOptionalCapability::Usage)
+                .unwrap()
+                .known
+        );
+    }
+
+    #[test]
+    fn explicit_probe_conclusion_replaces_the_previous_one() {
+        let previous = observed();
+        let probed = ProviderCapabilities {
+            check_in_known: true,
+            check_in_supported: false,
+            invitation_known: true,
+            invitation_supported: false,
+            ..ProviderCapabilities::default()
+        };
+        let merged = previous.merge_probe(probed, "", None, "2000");
+        assert!(!merged.check_in_supported);
+        assert!(!merged.invitation_supported);
+        assert!(merged.invite_link.is_empty());
+        // A probe that does not touch pricing/performance must not erase them.
+        assert!(merged.pricing.model("model-a").is_some());
+        assert!(merged.performance.model("model-a").is_some());
+    }
+
+    #[test]
+    fn unknown_optional_state_does_not_erase_a_known_conclusion() {
+        let mut previous = observed();
+        let usage = previous
+            .optional
+            .iter_mut()
+            .find(|state| state.capability == ProviderOptionalCapability::Usage)
+            .expect("usage observation");
+        usage.last_checked_at = Some("2500".into());
+        usage.last_success_at = Some("2500".into());
+
+        let probed = ProviderCapabilities {
+            optional: vec![ProviderOptionalCapabilityState::unknown(
+                ProviderOptionalCapability::Usage,
+                "网络超时",
+            )],
+            ..ProviderCapabilities::default()
+        };
+        let merged = previous.merge_probe(probed, "", Some("网络超时"), "3000");
+        let usage = merged
+            .optional_state(ProviderOptionalCapability::Usage)
+            .unwrap();
+        assert!(usage.known);
+        assert!(usage.supported);
+        assert_eq!(usage.reason.as_deref(), Some("已读取用量"));
+        // 失败也要留下“刚检查过”的证据，但不能改写上次成功时间。
+        assert_eq!(usage.last_checked_at.as_deref(), Some("3000"));
+        assert_eq!(usage.last_success_at.as_deref(), Some("2500"));
+        assert_eq!(usage.error.as_deref(), Some("网络超时"));
+        assert_eq!(usage.source.as_deref(), Some("probe"));
+    }
+
+    #[test]
+    fn a_confirmed_optional_state_records_its_success_time() {
+        let previous = observed();
+        let probed = ProviderCapabilities {
+            optional: vec![ProviderOptionalCapabilityState::supported(
+                ProviderOptionalCapability::Models,
+                "已读取 3 个模型",
+            )],
+            ..ProviderCapabilities::default()
+        };
+        let merged = previous.merge_probe(probed, "", None, "4000");
+        let models = merged
+            .optional_state(ProviderOptionalCapability::Models)
+            .unwrap();
+        assert!(models.known);
+        assert!(models.supported);
+        assert_eq!(models.last_checked_at.as_deref(), Some("4000"));
+        assert_eq!(models.last_success_at.as_deref(), Some("4000"));
+    }
+
+    #[test]
+    fn clearing_models_drops_its_evidence_but_keeps_protocol_support() {
+        let mut capabilities = observed();
+        capabilities.set_available_models(crate::models::ProviderModelList::new(
+            vec!["model-a".into()],
+            crate::models::ProviderModelScope::Account,
+        ));
+        capabilities.record_optional_check(
+            ProviderOptionalCapabilityState::supported(
+                ProviderOptionalCapability::Models,
+                "已读取 1 个模型",
+            ),
+            "5000",
+            "probe",
+        );
+
+        capabilities.clear_available_models();
+
+        let models = capabilities
+            .optional_state(ProviderOptionalCapability::Models)
+            .unwrap();
+        assert!(models.known);
+        assert!(models.supported);
+        assert_eq!(models.reason.as_deref(), Some("配置或凭据变更后待重新读取"));
+        assert!(models.last_checked_at.is_none());
+        assert!(models.last_success_at.is_none());
+    }
+
+    #[test]
+    fn explicit_unsupported_pricing_clears_stale_prices() {
+        let mut previous = observed();
+        previous.pricing.mark_unsupported("站点未提供价目".into());
+        let probed = ProviderCapabilities {
+            pricing: {
+                let mut snapshot = ProviderPricingSnapshot::default();
+                snapshot.mark_unsupported("站点未提供价目".into());
+                snapshot
+            },
+            ..ProviderCapabilities::default()
+        };
+        let merged = previous.merge_probe(probed, "", None, "2000");
+        assert!(merged.pricing.model("model-a").is_none());
+        assert_eq!(merged.pricing.error.as_deref(), Some("站点未提供价目"));
     }
 }
 

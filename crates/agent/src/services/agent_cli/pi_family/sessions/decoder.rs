@@ -439,8 +439,10 @@ fn push_usage(
             output_tokens: number(usage_value, "output"),
             cache_read_tokens: number(usage_value, "cacheRead"),
             cache_write_tokens: number(usage_value, "cacheWrite"),
-            reasoning_tokens: None,
-        },
+            // pi 的 reasoning 是 output 的子集，只作明细展示，不再并入输出。
+            reasoning_tokens: number(usage_value, "reasoning"),
+        }
+        .with_cache_in_input(),
         false,
         false,
         message_id.as_deref(),

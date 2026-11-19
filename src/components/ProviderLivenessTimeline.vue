@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { LivenessRecord } from "../stores/providers";
-import { livenessTimelineSlots } from "../utils/provider-liveness";
+import { livenessTimelineSlots, livenessTimestamp } from "../utils/provider-liveness";
 
 const props = defineProps<{
   records: LivenessRecord[];
+  /// 有历史记录、但都不属于当前 Agent/模型时，空状态要说明原因，避免读者
+  /// 以为测活从未运行过。
+  emptyLabel?: string;
 }>();
 
 /// 每一格是一次自动测活，最近的一次在最右端。次数不足 24 次时左侧留空，
@@ -27,7 +30,7 @@ const latestLatencyLabel = computed(() => {
 
 const summaryLabel = computed(() => {
   if (recentRecords.value.length === 0) {
-    return "暂无记录";
+    return props.emptyLabel?.trim() || "暂无记录";
   }
   return `${successfulCount.value}/${recentRecords.value.length} 成功`;
 });
@@ -38,8 +41,8 @@ const ariaLabel = computed(() => {
 });
 
 function livenessPointTitle(record: LivenessRecord) {
-  const date = new Date(Number(record.checkedAt));
-  const time = Number.isNaN(date.getTime()) ? record.checkedAt : date.toLocaleString();
+  const timestamp = livenessTimestamp(record);
+  const time = timestamp > 0 ? new Date(timestamp).toLocaleString() : record.checkedAt;
   const result = record.ok ? "成功" : "失败";
   return `${result}，${time}，${record.latencyMs} ms，${record.message}`;
 }

@@ -645,9 +645,10 @@ test("quota labels use at most two decimals and grids stay separate", () => {
     ...oauth,
     actions: { ...oauth.actions, oauthAccount: false, cpaGateway: true },
   };
-  assert.equal(providerBoardSection(oauth, false), "oauth");
-  assert.equal(providerBoardSection(gateway, false), "cpa");
-  assert.equal(providerBoardSection(gateway, true), "liveness");
+  assert.equal(providerBoardSection(oauth), "oauth");
+  assert.equal(providerBoardSection(gateway), "cpa");
+  // Liveness is an inline badge; it must not move a gateway into another grid.
+  assert.equal(providerBoardSection({ ...gateway, liveness: { ...gateway.liveness, enabled: true } }), "cpa");
 });
 
 test("CPA field edits capture the connection revision and release state after failure", async (t) => {

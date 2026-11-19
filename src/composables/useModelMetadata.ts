@@ -18,6 +18,7 @@ export function useModelMetadata(
   ids: Ref<string[]>,
   active: Ref<boolean>,
   providerId?: Ref<string | undefined>,
+  credentialRevision?: Ref<number | undefined>,
 ) {
   const snapshot = ref<ModelMetadataSnapshot | null>(null);
   const loading = ref(false);
@@ -55,12 +56,35 @@ export function useModelMetadata(
     }
   }
   watch(
-    [ids, active, ...(providerId ? [providerId] : [])],
+    [
+      ids,
+      active,
+      ...(providerId ? [providerId] : []),
+      ...(credentialRevision ? [credentialRevision] : []),
+    ],
     () => {
       void load();
     },
     { immediate: true },
   );
+  // 快照按模型名索引，站点价目却属于具体卡片和当前凭据。切换卡片、换 Key
+  // 或关闭窗口时先清空，不能让上一张卡/上一个 Key 的分组价在等待新结果时
+  // 显示在新卡片的同名模型上；分页只改变请求范围，仍沿用同一份资料。
+  watch(
+    () => [providerId?.value, credentialRevision?.value] as const,
+    ([nextProvider, nextRevision], [previousProvider, previousRevision]) => {
+      if (nextProvider === previousProvider && nextRevision === previousRevision) {
+        return;
+      }
+      snapshot.value = null;
+      error.value = "";
+    },
+  );
+  watch(active, (value) => {
+    if (value) return;
+    snapshot.value = null;
+    error.value = "";
+  });
   if (getCurrentInstance())
     onMounted(async () => {
       try {

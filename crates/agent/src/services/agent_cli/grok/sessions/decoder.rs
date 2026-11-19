@@ -61,7 +61,8 @@ pub(super) fn update(
                             cache_read_tokens: number(usage, "cachedReadTokens"),
                             cache_write_tokens: number(usage, "cacheCreationTokens"),
                             reasoning_tokens: None,
-                        },
+                        }
+                        .with_cache_in_input(),
                         false,
                         base.turn_id.is_none(),
                         None,

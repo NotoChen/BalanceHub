@@ -8,6 +8,9 @@ import CloudSyncReviewModal from "./components/CloudSyncReviewModal.vue";
 import LoginAccountsModal from "./components/LoginAccountsModal.vue";
 import LoginAccountPicker from "./components/LoginAccountPicker.vue";
 import ProviderCredentialsModal from "./components/ProviderCredentialsModal.vue";
+import ProviderDetailModal from "./components/ProviderDetailModal.vue";
+import AppExitConfirmModal from "./components/AppExitConfirmModal.vue";
+import UsageReconciliationModal from "./components/agent-workspace/UsageReconciliationModal.vue";
 import CliConfigKeyPickerModal from "./components/CliConfigKeyPickerModal.vue";
 import AgentConfigurationEditorModal from "./components/agent-workspace/AgentConfigurationEditorModal.vue";
 import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
@@ -29,13 +32,40 @@ useWindowGridSnap();
       <LoginAccountsModal />
       <LoginAccountPicker />
       <ProviderCredentialsModal />
+      <ProviderDetailModal
+        v-model:visible="app.providerDetailVisible"
+        :provider="app.providerDetailProvider"
+        :settings="app.settings"
+        @edit="app.editProvider"
+        @refresh="app.refreshProvider"
+        @check-in="app.checkInProvider"
+        @probe-capabilities="app.probeProviderCapabilities"
+        @open-available-models="app.openAvailableModels"
+        @open-usage="app.openUsage"
+        @open-request-logs="app.openRequestLogs"
+        @open-check-in-records="app.openCheckInRecords"
+        @open-liveness-details="app.openLivenessDetails"
+        @open-api-key-manager="app.openApiKeyManager"
+        @switch-cli-config="app.switchProviderCliConfig"
+        @launch-temporary-cli="app.launchTemporaryCli"
+      />
+      <UsageReconciliationModal
+        :visible="app.usageReconciliationVisible"
+        @close="app.closeUsageReconciliation"
+      />
+      <AppExitConfirmModal
+        v-model:visible="app.exitConfirmVisible"
+        :tasks="app.exitConfirmTasks"
+        @confirm="app.confirmExit"
+        @cancel="app.cancelExit"
+      />
       <AppWorkspace
         :loading="app.loading"
         :initialized="app.initialized"
         :load-error="app.loadError"
         :providers="app.providers"
-        :liveness-providers="app.livenessProviders"
-        :regular-providers="app.regularProviders"
+        :settings="app.settings"
+        :provider-sections="app.providerSections"
         :cli-runtime="app.cliRuntime"
         :agent-runtime-snapshot="app.agentRuntimeSnapshot"
         :runtime-loading="app.cliInstancesRefreshing"
@@ -51,6 +81,7 @@ useWindowGridSnap();
         :background-task-count="app.backgroundTaskCount"
         :switching-cli-config="app.switchingCliConfig"
         :refresh-in-progress="app.refreshInProgress"
+        :refresh-queued-provider-ids="app.refreshQueuedProviderIds"
         :global-check-in-in-progress="app.globalCheckInInProgress"
         :app-version="app.appVersion"
         :checking-for-update="app.checkingForUpdate"
@@ -188,6 +219,7 @@ useWindowGridSnap();
       :cli-kind="app.cliConfigKeyPickerKind"
       :keys="app.cliConfigKeyPickerKeys"
       :current-config="app.cliConfigKeyPickerCurrentConfig"
+      :model="app.cliConfigKeyPickerModel"
       @select="app.selectCliConfigApiKey"
     />
 
@@ -209,10 +241,15 @@ useWindowGridSnap();
       :onboarding-visible="app.onboardingVisible"
       :onboarding-provider-count="app.onboardingProviderCount"
       :onboarding-cli-configured="app.onboardingCliConfigured"
+      :onboarding-cli-detecting="app.detectingOnboardingCli"
       :importing-app-data="app.importingAppData"
+      :providers="app.providers"
       :available-models-provider="app.availableModelsProvider"
       :available-models-loading="app.availableModelsLoading"
       :available-models-error="app.availableModelsError"
+      @switch-available-model="app.switchProviderCliConfig"
+      @launch-available-model="(provider, cliKind, model) => app.launchTemporaryCli(provider, cliKind, { model })"
+      @open-usage-reconciliation="app.openUsageReconciliation"
       :usage-provider="app.usageProvider"
       :usage-overview="app.usageOverview"
       :usage-loading="app.usageLoading"
@@ -267,6 +304,9 @@ useWindowGridSnap();
       :batch-operation-started-at="app.batchOperationStartedAt"
       :batch-operation-finished-at="app.batchOperationFinishedAt"
       :batch-operation-completed="app.batchOperationCompleted"
+      :batch-operation-canceling="app.batchOperationCanceling"
+      :batch-operation-cancelled="app.batchOperationCancelled"
+      @cancel-batch-refresh="app.batchOperationCancel"
       :check-in-batch-progress="app.checkInBatchProgress"
       :check-in-pending="app.checkInPending"
       :site-announcements-loading="app.siteAnnouncementsLoading"
@@ -279,7 +319,9 @@ useWindowGridSnap();
       :site-announcement-is-read="app.announcementIsRead"
       @open-onboarding-add-provider="app.openOnboardingAddProvider"
       @import-onboarding-data="app.importOnboardingData"
-      @open-onboarding-settings="app.openOnboardingSettings"
+      @probe-onboarding-cli="app.detectOnboardingCliTools"
+      @open-onboarding-agent-workspace="app.openOnboardingAgentWorkspace"
+      @dismiss-onboarding="app.dismissOnboarding"
       @complete-onboarding="app.completeOnboarding"
       @refresh-available-models="app.refreshAvailableModels"
       @copy-available-model="app.copyAvailableModel"

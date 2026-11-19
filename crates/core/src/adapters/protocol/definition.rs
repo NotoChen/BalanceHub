@@ -148,6 +148,7 @@ pub struct ProviderProtocolOperationMethods {
     pub models: &'static str,
     pub announcements: Option<&'static str>,
     pub pricing: Option<&'static str>,
+    pub performance: Option<&'static str>,
     pub usage: Option<&'static str>,
     pub request_logs: Option<&'static str>,
     pub subscription: Option<&'static str>,

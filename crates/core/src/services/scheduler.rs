@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
     models::{provider_domain, AppSettings, NotificationEvent, Provider, ProviderStatus},
@@ -74,10 +76,12 @@ const CHECK_IN_RETRY_BACKOFF_SECS: u64 = 30 * 60;
 const REFRESH_JITTER_MAX_SECS: u64 = 300;
 /// 单个中转站当日自动签到的尝试记录。
 ///
-/// 「失败后何时重试、何时放弃」的状态只活在调度器内存里，与展示用的
+/// 「失败后何时重试、何时放弃」的状态落在本机数据目录里，与展示用的
 /// `runtime.error_message` 彻底解耦 —— 旧实现把重试抑制寄生在错误文案前缀上，
 /// 刷新成功清空文案就会意外解除抑制，形成「重签→失败→再通知」的全天循环。
-#[derive(Debug, Clone, PartialEq)]
+/// 持久化只影响重启后的重试节奏：同一天重启不会重新获得三次尝试机会。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CheckInAttemptState {
     /// 本地日期（YYYY-MM-DD），跨天后视为全新一天。
     date: String,
@@ -85,7 +89,53 @@ struct CheckInAttemptState {
     last_attempt_secs: u64,
 }
 
-/// 调度器跨 tick 的内存状态。进程重启后清零：代价只是重启后允许重新尝试一轮，可接受。
+/// 自动签到重试状态。属于运行读数而非用户配置：损坏或丢失时回退到
+/// 「重启后允许重新尝试」，和旧版内存行为一致，不影响签到结果本身。
+const CHECK_IN_ATTEMPT_FILE: &str = "check-in-attempts.json";
+const CHECK_IN_ATTEMPT_MAX_BYTES: usize = 512 * 1024;
+
+fn check_in_attempt_path() -> Option<std::path::PathBuf> {
+    crate::host::data_dir_optional().map(|directory| directory.join(CHECK_IN_ATTEMPT_FILE))
+}
+
+fn load_check_in_attempts() -> HashMap<String, CheckInAttemptState> {
+    let Some(path) = check_in_attempt_path() else {
+        return HashMap::new();
+    };
+    if !path.exists() {
+        return HashMap::new();
+    }
+    let text = match crate::util::read_text_file_limited(
+        &path,
+        CHECK_IN_ATTEMPT_MAX_BYTES,
+        "读取自动签到重试状态",
+    ) {
+        Ok(text) => text,
+        Err(error) => {
+            log::warn!("{error}；本次启动按无重试记录处理");
+            return HashMap::new();
+        }
+    };
+    match serde_json::from_str(&text) {
+        Ok(attempts) => attempts,
+        Err(error) => {
+            log::warn!("自动签到重试状态格式无效，已忽略：{error}");
+            HashMap::new()
+        }
+    }
+}
+
+fn save_check_in_attempts(attempts: &HashMap<String, CheckInAttemptState>) {
+    let Some(path) = check_in_attempt_path() else {
+        return;
+    };
+    if let Err(error) = crate::util::cache::write(&path, attempts) {
+        log::warn!("保存自动签到重试状态失败：{error}");
+    }
+}
+
+/// 调度器跨 tick 的状态。刷新尝试只影响进程内的下一次 tick；自动签到尝试
+/// 从数据目录恢复，避免同一天反复重启把失败站点的三次上限重新清零。
 ///
 /// 失败后的冷却不在这里：它写在 `runtime.cooldown_until` 上，随配置持久化，
 /// 卡片和调度器读同一份，重启后也不会立刻重试一个已经进入长冷却的站点。
@@ -94,6 +144,15 @@ struct SchedulerState {
     /// 每个中转站「上次发起刷新」的时刻（秒），避免刷新失败时每 tick 重试。
     refresh_attempts: HashMap<String, u64>,
     check_in_attempts: HashMap<String, CheckInAttemptState>,
+}
+
+impl SchedulerState {
+    fn load() -> Self {
+        Self {
+            check_in_attempts: load_check_in_attempts(),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -111,7 +170,7 @@ struct AutomationBatchResult {
 /// 属于后续可选增强。
 pub fn start() {
     crate::runtime::spawn(async move {
-        let mut state = SchedulerState::default();
+        let mut state = SchedulerState::load();
         tokio::time::sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
         loop {
             run_tick(&mut state).await;
@@ -130,7 +189,9 @@ async fn run_tick(state: &mut SchedulerState) {
     let now_secs = unix_secs();
     let now_millis = unix_millis();
     let today = local_date_today();
-    prune_state(state, &data.providers, &today);
+    if prune_state(state, &data.providers, &today) {
+        save_check_in_attempts(&state.check_in_attempts);
+    }
     let mut changed = false;
 
     // ---- 自动刷新余额 ----
@@ -236,18 +297,36 @@ async fn run_tick(state: &mut SchedulerState) {
             })
             .cloned()
             .collect();
+        let mut recorded = false;
         for provider in due {
             if super::check_in_tasks::automatic_pending(&provider) {
                 continue;
             }
             let attempt =
-                record_check_in_attempt(&mut state.check_in_attempts, &provider, &today, now_secs);
-            let _ = super::check_in_tasks::enqueue(
+                next_check_in_attempt(state.check_in_attempts.get(&provider.identity.id), &today);
+            // 只有真正排进签到队列才消耗当天的自动尝试次数。站点在快照之后
+            // 被停用或凭据被清空时 enqueue 会拒绝，不能让它空耗一次机会和
+            // 随后的冷却时间。
+            match super::check_in_tasks::enqueue(
                 provider.identity.id.clone(),
                 crate::models::CheckInSource::Automatic,
                 None,
                 attempt,
-            );
+            ) {
+                Ok(_) => {
+                    record_check_in_attempt(
+                        &mut state.check_in_attempts,
+                        &provider,
+                        &today,
+                        now_secs,
+                    );
+                    recorded = true;
+                }
+                Err(error) => log::debug!("自动签到未能排队（{}）：{error}", provider.identity.id),
+            }
+        }
+        if recorded {
+            save_check_in_attempts(&state.check_in_attempts);
         }
     }
 
@@ -306,12 +385,15 @@ async fn run_tick(state: &mut SchedulerState) {
 }
 
 /// 清理调度器内存状态：删掉已不存在的中转站与过期日期的记录，避免无界增长。
-fn prune_state(state: &mut SchedulerState, providers: &[Provider], today: &str) {
+/// 返回是否真的删掉了签到记录；只有变化时才落盘，避免每 30 秒重写一次。
+fn prune_state(state: &mut SchedulerState, providers: &[Provider], today: &str) -> bool {
     let exists = |id: &str| providers.iter().any(|provider| provider.identity.id == id);
     state.refresh_attempts.retain(|id, _| exists(id));
+    let before = state.check_in_attempts.len();
     state
         .check_in_attempts
         .retain(|id, attempt| exists(id) && attempt.date == today);
+    state.check_in_attempts.len() != before
 }
 
 /// 记录本轮刷新的发起时刻。失败后的下一次尝试由刷新流程写在
@@ -380,6 +462,13 @@ fn check_in_attempt_allowed(
 }
 
 /// 在发起请求前登记本次尝试（失败或挂起都算一次），返回这是今天的第几次。
+fn next_check_in_attempt(current: Option<&CheckInAttemptState>, today: &str) -> u32 {
+    match current {
+        Some(state) if state.date == today => state.attempts.saturating_add(1),
+        _ => 1,
+    }
+}
+
 fn record_check_in_attempt(
     attempts: &mut HashMap<String, CheckInAttemptState>,
     provider: &Provider,
@@ -561,6 +650,29 @@ mod tests {
     }
 
     #[test]
+    fn next_attempt_matches_what_would_be_recorded() {
+        let mut attempts = std::collections::HashMap::new();
+        assert_eq!(next_check_in_attempt(None, "2026-07-10"), 1);
+        let target = provider("scheduler-test");
+        assert_eq!(
+            record_check_in_attempt(&mut attempts, &target, "2026-07-10", 1_000),
+            1
+        );
+        assert_eq!(
+            next_check_in_attempt(attempts.get(&target.identity.id), "2026-07-10"),
+            2
+        );
+        assert_eq!(
+            record_check_in_attempt(&mut attempts, &target, "2026-07-10", 1_100),
+            2
+        );
+        assert_eq!(
+            next_check_in_attempt(attempts.get(&target.identity.id), "2026-07-11"),
+            1
+        );
+    }
+
+    #[test]
     fn blocks_attempt_within_backoff_window() {
         let state = attempt("2026-07-10", 1, 1_000);
         assert!(!check_in_attempt_allowed(
@@ -616,11 +728,27 @@ mod tests {
             .insert("stale-date".to_string(), attempt("2026-07-09", 1, 1));
 
         let providers = vec![provider("kept"), provider("stale-date")];
-        prune_state(&mut state, &providers, "2026-07-10");
+        assert!(prune_state(&mut state, &providers, "2026-07-10"));
+        assert!(!prune_state(&mut state, &providers, "2026-07-10"));
 
         assert!(state.refresh_attempts.contains_key("kept"));
         assert!(!state.refresh_attempts.contains_key("removed"));
         assert!(state.check_in_attempts.contains_key("kept"));
         assert!(!state.check_in_attempts.contains_key("stale-date"));
+    }
+
+    #[test]
+    fn check_in_attempts_survive_a_restart_round_trip() {
+        let mut attempts = HashMap::new();
+        record_check_in_attempt(&mut attempts, &provider("p1"), "2026-07-10", 1_700_000_000);
+        let text = serde_json::to_string(&attempts).unwrap();
+        let restored: HashMap<String, CheckInAttemptState> = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(restored, attempts);
+        assert!(!check_in_attempt_allowed(
+            restored.get("p1"),
+            "2026-07-10",
+            1_700_000_000 + 60
+        ));
     }
 }

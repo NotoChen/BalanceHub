@@ -204,6 +204,12 @@
   line-height: 1.55;
 }
 
+.capability-probe-step-ledger {
+  color: var(--surface-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .capability-probe-step-copy code {
   overflow: hidden;
   color: #5b6b7f;

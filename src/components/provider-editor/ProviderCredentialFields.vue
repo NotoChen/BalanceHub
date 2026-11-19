@@ -8,6 +8,8 @@ import type {
 const props = defineProps<{
   fields: ProviderAuthFieldDescriptor[];
   requiredFields: string[];
+  /// 当前认证方式仍缺的字段；由凭据助手同一份缺口结论传入。
+  invalidFields?: string[];
   draft: ProviderInput;
 }>();
 
@@ -28,6 +30,10 @@ function shouldRenderField(field: ProviderAuthFieldDescriptor) {
 function isApiKeyField(field: ProviderAuthFieldDescriptor) {
   return field.field === "apiKey";
 }
+
+function isInvalid(field: ProviderAuthFieldDescriptor) {
+  return (props.invalidFields ?? []).includes(field.field);
+}
 </script>
 
 <template>
@@ -39,6 +45,9 @@ function isApiKeyField(field: ProviderAuthFieldDescriptor) {
       :field="`auth.${field.field}`"
       :label="field.label"
       :required="requiredFields.includes(field.field)"
+      :data-credential-field="field.field"
+      :validate-status="isInvalid(field) ? 'error' : undefined"
+      :help="isInvalid(field) ? '还缺这个字段' : undefined"
     >
       <div v-if="isApiKeyField(field)" class="input-action-row">
         <a-input-password

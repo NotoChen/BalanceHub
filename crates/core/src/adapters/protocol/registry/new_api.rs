@@ -144,6 +144,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         models: "账号模型列表 / API Key 模型列表",
         announcements: Some("GET /api/notice + GET /api/status"),
         pricing: Some("GET /api/pricing"),
+        performance: Some("GET /api/perf-metrics/summary?hours=24"),
         usage: Some("GET /api/data/self"),
         request_logs: Some("GET /api/log/self"),
         subscription: Some("GET /api/subscription/self"),

@@ -354,6 +354,27 @@ test("URL secrets are removed from provider remarks, selected key notes and cach
   assert.deepEqual([first, second], before);
 });
 
+test("launch picker shows remaining balance and recent liveness before launch", async () => {
+  const relay = provider("relay");
+  relay.liveness.records = [
+    {
+      checkedAt: "1760000000000", source: "automatic", cliKind: "codex", ok: true, latencyMs: 120,
+      model: "gpt-5", baseUrl: "https://relay.example.test/team/v1", prompt: "",
+      responsePreview: "", message: "", commandPreview: "",
+    },
+    {
+      checkedAt: "1760000060000", source: "automatic", cliKind: "codex", ok: false, latencyMs: 900,
+      model: "gpt-5", baseUrl: "https://relay.example.test/team/v1", prompt: "",
+      responsePreview: "", message: "timeout", commandPreview: "",
+    },
+  ];
+
+  const html = await renderSelector([relay]);
+
+  assert.ok(html.includes("$12.00"), "剩余额度应出现在启动选择器里");
+  assert.ok(html.includes("测活失败 · 近 2 次成功 1 次"));
+});
+
 test("selection emits stable provider IDs after reorder and object replacement using native buttons", async (t) => {
   const first = provider("first", "第一账户");
   const second = provider("second", "第二账户");

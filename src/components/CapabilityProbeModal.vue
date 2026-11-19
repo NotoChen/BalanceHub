@@ -5,6 +5,7 @@ import {
   IconBarChart,
   IconCalendar,
   IconClockCircle,
+  IconDashboard,
   IconExperiment,
   IconFile,
   IconLink,
@@ -25,13 +26,18 @@ import {
   providerAuthModeDescriptor,
   providerProtocolDescriptor,
 } from "../utils/provider-protocol";
-import { providerDisplayLabel, providerModelScopeLabel } from "../utils/provider-display";
+import { formatProviderSyncTime, providerDisplayLabel, providerModelScopeLabel } from "../utils/provider-display";
+import {
+  providerCapabilitySourceLabel,
+  providerOptionalCapabilityLabel,
+} from "../utils/provider-capabilities";
 
 type ProbeStepKey =
   | "checkIn"
   | "apiKeys"
   | "invitation"
   | "pricing"
+  | "performance"
   | "models"
   | "usage"
   | "requestLogs"
@@ -53,18 +59,20 @@ const OPTIONAL_STEPS: Array<{
   label: string;
   icon: typeof IconCalendar;
 }> = [
-  { key: "pricing", capability: "pricing", label: "站点定价", icon: IconTag },
-  { key: "usage", capability: "usage", label: "用量趋势", icon: IconBarChart },
-  { key: "requestLogs", capability: "requestLogs", label: "请求日志", icon: IconFile },
-  { key: "announcements", capability: "announcements", label: "站点公告", icon: IconNotification },
-  { key: "subscription", capability: "subscription", label: "订阅额度", icon: IconSubscribe },
-  { key: "groups", capability: "groups", label: "站点分组", icon: IconUserGroup },
+  { key: "pricing", capability: "pricing", label: providerOptionalCapabilityLabel("pricing"), icon: IconTag },
+  { key: "performance", capability: "performance", label: providerOptionalCapabilityLabel("performance"), icon: IconDashboard },
+  { key: "usage", capability: "usage", label: providerOptionalCapabilityLabel("usage"), icon: IconBarChart },
+  { key: "requestLogs", capability: "requestLogs", label: providerOptionalCapabilityLabel("requestLogs"), icon: IconFile },
+  { key: "announcements", capability: "announcements", label: providerOptionalCapabilityLabel("announcements"), icon: IconNotification },
+  { key: "subscription", capability: "subscription", label: providerOptionalCapabilityLabel("subscription"), icon: IconSubscribe },
+  { key: "groups", capability: "groups", label: providerOptionalCapabilityLabel("groups"), icon: IconUserGroup },
 ];
 
-/// 模型列表既有独立的同步动作，也由能力探测记录结论，因此和上面六个接口分开
-/// 列出，但读取同一份 `capabilities.optional`。
+/// 模型列表既有独立的同步动作，也由能力探测记录结论，因此和上面的站点接口
+/// 分开列出，但读取同一份 `capabilities.optional`。
 const OPTIONAL_CAPABILITY_BY_STEP: Partial<Record<ProbeStepKey, ProviderOptionalCapability>> = {
   pricing: "pricing",
+  performance: "performance",
   usage: "usage",
   requestLogs: "requestLogs",
   announcements: "announcements",
@@ -139,7 +147,7 @@ const steps = computed(() => {
     ...OPTIONAL_STEPS.map((step) =>
       makeStep(step.key, step.label, step.icon, optionalMethod(step.key)),
     ),
-    makeStep("models", "模型列表", IconApps, modelMethod()),
+    makeStep("models", providerOptionalCapabilityLabel("models"), IconApps, modelMethod()),
   ];
 });
 
@@ -153,7 +161,22 @@ function makeStep(key: ProbeStepKey, label: string, icon: typeof IconCalendar, m
     status,
     statusLabel: stepStatusLabel(status),
     detail: stepDetail(key, status),
+    ledger: stepLedger(key),
   };
+}
+
+/// 一条能力结论要能回答「什么时候检查的、上次成功是什么时候、谁写的」。
+/// 失败时保留上次成功时间，避免把刚检查过但失败的接口读成从未可用。
+function stepLedger(key: ProbeStepKey) {
+  const state = optionalState(key);
+  if (!state) return "";
+  const checked = formatProviderSyncTime(state.lastCheckedAt);
+  const success = formatProviderSyncTime(state.lastSuccessAt);
+  const source = state.source ? providerCapabilitySourceLabel(state.source) : "";
+  return [
+    checked ? `${source || "最近检查"}于 ${checked}` : "",
+    success ? `最近成功 ${success}` : "",
+  ].filter(Boolean).join(" · ");
 }
 
 function optionalState(key: ProbeStepKey) {
@@ -323,6 +346,7 @@ function optionalOperationMethod(key: ProbeStepKey) {
   const methods = protocolDescriptor.value?.operationMethods;
   if (!methods) return "";
   if (key === "pricing") return methods.pricing || "";
+  if (key === "performance") return methods.performance || "";
   if (key === "usage") return methods.usage || "";
   if (key === "requestLogs") return methods.requestLogs || "";
   if (key === "announcements") return methods.announcements || "";
@@ -431,6 +455,7 @@ function durationLabel() {
               <span class="capability-probe-step-state">{{ step.statusLabel }}</span>
             </div>
             <p>{{ step.detail }}</p>
+            <small v-if="step.ledger" class="capability-probe-step-ledger">{{ step.ledger }}</small>
             <code>{{ step.method }}</code>
           </div>
         </article>

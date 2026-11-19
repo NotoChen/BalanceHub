@@ -26,6 +26,20 @@
   font-size: 14px;
 }
 
+.cli-config-key-target-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cli-config-key-target-model code {
+  border-radius: 5px;
+  background: var(--surface-panel-soft);
+  padding: 1px 5px;
+  color: var(--surface-ink);
+  font-size: 11px;
+}
+
 .cli-config-key-options {
   display: grid;
   max-height: min(540px, calc(100dvh - 260px));

@@ -66,7 +66,9 @@ test("API Key cards keep a fixed height without exposing a duplicate default-key
   assert.doesNotMatch(header, /apiKeyCount\.value} 把/);
   assert.match(styles, /\.provider-card-api-key-row\s*\{[^}]*overflow:\s*visible;/s);
   assert.match(styles, /\.provider-card-api-key-value\s*\{[^}]*overflow:\s*hidden;/s);
-  assert.match(card, /:fixed-height="!showLivenessTimeline"/);
+  assert.match(card, /:fixed-height="!list && !showLivenessTimeline"/);
+  assert.match(card, /'workspace-card-list': list/);
+  assert.match(card, /:list="list"/);
   assert.match(sharedCard, /'workspace-card-standard': fixedHeight/);
   assert.match(readFileSync(sharedCardStylePath, "utf8"), /\.workspace-card-standard\s*\{[^}]*height:\s*312px;/s);
   assert.doesNotMatch(styles, /\.provider-card-api-remark-empty/);
@@ -154,9 +156,12 @@ test("Key-scoped cards show the key's own balance without disturbing the fixed h
   assert.match(body, /return providerQuotaHeadline\(props\.provider\);/);
   assert.match(body, /aria-label="isApiKeyAuth \? 'API Key 额度' : '账户余额'"/);
   assert.match(body, /provider-card-quota-compact/);
-  // 模型区和页脚一样是固定层：所有卡型都排三行，行数不由卡型决定。
-  assert.doesNotMatch(body, /modelRows|:rows=/);
-  assert.match(styles, /\.provider-card-model-list\s*\{[^}]*height:\s*70px;/s);
+  // 模型区和页脚一样是固定层：所有卡型都排三行，行数不由卡型决定；列表
+  // 布局保留三行，把纵向空间用于更多模型。
+  assert.doesNotMatch(body, /modelRows/);
+  assert.doesNotMatch(body, /:rows=/);
+  assert.match(body, /:show-overflow="!list"/);
+  assert.match(styles, /\.provider-card-model-list\s*\{[^}]*height:\s*calc\(var\(--provider-card-model-rows, 3\) \* 25px - 5px\);/s);
   assert.doesNotMatch(styles, /-five-rows/);
   assert.match(styles, /\.provider-card-quota-high\s*\{[^}]*--provider-quota-color:\s*#e34d59;/s);
   assert.match(styles, /\.provider-card-quota-compact\s*\{[^}]*gap:\s*5px;/s);
@@ -185,6 +190,7 @@ test("the section heading already names the protocol, so the card subtitle does 
 
 test("model preview fills its rows with full names and folds the rest into +N", () => {
   const styles = readFileSync(stylePath, "utf8");
+  const body = readFileSync(bodyPath, "utf8");
   const preview = readFileSync(
     new URL("../src/components/ProviderModelPreview.vue", import.meta.url),
     "utf8",
@@ -196,17 +202,23 @@ test("model preview fills its rows with full names and folds the rest into +N", 
   assert.match(preview, /useBoundedChipPreview/);
   assert.match(preview, /data-preview-measure-chip/);
   assert.match(preview, /\+\{\{ hidden \}\}/);
-  // 固定三行：行数写死在组件里，芯片不够也不收缩，卡片之间始终对齐。
-  assert.match(preview, /const MODEL_ROWS = 3;/);
-  assert.match(preview, /rows: MODEL_ROWS,/);
-  assert.doesNotMatch(preview, /rows\?;/);
+  // 模型区固定三行；列表布局也保留三行。总数写在标题里，列表不再插入
+  // 占位的「+N」芯片，把宽度让给真实模型名。
+  assert.match(preview, /rows\?: number;/);
+  assert.match(preview, /const rows = computed\(\(\) => Math\.max\(1, Math\.round\(props\.rows\)\)\);/);
+  assert.match(preview, /rows,/);
+  assert.match(preview, /'--provider-card-model-rows': rows/);
+  assert.match(preview, /showOverflow\?: boolean;/);
+  assert.match(preview, /reserveMore/);
+  assert.doesNotMatch(body, /:rows=/);
+  assert.match(body, /:show-overflow="!list"/);
   const list = styles.match(/\.provider-card-model-list\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(list, /flex-wrap:\s*wrap;/);
   assert.match(list, /gap:\s*5px;/);
-  assert.match(list, /height:\s*70px;/);
+  assert.match(list, /height:\s*calc\(var\(--provider-card-model-rows, 3\) \* 25px - 5px\);/);
   assert.match(list, /overflow:\s*hidden;/);
-  // 没有模型时说明文字占住同样的三行，卡片高度不随同步状态跳动。
-  assert.match(styles, /\.provider-card-model-empty\s*\{[^}]*height:\s*70px;/s);
+  // 没有模型时说明文字占住同样的行数，卡片高度不随同步状态跳动。
+  assert.match(styles, /\.provider-card-model-empty\s*\{[^}]*height:\s*calc\(var\(--provider-card-model-rows, 3\) \* 25px - 5px\);/s);
   // 芯片观感由卡片通用芯片一处给出，中转站卡不再自带一套几何。
   assert.match(preview, /class="workspace-card-chip"/);
   assert.match(preview, /class="workspace-card-chip workspace-card-chip-more"/);
@@ -319,7 +331,7 @@ test("subscription windows reuse the OAuth quota bar and the bar never gets a le
   assert.match(styles, /\.provider-card-progress-row \{([^}]*)\}/s);
   assert.doesNotMatch(styles, /\.provider-card-progress-row > span \{[^}]*min-width/s);
   // 不限量窗口也画出来，否则卡片会退回钱包余额，同一张卡读成两套额度。
-  assert.match(body, /const quotaWindowRows = computed\(\(\) => providerQuotaWindowRows\(props\.provider\)\)/);
+  assert.match(body, /const quotaWindowRows = computed\(\(\) =>\s*providerQuotaWindowRows\(props\.provider, Date\.now\(\), listWindowLimit\.value\),?\s*\);/);
   // 卡片高度由内容决定：三行模型芯片不能被裁掉，页脚也不靠裁切收口；
   // 额度区块按自身内容排布，页脚靠自身的 margin-top: auto 钉在卡片底部。
   assert.doesNotMatch(styles, /--workspace-card-footer-reserve/);
@@ -376,7 +388,7 @@ test("OAuth and CPA cards read windows like relay cards and keep the footer glue
   const styles = readFileSync(managedStylePath, "utf8");
   // 窗口条和同步时间都复用中转站卡片的同一套组件与读法，授权卡不再有自己的一套。
   assert.match(body, /import AccountQuotaBar from "\.\.\/oauth\/AccountQuotaBar\.vue"/);
-  assert.match(body, /managedQuotaWindowRows\(subscription\.value\?\.windows \|\| \[\]\)/);
+  assert.match(body, /managedQuotaWindowRows\(\s*subscription\.value\?\.windows \|\| \[\],\s*Date\.now\(\),\s*listWindowLimit\.value,?\s*\)/);
   assert.match(body, /<AccountQuotaBar[\s\S]*?:window="providerQuotaBarWindow\(row\)"/);
   // 同步时间和中转站卡片同一读法：只在数据过期时出现，卡片右下角不再挂
   // 一行绝对时刻。四类卡片共用同一个过期说明组件。
@@ -463,16 +475,16 @@ test("all four card types render the same model block", () => {
   const managed = readFileSync(managedStylePath, "utf8");
 
   // 中转站、API Key、OAuth 账号、CPA 网关卡共用 ProviderModelPreview：标题、
-  // 计数、三行芯片和空态只有一套实现，卡型只决定传进来的数据。账号卡和网关
-  // 卡各有一处模型区，两处都指向共享组件。
+  // 计数、三行芯片和空态只有一套实现，卡型只决定传进来的数据。授权卡和网关卡
+  // 的额度分支之上只保留一处模型区，两个分支不再各写一遍。
   assert.match(
     managedBody,
     /import ProviderModelPreview from "\.\.\/ProviderModelPreview\.vue"/,
   );
   assert.equal(
     managedBody.match(/<ProviderModelPreview/g)?.length,
-    2,
-    "授权卡和网关卡都应走共享模型区",
+    1,
+    "授权卡和网关卡共用一个共享模型区",
   );
   assert.match(
     relayBody,
@@ -610,4 +622,30 @@ test("the export menu names what it writes and where", () => {
   assert.match(menus, /label="导出到其他应用"/);
   assert.match(menus, /把这张卡的接口地址和 API Key 写入目标应用，由它确认导入。/);
   assert.match(actionStyles, /\.provider-card-panel-hint \{/);
+});
+
+test("卡片测活线跟随全局设置解析当前目标", () => {
+  const body = readFileSync(bodyPath, "utf8");
+  const card = readFileSync(cardPath, "utf8");
+  const board = readFileSync(boardPath, "utf8");
+  const workspace = readFileSync(workspacePath, "utf8");
+  const app = readFileSync(appPath, "utf8");
+
+  // 后端在卡片声明为空时会回落到全局 Agent/模型，卡片不能继续按「无目标」
+  // 统计全部记录，否则切换全局模型后旧线路会混进当前测活线。
+  assert.match(body, /providerLivenessRecords\(props\.provider, props\.settings \?\? null\)/);
+  assert.match(card, /:settings="settings"/);
+  assert.match(board, /:settings="settings"/);
+  assert.match(workspace, /:settings="settings"/);
+  assert.match(app, /:settings="app\.settings"/);
+});
+
+test("价格过期提示按 Rust 的毫秒数字串解析时间", () => {
+  const note = readFileSync(
+    new URL("../src/components/provider-card/ProviderCardPricingNote.vue", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(note, /providerSyncInstant\(pricing\.updatedAt\)/);
+  assert.doesNotMatch(note, /Date\.parse\(pricing\.updatedAt/);
 });

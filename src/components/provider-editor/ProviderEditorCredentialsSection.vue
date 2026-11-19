@@ -12,6 +12,7 @@ import type {
 } from "../../stores/providers";
 import type { ApiKeyManagerOperation } from "../../composables/useApiKeyManager";
 import { providerProtocolDescriptor } from "../../utils/provider-protocol";
+import { missingCredentialRequirements } from "../../composables/provider-credential-rules";
 import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import ProviderCredentialFields from "./ProviderCredentialFields.vue";
 import ProviderApiKeyVault from "./ProviderApiKeyVault.vue";
@@ -99,6 +100,18 @@ const credentialSections = computed(() => {
 const showCredentialPanel = computed(() =>
   credentialSections.value.length > 0 || currentProtocol.value?.browserLoginSupported,
 );
+
+/// 当前认证方式还缺哪些字段。助手、字段红框和聚焦使用同一份缺口结论，
+/// 不在界面上各算一套。
+const missingAuthFields = computed<string[]>(() => {
+  const schema = currentAuthMode.value;
+  if (!schema) return [];
+  const fields = new Set<string>();
+  for (const group of missingCredentialRequirements(props.draft, schema)) {
+    for (const field of group) fields.add(field);
+  }
+  return [...fields];
+});
 
 function updateField(field: ProviderAuthFieldDescriptor, value: string) {
   if (field.readonly) return;
@@ -224,6 +237,7 @@ function syncApiKeySelection() {
               <ProviderCredentialFields v-else
                 :fields="mode.fields"
                 :required-fields="currentAuthMode?.requiredFields ?? []"
+                :invalid-fields="missingAuthFields"
                 :draft="draft"
                 @copy-api-key="emit('copy-api-key')"
                 @update-field="updateField"
@@ -238,6 +252,7 @@ function syncApiKeySelection() {
           <ProviderCredentialFields
             :fields="sharedFields"
             :required-fields="currentAuthMode?.requiredFields ?? []"
+            :invalid-fields="missingAuthFields"
             :draft="draft"
             @copy-api-key="emit('copy-api-key')"
             @update-field="updateField"

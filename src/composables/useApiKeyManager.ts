@@ -29,6 +29,7 @@ interface UseApiKeyManagerOptions {
   removeLocalKey: (providerId: string, localId: string) => Promise<Provider>;
   deleteRemoteKey: (providerId: string, tokenId: string) => Promise<ProviderApiKeyOption[]>;
   getProvider: (providerId: string) => Provider | undefined;
+  refreshByIds?: (ids: string[]) => Promise<string | null>;
   getBoundAgentLabels?: (providerId: string, localId: string, current: boolean) => string[];
   onProviderUpdated?: (provider: Provider) => void;
 }
@@ -254,6 +255,12 @@ export function useApiKeyManager(options: UseApiKeyManagerOptions) {
       if (!currentRequest(providerId, revision)) return false;
       applyProvider(updated);
       Message.success(`本卡片将使用“${providerApiKeyDisplayName(option)}”发起默认请求`);
+      // The backend has already dropped key-scoped balance, windows, pricing
+      // and performance. Refresh in the background so the card does not stay
+      // on “未同步” until the next automatic cycle.
+      void options.refreshByIds?.([providerId]).then((error) => {
+        if (error) Message.error(error);
+      });
       return true;
     } catch (error) {
       if (currentRequest(providerId, revision)) Message.error(errorMessage(error));

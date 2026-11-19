@@ -1,5 +1,6 @@
 use crate::models::{
-    AppSettings, Provider, ProviderProtocolDetectionResult, ProviderSiteProbeResult,
+    AppSettings, Provider, ProviderProtocolDetectionCandidate, ProviderProtocolDetectionResult,
+    ProviderSiteProbeResult,
 };
 use futures_util::future::join_all;
 
@@ -21,17 +22,34 @@ impl ProtocolDetector {
         let explicit = super::protocol::definition(provider.identity.protocol);
         if explicit.detection_role == ProtocolDetectionRole::Explicit {
             return match explicit.connection().probe_site(settings, provider).await {
-                Ok(site) => ProviderProtocolDetectionResult {
-                    detected_protocol: site.ok.then_some(explicit.kind),
-                    message: site.message.clone(),
-                    site: Some(site),
-                    ambiguous: false,
-                },
+                Ok(site) => {
+                    let candidate = ProviderProtocolDetectionCandidate {
+                        protocol: explicit.kind,
+                        label: explicit.label.to_string(),
+                        role: "explicit".to_string(),
+                        ok: site.ok,
+                        message: site.message.clone(),
+                    };
+                    ProviderProtocolDetectionResult {
+                        detected_protocol: site.ok.then_some(explicit.kind),
+                        message: site.message.clone(),
+                        site: Some(site),
+                        ambiguous: false,
+                        candidates: vec![candidate],
+                    }
+                }
                 Err(message) => ProviderProtocolDetectionResult {
                     detected_protocol: None,
-                    message,
+                    message: message.clone(),
                     site: None,
                     ambiguous: false,
+                    candidates: vec![ProviderProtocolDetectionCandidate {
+                        protocol: explicit.kind,
+                        label: explicit.label.to_string(),
+                        role: "explicit".to_string(),
+                        ok: false,
+                        message,
+                    }],
                 },
             };
         }
@@ -68,6 +86,7 @@ fn resolve_detection(probes: Vec<DetectionProbe>) -> ProviderProtocolDetectionRe
             message: format!("已识别为 {}", definition.label),
             site: Some((*site).clone()),
             ambiguous: false,
+            candidates: detection_candidates(&probes),
         },
         [] => resolve_fallback(&probes),
         matches => ProviderProtocolDetectionResult {
@@ -82,6 +101,7 @@ fn resolve_detection(probes: Vec<DetectionProbe>) -> ProviderProtocolDetectionRe
             ),
             site: None,
             ambiguous: true,
+            candidates: detection_candidates(&probes),
         },
     }
 }
@@ -97,6 +117,7 @@ fn resolve_fallback(probes: &[DetectionProbe]) -> ProviderProtocolDetectionResul
             ),
             site: Some((*site).clone()),
             ambiguous: false,
+            candidates: detection_candidates(probes),
         },
         [] => {
             let fallback_error = probes
@@ -123,6 +144,7 @@ fn resolve_fallback(probes: &[DetectionProbe]) -> ProviderProtocolDetectionResul
                 },
                 site: None,
                 ambiguous: false,
+                candidates: detection_candidates(probes),
             }
         }
         matches => ProviderProtocolDetectionResult {
@@ -137,8 +159,36 @@ fn resolve_fallback(probes: &[DetectionProbe]) -> ProviderProtocolDetectionResul
             ),
             site: None,
             ambiguous: true,
+            candidates: detection_candidates(probes),
         },
     }
+}
+
+fn role_key(role: ProtocolDetectionRole) -> &'static str {
+    match role {
+        ProtocolDetectionRole::Explicit => "explicit",
+        ProtocolDetectionRole::Primary => "primary",
+        ProtocolDetectionRole::ApiKeyFallback => "apiKeyFallback",
+    }
+}
+
+fn detection_candidates(probes: &[DetectionProbe]) -> Vec<ProviderProtocolDetectionCandidate> {
+    probes
+        .iter()
+        .map(|probe| {
+            let result = probe.result.as_ref();
+            ProviderProtocolDetectionCandidate {
+                protocol: probe.definition.kind,
+                label: probe.definition.label.to_string(),
+                role: role_key(probe.definition.detection_role).to_string(),
+                ok: result.is_some_and(|result| result.ok),
+                message: result
+                    .map(|result| result.message.clone())
+                    .filter(|message| !message.trim().is_empty())
+                    .unwrap_or_else(|| "探测请求未完成".to_string()),
+            }
+        })
+        .collect()
 }
 
 fn successful_matches(

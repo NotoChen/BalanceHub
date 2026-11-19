@@ -1,16 +1,5 @@
 /* Theme previews and notification channel fields. */
 
-.settings-workspace-v3 .settings-inline-warning {
-  margin: 0 0 12px;
-  border-radius: 6px;
-  font-size: 11px;
-}
-
-.settings-workspace-v3 .settings-theme-layout {
-  display: block;
-  padding: 0;
-}
-
 .settings-workspace-v3 .settings-theme-options-v4 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

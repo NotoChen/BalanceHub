@@ -42,6 +42,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         models: "OpenAI 兼容模型接口",
         announcements: None,
         pricing: None,
+        performance: None,
         usage: None,
         request_logs: None,
         subscription: None,

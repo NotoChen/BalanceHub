@@ -15,45 +15,8 @@
 }
 
 :root.theme-dark .arco-drawer-title,
-:root.theme-dark .arco-modal-title,
-:root.theme-dark .drawer-heading-copy strong,
-:root.theme-dark .settings-drawer-intro strong {
+:root.theme-dark .arco-modal-title {
   color: #f2f3f5;
-}
-
-:root.theme-dark .drawer-heading-kicker,
-:root.theme-dark .settings-drawer-intro span,
-:root.theme-dark .settings-section-title span,
-:root.theme-dark .settings-section-kicker {
-  color: #a9aeb8 !important;
-}
-
-:root.theme-dark .settings-drawer-intro {
-  border-color: rgba(122, 167, 255, 0.24);
-  background: linear-gradient(135deg, rgba(64, 128, 255, 0.15), rgba(14, 159, 168, 0.08));
-}
-
-:root.theme-dark .settings-drawer-version {
-  border-color: var(--glass-border);
-  background: rgba(36, 38, 47, 0.84);
-  color: #c9cdd4 !important;
-}
-
-:root.theme-dark .settings-section-title:hover,
-:root.theme-dark .settings-section-title:focus-visible {
-  background: rgba(122, 167, 255, 0.08);
-}
-
-:root.theme-dark .settings-section-glyph {
-  border-color: var(--glass-border);
-  background: var(--glass-card-muted);
-  color: #a9aeb8;
-}
-
-:root.theme-dark .settings-section-glyph.expanded {
-  border-color: rgba(122, 167, 255, 0.42);
-  background: rgba(64, 128, 255, 0.12);
-  color: #94bfff;
 }
 
 :root.theme-dark .provider-credential-active-panel {

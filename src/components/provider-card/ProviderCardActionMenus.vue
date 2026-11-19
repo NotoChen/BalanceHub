@@ -121,9 +121,13 @@ const hasDataActions = computed(
     canViewLiveness.value ||
     canViewCheckInRecords.value,
 );
-/// 能力探测既覆盖账号能力，也覆盖定价、用量、公告等站点接口；
-/// API Key 卡片同样可以探测（结果会明确标出哪些接口不可用）。
-const canProbeSite = computed(() => props.provider.runtime.enabled);
+/// 站点能力探测只适用于中转站协议。OAuth 账号和 CPA 网关的“授权是否
+/// 仍有效”要读各自的授权/续期接口，不能用站点探测假装检查。
+const canProbeSite = computed(() =>
+  props.provider.runtime.enabled
+  && !props.provider.actions.oauthAccount
+  && !props.provider.actions.cpaGateway,
+);
 const canChangePassword = computed(() => accountManagementAvailable.value);
 const canManageAccount = computed(
   () =>

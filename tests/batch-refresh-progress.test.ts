@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { effectScope, ref, shallowRef } from "vue";
 import type {
@@ -52,6 +53,7 @@ function harness(
   const providers = shallowRef(initial);
   const busy = ref(false);
   const messages: string[] = [];
+  const cancellations: string[] = [];
   const tombstones: Record<string, number> = {};
   const requests: Array<
     ReturnType<typeof deferred<BatchOperationResult>> & {
@@ -73,6 +75,9 @@ function harness(
         },
       },
       "../api/batch-operation": {
+        cancelProviderRefresh: async () => {
+          cancellations.push("cancel");
+        },
         refreshAllProvidersWithProgress: (channel: {
           onmessage: (event: ProviderBatchProgressEvent) => void;
         }) => {
@@ -114,6 +119,7 @@ function harness(
     providers,
     busy,
     messages,
+    cancellations,
     requests,
     scope,
     tombstones,
@@ -388,6 +394,76 @@ test("the final response reconciles channel delivery order and CLI discovery nev
   await Promise.resolve();
   assert.equal(controller.messages.length, 0);
   controller.scope.stop();
+});
+
+test("cancel stops queued providers but keeps the running batch state until the backend settles", async () => {
+  const initial = [provider("first"), provider("second"), provider("third")];
+  const controller = harness(initial);
+  const pending = controller.runRefresh();
+  controller.started();
+  controller.start(initial[0]);
+  await controller.cancelRefresh();
+  const duringSettle = {
+    cancellations: [...controller.cancellations],
+    cancelled: controller.cancelled.value,
+    canceling: controller.canceling.value,
+    running: controller.running.value,
+    busy: controller.busy.value,
+  };
+
+  initial.slice(1).forEach((entry) =>
+    controller.finish(entry, {
+      ...item(entry, "skipped"),
+      message: "刷新已取消",
+    }),
+  );
+  const first = provider("first", 2, 30);
+  controller.finish(first, item(first, "success"));
+  controller.resolve(
+    [first, initial[1], initial[2]],
+    [
+      item(first, "success"),
+      { ...item(initial[1], "skipped"), message: "刷新已取消" },
+      { ...item(initial[2], "skipped"), message: "刷新已取消" },
+    ],
+  );
+  await pending;
+  assert.deepEqual(duringSettle, {
+    cancellations: ["cancel"],
+    cancelled: true,
+    canceling: true,
+    running: true,
+    busy: true,
+  });
+  assert.equal(controller.canceling.value, false);
+  assert.equal(controller.running.value, false);
+  assert.equal(controller.busy.value, false);
+  assert.equal(controller.completed.value, true);
+  assert.deepEqual(
+    controller.items.value.map((entry) => entry.status),
+    ["success", "skipped", "skipped"],
+  );
+  controller.scope.stop();
+});
+
+test("批量刷新只给仍在队列里的卡片显示排队中", () => {
+  const board = readFileSync(
+    new URL("../src/components/ProviderBoard.vue", import.meta.url),
+    "utf8",
+  );
+  const controller = readFileSync(
+    new URL("../src/composables/useAppController.ts", import.meta.url),
+    "utf8",
+  );
+
+  // 已经结束的卡片必须显示自己的成功/失败，不能被整个批次的忙碌状态盖住。
+  assert.match(
+    board,
+    /refreshInProgress && refreshQueuedProviderIds\.has\(provider\.identity\.id\)/,
+  );
+  assert.doesNotMatch(board, /provider\.runtime\.status !== 'syncing'/);
+  assert.match(controller, /item\.status === "pending"/);
+  assert.match(controller, /refreshQueuedProviderIds/);
 });
 
 test("disposing the controller releases its state and ignores all late IPC work", async () => {

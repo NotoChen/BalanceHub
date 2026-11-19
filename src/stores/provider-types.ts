@@ -108,6 +108,7 @@ export interface ProviderProtocolOperationMethodsDescriptor {
   models: string;
   announcements: string | null;
   pricing: string | null;
+  performance: string | null;
   usage: string | null;
   requestLogs: string | null;
   subscription: string | null;
@@ -275,6 +276,8 @@ export interface ProviderIdentityInput {
 
 export interface ProviderCli {
   preferredModel: string;
+  /// 每个 Agent CLI 的模型绑定；未绑定时回落到 preferredModel。
+  agentModels: Record<string, string>;
 }
 
 export interface ProviderCliInput {
@@ -420,10 +423,13 @@ export interface ProviderCapabilities {
   optional: ProviderOptionalCapabilityState[];
   /** 站点价目快照；推荐、用量对账和模型详情共用。 */
   pricing: ProviderPricingSnapshot;
+  /** 站点观测到的模型运行表现；用于模型广场的可用性、延迟和吞吐展示。 */
+  performance: ProviderPerformanceSnapshot;
 }
 
 export type ProviderOptionalCapability =
   | "pricing"
+  | "performance"
   | "usage"
   | "requestLogs"
   | "announcements"
@@ -438,11 +444,59 @@ export interface ProviderOptionalCapabilityState {
   supported: boolean;
   reason: string | null;
   error: string | null;
+  /** 这条结论由谁写入：能力探测、普通刷新或手动操作。 */
+  source?: string | null;
+  /** 最近一次检查该接口的时间；检查失败也会更新。 */
+  lastCheckedAt?: string | null;
+  /** 最近一次得到可用结论的时间。 */
+  lastSuccessAt?: string | null;
 }
 
 export type ProviderPricingSource = "none" | "newApi" | "sub2Api";
 
+/** 站点的计费形态。 */
+export type ProviderBillingMode = "token" | "perRequest" | "image" | "video";
+/** 长上下文阶梯的计价基准。 */
+export type ProviderLongContextBasis = "wholeRequest" | "marginal";
+
+/** 官方参考价（USD / 百万 token）。 */
+export interface ProviderOfficialPrice {
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+}
+
+/** 长上下文阶梯或图片计费的档位。 */
+export interface ProviderPricingTier {
+  minTokens: number;
+  maxTokens: number | null;
+  /** 站点给的可读档位名，如 `≤272K`、`2K`；可能为空。 */
+  label: string;
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  /** 按次或按张的档位单价。 */
+  perRequest: number | null;
+}
+
+export interface ProviderTimePricingPeriod {
+  /** 站点配置时区的 HH:MM。 */
+  start: string;
+  end: string;
+  multiplier: number;
+}
+
+export interface ProviderTimePricing {
+  timezone: string;
+  /** 仅周一至周五生效。 */
+  weekdaysOnly: boolean;
+  periods: ProviderTimePricingPeriod[];
+}
+
 export interface ProviderModelPrice {
+  billing: ProviderBillingMode;
   /** USD / 百万 token。 */
   input: number | null;
   output: number | null;
@@ -451,13 +505,66 @@ export interface ProviderModelPrice {
   /** 按次计费单价（USD / 次）；有值时不再按 token 估算。 */
   perRequest: number | null;
   group: string;
+  /** 站点声明的上下文窗口（token）。 */
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  inputModalities: string[];
+  outputModalities: string[];
+  /** 站点声明的能力标签，如 reasoning、function_calling。 */
+  capabilities: string[];
+  /** 官方参考价；站点没有提供时为空。 */
+  official: ProviderOfficialPrice | null;
+  /** 长上下文阶梯或图片分辨率档位。 */
+  tiers: ProviderPricingTier[];
+  longContextBasis: ProviderLongContextBasis | null;
+  /** 分时倍率；站点没有配置时为空。 */
+  timePricing: ProviderTimePricing | null;
+}
+
+/** 当前价格所采用分组的计费口径。价格已按生效倍率换算。 */
+export interface ProviderGroupPricing {
+  rateMultiplier: number | null;
+  userRateMultiplier: number | null;
+  peakRateEnabled: boolean;
+  /** 高峰时段起止（站点配置时区的 HH:MM）。 */
+  peakStart: string;
+  peakEnd: string;
+  peakRateMultiplier: number | null;
+  longContextPricingEnabled: boolean | null;
 }
 
 export interface ProviderPricingSnapshot {
   models: Record<string, ProviderModelPrice>;
   groups: Record<string, number>;
   group: string;
+  groupPricing: ProviderGroupPricing;
   source: ProviderPricingSource;
+  updatedAt: string | null;
+  error: string | null;
+}
+
+export interface ProviderPerformancePoint {
+  /** unix 秒。 */
+  ts: number;
+  /** 成功率百分比（0–100）。 */
+  successRate: number;
+}
+
+export interface ProviderModelPerformance {
+  /** 成功率百分比（0–100）。 */
+  successRate: number | null;
+  avgLatencyMs: number | null;
+  /** 输出 token / 秒。 */
+  avgTps: number | null;
+  /** 最近一段时间的成功率采样。 */
+  recentSuccess: ProviderPerformancePoint[];
+}
+
+export interface ProviderPerformanceSnapshot {
+  models: Record<string, ProviderModelPerformance>;
+  /** 统计窗口的起止时间（unix 秒）。 */
+  windowStart: number | null;
+  windowEnd: number | null;
   updatedAt: string | null;
   error: string | null;
 }
@@ -676,8 +783,14 @@ export interface LivenessRecord {
   cliKind?: AgentCliKind | string;
   ok: boolean;
   latencyMs: number;
+  /** 实际发给上游的模型名（已应用 wireName 映射）。 */
   model: string;
+  /** 用户配置的模型 ID；旧记录没有该字段，读取时退回 model。 */
+  modelId?: string;
+  /** CLI 实际请求的地址（已按 Agent 端点规则归一化）。 */
   baseUrl: string;
+  /** 归一化之前的站点地址；旧记录没有该字段，读取时退回 baseUrl。 */
+  providerBaseUrl?: string;
   prompt: string;
   responsePreview: string;
   responseRaw?: string;
@@ -1754,6 +1867,16 @@ export interface ProviderProtocolDetectionResult {
   message: string;
   site: ProviderSiteProbeResult | null;
   ambiguous: boolean;
+  /** 每个候选协议的探测结果，用来解释最终识别结论。 */
+  candidates: ProviderProtocolDetectionCandidate[];
+}
+
+export interface ProviderProtocolDetectionCandidate {
+  protocol: ProviderProtocol;
+  label: string;
+  role: "explicit" | "primary" | "apiKeyFallback" | string;
+  ok: boolean;
+  message: string;
 }
 
 export interface CliConfigSnapshot {
@@ -1823,6 +1946,8 @@ export interface TemporaryCliLaunchInput {
 export interface TemporaryCliLaunchContext {
   workdir?: string;
   initialPrompt?: string;
+  /// 从模型比价等入口启动时指定的模型；优先于卡片偏好和 CLI 默认模型。
+  model?: string;
 }
 
 export interface TemporaryCliLaunchPreview {

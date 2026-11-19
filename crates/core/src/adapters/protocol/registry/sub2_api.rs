@@ -96,6 +96,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         models: "GET OpenAI 兼容 /models",
         announcements: Some("GET /api/v1/announcements"),
         pricing: Some("GET /api/v1/model-plaza"),
+        performance: None,
         usage: Some("GET /api/v1/usage/dashboard/trend"),
         request_logs: Some("GET /api/v1/usage"),
         subscription: Some("GET /api/v1/subscriptions/progress"),

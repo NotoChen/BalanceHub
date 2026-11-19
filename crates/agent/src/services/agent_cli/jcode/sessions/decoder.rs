@@ -232,7 +232,8 @@ fn decode_message(
                     .get("cache_creation_input_tokens")
                     .and_then(Value::as_u64),
                 reasoning_tokens: None,
-            },
+            }
+            .with_cache_in_input(),
             false,
             false,
             Some(&format!("jcode-{id}")),

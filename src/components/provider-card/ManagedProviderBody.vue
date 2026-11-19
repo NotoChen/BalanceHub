@@ -16,18 +16,24 @@ import {
   quotaPercent,
   quotaWindowPercent,
 } from "../../utils/oauth-display";
-const props = defineProps<{ provider: Provider; interactive: boolean }>();
+const props = defineProps<{ provider: Provider; interactive: boolean; list?: boolean }>();
 const emit = defineEmits<{ details: []; models: [] }>();
 const subscription = computed(() => props.provider.capabilities.subscription);
 const gateway = computed(() => props.provider.capabilities.gateway);
 /// Rust stores the windows tightest first, so the card shows the two that
 /// decide whether the account still has room instead of the provider's order.
 /// 和中转站卡片同一套窗口条读法：窗口名、重置倒计时、已用比例一行，条在下。
+/// 列表行只有固定高度，窗口同样收口到两条，第二条之后的窗口在说明行汇总。
+const listWindowLimit = computed(() => (props.list ? 2 : 3));
 const windowRows = computed(() =>
-  managedQuotaWindowRows(subscription.value?.windows || []),
+  managedQuotaWindowRows(
+    subscription.value?.windows || [],
+    Date.now(),
+    listWindowLimit.value,
+  ),
 );
 const hiddenWindows = computed(
-  () => (subscription.value?.windows || []).slice(3),
+  () => (subscription.value?.windows || []).slice(listWindowLimit.value),
 );
 const hiddenSummary = computed(() => {
   const [first] = hiddenWindows.value;
@@ -74,65 +80,53 @@ const creditsLabel = computed(() => {
 </script>
 <template>
   <div class="managed-card-body">
-    <template v-if="provider.actions.oauthAccount">
-      <!-- 卡片正文不预留页脚空白：窗口条按内容排布，模型芯片是正文最后一层，
-           紧贴页脚分界线。 -->
-      <div v-if="windowRows.length" class="managed-card-quotas">
-        <AccountQuotaBar
-          v-for="row in windowRows"
-          :key="row.label"
-          :window="providerQuotaBarWindow(row)"
-          compact
-        />
-      </div>
-      <div v-else class="managed-card-empty">
-        {{ subscription?.error || "同步后查看账号额度" }}
-      </div>
-      <!-- 钱包余额是溢出账户，读法和中转站卡片的「本周剩余 $x」一样放在额度
-           区块里，不和窗口条抢同一行的说明位置。 -->
-      <div v-if="creditsLabel" class="managed-card-credits">
-        {{ creditsLabel }}
-      </div>
-      <!-- 没画出来的窗口是额度读数的一部分，紧跟额度区块；续期异常由底栏的
-           状态说明和「重新授权」按钮负责，正文不再重复同一句话。 -->
-      <div
-        v-if="hiddenWindows.length || provider.auth.oauth?.organizationName"
-        class="managed-card-notes"
-      >
-        <button
-          v-if="hiddenWindows.length"
-          type="button"
-          :disabled="!interactive"
-          :title="hiddenTitle"
-          @click.stop="emit('details')"
-          @pointerdown.stop
+    <!-- 列表布局把额度、余额和说明收进左列，右列留给三行模型；卡片布局
+         里这个容器不生成盒子，下面的元素仍是正文的直接子项。 -->
+    <div class="provider-card-body-main">
+      <template v-if="provider.actions.oauthAccount">
+        <div v-if="windowRows.length" class="managed-card-quotas">
+          <AccountQuotaBar
+            v-for="row in windowRows"
+            :key="row.label"
+            :window="providerQuotaBarWindow(row)"
+            compact
+          />
+        </div>
+        <div v-else class="managed-card-empty">
+          {{ subscription?.error || "同步后查看账号额度" }}
+        </div>
+        <!-- 钱包余额是溢出账户，读法和中转站卡片的「本周剩余 $x」一样放在额度
+             区块里，不和窗口条抢同一行的说明位置。 -->
+        <div v-if="creditsLabel" class="managed-card-credits">
+          {{ creditsLabel }}
+        </div>
+        <!-- 没画出来的窗口是额度读数的一部分，紧跟额度区块；续期异常由底栏的
+             状态说明和「重新授权」按钮负责，正文不再重复同一句话。 -->
+        <div
+          v-if="hiddenWindows.length || provider.auth.oauth?.organizationName"
+          class="managed-card-notes"
         >
-          还有 {{ hiddenWindows.length }} 项 · {{ hiddenSummary }}
-          <ArrowUpRight :size="12" />
-        </button>
-        <span v-else-if="provider.auth.oauth?.organizationName">{{
-          provider.auth.oauth.organizationName
-        }}</span>
-      </div>
-      <!-- 数据新鲜时卡片不写同步时间；过期了才说一句，避免拿旧数字做判断。 -->
-      <ProviderCardStaleNote :synced-at="provider.automation.lastSyncedAt" />
-      <!-- 自动刷新被判失败后进入冷却，写清楚何时恢复，别让人以为卡住不动。 -->
-      <ProviderCardCooldownNote :provider="provider" />
-      <ProviderModelPreview
-        class="provider-card-models-tail"
-        :models="provider.visibleModels"
-        :state="provider.capabilities.availableModelsState"
-        :sync-time="modelSyncTime"
-        :interactive="interactive"
-        @open="emit('models')"
-      />
-    </template>
-    <template v-else>
+          <button
+            v-if="hiddenWindows.length"
+            type="button"
+            :disabled="!interactive"
+            :title="hiddenTitle"
+            @click.stop="emit('details')"
+            @pointerdown.stop
+          >
+            还有 {{ hiddenWindows.length }} 项 · {{ hiddenSummary }}
+            <ArrowUpRight :size="12" />
+          </button>
+          <span v-else-if="provider.auth.oauth?.organizationName">{{
+            provider.auth.oauth.organizationName
+          }}</span>
+        </div>
+      </template>
       <!-- 网关卡只换数据源，不换排版：主数字和成功率条沿用中转站卡片的额度
            区块（同一组 class、同一支进度条），逐时间桶的请求分布属于明细，
            留在网关面板里。 -->
       <section
-        v-if="gateway"
+        v-else-if="gateway"
         class="provider-card-quota"
         aria-label="网关授权与请求"
       >
@@ -165,17 +159,17 @@ const creditsLabel = computed(() => {
       <ProviderCardStaleNote :synced-at="provider.automation.lastSyncedAt" />
       <!-- 自动刷新被判失败后进入冷却，写清楚何时恢复，别让人以为卡住不动。 -->
       <ProviderCardCooldownNote :provider="provider" />
-      <!-- 网关卡和中转站卡、账号卡共用同一块模型区：不再只报一个「可用模型 N」
-           的数字，也不自己画一套芯片。 -->
-      <ProviderModelPreview
-        class="provider-card-models-tail"
-        :models="provider.visibleModels"
-        :state="provider.capabilities.availableModelsState"
-        :sync-time="modelSyncTime"
-        :interactive="interactive"
-        @open="emit('models')"
-      />
-    </template>
+    </div>
+    <!-- 四类卡片共用同一块模型区：标题一行、芯片三行，点开完整列表。 -->
+    <ProviderModelPreview
+      class="provider-card-models-tail"
+      :models="provider.visibleModels"
+      :state="provider.capabilities.availableModelsState"
+      :sync-time="modelSyncTime"
+      :interactive="interactive"
+      :show-overflow="!list"
+      @open="emit('models')"
+    />
   </div>
 </template>
 <style scoped>

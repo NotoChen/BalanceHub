@@ -375,10 +375,14 @@ impl NewApiAdapter {
             Ok(client) => {
                 let mut refreshed = super::quota::refresh_provider(&client, provider).await;
                 if provider.runtime.enabled {
-                    // 价目是推荐与对账的价格来源；失败只记录在快照里，不影响
-                    // 余额和模型列表的刷新结果。
-                    let pricing = super::pricing::probe_pricing(&client, &refreshed).await;
+                    // 价目是推荐与对账的价格来源，模型表现是模型广场的观测数据；
+                    // 两者互不依赖，失败只记录在各自快照里，不影响余额和模型列表。
+                    let (pricing, performance) = tokio::join!(
+                        super::pricing::probe_pricing(&client, &refreshed),
+                        super::performance::probe_performance(&client, &refreshed),
+                    );
                     refreshed.capabilities.pricing = pricing.snapshot;
+                    refreshed.capabilities.performance = performance.snapshot;
                 }
                 if !crate::models::provider_domain::model_list::action(&refreshed).can_sync {
                     return refreshed;
@@ -569,9 +573,20 @@ pub async fn probe_capabilities(
         capabilities.api_key_management_supported = false;
         capabilities.invitation_known = true;
         capabilities.invitation_supported = false;
-        let pricing = super::pricing::probe_pricing(client, provider).await;
+        let (pricing, performance) = tokio::join!(
+            super::pricing::probe_pricing(client, provider),
+            super::performance::probe_performance(client, provider),
+        );
         capabilities.pricing = pricing.snapshot;
-        for state in super::optional_probe::probe_optional(client, provider, pricing.state).await {
+        capabilities.performance = performance.snapshot;
+        for state in super::optional_probe::probe_optional(
+            client,
+            provider,
+            pricing.state,
+            performance.state,
+        )
+        .await
+        {
             capabilities.set_optional_state(state);
         }
         return (capabilities, invite_link, None);
@@ -635,9 +650,16 @@ pub async fn probe_capabilities(
         }
     }
 
-    let pricing = super::pricing::probe_pricing(client, provider).await;
+    let (pricing, performance) = tokio::join!(
+        super::pricing::probe_pricing(client, provider),
+        super::performance::probe_performance(client, provider),
+    );
     capabilities.pricing = pricing.snapshot;
-    for state in super::optional_probe::probe_optional(client, provider, pricing.state).await {
+    capabilities.performance = performance.snapshot;
+    for state in
+        super::optional_probe::probe_optional(client, provider, pricing.state, performance.state)
+            .await
+    {
         capabilities.set_optional_state(state);
     }
 

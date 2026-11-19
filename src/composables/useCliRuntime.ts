@@ -35,7 +35,9 @@ interface UseCliRuntimeOptions {
     providerId: string,
     cliKind: AgentCliKind,
     apiKeyLocalId: string,
+    model?: string,
   ) => Promise<AgentConfigurationEdit>;
+  bindAgentModel: (providerId: string, cliKind: AgentCliKind, model: string) => Promise<void>;
 }
 
 export function useCliRuntime(options: UseCliRuntimeOptions) {
@@ -50,6 +52,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
   const cliConfigKeyPickerProvider = ref<Provider | null>(null);
   const cliConfigKeyPickerKind = ref<AgentCliKind | null>(null);
   const cliConfigKeyPickerKeys = ref<ProviderApiKeyOption[]>([]);
+  const cliConfigKeyPickerModel = ref("");
   const cliConfigurationEditor = reactive(useAgentConfigurationEditor());
   let runtimeRefreshPending = false;
   let cliConfigRequestRevision = 0;
@@ -62,6 +65,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     cliConfigKeyPickerProvider.value = null;
     cliConfigKeyPickerKind.value = null;
     cliConfigKeyPickerKeys.value = [];
+    cliConfigKeyPickerModel.value = "";
   }, { flush: "sync" });
 
   watch(() => cliConfigurationEditor.visible, (visible) => {
@@ -187,7 +191,11 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     store.cancelAgentRuntimeRefresh();
   });
 
-  async function switchProviderCliConfig(provider: Provider, cliKind: AgentCliKind) {
+  async function switchProviderCliConfig(
+    provider: Provider,
+    cliKind: AgentCliKind,
+    model = "",
+  ) {
     if (switchingCliConfig.value) {
       return;
     }
@@ -195,7 +203,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     // An OAuth card hands its own account authorization to the vendor CLI, so
     // there is no relay key to choose.
     if (provider.identity.protocol === "oauth") {
-      await previewProviderCliConfig(provider, cliKind, "");
+      await previewProviderCliConfig(provider, cliKind, "", model);
       return;
     }
 
@@ -208,13 +216,19 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
       return;
     }
     if (keys.length === 1) {
-      await previewProviderCliConfig(provider, cliKind, keys[0].localId.trim());
+      await previewProviderCliConfig(
+        provider,
+        cliKind,
+        keys[0].localId.trim(),
+        model,
+      );
       return;
     }
 
     cliConfigKeyPickerProvider.value = provider;
     cliConfigKeyPickerKind.value = cliKind;
     cliConfigKeyPickerKeys.value = keys;
+    cliConfigKeyPickerModel.value = model;
     cliConfigKeyPickerVisible.value = true;
   }
 
@@ -222,24 +236,38 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     const provider = cliConfigKeyPickerProvider.value;
     const cliKind = cliConfigKeyPickerKind.value;
     if (!provider || !cliKind || switchingCliConfig.value) return;
+    const model = cliConfigKeyPickerModel.value;
     cliConfigKeyPickerVisible.value = false;
-    await previewProviderCliConfig(provider, cliKind, option.localId.trim());
+    await previewProviderCliConfig(
+      provider,
+      cliKind,
+      option.localId.trim(),
+      model,
+    );
   }
 
   async function previewProviderCliConfig(
     provider: Provider,
     cliKind: AgentCliKind,
     apiKeyLocalId: string,
+    model = "",
   ) {
     const providerId = provider.identity.id;
+    const boundModel = model.trim();
+    if (boundModel) {
+      // Remember the ranked model for this Agent so later launches and
+      // switches keep the same binding. The preview still carries it in case
+      // this write fails.
+      await options.bindAgentModel(providerId, cliKind, boundModel).catch(() => {});
+    }
     cliConfigurationEditor.close();
     const requestRevision = ++cliConfigRequestRevision;
     switchingCliConfig.value = { providerId, cliKind };
     try {
       await cliConfigurationEditor.open(
-        () => options.previewConfig(providerId, cliKind, apiKeyLocalId),
+        () => options.previewConfig(providerId, cliKind, apiKeyLocalId, model),
         { agentKind: cliKind, workspace: null, label: agentCliLabel(store.cliEnvironmentProbe, cliKind) + " 默认配置" },
-        JSON.stringify(["provider", providerId, cliKind, apiKeyLocalId]),
+        JSON.stringify(["provider", providerId, cliKind, apiKeyLocalId, model]),
       );
     } finally {
       if (requestRevision === cliConfigRequestRevision) switchingCliConfig.value = null;
@@ -274,6 +302,7 @@ export function useCliRuntime(options: UseCliRuntimeOptions) {
     cliConfigKeyPickerProvider,
     cliConfigKeyPickerKind,
     cliConfigKeyPickerKeys,
+    cliConfigKeyPickerModel,
     cliConfigKeyPickerCurrentConfig,
     cliConfigurationEditor,
     openCliInstances,

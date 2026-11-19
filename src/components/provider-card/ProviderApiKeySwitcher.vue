@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { IconCheck, IconSwap } from "@arco-design/web-vue/es/icon";
 import type { Provider, ProviderApiKeyOption } from "../../stores/providers";
 import {
+  formatQuotaValue,
   maskApiKey,
   providerApiKeyLocalRemark,
   providerUsesApiKeyOption,
@@ -34,6 +35,32 @@ function apiKeyMaskedLabel(option: ProviderApiKeyOption) {
 
 function isCurrentApiKey(option: ProviderApiKeyOption) {
   return providerUsesApiKeyOption(props.provider, option);
+}
+
+/// 切 Key 之前要先知道差别在哪：分组决定倍率，模型限额决定能调什么，
+/// 剩余额度决定还能不能继续用。三件事都来自同一个 Key 选项，不另查站点。
+function apiKeyFacts(option: ProviderApiKeyOption): Array<{ label: string; title?: string }> {
+  const facts: Array<{ label: string; title?: string }> = [];
+  const group = option.group?.trim();
+  if (group) facts.push({ label: `分组 ${group}` });
+  if (option.modelLimitsEnabled) {
+    const models = option.modelLimits.filter((item) => item.trim());
+    facts.push({
+      label: models.length ? `限 ${models.length} 个模型` : "模型限额已开启",
+      title: models.length ? models.join("、") : undefined,
+    });
+  } else {
+    facts.push({ label: "全模型可用" });
+  }
+  facts.push({
+    label: option.unlimitedQuota
+      ? "无限额度"
+      : `剩余 ${formatQuotaValue(option.remainQuota || 0, {
+          quotaDisplayType: option.quotaDisplayType || "currency",
+          currencySymbol: option.currencySymbol || "$",
+        })}`,
+  });
+  return facts;
 }
 
 function canSelectApiKey(option: ProviderApiKeyOption) {
@@ -99,6 +126,13 @@ function openApiKeyManager() {
             <span class="provider-card-api-key-switcher-copy">
               <strong>{{ apiKeyLabel(option) }}</strong>
               <small v-if="apiKeyMaskedLabel(option)">{{ apiKeyMaskedLabel(option) }}</small>
+              <span class="provider-card-api-key-switcher-facts">
+                <span
+                  v-for="fact in apiKeyFacts(option)"
+                  :key="fact.label"
+                  :title="fact.title"
+                >{{ fact.label }}</span>
+              </span>
             </span>
           </button>
         </div>

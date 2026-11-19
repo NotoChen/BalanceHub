@@ -11,11 +11,14 @@ import ProviderCardActions from "./provider-card/ProviderCardActions.vue";
 import ProviderCardCliOrbits from "./provider-card/ProviderCardCliOrbits.vue";
 import WorkspaceCard from "./workspace-card/WorkspaceCard.vue";
 import type { ProviderCardCliOrbitSpec } from "../utils/provider-card-cli-orbit";
+import type { LivenessSettings } from "../utils/provider-liveness";
 import { providerCardScopeNoun, providerCardTitle } from "../utils/provider-display";
 
 const props = withDefaults(
   defineProps<{
     provider: Provider;
+    /// 测活线的目标解析需要全局设置；看板会统一传入。
+    settings?: LivenessSettings;
     tone: ProviderCardTone;
     title?: string;
     interactive?: boolean;
@@ -30,7 +33,10 @@ const props = withDefaults(
     cliConfigSwitching?: boolean;
     probingCapabilities?: boolean;
     checkingIn?: boolean;
+    /// 全局刷新正在进行，这张卡还没有轮到自己；卡片状态标写「排队中」。
+    refreshQueued?: boolean;
     ariaHidden?: boolean;
+    list?: boolean;
   }>(),
   {
     title: "",
@@ -46,7 +52,9 @@ const props = withDefaults(
     cliConfigSwitching: false,
     probingCapabilities: false,
     checkingIn: false,
+    refreshQueued: false,
     ariaHidden: false,
+    list: false,
   },
 );
 
@@ -166,10 +174,11 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
         'provider-card-generic-api': isGenericApi,
         'provider-card-managed': managed,
         'provider-card-has-cli-orbits': cliOrbits.length > 0,
+        'workspace-card-list': list,
       },
       managedAccent,
     ]"
-    :fixed-height="!showLivenessTimeline"
+    :fixed-height="!list && !showLivenessTimeline"
     :interacting="interactionActive"
     :role="interactive ? 'group' : undefined"
     :aria-hidden="ariaHidden || undefined"
@@ -200,18 +209,22 @@ function forwardOpenCliInstances(provider: Provider, cliKind: AgentCliKind) {
         :tone="tone"
         :interactive="interactive"
         :active-cli-counts="activeCliCounts"
+        :list="list"
+        :refresh-queued="refreshQueued"
         @open-cli-instances="forwardOpenCliInstances"
         @copy-api-key="emit('copySecret', $event, 'apiKey')"
         @manage-api-keys="emit('openApiKeyManager', $event)"
         @select-api-key="(provider, option) => emit('selectApiKey', provider, option)"
       />
     </template>
-    <ManagedProviderBody v-if="managed" :provider="provider" :interactive="interactive" @details="emit('edit', provider)" @models="emit('openAvailableModels', provider)" />
+    <ManagedProviderBody v-if="managed" :provider="provider" :interactive="interactive" :list="list" @details="emit('edit', provider)" @models="emit('openAvailableModels', provider)" />
     <ProviderCardBody
       v-else
       :provider="provider"
+      :settings="settings"
       :show-liveness-timeline="showLivenessTimeline"
       :interactive="interactive"
+      :list="list"
       @models="emit('openAvailableModels', provider)"
     />
     <ProviderCardActions

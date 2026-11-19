@@ -185,6 +185,10 @@ fn portable_projection_retains_local_sessions_and_excludes_automatic_execution_a
     provider.auth.refresh_token = "fixture-refresh-token-a".to_owned();
     provider.auth.access_token_expires_at = Some(999999);
     provider.quota.available = 42.0;
+    provider
+        .cli
+        .agent_models
+        .insert("codex".to_owned(), "gpt-5.5".to_owned());
     let mut source = AppData::new_current(vec![provider], AppSettings::default());
     source.settings.proxy_url = "http://fixture-proxy.invalid:8888".to_owned();
     source.settings.theme_mode = ThemeMode::Dark;
@@ -205,6 +209,15 @@ fn portable_projection_retains_local_sessions_and_excludes_automatic_execution_a
     assert!(imported.providers[0].auth.access_token.is_empty());
     assert!(!imported.providers[0].liveness.enabled);
     assert!(!imported.providers[0].quota.known);
+    assert_eq!(
+        imported.providers[0]
+            .cli
+            .agent_models
+            .get("codex")
+            .map(String::as_str),
+        Some("gpt-5.5"),
+        "每台设备共享同一个中转站的 Agent 模型绑定"
+    );
     let mut current = source.clone();
     current.providers[0].auth.access_token = "fixture-local-token-b".to_owned();
     current.providers[0].auth.refresh_token = "fixture-local-refresh-b".to_owned();

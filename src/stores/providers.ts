@@ -32,6 +32,7 @@ import {
   setLocalProviderApiKeyRemark as setLocalProviderApiKeyRemarkCommand,
   saveProvider as saveProviderCommand,
   setProviderEnabled,
+  setProviderAgentModel as setProviderAgentModelCommand,
   setDefaultLocalProviderApiKey as setDefaultLocalProviderApiKeyCommand,
   syncAvailableModels as syncAvailableModelsCommand,
   probeProviderCapabilities as probeProviderCapabilitiesCommand,
@@ -49,6 +50,7 @@ import { useCliRuntimeStore } from "./cli-runtime";
 import { useSettingsStore } from "./settings";
 import { useWorkspaceStore } from "./workspaces";
 import type {
+  AgentCliKind,
   Provider,
   ProviderInput,
   ProviderApiKeyPatch,
@@ -176,6 +178,13 @@ export const useProviderStore = defineStore("providers", {
       }
 
       this.upsertProvider(await withTimeout(setProviderEnabled(id, enabled), 15_000, "更新卡片状态超时，请刷新后核对"));
+    },
+    async setAgentModel(id: string, cliKind: AgentCliKind, model: string) {
+      this.upsertProvider(await withTimeout(
+        setProviderAgentModelCommand(id, cliKind, model.trim() || null),
+        15_000,
+        "保存 Agent 模型绑定超时，请刷新后核对",
+      ));
     },
     async exportAppData(path: string) {
       return exportAppDataCommand(path);

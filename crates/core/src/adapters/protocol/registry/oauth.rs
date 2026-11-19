@@ -34,6 +34,7 @@ pub(super) const DEFINITION: ProviderProtocolDefinition = ProviderProtocolDefini
         models: "账号模型目录",
         announcements: None,
         pricing: None,
+        performance: None,
         usage: None,
         request_logs: None,
         subscription: None,

@@ -19,6 +19,21 @@ pub(crate) fn host_platform() -> &'static str {
     std::env::consts::OS
 }
 
+/// 前端按后台任务中心的活动任务同步退出守卫；桌面专属，服务端没有窗口退出。
+#[tauri::command]
+pub(crate) fn set_app_running_tasks(
+    state: tauri::State<'_, crate::state::ExitGuardState>,
+    active: bool,
+) {
+    state.set_running(active);
+}
+
+/// 用户在退出确认里确认后执行；由用户主动触发，不再回到关闭守卫。
+#[tauri::command]
+pub(crate) fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 const PROJECT_REPOSITORY_URL: &str = "https://github.com/NotoChen/BalanceHub";
 
 #[tauri::command]

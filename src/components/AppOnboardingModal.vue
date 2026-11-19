@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import {
+  IconApps,
   IconCheckCircleFill,
   IconPlus,
-  IconSettings,
+  IconSync,
   IconUpload,
 } from "@arco-design/web-vue/es/icon";
 import { useHostCapabilities } from "../composables/useHostCapabilities";
@@ -14,13 +15,17 @@ defineProps<{
   visible: boolean;
   providerCount: number;
   cliConfigured: boolean;
+  cliDetecting: boolean;
   importingAppData: boolean;
 }>();
 
 const emit = defineEmits<{
   addProvider: [];
   importData: [];
-  openSettings: [];
+  probeCli: [];
+  openAgentWorkspace: [];
+  /// 关闭窗口只是稍后再看，不应把「完成初始化」永久写入设置。
+  later: [];
   finish: [];
 }>();
 </script>
@@ -32,7 +37,7 @@ const emit = defineEmits<{
     :width="700"
     unmount-on-close
     modal-class="surface-modal onboarding-modal"
-    @update:visible="(value) => { if (!value) emit('finish'); }"
+    @update:visible="(value) => { if (!value) emit('later'); }"
   >
     <div class="onboarding-panel">
       <div class="onboarding-header">
@@ -75,11 +80,15 @@ const emit = defineEmits<{
           <div>
             <h3>本机测活环境</h3>
             <p v-if="cliConfigured">已检测到可用的 CLI 环境。</p>
-            <p v-else>进入应用后会分别检测 Agent 与终端。</p>
+            <p v-else>可以检测本机已安装的 Agent CLI；检测结果会用于测活和临时启动。</p>
             <div class="onboarding-actions">
-              <a-button @click="emit('openSettings')">
-                <template #icon><icon-settings /></template>
-                打开设置
+              <a-button :loading="cliDetecting" @click="emit('probeCli')">
+                <template #icon><icon-sync /></template>
+                {{ cliDetecting ? "正在检测…" : "检测本机 CLI" }}
+              </a-button>
+              <a-button @click="emit('openAgentWorkspace')">
+                <template #icon><icon-apps /></template>
+                打开 Agent 工作区
               </a-button>
             </div>
           </div>
@@ -87,7 +96,11 @@ const emit = defineEmits<{
       </div>
 
       <div class="onboarding-footer">
-        <a-button type="primary" @click="emit('finish')">进入应用</a-button>
+        <span>关闭窗口只会在本次会话隐藏，下次启动仍可继续配置。</span>
+        <div>
+          <a-button @click="emit('later')">稍后配置</a-button>
+          <a-button type="primary" @click="emit('finish')">进入应用</a-button>
+        </div>
       </div>
     </div>
   </a-modal>

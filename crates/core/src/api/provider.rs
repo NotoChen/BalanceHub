@@ -20,6 +20,7 @@ pub const COMMANDS: &[&str] = &[
     "remove_provider",
     "reorder_providers",
     "set_provider_enabled",
+    "set_provider_model_binding",
     "preview_provider_check_in_policy",
     "detect_provider_protocol",
     "probe_provider_site",
@@ -28,6 +29,7 @@ pub const COMMANDS: &[&str] = &[
     "sync_available_models",
     "refresh_providers",
     "refresh_all_providers_with_progress",
+    "cancel_provider_refresh",
     "get_site_announcements",
     "mark_site_announcement_read",
     "get_provider_usage",
@@ -112,6 +114,13 @@ pub async fn handle(
             crate::host::refresh_tray();
             to_value(ProviderView::from(provider))
         }
+        "set_provider_model_binding" => {
+            let id: String = arg(args, "id")?;
+            let cli_kind: crate::models::AgentCliKind = arg(args, "cliKind")?;
+            let model: String = optional(args, "model")?.unwrap_or_default();
+            let provider = service.set_agent_model(id, cli_kind, model).await?;
+            to_value(ProviderView::from(provider))
+        }
         "preview_provider_check_in_policy" => {
             let input: ProviderInput = arg(args, "input")?;
             let provider = crate::models::Provider::from_input(input, String::new());
@@ -154,6 +163,10 @@ pub async fn handle(
                 updated_providers: provider_views(result.updated_providers),
                 items,
             })
+        }
+        "cancel_provider_refresh" => {
+            ProviderService::cancel_refresh();
+            Ok(Value::Null)
         }
         "get_site_announcements" => to_value(service.site_announcements().await?),
         "mark_site_announcement_read" => {

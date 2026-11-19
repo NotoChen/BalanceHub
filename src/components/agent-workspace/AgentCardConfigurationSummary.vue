@@ -5,7 +5,15 @@ import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import { agentConfigurationFileLabel, agentConfigurationOpenAction, agentConfigurationReadOnlyReason, agentConfigurationSourceStatus } from "../../utils/agent-configuration-display";
 import type { AgentConfigurationSnapshot, AgentConfigurationSource } from "../../stores/agent-configuration-types";
 
-const props = defineProps<{ label: string; snapshot: AgentConfigurationSnapshot | null; loading: boolean; error: string; stale: boolean }>();
+const props = withDefaults(defineProps<{
+  label: string;
+  snapshot: AgentConfigurationSnapshot | null;
+  loading: boolean;
+  error: string;
+  stale: boolean;
+  /// 列表布局只展示两行芯片，标题右侧补上总数，避免被裁掉的文件无声消失。
+  list?: boolean;
+}>(), { list: false });
 const emit = defineEmits<{ openFile: [sourceId: string]; refresh: [] }>();
 const rank = (source: AgentConfigurationSource) => source.format === "markdown" ? 2
   : source.actions.some((action) => action.action === "edit" && action.available) ? 0 : 1;
@@ -34,7 +42,7 @@ function statusLabel(source: AgentConfigurationSource) {
 
 <template>
   <section class="agent-card-configuration" :aria-label="`${label} 配置文件`" :aria-busy="loading || undefined">
-    <h3 class="agent-card-section-heading">配置文件</h3>
+    <h3 class="agent-card-section-heading">配置文件<span v-if="list && rows.length" class="agent-card-section-count">{{ rows.length }}</span></h3>
     <div v-if="rows.length" class="agent-card-file-list">
       <button v-for="source in rows" :key="source.sourceId" type="button" class="workspace-card-chip agent-card-file" :disabled="!canOpen(source)" :title="detail(source)" :aria-label="`打开 ${agentConfigurationFileLabel(source, rows)}${statusLabel(source) ? '，' + statusLabel(source) : ''}`" @click="emit('openFile', source.sourceId)">
         <IconFile :size="13" aria-hidden="true" /><span class="agent-card-file-name">{{ agentConfigurationFileLabel(source, rows) }}</span><span v-if="statusLabel(source)" class="agent-card-file-state">{{ statusLabel(source) }}</span>

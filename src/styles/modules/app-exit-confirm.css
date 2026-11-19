@@ -1,0 +1,66 @@
+.app-exit-confirm-title small {
+  display: block;
+  margin-top: 2px;
+  color: var(--surface-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.app-exit-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.app-exit-confirm-lead {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.app-exit-confirm-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.app-exit-confirm-tasks li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface-panel-soft);
+}
+
+.app-exit-confirm-task-title {
+  color: var(--surface-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-exit-confirm-task-detail {
+  color: var(--surface-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.app-exit-confirm-more {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 12px;
+}
+
+.app-exit-confirm-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}

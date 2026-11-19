@@ -65,6 +65,12 @@ pub fn data_dir() -> Result<PathBuf, String> {
     current().data_dir()
 }
 
+/// 宿主尚未安装或数据目录不可用时返回 `None`。运行时状态（重试、备用地址）
+/// 都是尽力而为的持久化，不应为了写一份读数而让请求或调度 panic。
+pub fn data_dir_optional() -> Option<PathBuf> {
+    SHARED.get().and_then(|host| host.data_dir().ok())
+}
+
 pub fn config_dir() -> Result<PathBuf, String> {
     current().config_dir()
 }

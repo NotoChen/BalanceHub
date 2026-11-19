@@ -84,14 +84,25 @@ pub(crate) async fn preview_cli_config(
     id: String,
     cli_kind: AgentCliKind,
     api_key_local_id: String,
+    model: Option<String>,
 ) -> Result<AgentConfigurationEdit, AgentConfigurationError> {
     let (actor, service) = super::configuration::actor_and_service(client)?;
     let data = crate::state::app_data();
-    let provider = data
+    let mut provider = data
         .providers
         .into_iter()
         .find(|provider| provider.identity.id == id)
         .ok_or_else(|| AgentConfigurationError::new(AgentConfigurationErrorKind::InvalidRequest))?;
+    // The recommendation ranks a specific model. Apply it to this write
+    // instead of silently falling back to the provider's single preferred
+    // model, which may belong to a different Agent.
+    if let Some(model) = model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        provider.cli.bind_agent_model(cli_kind, model);
+    }
     super::configuration::run_configuration(move || {
         service.begin_provider_edit(
             &actor,

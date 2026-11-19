@@ -1,0 +1,327 @@
+/* 中转站、OAuth 账号和 CPA 网关共用的列表行。根节点和正文骨架在
+   workspace-list.css；这里把一行分成三段：
+   - 标题导轨：站点名、协议、账号名、用户名和用户 ID 全部收在一起；
+   - 数据区：左列额度按「余额 → 比例条 → 说明」竖排，右列模型排三行；
+   - 动作导轨：图标按钮折成两行，比分一整排更窄，把宽度让给数据区。
+   行仍然是一张独立卡片，卡片之间保留间距，不再共用一张连成一片的表面。 */
+
+.provider-board.is-list {
+  --workspace-list-title-width: clamp(208px, 22vw, 272px);
+}
+
+.provider-board.is-list .overview-provider-grid {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 8px;
+}
+
+.provider-board.is-list .overview-provider-grid > * {
+  max-width: none;
+}
+
+/* CLI 轨道是卡片封面上的装饰，在行高只有一条的位置会压到相邻卡片。 */
+.provider-board.is-list .overview-provider-grid > .workspace-card .provider-card-cli-orbits {
+  display: none;
+}
+
+/* 标题行在列表里不再用分隔线收口：身份和正文由标题栏的竖线分开。 */
+.provider-card.workspace-card-list > .workspace-card-header {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* 账号的次级身份跟着站点名一起进标题导轨。卡片布局里它仍在正文，
+   列表布局隐藏正文节点，只由这里显示一次。 */
+.provider-card.workspace-card-list .provider-card-header-account {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+  color: var(--surface-muted);
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+}
+
+.provider-card.workspace-card-list .provider-card-header-account > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.provider-card.workspace-card-list .provider-card-header-account span + span {
+  flex: 0 0 auto;
+}
+
+.provider-card.workspace-card-list .provider-card-header-account span + span::before {
+  margin-right: 5px;
+  margin-left: 5px;
+}
+
+.provider-card.workspace-card-list .provider-card-identity {
+  display: none;
+}
+
+/* 列表里状态文字保留可读：扫视时既能靠颜色，也能直接读到「正常 / 需关注 /
+   排队中」，不用把鼠标停在状态点上。 */
+.provider-card.workspace-card-list .provider-card-status {
+  gap: 4px;
+  font-size: 10px;
+}
+
+.provider-card.workspace-card-list .provider-card-status > span {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  white-space: nowrap;
+}
+
+/* Key 卡的两行副标题（地址、Key）在列表里并排，避免标题列被撑高。 */
+.provider-card.workspace-card-list .provider-card-api-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+}
+
+/* 动作导轨折成两行：按 DOM 顺序从左到右排，满六枚换行。视觉顺序和
+   键盘顺序一致，不靠 grid 的列优先把按钮重新洗牌。动作少时导轨自动
+   变窄；最多十二枚时仍只有两行，宽度比分一整排小得多。 */
+.provider-card.workspace-card-list .workspace-card-footer {
+  gap: 6px;
+}
+
+.provider-card.workspace-card-list .workspace-card-quick-actions {
+  display: flex;
+  max-width: calc(6 * 24px + 5 * 2px);
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  gap: 3px 2px;
+}
+
+.provider-card.workspace-card-list .workspace-card-action-group {
+  display: contents;
+}
+
+.provider-card.workspace-card-list .workspace-card-action-divider {
+  display: none;
+}
+
+/* 正文在列表里是两列：左列额度固定宽度，从上往下读「余额 → 比例条 →
+   说明」；右列模型吃剩余宽度，标题独占一行，下面排三行芯片。行高不变，
+   但纵向空间真正用于信息，模型不再被压成一行。 */
+.provider-card.workspace-card-list .provider-card-body,
+.provider-card.workspace-card-list .managed-card-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0 20px;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 额度列固定宽度，各行的余额和进度条因此落在同一条竖线上；授权卡的窗口
+   条比钱包条宽，给它稍宽的一列，三行模型仍有足够宽度。整列按内容高度
+   垂直居中：身份导轨和动作导轨都在行内居中，额度块若贴顶就会成为唯一
+   一段悬空的内容；块内仍按「余额 → 比例条 → 说明」从上往下读。 */
+.provider-card.workspace-card-list .provider-card-body > .provider-card-body-main,
+.provider-card.workspace-card-list .managed-card-body > .provider-card-body-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-self: center;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.provider-card.workspace-card-list .provider-card-body > .provider-card-body-main {
+  width: 220px;
+  max-width: 220px;
+  flex: 0 0 220px;
+}
+
+.provider-card.workspace-card-list .managed-card-body > .provider-card-body-main {
+  width: 280px;
+  max-width: 280px;
+  flex: 0 0 280px;
+}
+
+/* 额度读数在上，窗口条或钱包比例条在下，过期/冷却/备用地址说明再往下。 */
+.provider-card.workspace-card-list .provider-card-quota {
+  display: flex;
+  min-width: 0;
+  max-width: none;
+  flex: 0 0 auto;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.provider-card.workspace-card-list .provider-card-balance {
+  justify-content: flex-start;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* 主数字在列表里降到标题同级，行高不再按卡片封面排版。 */
+.provider-card.workspace-card-list .provider-card-balance strong {
+  font-size: 17px;
+  line-height: 22px;
+}
+
+/* 比例条在余额下一行：百分比贴条左端，条吃满额度列剩余宽度。 */
+.provider-card.workspace-card-list .provider-card-progress-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding-top: 0;
+}
+
+.provider-card.workspace-card-list .provider-card-progress-row .provider-quota-progress {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* 多个额度窗口在额度列里逐条竖排；每条窗口已经有「名称 + 比例 + 条」，
+   固定行高下比两列并排更容易读全重置时间和比例。 */
+.provider-card.workspace-card-list .provider-card-quota-windows,
+.provider-card.workspace-card-list .managed-card-quotas {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.provider-card.workspace-card-list .provider-card-quota-windows > *,
+.provider-card.workspace-card-list .managed-card-quotas > * {
+  min-width: 0;
+}
+
+.provider-card.workspace-card-list .account-quota {
+  min-width: 0;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.provider-card.workspace-card-list .account-quota-track {
+  height: 4px;
+}
+
+/* 授权卡的余额、说明和异常跟在窗口条后面，属于同一列。 */
+.provider-card.workspace-card-list .managed-card-credits,
+.provider-card.workspace-card-list .managed-card-notes,
+.provider-card.workspace-card-list .provider-card-stale,
+.provider-card.workspace-card-list .provider-card-cooldown,
+.provider-card.workspace-card-list .provider-card-endpoint {
+  min-width: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.provider-card.workspace-card-list .managed-card-empty {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 13px;
+}
+
+/* 模型是右列：标题单独一行，下面三行芯片。标题不再占左侧一列，芯片因此
+   能用满右列宽度；行高仍由统一的列表行高控制。 */
+.provider-card.workspace-card-list .provider-card-models {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-self: flex-start;
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.provider-card.workspace-card-list .provider-card-model-entry {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.provider-card.workspace-card-list .provider-card-section-heading {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.provider-card.workspace-card-list .provider-card-model-list {
+  min-width: 0;
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+.provider-card.workspace-card-list .provider-card-models-tail {
+  margin-top: 0;
+}
+
+/* 列表行没有第三列放测活时间线；历史仍在测活详情里，行内保留模型区。 */
+.provider-card.workspace-card-list .provider-liveness-timeline {
+  display: none;
+}
+
+/* 窄窗口的正文更长，行高统一放宽，而不是让个别卡片单独变高。 */
+@media (max-width: 1000px) {
+  .provider-board.is-list .workspace-card-list {
+    --workspace-list-row-height: 128px;
+  }
+
+  .provider-card.workspace-card-list .provider-card-body > .provider-card-body-main {
+    width: 200px;
+    max-width: 200px;
+    flex-basis: 200px;
+  }
+
+  .provider-card.workspace-card-list .managed-card-body > .provider-card-body-main {
+    width: 250px;
+    max-width: 250px;
+    flex-basis: 250px;
+  }
+}
+
+@media (max-width: 760px) {
+  .provider-card.workspace-card-list .provider-card-body,
+  .provider-card.workspace-card-list .managed-card-body {
+    flex-direction: column;
+    gap: 8px;
+    overflow: visible;
+  }
+
+  .provider-card.workspace-card-list .provider-card-body > .provider-card-body-main,
+  .provider-card.workspace-card-list .managed-card-body > .provider-card-body-main {
+    width: 100%;
+    max-width: none;
+    flex: 0 0 auto;
+  }
+
+  .provider-card.workspace-card-list .provider-card-quota-windows,
+  .provider-card.workspace-card-list .managed-card-quotas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provider-card.workspace-card-list .provider-card-models {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+}

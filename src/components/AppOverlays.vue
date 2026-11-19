@@ -35,10 +35,12 @@ defineProps<{
   onboardingVisible: boolean;
   onboardingProviderCount: number;
   onboardingCliConfigured: boolean;
+  onboardingCliDetecting: boolean;
   importingAppData: boolean;
   availableModelsProvider: Provider | null;
   availableModelsLoading: boolean;
   availableModelsError: string;
+  providers: readonly Provider[];
   usageProvider: Provider | null;
   usageLoading: boolean;
   usageError: string;
@@ -93,6 +95,8 @@ defineProps<{
   batchOperationStartedAt: number | null;
   batchOperationFinishedAt: number | null;
   batchOperationCompleted: boolean;
+  batchOperationCanceling: boolean;
+  batchOperationCancelled: boolean;
   checkInBatchProgress: CheckInBatchProgress;
   checkInPending: string[];
   siteAnnouncementsLoading: boolean;
@@ -108,11 +112,17 @@ defineProps<{
 const emit = defineEmits<{
   openOnboardingAddProvider: [];
   importOnboardingData: [];
-  openOnboardingSettings: [];
+  probeOnboardingCli: [];
+  openOnboardingAgentWorkspace: [];
+  dismissOnboarding: [];
   completeOnboarding: [];
   refreshAvailableModels: [];
   copyAvailableModel: [model: string];
   copyAvailableModels: [models: string[]];
+  switchAvailableModel: [provider: Provider, cliKind: AgentCliKind, model: string];
+  launchAvailableModel: [provider: Provider, cliKind: AgentCliKind, model: string];
+  openUsageReconciliation: [];
+  cancelBatchRefresh: [];
   refreshUsageSummary: [];
   searchRequestLogs: [filters: ProviderRequestLogFilters];
   resetRequestLogFilters: [];
@@ -158,10 +168,13 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :visible="onboardingVisible"
     :provider-count="onboardingProviderCount"
     :cli-configured="onboardingCliConfigured"
+    :cli-detecting="onboardingCliDetecting"
     :importing-app-data="importingAppData"
     @add-provider="emit('openOnboardingAddProvider')"
     @import-data="emit('importOnboardingData')"
-    @open-settings="emit('openOnboardingSettings')"
+    @probe-cli="emit('probeOnboardingCli')"
+    @open-agent-workspace="emit('openOnboardingAgentWorkspace')"
+    @later="emit('dismissOnboarding')"
     @finish="emit('completeOnboarding')"
   />
 
@@ -189,6 +202,9 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :started-at="batchOperationStartedAt"
     :finished-at="batchOperationFinishedAt"
     :completed="batchOperationCompleted"
+    :canceling="batchOperationCanceling"
+    :cancelled="batchOperationCancelled"
+    @cancel-refresh="emit('cancelBatchRefresh')"
   />
 
   <BatchOperationProgressModal
@@ -223,11 +239,14 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   <AvailableModelsModal
     v-model:visible="availableModelsVisible"
     :provider="availableModelsProvider"
+    :providers="providers"
     :loading="availableModelsLoading"
     :error="availableModelsError"
     @refresh="emit('refreshAvailableModels')"
     @copy="emit('copyAvailableModel', $event)"
     @copy-all="emit('copyAvailableModels', $event)"
+    @switch="(provider, cliKind, model) => emit('switchAvailableModel', provider, cliKind, model)"
+    @launch="(provider, cliKind, model) => emit('launchAvailableModel', provider, cliKind, model)"
   />
 
   <RequestLogsModal
@@ -245,6 +264,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     @refresh="emit('loadRequestLogs')"
     @page-change="emit('setRequestLogsPage', $event)"
     @page-size-change="emit('setRequestLogsPageSize', $event)"
+    @reconcile="requestLogsVisible = false; emit('openUsageReconciliation')"
   />
 
   <PasswordChangeModal

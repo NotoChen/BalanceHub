@@ -552,6 +552,21 @@ pub struct ProviderProtocolDetectionResult {
     pub message: String,
     pub site: Option<ProviderSiteProbeResult>,
     pub ambiguous: bool,
+    /// 每个候选协议的探测结果。UI 用它解释「为什么是 NewAPI/Sub2API」，
+    /// 而不是只给一句最终结论。
+    #[serde(default)]
+    pub candidates: Vec<ProviderProtocolDetectionCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProtocolDetectionCandidate {
+    pub protocol: ProviderProtocol,
+    pub label: String,
+    /// `explicit` / `primary` / `apiKeyFallback`
+    pub role: String,
+    pub ok: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

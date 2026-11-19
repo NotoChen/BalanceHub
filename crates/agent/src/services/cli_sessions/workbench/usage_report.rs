@@ -434,6 +434,19 @@ pub(super) fn attribution_index() -> (HashMap<AttributionKey, Attribution>, bool
     )
 }
 
+/// 本地会话归属过的中转站集合。站点账单只读这些站点：没有本地会话的中转站
+/// 不会出现在对比区，提前过滤可以避免为无关站点发起登录与网络请求。
+/// 启动记录在会话扫描之前就能读取，因此这一步可以和本地解码并行。
+pub(crate) fn attributed_provider_ids() -> Vec<String> {
+    let (index, _) = attribution_index();
+    index
+        .into_values()
+        .map(|entry| entry.provider_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 struct AccountBucket {
     provider_name: String,
     sessions: u64,

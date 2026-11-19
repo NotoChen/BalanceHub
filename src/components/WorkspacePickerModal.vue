@@ -52,7 +52,9 @@ import {
   providerApiKeyDisplayName,
   providerApiKeySecondaryName,
   providerDisplayLabel,
+  providerQuotaHeadline,
 } from "../utils/provider-display";
+import { latestAgentLivenessRecord } from "../utils/provider-liveness";
 
 const props = defineProps<{
   visible: boolean;
@@ -135,6 +137,40 @@ const pathModel = computed({
 const providerLabel = computed(() =>
   props.provider ? providerDisplayLabel(props.provider) : "",
 );
+/// 启动前把卡片上已经有的读数放到选择器旁边：地址、这款 Agent 的测活结果
+/// 和可用额度。用户不必退回卡片确认“这条线路现在能不能用”。
+const providerFacts = computed(() => {
+  const provider = props.provider;
+  if (!provider) return [];
+  let host = provider.identity.baseUrl;
+  try {
+    host = new URL(provider.identity.baseUrl).host || host;
+  } catch {
+    // Keep the configured value when it is not a parseable URL.
+  }
+  const baseUrl =
+    provider.liveness?.agentBaseUrls?.[props.cliKind]?.trim() ||
+    provider.identity.baseUrl;
+  const record = latestAgentLivenessRecord(
+    provider,
+    props.cliKind,
+    props.selectedModel,
+    baseUrl,
+  );
+  const quota = provider.automation?.lastSyncedAt
+    ? providerQuotaHeadline(provider)
+    : { value: "未同步" };
+  return [
+    { label: "地址", value: host },
+    {
+      label: "测活",
+      value: record
+        ? `${record.ok ? "成功" : "失败"} · ${record.latencyMs} ms`
+        : "暂无记录",
+    },
+    { label: "额度", value: quota.value },
+  ];
+});
 
 const launchLocked = computed(
   () => props.launchPreviewVisible || props.launchPreviewLoading,
@@ -358,6 +394,12 @@ function handleVisibleChange(visible: boolean) {
           class="cli-launcher-configuration"
           aria-label="运行环境与会话配置"
         >
+          <dl v-if="providerFacts.length" class="cli-launcher-provider-facts" aria-label="中转站读数">
+            <div v-for="fact in providerFacts" :key="fact.label">
+              <dt>{{ fact.label }}</dt>
+              <dd :title="fact.value">{{ fact.value }}</dd>
+            </div>
+          </dl>
           <section class="cli-launcher-runtime" aria-label="运行环境">
             <div class="cli-runtime-agent-row">
               <span class="cli-runtime-label">Agent</span>
@@ -429,6 +471,7 @@ function handleVisibleChange(visible: boolean) {
                         :model="effectiveModel"
                         :active="visible"
                         :provider-id="provider?.identity.id"
+                        :credential-revision="provider?.auth.credentialRevision"
                       />
                     </template>
                   </a-popover>

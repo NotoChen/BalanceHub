@@ -45,6 +45,137 @@
   row-gap: var(--provider-grid-local-row-gap, var(--provider-grid-gap, 16px));
 }
 :root[data-window-expanded] .agent-overview-grid { justify-content: center; }
+/* 列表布局：每张 Agent 卡占满一行。身份在左，数据区在中间，动作在右。
+   数据区和额度列表同一套读法：左列是固定宽度的统计网格，右列是吃剩余
+   宽度的配置文件芯片；两列都按内容垂直居中，行高仍统一。
+   行仍是一张独立卡片，卡片之间保留间距；标题栏对齐同一条竖线。 */
+.agent-overview-grid.is-list {
+  --workspace-list-title-width: clamp(248px, 27vw, 320px);
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 8px;
+}
+:root[data-window-expanded] .agent-overview-grid.is-list { justify-content: stretch; }
+.agent-overview-card.workspace-card-list > .workspace-card-header { min-height: 0; }
+/* 副标题在卡片里是一列（版本、模型、状态、活动）；列表里折进同一行，标题
+   仍然独占第一行，不把名称挤到状态后面。 */
+.agent-overview-card.workspace-card-list .workspace-card-brand-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 1px 8px; }
+.agent-overview-card.workspace-card-list .workspace-card-title-row { flex: 0 0 100%; }
+.workspace-card.agent-overview-card.workspace-card-list > .workspace-card-content {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 240px minmax(0, 1fr) auto;
+  grid-template-areas: "statistics configuration actions";
+  align-items: center;
+  gap: 0 20px;
+  overflow: hidden;
+}
+/* 六项统计在左列排成 3 × 2 的读数网格：标签在上、数字在下，两行用满
+   行高；不再拉成一条横带，数字也就有足够的字号。 */
+.agent-overview-card.workspace-card-list .agent-card-statistics {
+  grid-area: statistics;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: center;
+  align-items: stretch;
+  gap: 4px 6px;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.agent-overview-card.workspace-card-list .agent-card-statistic {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 1px 3px;
+  text-align: left;
+}
+.agent-overview-card.workspace-card-list .agent-card-statistic > strong { width: auto; font-size: 15px; line-height: 18px; text-align: left; }
+/* 文本状态（统计中、读取失败）保持小字号，不和数字抢同一级。 */
+.agent-overview-card.workspace-card-list .agent-card-statistic > strong.is-text { font-size: 11px; font-weight: 500; }
+.agent-overview-card.workspace-card-list .agent-card-statistic-label { justify-content: flex-start; font-size: 10px; line-height: 14px; }
+/* 配置文件是右列：标题独占一行，下面两行芯片。标题不再和芯片抢同一
+   行，长文件名因此能多留几个字符；两行可以展示更多入口。 */
+.agent-overview-card.workspace-card-list .agent-card-configuration {
+  grid-area: configuration;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+}
+.agent-overview-card.workspace-card-list .agent-card-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  color: var(--surface-ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 14px;
+}
+.agent-overview-card.workspace-card-list .agent-card-section-count {
+  flex: 0 0 auto;
+  color: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.agent-overview-card.workspace-card-list .agent-card-file-list {
+  display: flex;
+  min-width: 0;
+  max-height: 44px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 4px;
+  overflow: hidden;
+}
+.agent-overview-card.workspace-card-list .workspace-card-chip.agent-card-file {
+  min-height: 20px;
+  gap: 4px;
+  padding: 0 7px;
+  font-size: 10px;
+  line-height: 18px;
+}
+.agent-overview-card.workspace-card-list .agent-card-file-state { font-size: 9px; }
+/* 没有配置文件时也保留一行说明，不把整列留空。 */
+.agent-overview-card.workspace-card-list .agent-card-file-empty { display: block; min-height: 0; padding: 0; font-size: 10px; line-height: 14px; }
+.agent-overview-card.workspace-card-list .agent-card-configuration-issues { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 8px; margin-top: 0; overflow: hidden; white-space: nowrap; font-size: 10px; line-height: 14px; }
+.agent-overview-card.workspace-card-list .agent-card-configuration-issues p { overflow: hidden; text-overflow: ellipsis; }
+.agent-overview-card.workspace-card-list .agent-card-configuration-issues > button { flex: 0 0 auto; }
+/* 动作作为右侧导轨，和两行信息垂直居中；竖线由 workspace-list.css 给出。 */
+.agent-overview-card.workspace-card-list .agent-card-footer { grid-area: actions; align-self: stretch; margin-top: 0; border-top: 0; padding-top: 0; }
+/* Agent 的按钮带文字，列表里折成两行：配置和刷新在上，启动独占下一行。
+   动作块比原来的一长排窄，统计和配置文件因此能多占一段横向空间。 */
+.agent-overview-card.workspace-card-list .agent-card-footer .workspace-card-quick-actions {
+  display: grid;
+  grid-template-columns: auto 28px;
+  grid-auto-rows: 32px;
+  align-content: center;
+  justify-content: end;
+  gap: 4px;
+}
+.agent-overview-card.workspace-card-list .agent-card-footer .workspace-card-action-group { display: contents; }
+.agent-overview-card.workspace-card-list .agent-card-footer .agent-card-launch {
+  grid-column: 1 / -1;
+  margin-left: 0;
+}
+@media (max-width: 980px) {
+  .workspace-card.agent-overview-card.workspace-card-list > .workspace-card-content { grid-template-columns: 210px minmax(0, 1fr) auto; }
+}
+@media (max-width: 760px) {
+  .agent-overview-card.workspace-card-list .agent-card-file-list { max-height: none; }
+  .workspace-card.agent-overview-card.workspace-card-list > .workspace-card-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "statistics" "configuration" "actions";
+    gap: 6px;
+  }
+  .agent-overview-card.workspace-card-list .agent-card-footer { border-top: 0; border-left: 0; padding-top: 0; padding-left: 0; }
+}
 .agent-workspace-empty { display: grid; min-height: 160px; place-items: center; padding: 24px; color: var(--surface-muted); font-size: 13px; text-align: center; }
 .agent-workspace-error { margin: 10px 0; border-left: 3px solid rgb(var(--danger-6)); border-radius: 5px; padding: 10px 12px; background: rgb(var(--danger-1)); color: rgb(var(--danger-7)); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .agent-workspace-note { color: var(--surface-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }

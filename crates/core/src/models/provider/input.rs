@@ -172,6 +172,7 @@ impl Provider {
             capabilities: ProviderCapabilities::default(),
             cli: ProviderCli {
                 preferred_model: input.cli.preferred_model.trim().to_string(),
+                agent_models: Default::default(),
             },
             automation: ProviderAutomation {
                 refresh_interval: input.automation.refresh_interval,
@@ -304,7 +305,7 @@ impl Provider {
             return Err("该 API Key 未读取到完整值，无法设为当前调用 Key".to_string());
         }
         if self.auth.api_key != option.key {
-            self.capabilities.clear_available_models();
+            self.forget_key_observations();
             self.auth.credential_revision += 1;
         }
         self.auth.api_key = option.key;
@@ -312,6 +313,15 @@ impl Provider {
         self.automation.last_synced_at = None;
         self.auth = normalize_provider_auth(self.auth.clone(), self.identity.protocol);
         Ok(())
+    }
+
+    /// 余额、订阅窗口、价格和表现都属于当前 Key。丢掉 Key 之后继续展示
+    /// 这些读数，会让卡片和推荐把上一个 Key 的额度当成新 Key 的。
+    fn forget_key_observations(&mut self) {
+        self.capabilities.clear_available_models();
+        self.quota.clear_key_observations();
+        self.capabilities.pricing = Default::default();
+        self.capabilities.performance = Default::default();
     }
 
     pub fn remove_local_api_key(&mut self, local_id: &str) -> Result<(), String> {
@@ -339,7 +349,7 @@ impl Provider {
                 self.auth.api_key.clear();
                 self.auth.api_key_token_id.clear();
             }
-            self.capabilities.clear_available_models();
+            self.forget_key_observations();
             self.auth.credential_revision += 1;
             self.automation.last_synced_at = None;
         }
@@ -1043,6 +1053,45 @@ mod tests {
     }
 
     #[test]
+    fn removing_the_active_key_drops_its_observations() {
+        let mut provider =
+            Provider::from_input(ProviderInput::default(), "provider-test".to_string());
+        provider.auth.api_key_options = vec![
+            crate::models::ProviderApiKeyOption::current("sk-keep").normalize(),
+            crate::models::ProviderApiKeyOption::current("sk-drop").normalize(),
+        ];
+        provider.auth.api_key = "sk-drop".to_string();
+        provider.auth.api_key_token_id = provider.auth.api_key_options[1].token_id.clone();
+        let dropped = provider.auth.api_key_options[1].local_id.clone();
+
+        provider.quota.known = true;
+        provider.quota.total_known = true;
+        provider.quota.available = 42.0;
+        provider.quota.used = 8.0;
+        provider.quota.group = "vip".to_string();
+        provider.quota.windows.push(Default::default());
+        provider.capabilities.available_models = vec!["old-model".to_string()];
+        provider.capabilities.pricing.updated_at = Some("1000".to_string());
+        provider.capabilities.performance.updated_at = Some("1000".to_string());
+        provider.automation.last_synced_at = Some("1000".to_string());
+
+        provider
+            .remove_local_api_key(&dropped)
+            .expect("active key should remove");
+
+        assert_eq!(provider.auth.api_key, "sk-keep");
+        // 新 Key 还没刷新过，旧 Key 的余额、窗口、价格和表现不能继续挂着。
+        assert!(!provider.quota.known);
+        assert_eq!(provider.quota.available, 0.0);
+        assert!(provider.quota.group.is_empty());
+        assert!(provider.quota.windows.is_empty());
+        assert!(provider.capabilities.available_models.is_empty());
+        assert!(provider.capabilities.pricing.updated_at.is_none());
+        assert!(provider.capabilities.performance.updated_at.is_none());
+        assert!(provider.automation.last_synced_at.is_none());
+    }
+
+    #[test]
     fn local_key_removal_can_forget_a_remote_key_without_revoking_it() {
         let mut provider =
             Provider::from_input(ProviderInput::default(), "provider-test".to_string());
@@ -1184,5 +1233,82 @@ mod tests {
         provider.apply_input(input);
 
         assert!(provider.capabilities.available_models.is_empty());
+    }
+
+    #[test]
+    fn switching_the_calling_key_drops_key_scoped_observations() {
+        use crate::models::{
+            ProviderModelPerformance, ProviderModelPrice, ProviderPricingSource,
+            ProviderQuotaWindow,
+        };
+        use std::collections::BTreeMap;
+
+        let mut provider =
+            Provider::from_input(ProviderInput::default(), "provider-test".to_string());
+        provider
+            .add_named_api_key("sk-first", "first")
+            .expect("first key");
+        provider
+            .add_named_api_key("sk-second", "second")
+            .expect("second key");
+        let ids = provider
+            .auth
+            .api_key_options
+            .iter()
+            .map(|option| (option.key.clone(), option.local_id.clone()))
+            .collect::<BTreeMap<_, _>>();
+        provider
+            .set_default_api_key(&ids["sk-first"])
+            .expect("select first key");
+
+        provider.quota.known = true;
+        provider.quota.total_known = true;
+        provider.quota.available = 12.0;
+        provider.quota.group = "vip".into();
+        provider.quota.windows.push(ProviderQuotaWindow {
+            label: "每周".into(),
+            used: 10.0,
+            limit: 100.0,
+            ..ProviderQuotaWindow::default()
+        });
+        provider.capabilities.pricing.mark_loaded(
+            ProviderPricingSource::NewApi,
+            BTreeMap::from([(
+                "model-a".into(),
+                ProviderModelPrice {
+                    input: Some(1.0),
+                    ..ProviderModelPrice::default()
+                },
+            )]),
+            BTreeMap::new(),
+            String::new(),
+            Default::default(),
+        );
+        provider.capabilities.performance.mark_loaded(
+            BTreeMap::from([(
+                "model-a".into(),
+                ProviderModelPerformance {
+                    success_rate: Some(99.0),
+                    ..ProviderModelPerformance::default()
+                },
+            )]),
+            Some(1),
+            Some(2),
+        );
+        provider.automation.last_synced_at = Some("1000".into());
+
+        provider
+            .set_default_api_key(&ids["sk-second"])
+            .expect("switch to second key");
+
+        assert_eq!(provider.auth.api_key, "sk-second");
+        assert!(!provider.quota.known);
+        assert!(!provider.quota.total_known);
+        assert_eq!(provider.quota.available, 0.0);
+        assert!(provider.quota.group.is_empty());
+        assert!(provider.quota.windows.is_empty());
+        assert!(provider.capabilities.pricing.models.is_empty());
+        assert!(provider.capabilities.performance.models.is_empty());
+        assert!(provider.automation.last_synced_at.is_none());
     }
 }

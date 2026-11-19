@@ -434,7 +434,7 @@ function cooling(account: CpaAccountSummary) {
         :disabled="!!pendingName || refreshingAll"
         :loading="busy"
         @click="refresh"
-        ><template #icon><RefreshCw :size="14" /></template>刷新</a-button
+        ><template #icon><RefreshCw :size="14" /></template>检查授权</a-button
       ><a-button
         size="small"
         :disabled="!!pendingName || busy"

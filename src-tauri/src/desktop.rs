@@ -10,9 +10,9 @@ use crate::{
 };
 use std::path::PathBuf;
 use tauri::{
-    menu::{MenuBuilder, SubmenuBuilder},
+    menu::{MenuBuilder, MenuItem, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, AppHandle, Manager, WindowEvent,
+    App, AppHandle, Emitter, Manager, RunEvent, WindowEvent,
 };
 
 pub(crate) fn run() {
@@ -32,6 +32,7 @@ pub(crate) fn run() {
         }))
         .manage(AppUpdaterState::default())
         .manage(tray::TrayAvailability::default())
+        .manage(crate::state::ExitGuardState::default())
         // 自启动项固定携带 --silent-start 标记启动来源；是否真的静默由
         // launch_at_login_minimized 设置决定。前端每次保存设置调用 enable()
         // 时都会按这里的参数重写系统启动项。
@@ -62,6 +63,8 @@ pub(crate) fn run() {
             cloud_sync_cancel,
             cloud_sync_compare,
             host_platform,
+            set_app_running_tasks,
+            quit_app,
             install_dev_sample_data,
             open_project_repository,
             open_log_directory,
@@ -121,6 +124,7 @@ pub(crate) fn run() {
             load_app_data,
             save_provider,
             set_provider_enabled,
+            set_provider_model_binding,
             preview_provider_check_in_policy,
             remove_provider,
             reorder_providers,
@@ -230,6 +234,7 @@ pub(crate) fn run() {
             get_site_announcements,
             mark_site_announcement_read,
             refresh_all_providers_with_progress,
+            cancel_provider_refresh,
             refresh_providers,
             check_in_provider,
             open_provider_site,
@@ -323,8 +328,22 @@ pub(crate) fn run() {
             clear_pending_app_update,
             cancel_visible_relaunch,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS 的菜单退出 / Cmd+Q 走 ExitRequested，不经过窗口关闭事件。
+            // 只有用户交互（code 为 None）才拦下来询问；应用内确认退出时
+            // `AppHandle::exit` 带着具体 code，不再重复拦截。
+            if let RunEvent::ExitRequested {
+                code: None, api, ..
+            } = &event
+            {
+                if exit_guard_running(app) {
+                    api.prevent_exit();
+                    request_app_exit(app);
+                }
+            }
+        });
 }
 
 /// 主窗口的位置/大小由设置决定是否恢复。插件必须先跳过主窗口的自动恢复，
@@ -357,12 +376,22 @@ fn updater_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R, tauri_pl
 fn build_app_menu<R: tauri::Runtime>(
     handle: &tauri::AppHandle<R>,
 ) -> tauri::Result<tauri::menu::Menu<R>> {
+    // macOS 原生 Quit 菜单项直接走 NSApplication terminate，不产生
+    // RunEvent::ExitRequested，退出守卫就看不到 Cmd+Q。这里换成自定义项，
+    // 保留 Cmd+Q 快捷键，把退出统一交给 request_app_exit。
+    let quit = MenuItem::with_id(
+        handle,
+        "app-quit",
+        "退出 BalanceHub",
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
     let app_menu = SubmenuBuilder::new(handle, "BalanceHub")
         .hide_with_text("隐藏 BalanceHub")
         .hide_others_with_text("隐藏其他")
         .show_all_with_text("全部显示")
         .separator()
-        .quit_with_text("退出 BalanceHub")
+        .item(&quit)
         .build()?;
     let file_menu = SubmenuBuilder::new(handle, "文件")
         .close_window_with_text("关闭窗口")
@@ -392,6 +421,11 @@ fn build_app_menu<R: tauri::Runtime>(
 }
 
 fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == "app-quit" {
+            request_app_exit(app);
+        }
+    });
     // 开发版的配置与数据始终落在临时根目录，不碰安装版目录。
     let config_root =
         config_dir(app.app_handle()).map_err(|_| "无法获取应用配置目录".to_owned())?;
@@ -509,6 +543,26 @@ fn restore_window_state(app: &App, settings: &crate::models::AppSettings) {
     }
 }
 
+const APP_CLOSE_REQUESTED_EVENT: &str = "app-close-requested";
+
+fn exit_guard_running(app: &AppHandle) -> bool {
+    app.try_state::<crate::state::ExitGuardState>()
+        .is_some_and(|guard| guard.running())
+}
+
+/// 真正退出前先看前端同步过来的活动任务标记。有任务时保留窗口并把选择权
+/// 交回前端，由用户确认「仍然退出」；没有任务时保持原来的直接退出行为。
+fn request_app_exit(app: &AppHandle) {
+    if !exit_guard_running(app) {
+        app.exit(0);
+        return;
+    }
+    tray::show_main_window(app);
+    if let Err(error) = app.emit(APP_CLOSE_REQUESTED_EVENT, ()) {
+        log::warn!("请求前端确认退出失败：{error}");
+    }
+}
+
 fn install_close_behavior(app: &App) {
     if let Some(window) = app.get_webview_window("main") {
         let app_handle = window.app_handle().clone();
@@ -519,6 +573,11 @@ fn install_close_behavior(app: &App) {
                 let stays_in_background = tray::is_available(&app_handle)
                     && current_close_action(&app_handle) == WindowCloseAction::HideToTray;
                 if !stays_in_background {
+                    if exit_guard_running(&app_handle) {
+                        api.prevent_close();
+                        request_app_exit(&app_handle);
+                        return;
+                    }
                     app_handle.exit(0);
                     return;
                 }
@@ -615,7 +674,7 @@ fn build_tray(app: &App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => tray::show_main_window(app),
-            "quit" => app.exit(0),
+            "quit" => request_app_exit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray_icon, event| {
@@ -733,6 +792,21 @@ mod tests {
         assert!(!should_start_silently(false, true, false));
     }
 
+    fn registered_handlers() -> std::collections::BTreeSet<&'static str> {
+        let source = include_str!("desktop.rs");
+        let source = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let handlers = source
+            .split("tauri::generate_handler![")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .unwrap_or_default();
+        handlers
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .collect()
+    }
+
     /// 桌面必须注册核心命令的全集；少一条时服务端能用、桌面却报
     /// 「命令不存在」。浏览器版专用的核心命令由桌面用系统能力变体替代，
     /// 单独列出；桌面专属命令与核心清单无关，不参与比较。
@@ -747,23 +821,24 @@ mod tests {
             "export_oauth_account_text",
             "cpa_login_url",
         ];
-        let source = include_str!("desktop.rs");
-        let source = source.split("#[cfg(test)]").next().unwrap_or_default();
-        let handlers = source
-            .split("tauri::generate_handler![")
-            .nth(1)
-            .and_then(|rest| rest.split(']').next())
-            .unwrap_or_default();
-        let registered: std::collections::BTreeSet<&str> = handlers
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .collect();
+        let registered = registered_handlers();
         let expected: std::collections::BTreeSet<&str> = balancehub_core::api::commands()
             .into_iter()
             .filter(|command| !WEB_ONLY.contains(command))
             .collect();
         let missing: Vec<_> = expected.difference(&registered).collect();
         assert!(missing.is_empty(), "桌面缺少核心命令注册：{missing:?}");
+    }
+
+    /// Agent 命令在服务端走同一分发器；桌面必须逐条注册成 Tauri 命令，
+    /// 否则两端的可用能力会悄悄分叉。
+    #[test]
+    fn every_agent_command_is_registered() {
+        let registered = registered_handlers();
+        let missing: Vec<_> = balancehub_agent::api::COMMANDS
+            .iter()
+            .filter(|command| !registered.contains(**command))
+            .collect();
+        assert!(missing.is_empty(), "桌面缺少 Agent 命令注册：{missing:?}");
     }
 }

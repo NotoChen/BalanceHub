@@ -10,6 +10,7 @@ import type {
 } from "../stores/providers";
 import { agentCliLabel } from "../utils/cli-environment";
 import {
+  formatQuotaValue,
   maskApiKey,
   providerApiKeyDisplayName,
   providerApiKeySecondaryName,
@@ -23,6 +24,8 @@ const props = defineProps<{
   cliKind: AgentCliKind | null;
   keys: ProviderApiKeyOption[];
   currentConfig: CliConfigSnapshot | null;
+  /** Recommendation targets a concrete model; that is what this write will bind. */
+  model?: string;
 }>();
 
 const emit = defineEmits<{
@@ -40,6 +43,27 @@ function keyDisplay(option: ProviderApiKeyOption) {
 
 function isDefault(option: ProviderApiKeyOption) {
   return props.provider ? providerUsesApiKeyOption(props.provider, option) : false;
+}
+
+/// 选 Key 时真正影响这次写入的事实：Key 的分组、模型限制和剩余额度。没有
+/// 远端额度的本地 Key 不写“剩余 0”，那会被读成额度已经用完。
+function keyFacts(option: ProviderApiKeyOption) {
+  const facts: string[] = [];
+  if (option.group?.trim()) facts.push(`分组 ${option.group.trim()}`);
+  if (option.modelLimitsEnabled) {
+    facts.push(option.modelLimits.length
+      ? `限 ${option.modelLimits.length} 个模型`
+      : "已启用模型限制");
+  }
+  if (option.tokenId?.trim()) {
+    facts.push(option.unlimitedQuota
+      ? "无限额度"
+      : formatQuotaValue(option.remainQuota || 0, {
+          quotaDisplayType: option.quotaDisplayType || "currency",
+          currencySymbol: option.currencySymbol || "$",
+        }));
+  }
+  return facts.join(" · ");
 }
 
 function isCurrentAgentKey(option: ProviderApiKeyOption) {
@@ -75,6 +99,9 @@ function isCurrentAgentKey(option: ProviderApiKeyOption) {
       <header>
         <span>目标中转站</span>
         <strong>{{ provider?.displayLabel || provider?.identity.name }}</strong>
+        <span v-if="model?.trim()" class="cli-config-key-target-model">
+          写入模型 <code>{{ model.trim() }}</code>
+        </span>
       </header>
       <div class="cli-config-key-options" role="listbox" :aria-label="`${cliLabel} API Key`">
         <button
@@ -99,6 +126,9 @@ function isCurrentAgentKey(option: ProviderApiKeyOption) {
             </span>
             <small v-if="providerApiKeySecondaryName(option)">
               站点名称：{{ providerApiKeySecondaryName(option) }}
+            </small>
+            <small v-if="keyFacts(option)" class="cli-config-key-option-facts">
+              {{ keyFacts(option) }}
             </small>
             <code>{{ keyDisplay(option) }}</code>
           </span>

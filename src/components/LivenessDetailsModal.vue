@@ -6,6 +6,7 @@ import type { AgentCliKind, LivenessRecord, Provider } from "../stores/providers
 import { agentCliLabel, isAgentCliKind } from "../utils/cli-environment";
 import AgentCliIcon from "./AgentCliIcon.vue";
 import { providerDisplayLabel } from "../utils/provider-display";
+import { livenessTimestamp, parseLivenessTimestamp } from "../utils/provider-liveness";
 
 const props = defineProps<{
   visible: boolean;
@@ -27,7 +28,7 @@ const cumulative = computed(() => ({
 
 const records = computed(() =>
   [...(props.provider?.liveness.records ?? [])].sort(
-    (left, right) => Number(right.checkedAt || 0) - Number(left.checkedAt || 0),
+    (left, right) => livenessTimestamp(right) - livenessTimestamp(left),
   ),
 );
 
@@ -36,8 +37,8 @@ const modalTitle = computed(() =>
 );
 
 function formatDateTime(value: string) {
-  const timestamp = Number(value);
-  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+  const timestamp = parseLivenessTimestamp(value);
+  if (timestamp <= 0) {
     return "--";
   }
   const date = new Date(timestamp);
@@ -151,7 +152,7 @@ function responseText(record: LivenessRecord) {
                 <span v-else>--</span>
               </span>
             </a-tooltip>
-            <span>{{ record.model || "--" }}</span>
+            <span>{{ record.modelId || record.model || "--" }}</span>
             <span>{{ durationLabel(record.latencyMs) }}</span>
             <span>Token {{ numberLabel(record.totalTokens) }}</span>
           </div>

@@ -6,6 +6,8 @@ mod defaults;
 mod input;
 #[path = "provider/normalize.rs"]
 mod normalize;
+#[path = "provider/performance.rs"]
+mod performance;
 #[path = "provider/pricing.rs"]
 mod pricing;
 #[path = "provider/state.rs"]
@@ -19,5 +21,6 @@ pub use normalize::{
     normalize_cpa_base_url, normalize_invite_link, normalize_provider_endpoint,
     provider_duplicate_kind, ProviderDuplicateKind,
 };
+pub use performance::*;
 pub use pricing::*;
 pub use state::*;

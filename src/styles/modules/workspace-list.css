@@ -1,0 +1,111 @@
+/* 列表布局：同一张卡片换成单行排布。DOM、动作和拖拽排序都不换，只改阅读顺序：
+   身份在左，数据居中，动作在右；一屏能扫过更多条目。
+   身份导轨收纳站点名、协议、账号和次级身份；数据区左列把余额、比例条和说明
+   竖排，右列用三行展示模型；动作导轨折成两行。行仍是一张独立卡片，卡片之间
+   保留间距；标题栏用固定宽度的竖向导轨，各行的数据区和操作区因此落在同一条
+   竖线上。行高统一，列表不会因为额度窗口、模型数量或备注行数不同而参差。 */
+
+.workspace-card.workspace-card-list {
+  display: grid;
+  height: var(--workspace-list-row-height, 112px);
+  min-height: var(--workspace-list-row-height, 112px);
+  max-height: var(--workspace-list-row-height, 112px);
+  grid-template-columns:
+    var(--workspace-list-title-width, clamp(208px, 22vw, 272px))
+    minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0 18px;
+  overflow: hidden;
+  padding: 10px 16px;
+}
+
+/* 列表行不跟着悬停上浮：一排行同时位移会让整张列表像在抖。 */
+.workspace-card.workspace-card-list:hover,
+.workspace-card.workspace-card-list:focus-visible {
+  transform: none;
+}
+
+/* 标题栏固定成一条导轨，三块内容靠列宽和间距各自成列，不画分割线。 */
+.workspace-card.workspace-card-list > .workspace-card-header {
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  align-items: center;
+  overflow: hidden;
+}
+
+.workspace-card.workspace-card-list .workspace-card-brand {
+  align-items: center;
+}
+
+.workspace-card.workspace-card-list .workspace-card-logo {
+  margin-top: 0;
+}
+
+/* 正文和页脚并排：正文吃剩余宽度，页脚作为右侧动作导轨。行高固定后，
+   超出的次要内容裁在正文里，不会把整行撑高。 */
+.workspace-card.workspace-card-list > .workspace-card-content {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 18px;
+  overflow: hidden;
+}
+
+/* 页脚是右侧动作导轨，动作垂直居中在行内。 */
+.workspace-card.workspace-card-list .workspace-card-footer {
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+  align-self: stretch;
+  align-items: center;
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.workspace-card.workspace-card-list .workspace-card-quick-actions {
+  margin-left: auto;
+  border-left: 0;
+}
+
+/* 窄窗口的正文更长，行高统一放宽，而不是让个别卡片单独变高。 */
+@media (max-width: 1000px) {
+  .workspace-card.workspace-card-list {
+    --workspace-list-row-height: 124px;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-card.workspace-card-list {
+    display: flex;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    overflow: visible;
+    padding: 10px 12px;
+  }
+
+  .workspace-card.workspace-card-list > .workspace-card-header {
+    overflow: visible;
+    padding-bottom: 8px;
+  }
+
+  .workspace-card.workspace-card-list > .workspace-card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    overflow: visible;
+  }
+
+  .workspace-card.workspace-card-list .workspace-card-footer {
+    align-self: auto;
+    padding-top: 8px;
+  }
+}

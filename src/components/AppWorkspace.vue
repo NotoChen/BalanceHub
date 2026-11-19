@@ -21,6 +21,7 @@ import type { ProviderAppImportTarget } from "../stores/provider-types";
 import type { ProviderCardTone } from "../utils/provider-display";
 import { providerMatchesSearch } from "../utils/provider-filters";
 import type { BackgroundTask } from "../composables/useBackgroundTaskCenter";
+import type { LivenessSettings } from "../utils/provider-liveness";
 
 interface ProviderDragState {
   providerId: string | null;
@@ -32,8 +33,9 @@ const props = defineProps<{
   initialized: boolean;
   loadError: string | null;
   providers: Provider[];
-  livenessProviders: Provider[];
-  regularProviders: Provider[];
+  /// 卡片测活线回落用的全局目标；与详情、推荐使用同一套解析。
+  settings?: LivenessSettings;
+  providerSections: { key: string; label: string; providers: Provider[] }[];
   cliRuntime: CliRuntimeSnapshot;
   agentRuntimeSnapshot: AgentRuntimeSnapshot;
   runtimeLoading: boolean;
@@ -49,6 +51,7 @@ const props = defineProps<{
   backgroundTaskCount: number;
   switchingCliConfig: { providerId: string; cliKind: AgentCliKind } | null;
   refreshInProgress: boolean;
+  refreshQueuedProviderIds?: ReadonlySet<string>;
   globalCheckInInProgress: boolean;
   appVersion: string;
   checkingForUpdate: boolean;
@@ -96,8 +99,9 @@ function matchesSearch(provider: Provider) {
   return providerMatchesSearch(provider, searchQuery.value);
 }
 
-const filteredLivenessProviders = computed(() => props.livenessProviders.filter(matchesSearch));
-const filteredRegularProviders = computed(() => props.regularProviders.filter(matchesSearch));
+const filteredProviderSections = computed(() => props.providerSections
+  .map((section) => ({ ...section, providers: section.providers.filter(matchesSearch) }))
+  .filter((section) => section.providers.length > 0));
 function openProvider(provider: Provider, editing: boolean) {
   if (!editing) emit("cardClick", provider);
   else if (provider.actions.oauthAccount || provider.actions.cpaGateway) oauth.openAccount(provider.identity.id, provider.actions.cpaGateway);
@@ -151,7 +155,7 @@ const emit = defineEmits<{
   openAgentCliInstances: [kind: AgentCliKind];
   openSiteAnnouncements: [];
   clearBackgroundTasks: [];
-  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind, model?: string];
   refreshRuntime: [];
   activateRuntime: [instance: AgentRuntimeSession];
 }>();
@@ -203,15 +207,17 @@ const emit = defineEmits<{
     :initialized="initialized"
     :load-error="loadError"
     :providers="providers"
+    :settings="settings"
     :search-query="searchQuery"
-    :liveness-providers="filteredLivenessProviders"
-    :regular-providers="filteredRegularProviders"
+    :sections="filteredProviderSections"
     :cli-runtime="cliRuntime"
     :agent-runtime-snapshot="agentRuntimeSnapshot"
     :switching-cli-config="switchingCliConfig"
     :checking-in-provider-ids="checkingInProviderIds"
     :probing-capabilities-provider-id="probingCapabilitiesProviderId"
     :provider-drag="providerDrag"
+    :refresh-in-progress="refreshInProgress"
+    :refresh-queued-provider-ids="refreshQueuedProviderIds"
     :drag-over-provider-id="dragOverProviderId"
     :dragged-provider="draggedProvider"
     :drag-style="dragStyle"
@@ -246,7 +252,7 @@ const emit = defineEmits<{
     @copy-secret="(provider, field) => emit('copySecret', provider, field)"
     @remove="emit('remove', $event)"
     @open-cli-instances="(provider, cliKind) => emit('openCliInstances', provider, cliKind)"
-    @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
+    @switch-cli-config="(provider, cliKind, model) => emit('switchCliConfig', provider, cliKind, model)"
     @clear-search="clearSearch"
   />
   <OAuthWorkspace @edit="emit('edit', $event)" @models="emit('openAvailableModels', $event)" />
@@ -263,7 +269,7 @@ const emit = defineEmits<{
     @refreshing="agentRefreshing = $event"
     @refresh-runtime="emit('refreshRuntime')"
     @activate-runtime="emit('activateRuntime', $event)"
-    @switch-cli-config="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
+    @switch-cli-config="(provider, cliKind, model) => emit('switchCliConfig', provider, cliKind, model)"
     @launch="(provider, kind, context) => emit('launchTemporaryCli', provider, kind, context)"
   />
 </template>

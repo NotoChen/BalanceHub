@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, type CSSProperties } from "vue";
+import { storeToRefs } from "pinia";
 import { SearchX, ServerPlus } from "@lucide/vue";
 import ProviderCard from "./ProviderCard.vue";
 import ProviderBoardToolbar from "./ProviderBoardToolbar.vue";
@@ -21,6 +22,8 @@ import {
 import { providerApiKeyDisplayName, providerDefaultApiKeyOption } from "../utils/provider-display";
 import { agentCliLabel } from "../utils/cli-environment";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
+import { useWorkspaceLayoutStore } from "../stores/workspace-layout";
+import type { LivenessSettings } from "../utils/provider-liveness";
 import { activeAgentRuntimeSessions, isConfirmedAgentRuntimeSession } from "../utils/agent-runtime";
 import { countProviderFilters, providerMatchesFilter, providerFilters, type ProviderFilter } from "../utils/provider-filters";
 
@@ -34,23 +37,35 @@ const props = withDefaults(defineProps<{
   initialized: boolean;
   loadError: string | null;
   providers: Provider[];
+  /// 测活目标按全局设置回落，卡片和看板使用同一份目标。
+  settings?: LivenessSettings;
   searchQuery?: string;
-  livenessProviders: Provider[];
-  regularProviders: Provider[];
+  /// Object-type sections in drag order. Liveness and protocol are card
+  /// badges, so they never move a card between grids.
+  sections: { key: string; label: string; providers: Provider[] }[];
   cliRuntime: CliRuntimeSnapshot;
   agentRuntimeSnapshot: AgentRuntimeSnapshot;
   switchingCliConfig: { providerId: string; cliKind: AgentCliKind } | null;
   checkingInProviderIds: string[];
   probingCapabilitiesProviderId: string | null;
   providerDrag: ProviderDragState;
+  refreshInProgress?: boolean;
+  /// 仍在批次队列里的站点；已结束的卡片不再显示「排队中」。
+  refreshQueuedProviderIds?: ReadonlySet<string>;
   dragOverProviderId: string | null;
   draggedProvider: Provider | null;
   dragStyle: CSSProperties;
   providerCardTone: (provider: Provider) => ProviderCardTone;
   cardStatusTooltip: (provider: Provider) => string;
   showLivenessTimeline: (provider: Provider) => boolean;
-}>(), { searchQuery: "" });
+}>(), {
+  searchQuery: "",
+  refreshInProgress: false,
+  refreshQueuedProviderIds: () => new Set<string>(),
+});
 const cliStore = useCliRuntimeStore();
+const layoutStore = useWorkspaceLayoutStore();
+const { layout } = storeToRefs(layoutStore);
 const boardRef = ref<HTMLElement | null>(null);
 const activeFilter = ref<ProviderFilter>("all");
 const recommendationVisible = ref(false);
@@ -91,19 +106,14 @@ const emit = defineEmits<{
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
   remove: [provider: Provider];
   openCliInstances: [provider: Provider, cliKind: AgentCliKind];
-  switchCliConfig: [provider: Provider, cliKind: AgentCliKind];
+  switchCliConfig: [provider: Provider, cliKind: AgentCliKind, model?: string];
   clearSearch: [];
 }>();
 
-const unfilteredSections = computed(() => [
-  { key: "liveness", label: "自动测活", providers: props.livenessProviders, liveness: true },
-  { key: "account", label: "账户认证", providers: props.regularProviders.filter((provider) => provider.auth.mode !== "apiKey"), liveness: false },
-  { key: "apiKey", label: "API Key", providers: props.regularProviders.filter((provider) => provider.auth.mode === "apiKey"), liveness: false },
-]);
 const filterCounts = computed(() => countProviderFilters(
-  unfilteredSections.value.flatMap((section) => section.providers),
+  props.sections.flatMap((section) => section.providers),
 ));
-const providerSections = computed(() => unfilteredSections.value.map((section) => ({
+const providerSections = computed(() => props.sections.map((section) => ({
   ...section,
   providers: section.providers.filter((provider) => providerMatchesFilter(provider, activeFilter.value)),
 })).filter((section) => section.providers.length > 0));
@@ -151,7 +161,11 @@ function providerSwitchingCliKind(provider: Provider) {
 </script>
 
 <template>
-  <section ref="boardRef" class="content provider-board">
+  <section
+    ref="boardRef"
+    class="content provider-board"
+    :class="{ 'is-list': layout === 'list' }"
+  >
     <a-spin v-if="loading && !initialized" tip="正在加载本地配置..." />
 
     <a-alert v-if="loadError" type="error" show-icon class="provider-load-error">
@@ -173,7 +187,9 @@ function providerSwitchingCliKind(provider: Provider) {
       :visible-count="visibleProviderCount"
       :total-count="providers.length"
       :has-search="hasSearch"
+      :layout="layout"
       @select="activeFilter = $event"
+      @update:layout="layoutStore.setLayout"
       @reset="clearFilters"
       @recommend="recommendationVisible = true"
     />
@@ -183,22 +199,30 @@ function providerSwitchingCliKind(provider: Provider) {
       :label="section.label"
       :count="section.providers.length"
     >
-      <TransitionGroup name="provider-grid" tag="div" class="overview-provider-grid">
+      <TransitionGroup
+        name="provider-grid"
+        tag="div"
+        class="overview-provider-grid"
+        :class="{ 'is-list': layout === 'list' }"
+      >
         <ProviderCard
           v-for="provider in section.providers"
           :key="provider.identity.id"
           :provider="provider"
+          :settings="settings"
           :tone="providerCardTone(provider)"
+          :list="layout === 'list'"
           :placeholder="providerDrag.providerId === provider.identity.id && providerDrag.dragging"
           :drag-over="dragOverProviderId === provider.identity.id"
           :title="cardStatusTooltip(provider)"
-          :show-liveness-timeline="section.liveness"
+          :show-liveness-timeline="showLivenessTimeline(provider)"
           :cli-orbits="providerCliOrbits(provider)"
           :active-cli-counts="providerActiveCliCounts(provider)"
           :switching-cli-kind="providerSwitchingCliKind(provider)"
           :cli-config-switching="Boolean(switchingCliConfig)"
           :probing-capabilities="probingCapabilitiesProviderId === provider.identity.id"
           :checking-in="checkingInProviderIds.includes(provider.identity.id)"
+          :refresh-queued="refreshInProgress && refreshQueuedProviderIds.has(provider.identity.id)"
           @click="emit('cardClick', $event)"
           @pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
           @enter="emit('cardClick', $event)"
@@ -254,7 +278,9 @@ function providerSwitchingCliKind(provider: Provider) {
     <ProviderCard
       v-if="draggedProvider"
       :provider="draggedProvider"
+      :settings="settings"
       :tone="providerCardTone(draggedProvider)"
+      :list="layout === 'list'"
       :dragging="true"
       :interactive="false"
       :drag-style="dragStyle"
@@ -268,7 +294,7 @@ function providerSwitchingCliKind(provider: Provider) {
       :visible="recommendationVisible"
       :providers="providers"
       @close="recommendationVisible = false"
-      @switch="(provider, cliKind) => emit('switchCliConfig', provider, cliKind)"
+      @switch="(provider, cliKind, model) => emit('switchCliConfig', provider, cliKind, model)"
     />
   </section>
 </template>

@@ -265,7 +265,8 @@ fn token_counts(value: Option<&Value>) -> Option<SessionTokenCounts> {
         cache_write_tokens: usage::number(value, "cache_creation_input_tokens")
             .or_else(|| usage::number(value, "cache_write_tokens")),
         reasoning_tokens: usage::number(value, "reasoning_tokens"),
-    };
+    }
+    .with_cache_in_input();
     (counts.input_tokens.is_some()
         || counts.output_tokens.is_some()
         || counts.cache_read_tokens.is_some()

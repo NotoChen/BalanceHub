@@ -27,6 +27,7 @@ const GATED: Record<string, string> = {
   "components/agent-workspace/AgentCatalogPanel.vue|edit": "同上，面板只把行的编辑动作往上传",
   "components/agent-workspace/AgentCatalogConfigurationSelector.vue|compare": "同名资源比较入口由 can-compare 控制，批量弹窗里关掉了",
   "components/agent-workspace/AgentConfigurationEditorModal.vue|openSource": "文件切换按钮只在传了 sources 时渲染",
+  "components/BatchOperationProgressModal.vue|cancelRefresh": "取消刷新按钮只在非签到模式渲染，签到弹窗不需要",
   "components/BatchOperationProgressModal.vue|showCheckInWindow": "按钮由 task.canShowWindow 控制，通用进度弹窗没有签到任务",
   "components/BatchOperationProgressModal.vue|resumeCheckIn": "同上",
   "components/BatchOperationProgressModal.vue|cancelCheckIn": "同上",

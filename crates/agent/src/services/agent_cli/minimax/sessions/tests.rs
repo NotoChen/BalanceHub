@@ -268,13 +268,15 @@ fn decoder_emits_text_thinking_tools_and_usage() {
         line.to_string().as_bytes(),
         &mut Value::Null,
     );
-    let messages = mutations
-        .into_iter()
-        .filter_map(|mutation| match mutation {
-            SessionTranscriptMutation::Put { message, .. } => Some(message),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let mut messages = Vec::new();
+    let mut usage = Vec::new();
+    for mutation in mutations {
+        match mutation {
+            SessionTranscriptMutation::Put { message, .. } => messages.push(message),
+            SessionTranscriptMutation::Usage(record) => usage.push(record),
+            _ => {}
+        }
+    }
     let ids = messages
         .iter()
         .map(|message| message.id.as_str())
@@ -296,6 +298,11 @@ fn decoder_emits_text_thinking_tools_and_usage() {
     );
     assert_eq!(messages[3].content, "build ok");
     assert_eq!(messages[3].metadata.exit_code, Some(0));
+    // 原生 usage 把缓存读写单列，落库时并入输入，维持“输入含缓存”的约定。
+    assert_eq!(usage.len(), 1);
+    assert_eq!(usage[0].tokens.input_tokens, Some(160));
+    assert_eq!(usage[0].tokens.cache_read_tokens, Some(40));
+    assert_eq!(usage[0].tokens.output_tokens, Some(30));
 }
 
 #[test]

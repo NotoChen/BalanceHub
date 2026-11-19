@@ -123,6 +123,9 @@ pub struct ProviderObservationPatch {
     user_id: String,
     site_logo: String,
     quota: ProviderQuota,
+    /// 站点价目和模型表现都属于刷新观察数据；价格变化不需要用户重新编辑卡片。
+    pricing: crate::models::ProviderPricingSnapshot,
+    performance: crate::models::ProviderPerformanceSnapshot,
     available_models: Vec<String>,
     available_models_state: ProviderModelListState,
     last_synced_at: Option<String>,
@@ -144,6 +147,8 @@ impl ProviderObservationPatch {
             user_id: refreshed.identity.user_id.clone(),
             site_logo: refreshed.identity.site_logo.clone(),
             quota: refreshed.quota.clone(),
+            pricing: refreshed.capabilities.pricing.clone(),
+            performance: refreshed.capabilities.performance.clone(),
             // Adapters retain the previous list on fetch failure and replace it
             // only on success. Quota errors must not discard successful models.
             available_models: refreshed.capabilities.available_models.clone(),
@@ -169,6 +174,11 @@ impl ProviderObservationPatch {
         provider.identity.user_id.clone_from(&self.user_id);
         provider.identity.site_logo.clone_from(&self.site_logo);
         provider.quota.clone_from(&self.quota);
+        provider.capabilities.pricing.clone_from(&self.pricing);
+        provider
+            .capabilities
+            .performance
+            .clone_from(&self.performance);
         provider
             .capabilities
             .available_models
@@ -570,6 +580,39 @@ mod tests {
         assert_eq!(
             original.capabilities.available_models,
             vec!["new-model".to_string()]
+        );
+    }
+
+    #[test]
+    fn refresh_observation_persists_pricing_and_performance_snapshots() {
+        let mut original = provider(ProviderProtocol::NewApi);
+        let mut refreshed = original.clone();
+        refreshed.capabilities.pricing.models.insert(
+            "site-model".to_string(),
+            crate::models::ProviderModelPrice {
+                input: Some(2.0),
+                ..crate::models::ProviderModelPrice::default()
+            },
+        );
+        refreshed.capabilities.performance.models.insert(
+            "site-model".to_string(),
+            crate::models::ProviderModelPerformance {
+                success_rate: Some(99.0),
+                avg_tps: Some(42.0),
+                ..crate::models::ProviderModelPerformance::default()
+            },
+        );
+
+        ProviderOperationOutcome::<()>::refreshed(&original.clone(), refreshed)
+            .apply_to(&mut original);
+
+        assert_eq!(
+            original.capabilities.pricing.models["site-model"].input,
+            Some(2.0)
+        );
+        assert_eq!(
+            original.capabilities.performance.models["site-model"].success_rate,
+            Some(99.0)
         );
     }
 

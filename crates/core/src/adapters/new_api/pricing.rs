@@ -9,8 +9,8 @@ use crate::{
     adapters::transport::ProviderTransport,
     limits,
     models::{
-        Provider, ProviderModelPrice, ProviderOptionalCapability, ProviderOptionalCapabilityState,
-        ProviderPricingSnapshot, ProviderPricingSource,
+        Provider, ProviderGroupPricing, ProviderModelPrice, ProviderOptionalCapability,
+        ProviderOptionalCapabilityState, ProviderPricingSnapshot, ProviderPricingSource,
     },
 };
 use reqwest::header::{ACCEPT, ORIGIN, REFERER, USER_AGENT};
@@ -50,6 +50,7 @@ pub async fn probe_pricing(client: &ProviderTransport, provider: &Provider) -> P
                 loaded.models,
                 loaded.groups,
                 group.clone(),
+                loaded.group_pricing,
             );
             let reason = if group.is_empty() {
                 format!("已读取 {count} 个模型的站点价格")
@@ -91,6 +92,7 @@ struct LoadedPricing {
     models: BTreeMap<String, ProviderModelPrice>,
     groups: BTreeMap<String, f64>,
     group: String,
+    group_pricing: ProviderGroupPricing,
 }
 
 async fn fetch_pricing(
@@ -128,6 +130,27 @@ async fn fetch_pricing(
             status.as_u16()
         )));
     }
+    let decoded = serde_json::from_str::<Value>(&body);
+    // NewAPI 把“价目模块未开启”放在标准错误包里返回，状态码可能是 403。
+    // 明确未开启属于能力结论；认证或权限错误仍只记为本次失败，不能用一次
+    // 拒绝清空上次成功读到的价目。
+    if let Ok(value) = &decoded {
+        if value.get("success").and_then(Value::as_bool) == Some(false) {
+            let message = value
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("接口返回失败")
+                .trim()
+                .to_string();
+            return Err(if looks_unsupported(&message) {
+                PricingFailure::Unsupported(message)
+            } else if status.is_success() {
+                PricingFailure::Failed(message)
+            } else {
+                PricingFailure::Failed(format!("HTTP {}: {message}", status.as_u16()))
+            });
+        }
+    }
     if !status.is_success() {
         return Err(PricingFailure::Failed(format!(
             "HTTP {}: {}",
@@ -135,8 +158,8 @@ async fn fetch_pricing(
             trim_message(&body)
         )));
     }
-    let decoded = serde_json::from_str::<Value>(&body)
-        .map_err(|error| PricingFailure::Failed(format!("解析站点价目失败: {error}")))?;
+    let decoded =
+        decoded.map_err(|error| PricingFailure::Failed(format!("解析站点价目失败: {error}")))?;
     if decoded.get("success").and_then(Value::as_bool) != Some(true) {
         let message = decoded
             .get("message")
@@ -144,11 +167,11 @@ async fn fetch_pricing(
             .unwrap_or("接口返回失败")
             .trim()
             .to_string();
-        return if looks_unsupported(&message) {
-            Err(PricingFailure::Unsupported(message))
+        return Err(if looks_unsupported(&message) {
+            PricingFailure::Unsupported(message)
         } else {
-            Err(PricingFailure::Failed(message))
-        };
+            PricingFailure::Failed(message)
+        });
     }
     let Some(items) = decoded.get("data").and_then(Value::as_array) else {
         return Err(PricingFailure::Unsupported(
@@ -198,7 +221,11 @@ async fn fetch_pricing(
     Ok(LoadedPricing {
         models: models.into_iter().collect(),
         groups,
-        group,
+        group: group.clone(),
+        group_pricing: ProviderGroupPricing {
+            rate_multiplier: Some(ratio),
+            ..ProviderGroupPricing::default()
+        },
     })
 }
 
@@ -225,32 +252,46 @@ async fn send_pricing(
         .map_err(PricingFailure::Failed)
 }
 
+/// NewAPI 计费分组：令牌自己指定了分组时以令牌分组为准，只有令牌没写分组
+/// （或写的是无法静态定价的 `auto`）时才用账号分组。`auto` 分组由站点在请求
+/// 时挑选，价目接口拿不到确定倍率，按账号分组估算。
 fn effective_group(
     provider: &Provider,
     groups: &BTreeMap<String, f64>,
     usable_groups: &[String],
 ) -> String {
+    let current = provider.auth.api_key.trim();
+    let current_key_group = provider
+        .auth
+        .api_key_options
+        .iter()
+        .find(|option| option.key.trim() == current)
+        .map(|option| option.group.trim().to_string())
+        .unwrap_or_default();
+    // 手工填写的 Key 不在列表里；只有所有已分组 Key 都指向同一分组时才按它推断。
+    let key_groups = provider
+        .auth
+        .api_key_options
+        .iter()
+        .map(|option| option.group.trim())
+        .filter(|group| !group.is_empty())
+        .collect::<std::collections::BTreeSet<_>>();
+    let inferred_key_group = if key_groups.len() == 1 {
+        key_groups
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    } else {
+        String::new()
+    };
     let candidates = [
+        current_key_group,
         provider.quota.group.trim().to_string(),
-        provider
-            .auth
-            .api_key_options
-            .iter()
-            .find(|option| {
-                option.key.trim() == provider.auth.api_key.trim() && !option.group.trim().is_empty()
-            })
-            .map(|option| option.group.trim().to_string())
-            .unwrap_or_default(),
-        provider
-            .auth
-            .api_key_options
-            .iter()
-            .find(|option| !option.group.trim().is_empty())
-            .map(|option| option.group.trim().to_string())
-            .unwrap_or_default(),
+        inferred_key_group,
     ];
     for candidate in candidates {
-        if candidate.is_empty() {
+        if candidate.is_empty() || candidate == "auto" {
             continue;
         }
         if groups.contains_key(&candidate) || usable_groups.iter().any(|group| group == &candidate)
@@ -289,37 +330,88 @@ fn model_price(
     group: &str,
 ) -> Option<ProviderModelPrice> {
     let quota_type = item.get("quota_type").and_then(Value::as_i64).unwrap_or(0);
-    if quota_type == 1 {
-        let price = extract_f64_field(item, &["model_price", "modelPrice"])
+    let price = if quota_type == 1 {
+        let per_request = extract_f64_field(item, &["model_price", "modelPrice"])
             .filter(|price| price.is_finite() && *price >= 0.0)
             .map(|price| price * group_ratio)?;
-        return Some(ProviderModelPrice {
-            per_request: Some(price),
+        ProviderModelPrice {
+            per_request: Some(per_request),
             group: group.to_string(),
             ..ProviderModelPrice::default()
-        });
-    }
-    let model_ratio = extract_f64_field(item, &["model_ratio", "modelRatio"])
-        .filter(|ratio| ratio.is_finite() && *ratio >= 0.0)?;
-    let input = model_ratio * 1_000_000.0 / quota_per_unit * group_ratio;
-    if !input.is_finite() || input < 0.0 {
-        return None;
-    }
-    let completion_ratio = extract_f64_field(item, &["completion_ratio", "completionRatio"])
-        .filter(|ratio| ratio.is_finite() && *ratio >= 0.0)
-        .unwrap_or(1.0);
-    let cache_ratio = extract_f64_field(item, &["cache_ratio", "cacheRatio"])
-        .filter(|ratio| ratio.is_finite() && *ratio >= 0.0);
-    let create_cache_ratio = extract_f64_field(item, &["create_cache_ratio", "createCacheRatio"])
-        .filter(|ratio| ratio.is_finite() && *ratio >= 0.0);
-    Some(ProviderModelPrice {
-        input: Some(input),
-        output: Some(input * completion_ratio),
-        cache_read: cache_ratio.map(|ratio| input * ratio),
-        cache_write: create_cache_ratio.map(|ratio| input * ratio),
-        per_request: None,
-        group: group.to_string(),
+        }
+    } else {
+        let model_ratio = extract_f64_field(item, &["model_ratio", "modelRatio"])
+            .filter(|ratio| ratio.is_finite() && *ratio >= 0.0)?;
+        let input = model_ratio * 1_000_000.0 / quota_per_unit * group_ratio;
+        if !input.is_finite() || input < 0.0 {
+            return None;
+        }
+        let completion_ratio = extract_f64_field(item, &["completion_ratio", "completionRatio"])
+            .filter(|ratio| ratio.is_finite() && *ratio >= 0.0)
+            .unwrap_or(1.0);
+        let cache_ratio = extract_f64_field(item, &["cache_ratio", "cacheRatio"])
+            .filter(|ratio| ratio.is_finite() && *ratio >= 0.0);
+        let create_cache_ratio =
+            extract_f64_field(item, &["create_cache_ratio", "createCacheRatio"])
+                .filter(|ratio| ratio.is_finite() && *ratio >= 0.0);
+        ProviderModelPrice {
+            input: Some(input),
+            output: Some(input * completion_ratio),
+            cache_read: cache_ratio.map(|ratio| input * ratio),
+            cache_write: create_cache_ratio.map(|ratio| input * ratio),
+            per_request: None,
+            group: group.to_string(),
+            ..ProviderModelPrice::default()
+        }
+    };
+    Some(with_catalog_metadata(price, item))
+}
+
+/// NewAPI 的价目响应同时携带模型目录信息。这些字段不是价格，但对模型广场
+/// 很重要：新模型可能尚未进入 models.dev，站点自己声明的上下文和能力才是
+/// 用户实际能用的规格。
+fn with_catalog_metadata(mut price: ProviderModelPrice, item: &Value) -> ProviderModelPrice {
+    price.context_window =
+        extract_u64_field(item, &["context_length", "contextLength"]).filter(|value| *value > 0);
+    price.max_output_tokens = extract_u64_field(item, &["max_output_tokens", "maxOutputTokens"])
+        .filter(|value| *value > 0);
+    price.input_modalities = string_list_field(item, &["input_modalities", "inputModalities"]);
+    price.output_modalities = string_list_field(item, &["output_modalities", "outputModalities"]);
+    price.capabilities = string_list_field(item, &["capabilities"]);
+    price
+}
+
+fn extract_u64_field(value: &Value, field_names: &[&str]) -> Option<u64> {
+    field_names.iter().find_map(|field_name| {
+        let item = value.get(*field_name)?;
+        item.as_u64().or_else(|| {
+            item.as_str()
+                .and_then(|text| text.trim().parse::<u64>().ok())
+        })
     })
+}
+
+fn string_list_field(value: &Value, field_names: &[&str]) -> Vec<String> {
+    field_names
+        .iter()
+        .find_map(|field_name| value.get(*field_name))
+        .map(|item| match item {
+            Value::Array(items) => items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .collect(),
+            Value::String(text) => text
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .collect(),
+            _ => Vec::new(),
+        })
+        .unwrap_or_default()
 }
 
 fn looks_unsupported(message: &str) -> bool {
@@ -336,6 +428,7 @@ fn looks_unsupported(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::test_support::{serve, Reply};
     use serde_json::json;
 
     #[test]
@@ -379,6 +472,30 @@ mod tests {
     }
 
     #[test]
+    fn catalog_metadata_travels_with_the_site_price() {
+        let price = model_price(
+            &json!({
+                "model_name": "vision-model",
+                "model_ratio": 1.0,
+                "context_length": 200000,
+                "max_output_tokens": 8192,
+                "input_modalities": ["text", "image"],
+                "output_modalities": ["text"],
+                "capabilities": ["function_calling", "vision"]
+            }),
+            1.0,
+            500_000.0,
+            "default",
+        )
+        .expect("catalog model should have a price");
+        assert_eq!(price.context_window, Some(200_000));
+        assert_eq!(price.max_output_tokens, Some(8192));
+        assert_eq!(price.input_modalities, ["text", "image"]);
+        assert_eq!(price.output_modalities, ["text"]);
+        assert_eq!(price.capabilities, ["function_calling", "vision"]);
+    }
+
+    #[test]
     fn models_logically_excluded_from_the_group_are_skipped() {
         assert!(group_enabled(
             &json!({ "enable_groups": ["default", "vip"] }),
@@ -389,16 +506,115 @@ mod tests {
         assert!(group_enabled(&json!({}), "vip"));
     }
 
-    #[test]
-    fn effective_group_prefers_the_stored_account_group() {
+    fn pricing_provider(current: &str, account_group: &str, keys: &[(&str, &str)]) -> Provider {
         let mut provider = Provider::from_input(Default::default(), "p1".into());
-        provider.quota.group = "vip".into();
+        provider.auth.api_key = current.to_string();
+        provider.quota.group = account_group.to_string();
+        provider.auth.api_key_options = keys
+            .iter()
+            .map(|(key, group)| {
+                let mut option = crate::models::ProviderApiKeyOption::current_for_protocol(
+                    key,
+                    crate::models::ProviderProtocol::NewApi,
+                );
+                option.key = (*key).to_string();
+                option.group = (*group).to_string();
+                option
+            })
+            .collect();
+        provider
+    }
+
+    #[test]
+    fn effective_group_prefers_the_current_keys_group_over_the_account_group() {
+        let groups = BTreeMap::from([
+            ("default".to_string(), 1.0),
+            ("vip".to_string(), 1.5),
+            ("svip".to_string(), 2.0),
+        ]);
+        let usable = ["default".to_string(), "vip".to_string(), "svip".to_string()];
+        // 令牌指定了分组：站点按令牌分组计费，即使账号本身属于另一个分组。
+        let keyed = pricing_provider("sk-a", "vip", &[("sk-a", "svip"), ("sk-b", "default")]);
+        assert_eq!(effective_group(&keyed, &groups, &usable), "svip");
+        // 令牌没写分组：退回账号分组。
+        let groupless = pricing_provider("sk-a", "vip", &[("sk-a", "")]);
+        assert_eq!(effective_group(&groupless, &groups, &usable), "vip");
+        // auto 分组无法静态定价，按账号分组估算。
+        let auto = pricing_provider("sk-a", "vip", &[("sk-a", "auto")]);
+        assert_eq!(effective_group(&auto, &groups, &usable), "vip");
+        // 手工填写的 Key 不在列表里：所有 Key 同属一组才按它推断。
+        let manual = pricing_provider("sk-manual", "vip", &[("sk-a", "svip"), ("sk-b", "svip")]);
+        assert_eq!(effective_group(&manual, &groups, &usable), "vip");
+        let mixed = pricing_provider("sk-manual", "vip", &[("sk-a", "svip"), ("sk-b", "default")]);
+        assert_eq!(effective_group(&mixed, &groups, &usable), "vip");
+    }
+
+    #[test]
+    fn effective_group_falls_back_to_default_or_the_first_group() {
         let groups = BTreeMap::from([("default".to_string(), 1.0), ("vip".to_string(), 1.5)]);
-        assert_eq!(
-            effective_group(&provider, &groups, &["default".into(), "vip".into()]),
-            "vip"
-        );
-        provider.quota.group.clear();
+        let provider = pricing_provider("sk-a", "", &[]);
         assert_eq!(effective_group(&provider, &groups, &[]), "default");
+        let only_vip = BTreeMap::from([("vip".to_string(), 1.5)]);
+        assert_eq!(effective_group(&provider, &only_vip, &[]), "vip");
+    }
+
+    const STATUS_BODY: &str =
+        r#"{"success":true,"system_name":"fixture","data":{"quota_per_unit":500000}}"#;
+    const PRICING_DISABLED: &str = r#"{"success":false,"message":"pricing is disabled"}"#;
+    const PRICING_UNAUTHORIZED: &str = r#"{"success":false,"message":"无权进行此操作"}"#;
+
+    async fn fixture_client(provider: &Provider) -> ProviderTransport {
+        crate::adapters::transport::build_client(&crate::models::AppSettings::default(), provider)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn disabled_pricing_module_is_a_capability_conclusion_even_with_http_403() {
+        // 状态、带凭据的价目请求、匿名重试。
+        let (provider, _requests, server) = serve(vec![
+            Reply(200, STATUS_BODY),
+            Reply(403, PRICING_DISABLED),
+            Reply(403, PRICING_DISABLED),
+        ]);
+        let client = fixture_client(&provider).await;
+        let probe = probe_pricing(&client, &provider).await;
+        server.join().unwrap();
+        assert!(probe.state.known);
+        assert!(!probe.state.supported);
+        assert!(probe
+            .state
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("pricing is disabled"));
+        assert_eq!(probe.snapshot.source, ProviderPricingSource::None);
+    }
+
+    #[tokio::test]
+    async fn permission_errors_keep_the_last_successful_price_snapshot() {
+        let (mut provider, _requests, server) = serve(vec![
+            Reply(200, STATUS_BODY),
+            Reply(403, PRICING_UNAUTHORIZED),
+            Reply(403, PRICING_UNAUTHORIZED),
+        ]);
+        provider.capabilities.pricing.mark_loaded(
+            ProviderPricingSource::NewApi,
+            BTreeMap::from([("gpt-5".to_string(), ProviderModelPrice::default())]),
+            BTreeMap::new(),
+            "vip".to_string(),
+            ProviderGroupPricing::default(),
+        );
+        let client = fixture_client(&provider).await;
+        let probe = probe_pricing(&client, &provider).await;
+        server.join().unwrap();
+        assert!(!probe.state.known);
+        assert_eq!(probe.snapshot.source, ProviderPricingSource::NewApi);
+        assert!(probe
+            .snapshot
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("无权进行此操作"));
     }
 }

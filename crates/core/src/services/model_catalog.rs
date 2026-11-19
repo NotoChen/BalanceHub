@@ -138,9 +138,15 @@ impl ModelCatalogService {
                         per_request: None,
                         price_source: crate::models::ModelPriceSource::None,
                         price_group: String::new(),
+                        billing: ModelBillingMode::Token,
+                        official_price: None,
+                        price_tiers: Vec::new(),
+                        long_context_basis: None,
+                        time_pricing: None,
                     },
                 };
                 if let Some(site) = site {
+                    apply_site_metadata(&mut metadata, site);
                     apply_site_price(&mut metadata, site);
                 }
                 Some(over.map_or(metadata.clone(), |over| {
@@ -255,21 +261,116 @@ impl ModelCatalogService {
     }
 }
 
+/// 站点价目响应里的目录字段比 models.dev 更贴近这个中转站的实际配置。
+/// 只在站点给出值时覆盖；缺失字段继续沿用公开目录，不把「未声明」误读成
+/// 「不支持」。
+fn apply_site_metadata(metadata: &mut ModelMetadata, site: &ProviderModelPrice) {
+    if let Some(context_window) = site.context_window {
+        metadata.context_window = Some(context_window);
+    }
+    if let Some(max_output_tokens) = site.max_output_tokens {
+        metadata.output_limit = Some(max_output_tokens);
+    }
+    if !site.input_modalities.is_empty() {
+        metadata.input_modalities.clone_from(&site.input_modalities);
+    }
+    if !site.output_modalities.is_empty() {
+        metadata
+            .output_modalities
+            .clone_from(&site.output_modalities);
+    }
+    if site.capabilities.iter().any(|value| value == "reasoning") {
+        metadata.reasoning = Some(true);
+    }
+    if site
+        .capabilities
+        .iter()
+        .any(|value| value == "function_calling" || value == "tools")
+    {
+        metadata.tool_call = Some(true);
+    }
+}
+
 fn apply_site_price(metadata: &mut ModelMetadata, site: &ProviderModelPrice) {
-    if let Some(per_request) = site.per_request {
+    // 站点价目的附加信息随本次快照整体替换，避免上一次刷新的阶梯/分时残留。
+    metadata.official_price = None;
+    metadata.price_tiers.clear();
+    metadata.long_context_basis = None;
+    metadata.time_pricing = None;
+    metadata.billing = ModelBillingMode::Token;
+
+    if site.billing == ProviderBillingMode::Image {
+        if !site.has_any_price() {
+            return;
+        }
+        // 图片模型保留图片 token 单价，同时把 1K / 2K / 4K 按张档位交给 UI。
+        metadata.price = site.token_price();
+        metadata.per_request = site.per_request;
+    } else if let Some(per_request) = site.per_request {
         // 按次计费的模型没有可换算的 token 单价；用站点单价替换目录参考价，
         // 避免把不适用的 token 估算继续展示成这个模型的费用。
         metadata.price = ModelPrice::default();
         metadata.per_request = Some(per_request);
-        metadata.price_source = ModelPriceSource::Site;
-        metadata.price_group.clone_from(&site.group);
+    } else if site.has_token_price() {
+        metadata.price = site.token_price();
+        metadata.per_request = None;
+        metadata.official_price = site
+            .official
+            .as_ref()
+            .filter(|official| official.has_price())
+            .map(|official| ModelPrice {
+                input: official.input,
+                output: official.output,
+                cache_read: official.cache_read,
+                cache_write: official.cache_write,
+            });
+    } else if site.tiers.is_empty() {
         return;
+    } else {
+        // 只有多档价格（通常是没有基础价的图片模型）时仍展示档位价。
+        metadata.price = ModelPrice::default();
+        metadata.per_request = None;
     }
-    if !site.has_token_price() {
-        return;
-    }
-    metadata.price = site.token_price();
-    metadata.per_request = None;
+    metadata.billing = match site.billing {
+        ProviderBillingMode::Image => ModelBillingMode::Image,
+        ProviderBillingMode::Video => ModelBillingMode::Video,
+        ProviderBillingMode::PerRequest => ModelBillingMode::PerRequest,
+        ProviderBillingMode::Token if site.per_request.is_some() => ModelBillingMode::PerRequest,
+        ProviderBillingMode::Token => ModelBillingMode::Token,
+    };
+    metadata.price_tiers = site
+        .tiers
+        .iter()
+        .map(|tier| ModelPriceTier {
+            label: tier.label.clone(),
+            min_tokens: tier.min_tokens,
+            max_tokens: tier.max_tokens,
+            price: ModelPrice {
+                input: tier.input,
+                output: tier.output,
+                cache_read: tier.cache_read,
+                cache_write: tier.cache_write,
+            },
+            per_request: tier.per_request,
+        })
+        .collect();
+    metadata.long_context_basis = site.long_context_basis.map(|basis| match basis {
+        ProviderLongContextBasis::WholeRequest => ModelLongContextBasis::WholeRequest,
+        ProviderLongContextBasis::Marginal => ModelLongContextBasis::Marginal,
+    });
+    metadata.time_pricing = site.time_pricing.as_ref().map(|time| ModelTimePricing {
+        timezone: time.timezone.clone(),
+        weekdays_only: time.weekdays_only,
+        periods: time
+            .periods
+            .iter()
+            .map(|period| ModelTimePricingPeriod {
+                start: period.start.clone(),
+                end: period.end.clone(),
+                multiplier: period.multiplier,
+            })
+            .collect(),
+    });
     metadata.price_source = ModelPriceSource::Site;
     metadata.price_group.clone_from(&site.group);
 }
@@ -306,6 +407,12 @@ fn apply_model_override(
         metadata.price_source = ModelPriceSource::Manual;
         metadata.per_request = None;
         metadata.price_group.clear();
+        // 手动价不是站点实收价，站点附加的官方对比、阶梯和分时都不再适用。
+        metadata.billing = ModelBillingMode::Token;
+        metadata.official_price = None;
+        metadata.price_tiers.clear();
+        metadata.long_context_basis = None;
+        metadata.time_pricing = None;
     }
     metadata
 }
@@ -403,6 +510,11 @@ fn decode(root: &Value) -> Result<BTreeMap<String, ModelMetadata>, String> {
                         ModelPriceSource::None
                     },
                     price_group: String::new(),
+                    billing: ModelBillingMode::Token,
+                    official_price: None,
+                    price_tiers: Vec::new(),
+                    long_context_basis: None,
+                    time_pricing: None,
                 });
         }
     }
@@ -464,6 +576,11 @@ mod tests {
             per_request: None,
             price_source: ModelPriceSource::Catalog,
             price_group: String::new(),
+            billing: ModelBillingMode::Token,
+            official_price: None,
+            price_tiers: Vec::new(),
+            long_context_basis: None,
+            time_pricing: None,
         }
     }
 
@@ -570,6 +687,61 @@ mod tests {
     }
 
     #[test]
+    fn cache_heavy_usage_stays_priced_after_normalization() {
+        let service = service();
+        // 归一化后输入已含缓存；非缓存输入只剩 100，缓存读 1M。
+        // 未归一化时 input - cache 会下溢，整条记录被判成无法定价。
+        let usage = SessionUsageSummary {
+            models: vec![SessionModelUsage {
+                model: Some("claude-sonnet-4-5".into()),
+                tokens: SessionTokenCounts {
+                    input_tokens: Some(1_000_100),
+                    output_tokens: Some(1_000),
+                    cache_read_tokens: Some(1_000_000),
+                    ..SessionTokenCounts::default()
+                },
+                records: 1,
+                estimated_cost_microusd: None,
+            }],
+            records: 1,
+            ..SessionUsageSummary::default()
+        };
+        let priced = service.estimate(usage).unwrap();
+        // 非缓存输入 100 × $3 + 缓存读 1M × $0.3 + 输出 1k × $15
+        assert_eq!(priced.estimated_cost_microusd, Some(315_300));
+        assert_eq!(priced.unpriced_records, 0);
+    }
+
+    #[test]
+    fn site_catalog_metadata_fills_or_overrides_public_catalog_fields() {
+        let service = service();
+        let site = ProviderPricingSnapshot {
+            models: BTreeMap::from([(
+                "claude-sonnet-4-5".to_string(),
+                ProviderModelPrice {
+                    input: Some(1.0),
+                    output: Some(5.0),
+                    context_window: Some(1_000_000),
+                    max_output_tokens: Some(64_000),
+                    input_modalities: vec!["text".to_string(), "image".to_string()],
+                    capabilities: vec!["reasoning".to_string(), "function_calling".to_string()],
+                    ..ProviderModelPrice::default()
+                },
+            )]),
+            ..ProviderPricingSnapshot::default()
+        };
+        let snapshot = service
+            .snapshot_for(&["claude-sonnet-4-5".to_string()], None, Some(&site))
+            .unwrap();
+        let model = &snapshot.models[0];
+        assert_eq!(model.context_window, Some(1_000_000));
+        assert_eq!(model.output_limit, Some(64_000));
+        assert_eq!(model.input_modalities, ["text", "image"]);
+        assert_eq!(model.reasoning, Some(true));
+        assert_eq!(model.tool_call, Some(true));
+    }
+
+    #[test]
     fn per_request_site_price_replaces_catalog_token_price() {
         let service = service();
         let site = ProviderPricingSnapshot {
@@ -591,6 +763,134 @@ mod tests {
         assert_eq!(model.price.input, None);
         assert_eq!(model.price_source, ModelPriceSource::Site);
         assert_eq!(model.price_group, "vip");
+    }
+
+    #[test]
+    fn site_price_keeps_official_comparison_tiers_and_time_pricing() {
+        let service = service();
+        let site = ProviderPricingSnapshot {
+            models: BTreeMap::from([(
+                "claude-sonnet-4-5".to_string(),
+                ProviderModelPrice {
+                    input: Some(2.5),
+                    output: Some(10.0),
+                    official: Some(ProviderOfficialPrice {
+                        input: Some(5.0),
+                        output: Some(15.0),
+                        ..ProviderOfficialPrice::default()
+                    }),
+                    tiers: vec![
+                        ProviderPricingTier {
+                            label: "≤272K".to_string(),
+                            max_tokens: Some(272_000),
+                            input: Some(2.5),
+                            output: Some(10.0),
+                            ..ProviderPricingTier::default()
+                        },
+                        ProviderPricingTier {
+                            label: ">272K".to_string(),
+                            min_tokens: 272_000,
+                            input: Some(5.0),
+                            output: Some(20.0),
+                            ..ProviderPricingTier::default()
+                        },
+                    ],
+                    long_context_basis: Some(ProviderLongContextBasis::WholeRequest),
+                    time_pricing: Some(ProviderTimePricing {
+                        timezone: "Asia/Shanghai".to_string(),
+                        weekdays_only: true,
+                        periods: vec![ProviderTimePricingPeriod {
+                            start: "00:30".to_string(),
+                            end: "08:30".to_string(),
+                            multiplier: 0.5,
+                        }],
+                    }),
+                    group: "vip".to_string(),
+                    ..ProviderModelPrice::default()
+                },
+            )]),
+            ..ProviderPricingSnapshot::default()
+        };
+        let snapshot = service
+            .snapshot_for(&["claude-sonnet-4-5".to_string()], None, Some(&site))
+            .unwrap();
+        let model = &snapshot.models[0];
+        assert_eq!(
+            model.official_price.as_ref().and_then(|price| price.input),
+            Some(5.0)
+        );
+        assert_eq!(model.price_tiers.len(), 2);
+        assert_eq!(model.price_tiers[1].label, ">272K");
+        assert_eq!(model.price_tiers[1].price.output, Some(20.0));
+        assert_eq!(
+            model.long_context_basis,
+            Some(ModelLongContextBasis::WholeRequest)
+        );
+        let time = model.time_pricing.as_ref().expect("time pricing");
+        assert_eq!(time.timezone, "Asia/Shanghai");
+        assert!(time.weekdays_only);
+        assert_eq!(time.periods[0].multiplier, 0.5);
+    }
+
+    #[test]
+    fn image_site_price_keeps_resolution_tiers() {
+        let service = service();
+        let site = ProviderPricingSnapshot {
+            models: BTreeMap::from([(
+                "claude-sonnet-4-5".to_string(),
+                ProviderModelPrice {
+                    billing: ProviderBillingMode::Image,
+                    tiers: vec![
+                        ProviderPricingTier {
+                            label: "1K".to_string(),
+                            per_request: Some(0.04),
+                            ..ProviderPricingTier::default()
+                        },
+                        ProviderPricingTier {
+                            label: "2K".to_string(),
+                            per_request: Some(0.08),
+                            ..ProviderPricingTier::default()
+                        },
+                    ],
+                    group: "vip".to_string(),
+                    ..ProviderModelPrice::default()
+                },
+            )]),
+            ..ProviderPricingSnapshot::default()
+        };
+        let snapshot = service
+            .snapshot_for(&["claude-sonnet-4-5".to_string()], None, Some(&site))
+            .unwrap();
+        let model = &snapshot.models[0];
+        assert_eq!(model.billing, ModelBillingMode::Image);
+        assert_eq!(model.per_request, None);
+        assert_eq!(model.price_tiers.len(), 2);
+        assert_eq!(model.price_tiers[0].per_request, Some(0.04));
+        assert_eq!(model.price_source, ModelPriceSource::Site);
+    }
+
+    #[test]
+    fn video_site_price_stays_per_request() {
+        let service = service();
+        let site = ProviderPricingSnapshot {
+            models: BTreeMap::from([(
+                "claude-sonnet-4-5".to_string(),
+                ProviderModelPrice {
+                    billing: ProviderBillingMode::Video,
+                    per_request: Some(0.35),
+                    group: "media".to_string(),
+                    ..ProviderModelPrice::default()
+                },
+            )]),
+            ..ProviderPricingSnapshot::default()
+        };
+        let snapshot = service
+            .snapshot_for(&["claude-sonnet-4-5".to_string()], None, Some(&site))
+            .unwrap();
+        let model = &snapshot.models[0];
+        assert_eq!(model.billing, ModelBillingMode::Video);
+        assert_eq!(model.per_request, Some(0.35));
+        assert_eq!(model.price.input, None);
     }
 
     #[test]
@@ -633,6 +933,27 @@ mod tests {
                 ProviderModelPrice {
                     input: Some(1.0),
                     output: Some(5.0),
+                    official: Some(ProviderOfficialPrice {
+                        input: Some(5.0),
+                        output: Some(15.0),
+                        ..ProviderOfficialPrice::default()
+                    }),
+                    tiers: vec![ProviderPricingTier {
+                        label: "≤272K".to_string(),
+                        input: Some(1.0),
+                        output: Some(5.0),
+                        ..ProviderPricingTier::default()
+                    }],
+                    long_context_basis: Some(ProviderLongContextBasis::WholeRequest),
+                    time_pricing: Some(ProviderTimePricing {
+                        timezone: "Asia/Shanghai".to_string(),
+                        periods: vec![ProviderTimePricingPeriod {
+                            start: "00:30".to_string(),
+                            end: "08:30".to_string(),
+                            multiplier: 0.5,
+                        }],
+                        ..ProviderTimePricing::default()
+                    }),
                     ..ProviderModelPrice::default()
                 },
             )]),
@@ -662,6 +983,10 @@ mod tests {
         assert_eq!(model.price.input, Some(1.0));
         assert_eq!(model.price.output, Some(30.0));
         assert_eq!(model.price_source, ModelPriceSource::Manual);
+        assert!(model.official_price.is_none());
+        assert!(model.price_tiers.is_empty());
+        assert!(model.long_context_basis.is_none());
+        assert!(model.time_pricing.is_none());
     }
 
     #[test]

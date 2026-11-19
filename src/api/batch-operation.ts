@@ -83,3 +83,8 @@ export function refreshAllProvidersWithProgress(
     onEvent,
   });
 }
+
+/// 停止启动新的站点刷新；已经在途的请求会收尾并返回最终结果。
+export function cancelProviderRefresh() {
+  return invoke<null>("cancel_provider_refresh");
+}

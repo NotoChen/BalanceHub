@@ -27,6 +27,7 @@
   display: flex;
   min-width: 0;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 12px 24px;
   background: var(--surface-canvas);
@@ -40,35 +41,6 @@
   background: var(--surface-canvas);
   content: "";
   pointer-events: none;
-}
-
-/* 分组横排：每类一张卡片宽的列，OAuth、CPA、账户认证、API Key 一屏并排，
-   不用为了看另一类先向下滚过一整排卡片。列内卡片按原顺序纵向排列；窄窗口
-   退回单列纵向堆叠，和旧的滚动路径一致。 */
-.provider-board-groups {
-  display: grid;
-  min-width: 0;
-  align-items: start;
-  grid-auto-flow: column;
-  grid-auto-columns: var(--provider-grid-card-max);
-  column-gap: 16px;
-}
-
-.provider-board-groups > .provider-board-section {
-  width: var(--provider-grid-card-max);
-  max-width: 100%;
-}
-
-@media (max-width: 760px) {
-  .provider-board-groups {
-    grid-auto-flow: row;
-    grid-auto-columns: auto;
-    row-gap: 24px;
-  }
-
-  .provider-board-groups > .provider-board-section {
-    width: 100%;
-  }
 }
 
 .overview-provider-grid {
@@ -221,18 +193,4 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--glass-border);
-  padding: 14px 16px;
-}
-
-.panel-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
 }

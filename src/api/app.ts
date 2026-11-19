@@ -115,6 +115,16 @@ export function hostPlatform() {
   return invoke<string>("host_platform");
 }
 
+/** 桌面窗口退出守卫：前端把「是否有需要提示的后台任务」同步给 Rust。 */
+export function setAppRunningTasks(active: boolean) {
+  return invoke<null>("set_app_running_tasks", { active });
+}
+
+/** 用户在退出确认中确认后调用；服务端没有窗口退出，不会实现这个命令。 */
+export function quitApp() {
+  return invoke<null>("quit_app");
+}
+
 /** 浏览器版按新标签页打开；桌面版交给系统默认浏览器。 */
 function openInBrowser(url: string) {
   const opened = window.open(url, "_blank", "noopener,noreferrer");
@@ -376,8 +386,18 @@ export function forgetWorkspace(path: string) {
   return invoke<Workspace[]>("forget_workspace", { path });
 }
 
-export function previewCliConfig(id: string, cliKind: AgentCliKind, apiKeyLocalId: string) {
-  return invoke<AgentConfigurationEdit>("preview_cli_config", { id, cliKind, apiKeyLocalId });
+export function previewCliConfig(
+  id: string,
+  cliKind: AgentCliKind,
+  apiKeyLocalId: string,
+  model?: string,
+) {
+  return invoke<AgentConfigurationEdit>("preview_cli_config", {
+    id,
+    cliKind,
+    apiKeyLocalId,
+    model: model?.trim() || null,
+  });
 }
 
 export function syncAvailableModels(id: string) {
@@ -486,4 +506,8 @@ export function refreshProviders(ids: string[]) {
 
 export function setProviderEnabled(id: string, enabled: boolean) {
   return invoke<Provider>("set_provider_enabled", { id, enabled });
+}
+
+export function setProviderAgentModel(id: string, cliKind: AgentCliKind, model: string | null) {
+  return invoke<Provider>("set_provider_model_binding", { id, cliKind, model });
 }
