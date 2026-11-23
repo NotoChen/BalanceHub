@@ -110,35 +110,53 @@ impl ProviderService {
             }
         };
         task.authenticated(&effective_provider);
-        let browser_assisted = browser_account.is_some() || result.verification_required.is_some();
+        let mut browser_assisted =
+            browser_account.is_some() || result.verification_required.is_some();
         if let Some(verification) = result.verification_required {
-            let verification = crate::models::CheckInVerificationRequest {
-                kind: verification,
-                requires_login: result.verification_requires_login,
-            };
-            let browser_operation = crate::services::browser_check_in::run(
-                &data.settings,
-                &effective_provider,
-                verification,
-                task,
-            )
-            .await?;
-            effective_provider = self
-                .persist_operation_credentials(
-                    &ProviderRequestContext::capture(&effective_provider),
-                    &browser_operation.credentials,
+            let (provider, browser_result) = self
+                .complete_browser_check_in(
+                    &data.settings,
+                    effective_provider,
+                    crate::models::CheckInVerificationRequest {
+                        kind: verification,
+                        requires_login: result.verification_requires_login,
+                    },
+                    task,
                 )
-                .await
-                .map_err(|error| {
-                    CheckInError::Unconfirmed(format!(
-                        "站点操作已完成，但本地会话保存失败：{error}；已停止自动重试"
-                    ))
-                })?
-                .ok_or_else(|| {
-                    CheckInError::Unconfirmed("站点操作已完成，但账号配置已变更".to_string())
-                })?;
-            task.authenticated(&effective_provider);
-            result = browser_operation.value;
+                .await?;
+            effective_provider = provider;
+            result = browser_result;
+            browser_assisted = true;
+        }
+        // 浏览器挑战通过后站点仍可能回 401（会话在挑战期间过期，或
+        // AnyRouter 一类站点只接受新的登录会话）。绑定了登录账号的卡可以
+        // 再自动登录一次，并让浏览器重新执行签到；不再让用户自己重走流程。
+        if let Some(error) = check_in_result_credential_failure(&result) {
+            if let Some(account_id) =
+                relogin_account_after_credential_failure(&effective_provider, &error)
+            {
+                let authenticated = crate::services::provider_browser_login::check_in(
+                    &data.settings,
+                    &effective_provider,
+                    account_id,
+                    task,
+                )
+                .await?;
+                let (provider, browser_result) = self
+                    .complete_browser_check_in(
+                        &data.settings,
+                        authenticated,
+                        crate::models::CheckInVerificationRequest {
+                            kind: crate::models::ProviderCheckInVerification::Connection,
+                            requires_login: false,
+                        },
+                        task,
+                    )
+                    .await?;
+                effective_provider = provider;
+                result = browser_result;
+                browser_assisted = true;
+            }
         }
         let refresh_id = browser_assisted.then(|| id.clone());
         let result = self
@@ -220,7 +238,39 @@ impl ProviderService {
                     "签到请求已完成，但本地配置已变更，本次结果未写入当前账号".to_string(),
                 )
             })?;
+        // 会话签到/标准签到会把 401 作为“失败结果”返回，而不是错误。
+        // 统一收口成错误，让上面的绑定账号重登与重试逻辑也能处理这类响应。
+        if let Some(error) = check_in_result_credential_failure(&operation.value) {
+            return Err(error);
+        }
         Ok((effective_provider, operation.value))
+    }
+
+    async fn complete_browser_check_in(
+        &self,
+        settings: &AppSettings,
+        provider: Provider,
+        verification: crate::models::CheckInVerificationRequest,
+        task: &CheckInContext,
+    ) -> Result<(Provider, ProviderCheckInResult), CheckInError> {
+        let browser_operation =
+            crate::services::browser_check_in::run(settings, &provider, verification, task).await?;
+        let provider = self
+            .persist_operation_credentials(
+                &ProviderRequestContext::capture(&provider),
+                &browser_operation.credentials,
+            )
+            .await
+            .map_err(|error| {
+                CheckInError::Unconfirmed(format!(
+                    "站点操作已完成，但本地会话保存失败：{error}；已停止自动重试"
+                ))
+            })?
+            .ok_or_else(|| {
+                CheckInError::Unconfirmed("站点操作已完成，但账号配置已变更".to_string())
+            })?;
+        task.authenticated(&provider);
+        Ok((provider, browser_operation.value))
     }
 
     async fn finish_check_in(
@@ -482,6 +532,17 @@ fn non_empty<'a>(value: &'a str, fallback: &'a str) -> &'a str {
     }
 }
 
+/// 会话/标准签到把认证失败放在 `ProviderCheckInResult.message` 里。只有
+/// 明确是凭据问题才转成错误交给重登链路；权限不足、验证未完成等结果保持
+/// 原样，避免用重新登录掩盖站点侧的规则问题。
+fn check_in_result_credential_failure(result: &ProviderCheckInResult) -> Option<CheckInError> {
+    if result.ok || result.unconfirmed || result.verification_required.is_some() {
+        return None;
+    }
+    provider_domain::failure::looks_like_credential_rejection(&result.message)
+        .then(|| CheckInError::Failed(result.message.clone()))
+}
+
 /// 标准签到被站点明确拒绝凭据时，是否可以用绑定的浏览器账号就地重新登录。
 /// 这里只判断业务条件；浏览器运行时就绪与否由调用方检查，避免把登录窗口
 /// 开在一个根本起不来的环境里。
@@ -573,6 +634,55 @@ mod tests {
             ),
             None
         );
+    }
+
+    fn failed_check_in(message: &str) -> ProviderCheckInResult {
+        ProviderCheckInResult {
+            ok: false,
+            message: message.to_string(),
+            verification_required: None,
+            verification_requires_login: false,
+            unconfirmed: false,
+            last_checked_in_at: None,
+            last_check_in_user: None,
+            quota_delta: None,
+        }
+    }
+
+    #[test]
+    fn auth_failure_results_trigger_relogin_but_permission_errors_do_not() {
+        assert!(matches!(
+            check_in_result_credential_failure(&failed_check_in(
+                "认证无效(401): session expired"
+            )),
+            Some(CheckInError::Failed(message)) if message.contains("401")
+        ));
+        assert!(matches!(
+            check_in_result_credential_failure(&failed_check_in(
+                "Unauthorized, invalid access token"
+            )),
+            Some(CheckInError::Failed(_))
+        ));
+        // 每日奖励签到要求当天新会话；重新登录后重试即可。
+        assert!(matches!(
+            check_in_result_credential_failure(&failed_check_in(
+                "Check-in requires a session created today. Please sign in again and retry."
+            )),
+            Some(CheckInError::Failed(_))
+        ));
+        // 账号登录有效但站点不允许签到；重新登录无法解决，不能开登录窗口。
+        assert!(check_in_result_credential_failure(&failed_check_in(
+            "Unauthorized, insufficient privileges"
+        ))
+        .is_none());
+        // 需要浏览器验证的结果不能当成凭据失败。
+        let mut verification = failed_check_in("认证无效(401)");
+        verification.verification_required =
+            Some(crate::models::ProviderCheckInVerification::Connection);
+        assert!(check_in_result_credential_failure(&verification).is_none());
+        let mut unconfirmed = failed_check_in("认证无效(401)");
+        unconfirmed.unconfirmed = true;
+        assert!(check_in_result_credential_failure(&unconfirmed).is_none());
     }
 
     #[test]

@@ -6,6 +6,13 @@ pub const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
 /// 后台调度器向面板报告当前自动任务，避免网络请求期间看起来像应用卡死。
 pub const BACKGROUND_TASK_EVENT: &str = "background-task";
 
+/// 运行期检测到外部修改并成功重载 `config.json`。前端据此提示用户，
+/// 同时已经通过 `providers-changed` 重新拉取完整快照。
+pub const CONFIG_RELOADED_EVENT: &str = "config-reloaded";
+
+/// 外部 `config.json` 无法解析或校验失败；当前内存配置保留不变。
+pub const CONFIG_RELOAD_FAILED_EVENT: &str = "config-reload-failed";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackgroundTaskEvent {

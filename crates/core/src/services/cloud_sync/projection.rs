@@ -124,6 +124,7 @@ pub fn app_documents(data: &AppData) -> Result<SyncDocuments, String> {
             auth: portable_auth(&provider.auth),
             cli: ProviderCliInput {
                 preferred_model: provider.cli.preferred_model.clone(),
+                agent_models: None,
             },
             agent_models: provider.cli.agent_models.clone(),
             enabled: provider.runtime.enabled,

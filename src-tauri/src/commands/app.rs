@@ -112,6 +112,20 @@ pub(crate) async fn open_data_directory(app: AppHandle) -> Result<(), String> {
     .await
 }
 
+/// 配置目录是 `config.json` / `state.json` 的落点；外部编辑热重载完全依赖
+/// 用户能直接找到并改这两个文件，所以入口和数据、日志目录放在一起。
+#[tauri::command]
+pub(crate) async fn open_config_directory(app: AppHandle) -> Result<(), String> {
+    let directory = crate::desktop::config_dir(&app)?;
+    run_blocking("打开配置目录", move || {
+        std::fs::create_dir_all(&directory).map_err(|err| format!("无法创建配置目录: {err}"))?;
+        app.opener()
+            .open_path(directory.to_string_lossy(), None::<&str>)
+            .map_err(|err| format!("无法打开配置目录: {err}"))
+    })
+    .await
+}
+
 #[tauri::command]
 pub(crate) async fn send_app_notification(
     settings: AppSettings,
@@ -161,7 +175,7 @@ pub(crate) async fn import_app_data(
     })
 }
 
-/// 启动读取失败且 data.json 损坏时，用同目录最近的自动备份原地恢复。
+/// 启动读取失败且 config.json（或旧版 data.json）损坏时，用同目录最近的自动备份原地恢复。
 #[tauri::command]
 pub(crate) async fn restore_latest_backup() -> Result<serde_json::Value, String> {
     dispatch_value("restore_latest_backup", json!({})).await

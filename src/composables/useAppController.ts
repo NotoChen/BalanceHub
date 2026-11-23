@@ -414,6 +414,21 @@ export function useAppController() {
     autoProbeCliTools: () => cliRuntimeStore.probeCliTools(false).catch(() => {}),
     reloadProviders: () => providerStore.reloadProviders().catch(() => {}),
     onStorageBlocked: (error) => providerStore.markStorageBlocked(error),
+    onConfigReloaded: (result) => {
+      Message.success(
+        result.providerCount === null
+          ? "已从 config.json 重新读取配置"
+          : `已从 config.json 重新读取 ${result.providerCount} 个中转站`,
+      );
+      if (result.settingsChanged) {
+        // 配置可能改了开机启动。等 providers-changed 快照水合后，再把系统
+        // 登录项改成新配置，而不是用宿主旧状态反向覆盖配置。
+        settingsController.requestExternalLaunchSync();
+      }
+    },
+    onConfigReloadFailed: (result) => {
+      Message.error(`config.json 修改未生效：${result.error}`);
+    },
     applyTheme: settingsController.applyTheme,
     flushSettingsSave: settingsController.flushSettingsSave,
     resetProviderPointerDrag: workspace.resetProviderPointerDrag,

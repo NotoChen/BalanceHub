@@ -515,9 +515,13 @@ fn restore_latest_backup_migrates_the_backup_and_preserves_the_corrupt_file() {
     assert_eq!(source, backup);
     assert_eq!(restored.schema_version, CURRENT_SCHEMA_VERSION);
 
-    let reloaded = read_app_data_file(&target, BackupBeforeMigrate::No)
-        .expect("restored data.json should parse");
-    assert_eq!(reloaded.data.schema_version, CURRENT_SCHEMA_VERSION);
+    // 旧版 data.json 恢复后立即迁移成拆分文件，不再回写旧格式。
+    let restored_config =
+        read_config_file(&paths_from_data_path(&target).config).expect("config.json 应可读取");
+    let reloaded = restored_config
+        .into_app_data(&AppData::default())
+        .expect("恢复后的配置应能合并");
+    assert_eq!(reloaded.schema_version, CURRENT_SCHEMA_VERSION);
     let preserved = fs::read_dir(&dir)
         .expect("test directory should be readable")
         .flatten()
@@ -632,4 +636,180 @@ fn unique_test_dir(name: &str) -> PathBuf {
     ));
     fs::create_dir_all(&path).expect("test dir should be created");
     path
+}
+
+#[test]
+fn legacy_data_json_migrates_into_split_files_and_keeps_credentials_and_endpoints() {
+    let dir = unique_test_dir("legacy-split-migration");
+    let target = dir.join(DATA_FILE_NAME);
+    let paths = paths_from_data_path(&target);
+
+    let mut input = crate::models::ProviderInput::default();
+    input.identity.name = "Legacy".into();
+    input.identity.base_url = "https://legacy.example".into();
+    input.auth.mode = crate::models::AuthMode::Session;
+    input.auth.session_cookie = "session=legacy".into();
+    input.auth.api_user = "7".into();
+    input.request.endpoints = vec![
+        crate::models::provider_domain::endpoints::ProviderEndpointOverride {
+            operation: "check_in".into(),
+            path: "/api/user/daily-reward".into(),
+            query: Vec::new(),
+            headers: Vec::new(),
+        },
+    ];
+    let mut provider = crate::models::Provider::from_input(input, "legacy-provider".into());
+    provider.quota.available = 42.0;
+    let data = AppData::new_current(vec![provider], crate::models::AppSettings::default());
+    fs::write(
+        &target,
+        serde_json::to_string_pretty(&data).expect("legacy data should serialize"),
+    )
+    .expect("legacy data.json should be writable");
+
+    let loaded = read_app_data_file(&target, BackupBeforeMigrate::No).expect("legacy file parses");
+    let migrated = migrate_legacy_to_split(&paths, loaded).expect("migration should succeed");
+
+    assert!(paths.config.exists());
+    assert!(paths.state.exists());
+    assert!(!target.exists(), "迁移成功后旧文件由备份替代");
+    let has_migration_backup = fs::read_dir(&dir)
+        .expect("test directory should be readable")
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .any(|name| {
+            name.starts_with(&format!("data.json.v{CURRENT_SCHEMA_VERSION}"))
+                && name.ends_with(".bak")
+        });
+    assert!(has_migration_backup, "迁移前应保留旧文件副本");
+
+    let config = read_config_file(&paths.config).expect("config.json should parse");
+    assert_eq!(config.providers.len(), 1);
+    assert_eq!(config.providers[0].identity.name, "Legacy");
+    assert_eq!(config.providers[0].auth.session_cookie, "session=legacy");
+    assert_eq!(config.providers[0].auth.api_user, "7");
+    assert_eq!(
+        config.providers[0].request.endpoints[0].path,
+        "/api/user/daily-reward"
+    );
+    assert_eq!(migrated.providers[0].quota.available, 42.0);
+    let (reloaded, _, _) = super::split::load_data_from_files(&paths, &AppData::default())
+        .expect("split files should load");
+    assert_eq!(reloaded.providers[0].quota.available, 42.0);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn legacy_migration_keeps_a_backup_of_the_current_file_not_an_unrelated_one() {
+    let dir = unique_test_dir("legacy-stale-backup");
+    let target = dir.join(DATA_FILE_NAME);
+    let stale = dir.join(format!("data.json.v{CURRENT_SCHEMA_VERSION}.bak"));
+    let original = serde_json::to_string_pretty(&AppData::default()).expect("serialize");
+    fs::write(&stale, "{\"stale\":true}").expect("stale backup should be writable");
+    fs::write(&target, &original).expect("legacy data.json should be writable");
+
+    let loaded = read_app_data_file(&target, BackupBeforeMigrate::No).expect("legacy file parses");
+    migrate_legacy_to_split(&paths_from_data_path(&target), loaded).expect("migration succeeds");
+
+    assert!(!target.exists());
+    assert_eq!(
+        fs::read_to_string(&stale).expect("stale backup is preserved"),
+        "{\"stale\":true}"
+    );
+    let fresh = fs::read_dir(&dir)
+        .expect("test directory should be readable")
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            (name.starts_with(&format!("data.json.v{CURRENT_SCHEMA_VERSION}-"))
+                && name.ends_with(".bak"))
+            .then(|| fs::read_to_string(entry.path()).ok())
+        })
+        .flatten()
+        .any(|text| text == original);
+    assert!(fresh, "必须为当前旧文件内容建立可恢复的备份");
+    let candidates = backup_candidates(&target);
+    let fresh_position = candidates
+        .iter()
+        .position(|path| fs::read_to_string(path).is_ok_and(|text| text == original))
+        .expect("恢复列表应能识别带时间戳的迁移备份");
+    let stale_position = candidates
+        .iter()
+        .position(|path| path == &stale)
+        .expect("旧备份仍应可手动选择");
+    assert!(
+        fresh_position < stale_position,
+        "同版本内必须先尝试与当前文件一致的新备份"
+    );
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn split_restore_from_a_legacy_backup_keeps_the_current_runtime_state() {
+    let dir = unique_test_dir("split-restore-legacy-keeps-state");
+    let target = dir.join(DATA_FILE_NAME);
+    let paths = paths_from_data_path(&target);
+
+    let mut input = crate::models::ProviderInput::default();
+    input.identity.name = "Current".into();
+    input.identity.base_url = "https://restore.example".into();
+    let mut provider = crate::models::Provider::from_input(input, "restore-provider".into());
+    provider.quota.available = 42.0;
+    let current = AppData::new_current(vec![provider], crate::models::AppSettings::default());
+    super::split::save_split(&paths, &current, super::split::SaveMode::Replace)
+        .expect("current split files should be written");
+
+    let mut backup_input = crate::models::ProviderInput::default();
+    backup_input.identity.name = "FromBackup".into();
+    backup_input.identity.base_url = "https://restore.example".into();
+    let backup_provider =
+        crate::models::Provider::from_input(backup_input, "restore-provider".into());
+    let backup = AppData::new_current(vec![backup_provider], crate::models::AppSettings::default());
+    fs::write(
+        dir.join(format!("data.json.v{CURRENT_SCHEMA_VERSION}.bak")),
+        serde_json::to_string_pretty(&backup).expect("backup should serialize"),
+    )
+    .expect("legacy backup should be writable");
+    fs::write(&paths.config, "{ broken").expect("corrupt config should be writable");
+
+    let (source, restored) =
+        restore_latest_backup_at(&target).expect("legacy backup should restore split config");
+    assert!(source.ends_with(format!("data.json.v{CURRENT_SCHEMA_VERSION}.bak")));
+    assert_eq!(restored.providers[0].quota.available, 42.0);
+
+    let config = read_config_file(&paths.config).expect("restored config should parse");
+    assert_eq!(config.providers[0].identity.name, "FromBackup");
+    let (loaded, _, _) = super::split::load_data_from_files(&paths, &AppData::default())
+        .expect("restored split files should load");
+    assert_eq!(loaded.providers[0].identity.name, "FromBackup");
+    assert_eq!(loaded.providers[0].quota.available, 42.0);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn split_recovers_missing_files_from_interrupted_windows_replace() {
+    let dir = unique_test_dir("split-windows-recovery");
+    let paths = paths_from_data_path(&dir.join(DATA_FILE_NAME));
+    super::split::save_split(&paths, &AppData::default(), super::split::SaveMode::Replace)
+        .expect("split files should be written");
+
+    let config_backup = paths.config.with_file_name("config.json.bak");
+    let state_backup = paths.state.with_file_name("state.json.bak");
+    fs::copy(&paths.config, &config_backup).expect("config backup should be writable");
+    fs::copy(&paths.state, &state_backup).expect("state backup should be writable");
+    fs::remove_file(&paths.config).expect("config should be removable");
+    fs::remove_file(&paths.state).expect("state should be removable");
+
+    recover_missing_split_file(&paths).expect("recovery should succeed");
+    assert!(paths.config.exists());
+    assert!(paths.state.exists());
+    assert!(!config_backup.exists());
+    assert!(!state_backup.exists());
+    read_config_file(&paths.config).expect("recovered config should parse");
+
+    let _ = fs::remove_dir_all(dir);
 }

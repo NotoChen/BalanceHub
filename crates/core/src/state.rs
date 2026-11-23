@@ -28,7 +28,7 @@ pub struct CoreState {
     model_catalog: OnceLock<Arc<ModelCatalogService>>,
     revision: AtomicU64,
     load_error: RwLock<Option<String>>,
-    /// 启动时读取失败只意味着内存里是一份默认配置，用户修好 data.json 后
+    /// 启动时读取失败只意味着内存里是一份默认配置，用户修好 config.json 后
     /// 可以「重新读取」。运行期 `block_storage`（例如云同步应用失败留下
     /// 事务日志）必须重启交给启动恢复处理，不能就地重读。
     retry_load: AtomicBool,
@@ -122,7 +122,7 @@ impl CoreState {
     }
 
     /// 重新读取仍然失败时只更新错误文案，保留「重新读取」入口——用户可能
-    /// 正在外部修复同一份 data.json。
+    /// 正在外部修复同一份 config.json。
     pub fn update_load_error(&self, error: String) {
         *self
             .load_error

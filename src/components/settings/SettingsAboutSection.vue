@@ -9,7 +9,12 @@ import {
   IconSync,
 } from "@arco-design/web-vue/es/icon";
 import { Message } from "@arco-design/web-vue";
-import { openDataDirectory, openLogDirectory, openProjectRepository } from "../../api/app";
+import {
+  openConfigDirectory,
+  openDataDirectory,
+  openLogDirectory,
+  openProjectRepository,
+} from "../../api/app";
 import { withTimeout } from "../../utils/promise-timeout";
 import type { AppSettings, LogLevel } from "../../stores/providers";
 import { formatAppVersionLabel } from "../../utils/app-version";
@@ -76,6 +81,10 @@ function openLogs() {
 
 function openData() {
   void runOpener(openDataDirectory, "无法打开数据目录");
+}
+
+function openConfig() {
+  void runOpener(openConfigDirectory, "无法打开配置目录");
 }
 </script>
 
@@ -187,6 +196,15 @@ function openData() {
             <span>临时 CLI、隔离登录环境等运行数据都在这里。</span>
           </div>
           <a-button @click="openData">
+            <template #icon><IconFolder /></template>打开
+          </a-button>
+        </div>
+        <div v-if="localDirectoryAvailable" class="settings-setting-row">
+          <div class="settings-setting-copy">
+            <strong>打开配置目录</strong>
+            <span>中转站与设置保存在 config.json，手动修改保存后自动生效，无需重启。</span>
+          </div>
+          <a-button @click="openConfig">
             <template #icon><IconFolder /></template>打开
           </a-button>
         </div>

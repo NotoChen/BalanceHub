@@ -34,8 +34,12 @@ fi
 echo "== 2/3 生成隔离开发根目录：$bh_dev_root"
 rm -rf -- "$bh_dev_root"
 mkdir -p -- "$bh_dev_root/config" "$bh_dev_root/sample" "$bh_dev_root/data"
-# 配置副本只取 data.json，其余运行状态（缓存、日志）让开发版自己生成。
-if [[ "$bh_skip_copy" != "1" && -f "$bh_copy_root/data.json" ]]; then
+# 配置副本只取用户配置，其余运行状态（缓存、日志）让开发版自己生成。
+# 新版安装是 config.json；旧版仍是 data.json，开发版启动时会自动迁移。
+if [[ "$bh_skip_copy" != "1" && -f "$bh_copy_root/config.json" ]]; then
+  cp -- "$bh_copy_root/config.json" "$bh_dev_root/config/config.json"
+  echo "   配置副本 config.json 已就位（$(wc -c < "$bh_dev_root/config/config.json" | tr -d ' ') 字节）"
+elif [[ "$bh_skip_copy" != "1" && -f "$bh_copy_root/data.json" ]]; then
   cp -- "$bh_copy_root/data.json" "$bh_dev_root/config/data.json"
   echo "   配置副本 data.json 已就位（$(wc -c < "$bh_dev_root/config/data.json" | tr -d ' ') 字节）"
 fi

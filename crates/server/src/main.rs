@@ -40,7 +40,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let data = storage::load_app_data()?;
     let core = Arc::new(CoreState::new(data));
-    server_host.attach_core(core);
+    server_host.attach_core(core.clone());
+    balancehub_core::services::config_watch::start(core);
     // Agent 域命令由同一个 RPC 提供；能力清单同时登记给前端。
     balancehub_core::api::register_commands(balancehub_agent::api::COMMANDS);
     // 常驻进程的核心价值：没有界面也会按设置自动刷新、签到和测活。

@@ -1,6 +1,11 @@
 use crate::models::{AppData, AppSettings, Provider};
 
+/// 完整 `AppData` 导入/导出与旧版 `data.json` 的上限。
 pub const MAX_APP_DATA_FILE_BYTES: usize = 32 * 1024 * 1024;
+/// 用户可编辑的 `config.json` 只含声明式配置，不应接近完整备份的大小。
+pub const MAX_CONFIG_FILE_BYTES: usize = 16 * 1024 * 1024;
+/// `state.json` 保存额度趋势、模型目录和签到/测活记录，允许比配置更大。
+pub const MAX_STATE_FILE_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_CLI_CONFIG_FILE_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_CLI_RUNTIME_FILE_BYTES: usize = 256 * 1024;
 pub const MAX_LIVENESS_OUTPUT_FILE_BYTES: usize = 2 * 1024 * 1024;

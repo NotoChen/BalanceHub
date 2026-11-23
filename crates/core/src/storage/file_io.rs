@@ -8,7 +8,6 @@ use std::{
 };
 
 pub(super) const DATA_FILE_NAME: &str = "data.json";
-const BACKUP_FILE_NAME: &str = "data.json.bak";
 const TMP_FILE_NAME: &str = "data.json.tmp";
 const LOCK_FILE_NAME: &str = "data.lock";
 
@@ -147,8 +146,15 @@ pub(super) fn tmp_file_path(path: &Path) -> PathBuf {
     path.with_file_name(TMP_FILE_NAME)
 }
 
+/// 每个配置文件使用自己的备份名：`data.json.bak` / `config.json.bak` /
+/// `state.json.bak`。Windows 没有原子覆盖，替换前需要先留一份同目录副本；
+/// 固定成 `data.json.bak` 会让 `state.json` 的备份覆盖旧版迁移备份。
 pub(super) fn backup_file_path(path: &Path) -> PathBuf {
-    path.with_file_name(BACKUP_FILE_NAME)
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| DATA_FILE_NAME.to_string());
+    path.with_file_name(format!("{file_name}.bak"))
 }
 
 struct LimitedWriter<W> {

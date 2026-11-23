@@ -553,7 +553,7 @@ pub struct OAuthLoginTask {
 mod tests {
     use super::*;
 
-    /// The gateway snapshot is written into `data.json`, so every field added
+    /// The gateway snapshot is written into `config.json`, so every field added
     /// after a snapshot was saved must stay optional on the wire; otherwise the
     /// whole app data file fails to load and the user loses the workspace.
     #[test]

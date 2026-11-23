@@ -60,6 +60,16 @@ pub(super) async fn run(
             needs_token |= kind == ProviderCheckInVerification::Turnstile;
             continue;
         }
+        // AnyRouter 等站点会在登录/签到接口前放行一层脚本挑战，HTTP 客户端
+        // 只会拿到 HTML。标准签到已经会把这种响应交给浏览器；会话签到也必须
+        // 走同一条路，否则用户只会看到“结果无法确认”，永远不会打开签到窗口。
+        if !executor.is_browser()
+            && provider.automation.auto_shield
+            && response.status.is_success()
+            && serde_json::from_str::<Value>(&response.body).is_err()
+        {
+            return Ok(verification_result(ProviderCheckInVerification::Connection));
+        }
         let result = parse_check_in_response(response.status, &response.body);
         let explicitly_rejected = serde_json::from_str::<Value>(&response.body)
             .ok()

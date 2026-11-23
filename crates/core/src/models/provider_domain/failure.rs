@@ -22,14 +22,23 @@ use super::automation;
 /// 先重新登录再重试。网络故障、限流和站点维护都不在这个集合里。
 pub fn looks_like_credential_rejection(message: &str) -> bool {
     let message = message.trim();
+    let lower = message.to_ascii_lowercase();
     message.contains("登录会话已过期或已撤销")
         || message.contains("账号密码登录失败")
         || message.contains("登录响应的账号与当前中转站不一致")
         || message.contains("登录已过期")
         || message.contains("未登录")
         || message.contains("请先登录")
+        || message.contains("认证无效")
         || message.contains("HTTP 401")
         || message.contains("HTTP 403")
+        // 新版 NewAPI 的会话接口用英文返回令牌失效；这不是普通业务失败，
+        // 绑定账号可以就地重新登录后重试。
+        || lower.contains("invalid access token")
+        || lower.contains("access token has expired")
+        // 部分 NewAPI 分支（每日奖励签到）要求当天创建的新会话；旧会话
+        // 重新登录即可继续，不能当成普通业务失败。
+        || lower.contains("session created today")
 }
 
 /// 一次刷新失败的来源分类。适配器只在能结构化判断时声明，其余走默认的
@@ -168,6 +177,10 @@ mod tests {
             // 部分 NewAPI 分支用 HTTP 200 返回成功包裹的未登录文案。
             "未登录",
             "请先登录后重试",
+            "认证无效(401): session expired",
+            "Unauthorized, invalid access token",
+            "The access token has expired",
+            "Check-in requires a session created today. Please sign in again and retry.",
         ] {
             assert!(
                 looks_like_credential_rejection(message),
@@ -179,6 +192,8 @@ mod tests {
             "请求余额失败: connection refused",
             "HTTP 503: maintenance",
             "接口返回失败",
+            // 会话有效但账号没有签到权限，重新登录并不能修复。
+            "Unauthorized, insufficient privileges",
         ] {
             assert!(
                 !looks_like_credential_rejection(message),

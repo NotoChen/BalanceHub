@@ -76,12 +76,10 @@ pub fn recover(root: &Path) -> Result<(), String> {
         fs::remove_file(&path).map_err(|_| "无法清理已完成的同步事务")?;
         return Ok(());
     }
-    let data_path = root.join("data.json");
-    let current: Option<AppData> = files::read_json(&data_path)?;
-    let current =
-        serde_json::to_value(current.unwrap_or_default()).map_err(|_| "同步恢复检查失败")?;
-    let before = serde_json::to_value(&journal.before_data).map_err(|_| "同步恢复检查失败")?;
-    let after = serde_json::to_value(&journal.after_data).map_err(|_| "同步恢复检查失败")?;
+    let current = storage::load_app_data_in_dir(root)?.unwrap_or_default();
+    let current = storage::config_snapshot_of(&current)?;
+    let before = storage::config_snapshot_of(&journal.before_data)?;
+    let after = storage::config_snapshot_of(&journal.after_data)?;
     if current != before && current != after {
         return Err("上次同步未完成，配置又被外部修改；已保留所有文件，请先备份后处理".to_owned());
     }
@@ -111,7 +109,7 @@ pub fn recover(root: &Path) -> Result<(), String> {
             return Err("上次同步未完成，共享库又被修改；已保留原文件，未自动覆盖".to_owned());
         }
     }
-    files::write_json(&data_path, &journal.before_data)?;
+    storage::save_app_data_in_dir(root, &journal.before_data)?;
     if library_after.is_some() {
         if let Some(bytes) = library_before {
             files::write_bytes(&library_path, &bytes)?;
@@ -277,15 +275,13 @@ mod tests {
             let journal = journal();
             files::write_json(&root.path().join("cloud-sync/apply-journal.json"), &journal)
                 .unwrap();
-            files::write_json(&root.path().join("data.json"), &journal.after_data).unwrap();
+            storage::save_app_data_in_dir(root.path(), &journal.after_data).unwrap();
             let library = root.path().join("agent-asset-library/library.json");
             if library_was_written {
                 files::write_bytes(&library, b"fixture new library").unwrap();
             }
             recover(root.path()).unwrap();
-            let restored: AppData = files::read_json(&root.path().join("data.json"))
-                .unwrap()
-                .unwrap();
+            let restored = storage::load_app_data_in_dir(root.path()).unwrap().unwrap();
             assert!(matches!(restored.settings.theme_mode, ThemeMode::Dark));
             assert!(!library.exists());
             assert!(!root.path().join("cloud-sync/apply-journal.json").exists());
@@ -299,7 +295,7 @@ mod tests {
         let original = b"{\n  \"fixture\": \"old bytes with whitespace\"\n}";
         journal.before_library = Some(STANDARD.encode(original));
         files::write_json(&root.path().join("cloud-sync/apply-journal.json"), &journal).unwrap();
-        files::write_json(&root.path().join("data.json"), &journal.after_data).unwrap();
+        storage::save_app_data_in_dir(root.path(), &journal.after_data).unwrap();
         let library = root.path().join("agent-asset-library/library.json");
         files::write_bytes(&library, b"fixture external edit").unwrap();
         assert!(recover(root.path()).unwrap_err().contains("被修改"));
@@ -315,11 +311,9 @@ mod tests {
         let mut journal = journal();
         journal.committed = true;
         files::write_json(&root.path().join("cloud-sync/apply-journal.json"), &journal).unwrap();
-        files::write_json(&root.path().join("data.json"), &journal.after_data).unwrap();
+        storage::save_app_data_in_dir(root.path(), &journal.after_data).unwrap();
         recover(root.path()).unwrap();
-        let current: AppData = files::read_json(&root.path().join("data.json"))
-            .unwrap()
-            .unwrap();
+        let current = storage::load_app_data_in_dir(root.path()).unwrap().unwrap();
         assert!(matches!(current.settings.theme_mode, ThemeMode::Light));
         let recovery: SyncDocuments =
             files::read_json(&root.path().join("cloud-sync/recovery.json"))
@@ -335,10 +329,9 @@ mod tests {
             let mut journal = journal();
             let original = b"fixture original library";
             journal.before_library = Some(STANDARD.encode(original));
-            let data_path = root.path().join("data.json");
             let library_path = root.path().join("agent-asset-library/library.json");
             let recovery_path = root.path().join("cloud-sync/recovery.json");
-            files::write_json(&data_path, &journal.before_data).unwrap();
+            storage::save_app_data_in_dir(root.path(), &journal.before_data).unwrap();
             files::write_bytes(&library_path, original).unwrap();
             let previous_recovery = SyncDocuments::default();
             files::write_json(&recovery_path, &previous_recovery).unwrap();
@@ -355,14 +348,14 @@ mod tests {
                     }
                 },
                 || {
-                    files::write_json(&data_path, &after_data)?;
+                    storage::save_app_data_in_dir(root.path(), &after_data)?;
                     Err("fixture data write acknowledgement failure".to_owned())
                 },
             )
             .unwrap_err();
             assert!(error.contains("acknowledgement failure"));
             assert_eq!(fs::read(&library_path).unwrap(), original);
-            let data: AppData = files::read_json(&data_path).unwrap().unwrap();
+            let data = storage::load_app_data_in_dir(root.path()).unwrap().unwrap();
             assert!(matches!(data.settings.theme_mode, ThemeMode::Dark));
             let recovery: SyncDocuments = files::read_json(&recovery_path).unwrap().unwrap();
             assert_eq!(recovery, previous_recovery);
@@ -377,9 +370,8 @@ mod tests {
         let after_data = journal.after_data.clone();
         let expected_recovery = journal.recovery.clone();
         let library_path = root.path().join("agent-asset-library/library.json");
-        let data_path = root.path().join("data.json");
         let recovery_path = root.path().join("cloud-sync/recovery.json");
-        files::write_json(&data_path, &journal.before_data).unwrap();
+        storage::save_app_data_in_dir(root.path(), &journal.before_data).unwrap();
         let warning = coordinated_apply(
             root.path(),
             journal,
@@ -389,14 +381,14 @@ mod tests {
             },
             || {
                 assert!(!recovery_path.exists());
-                files::write_json(&data_path, &after_data)
+                storage::save_app_data_in_dir(root.path(), &after_data)
             },
         )
         .unwrap();
         assert!(warning.is_none());
         recover(root.path()).unwrap();
         assert_eq!(fs::read(&library_path).unwrap(), b"fixture new library");
-        let data: AppData = files::read_json(&data_path).unwrap().unwrap();
+        let data = storage::load_app_data_in_dir(root.path()).unwrap().unwrap();
         assert!(matches!(data.settings.theme_mode, ThemeMode::Light));
         let recovery: SyncDocuments = files::read_json(&recovery_path).unwrap().unwrap();
         assert_eq!(recovery, expected_recovery);

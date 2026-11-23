@@ -284,6 +284,8 @@ export interface ProviderCli {
 
 export interface ProviderCliInput {
   preferredModel: string;
+  /// 可选：配置回读会带上 Agent CLI 模型绑定；普通编辑不传时保留现有绑定。
+  agentModels?: Record<string, string>;
 }
 
 export interface NewApiSession {

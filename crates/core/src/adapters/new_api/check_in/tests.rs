@@ -1,4 +1,5 @@
 use super::*;
+use crate::models::provider_domain::endpoints::ProviderEndpointOverride;
 use crate::models::{AppSettings, ProviderInput, ProviderProxyMode};
 use std::{
     io::{Read, Write},
@@ -187,6 +188,39 @@ async fn standard_check_in_submits_once_and_reads_back_today() {
     assert!(requests[0].starts_with("GET /relay/api/user/checkin?month="));
     assert!(requests[1].starts_with("POST /relay/api/user/checkin "));
     assert!(requests[2].starts_with("GET /relay/api/user/checkin?month="));
+}
+
+#[tokio::test]
+async fn endpoint_overrides_move_status_and_submit_to_a_site_specific_route() {
+    // 部分 NewAPI 分支把签到场换成了每日奖励：GET/POST 同一路径，状态仍在
+    // data.stats.checked_in_today。卡片可不改代码，只覆盖两个接口路径。
+    let (mut provider, requests, server) = serve(vec![
+        json(r#"{"success":true,"data":{"stats":{"checked_in_today":false}}}"#),
+        json(r#"{"success":true,"message":"Check-in successful","data":{"quota_awarded":1000}}"#),
+        json(r#"{"success":true,"data":{"stats":{"checked_in_today":true}}}"#),
+    ]);
+    provider.request.endpoints = vec![
+        ProviderEndpointOverride {
+            operation: "check_in_status".into(),
+            path: "/api/user/daily-reward".into(),
+            query: Vec::new(),
+            headers: Vec::new(),
+        },
+        ProviderEndpointOverride {
+            operation: "check_in".into(),
+            path: "/api/user/daily-reward".into(),
+            query: Vec::new(),
+            headers: Vec::new(),
+        },
+    ];
+    let (_, result) = run(&provider).await.unwrap();
+    server.join().unwrap();
+    let requests = requests.try_iter().collect::<Vec<_>>();
+    assert!(result.ok);
+    assert_eq!(requests.len(), 3);
+    assert!(requests[0].starts_with("GET /relay/api/user/daily-reward?month="));
+    assert!(requests[1].starts_with("POST /relay/api/user/daily-reward "));
+    assert!(requests[2].starts_with("GET /relay/api/user/daily-reward?month="));
 }
 
 #[tokio::test]

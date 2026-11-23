@@ -69,6 +69,7 @@ pub(crate) fn run() {
             open_project_repository,
             open_log_directory,
             open_data_directory,
+            open_config_directory,
             launch_temporary_cli,
             preview_temporary_cli_launch,
             get_temporary_cli_settings,
@@ -449,11 +450,12 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             Ok(data) => AppState::new(data),
             Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
         },
-        // 恢复事务没走完时 data.json 可能只应用了一半；此时重读或导入都会
+        // 恢复事务没走完时配置文件可能只应用了一半；此时重读或导入都会
         // 跳过恢复流程，只能重启重试。
         Err(err) => AppState::with_storage_block(err),
     };
     desktop_host.attach_core(app_state.core.clone());
+    balancehub_core::services::config_watch::start(app_state.core.clone());
     install_desktop_opener(app.app_handle().clone());
     // updater/手动可见重启会继承原进程参数；一次性环境标记用于覆盖继承的
     // --silent-start，读取后立即删除，避免污染后续普通启动。

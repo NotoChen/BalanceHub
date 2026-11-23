@@ -150,6 +150,10 @@ export function openDataDirectory() {
   return invoke<void>("open_data_directory");
 }
 
+export function openConfigDirectory() {
+  return invoke<void>("open_config_directory");
+}
+
 export function checkAppUpdate() {
   return invoke<AppUpdateInfo | null>("check_app_update");
 }

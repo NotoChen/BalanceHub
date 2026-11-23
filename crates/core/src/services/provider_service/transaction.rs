@@ -82,7 +82,7 @@ impl ProviderService {
             // 启动解析失败可以靠导入或修复文件恢复；运行期阻塞和启动时的
             // 云同步回滚失败都还留着磁盘上的事务状态，只能重启。
             let recovery = if state.can_retry_load() {
-                "请先导入有效配置或修复 data.json 后重试"
+                "请先导入有效配置或修复 config.json 后重试"
             } else {
                 "请重启应用完成恢复"
             };
@@ -191,7 +191,7 @@ impl ProviderService {
                 .unwrap_or_else(|| "本地配置不可用，请重启应用".to_string()));
         }
         // 启动读取失败时内存里只有默认配置。用户可能已在外部修复或替换
-        // data.json，「重新读取」必须真正回到磁盘，而不是重复抛出启动时的
+        // config.json，「重新读取」必须真正回到磁盘，而不是重复抛出启动时的
         // 旧错误。运行期 `block_storage` 已关闭重试，会走上面的快速失败。
         let _transaction = state
             .mutation_gate
@@ -203,7 +203,7 @@ impl ProviderService {
         match storage::load_app_data() {
             Ok(data) => Ok(self.install_loaded_app_data(data)),
             Err(error) => {
-                // 保留重试入口：用户可能正在外部修复同一份 data.json。
+                // 保留重试入口：用户可能正在外部修复同一份 config.json。
                 state.update_load_error(error.clone());
                 Err(error)
             }

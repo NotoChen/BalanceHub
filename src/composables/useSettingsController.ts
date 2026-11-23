@@ -28,6 +28,12 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
   const { applyTheme, setupThemeListener, cleanupThemeListener } = useThemeMode(settingsForm);
 
   let lastLaunchAtLogin = settingsForm.launchAtLogin;
+  /// 后端快照最近一次进入表单的设置内容。`providers-changed` 很频繁，
+  /// 内容没变时不需要重复改写草稿。
+  let lastHydratedSettings = JSON.stringify(options.settings.value);
+  /// 外部 config.json 热重载后，下一次设置水合需要把开机启动同步到新配置。
+  /// 不能立刻读取宿主状态——那是反方向，会把用户刚改的配置覆盖掉。
+  let pendingExternalLaunchSync = false;
   const saveQueue = createSettingsSaveQueue({
     read: () => {
       const draft = cloneSettings(settingsForm);
@@ -92,12 +98,57 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
     }
   }
 
-  function syncFromSettings(value = options.settings.value) {
-    if (!saveQueue.acceptExternal(value)) return;
-    Object.assign(settingsForm, cloneSettings(value));
-    lastLaunchAtLogin = settingsForm.launchAtLogin;
-    applyTheme(value.themeMode);
+  /// 按配置值调整系统开机启动项；失败时回读宿主真实状态，避免界面显示
+  /// 一个并未生效的开关。成功/失败后 saveQueue 写入都会以宿主为准。
+  async function applyLaunchAtLogin(desired: boolean) {
+    if (isWebHost) return;
+    try {
+      if (desired) await enable();
+      else await disable();
+      lastLaunchAtLogin = desired;
+    } catch (error) {
+      Message.error(
+        `开机启动设置未应用：${error instanceof Error ? error.message : String(error)}`,
+      );
+      try {
+        settingsForm.launchAtLogin = await isEnabled();
+        lastLaunchAtLogin = settingsForm.launchAtLogin;
+      } catch {
+        // 连读取都失败时保持当前草稿，后续保存仍会重试。
+      }
+    }
   }
+
+  function requestExternalLaunchSync() {
+    pendingExternalLaunchSync = true;
+  }
+
+  function syncFromSettings(value = options.settings.value) {
+    // 用户有未保存草稿时宿主以草稿为准，外部配置的开机启动同步随之作废，
+    // 不能等到下一次普通保存后再反过来改系统设置。
+    const externalLaunchSync = pendingExternalLaunchSync;
+    pendingExternalLaunchSync = false;
+    if (!saveQueue.acceptExternal(value)) return false;
+    Object.assign(settingsForm, cloneSettings(value));
+    lastHydratedSettings = JSON.stringify(value);
+    const desired = settingsForm.launchAtLogin;
+    // 先记账再异步应用，避免 settingsForm 的保存队列重复调用 enable/disable。
+    const applyToHost = externalLaunchSync && lastLaunchAtLogin !== desired;
+    lastLaunchAtLogin = desired;
+    if (applyToHost) void applyLaunchAtLogin(desired);
+    applyTheme(value.themeMode);
+    return true;
+  }
+
+  watch(
+    options.settings,
+    (value) => {
+      // 每次后端快照都会换新对象；内容没变时不必重写草稿。接受失败说明
+      // 本地还有未保存草稿，保留旧标记，等下一次快照重试。
+      if (JSON.stringify(value) === lastHydratedSettings) return;
+      syncFromSettings(value);
+    },
+  );
 
   watch(
     settingsForm,
@@ -126,6 +177,7 @@ export function useSettingsController(options: UseSettingsControllerOptions) {
       settings: cloneSettings(options.settings.value),
     })),
     syncLaunchAtLogin,
+    requestExternalLaunchSync,
     syncFromSettings,
   };
 }

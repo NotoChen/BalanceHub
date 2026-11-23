@@ -58,7 +58,8 @@ test("app-window OAuth popups and blank-target links stay in the controlled wind
 
 function consentSandbox(hostname, pathname, buttons) {
   const sandbox = {
-    location: { hostname, pathname },
+    URL,
+    location: { hostname, pathname, href: `https://${hostname}${pathname}` },
     document: { querySelectorAll: () => buttons },
     getComputedStyle: () => ({ visibility: "visible", display: "block" }),
   };
@@ -68,10 +69,25 @@ function consentSandbox(hostname, pathname, buttons) {
 
 function consentButton(text, { disabled = false, width = 80, height = 30 } = {}) {
   return {
+    tagName: "BUTTON",
     textContent: text,
     value: "",
     disabled,
     clicked: false,
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ width, height }),
+    click() { this.clicked = true; },
+  };
+}
+
+function consentAnchor(text, href, { disabled = false, width = 80, height = 30 } = {}) {
+  return {
+    tagName: "A",
+    textContent: text,
+    value: "",
+    disabled,
+    clicked: false,
+    getAttribute: (name) => (name === "href" ? href : null),
     getBoundingClientRect: () => ({ width, height }),
     click() { this.clicked = true; },
   };
@@ -92,6 +108,42 @@ test("only the official authorization button is clicked automatically", () => {
     true,
   );
   assert.equal(allowAccess.clicked, true);
+
+  // Linux DO Connect renders the action as an anchor to /oauth2/approve/….
+  // The real page shows a button-like pill, not a native <button>.
+  const allowLink = consentAnchor("允许", "/oauth2/approve/fixture");
+  assert.equal(
+    vm.runInContext(`(${approveConsentButton.toString()})()`, consentSandbox("connect.linux.do", "/oauth2/authorize", [allowLink])),
+    true,
+  );
+  assert.equal(allowLink.clicked, true);
+
+  // Text alone is not enough: a link that declines or leaves the official
+  // approval endpoint must stay untouched.
+  const declineLink = consentAnchor("允许", "/oauth2/decline/fixture");
+  assert.equal(
+    vm.runInContext(`(${approveConsentButton.toString()})()`, consentSandbox("connect.linux.do", "/oauth2/authorize", [declineLink])),
+    false,
+  );
+  assert.equal(declineLink.clicked, false);
+  const foreignLink = consentAnchor("允许", "https://example.test/oauth2/approve/fixture");
+  assert.equal(
+    vm.runInContext(`(${approveConsentButton.toString()})()`, consentSandbox("connect.linux.do", "/oauth2/authorize", [foreignLink])),
+    false,
+  );
+  assert.equal(foreignLink.clicked, false);
+  const githubLink = consentAnchor("Authorize Agent Router", "/login/oauth/authorize?client_id=fixture");
+  assert.equal(
+    vm.runInContext(`(${approveConsentButton.toString()})()`, consentSandbox("github.com", "/login/oauth/authorize", [githubLink])),
+    true,
+  );
+  assert.equal(githubLink.clicked, true);
+  const githubSettingsLink = consentAnchor("Authorize Agent Router", "/settings/applications");
+  assert.equal(
+    vm.runInContext(`(${approveConsentButton.toString()})()`, consentSandbox("github.com", "/login/oauth/authorize", [githubSettingsLink])),
+    false,
+  );
+  assert.equal(githubSettingsLink.clicked, false);
 
   const hidden = consentButton("允许", { width: 0, height: 0 });
   assert.equal(

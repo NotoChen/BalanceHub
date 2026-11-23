@@ -141,6 +141,10 @@ impl ProviderCli {
 pub struct ProviderCliInput {
     #[serde(default)]
     pub preferred_model: String,
+    /// 每个 Agent CLI 的模型绑定。`None` 表示本次输入没有携带该字段，
+    /// 保存时应保留现有绑定；`Some(空)` 才表示显式清空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_models: Option<BTreeMap<String, String>>,
 }
 
 /// NewAPI dashboard login session. Independent of the user's long-lived PAT.

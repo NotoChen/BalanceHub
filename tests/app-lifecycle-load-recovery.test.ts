@@ -8,7 +8,10 @@ function ref<T>(value: T) {
   return { value };
 }
 
-function setup(startupError: string | null) {
+function setup(
+  startupError: string | null,
+  overrides: Record<string, unknown> = {},
+) {
   // onMounted 会同步平台样式类，Node 测试环境没有 DOM。
   (globalThis as { document?: unknown }).document = {
     documentElement: {
@@ -17,6 +20,7 @@ function setup(startupError: string | null) {
   };
   const mounted: Callback[] = [];
   const loadErrorWatchers: Callback[] = [];
+  const listeners = new Map<string, (event: { payload: unknown }) => void>();
   let launchSyncs = 0;
   let probes = 0;
   const loadError = ref<string | null>(startupError);
@@ -34,7 +38,13 @@ function setup(startupError: string | null) {
       useHostPlatform: () => ({ ensure: async () => "macos" }),
     },
     "../api/transport.ts": {
-      listen: async () => () => {},
+      listen: async (
+        event: string,
+        handler: (event: { payload: unknown }) => void,
+      ) => {
+        listeners.set(event, handler);
+        return () => listeners.delete(event);
+      },
     },
   });
 
@@ -58,12 +68,14 @@ function setup(startupError: string | null) {
     applyTheme: () => {},
     flushSettingsSave: () => {},
     resetProviderPointerDrag: () => {},
+    ...overrides,
   });
 
   return {
     mounted,
     loadError,
     loadErrorWatchers,
+    listeners,
     launchSyncs: () => launchSyncs,
     probes: () => probes,
   };
@@ -82,7 +94,7 @@ test("startup work deferred by a load error runs once after the config is recove
   assert.equal(lifecycle.launchSyncs(), 0);
   assert.equal(lifecycle.probes(), 0);
 
-  // 用户修好 data.json 并点击「重新读取」后，loadError 清空。
+  // 用户修好 config.json 并点击「重新读取」后，loadError 清空。
   lifecycle.loadError.value = null;
   lifecycle.loadErrorWatchers[0]();
   await flush();
@@ -106,4 +118,32 @@ test("a normal start runs the startup work once and does not repeat it", async (
   await flush();
   assert.equal(lifecycle.launchSyncs(), 1);
   assert.equal(lifecycle.probes(), 1);
+});
+
+test("external config reload results and failures reach the controller", async () => {
+  const reloaded: unknown[] = [];
+  const failed: unknown[] = [];
+  const lifecycle = setup(null, {
+    onConfigReloaded: (result: unknown) => reloaded.push(result),
+    onConfigReloadFailed: (result: unknown) => failed.push(result),
+  });
+  await lifecycle.mounted[0]();
+
+  lifecycle.listeners.get("config-reloaded")?.({
+    payload: {
+      path: "/tmp/config.json",
+      providerCount: 3,
+      settingsChanged: true,
+    },
+  });
+  lifecycle.listeners.get("config-reload-failed")?.({
+    payload: { path: "/tmp/config.json", error: "解析失败" },
+  });
+
+  assert.deepEqual(reloaded, [
+    { path: "/tmp/config.json", providerCount: 3, settingsChanged: true },
+  ]);
+  assert.deepEqual(failed, [
+    { path: "/tmp/config.json", error: "解析失败" },
+  ]);
 });

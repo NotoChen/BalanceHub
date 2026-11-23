@@ -4,6 +4,7 @@ pub mod browser_runtime;
 pub mod check_in_tasks;
 pub mod cli_paths;
 pub mod cloud_sync;
+pub mod config_watch;
 pub mod liveness;
 pub mod login_profiles;
 pub mod model_catalog;

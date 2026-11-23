@@ -86,7 +86,7 @@ export function useAppDataTransfer(options: UseAppDataTransferOptions) {
     try {
       const confirmed = await confirmAction(
         "自动备份恢复",
-        "将用配置目录中最近的自动备份替换当前数据。损坏的原文件会保留为 data.json.corrupt-时间戳，不会直接删除。",
+        "将用配置目录中最近的自动备份替换当前数据。损坏的原文件会改名保留为「文件名.corrupt-时间戳」，不会直接删除。",
         "恢复备份",
         "warning",
       );

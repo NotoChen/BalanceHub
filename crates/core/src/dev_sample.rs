@@ -13,8 +13,6 @@
 
 use std::collections::HashSet;
 
-use serde::Deserialize;
-
 use crate::models::{
     AccountQuotaSample, AccountQuotaWindow, AccountSubscription, AppData, AuthMode, AuthSource,
     CpaAccountSummary, CpaGatewaySnapshot, OAuthCredential, OAuthVendor, Provider, ProviderAuth,
@@ -32,12 +30,6 @@ pub const ENV_MERGE_ON_LOAD: &str = "BALANCEHUB_DEV_SAMPLE";
 /// 用量趋势、请求日志与签到记录；不设置时演示数据保持原样。
 pub const ENV_MOCK_SITE: &str = "BALANCEHUB_DEV_MOCK_SITE";
 
-#[derive(Deserialize)]
-struct ProviderFile {
-    #[serde(default)]
-    providers: Vec<Provider>,
-}
-
 /// 读取开发版配置时调用。开关未开启或配置里已有演示卡片时返回 `None`，
 /// 调用方照常使用原配置，不会多写一次盘。
 pub fn merge_on_load(data: &mut AppData) -> Option<usize> {
@@ -51,16 +43,6 @@ pub fn merge_on_load(data: &mut AppData) -> Option<usize> {
     }
     merge_into(data);
     Some(sample_providers().len())
-}
-
-/// 只从磁盘读一遍中转站列表。加载阶段还没建立事务状态，用这个结果判断演示卡片
-/// 是否已经在盘上，避免每次启动都重写配置。
-pub(super) fn samples_present(provider_file: &std::path::Path) -> bool {
-    let Ok(raw) = std::fs::read_to_string(provider_file) else {
-        return false;
-    };
-    serde_json::from_str::<ProviderFile>(&raw)
-        .is_ok_and(|file| file.providers.iter().any(is_sample))
 }
 
 fn is_sample(provider: &Provider) -> bool {

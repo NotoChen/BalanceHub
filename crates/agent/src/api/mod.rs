@@ -186,7 +186,12 @@ pub async fn dispatch(
     client: &str,
     progress: Option<Arc<dyn ProgressSink>>,
 ) -> ApiResult {
-    dispatch_inner(command, &args, client, progress).await
+    // `dispatch_inner` 是覆盖全部命令的单个大状态机。按值内联时，宿主命令
+    // future 会在 IPC 线程上按完整大小占用调用栈；Windows 主线程默认只有
+    // 1 MiB，WebView2 与 Tauri 调度叠加后会在启动阶段确定性栈溢出
+    // （issue #15）。装箱后宿主只持有指针，大状态机改在异步工作线程的堆上
+    // 构造与轮询。
+    Box::pin(dispatch_inner(command, &args, client, progress)).await
 }
 
 async fn dispatch_inner(
@@ -780,6 +785,25 @@ mod tests {
             .filter(|command| !arms.contains(command))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "命令缺少分发分支：{missing:?}");
+    }
+
+    /// 分发的对外 future 必须保持为轻量句柄：它会在宿主 IPC 线程上构造，
+    /// 而 Windows 主线程默认只有 1 MiB 栈（issue #15）。内部大状态机应留在
+    /// 装箱后的异步任务里，不能重新内联回来。
+    #[test]
+    fn dispatch_future_stays_small_for_host_stack() {
+        let future = dispatch(
+            "list_agent_configuration_operations",
+            serde_json::json!({}),
+            "test",
+            None,
+        );
+        let size = std::mem::size_of_val(&future);
+        println!("dispatch future size: {size} bytes");
+        assert!(
+            size <= 4096,
+            "dispatch future 过大（{size} 字节）；请保持 dispatch_inner 装箱后再 await"
+        );
     }
 
     #[test]

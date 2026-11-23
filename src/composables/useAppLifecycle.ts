@@ -18,6 +18,14 @@ interface UseAppLifecycleOptions {
   reloadProviders: () => Promise<unknown> | unknown;
   /// 运行期存储进入保护态（例如云同步落盘失败）：保存已暂停，只能重启恢复。
   onStorageBlocked: (error: string) => void;
+  /// 外部 config.json 已成功热重载（数据本身由 providers-changed 拉取）。
+  onConfigReloaded?: (result: {
+    path: string;
+    providerCount: number | null;
+    settingsChanged: boolean;
+  }) => void;
+  /// 外部 config.json 无法解析或校验失败；当前配置保持不变。
+  onConfigReloadFailed?: (result: { path: string; error: string }) => void;
   applyTheme: (themeMode: AppSettings["themeMode"]) => void;
   flushSettingsSave: () => void | Promise<unknown>;
   resetProviderPointerDrag: (suppressClick: boolean, preserveDragOrder?: boolean) => void;
@@ -28,10 +36,12 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   let providersChangedUnlisten: UnlistenFn | null = null;
   let eventsReconnectedUnlisten: UnlistenFn | null = null;
   let storageBlockedUnlisten: UnlistenFn | null = null;
+  let configReloadedUnlisten: UnlistenFn | null = null;
+  let configReloadFailedUnlisten: UnlistenFn | null = null;
   let disposed = false;
   let postLoadStarted = false;
 
-  /// 读取配置失败时这里会先跳过；用户修好 data.json 点「重新读取」后，
+  /// 读取配置失败时这里会先跳过；用户修好 config.json 点「重新读取」后，
   /// loadError 清空，启动期只做一次的动作需要补上，不能等下次重启。
   async function startPostLoadTasks() {
     if (disposed || postLoadStarted || options.loadError.value) return;
@@ -92,6 +102,23 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       });
       if (disposed) unlistenBlocked();
       else storageBlockedUnlisten = unlistenBlocked;
+      const unlistenConfigReloaded = await listen<{
+        path: string;
+        providerCount: number | null;
+        settingsChanged: boolean;
+      }>("config-reloaded", (event) => {
+        if (!disposed) options.onConfigReloaded?.(event.payload);
+      });
+      if (disposed) unlistenConfigReloaded();
+      else configReloadedUnlisten = unlistenConfigReloaded;
+      const unlistenConfigReloadFailed = await listen<{ path: string; error: string }>(
+        "config-reload-failed",
+        (event) => {
+          if (!disposed) options.onConfigReloadFailed?.(event.payload);
+        },
+      );
+      if (disposed) unlistenConfigReloadFailed();
+      else configReloadFailedUnlisten = unlistenConfigReloadFailed;
     } catch {
       // Browser preview has no Tauri backend; scheduling events are unavailable.
     }
@@ -112,6 +139,10 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     eventsReconnectedUnlisten = null;
     storageBlockedUnlisten?.();
     storageBlockedUnlisten = null;
+    configReloadedUnlisten?.();
+    configReloadedUnlisten = null;
+    configReloadFailedUnlisten?.();
+    configReloadFailedUnlisten = null;
   });
 
   watch(options.settings, (value) => {

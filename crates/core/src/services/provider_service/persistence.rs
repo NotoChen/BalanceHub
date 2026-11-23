@@ -382,7 +382,7 @@ impl ProviderService {
         data
     }
 
-    /// 启动读取失败且 data.json 已损坏时，用同目录最近的自动备份恢复。
+    /// 启动读取失败且配置文件已损坏时，用同目录最近的自动备份恢复。
     /// 恢复后走与导入相同的状态安装，前端可以继续使用而无需重启。
     pub fn restore_latest_backup(&self) -> Result<(AppData, AppDataTransferResult), String> {
         let state = crate::host::core_state();

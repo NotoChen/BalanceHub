@@ -78,7 +78,7 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
 | --- | --- | --- |
 | `BALANCEHUB_ROOT` | `~/.balancehub` | 数据目录根。其余目录默认都落在它下面。 |
 | `BALANCEHUB_DATA_DIR` | `$BALANCEHUB_ROOT` | 配置文件、备份与浏览器组件目录。 |
-| `BALANCEHUB_CONFIG_DIR` | `$BALANCEHUB_ROOT/config` | 云端同步状态等宿主配置。 |
+| `BALANCEHUB_CONFIG_DIR` | `$BALANCEHUB_ROOT/config` | `config.json`、`state.json` 与云端同步状态。 |
 | `BALANCEHUB_CACHE_DIR` | `$BALANCEHUB_ROOT/cache` | 临时缓存。 |
 | `BALANCEHUB_SERVER_ADDR` | `127.0.0.1:8787` | 监听地址。容器或局域网访问时改为 `0.0.0.0:8787`。 |
 | `BALANCEHUB_ALLOWED_HOSTS` | 回环地址、监听地址与 IP 直连 | 逗号分隔的额外 Host 白名单。反向代理改用其他域名时加入该域名；`*` 表示不校验 Host。 |
@@ -87,13 +87,19 @@ BALANCEHUB_SERVER_ADDR=127.0.0.1:8787 \
 | `BALANCEHUB_LOG` | `info` | 日志级别：`error` / `warn` / `info` / `debug` / `trace`，输出到标准输出。 |
 | `TZ` | 系统默认 | 自动签到按本地时间判定执行点。 |
 
-数据目录里主要是：
+配置目录（`BALANCEHUB_CONFIG_DIR`，默认 `$ROOT/config`）里主要是：
 
-- `data.json`：中转站、OAuth 账号、CPA 网关与设置。
-- `data.json.v{N}.bak`：配置迁移前的原文件备份。
+- `config.json`：中转站、OAuth 账号、CPA 网关与设置。可以直接编辑；运行中的桌面端或服务端会在约 1 秒内热重载。
+- `state.json`：应用维护的运行状态（额度、签到记录、冷却与同步时间等）。由应用写入，不要手工编辑。
+- `data.json.v{N}.bak`（或 `data.json.v{N}-时间戳.bak`）：从旧版升级时保留的原文件备份；新安装不再生成 `data.json`。
 - `data.lock`：配置目录的进程独占锁；运行期间一直持有，进程退出后自动释放，不需要手动删除。
+
+数据目录（`BALANCEHUB_DATA_DIR`）里主要是：
+
 - `oauth-device-id`：本机（本服务端）的续期设备标识，不参与云端同步。
 - `components/checkin-browser/`：签到用的浏览器组件，首次安装时才会下载。
+
+**直接编辑 `config.json` 即可生效。** 修改保存后，运行中的进程会自动重新读取并保留当前额度、签到记录等运行状态；解析失败时保留内存中的旧配置并在界面提示错误。`state.json` 由应用维护，外部改动会在下一次保存时被覆盖。桌面端与服务端都遵循同一规则。
 
 **同一份数据目录只能由一个进程使用。** 启动时会为配置目录加操作系统文件锁；桌面版与服务端同时指向同一目录时，后启动的一方会直接报错退出，避免双方各持一份快照互相覆盖。进程崩溃后锁会自动释放，可以直接重新启动。
 
@@ -194,9 +200,9 @@ server {
 ## 安全与备份
 
 - 服务端没有内置登录与鉴权，按单人自用设计。请绑定回环地址，或放在带认证的反向代理之后，不要直接暴露到公网。
-- 配置里包含账号凭据与授权令牌，`data.json` 与备份应按秘密数据保护，卷不要共享给其他服务。
+- 配置里包含账号凭据与授权令牌，`config.json`、`state.json` 与备份应按秘密数据保护，卷不要共享给其他服务。
 - 升级前先备份：桌面与服务端都支持导出完整配置；也可以使用云端同步保留一份云端副本。
-- 替换可执行文件或镜像后重启即可；配置文件由 schema 迁移自动升级，原文件会留在同目录的 `data.json.v{N}.bak`。
+- 替换可执行文件或镜像后重启即可；旧版 `data.json` 会在启动时自动迁移为 `config.json` + `state.json`，原文件留在同目录的 `data.json.v{N}.bak` 或 `data.json.v{N}-时间戳.bak`。日常修改 `config.json` 不需要重启。
 
 ## 排错
 

@@ -172,7 +172,7 @@ impl Provider {
             capabilities: ProviderCapabilities::default(),
             cli: ProviderCli {
                 preferred_model: input.cli.preferred_model.trim().to_string(),
-                agent_models: Default::default(),
+                agent_models: normalized_agent_models(input.cli.agent_models.unwrap_or_default()),
             },
             automation: ProviderAutomation {
                 refresh_interval: input.automation.refresh_interval,
@@ -545,6 +545,9 @@ impl Provider {
             self.identity.protocol,
         );
         self.cli.preferred_model = input.cli.preferred_model.trim().to_string();
+        if let Some(agent_models) = input.cli.agent_models {
+            self.cli.agent_models = normalized_agent_models(agent_models);
+        }
         self.automation.refresh_interval = input.automation.refresh_interval;
         self.automation.check_in_time = input.automation.check_in_time;
         self.automation.check_in_method = input.automation.check_in_method;
@@ -628,6 +631,19 @@ impl Provider {
 #[cfg(test)]
 #[path = "input/auth_mode_tests.rs"]
 mod auth_mode_tests;
+
+/// Agent CLI 模型绑定是用户配置，允许外部配置文件直接书写。这里统一去掉
+/// 空白、空键和空模型，避免保存出无法命中的绑定。
+fn normalized_agent_models(models: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    models
+        .into_iter()
+        .filter_map(|(kind, model)| {
+            let kind = kind.trim().to_string();
+            let model = model.trim().to_string();
+            (!kind.is_empty() && !model.is_empty()).then_some((kind, model))
+        })
+        .collect()
+}
 
 pub fn normalize_provider_auth(mut auth: ProviderAuth, protocol: ProviderProtocol) -> ProviderAuth {
     if protocol != ProviderProtocol::OAuth {

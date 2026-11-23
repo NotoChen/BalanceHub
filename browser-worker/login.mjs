@@ -21,14 +21,29 @@ export function approveConsentButton() {
     const style = getComputedStyle(element);
     return style.visibility !== "hidden" && style.display !== "none";
   };
-  const button = [...document.querySelectorAll("button, [role=button], input[type=submit]")].find((element) => {
-    if (element.disabled) return false;
+  // Linux DO Connect renders the consent action as an <a href="/oauth2/approve/…">
+  // rather than a <button>; GitHub's page is a real button. Only follow an
+  // anchor when it points at the matching official approval endpoint.
+  const anchorApproves = (element) => {
+    if (element.tagName !== "A") return true;
+    const href = element.getAttribute("href");
+    if (!href) return false;
+    let url;
+    try { url = new URL(href, location.href); } catch { return false; }
+    if (github) {
+      return url.hostname === "github.com" && url.pathname.startsWith("/login/oauth/authorize");
+    }
+    return (url.hostname === "connect.linux.do" || url.hostname === "linux.do")
+      && /^\/oauth2?\/(?:approve)\//.test(url.pathname);
+  };
+  const control = [...document.querySelectorAll("button, [role=button], input[type=submit], a[href]")].find((element) => {
+    if (element.disabled || element.getAttribute("aria-disabled") === "true") return false;
     const text = (element.textContent || element.value || "").trim();
     const approved = github ? /^(authorize|授权)/i.test(text) : /^(允许|授权|同意)/.test(text);
-    return approved && visible(element);
+    return approved && anchorApproves(element) && visible(element);
   });
-  if (!button) return false;
-  button.click();
+  if (!control) return false;
+  control.click();
   return true;
 }
 

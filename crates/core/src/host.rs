@@ -19,7 +19,7 @@ pub trait Host: Send + Sync + 'static {
 
     /// 应用数据目录：测活隔离 HOME、浏览器运行时、登录档案都以此为基准。
     fn data_dir(&self) -> Result<PathBuf, String>;
-    /// 应用配置目录：`data.json` 与本地扩展配置都在这里。
+    /// 应用配置目录：`config.json`、`state.json` 与本地扩展配置都在这里。
     fn config_dir(&self) -> Result<PathBuf, String>;
     /// 可再生的缓存目录。
     fn cache_dir(&self) -> Result<PathBuf, String>;
