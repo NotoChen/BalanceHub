@@ -147,6 +147,14 @@ pub(crate) async fn send_app_notification(
     .await
 }
 
+/// 前端启动守卫在界面挂载失败时上报；写进日志，白屏才有据可查。
+#[tauri::command]
+pub(crate) async fn log_frontend_error(message: String) -> Result<(), String> {
+    dispatch_value("log_frontend_error", json!({ "message": message }))
+        .await
+        .map(|_| ())
+}
+
 #[tauri::command]
 pub(crate) async fn export_app_data(
     _app: AppHandle,

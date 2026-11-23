@@ -131,6 +131,7 @@ pub(crate) fn run() {
             reorder_providers,
             save_settings,
             send_app_notification,
+            log_frontend_error,
             export_app_data,
             import_app_data,
             restore_latest_backup,

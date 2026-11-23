@@ -16,6 +16,7 @@ pub const COMMANDS: &[&str] = &[
     "send_app_notification",
     "host_platform",
     "get_host_capabilities",
+    "log_frontend_error",
     "preview_liveness_prompts",
     "export_app_data_json",
     "import_app_data_json",
@@ -149,6 +150,16 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
             "version": env!("CARGO_PKG_VERSION"),
             "commands": visible_commands(crate::host::has_desktop_session()),
         })),
+        // 前端启动守卫在界面挂载失败时上报；写进宿主日志，白屏才有据可查。
+        "log_frontend_error" => {
+            let message: String = arg(args, "message")?;
+            let message = message.trim();
+            if !message.is_empty() {
+                let message: String = message.chars().take(4000).collect();
+                log::error!("前端启动失败：{message}");
+            }
+            Ok(Value::Null)
+        }
         _ => Err(format!("未实现的应用命令：{command}")),
     }
 }

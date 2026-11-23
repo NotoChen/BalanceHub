@@ -4,10 +4,119 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BalanceHub</title>
+    <style>
+      /* 启动占位随 HTML 一起到达：即使后面的脚本没有跑起来，窗口也不是纯白。 */
+      #boot-shell {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 32px;
+        background: #f2f3f5;
+        color: #4e5969;
+        font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        text-align: center;
+      }
+      #boot-shell .boot-spinner {
+        width: 26px;
+        height: 26px;
+        border: 2px solid rgba(78, 89, 105, 0.2);
+        border-top-color: #165dff;
+        border-radius: 50%;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      #boot-shell .boot-hint {
+        margin: 0;
+        color: #86909c;
+        font-size: 12px;
+      }
+      #boot-shell .boot-hint a {
+        color: inherit;
+      }
+      #boot-shell .boot-failure {
+        max-width: 640px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      #boot-shell .boot-failure strong {
+        color: #cb2634;
+        font-size: 15px;
+      }
+      #boot-shell .boot-failure pre {
+        margin: 0;
+        padding: 12px;
+        max-height: 40vh;
+        overflow: auto;
+        border: 1px solid rgba(78, 89, 105, 0.2);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.7);
+        font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        text-align: left;
+        white-space: pre-wrap;
+        word-break: break-word;
+        user-select: text;
+      }
+      #boot-shell .boot-failure-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+      }
+      #boot-shell .boot-failure-actions button {
+        padding: 5px 14px;
+        border: 1px solid rgba(78, 89, 105, 0.25);
+        border-radius: 6px;
+        background: #fff;
+        color: #1d2129;
+        font: inherit;
+        cursor: pointer;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        #boot-shell {
+          background: #17171a;
+          color: #c9cdd4;
+        }
+        #boot-shell .boot-spinner {
+          border-color: rgba(201, 205, 212, 0.25);
+          border-top-color: #4080ff;
+        }
+        #boot-shell .boot-hint {
+          color: #86909c;
+        }
+        #boot-shell .boot-failure strong {
+          color: #f76965;
+        }
+        #boot-shell .boot-failure pre {
+          border-color: rgba(201, 205, 212, 0.2);
+          background: rgba(255, 255, 255, 0.06);
+        }
+        #boot-shell .boot-failure-actions button {
+          border-color: rgba(201, 205, 212, 0.25);
+          background: #232324;
+          color: #e5e6eb;
+        }
+      }
+    </style>
   </head>
 
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="boot-shell" role="status" aria-live="polite">
+        <span class="boot-spinner" aria-hidden="true"></span>
+        <p>BalanceHub 正在启动…</p>
+        <p class="boot-hint">如果长时间停留在此页面，可<a href="">重新加载</a>。</p>
+      </div>
+    </div>
+    <script src="/boot-guard.js"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
