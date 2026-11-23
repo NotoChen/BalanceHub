@@ -16,6 +16,8 @@ interface UseAppLifecycleOptions {
   autoProbeCliTools: () => Promise<unknown>;
   /// 后端调度任务变更状态后会发出 `providers-changed` 事件，前端据此重新拉取内存状态。
   reloadProviders: () => Promise<unknown> | unknown;
+  /// 运行期存储进入保护态（例如云同步落盘失败）：保存已暂停，只能重启恢复。
+  onStorageBlocked: (error: string) => void;
   applyTheme: (themeMode: AppSettings["themeMode"]) => void;
   flushSettingsSave: () => void | Promise<unknown>;
   resetProviderPointerDrag: (suppressClick: boolean, preserveDragOrder?: boolean) => void;
@@ -25,7 +27,19 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   const host = useHostPlatform();
   let providersChangedUnlisten: UnlistenFn | null = null;
   let eventsReconnectedUnlisten: UnlistenFn | null = null;
+  let storageBlockedUnlisten: UnlistenFn | null = null;
   let disposed = false;
+  let postLoadStarted = false;
+
+  /// 读取配置失败时这里会先跳过；用户修好 data.json 点「重新读取」后，
+  /// loadError 清空，启动期只做一次的动作需要补上，不能等下次重启。
+  async function startPostLoadTasks() {
+    if (disposed || postLoadStarted || options.loadError.value) return;
+    postLoadStarted = true;
+    await options.syncLaunchAtLogin();
+    if (disposed) return;
+    await options.autoProbeCliTools();
+  }
 
   onMounted(async () => {
     disposed = false;
@@ -72,15 +86,20 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
         return;
       }
       eventsReconnectedUnlisten = unlistenReconnect;
+      // 只在运行期出现：启动读取失败由 initialize() 的 loadError 负责。
+      const unlistenBlocked = await listen<string>("storage-blocked", (event) => {
+        if (!disposed) options.onStorageBlocked(event.payload);
+      });
+      if (disposed) unlistenBlocked();
+      else storageBlockedUnlisten = unlistenBlocked;
     } catch {
       // Browser preview has no Tauri backend; scheduling events are unavailable.
     }
-    if (disposed || options.loadError.value) {
-      return;
-    }
-    await options.syncLaunchAtLogin();
-    if (disposed) return;
-    await options.autoProbeCliTools();
+    await startPostLoadTasks();
+  });
+
+  watch(options.loadError, (error) => {
+    if (!error) void startPostLoadTasks();
   });
 
   onUnmounted(() => {
@@ -91,6 +110,8 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     providersChangedUnlisten = null;
     eventsReconnectedUnlisten?.();
     eventsReconnectedUnlisten = null;
+    storageBlockedUnlisten?.();
+    storageBlockedUnlisten = null;
   });
 
   watch(options.settings, (value) => {

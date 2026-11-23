@@ -167,6 +167,12 @@ export function useProviderCredentialCompletion(options: UseProviderCredentialCo
   ) {
     const silent = probeOptions.silent === true;
     if (!options.draftProvider.identity.baseUrl.trim()) {
+      // 这次探测没有真正发起请求，但它已经让上一次探测过期。上一次探测
+      // 回来时不会再清除读取态，所以这里必须自己收口，否则地址被清空后
+      // 面板会一直停在“识别中”，协议选择和重新识别都被锁住。
+      if (revision === siteProbeRevision) {
+        options.probingSite.value = false;
+      }
       if (!silent) {
         Message.warning("请先填写地址");
       }

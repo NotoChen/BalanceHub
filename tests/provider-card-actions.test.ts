@@ -129,7 +129,7 @@ function provider(
     },
     capabilities: { subscription: null, availableModels: [] },
     automation: { refreshInterval: 0 },
-    runtime: { enabled: true, status: "idle" },
+    runtime: { enabled: true, status: "idle", credentialRejected: false },
     actions: { oauthAccount: true, cpaGateway: false, temporaryCli: false },
   } as unknown as Provider;
 }
@@ -231,9 +231,30 @@ test("the same footer serves a relay card, and its wording follows the card type
   assert.equal(unwrap(card.state, "reauthRecommended"), false);
 });
 
+test("a relay card recommends browser re-login only after its credentials were rejected", (t) => {
+  const relay = provider();
+  (relay.auth as Record<string, unknown>).oauth = null;
+  (relay.identity as Record<string, unknown>).protocol = "newApi";
+  (relay.actions as Record<string, unknown>).oauthAccount = false;
+  (relay.actions as Record<string, unknown>).reauthenticate = true;
+  (relay.runtime as Record<string, unknown>).errorMessage = "HTTP 502";
+  // 网络故障会由自动重试处理，不能把错误文案当成认证失效。
+  assert.equal(
+    unwrap(mountFooter(t, { provider: relay }).state, "reauthRecommended"),
+    false,
+  );
+
+  (relay.runtime as Record<string, unknown>).credentialRejected = true;
+  const failed = mountFooter(t, { provider: relay });
+  assert.equal(unwrap(failed.state, "reauthRecommended"), true);
+  assert.equal(unwrap(failed.state, "reauthLabel"), "重新登录");
+  assert.match(unwrap(failed.state, "reauthTitle"), /凭据已被站点拒绝/);
+});
+
 const messages: string[] = [];
 const accepted: unknown[] = [];
 const loginCalls: unknown[][] = [];
+const reloginCalls: string[] = [];
 let opened: string | null = null;
 
 function loadActions(options: {
@@ -305,6 +326,9 @@ function loadActions(options: {
     openCheckInRecords: () => {},
     toggleProvider: async () => {},
     removeProvider: async () => {},
+    reloginProvider: async (value: Provider) => {
+      reloginCalls.push(value.identity.id);
+    },
   });
 }
 
@@ -316,7 +340,7 @@ test("re-authorizing opens the login task's own progress panel", async () => {
   const actions = loadActions({
     start: async () => ({ id: "task-1", revision: 1 }) as unknown,
   });
-  await actions.reauthorizeOAuthCard(provider());
+  await actions.reauthorizeCard(provider());
   await nextTick();
   assert.deepEqual(loginCalls, [["codex", "oauth-fixture"]]);
   assert.deepEqual(accepted, [{ id: "task-1", revision: 1 }]);
@@ -332,22 +356,25 @@ test("a rejected re-authorization reports the failure without starting a task", 
       throw new Error("浏览器启动失败");
     },
   });
-  await actions.reauthorizeOAuthCard(provider());
+  await actions.reauthorizeCard(provider());
   await nextTick();
   assert.deepEqual(accepted, []);
   assert.deepEqual(messages, ["error:Error: 浏览器启动失败"]);
 });
 
-test("a CPA card cannot start an OAuth login", async () => {
+test("a card without an OAuth account renews through its bound browser login", async () => {
   messages.length = 0;
   loginCalls.length = 0;
+  reloginCalls.length = 0;
   const actions = loadActions({
     start: async () => ({ id: "task-1", revision: 1 }) as unknown,
   });
   const gateway = provider();
   (gateway.auth as Record<string, unknown>).oauth = null;
-  await actions.reauthorizeOAuthCard(gateway);
-  assert.deepEqual(loginCalls, []);
+  await actions.reauthorizeCard(gateway);
+  assert.deepEqual(loginCalls, [], "OAuth login requires an OAuth account");
+  assert.deepEqual(reloginCalls, ["oauth-fixture"]);
+  assert.deepEqual(messages, []);
 });
 
 test("one footer serves all four card types, in one fixed order", () => {
@@ -398,7 +425,7 @@ test("the card renders one footer for both header families", () => {
   // 统一底栏发出的每个事件都必须有人转发，否则那枚按钮点了没反应。
   for (const event of [
     "cpaRenewAll",
-    "reauthorizeOauthCard",
+    "reauthorizeCard",
     "launchTemporaryCli",
     "switchCliConfig",
     "checkIn",

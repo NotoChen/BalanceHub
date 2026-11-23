@@ -223,6 +223,9 @@ impl Replica for AppReplica {
             Err(error) => {
                 if journal_path.exists() {
                     state.block_storage(error.clone());
+                    // 运行期进入保护态后，所有保存都会失败且只能重启恢复；
+                    // 前端不能等到下一次保存才发现，必须立刻亮出提示。
+                    host::emit("storage-blocked", error.clone());
                 }
                 return Err(error);
             }
@@ -233,6 +236,10 @@ impl Replica for AppReplica {
         super::signal().changed();
         host::emit("cloud-sync-applied", revision);
         host::emit("providers-changed", serde_json::json!(null));
+        // 云端配置可能删除了本站点或替换了凭据；挂起中的浏览器任务不能
+        // 继续等待一份已经不存在的配置。
+        crate::services::check_in_tasks::cancel_outdated();
+        crate::services::provider_browser_login::cancel_outdated();
         warning.map_or(Ok(()), Err)
     }
 

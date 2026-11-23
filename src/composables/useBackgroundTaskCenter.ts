@@ -45,6 +45,10 @@ export interface BackgroundTask {
   finishedAt?: number;
   error?: string;
   source: "manual" | "automatic";
+  /// 需要用户处理或确认：置顶显示并计入顶部徽标。
+  attention?: boolean;
+  /// 自动维护类任务：只在面板里汇总成一行，不占徽标，也不拦截退出。
+  ambient?: boolean;
   actions?: { label: string; disabled?: boolean; run: () => void }[];
 }
 
@@ -71,8 +75,14 @@ interface UseBackgroundTaskCenterOptions {
   batchOperation: Ref<ProviderBatchOperation | null>;
   batchOperationRunning: Ref<boolean>;
   batchOperationItems: Ref<ProviderBatchProgressItem[]>;
+  /// 批次已受理、正在等待自动刷新释放闸门时的说明。
+  batchOperationWaitingReason?: Ref<string>;
   batchOperationError: Ref<string>;
   batchOperationCompleted: Ref<boolean>;
+  /// 批次正在执行取消；任务中心据此禁用重复点击。
+  batchOperationCanceling?: Ref<boolean>;
+  /// 取消尚未开始的站点；批次排队或卡住时任务中心也能直接结束它。
+  cancelBatchRefresh?: () => Promise<void>;
   refreshInProgress: Ref<boolean>;
   refreshingProviderIds: Ref<Set<string>>;
   checkInTasks: Ref<CheckInTask[]>;
@@ -94,12 +104,31 @@ interface UseBackgroundTaskCenterOptions {
   cliRuntimeLoading: Ref<boolean>;
   temporaryCliLaunchTasks: Ref<TemporaryCliLaunchTask[]>;
   probingCapabilitiesProviderId: Ref<string | null>;
+  /// 运行期存储保护态：保存已暂停，只能重启恢复。
+  storageBlockedError?: Ref<string | null>;
+  restartApp?: () => void;
   domainTasks?: Ref<BackgroundTask[]>;
 }
 
 const TASK_EVENT_NAME = "background-task";
-const RECENT_TASK_LIMIT = 12;
+const RECENT_TASK_LIMIT = 20;
+/// 普通结果只是回看用，短窗口即可，避免面板变成日志。
 const RECENT_TASK_MAX_AGE_MS = 15 * 60 * 1_000;
+/// 需要用户处理或确认的记录跨会话保留一天，用户回来时还能接着处理。
+const RECENT_ATTENTION_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+/// 自动刷新、公告读取、CLI 探测和自动测活属于随时可放弃的维护动作，
+/// 卡片和设置里已经有各自的状态。它们只在面板里汇总成一行，失败时才
+/// 进入最近记录；不要把徽标和任务列表变成后台轮询日志。
+const AMBIENT_KINDS = new Set<BackgroundTaskKind>([
+  "autoRefresh",
+  "autoLiveness",
+  "announcement",
+  "cliProbe",
+]);
+function isAmbientTask(task: Pick<BackgroundTask, "id" | "kind">): boolean {
+  // 单卡刷新由卡片自己的 syncing 状态承担，不必再占一条后台任务。
+  return task.id === "provider-refresh" || AMBIENT_KINDS.has(task.kind);
+}
 
 function isPendingDomainTask(task: BackgroundTask): boolean {
   return task.status === "running"
@@ -116,6 +145,8 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   const remoteTasks = ref<Record<string, BackgroundTask>>({});
   const recentTasks = ref<BackgroundTask[]>([]);
   let schedulerUnlisten: UnlistenFn | null = null;
+  let openTaskCenterUnlisten: UnlistenFn | null = null;
+  let reconnectUnlisten: UnlistenFn | null = null;
   let recentPruneTimer: number | null = null;
   let previousActive = new Map<string, BackgroundTask>();
   let observedActiveState = false;
@@ -123,7 +154,10 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   const rememberedCheckInIds = new Set<string>();
   const rememberedDomainTaskResults = new Map<string, string>();
   let disposed = false;
-  const observedLoginEvents = new Set<string>();
+  /// 登录任务最近一次事件序号：列表恢复在请求发出后如果又收到事件，
+  /// 事件比列表快照更新，不能用列表覆盖。
+  const observedLoginEvents = new Map<string, number>();
+  let loginEventSequence = 0;
   const loginControl = createLoginTaskControl({
     changed: (id, pending) => {
       const task = remoteTasks.value[id];
@@ -156,15 +190,23 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
         ["success", "failed", "skipped"].includes(item.status),
       ).length;
       const total = batchItems.length;
+      const waitingReason = options.batchOperationWaitingReason?.value ?? "";
       tasks.push({
         id: "manual-batch-operation",
         kind: "refresh",
         title: "全局刷新",
-        detail: total > 0 ? `已完成 ${completed} / ${total} 个中转站` : "正在准备中转站任务",
+        detail: waitingReason || (total > 0 ? `已完成 ${completed} / ${total} 个中转站` : "正在准备中转站任务"),
         status: "running",
         progress: total > 0 ? completed / total : null,
         startedAt: previousActive.get("manual-batch-operation")?.startedAt ?? now,
         source: "manual",
+        actions: options.cancelBatchRefresh
+          ? [{
+              label: "取消刷新",
+              disabled: options.batchOperationCanceling?.value ?? false,
+              run: () => { void options.cancelBatchRefresh?.(); },
+            }]
+          : undefined,
       });
     }
 
@@ -285,24 +327,79 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     for (const task of domainTasks) {
       if (isPendingDomainTask(task)) tasks.push(task);
     }
-    return tasks.sort((left, right) => left.startedAt - right.startedAt);
+
+    // 运行期存储保护不属于任何一次请求：卡片仍在，但所有保存都已暂停，
+    // 用户只有重启应用才能恢复。放进任务中心可确保无论当前在哪个页面
+    // 都能看到这条状态并直接重启。
+    const storageBlocked = options.storageBlockedError?.value;
+    if (storageBlocked) {
+      tasks.push({
+        id: "storage-blocked",
+        kind: "sync",
+        title: "本地配置已暂停写入",
+        detail: storageBlocked,
+        status: "failed",
+        progress: null,
+        startedAt: previousActive.get("storage-blocked")?.startedAt ?? now,
+        source: "automatic",
+        attention: true,
+        actions: options.restartApp
+          ? [{ label: "重启应用", run: options.restartApp }]
+          : undefined,
+      });
+    }
+    return tasks
+      .map((task) => ({
+        ...task,
+        ambient: task.ambient ?? isAmbientTask(task),
+        attention:
+          task.attention ??
+          (task.status === "waiting" || task.status === "unconfirmed"),
+      }))
+      .sort((left, right) => left.startedAt - right.startedAt);
   });
 
-  const activeTaskCount = computed(() => activeTasks.value.length);
+  /// 徽标只统计用户真正需要看到的任务；自动维护在面板里单独提示。
+  const activeTaskCount = computed(
+    () => activeTasks.value.filter((task) => !task.ambient).length,
+  );
+  /// 需要处理的任务可能停在进行中，也可能是已经结束、但还留着操作入口的记录。
+  const attentionTaskCount = computed(() => {
+    const ids = new Set<string>();
+    for (const task of activeTasks.value) if (task.attention) ids.add(task.id);
+    for (const task of recentTasks.value) if (task.attention) ids.add(task.id);
+    return ids.size;
+  });
+  const ambientTaskCount = computed(
+    () => activeTasks.value.filter((task) => task.ambient).length,
+  );
 
   function pruneRecent() {
-    const cutoff = Date.now() - RECENT_TASK_MAX_AGE_MS;
+    const now = Date.now();
     recentTasks.value = recentTasks.value
-      .filter((task) => (task.finishedAt ?? 0) >= cutoff)
+      .filter((task) => {
+        const maxAge = task.attention
+          ? RECENT_ATTENTION_MAX_AGE_MS
+          : RECENT_TASK_MAX_AGE_MS;
+        return (task.finishedAt ?? 0) >= now - maxAge;
+      })
       .slice(0, RECENT_TASK_LIMIT);
   }
 
   function rememberRecent(task: BackgroundTask) {
-    const finished = {
+    const finished: BackgroundTask = {
       ...task,
       status: task.status === "running" ? "success" : task.status,
       finishedAt: task.finishedAt ?? Date.now(),
-    } satisfies BackgroundTask;
+    };
+    finished.ambient = finished.ambient ?? isAmbientTask(finished);
+    finished.attention =
+      finished.attention ??
+      (finished.status === "unconfirmed"
+        || (finished.status === "failed" && Boolean(finished.actions?.length)));
+    // 自动维护成功时不留记录，否则面板会被每轮自动刷新、公告读取和 CLI
+    // 探测刷屏；失败仍要留下，方便回看是哪一项维护动作出的问题。
+    if (finished.ambient && finished.status !== "failed") return;
     recentTasks.value = [
       finished,
       ...recentTasks.value.filter((candidate) => candidate.id !== finished.id),
@@ -384,6 +481,7 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
           && !id.startsWith("temporary-cli-launch-")
           && !id.startsWith("checkin-")
           && id !== "browser-runtime-install"
+          && id !== "storage-blocked"
           && !id.startsWith("agent-")
         ) {
           rememberRecent(completedLocalTask(previous));
@@ -407,6 +505,11 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
         const accountId = event.loginAccountId;
         if (providerId) actions.push({ label: "查看站点凭据", run: () => options.openProviderCredentials(providerId) });
         else if (accountId) actions.push({ label: "查看登录账号", run: () => options.openLoginAccount(accountId) });
+      } else if (event.status === "failed" && event.providerId) {
+        // 自动重新认证失败时用户能做的只有重新走一次可见登录；把入口放在
+        // 失败任务本身，不让它只留下一条错误文案。
+        const providerId = event.providerId;
+        actions.push({ label: "打开站点凭据", run: () => options.openProviderCredentials(providerId) });
       }
     }
     const task: BackgroundTask = {
@@ -430,6 +533,56 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     delete next[task.id];
     remoteTasks.value = next;
     rememberRecent(task);
+  }
+
+  /// 登录任务只在启动和事件流重连时用后端列表校准：事件断开期间结束的
+  /// 任务不会再有终态事件，不重新读取就会一直停在运行中。
+  async function recoverProviderLogins() {
+    if (disposed || !supportsCommand("list_provider_browser_logins")) return;
+    const trackedBefore = new Set(
+      Object.values(remoteTasks.value)
+        .filter((task) => task.kind === "providerLogin")
+        .map((task) => task.id),
+    );
+    const sequenceBefore = loginEventSequence;
+    try {
+      const tasks = await listProviderBrowserLogins();
+      if (disposed) return;
+      const listed = new Set(tasks.map((task) => task.runId));
+      for (const task of tasks) {
+        // 请求在途时收到的事件比这份列表新，保留事件结果。
+        if ((observedLoginEvents.get(task.runId) ?? 0) > sequenceBefore) continue;
+        handleSchedulerEvent({
+          taskId: task.runId, kind: "providerLogin",
+          title: `${task.operation === "account" ? "管理登录账号" : task.operation === "reauth" ? "重新认证" : "登录并导入"} · ${task.providerName}`,
+          detail: task.message,
+          status: task.phase === "completed" ? "success" : task.phase === "failed" ? "failed"
+            : task.phase === "cancelled" ? "cancelled" : task.phase === "queued" || task.phase === "waitingLogin" ? "waiting" : "running",
+          progress: null, startedAt: task.startedAt, finishedAt: task.finishedAt, error: task.error,
+          canCancel: task.canCancel, canShowWindow: task.canShowWindow,
+          loginAccountId: task.loginAccountId, providerId: task.providerId ?? undefined,
+        });
+      }
+      // 请求前仍在跟踪、列表里却没有的任务，后端已不再跟踪（服务端重启
+      // 或记录被清理），不会再有终态事件。标成待确认，避免一直转圈。
+      for (const id of trackedBefore) {
+        if (listed.has(id)) continue;
+        if ((observedLoginEvents.get(id) ?? 0) > sequenceBefore) continue;
+        const task = remoteTasks.value[id];
+        if (!task) continue;
+        const next = { ...remoteTasks.value };
+        delete next[id];
+        remoteTasks.value = next;
+        rememberRecent({
+          ...task,
+          status: "unconfirmed",
+          detail: "登录任务已从后台任务列表消失（应用可能已重启），请重新发起登录",
+          finishedAt: Date.now(),
+        });
+      }
+    } catch {
+      // 恢复是尽力而为；下一次重连或事件会再试。
+    }
   }
 
   function handleTemporaryCliTaskChanges(tasks: TemporaryCliLaunchTask[]) {
@@ -457,23 +610,30 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     recentPruneTimer = window.setInterval(pruneRecent, 60_000);
     try {
       const dispose = await listen<BackgroundTaskEvent>(TASK_EVENT_NAME, (event) => {
-        if (event.payload.kind === "providerLogin") observedLoginEvents.add(event.payload.taskId);
+        if (event.payload.kind === "providerLogin") {
+          observedLoginEvents.set(event.payload.taskId, ++loginEventSequence);
+        }
         handleSchedulerEvent(event.payload);
       });
       if (disposed) dispose();
       else schedulerUnlisten = dispose;
-      if (!disposed && supportsCommand("list_provider_browser_logins")) {
-        const tasks = await listProviderBrowserLogins();
-        if (disposed) return;
-        for (const task of tasks) {
-          if (observedLoginEvents.has(task.runId)) continue;
-          handleSchedulerEvent({ taskId: task.runId, kind: "providerLogin", title: `${task.operation === "account" ? "管理登录账号" : "登录并导入"} · ${task.providerName}`,
-            detail: task.message, status: task.phase === "completed" ? "success" : task.phase === "failed" ? "failed"
-              : task.phase === "cancelled" ? "cancelled" : task.phase === "queued" || task.phase === "waitingLogin" ? "waiting" : "running",
-            progress: null, startedAt: task.startedAt, finishedAt: task.finishedAt, error: task.error, canCancel: task.canCancel,
-            canShowWindow: task.canShowWindow, loginAccountId: task.loginAccountId, providerId: task.providerId ?? undefined });
-        }
+      // 桌面托盘「后台任务」：窗口被唤到前台后打开任务面板。单独兜底，
+      // 不让一个可选入口影响下面的登录任务恢复。
+      try {
+        const openDispose = await listen("open-task-center", () => {
+          if (!disposed) window.dispatchEvent(new CustomEvent("balancehub-open-task-center"));
+        });
+        if (disposed) openDispose();
+        else openTaskCenterUnlisten = openDispose;
+      } catch {
+        // 旧版桌面或浏览器预览没有这个入口。
       }
+      const reconnectDispose = await listen("balancehub-events-reconnected", () => {
+        if (!disposed) void recoverProviderLogins();
+      });
+      if (disposed) reconnectDispose();
+      else reconnectUnlisten = reconnectDispose;
+      await recoverProviderLogins();
     } catch {
       // Vite/browser preview has no Tauri event bus; local observable tasks remain available.
     }
@@ -484,6 +644,10 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
     loginControl.dispose();
     schedulerUnlisten?.();
     schedulerUnlisten = null;
+    openTaskCenterUnlisten?.();
+    openTaskCenterUnlisten = null;
+    reconnectUnlisten?.();
+    reconnectUnlisten = null;
     if (recentPruneTimer !== null) {
       window.clearInterval(recentPruneTimer);
       recentPruneTimer = null;
@@ -529,6 +693,8 @@ export function useBackgroundTaskCenter(options: UseBackgroundTaskCenterOptions)
   return {
     activeTasks,
     activeTaskCount,
+    attentionTaskCount,
+    ambientTaskCount,
     recentTasks,
     clearRecentTasks,
   };

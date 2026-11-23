@@ -50,6 +50,8 @@ const props = defineProps<{
   visible: boolean;
   provider: Provider | null;
   settings: AppSettings;
+  /// 该站点已有签到任务在途：重复点击不会产生第二个任务。
+  checkingIn?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -524,11 +526,12 @@ function runWithModel(
           <a-button
             v-if="supportsCheckIn(provider)"
             size="small"
-            :disabled="provider.actions.checkedInToday || !provider.runtime.enabled"
+            :disabled="provider.actions.checkedInToday || !provider.runtime.enabled || checkingIn"
+            :aria-busy="checkingIn"
             @click="run((item) => emit('checkIn', item))"
           >
             <template #icon><IconCalendar /></template>
-            {{ provider.actions.checkedInToday ? "今天已签到" : "立即签到" }}
+            {{ checkingIn ? "签到中…" : provider.actions.checkedInToday ? "今天已签到" : "立即签到" }}
           </a-button>
         </div>
       </section>

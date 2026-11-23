@@ -2,9 +2,20 @@ import { onUnmounted, provide, ref, shallowRef, watch, type InjectionKey } from 
 import { Message, Modal } from "@arco-design/web-vue";
 import * as api from "../api/login-accounts";
 import type { CredentialKind, ProviderCredentialDetails } from "../stores/provider-types";
+import { withTimeout } from "../utils/promise-timeout";
 
 export type ProviderCredentialsController = ReturnType<typeof useProviderCredentials>;
 export const PROVIDER_CREDENTIALS_CONTEXT: InjectionKey<ProviderCredentialsController> = Symbol("provider-credentials");
+
+/// 读取凭据、站点验证和清除都可能卡在网络或 IPC 上；没有超时时按钮会
+/// 一直禁用，用户只能关闭窗口重开才能恢复。
+const CREDENTIAL_TIMEOUT_MS = 30_000;
+const credentialTimeoutMessage = (action: string) =>
+  action === "validate"
+    ? "验证站点凭据超时，请重试"
+    : action === "clear"
+      ? "清除本地凭据超时，请重新确认"
+      : "读取站点凭据超时，请重试";
 
 export function useProviderCredentials(relogin: (id: string) => void) {
   const visible = ref(false);
@@ -23,7 +34,11 @@ export function useProviderCredentials(relogin: (id: string) => void) {
     const id = providerId.value;
     pending.value = action; error.value = ""; secretScope.value++;
     try {
-      const result = await work(id);
+      const result = await withTimeout(
+        work(id),
+        CREDENTIAL_TIMEOUT_MS,
+        credentialTimeoutMessage(action),
+      );
       if (request !== revision || !visible.value || providerId.value !== id) return;
       details.value = result;
       if (action === "validate") {

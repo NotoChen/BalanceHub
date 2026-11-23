@@ -8,7 +8,7 @@ use crate::{
         RefreshResult,
     },
 };
-use futures_util::{stream, StreamExt};
+use futures_util::{stream, FutureExt, StreamExt};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use super::{MutationDecision, ProviderRequestContext, ProviderService};
@@ -18,16 +18,20 @@ struct RefreshedProvider {
     request_context: ProviderRequestContext,
 }
 
+/// 排队心跳间隔。前端 180 秒收不到进度事件就会判定刷新卡死，这里保持足够频繁。
+const REFRESH_QUEUE_HEARTBEAT: Duration = Duration::from_secs(3);
+
 impl ProviderService {
     pub async fn refresh_all_with_progress(
         &self,
         progress: Arc<dyn ProgressSink>,
     ) -> Result<(RefreshResult, Vec<ProviderBatchProgressItem>), String> {
         let state = crate::host::core_state();
-        let _gate = state.refresh_gate.lock().await;
-        // 取消按批次生效：这一批拿到的编号只会被本批的取消命中，
-        // 不会把标记留给后面的卡片刷新或调度刷新。
+        // 先登记批次，再排队等闸门：自动刷新占用闸门时，用户在排队期间点下
+        // 的取消必须命中这一批，而不是等真正开始执行后才重新计数。
         let generation = state.begin_refresh_batch();
+        let _gate =
+            wait_for_refresh_gate(&state, &progress, generation, REFRESH_QUEUE_HEARTBEAT).await;
         self.refresh_all_inner(progress, generation).await
     }
 
@@ -159,9 +163,16 @@ impl ProviderService {
             };
             if let Some(message) = preparation_error {
                 provider.runtime.status = ProviderStatus::Error;
+                // 准备认证也可能因为进程启动失败、配置并发变更、客户端构建或
+                // 会话续期时的 5xx/网络问题而失败；只有文案明确指向凭据被拒
+                // 才进入长时间凭据冷却，其余按瞬时失败退避。
+                let kind = if provider_domain::failure::looks_like_credential_rejection(&message) {
+                    ProviderFailureKind::Credential
+                } else {
+                    ProviderFailureKind::Transient
+                };
                 provider.runtime.error_message = Some(message);
-                // 登录/换令牌被拒属于凭据问题，重试不会自愈。
-                return Some(ProviderFailureKind::Credential);
+                return Some(kind);
             }
             let outcome = ProtocolAdapter.refresh_provider(settings, &provider).await;
             let failure = outcome.failure;
@@ -170,8 +181,18 @@ impl ProviderService {
         };
         // Individual HTTP requests already have deadlines. Also bound the
         // complete authentication + refresh chain so one site cannot hang a batch.
+        // A panic while parsing an unexpected site response is turned into a
+        // transient failure: unwinding here would abort the whole batch (and,
+        // from the scheduler, the automation loop) without recording an attempt.
+        let attempt = std::panic::AssertUnwindSafe(attempt).catch_unwind();
         let mut failure = match tokio::time::timeout(Duration::from_secs(120), attempt).await {
-            Ok(failure) => failure,
+            Ok(Ok(failure)) => failure,
+            Ok(Err(_)) => {
+                log::error!("刷新过程异常退出（{}）", provider.identity.id);
+                provider.runtime.status = ProviderStatus::Error;
+                provider.runtime.error_message = Some("刷新过程异常退出，请稍后重试".to_string());
+                Some(ProviderFailureKind::Transient)
+            }
             Err(_) => {
                 provider.runtime.status = ProviderStatus::Error;
                 provider.runtime.error_message = Some("刷新超时，请稍后重试".to_string());
@@ -207,6 +228,13 @@ impl ProviderService {
                 )
             })
             .await?;
+        // A browser-bound account can renew itself. Start that only after the
+        // rejected credential is committed, and only when this result still
+        // belongs to the stored configuration; a concurrent edit owns its own
+        // auth flow.
+        if applied && matches!(failure, Some(ProviderFailureKind::Credential)) {
+            crate::services::provider_browser_login::after_credential_failure(&id);
+        }
         // Read after committing: transactions normalize data and assign the IPC
         // revision. Publishing the request snapshot would bypass both safeguards.
         let current = self.providers_by_ids_async(&[id]).await?.into_iter().next();
@@ -381,6 +409,32 @@ fn refresh_finished_message(provider: &Provider) -> String {
         )
     } else {
         "刷新完成".to_string()
+    }
+}
+
+/// 手动刷新排队等待闸门期间持续报告状态。自动刷新一次可能占用闸门数分钟，
+/// 没有心跳时前端只能看到一个空批次，还会在 180 秒后误判为刷新卡死。
+/// 排队期间点取消时不再等闸门，直接按“全部跳过”收口。
+async fn wait_for_refresh_gate<'a>(
+    state: &'a crate::state::CoreState,
+    progress: &Arc<dyn ProgressSink>,
+    generation: u64,
+    heartbeat: Duration,
+) -> Option<tokio::sync::MutexGuard<'a, ()>> {
+    loop {
+        if state.refresh_cancelled(generation) {
+            return None;
+        }
+        match tokio::time::timeout(heartbeat, state.refresh_gate.lock()).await {
+            Ok(gate) => return Some(gate),
+            Err(_) => send_progress(
+                Some(progress),
+                ProviderBatchProgressEvent::Queued {
+                    operation: ProviderBatchOperation::Refresh,
+                    reason: "正在等待当前自动刷新结束，完成后立即开始".to_string(),
+                },
+            ),
+        }
     }
 }
 
@@ -708,5 +762,67 @@ mod tests {
         assert_eq!(data.providers[0].auth.refresh_token, "new-refresh");
         assert_eq!(data.providers[0].auth.access_token_expires_at, Some(200));
         assert_eq!(data.providers[0].quota.available, 99.0);
+    }
+
+    #[derive(Default)]
+    struct RecordingSink(std::sync::Mutex<Vec<ProviderBatchProgressEvent>>);
+
+    impl RecordingSink {
+        fn queued(&self) -> usize {
+            self.0
+                .lock()
+                .expect("progress sink")
+                .iter()
+                .filter(|event| matches!(event, ProviderBatchProgressEvent::Queued { .. }))
+                .count()
+        }
+    }
+
+    impl ProgressSink for RecordingSink {
+        fn send(&self, event: ProviderBatchProgressEvent) {
+            self.0.lock().expect("progress sink").push(event);
+        }
+    }
+
+    fn isolated_state() -> crate::state::CoreState {
+        crate::state::CoreState::new(AppData::default())
+    }
+
+    #[tokio::test]
+    async fn a_manual_refresh_waiting_for_the_gate_reports_queue_heartbeats() {
+        let state = Arc::new(isolated_state());
+        let held = state.refresh_gate.lock().await;
+        let generation = state.begin_refresh_batch();
+        let recorder = Arc::new(RecordingSink::default());
+        let sink: Arc<dyn ProgressSink> = recorder.clone();
+        let waiting = {
+            let state = Arc::clone(&state);
+            let sink = Arc::clone(&sink);
+            tokio::spawn(async move {
+                wait_for_refresh_gate(&state, &sink, generation, Duration::from_millis(10))
+                    .await
+                    .is_some()
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert!(
+            recorder.queued() >= 2,
+            "waiting for the gate must keep reporting a queued state"
+        );
+        drop(held);
+        assert!(waiting.await.expect("queue waiter"));
+    }
+
+    #[tokio::test]
+    async fn cancelling_while_queued_stops_without_waiting_for_the_gate() {
+        let state = isolated_state();
+        let _held = state.refresh_gate.lock().await;
+        let generation = state.begin_refresh_batch();
+        state.request_refresh_cancel();
+        let recorder = Arc::new(RecordingSink::default());
+        let sink: Arc<dyn ProgressSink> = recorder.clone();
+        let gate = wait_for_refresh_gate(&state, &sink, generation, Duration::from_secs(30)).await;
+        assert!(gate.is_none());
+        assert_eq!(recorder.queued(), 0);
     }
 }

@@ -1,9 +1,45 @@
-import { bootstrapHtml, launchBrowser, WorkerError, WorkerCancelled } from "./launch.mjs";
+import { NeedsHuman, bootstrapHtml, keepOAuthInWindow, launchBrowser, WorkerError, WorkerCancelled } from "./launch.mjs";
 import { IdentityProfile, profileCookieKey } from "./accounts.mjs";
-import { pageNeedsVerification } from "./verification.mjs";
+import { pageNeedsIdentityLogin, pageNeedsVerification } from "./verification.mjs";
 
 const AUTH_COOKIES = new Set(["session", "new_api_refresh"]);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/// The relay opens Linux DO / GitHub authorization in a popup. Only the exact
+/// consent button on those two official hosts is clicked automatically; the
+/// platform login form and any CAPTCHA stay under the user's control.
+export function approveConsentButton() {
+  const host = location.hostname;
+  const github = host === "github.com";
+  const linuxDo = host === "connect.linux.do" || host === "linux.do";
+  if (!github && !linuxDo) return false;
+  if (github && !location.pathname.startsWith("/login/oauth/authorize")) return false;
+  if (linuxDo && !/^\/oauth2?\//.test(location.pathname)) return false;
+  const visible = (element) => {
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const style = getComputedStyle(element);
+    return style.visibility !== "hidden" && style.display !== "none";
+  };
+  const button = [...document.querySelectorAll("button, [role=button], input[type=submit]")].find((element) => {
+    if (element.disabled) return false;
+    const text = (element.textContent || element.value || "").trim();
+    const approved = github ? /^(authorize|授权)/i.test(text) : /^(允许|授权|同意)/.test(text);
+    return approved && visible(element);
+  });
+  if (!button) return false;
+  button.click();
+  return true;
+}
+
+function consentPage(value) {
+  let url;
+  try { url = new URL(value); } catch { return false; }
+  if (url.protocol !== "https:") return false;
+  if (url.hostname === "connect.linux.do" || url.hostname === "linux.do") return /^\/oauth2?\//.test(url.pathname);
+  if (url.hostname === "github.com") return url.pathname.startsWith("/login/oauth/authorize");
+  return false;
+}
 
 export function loginUser(value) {
   if (!value || !["string", "number"].includes(typeof value.id) || !String(value.id).trim()) return null;
@@ -47,6 +83,10 @@ export class LoginBrowser {
     this.requireFreshLogin = false;
     this.boundLoginStarted = false;
     this.lastPhase = null;
+    this.headless = false;
+    this.consentAttempts = new Set();
+    this.verificationWaitSince = null;
+    this.identityWaitSince = null;
   }
 
   progress(phase) {
@@ -174,26 +214,56 @@ export class LoginBrowser {
     } catch { /* Unknown or unavailable login controls stay open for the user. */ }
   }
 
+  async approveConsent(page) {
+    if (page.isClosed()) return false;
+    let href;
+    try { href = page.url(); } catch { return false; }
+    if (!consentPage(href) || this.consentAttempts.has(href)) return false;
+    const clicked = await page.evaluate(approveConsentButton).catch(() => false);
+    if (!clicked) return false;
+    this.consentAttempts.add(href);
+    if (this.requireFreshLogin) this.progress("loggingIn");
+    return true;
+  }
+
   async advanceBoundLogin() {
     if (!this.requireFreshLogin || this.freshLoginSubmitted) return;
     const pages = this.context.pages().filter((page) => !page.isClosed());
     for (const page of pages.toReversed()) {
       const challenged = await page.evaluate(pageNeedsVerification).catch(() => null);
       if (challenged) {
-        const wasWaiting = this.lastPhase === "waitingHuman";
-        this.progress("waitingHuman");
-        if (!wasWaiting) await page.bringToFront().catch(() => {});
+        if (this.headless) {
+          // A scheduled relogin cannot finish a CAPTCHA. Give the page a short
+          // grace period for automatic clearance, then ask for a human instead
+          // of holding the task for the full login timeout.
+          this.verificationWaitSince ??= Date.now();
+          if (Date.now() - this.verificationWaitSince > 20_000) throw new NeedsHuman("需要人工完成站点验证");
+        } else {
+          const wasWaiting = this.lastPhase === "waitingHuman";
+          this.progress("waitingHuman");
+          if (!wasWaiting) await page.bringToFront().catch(() => {});
+        }
+        this.identityWaitSince = null;
         return;
       }
       if (challenged === null) continue; // Navigation is still settling.
+      this.verificationWaitSince = null;
+      if (this.headless && await page.evaluate(pageNeedsIdentityLogin).catch(() => false)) {
+        this.identityWaitSince ??= Date.now();
+        if (Date.now() - this.identityWaitSince > 6_000) throw new NeedsHuman("需要使用绑定账号重新登录");
+        return;
+      }
+      this.identityWaitSince = null;
       await this.startBoundLogin(page);
       if (this.freshLoginSubmitted) return;
     }
+    this.verificationWaitSince = null;
+    this.identityWaitSince = null;
     this.progress("waitingLogin");
   }
 
   async run({ url, providerName, accountName, profileDir, proxy, executablePath, expectedPlatform, expectedIdentity,
-    expectedUserId = "", requireFreshLogin = false, loginPath = "/login", timeoutMs = 600_000 }) {
+    expectedUserId = "", requireFreshLogin = false, loginPath = "/login", headless = false, timeoutMs = 600_000 }) {
     const target = new URL(url);
     if (!["https:", "http:"].includes(target.protocol) || target.username || target.password || target.search || target.hash) {
       throw new WorkerError("中转站地址无效");
@@ -202,12 +272,13 @@ export class LoginBrowser {
     this.base = target.href.replace(/\/+$/, "");
     this.basePath = target.pathname.replace(/\/+$/, "");
     this.requireFreshLogin = requireFreshLogin === true;
+    this.headless = headless === true;
     this.expectedUserId = String(expectedUserId).trim();
     if (this.requireFreshLogin && !this.expectedUserId) throw new WorkerError("缺少原站点账号，请先登录并导入再签到");
     this.title = `${providerName?.trim() || target.host}${accountName ? ` · ${accountName}` : ""} · ${this.requireFreshLogin ? "重新登录签到" : "登录并导入"} | BalanceHub`;
     this.profile = new IdentityProfile(profileDir, expectedPlatform, expectedIdentity);
     this.context = await launchBrowser({ profileDir, executablePath, proxy, title: this.title,
-      message: "正在打开站点登录页…", width: 520, height: 680 }, this.emit);
+      message: "正在打开站点登录页…", width: 520, height: 680, headless: this.headless }, this.emit);
     this.context.on("close", () => { this.closed = true; });
     if (this.closing) {
       await this.context.close();
@@ -216,6 +287,7 @@ export class LoginBrowser {
     await this.profile.restore(this.context);
     await this.clearBusinessCookies();
     await this.context.addInitScript(loginTitle, { title: this.title });
+    await this.context.addInitScript(keepOAuthInWindow);
     // Crash-restored relay pages must never run a previous refresh chain.
     for (const page of this.context.pages()) {
       if (!page.url().startsWith("data:")) await page.goto("about:blank");
@@ -258,6 +330,9 @@ export class LoginBrowser {
     while (Date.now() < deadline) {
       this.assertOpen();
       this.profile.assertIdentity();
+      for (const targetPage of this.context.pages().filter((item) => !item.isClosed())) {
+        if (await this.approveConsent(targetPage)) break;
+      }
       await this.advanceBoundLogin();
       const cookies = await this.targetCookies();
       if (!this.requireFreshLogin && !this.user && cookies.some((cookie) => cookie.name === "session")) {

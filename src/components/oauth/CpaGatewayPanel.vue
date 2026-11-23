@@ -43,7 +43,10 @@ import {
   managedModelCount,
   quotaNumber,
 } from "../../utils/oauth-display";
-import { confirmAction } from "../../composables/provider-credential-dialogs";
+import {
+  confirmAction,
+  confirmDiscardChanges,
+} from "../../composables/provider-credential-dialogs";
 import ContentEditor from "../ContentEditor.vue";
 import FileEditorModal from "../FileEditorModal.vue";
 import CpaSchedulingSection from "./CpaSchedulingSection.vue";
@@ -91,10 +94,42 @@ const editor = ref<FieldDraft | null>(null);
 const editorVisible = ref(false);
 const editorSaving = ref(false);
 const editorError = ref("");
+const editorBaseline = ref("");
+let editorSession = 0;
+let closingEditor = false;
 let disposed = false;
 onScopeDispose(() => {
   disposed = true;
+  editorSession++;
 });
+const editorDirty = computed(
+  () => editor.value !== null && JSON.stringify(editor.value) !== editorBaseline.value,
+);
+
+function closeFieldsEditor() {
+  editorSession++;
+  closingEditor = false;
+  editorVisible.value = false;
+  editor.value = null;
+  editorError.value = "";
+  editorSaving.value = false;
+}
+
+async function requestCloseFieldsEditor() {
+  if (closingEditor) return;
+  if (editorSaving.value || !editorDirty.value) {
+    closeFieldsEditor();
+    return;
+  }
+  closingEditor = true;
+  try {
+    if (await confirmDiscardChanges("CPA 调度字段还有未保存的修改，关闭后这次输入会丢失。")) {
+      closeFieldsEditor();
+    }
+  } finally {
+    closingEditor = false;
+  }
+}
 const gateway = computed(() => props.provider.capabilities.gateway);
 const modelCount = computed(() => managedModelCount(props.provider));
 const requestTotals = computed(() => {
@@ -215,6 +250,7 @@ async function toggle(account: CpaAccountSummary) {
 }
 function editFields(account: CpaAccountSummary) {
   if (locked()) return;
+  editorSession++;
   editor.value = {
     name: account.name,
     authIndex: account.authIndex,
@@ -224,6 +260,7 @@ function editFields(account: CpaAccountSummary) {
     note: account.note,
     excludedModels: [...account.excludedModels],
   };
+  editorBaseline.value = JSON.stringify(editor.value);
   editorError.value = "";
   editorVisible.value = true;
 }
@@ -232,6 +269,7 @@ async function saveFields() {
   if (!draft || editorSaving.value) return;
   const id = props.provider.identity.id;
   const current = revision.value;
+  const session = editorSession;
   editorSaving.value = true;
   editorError.value = "";
   try {
@@ -249,14 +287,17 @@ async function saveFields() {
       current,
     );
     if (disposed) return;
-    editorVisible.value = false;
-    editor.value = null;
     Message.success("CPA 调度字段已更新");
+    // 保存期间关闭又打开了另一个账号时，不能把新窗口关掉或覆盖它的错误提示。
+    if (session === editorSession) closeFieldsEditor();
     await reload();
   } catch (cause) {
-    if (!disposed) editorError.value = String(cause);
+    if (disposed) return;
+    const message = String(cause);
+    if (session === editorSession) editorError.value = message;
+    else Message.error(`CPA 调度字段保存失败：${message}`);
   } finally {
-    editorSaving.value = false;
+    if (session === editorSession) editorSaving.value = false;
   }
 }
 async function refreshRemote(account: CpaAccountSummary) {
@@ -720,11 +761,11 @@ function cooling(account: CpaAccountSummary) {
       >
     </div>
     <a-modal
-      v-model:visible="editorVisible"
+      :visible="editorVisible"
       title="编辑 CPA 调度字段"
       width="480px"
       unmount-on-close
-      @cancel="editorVisible = false"
+      @cancel="requestCloseFieldsEditor"
     >
       <div v-if="editor" class="cpa-field-form">
         <p class="cpa-field-hint">
@@ -776,7 +817,7 @@ function cooling(account: CpaAccountSummary) {
         <a-alert v-if="editorError" type="error">{{ editorError }}</a-alert>
       </div>
       <template #footer
-        ><a-button :disabled="editorSaving" @click="editorVisible = false"
+        ><a-button :disabled="editorSaving" @click="requestCloseFieldsEditor"
           >取消</a-button
         ><a-button type="primary" :loading="editorSaving" @click="saveFields"
           >保存到 CPA</a-button

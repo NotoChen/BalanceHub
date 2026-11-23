@@ -201,10 +201,15 @@ export function useAgentSessionResume(options: AgentSessionResumeOptions) {
     const request = revision;
     probing.value = true;
     probeError.value = "";
-    const cliRead = options.row.value?.resumeCli
-      ? Promise.resolve()
-      : cli.probeCliTools(true);
-    ownedCliProbe = cli.cliEnvironmentRequestId;
+    // WSL / 原生运行时直接复用会话自带的 CLI，不发起探测；此时不能把
+    // 别的入口正在跑的探测记成自己的，否则关闭弹窗会把它一并取消。
+    let cliRead: Promise<unknown>;
+    if (options.row.value?.resumeCli) {
+      cliRead = Promise.resolve();
+    } else {
+      cliRead = cli.probeCliTools(true);
+      ownedCliProbe = cli.cliEnvironmentRequestId;
+    }
     const terminalRead = cli.probeTerminals();
     ownedTerminalProbe = cli.terminalEnvironmentRequestId;
     try {

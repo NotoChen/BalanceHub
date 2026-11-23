@@ -33,6 +33,8 @@ interface UseProviderActionsOptions {
   openPasswordChange: (provider: Provider) => void;
   openAccountProfile: (provider: Provider) => void;
   openCheckInRecords: (provider: Provider) => void;
+  /// 用绑定的浏览器登录账号重新登录；OAuth 卡仍走自己的授权流程。
+  reloginProvider: (provider: Provider) => Promise<void> | void;
   toggleProvider: (provider: Provider, enabled: boolean) => Promise<void>;
   removeProvider: (provider: Provider) => Promise<void>;
 }
@@ -49,6 +51,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
   const capabilityProbeStartedAt = ref<number | null>(null);
   const capabilityProbeFinishedAt = ref<number | null>(null);
   const inviteCopyingProviderId = ref<string | null>(null);
+  const togglingProviderIds = new Set<string>();
   const livenessDetailsVisible = ref(false);
   const livenessDetailsProviderId = ref<string | null>(null);
   /// One card-level authorization action runs at a time; the id doubles as the
@@ -127,9 +130,24 @@ export function useProviderActions(options: UseProviderActionsOptions) {
       cancelText: "取消",
       okButtonProps: { status: "warning" },
       onOk: async () => {
-        await refreshAllCpa(provider.identity.id, revision);
+        // onOk 的 Promise 被拒绝时弹窗会停在原地且没有提示；续期是直接
+        // 改写站点令牌的操作，失败必须明确告诉用户现在是什么状态。
+        try {
+          await refreshAllCpa(provider.identity.id, revision);
+        } catch (error) {
+          Message.error(
+            `请求 CPA 全部续期失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+          return;
+        }
         Message.success("已向 CPA 请求全部续期，稍后刷新核对");
-        await options.reload();
+        try {
+          await options.reload();
+        } catch (error) {
+          Message.warning(
+            `已请求续期，但面板刷新失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       },
     });
   }
@@ -137,9 +155,12 @@ export function useProviderActions(options: UseProviderActionsOptions) {
   /// A failed or unconfirmed renewal is only resolved by authorizing again, so
   /// the card can restart the same login flow the account panel uses and hand
   /// the task to the task center instead of keeping the card busy.
-  async function reauthorizeOAuthCard(provider: Provider) {
+  async function reauthorizeCard(provider: Provider) {
     const account = provider.auth.oauth;
-    if (!account) return;
+    if (!account) {
+      await options.reloginProvider(provider);
+      return;
+    }
     try {
       const task = await startOAuthLogin(account.vendor, provider.identity.id);
       oauthAccounts.accept(task);
@@ -256,17 +277,36 @@ export function useProviderActions(options: UseProviderActionsOptions) {
   }
 
   function toggleProviderAction(provider: Provider) {
-    void options.toggleProvider(provider, !provider.runtime.enabled);
+    const id = provider.identity.id;
+    // 双击或 IPC 延迟时不重复提交同一个开关状态，并在失败时给出反馈。
+    if (togglingProviderIds.has(id)) return;
+    togglingProviderIds.add(id);
+    void options
+      .toggleProvider(provider, !provider.runtime.enabled)
+      .catch((error: unknown) => {
+        Message.error(
+          `更新${providerScopeNoun(provider.identity.protocol)}状态失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      })
+      .finally(() => togglingProviderIds.delete(id));
   }
 
   function removeProviderAction(provider: Provider) {
     Modal.confirm({
       title: `删除${providerScopeNoun(provider.identity.protocol)}`,
-      content: `确定删除“${providerDisplayLabel(provider)}”吗？`,
+      content: `确定删除“${providerDisplayLabel(provider)}”吗？该卡片保存的凭据和临时 CLI 偏好会一并删除，该站点未完成的签到和登录任务会被取消。`,
       okText: "删除",
       cancelText: "取消",
       okButtonProps: { status: "danger" },
-      onOk: () => options.removeProvider(provider),
+      onOk: async () => {
+        try {
+          await options.removeProvider(provider);
+        } catch (error) {
+          Message.error(
+            `删除失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      },
     });
   }
 
@@ -287,7 +327,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     launchTemporaryCli,
     checkInProvider,
     renewAllCpaAccounts,
-    reauthorizeOAuthCard,
+    reauthorizeCard,
     copyProviderUrlAction,
     copyProviderSecretAction,
     probeProviderCapabilities,

@@ -223,6 +223,11 @@ export function importAppDataJson(text: string) {
   return invoke<AppDataImportResult>("import_app_data_json", { text });
 }
 
+/** 启动读取失败时，用同目录最近的自动备份原地恢复（损坏文件由后端保留）。 */
+export function restoreLatestBackup() {
+  return invoke<AppDataImportResult>("restore_latest_backup");
+}
+
 /** 开发版专用：用隔离目录里的演示数据覆盖本地配置，仅开发构建提供。 */
 export function installDevSampleData() {
   return invoke<number>("install_dev_sample_data");

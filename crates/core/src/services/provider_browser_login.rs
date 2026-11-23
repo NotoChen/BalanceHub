@@ -1,6 +1,7 @@
 //! Cancellable browser jobs with exclusive access to each durable account profile.
 mod account;
 mod check_in;
+mod reauth;
 use crate::{
     adapters::browser::{BrowserSession, BrowserWindowControl},
     app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
@@ -18,6 +19,7 @@ use crate::{
 };
 pub use account::start_account;
 pub use check_in::run as check_in;
+pub(crate) use reauth::{after_credential_failure, attempted_since};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -176,6 +178,9 @@ pub fn start(
         if let Some(existing) = runs.values().find(|run| {
             run.task.finished_at.is_none() && input.id.is_some() && run.task.provider_id == input.id
         }) {
+            if existing.task.operation != "import" {
+                return Err("该站点正在自动重新认证，请稍后再试".into());
+            }
             if existing.task.login_account_id != account.id {
                 return Err("该中转站正在使用另一个账号登录，请先取消已有任务".into());
             }
@@ -242,16 +247,60 @@ pub fn account_busy(id: &str) -> bool {
 }
 
 pub fn cancel(run_id: &str) -> Result<(), String> {
-    let runs = runs().lock().map_err(|_| "取消登录失败")?;
-    if let Some(run) = runs.get(run_id) {
+    cancel_with_message(run_id, "登录已取消")
+}
+
+fn cancel_with_message(run_id: &str, message: &str) -> Result<(), String> {
+    {
+        let runs = runs().lock().map_err(|_| "取消登录失败")?;
+        let Some(run) = runs.get(run_id) else {
+            return Ok(());
+        };
+        if run.task.finished_at.is_some() {
+            return Ok(());
+        }
         if run.task.phase == "saving" {
             return Err("正在保存登录结果，请稍候".to_string());
         }
-        if run.task.can_cancel {
-            let _ = run.cancel.send(true);
+        if !run.task.can_cancel {
+            return Ok(());
         }
+        let _ = run.cancel.send(true);
     }
+    // 先发布带原因的终态，再让后台任务收尾：取消信号到达后它自己也会
+    // 尝试发布「登录已取消」，这里的具体原因不能被那条消息覆盖。
+    publish(run_id, "cancelled", message);
     Ok(())
+}
+
+/// 站点被删除或停用后，指向它的登录窗口和自动重新认证不会再有可写入的
+/// 卡片；与签到任务一样主动收口，避免一个已失效的窗口一直留在任务中心。
+pub fn cancel_outdated() {
+    let providers = match crate::host::core_state().data.read() {
+        Ok(data) => data.providers.clone(),
+        Err(_) => return,
+    };
+    let outdated = {
+        let runs = runs().lock().unwrap_or_else(|err| err.into_inner());
+        outdated_run_ids(&runs, &providers)
+    };
+    for run_id in outdated {
+        let _ = cancel_with_message(&run_id, "中转站已删除或停用，登录已取消");
+    }
+}
+
+fn outdated_run_ids(runs: &HashMap<String, LoginRun>, providers: &[Provider]) -> Vec<String> {
+    runs.values()
+        .filter(|run| {
+            run.task.finished_at.is_none()
+                && run.task.provider_id.is_some()
+                && !providers.iter().any(|provider| {
+                    Some(provider.identity.id.as_str()) == run.task.provider_id.as_deref()
+                        && provider.runtime.enabled
+                })
+        })
+        .map(|run| run.task.run_id.clone())
+        .collect()
 }
 
 pub async fn show_window(run_id: &str) -> Result<(), String> {
@@ -286,7 +335,13 @@ fn publish(run_id: &str, phase: &str, message: &str) {
         }
         run.task.phase = phase.into();
         run.task.message = message.into();
-        run.task.can_cancel = matches!(phase, "queued" | "opening" | "waitingLogin");
+        // Reauthentication has no visible window, so cancelling the background
+        // attempt is its only control and stays available until saving starts.
+        run.task.can_cancel = if run.task.operation == "reauth" {
+            !matches!(phase, "saving" | "completed" | "failed" | "cancelled")
+        } else {
+            matches!(phase, "queued" | "opening" | "waitingLogin")
+        };
         run.task.can_show_window = phase == "waitingLogin" && run.window.is_some();
         if matches!(phase, "completed" | "failed" | "cancelled") {
             run.task.finished_at = Some(unix_millis() as u64);
@@ -340,10 +395,10 @@ fn emit(task: &ProviderBrowserLoginTask) {
             status: status.into(),
             title: format!(
                 "{} · {}",
-                if task.operation == "account" {
-                    "管理登录账号"
-                } else {
-                    "登录并导入"
+                match task.operation.as_str() {
+                    "account" => "管理登录账号",
+                    "reauth" => "重新认证",
+                    _ => "登录并导入",
                 },
                 task.provider_name
             ),
@@ -363,7 +418,17 @@ async fn execute(
     account: LoginAccount,
     mut cancelled: watch::Receiver<bool>,
 ) {
-    let result = run(&run_id, input, expected, account, &mut cancelled).await;
+    // 登录链路里任何一次未预期的 panic 都不能让任务停在「进行中」：
+    // 窗口随 future 一起被丢弃，这里把异常收敛为有提示的失败终态。
+    use futures_util::FutureExt;
+    let result =
+        std::panic::AssertUnwindSafe(run(&run_id, input, expected, account, &mut cancelled))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| {
+                log::error!("登录任务异常退出（{run_id}）");
+                Err("登录过程异常退出，请重新登录".to_string())
+            });
     match result {
         Ok(provider) => {
             if let Ok(mut runs) = runs().lock() {
@@ -465,4 +530,109 @@ async fn run(
     };
     session.close().await;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn login_run(
+        run_id: &str,
+        provider_id: Option<&str>,
+        finished: bool,
+        can_cancel: bool,
+    ) -> LoginRun {
+        LoginRun {
+            task: ProviderBrowserLoginTask {
+                run_id: run_id.to_string(),
+                provider_id: provider_id.map(str::to_string),
+                provider_name: "fixture".to_string(),
+                login_account_id: "account-fixture".to_string(),
+                operation: "import".to_string(),
+                phase: if finished {
+                    "completed"
+                } else {
+                    "waitingLogin"
+                }
+                .to_string(),
+                message: String::new(),
+                started_at: 0,
+                finished_at: finished.then_some(1),
+                error: None,
+                can_cancel,
+                can_show_window: false,
+            },
+            cancel: watch::channel(false).0,
+            window: None,
+        }
+    }
+
+    #[test]
+    fn outdated_runs_follow_removed_or_disabled_providers() {
+        let live = Provider::from_input(
+            crate::models::ProviderInput::default(),
+            "provider-live".to_string(),
+        );
+        let renamed = {
+            let mut provider = live.clone();
+            provider.identity.id = "provider-renamed".to_string();
+            provider
+        };
+        let mut disabled = live.clone();
+        disabled.identity.id = "provider-disabled".to_string();
+        disabled.runtime.enabled = false;
+        let runs = HashMap::from([
+            (
+                "live".to_string(),
+                login_run("live", Some("provider-live"), false, true),
+            ),
+            (
+                "disabled".to_string(),
+                login_run("disabled", Some("provider-disabled"), false, true),
+            ),
+            (
+                "removed".to_string(),
+                login_run("removed", Some("provider-removed"), false, true),
+            ),
+            // 已经结束的任务不再收口；账号窗口没有目标站点，也不受影响。
+            (
+                "finished".to_string(),
+                login_run("finished", Some("provider-removed"), true, false),
+            ),
+            (
+                "account".to_string(),
+                login_run("account", None, false, true),
+            ),
+        ]);
+        let mut outdated = outdated_run_ids(&runs, &[live, renamed, disabled]);
+        outdated.sort();
+        assert_eq!(outdated, ["disabled", "removed"]);
+    }
+
+    #[test]
+    fn outdated_cancellation_keeps_its_reason_when_the_run_finishes_later() {
+        crate::host::testing::install();
+        let run_id = "provider-login-test-outdated-reason";
+        runs().lock().unwrap().insert(
+            run_id.to_string(),
+            login_run(run_id, Some("provider-x"), false, true),
+        );
+
+        cancel_with_message(run_id, "中转站已删除或停用，登录已取消").unwrap();
+        // 取消信号到达后后台任务也会发布自己的「登录已取消」；带原因的终态
+        // 已经落库，后来的发布不能把它改回去。
+        publish(run_id, "cancelled", "登录已取消");
+
+        let task = runs()
+            .lock()
+            .unwrap()
+            .get(run_id)
+            .expect("任务应保留在注册表里")
+            .task
+            .clone();
+        assert_eq!(task.phase, "cancelled");
+        assert_eq!(task.message, "中转站已删除或停用，登录已取消");
+        assert!(task.finished_at.is_some());
+        runs().lock().unwrap().remove(run_id);
+    }
 }

@@ -111,22 +111,29 @@ function ensureSocket() {
   if (socket && socket.readyState <= WebSocket.OPEN) return;
   // 没有浏览器定位能力的环境（测试、非浏览器宿主）不建立事件流。
   if (typeof WebSocket === "undefined" || typeof location === "undefined") return;
-  socket = new WebSocket(eventSocketUrl());
+  // 被替换的连接可能稍后才派发 close 事件。所有回调都必须确认自己仍属于
+  // 当前连接，否则旧连接会把新连接的引用和心跳一起清掉，随后再建出第二条
+  // 事件流，同一条事件被投递多次。
+  const next = new WebSocket(eventSocketUrl());
+  socket = next;
   lastFrameAt = Date.now();
   if (watchdog !== null) clearInterval(watchdog);
   watchdog = setInterval(() => {
+    if (socket !== next) return;
     if (Date.now() - lastFrameAt <= HEARTBEAT_TIMEOUT_MS) return;
     // 主动关闭会走正常的断线重连，而不是继续显示一份已经过期的状态。
-    socket?.close();
+    next.close();
   }, 20_000);
-  socket.onopen = () => {
+  next.onopen = () => {
+    if (socket !== next) return;
     reconnectDelay = 1_000;
     lastFrameAt = Date.now();
     // 断线期间后端可能已经产生新状态；通知订阅方做一次补偿刷新。
     if (hasConnectedOnce) dispatch("balancehub-events-reconnected", null);
     hasConnectedOnce = true;
   };
-  socket.onmessage = (message) => {
+  next.onmessage = (message) => {
+    if (socket !== next) return;
     lastFrameAt = Date.now();
     if (typeof message.data !== "string") return;
     try {
@@ -136,7 +143,8 @@ function ensureSocket() {
       // 非 JSON 帧不是本应用的协议内容，直接忽略。
     }
   };
-  socket.onclose = () => {
+  next.onclose = () => {
+    if (socket !== next) return;
     socket = null;
     if (watchdog !== null) {
       clearInterval(watchdog);

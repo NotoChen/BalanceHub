@@ -17,6 +17,21 @@ use crate::models::{AppSettings, Provider};
 
 use super::automation;
 
+/// NewAPI 把认证失败放在文案里，而不是结构化错误。这里集中判断哪些文案
+/// 明确表示「这些凭据被拒绝」：刷新据此进入凭据冷却，签到据此决定是否
+/// 先重新登录再重试。网络故障、限流和站点维护都不在这个集合里。
+pub fn looks_like_credential_rejection(message: &str) -> bool {
+    let message = message.trim();
+    message.contains("登录会话已过期或已撤销")
+        || message.contains("账号密码登录失败")
+        || message.contains("登录响应的账号与当前中转站不一致")
+        || message.contains("登录已过期")
+        || message.contains("未登录")
+        || message.contains("请先登录")
+        || message.contains("HTTP 401")
+        || message.contains("HTTP 403")
+}
+
 /// 一次刷新失败的来源分类。适配器只在能结构化判断时声明，其余走默认的
 /// 瞬时失败，避免把展示文案当成业务信号。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,8 +71,12 @@ pub fn record_attempt(
         provider.runtime.consecutive_failures = 0;
         provider.runtime.cooldown_until = None;
         provider.runtime.cooldown_reason = None;
+        provider.runtime.credential_rejected = false;
         return;
     };
+    // 只有站点明确拒绝凭据才算认证失效；限流和网络错误不能让卡片把
+    // 「重新登录」当成修复入口。
+    provider.runtime.credential_rejected = matches!(kind, ProviderFailureKind::Credential);
     let failures = provider.runtime.consecutive_failures.saturating_add(1);
     provider.runtime.consecutive_failures = failures;
     let Some((wait_secs, reason)) = cooldown(kind, failures, retry_limit) else {
@@ -99,11 +118,20 @@ fn cooldown(
 }
 
 /// 冷却尚未结束：自动刷新应跳过该站点。
+///
+/// 任何冷却都不会超过凭据失效的 6 小时。更远的未来时间只可能是系统时钟
+/// 被回拨后留下的旧时间戳；继续等待会让站点在时钟追上之前一直不刷新。
 pub fn cooling_down(provider: &Provider, now_secs: u64) -> bool {
-    provider
-        .runtime
-        .cooldown_until
-        .is_some_and(|until| i64::try_from(now_secs).unwrap_or(i64::MAX) < until)
+    let Some(until) = provider.runtime.cooldown_until else {
+        return false;
+    };
+    let Ok(now) = i64::try_from(now_secs) else {
+        return false;
+    };
+    if until <= now {
+        return false;
+    }
+    until - now <= (CREDENTIAL_COOLDOWN_SECS + super::CLOCK_ROLLBACK_TOLERANCE_SECS) as i64
 }
 
 /// 调度器使用的到期判定：冷却优先于刷新间隔，冷却结束后立即补一次尝试。
@@ -130,6 +158,36 @@ mod tests {
     }
 
     #[test]
+    fn only_explicit_rejection_copy_counts_as_a_rejected_credential() {
+        for message in [
+            "登录会话已过期或已撤销，请重新登录并导入",
+            "账号密码登录失败: invalid credentials",
+            "登录响应的账号与当前中转站不一致",
+            "HTTP 401: unauthorized",
+            "HTTP 403: forbidden",
+            // 部分 NewAPI 分支用 HTTP 200 返回成功包裹的未登录文案。
+            "未登录",
+            "请先登录后重试",
+        ] {
+            assert!(
+                looks_like_credential_rejection(message),
+                "{message} should be treated as rejected credentials"
+            );
+        }
+        // 网络、站点维护和限流都必须留给自动重试，不能被当成凭据问题。
+        for message in [
+            "请求余额失败: connection refused",
+            "HTTP 503: maintenance",
+            "接口返回失败",
+        ] {
+            assert!(
+                !looks_like_credential_rejection(message),
+                "{message} must stay retryable"
+            );
+        }
+    }
+
+    #[test]
     fn transient_failures_back_off_exponentially_within_the_retry_budget() {
         let mut provider = provider();
         for (failures, wait) in [(1, 60), (2, 120), (3, 240)] {
@@ -142,6 +200,10 @@ mod tests {
             assert_eq!(provider.runtime.consecutive_failures, failures);
             assert_eq!(provider.runtime.cooldown_until, Some(1_000 + wait));
             assert!(provider.runtime.cooldown_reason.is_some());
+            assert!(
+                !provider.runtime.credential_rejected,
+                "transient failures must not look like rejected credentials"
+            );
         }
         // 重试额度用尽：交给正常刷新间隔。
         record_attempt(
@@ -169,6 +231,7 @@ mod tests {
             Some((1_000 + CREDENTIAL_COOLDOWN_SECS) as i64)
         );
         assert!(provider.runtime.cooldown_reason.is_some());
+        assert!(provider.runtime.credential_rejected);
     }
 
     #[test]
@@ -184,6 +247,7 @@ mod tests {
         assert_eq!(provider.runtime.consecutive_failures, 0);
         assert_eq!(provider.runtime.cooldown_until, None);
         assert_eq!(provider.runtime.cooldown_reason, None);
+        assert!(!provider.runtime.credential_rejected);
     }
 
     #[test]
@@ -211,6 +275,31 @@ mod tests {
             provider.runtime.cooldown_until,
             Some((1_000 + RATE_LIMIT_MAX_SECS) as i64)
         );
+    }
+
+    #[test]
+    fn a_cooldown_far_beyond_its_maximum_is_treated_as_a_clock_rollback() {
+        let mut provider = provider();
+        record_attempt(
+            &mut provider,
+            Some(ProviderFailureKind::Credential),
+            0,
+            10_000,
+        );
+        provider
+            .runtime
+            .cooldown_until
+            .expect("credential cooldown");
+        assert!(cooling_down(&provider, 10_030));
+
+        // 时钟回拨一小时：距冷却结束已经超过 6 小时上限，不再继续暂停。
+        assert!(!cooling_down(&provider, 10_000 - 3600));
+        assert!(refresh_due(
+            &provider,
+            &AppSettings::default(),
+            10_000 - 3600,
+            &HashMap::new()
+        ));
     }
 
     #[test]

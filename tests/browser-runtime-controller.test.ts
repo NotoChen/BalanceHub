@@ -19,6 +19,21 @@ function api() {
     install: async (_selection: BrowserSelection, _repair: boolean) => status(2), selectBrowser: async (_selection: BrowserSelection) => status(2), cancel: async () => {}, uninstall: async () => status(3) };
 }
 
+test("a failed event subscription still reads the current status", async () => {
+  let snapshot!: BrowserRuntimeSnapshot;
+  let reads = 0;
+  const controller = createBrowserRuntimeController({
+    ...api(),
+    listen: async () => { throw new Error("事件监听不可用"); },
+    status: async () => { reads += 1; return status(1); },
+  }, (next) => { snapshot = next; });
+  await controller.start();
+  assert.equal(reads, 1, "监听失败不能跳过首次状态读取");
+  assert.equal(snapshot.status?.phase, "notInstalled");
+  assert.equal(snapshot.pending, "");
+  controller.stop();
+});
+
 test("the component panel closes immediately while installation IPC is pending", async () => {
   const install = deferred<BrowserRuntimeStatus>();
   let snapshot!: BrowserRuntimeSnapshot;

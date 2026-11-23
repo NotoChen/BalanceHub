@@ -6,7 +6,7 @@
 
 use crate::{models::AppData, services::model_catalog::ModelCatalogService};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex, OnceLock, RwLock,
 };
 
@@ -28,6 +28,10 @@ pub struct CoreState {
     model_catalog: OnceLock<Arc<ModelCatalogService>>,
     revision: AtomicU64,
     load_error: RwLock<Option<String>>,
+    /// 启动时读取失败只意味着内存里是一份默认配置，用户修好 data.json 后
+    /// 可以「重新读取」。运行期 `block_storage`（例如云同步应用失败留下
+    /// 事务日志）必须重启交给启动恢复处理，不能就地重读。
+    retry_load: AtomicBool,
 }
 
 impl CoreState {
@@ -40,6 +44,7 @@ impl CoreState {
         for provider in &mut data.providers {
             provider.revision = 1;
         }
+        let retry_load = load_error.is_some();
         Self {
             data: RwLock::new(data),
             refresh_gate: tokio::sync::Mutex::new(()),
@@ -49,7 +54,17 @@ impl CoreState {
             model_catalog: OnceLock::new(),
             revision: AtomicU64::new(1),
             load_error: RwLock::new(load_error),
+            retry_load: AtomicBool::new(retry_load),
         }
+    }
+
+    /// 启动恢复流程本身失败（例如云同步事务回滚未完成）时，内存同样是
+    /// 默认配置，但磁盘上还有待恢复的事务状态：只能重启重走恢复，不能
+    /// 通过「重新读取」或导入绕过。
+    pub fn with_storage_block(error: String) -> Self {
+        let state = Self::with_load_error(AppData::default(), Some(error));
+        state.retry_load.store(false, Ordering::SeqCst);
+        state
     }
 
     /// 开始一个刷新批次，返回只属于这一批的编号。
@@ -65,8 +80,10 @@ impl CoreState {
             .store(generation, Ordering::SeqCst);
     }
 
+    /// 只取消用户点下的那一批。手动刷新可能先登记批次再排队等闸门，
+    /// 此时占用闸门的自动刷新属于更早的批次，不能因为这次取消一起停掉。
     pub fn refresh_cancelled(&self, generation: u64) -> bool {
-        self.refresh_cancel_generation.load(Ordering::SeqCst) >= generation
+        self.refresh_cancel_generation.load(Ordering::SeqCst) == generation
     }
 
     pub fn model_catalog(&self) -> Result<Arc<ModelCatalogService>, String> {
@@ -91,13 +108,30 @@ impl CoreState {
             .load_error
             .write()
             .unwrap_or_else(|err| err.into_inner()) = None;
+        self.retry_load.store(false, Ordering::SeqCst);
     }
 
+    /// 启动读取失败允许用户重试；运行期阻塞必须重启恢复，所以这里同时
+    /// 关掉重试开关。
     pub fn block_storage(&self, error: String) {
         *self
             .load_error
             .write()
             .unwrap_or_else(|error| error.into_inner()) = Some(error);
+        self.retry_load.store(false, Ordering::SeqCst);
+    }
+
+    /// 重新读取仍然失败时只更新错误文案，保留「重新读取」入口——用户可能
+    /// 正在外部修复同一份 data.json。
+    pub fn update_load_error(&self, error: String) {
+        *self
+            .load_error
+            .write()
+            .unwrap_or_else(|err| err.into_inner()) = Some(error);
+    }
+
+    pub fn can_retry_load(&self) -> bool {
+        self.retry_load.load(Ordering::SeqCst)
     }
 
     pub fn next_revision(&self) -> u64 {
@@ -140,5 +174,45 @@ mod tests {
         assert!(state.refresh_cancelled(second));
         let third = state.begin_refresh_batch();
         assert!(!state.refresh_cancelled(third));
+    }
+
+    #[test]
+    fn only_a_startup_load_failure_can_be_retried_in_place() {
+        crate::host::testing::install();
+        let startup = CoreState::with_load_error(AppData::default(), Some("解析失败".into()));
+        assert!(startup.can_retry_load());
+
+        // 运行期阻塞（例如云同步应用失败留下事务日志）必须重启恢复；
+        // 就地重读会绕过启动时的恢复流程。
+        startup.block_storage("云同步应用失败".into());
+        assert!(startup.load_error().is_some());
+        assert!(!startup.can_retry_load());
+
+        // 启动恢复流程自己失败时磁盘上仍有待恢复的事务，导入和就地重读
+        // 都会绕过恢复流程。
+        let blocked = CoreState::with_storage_block("云同步回滚未完成".into());
+        assert!(blocked.load_error().is_some());
+        assert!(!blocked.can_retry_load());
+
+        let recovered = CoreState::with_load_error(AppData::default(), Some("解析失败".into()));
+        recovered.update_load_error("仍然解析失败".into());
+        assert!(recovered.can_retry_load());
+        recovered.clear_load_error();
+        assert!(recovered.load_error().is_none());
+        assert!(!recovered.can_retry_load());
+    }
+
+    #[test]
+    fn cancelling_a_queued_batch_does_not_stop_the_running_one() {
+        crate::host::testing::install();
+        let state = CoreState::new(AppData::default());
+        let running = state.begin_refresh_batch();
+        let queued = state.begin_refresh_batch();
+        assert!(queued > running);
+        // 手动刷新排队期间点取消：只命中排队中的那一批，正在占闸门的
+        // 自动刷新继续收尾，不会被一起停掉。
+        state.request_refresh_cancel();
+        assert!(state.refresh_cancelled(queued));
+        assert!(!state.refresh_cancelled(running));
     }
 }

@@ -26,6 +26,48 @@ export async function showBrowserWindow(context) {
   } finally { clearTimeout(timer); }
 }
 
+// Chrome app-mode windows hand window.open() and target="_blank" links to the
+// system browser. An OAuth callback would then set the relay session in the
+// user's browser instead of this controlled profile, so the login could never
+// be observed. Keep identity-provider navigations in this window; ordinary
+// links still follow the native behavior.
+export function keepOAuthInWindow() {
+  if (window !== window.top) return;
+  const isOAuthUrl = (value) => {
+    let url;
+    try { url = new URL(String(value), location.href); } catch { return false; }
+    if (!["http:", "https:"].includes(url.protocol)) return false;
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+    if (/(^|\/)(oauth2?|openid|sso|saml2?|authorize|auth)(\/|$)/.test(path)) return true;
+    if (host === "connect.linux.do" || host === "linux.do") return true;
+    if (host === "github.com" && (path.startsWith("/login") || path.startsWith("/session"))) return true;
+    if (/(^|\.)(auth|login|sso|oauth|id|account|accounts)\./.test(host)) return true;
+    return false;
+  };
+  const navigate = (value) => {
+    let url;
+    try { url = new URL(String(value), location.href); } catch { return false; }
+    if (!isOAuthUrl(url.href)) return false;
+    location.assign(url.href);
+    return true;
+  };
+  const nativeOpen = window.open;
+  window.open = function open(url, name, features) {
+    if (url && navigate(url)) return window;
+    return nativeOpen.call(window, url, name, features);
+  };
+  document.addEventListener("click", (event) => {
+    const anchor = event.target?.closest?.("a[href]");
+    if (!anchor || anchor.target !== "_blank" || !anchor.href) return;
+    if (navigate(anchor.href)) event.preventDefault();
+  }, true);
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (form?.target === "_blank" && isOAuthUrl(form.action)) form.target = "_self";
+  }, true);
+}
+
 export function bootstrapHtml(title, message = "正在准备签到验证…") {
   const escape = (value) => value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",

@@ -77,15 +77,33 @@ impl ProviderService {
     }
 
     pub(super) fn storage_protection_error(&self) -> Option<String> {
-        crate::host::core_state().load_error().map(|err| {
+        let state = crate::host::core_state();
+        state.load_error().map(|err| {
+            // 启动解析失败可以靠导入或修复文件恢复；运行期阻塞和启动时的
+            // 云同步回滚失败都还留着磁盘上的事务状态，只能重启。
+            let recovery = if state.can_retry_load() {
+                "请先导入有效配置或修复 data.json 后重试"
+            } else {
+                "请重启应用完成恢复"
+            };
             format!(
-                "本地配置加载失败，为避免覆盖原配置，已暂停保存类操作。请先导入有效配置或修复 data.json 后重启。原始错误：{err}"
+                "本地配置加载失败，为避免覆盖原配置，已暂停保存类操作。{recovery}。原始错误：{err}"
             )
         })
     }
 
     pub(super) fn ensure_storage_ready(&self) -> Result<(), String> {
         self.storage_protection_error().map_or(Ok(()), Err)
+    }
+
+    /// 启动期解析失败允许用导入恢复；存储被阻塞时磁盘上还有未完成的
+    /// 云同步事务，导入会与恢复流程冲突，必须先重启。
+    pub(super) fn ensure_import_ready(&self) -> Result<(), String> {
+        let state = crate::host::core_state();
+        if state.load_error().is_some() && !state.can_retry_load() {
+            return Err("本地配置处于保护状态，请重启应用完成恢复后再导入配置".to_string());
+        }
+        Ok(())
     }
 
     pub(super) fn mutate<R>(&self, apply: impl FnOnce(&mut AppData) -> R) -> Result<R, String> {
@@ -163,9 +181,32 @@ impl ProviderService {
     }
 
     pub fn load_app_data(&self) -> Result<AppData, String> {
-        if let Some(err) = self.storage_protection_error() {
-            return Err(err);
+        let state = crate::host::core_state();
+        if state.load_error().is_none() {
+            return Ok(self.snapshot());
         }
-        Ok(self.snapshot())
+        if !state.can_retry_load() {
+            return Err(self
+                .storage_protection_error()
+                .unwrap_or_else(|| "本地配置不可用，请重启应用".to_string()));
+        }
+        // 启动读取失败时内存里只有默认配置。用户可能已在外部修复或替换
+        // data.json，「重新读取」必须真正回到磁盘，而不是重复抛出启动时的
+        // 旧错误。运行期 `block_storage` 已关闭重试，会走上面的快速失败。
+        let _transaction = state
+            .mutation_gate
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        if state.load_error().is_none() {
+            return Ok(self.snapshot());
+        }
+        match storage::load_app_data() {
+            Ok(data) => Ok(self.install_loaded_app_data(data)),
+            Err(error) => {
+                // 保留重试入口：用户可能正在外部修复同一份 data.json。
+                state.update_load_error(error.clone());
+                Err(error)
+            }
+        }
     }
 }

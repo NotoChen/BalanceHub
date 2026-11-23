@@ -242,12 +242,21 @@ pub fn enqueue_all() -> Result<CheckInBatch, String> {
             skipped += 1;
             continue;
         }
-        tasks.push(enqueue(
+        // 一个站点的配置不完整不应该中断整批签到；它只是没被排进队列，
+        // 其余站点照常处理，计数里统一显示为「跳过」。
+        let provider_id = provider.identity.id.clone();
+        match enqueue(
             provider.identity.id,
             CheckInSource::Batch,
             Some(batch_id.clone()),
             0,
-        )?);
+        ) {
+            Ok(task) => tasks.push(task),
+            Err(error) => {
+                log::debug!("批量签到跳过（{provider_id}）：{error}");
+                skipped += 1;
+            }
+        }
     }
     Ok(CheckInBatch {
         batch_id,
@@ -290,6 +299,10 @@ pub fn resume(run_id: &str) -> Result<CheckInTask, String> {
 }
 
 pub fn cancel(run_id: &str) -> Result<(), String> {
+    cancel_with_message(run_id, "签到已取消")
+}
+
+fn cancel_with_message(run_id: &str, message: &str) -> Result<(), String> {
     let waiting = {
         let runs = runs().lock().map_err(|_| "签到任务状态不可用")?;
         let Some(run) = runs.get(run_id) else {
@@ -305,39 +318,36 @@ pub fn cancel(run_id: &str) -> Result<(), String> {
         !run.executing
     };
     if waiting {
-        publish(
-            run_id,
-            CheckInPhase::Cancelled,
-            "签到已取消".to_string(),
-            false,
-        );
+        publish(run_id, CheckInPhase::Cancelled, message.to_string(), false);
     }
     Ok(())
 }
 
-/// Editing a policy or credential must also stop a currently waiting browser.
+/// 站点被删除、停用或配置被替换后，挂起的浏览器任务不能继续等一个已不存在的配置。
 pub fn cancel_outdated() {
     let providers = match crate::host::core_state().data.read() {
         Ok(data) => data.providers.clone(),
         Err(_) => return,
     };
-    let ids = runs()
-        .lock()
-        .map(|runs| {
-            runs.values()
-                .filter(|run| {
-                    !run.task.finished
-                        && !providers.iter().any(|provider| {
-                            provider.runtime.enabled && run.context.matches_check_in(provider)
-                        })
-                })
-                .map(|run| run.task.run_id.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let ids = outdated_ids(
+        &runs().lock().unwrap_or_else(|err| err.into_inner()),
+        &providers,
+    );
     for id in ids {
-        let _ = cancel(&id);
+        let _ = cancel_with_message(&id, "中转站已删除、停用或账号配置已变更，签到已取消");
     }
+}
+
+fn outdated_ids(runs: &HashMap<String, Run>, providers: &[Provider]) -> Vec<String> {
+    runs.values()
+        .filter(|run| {
+            !run.task.finished
+                && !providers.iter().any(|provider| {
+                    provider.runtime.enabled && run.context.matches_check_in(provider)
+                })
+        })
+        .map(|run| run.task.run_id.clone())
+        .collect()
 }
 
 fn set_phase(task: &mut CheckInTask, phase: CheckInPhase, message: String, executing: bool) {
@@ -375,7 +385,9 @@ fn publish(id: &str, phase: CheckInPhase, message: String, executing: bool) {
     crate::host::emit(EVENT, task);
 }
 
-fn expire_waiting() {
+/// 等待人工验证的浏览器不会自己收尾；跨天后由调度节拍主动结束，
+/// 避免任务中心整晚挂着一个已经无法继续的签到任务。
+pub(crate) fn expire_waiting() {
     let date = today();
     let ids = runs()
         .lock()
@@ -404,7 +416,33 @@ fn spawn(task: CheckInTask, mut cancelled: watch::Receiver<bool>, interactive: b
         };
         let service = ProviderService::new();
         let outcome = tokio::select! {
-            result = service.check_in_attempt(task.provider_id.clone(), &context) => result,
+            // 适配器解析站点响应时可能 panic；一旦任务 future 异常退出，
+            // 这里永远不会再发布终态，任务会一直停在“进行中”并拦住退出。
+            // 把 panic 收敛成终态，请求可能已提交时按“结果待确认”处理。
+            result = async {
+                use futures_util::FutureExt;
+                std::panic::AssertUnwindSafe(
+                    service.check_in_attempt(task.provider_id.clone(), &context),
+                )
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|_| {
+                    log::error!("签到任务异常退出（{}）", task.provider_id);
+                    let phase = runs()
+                        .lock()
+                        .ok()
+                        .and_then(|runs| runs.get(&task.run_id).map(|run| run.task.phase));
+                    if phase.is_some_and(CheckInPhase::may_have_submitted) {
+                        Err(CheckInError::Unconfirmed(
+                            "签到过程异常退出；请求可能已提交，请查看站点记录".to_string(),
+                        ))
+                    } else {
+                        Err(CheckInError::Failed(
+                            "签到过程异常退出，请重新签到".to_string(),
+                        ))
+                    }
+                })
+            } => result,
             _ = async { if !*cancelled.borrow() { let _ = cancelled.changed().await; } } => {
                 let phase = runs().lock().ok().and_then(|runs| runs.get(&task.run_id).map(|run| run.task.phase));
                 if phase.is_some_and(CheckInPhase::may_have_submitted) {
@@ -434,7 +472,17 @@ fn spawn(task: CheckInTask, mut cancelled: watch::Receiver<bool>, interactive: b
         publish(&task.run_id, phase, message.clone(), false);
         crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
         crate::host::refresh_tray();
-        if !phase.finished() || phase == CheckInPhase::Cancelled {
+        // 定时签到停在等待阶段时，界面上的任务中心可能在托盘或后台，
+        // 用户不会主动发现。只在无窗口的自动尝试上提醒一次；用户继续
+        // 登录后再停住属于当场可见的交互，不再重复通知。
+        let waiting_for_human = !phase.finished()
+            && phase.waiting()
+            && !interactive
+            && task.source == CheckInSource::Automatic;
+        if phase == CheckInPhase::Cancelled {
+            return;
+        }
+        if !phase.finished() && !waiting_for_human {
             return;
         }
         let attempt = runs()
@@ -442,7 +490,8 @@ fn spawn(task: CheckInTask, mut cancelled: watch::Receiver<bool>, interactive: b
             .ok()
             .and_then(|runs| runs.get(&task.run_id).map(|run| run.automatic_attempt))
             .unwrap_or(0);
-        if task.source == CheckInSource::Automatic
+        if !waiting_for_human
+            && task.source == CheckInSource::Automatic
             && phase != CheckInPhase::Completed
             && attempt > 1
         {
@@ -464,6 +513,8 @@ fn spawn(task: CheckInTask, mut cancelled: watch::Receiver<bool>, interactive: b
         };
         let title = if phase == CheckInPhase::Completed {
             "BalanceHub 签到成功"
+        } else if waiting_for_human {
+            "BalanceHub 签到需要继续"
         } else {
             "BalanceHub 签到未完成"
         };
@@ -500,6 +551,90 @@ mod tests {
         assert_eq!(account_key(&first), account_key(&second));
         second.auth.api_user = "456".to_string();
         assert_ne!(account_key(&first), account_key(&second));
+    }
+
+    #[test]
+    fn outdated_runs_follow_removed_disabled_or_rewritten_providers() {
+        let waiting_run =
+            |run_id: &str, provider: &Provider, context: ProviderRequestContext, finished: bool| {
+                let task = CheckInTask {
+                    run_id: run_id.to_string(),
+                    provider_id: provider.identity.id.clone(),
+                    provider_name: provider.identity.name.clone(),
+                    batch_id: None,
+                    source: CheckInSource::Manual,
+                    phase: if finished {
+                        CheckInPhase::Completed
+                    } else {
+                        CheckInPhase::WaitingHuman
+                    },
+                    message: String::new(),
+                    revision: 0,
+                    finished,
+                    can_resume: !finished,
+                    can_cancel: !finished,
+                    can_show_window: false,
+                    started_at: 0,
+                    finished_at: None,
+                };
+                Run {
+                    task,
+                    account_key: account_key(provider),
+                    date: today(),
+                    cancel: watch::channel(false).0,
+                    executing: false,
+                    context,
+                    automatic_attempt: 0,
+                    window: None,
+                }
+            };
+        let live = Provider::from_input(ProviderInput::default(), "live".to_string());
+        let mut disabled = Provider::from_input(ProviderInput::default(), "disabled".to_string());
+        disabled.runtime.enabled = false;
+        let mut rewritten = Provider::from_input(ProviderInput::default(), "rewritten".to_string());
+        let rewritten_context = ProviderRequestContext::capture(&rewritten);
+        rewritten.auth.login_password = "new-password".to_string();
+        let removed = Provider::from_input(ProviderInput::default(), "removed".to_string());
+
+        let mut runs = HashMap::new();
+        for (run_id, provider, context, finished) in [
+            (
+                "live",
+                live.clone(),
+                ProviderRequestContext::capture(&live),
+                false,
+            ),
+            (
+                "disabled",
+                disabled.clone(),
+                ProviderRequestContext::capture(&disabled),
+                false,
+            ),
+            ("rewritten", rewritten.clone(), rewritten_context, false),
+            (
+                "finished",
+                live.clone(),
+                ProviderRequestContext::capture(&live),
+                true,
+            ),
+            (
+                "removed",
+                removed.clone(),
+                ProviderRequestContext::capture(&removed),
+                false,
+            ),
+        ] {
+            runs.insert(
+                run_id.to_string(),
+                waiting_run(run_id, &provider, context, finished),
+            );
+        }
+
+        let mut outdated = outdated_ids(&runs, &[live, disabled, rewritten]);
+        outdated.sort();
+        // 已结束的任务不能再被取消；停用、凭据改写或整站删除的等待任务必须结束，
+        // 否则任务中心会一直挂着一个永远等不到结果的签到。
+        assert_eq!(outdated, vec!["disabled", "removed", "rewritten"]);
     }
 
     #[test]

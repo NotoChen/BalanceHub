@@ -201,19 +201,24 @@ const LOG_TYPE_OPTIONS = [
   { label: "错误", value: 5 },
 ];
 
+// 表格结果来自上一次「查询」提交的 filters；筛选条和空结果说明也必须
+// 描述这份已生效的条件，不能拿正在输入、尚未提交的草稿冒充筛选结果。
+const appliedFilters = computed(() => props.filters);
+
 const rangeLabel = computed(() => {
-  const range = filtersDraft.value.range;
+  const range = appliedFilters.value.range;
   return RANGE_OPTIONS.find((option) => option.value === range)?.label ?? "";
 });
 
 const activeFilterSummary = computed(() => {
+  const filters = appliedFilters.value;
   const parts: string[] = [];
-  if (filtersDraft.value.model) parts.push(`模型 ${filtersDraft.value.model}`);
-  if (filtersDraft.value.tokenName) parts.push(`Key ${filtersDraft.value.tokenName}`);
-  if (filtersDraft.value.group) parts.push(`分组 ${filtersDraft.value.group}`);
-  if (filtersDraft.value.requestId) parts.push(`请求 ${filtersDraft.value.requestId}`);
-  if (filtersDraft.value.logType != null) {
-    const logType = filtersDraft.value.logType;
+  if (filters.model) parts.push(`模型 ${filters.model}`);
+  if (filters.tokenName) parts.push(`Key ${filters.tokenName}`);
+  if (filters.group) parts.push(`分组 ${filters.group}`);
+  if (filters.requestId) parts.push(`请求 ${filters.requestId}`);
+  if (filters.logType != null) {
+    const logType = filters.logType;
     const type = LOG_TYPE_OPTIONS.find((option) => option.value === logType);
     if (type) parts.push(type.label);
   }
@@ -221,17 +226,12 @@ const activeFilterSummary = computed(() => {
   return parts.join(" · ");
 });
 
-const hasNarrowedFilters = computed(
-  () =>
-    Boolean(
-      filtersDraft.value.model ||
-        filtersDraft.value.tokenName ||
-        filtersDraft.value.group ||
-        filtersDraft.value.requestId,
-    ) ||
-    filtersDraft.value.logType != null ||
-    filtersDraft.value.range !== "30d",
-);
+const hasNarrowedFilters = computed(() => {
+  const filters = appliedFilters.value;
+  return Boolean(
+    filters.model || filters.tokenName || filters.group || filters.requestId,
+  ) || filters.logType != null || filters.range !== "30d";
+});
 
 function submitSearch(event?: KeyboardEvent) {
   if (event?.isComposing || event?.keyCode === 229) return;

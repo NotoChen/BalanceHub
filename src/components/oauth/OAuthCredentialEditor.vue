@@ -8,7 +8,10 @@ import {
   replaceOAuthCredential,
 } from "../../api/oauth-accounts";
 import type { Provider } from "../../stores/provider-types";
-import { confirmAction } from "../../composables/provider-credential-dialogs";
+import {
+  confirmAction,
+  confirmDiscardChanges,
+} from "../../composables/provider-credential-dialogs";
 const props = defineProps<{ provider: Provider; visible: boolean }>();
 const emit = defineEmits<{ close: []; saved: [provider: Provider] }>();
 const original = ref("");
@@ -19,15 +22,26 @@ const error = ref("");
 const revision = computed(() => props.provider.auth.credentialRevision || 0);
 const changed = computed(() => draft.value !== original.value);
 let request = 0;
+let saveSequence = 0;
+let closing = false;
 let disposed = false;
 onScopeDispose(() => {
   disposed = true;
   request++;
+  saveSequence++;
 });
 watch(
   () => props.visible,
   (visible) => {
-    if (visible) void load();
+    if (visible) {
+      void load();
+      return;
+    }
+    // 关闭后上一次保存不能再写进下一次打开的编辑器。
+    request++;
+    saveSequence++;
+    saving.value = false;
+    error.value = "";
   },
   { immediate: true },
 );
@@ -56,10 +70,27 @@ function reset() {
   draft.value = original.value;
   error.value = "";
 }
+async function requestClose() {
+  if (closing) return;
+  if (saving.value || loading.value || !changed.value) {
+    emit("close");
+    return;
+  }
+  closing = true;
+  try {
+    if (await confirmDiscardChanges("授权原文还有未保存的修改，关闭后这次修改会丢失。")) {
+      emit("close");
+    }
+  } finally {
+    closing = false;
+  }
+}
 async function save() {
   if (saving.value || loading.value || !changed.value) return;
   const id = props.provider.identity.id;
   const current = revision.value;
+  const session = request;
+  const token = ++saveSequence;
   saving.value = true;
   try {
     if (
@@ -71,17 +102,29 @@ async function save() {
       ))
     )
       return;
-    if (disposed || props.provider.identity.id !== id) return;
+    // 确认框打开期间用户可能已经关窗或重新打开；旧保存不能写进新会话。
+    if (
+      disposed ||
+      session !== request ||
+      !props.visible ||
+      props.provider.identity.id !== id
+    )
+      return;
     const provider = await replaceOAuthCredential(id, draft.value, current);
     if (disposed) return;
-    original.value = draft.value;
-    emit("saved", provider);
     Message.success("授权原文已保存");
-    emit("close");
+    emit("saved", provider);
+    if (session === request && props.visible) {
+      original.value = draft.value;
+      emit("close");
+    }
   } catch (cause) {
-    if (!disposed) error.value = String(cause);
+    if (disposed) return;
+    const message = String(cause);
+    if (session === request) error.value = message;
+    else Message.error(`授权原文保存失败：${message}`);
   } finally {
-    saving.value = false;
+    if (token === saveSequence) saving.value = false;
   }
 }
 </script>
@@ -90,7 +133,7 @@ async function save() {
     :visible="visible"
     :title="`授权原文 · ${provider.identity.name}`"
     fill
-    @close="emit('close')"
+    @close="requestClose"
   >
     <div class="oauth-credential-editor">
       <p class="oauth-credential-note">
@@ -108,7 +151,7 @@ async function save() {
         label="授权原文"
       />
       <footer class="oauth-credential-actions">
-        <a-button :disabled="saving" @click="emit('close')">取消</a-button
+        <a-button :disabled="saving" @click="requestClose">取消</a-button>
         ><a-button :disabled="!changed || saving || loading" @click="reset"
           >还原修改</a-button
         ><a-button type="primary" :loading="saving" @click="save"

@@ -48,26 +48,44 @@ export function useAgentBackgroundTasks() {
     for (const [token, submission] of Object.entries(maintenance.submissions)) {
       tasks.push({ id: `agent-maintenance-start-${token}`, kind: "sync", title: submission.title,
         detail: submission.error || "正在提交后台任务", status: submission.pending ? "running" : "unconfirmed", progress: null,
-        startedAt: submission.startedAt, source: "manual", actions: [{ label: "刷新状态", run: () => { void maintenance.recover(); } }] });
+        startedAt: submission.startedAt, source: "manual", actions: [
+          { label: "刷新状态", disabled: maintenance.recovering, run: () => { void maintenance.recover(); } },
+          ...(!submission.pending ? [{ label: "关闭记录", run: () => maintenance.dismissSubmission(token) }] : []),
+        ] });
     }
     for (const operation of Object.values(catalog.operations)) {
       const completed = operation.phase === "completed";
+      const failure = catalog.errors[operation.id];
       const verified = operation.targets.filter((target) => target.outcome === "appliedVerified").length;
       const finished = operation.targets.filter((target) => target.phase === "completed").length;
       const name = catalog.operationNames[operation.id] || Object.values(catalog.catalogs).flatMap((snapshot) => snapshot.assets).find((asset) => asset.id === operation.assetId)?.name || "资源";
       tasks.push({ id: `agent-catalog-${operation.id}`, kind: "sync", title: `${name} · ${agentCatalogActionLabels[operation.action]}`,
-        detail: [catalog.errors[operation.id], agentCatalogOperationDetail(operation)].filter(Boolean).join("；"),
-        status: completed ? (operation.targets.length > 0 && verified === operation.targets.length && (!operation.definitionChange || operation.definitionChange.state === "saved") ? "success" : "failed") : "running",
+        detail: [failure, agentCatalogOperationDetail(operation)].filter(Boolean).join("；"),
+        status: failure ? "unconfirmed" : completed ? (operation.targets.length > 0 && verified === operation.targets.length && (!operation.definitionChange || operation.definitionChange.state === "saved") ? "success" : "failed") : "running",
         progress: operation.targets.length ? finished / operation.targets.length : null, startedAt: Date.parse(operation.createdAt),
-        finishedAt: completed ? Date.parse(operation.updatedAt) : undefined, source: "manual",
-        actions: [{ label: "查看详情", run: () => navigation.openOperation("catalog", operation.id) }] });
+        finishedAt: failure || completed ? Date.parse(operation.updatedAt) : undefined, source: "manual",
+        actions: [
+          { label: "查看详情", run: () => navigation.openOperation("catalog", operation.id) },
+          ...(failure ? [{ label: "刷新状态", disabled: catalog.recovering, run: () => { void catalog.recover(); } }] : []),
+        ] });
     }
     for (const task of Object.values(catalog.relationTasks)) {
       tasks.push({ id: task.id, kind: "sync", title: `${task.name} · ${agentCatalogRelationActionLabels[task.action]}`,
-        detail: task.message, status: task.state === "running" ? "running" : task.state === "completed" ? "success" : "failed",
+        detail: task.message, status: task.state === "running" ? "running" : task.state === "completed" ? "success" : task.state === "unknown" ? "unconfirmed" : "failed",
         progress: null, startedAt: task.startedAt, finishedAt: task.finishedAt, source: "manual",
         actions: task.state === "unknown" || task.state === "failed"
           ? [{ label: "重新检查", run: () => { void catalog.refreshRelation(task.id); } }] : [] });
+    }
+    // 后端重启或清理后，本地仍在“运行”的任务已不可能再更新。保留一条
+    // 未确认记录说明后果，同时允许用户关闭，避免永久占用会话或任务中心。
+    for (const store of [catalog, lifecycle, sessions, configuration, maintenance]) {
+      for (const [id, message] of Object.entries(store.lost)) {
+        const operation = store.lostOperations[id];
+        const createdAt = operation && "createdAt" in operation ? operation.createdAt : null;
+        tasks.push({ id: `agent-lost-${id}`, kind: "sync", title: "后台任务结果未确认", detail: message,
+          status: "unconfirmed", progress: null, startedAt: createdAt ? Date.parse(createdAt) : 0, source: "manual",
+          actions: [{ label: "关闭记录", run: () => store.dismissLost(id) }] });
+      }
     }
     for (const operation of Object.values(lifecycle.operations)) {
       const completed = operation.phase === "completed";

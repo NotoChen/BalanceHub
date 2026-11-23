@@ -204,6 +204,13 @@
   transform: translateY(0) scale(0.95);
 }
 
+/* 有需要用户处理的任务时，图标按钮也换成告警色，避免只剩一个小小的红点。 */
+.topbar-task-button.has-attention {
+  background: rgba(209, 67, 67, 0.1);
+  color: var(--surface-danger, #d14343);
+  box-shadow: 0 7px 16px rgba(209, 67, 67, 0.12);
+}
+
 .topbar-task-icon {
   display: block;
 }
@@ -226,6 +233,11 @@
 
 .topbar-task-badge {
   background: #165dff;
+}
+
+/* 需要处理的记录比普通运行中更值得注意：徽标换成告警色。 */
+.topbar-task-badge.is-attention {
+  background: #d14343;
 }
 
 .topbar-task-result-dot {
@@ -499,8 +511,8 @@
 }
 
 .background-task-panel {
-  width: min(390px, calc(100vw - 32px));
-  max-height: min(520px, calc(100vh - 92px));
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 92px));
   overflow: auto;
   color: var(--surface-ink, #1d2129);
 }
@@ -571,24 +583,44 @@
   animation: background-task-pulse 1.8s ease-in-out infinite;
 }
 
-.background-task-list,
-.background-task-recent {
+.background-task-section {
   display: grid;
   gap: 2px;
   padding: 8px;
 }
 
-.background-task-recent {
+.background-task-section + .background-task-section {
   border-top: 1px solid var(--surface-line, #e5e6eb);
   padding-top: 10px;
 }
 
 .background-task-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   color: var(--surface-muted, #a9aeb8);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 2px 8px 5px;
+}
+
+.background-task-section-title em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.background-task-section.is-attention .background-task-section-title {
+  color: var(--surface-danger, #d14343);
+}
+
+.background-task-section.is-attention .background-task-row {
+  background: rgba(209, 67, 67, 0.05);
+}
+
+.background-task-section.is-attention .background-task-row-icon {
+  background: rgba(209, 67, 67, 0.11);
+  color: var(--surface-danger, #d14343);
 }
 
 .background-task-row {
@@ -660,6 +692,23 @@
 .background-task-row.is-failed .background-task-row-icon {
   background: rgba(209, 67, 67, 0.11);
   color: var(--surface-danger);
+}
+
+.background-task-row.is-waiting .background-task-row-icon,
+.background-task-row.is-unconfirmed .background-task-row-icon {
+  background: rgba(255, 125, 0, 0.12);
+  color: #d25f00;
+}
+
+/* 自动刷新、公告读取这类维护动作不逐条列出，只在面板底部说明还在进行。 */
+.background-task-ambient {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--surface-line, #e5e6eb);
+  color: var(--surface-muted, #a9aeb8);
+  font-size: 10px;
+  padding: 9px 15px;
 }
 
 .background-task-empty {
@@ -801,6 +850,15 @@
 :root.theme-dark .topbar-task-button.has-active {
   background: rgba(120, 169, 255, 0.12);
   color: #78a9ff;
+}
+
+:root.theme-dark .topbar-task-button.has-attention {
+  background: rgba(209, 67, 67, 0.18);
+  color: #f08a8a;
+}
+
+:root.theme-dark .background-task-section.is-attention .background-task-row {
+  background: rgba(209, 67, 67, 0.12);
 }
 
 :root.theme-dark .background-task-panel {

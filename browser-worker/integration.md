@@ -34,7 +34,12 @@ outside this component's scope.
   installed browsers does not download components. Windows discovery reads both
   user/machine registry scopes and registry views, as well as default directories;
   all platforms offer manual selection. Native Windows acceptance remains pending.
-- Never click CAPTCHA controls. Turnstile callbacks report interactive mode,
+- Never click CAPTCHA controls. Official OAuth consent controls on Linux DO
+  Connect and GitHub's authorize page are clicked automatically inside the
+  controlled login window; platform passwords, account selection and CAPTCHA
+  remain manual. OAuth popups, `target=_blank` links and blank-target forms stay
+  inside the controlled profile so the callback lands in the same cookie jar.
+  Turnstile callbacks report interactive mode,
   errors, expiry, timeout and unsupported browsers. Manual and batch tasks keep
   the window; scheduled tasks yield for a later user-triggered attempt. Cloudflare's published
   lack of support for automation still applies; do not promise universal clearance.
@@ -107,11 +112,21 @@ state, session refresh and localStorage cannot prove reauthentication. Rust chec
 the bound account generation, observed platform identity and current provider
 context before merging credentials, then uses the common check-in finalizer.
 User-triggered bulk runs open the window directly, and also resume previously
-suspended scheduled tasks. Scheduled runs yield as `waitingLogin`; a manual resume
-opens the window. Unknown platform controls, expired identity-provider sessions
-and new authorization prompts stay available for the user to complete.
+suspended scheduled tasks. Scheduled runs first try a bounded, windowless
+relogin; they yield as `waitingLogin` only when a platform login or human
+verification is required, and a manual resume opens the window. OAuth popups
+stay in the controlled profile and official consent buttons are approved
+inside that window. Unknown platform controls, expired identity-provider
+sessions and password/CAPTCHA steps stay available for the user to complete.
 Progress distinguishes waiting for login from actual login submission so cancellation
 after a possible submission remains unconfirmed instead of silently retrying.
+
+A refresh that the site classifies as a credential rejection starts one
+background reauthentication when the card has a bound browser login account.
+It reuses the same login runner, stays windowless, is deduplicated per provider
+and rate-limited across attempts, refreshes the card after success, and leaves a
+visible re-login entry in the task center when a human is required. Password-only
+and API-key cards never enter this path.
 
 `autoShield = false` disables cached shield injection and solving in provider HTTP
 transport, and page-challenge navigation in the browser executor. Browser profiles

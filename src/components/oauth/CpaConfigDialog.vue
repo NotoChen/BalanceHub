@@ -7,6 +7,7 @@ import {
   readCpaGatewayConfig,
   updateCpaGatewayConfig,
 } from "../../api/oauth-accounts";
+import { confirmDiscardChanges } from "../../composables/provider-credential-dialogs";
 import ContentEditor from "../ContentEditor.vue";
 
 const props = defineProps<{
@@ -21,10 +22,13 @@ const error = ref("");
 const config = ref<CpaGatewayConfig | null>(null);
 const draft = ref("");
 let sequence = 0;
+let saveSequence = 0;
+let closing = false;
 let disposed = false;
 onScopeDispose(() => {
   disposed = true;
   sequence++;
+  saveSequence++;
 });
 watch(
   () => props.visible,
@@ -61,6 +65,8 @@ async function load() {
 async function save() {
   const saved = config.value;
   if (!saved || saving.value || !dirty.value) return;
+  const session = sequence;
+  const token = ++saveSequence;
   saving.value = true;
   error.value = "";
   try {
@@ -73,14 +79,34 @@ async function save() {
     );
     if (disposed) return;
     Message.success("网关配置已保存");
+    // 保存期间关闭后又重新打开时，不能拿旧请求的结果重读并覆盖新会话的草稿。
+    if (session !== sequence || !props.visible) return;
     /// The gateway rewrites the document in its own layout and issues a new
     /// revision tag, so the editor reloads what it now holds instead of
     /// keeping text that is no longer the file.
-    if (props.visible) await load();
+    await load();
   } catch (cause) {
-    if (!disposed) error.value = String(cause);
+    if (disposed) return;
+    const message = String(cause);
+    if (session === sequence) error.value = message;
+    else Message.error(`网关配置保存失败：${message}`);
   } finally {
-    saving.value = false;
+    if (token === saveSequence) saving.value = false;
+  }
+}
+async function requestClose() {
+  if (closing) return;
+  if (saving.value || !dirty.value) {
+    emit("close");
+    return;
+  }
+  closing = true;
+  try {
+    if (await confirmDiscardChanges("网关配置还有未保存的修改，关闭后需要重新从网关读取。")) {
+      emit("close");
+    }
+  } finally {
+    closing = false;
   }
 }
 function discard() {
@@ -89,6 +115,8 @@ function discard() {
 }
 function reset() {
   sequence++;
+  saveSequence++;
+  closing = false;
   config.value = null;
   draft.value = "";
   error.value = "";
@@ -104,7 +132,7 @@ function reset() {
     width="880px"
     :footer="false"
     unmount-on-close
-    @cancel="emit('close')"
+    @cancel="requestClose"
   >
     <a-alert v-if="error" type="warning">{{ error }}</a-alert>
     <a-spin v-if="loading" tip="读取网关配置" />

@@ -1,5 +1,6 @@
 import { ref, type Ref } from "vue";
 import type { Provider, ProviderApiKeyOption } from "../stores/providers";
+import { withTimeout } from "../utils/promise-timeout.ts";
 import {
   effectiveProviderApiKeyOptions,
   isProviderApiKeyUsable,
@@ -33,7 +34,13 @@ export function useWorkspaceApiKeySelection(options: UseWorkspaceApiKeySelection
       // the picker was opened; local keys should be immediately usable.
       if (provider.actions.apiKeyManagement) {
         try {
-          apiKeys = await options.listApiKeys(provider.identity.id);
+          // 读取 Key 列表会走 IPC；没有超时时启动面板会一直停在加载态，
+          // 用户既不能确认 Key 也不能开始启动。
+          apiKeys = await withTimeout(
+            options.listApiKeys(provider.identity.id),
+            15_000,
+            "读取 API Key 超时，请重试",
+          );
         } catch (error) {
           workspaceApiKeyError.value = errorMessage(error);
         }

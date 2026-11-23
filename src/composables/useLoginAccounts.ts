@@ -42,7 +42,9 @@ export function useLoginAccounts(runtime: BrowserRuntimeController) {
   }
   function reset() { revision++; pending.value = ""; error.value = ""; cookies.value = []; }
   watch(visible, (value) => { if (!value) { reset(); cancelSelection(); } });
-  watch(selectedId, reset);
+  // 切换选中账号必须同步清理旧状态。延迟到下一拍会把 open()/choose()
+  // 刚设置的读取态一并清掉，列表转圈消失、失败信息也被吞掉。
+  watch(selectedId, reset, { flush: "sync" });
   onUnmounted(() => { reset(); cancelSelection(); });
 
   async function refresh() {
@@ -94,9 +96,20 @@ export function useLoginAccounts(runtime: BrowserRuntimeController) {
     const id = selectedId.value;
     return operate("remove", async () => {
       const request = revision;
-      await api.removeLoginAccount(id, removeEntry); await refresh();
-      if (request !== revision || !visible.value || selectedId.value !== id) return;
-      cookies.value = []; Message.success(removeEntry ? "已删除本地账号；站点凭据仍保留" : "已清除该账号的本地登录状态");
+      await api.removeLoginAccount(id, removeEntry);
+      // 删除后列表刷新会把 selectedId 清空；成功提示要在那之前给出，
+      // 否则删除已完成却什么都不说。
+      if (request === revision && visible.value) {
+        Message.success(removeEntry ? "已删除本地账号；站点凭据仍保留" : "已清除该账号的本地登录状态");
+      }
+      cookies.value = [];
+      try {
+        await refresh();
+      } catch (cause) {
+        if (request === revision && visible.value) {
+          error.value = `操作已完成，但账号列表刷新失败：${cause instanceof Error ? cause.message : String(cause)}`;
+        }
+      }
     });
   }
   function inspectCookies() {

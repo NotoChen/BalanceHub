@@ -40,6 +40,8 @@ defineProps<{
   checkingForUpdate: boolean;
   providerEditorTitle: string;
   providerEditorSession: number;
+  providerEditorDraftRevision: number;
+  providerEditorDraftBeforeSync: string | null;
   providerEditorInitialSection: ProviderEditorSection;
   draftProvider: ProviderInput;
   providerProtocols: ProviderProtocolDescriptor[];
@@ -135,6 +137,8 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
     v-model:visible="providerEditorVisible"
     :title="providerEditorTitle"
     :editor-session="providerEditorSession"
+    :draft-revision="providerEditorDraftRevision"
+    :draft-before-sync="providerEditorDraftBeforeSync"
     :initial-section="providerEditorInitialSection"
     :draft="draftProvider"
     :provider-protocols="providerProtocols"

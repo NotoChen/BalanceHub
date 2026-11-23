@@ -68,6 +68,9 @@ function dialog(
     {
       "@arco-design/web-vue": { Message: { success() {} } },
       "../ContentEditor.vue": {},
+      "../../composables/provider-credential-dialogs": {
+        confirmDiscardChanges: async () => true,
+      },
       "../../api/oauth-accounts": {
         readCpaGatewayConfig: async () => document,
         updateCpaGatewayConfig: async () => undefined,

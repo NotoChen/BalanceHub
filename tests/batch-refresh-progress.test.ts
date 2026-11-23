@@ -53,6 +53,7 @@ function harness(
   const providers = shallowRef(initial);
   const busy = ref(false);
   const messages: string[] = [];
+  const infos: string[] = [];
   const cancellations: string[] = [];
   const tombstones: Record<string, number> = {};
   const requests: Array<
@@ -64,7 +65,10 @@ function harness(
     "composables/useBatchOperation.ts",
     {
       "@arco-design/web-vue": {
-        Message: { error: (message: string) => messages.push(message) },
+        Message: {
+          error: (message: string) => messages.push(message),
+          info: (message: string) => infos.push(message),
+        },
       },
       "../api/transport.ts": {
         Channel: class {
@@ -119,12 +123,18 @@ function harness(
     providers,
     busy,
     messages,
+    infos,
     cancellations,
     requests,
     scope,
     tombstones,
     card: (id: string) =>
       providers.value.find((provider) => provider.identity.id === id)!,
+    queued: (reason: string) =>
+      send({
+        event: "queued",
+        data: { operation: "refresh", reason },
+      }),
     started: () =>
       send({
         event: "started",
@@ -310,6 +320,27 @@ test("late channel events and results after a timeout cannot affect the next ref
   controller.scope.stop();
 });
 
+test("queued heartbeats keep the batch alive while waiting for the automatic refresh to finish", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const original = provider("site");
+  const controller = harness([original]);
+  const pending = controller.runRefresh();
+  context.mock.timers.tick(179_000);
+  controller.queued("正在等待当前自动刷新结束，完成后立即开始");
+  assert.match(controller.waitingReason.value, /自动刷新/);
+  context.mock.timers.tick(179_000);
+  await Promise.resolve();
+  assert.equal(controller.running.value, true);
+  assert.equal(controller.error.value, "");
+  controller.started();
+  assert.equal(controller.waitingReason.value, "", "the queued notice ends once providers start");
+  controller.resolve([provider("site", 2)]);
+  await pending;
+  assert.equal(controller.running.value, false);
+  assert.equal(controller.waitingReason.value, "");
+  controller.scope.stop();
+});
+
 test("ongoing progress renews the timeout instead of imposing a fixed whole-batch deadline", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const original = provider("site");
@@ -464,6 +495,23 @@ test("批量刷新只给仍在队列里的卡片显示排队中", () => {
   assert.doesNotMatch(board, /provider\.runtime\.status !== 'syncing'/);
   assert.match(controller, /item\.status === "pending"/);
   assert.match(controller, /refreshQueuedProviderIds/);
+});
+
+test("an empty or fully disabled board explains why no refresh started", async () => {
+  const empty = harness([]);
+  await empty.runRefresh();
+  assert.deepEqual(empty.requests, []);
+  assert.equal(empty.running.value, false);
+  assert.equal(empty.visible.value, false);
+  assert.deepEqual(empty.infos, ["没有已启用的中转站可刷新"]);
+
+  const disabled = provider("off");
+  disabled.runtime.enabled = false;
+  const disabledBoard = harness([disabled]);
+  await disabledBoard.runRefresh();
+  assert.deepEqual(disabledBoard.requests, []);
+  assert.equal(disabledBoard.visible.value, false);
+  assert.deepEqual(disabledBoard.infos, ["没有已启用的中转站可刷新"]);
 });
 
 test("disposing the controller releases its state and ignores all late IPC work", async () => {

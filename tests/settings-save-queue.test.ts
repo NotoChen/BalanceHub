@@ -53,7 +53,7 @@ test("failed settings retain their draft and can be explicitly retried", async (
   assert.equal(attempts, 2);
 });
 
-test("a timeout releases the UI but keeps native writes serialized until the old IPC settles", async (t) => {
+test("a timed-out save can be explicitly retried instead of waiting forever for the IPC", async (t) => {
   const native = deferred<{ count: number }>();
   const writes: number[] = [];
   const context = harness(t, async (value) => { writes.push(value.count); return writes.length === 1 ? native.promise : value; }, 5);
@@ -61,13 +61,32 @@ test("a timeout releases the UI but keeps native writes serialized until the old
   assert.equal(await context.queue.flush(), false);
   assert.equal(context.state(), "error");
   context.edit(2);
-  assert.equal(await context.queue.flush(), false);
-  assert.deepEqual(writes, [1], "retry must not race the unacknowledged native write");
+  assert.equal(await context.queue.flush(), true, "重试要真正发出新的写入");
+  assert.deepEqual(writes, [1, 2]);
+  assert.equal(context.state(), "saved");
+  assert.equal(context.queue.hasPendingChanges(), false, "重试成功后导入和恢复不再被挡住");
+  // 旧请求这时才恢复：它的确认对应旧草稿，不能倒回来覆盖重试结果。
   native.resolve({ count: 1 });
   await settle();
   assert.deepEqual(writes, [1, 2]);
   assert.equal(context.draft().count, 2);
   assert.equal(context.state(), "saved");
+});
+
+test("a timed-out write that recovers before a retry still persists the pending draft", async (t) => {
+  const native = deferred<{ count: number }>();
+  const writes: number[] = [];
+  const context = harness(t, async (value) => { writes.push(value.count); return writes.length === 1 ? native.promise : value; }, 5);
+  context.edit(1);
+  assert.equal(await context.queue.flush(), false);
+  context.edit(2);
+  context.queue.schedule();
+  native.resolve({ count: 1 });
+  await settle();
+  assert.deepEqual(writes, [1, 2], "旧请求落盘后仍要补写更新的草稿");
+  assert.equal(context.draft().count, 2);
+  assert.equal(context.state(), "saved");
+  assert.equal(context.queue.hasPendingChanges(), false);
 });
 
 test("reverting a draft during an older save persists the reversion after that save", async (t) => {

@@ -4,6 +4,8 @@ use chrono::Local;
 
 use crate::models::{AppSettings, Provider};
 
+use super::CLOCK_ROLLBACK_TOLERANCE_SECS;
+
 pub fn refresh_interval(provider: &Provider, settings: &AppSettings) -> u64 {
     if provider.automation.refresh_interval > 0 {
         provider.automation.refresh_interval
@@ -27,6 +29,12 @@ pub fn refresh_due(
     let last_success = synced_at_secs(provider.automation.last_synced_at.as_deref());
     let baseline = last_attempt.max(last_success);
     if baseline == 0 {
+        return true;
+    }
+    // 系统时钟被回拨后，上次同步/尝试会落在未来，按原公式会一直等到
+    // 时钟重新追上。刷新抖动最多只提前 5 分钟，超过容差的未来时间戳
+    // 只可能是回拨，按到期处理。
+    if baseline > now_secs.saturating_add(CLOCK_ROLLBACK_TOLERANCE_SECS) {
         return true;
     }
 
@@ -73,7 +81,28 @@ pub fn check_in_due_now(provider: &Provider, settings: &AppSettings) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::synced_at_secs;
+    use super::{refresh_due, synced_at_secs};
+    use crate::models::{AppSettings, Provider, ProviderInput};
+    use std::collections::HashMap;
+
+    fn provider(id: &str) -> Provider {
+        Provider::from_input(ProviderInput::default(), id.to_string())
+    }
+
+    #[test]
+    fn future_sync_timestamps_from_a_clock_rollback_still_refresh() {
+        let now = 1_700_000_000_u64;
+        let settings = AppSettings::default();
+        let mut provider = provider("p1");
+        // 时钟回拨一小时：持久化的上次同步落在未来，不能等到时钟追上才刷新。
+        provider.automation.last_synced_at = Some(now.saturating_add(3600).to_string());
+        assert!(refresh_due(&provider, &settings, now, &HashMap::new()));
+
+        // 刷新抖动最多把尝试时刻推到 5 分钟后，仍在容差内，按原计划等待。
+        provider.automation.last_synced_at = Some(now.to_string());
+        let attempts = HashMap::from([("p1".to_string(), now.saturating_add(120))]);
+        assert!(!refresh_due(&provider, &settings, now, &attempts));
+    }
 
     #[test]
     fn sync_timestamps_are_read_as_seconds_even_when_written_as_milliseconds() {

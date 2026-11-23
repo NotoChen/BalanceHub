@@ -1,6 +1,6 @@
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { launchBrowser, WorkerError } from "./launch.mjs";
+import { keepOAuthInWindow, launchBrowser, WorkerError } from "./launch.mjs";
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const key = (cookie) => JSON.stringify([cookie.domain, cookie.path, cookie.name]);
@@ -156,6 +156,7 @@ export class AccountBrowser {
     this.context.on("close", () => { this.closed = true; });
     if (this.closing) { await this.context.close(); throw new WorkerError("账号窗口已取消"); }
     await this.profile.restore(this.context);
+    await this.context.addInitScript(keepOAuthInWindow);
     this.profile.attach(this.context);
     const page = this.context.pages()[0] || await this.context.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(async (error) => {

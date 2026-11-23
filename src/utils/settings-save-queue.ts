@@ -47,8 +47,14 @@ export function createSettingsSaveQueue<T>(options: SettingsSaveQueueOptions<T>)
     if (disposed) return Promise.resolve(false);
     if (replacement) return replacement.waiting;
     if (active) {
-      queued = true;
-      return active.waiting;
+      if (!active.timedOut) {
+        queued = true;
+        return active.waiting;
+      }
+      // 等待超时后用户又点了重试：把旧请求留在后台，用当前完整草稿重新
+      // 提交。旧请求若稍后落盘，写的是同一批字段；它的确认不能再改本地
+      // 快照。若一直不落盘，此前实现会让重试、导入和恢复永久卡住。
+      active = null;
     }
     if (!dirty()) {
       options.state("saved", "");
@@ -69,7 +75,7 @@ export function createSettingsSaveQueue<T>(options: SettingsSaveQueueOptions<T>)
     const timeout = setTimeout(() => {
       current.timedOut = true;
       if (!disposed) {
-        const message = "保存响应超时，修改已保留；应用恢复响应后会继续保存";
+        const message = "保存响应超时，修改已保留；可点「重试保存」重新提交";
         options.state("error", message);
         options.failed(message);
       }
@@ -80,6 +86,12 @@ export function createSettingsSaveQueue<T>(options: SettingsSaveQueueOptions<T>)
     // of issuing a competing write that could restore older settings on disk.
     void Promise.resolve().then(() => options.write(value, expected)).then((saved) => {
       clearTimeout(timeout);
+      if (active !== current) {
+        // 已被超时后的重试取代：晚到的确认可能对应旧草稿，不能再改写
+        // 持久化快照，否则紧随其后的保存会以旧值为基线。
+        finish(false);
+        return;
+      }
       active = null;
       if (disposed) { finish(false); return; }
       // The acknowledgement may contain fields received from another device.
@@ -96,6 +108,10 @@ export function createSettingsSaveQueue<T>(options: SettingsSaveQueueOptions<T>)
       }
     }, (error: unknown) => {
       clearTimeout(timeout);
+      if (active !== current) {
+        finish(false);
+        return;
+      }
       active = null;
       if (disposed) { finish(false); return; }
       const message = error instanceof Error ? error.message : String(error);

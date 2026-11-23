@@ -134,6 +134,7 @@ pub struct ProviderObservationPatch {
     consecutive_failures: u32,
     cooldown_until: Option<i64>,
     cooldown_reason: Option<String>,
+    credential_rejected: bool,
 }
 
 impl ProviderObservationPatch {
@@ -159,6 +160,7 @@ impl ProviderObservationPatch {
             consecutive_failures: refreshed.runtime.consecutive_failures,
             cooldown_until: refreshed.runtime.cooldown_until,
             cooldown_reason: refreshed.runtime.cooldown_reason.clone(),
+            credential_rejected: refreshed.runtime.credential_rejected,
         }
     }
 
@@ -202,6 +204,7 @@ impl ProviderObservationPatch {
             .runtime
             .cooldown_reason
             .clone_from(&self.cooldown_reason);
+        provider.runtime.credential_rejected = self.credential_rejected;
     }
 }
 

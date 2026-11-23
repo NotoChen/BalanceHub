@@ -6,7 +6,7 @@ mod validation;
 use crate::{limits, models::AppData};
 use file_io::{
     backup_file_path, data_file_path, lock_data_directory, replace_data_file, tmp_file_path,
-    write_json_file_limited,
+    write_json_file_limited, DATA_FILE_NAME,
 };
 use migration::{read_app_data_file, BackupBeforeMigrate, LoadedAppData};
 use std::{fs, path::Path};
@@ -17,9 +17,6 @@ use migration::{backup_legacy_file, migrate_app_data};
 #[cfg(test)]
 use std::path::PathBuf;
 
-#[cfg(test)]
-const DATA_FILE_NAME: &str = "data.json";
-
 pub fn load_app_data() -> Result<AppData, String> {
     let path = data_file_path()?;
     lock_data_directory(&path)?;
@@ -28,7 +25,12 @@ pub fn load_app_data() -> Result<AppData, String> {
         migrated,
         legacy_session_index_root,
     } = if path.exists() {
-        read_app_data_file(&path, BackupBeforeMigrate::Yes)?
+        match read_app_data_file(&path, BackupBeforeMigrate::Yes) {
+            Ok(loaded) => loaded,
+            // 解析失败通常意味着文件被截断或被手工改坏；把同目录下应用
+            // 自己留下的备份列出来，用户可以直接导入或覆盖后重新读取。
+            Err(error) => return Err(with_backup_hint(&path, error)),
+        }
     } else {
         // 干净目录同样走演示数据路径：开发脚本可以只用隔离根目录启动，
         // 不依赖预先复制一份安装版配置。
@@ -72,16 +74,90 @@ fn cleanup_legacy_session_index(custom_directory: Option<&Path>) {
 
 pub fn save_app_data(data: &AppData) -> Result<(), String> {
     validate_app_data_schema(data)?;
-    let path = data_file_path()?;
+    save_app_data_at(&data_file_path()?, data)
+}
+
+fn save_app_data_at(path: &Path, data: &AppData) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("创建配置目录失败({}): {error}", parent.display()))?;
     }
 
     // 先写完整临时文件再替换目标文件，避免崩溃/断电把配置（含 API Key）截断成半个 JSON。
-    let tmp_path = tmp_file_path(&path);
+    let tmp_path = tmp_file_path(path);
     write_json_file_limited(&tmp_path, data, limits::MAX_APP_DATA_FILE_BYTES, "保存配置")?;
-    replace_data_file(&tmp_path, &path)
+    replace_data_file(&tmp_path, path)
+}
+
+/// 当前 data.json 已损坏时，用同目录最近的自动备份恢复。只接受解析失败的
+/// 主文件：仍可读取的配置（包括版本过新）必须走显式导入，不能静默回退。
+/// 原文件保留为 `data.json.corrupt-<时间戳>`，恢复成功后才写入正式文件。
+pub fn restore_latest_backup() -> Result<(std::path::PathBuf, AppData), String> {
+    let path = data_file_path()?;
+    lock_data_directory(&path)?;
+    restore_latest_backup_at(&path)
+}
+
+fn restore_latest_backup_at(path: &Path) -> Result<(std::path::PathBuf, AppData), String> {
+    match read_app_data_file(path, BackupBeforeMigrate::No) {
+        Ok(_) => {
+            return Err("当前 data.json 仍可读取，请通过「从备份恢复」选择要导入的备份".to_string())
+        }
+        // 文件缺失可以由备份补回；其它读取错误（权限、版本过新）不是旧备份能解决的。
+        Err(error) if path.exists() && !error.contains("解析配置失败") => {
+            return Err(format!(
+                "当前 data.json 不是解析损坏，无法自动恢复：{error}"
+            ));
+        }
+        Err(_) => {}
+    }
+    let candidates = backup_candidates(path);
+    if candidates.is_empty() {
+        return Err("没有可用的自动备份".to_string());
+    }
+    let mut errors = Vec::new();
+    for candidate in candidates {
+        let loaded = match read_app_data_file(&candidate, BackupBeforeMigrate::No) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
+        let mut data = loaded.data;
+        if let Err(error) = validate_app_data_schema(&data) {
+            errors.push(error);
+            continue;
+        }
+        normalize_provider_cached_values(&mut data);
+        limits::normalize_app_data(&mut data);
+        preserve_corrupt_file(path)?;
+        save_app_data_at(path, &data)?;
+        return Ok((candidate, data));
+    }
+    Err(format!("自动备份均无法读取：{}", errors.join("；")))
+}
+
+/// 把损坏的正式文件改名保留，绝不直接删除。重名时追加序号，避免同一
+/// 毫秒内连续恢复时覆盖上一份证据。
+fn preserve_corrupt_file(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let stamp = crate::util::unix_millis();
+    let mut target = path.with_file_name(format!("{DATA_FILE_NAME}.corrupt-{stamp}"));
+    let mut suffix = 1;
+    while target.exists() {
+        target = path.with_file_name(format!("{DATA_FILE_NAME}.corrupt-{stamp}-{suffix}"));
+        suffix += 1;
+    }
+    fs::rename(path, &target).map_err(|error| {
+        format!(
+            "保留损坏配置失败({} -> {}): {error}",
+            path.display(),
+            target.display()
+        )
+    })
 }
 
 pub fn import_app_data(source: &Path) -> Result<AppData, String> {
@@ -147,6 +223,58 @@ fn merge_dev_sample_on_load(path: &Path, data: &mut AppData) -> Result<bool, Str
 #[cfg(not(debug_assertions))]
 fn merge_dev_sample_on_load(_path: &Path, _data: &mut AppData) -> Result<bool, String> {
     Ok(false)
+}
+
+/// 解析失败时附带同目录的自动备份清单。只有解析类错误才提示备份：
+/// 结构版本过新或权限问题不是旧备份能解决的，列出来只会误导用户。
+fn with_backup_hint(path: &Path, error: String) -> String {
+    if !error.contains("解析配置失败") {
+        return error;
+    }
+    let backups = backup_candidates(path);
+    if backups.is_empty() {
+        return error;
+    }
+    let list = backups
+        .iter()
+        .map(|backup| backup.display().to_string())
+        .collect::<Vec<_>>()
+        .join("、");
+    format!(
+        "{error}。同目录下检测到自动备份：{list}；可直接点击「自动备份恢复」，或通过「从备份恢复」选择文件，也可以覆盖 data.json 后重新读取"
+    )
+}
+
+/// 应用自己写出的备份：`data.json.bak` 是 Windows 替换失败时留下的上一版，
+/// `data.json.v{N}.bak` 是迁移前的原文件。优先列最近的一版。
+fn backup_candidates(path: &Path) -> Vec<std::path::PathBuf> {
+    let mut result = Vec::new();
+    let generic = backup_file_path(path);
+    if generic.exists() {
+        result.push(generic);
+    }
+    let Some(directory) = path.parent() else {
+        return result;
+    };
+    let Ok(entries) = fs::read_dir(directory) else {
+        return result;
+    };
+    let mut versioned: Vec<(u32, std::path::PathBuf)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let version = name
+                .to_str()?
+                .strip_prefix("data.json.v")?
+                .strip_suffix(".bak")?
+                .parse::<u32>()
+                .ok()?;
+            Some((version, entry.path()))
+        })
+        .collect();
+    versioned.sort_by_key(|(version, _)| std::cmp::Reverse(*version));
+    result.extend(versioned.into_iter().map(|(_, path)| path));
+    result
 }
 
 fn recover_missing_app_data_file(path: &Path) -> Result<Option<LoadedAppData>, String> {

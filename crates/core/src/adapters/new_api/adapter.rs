@@ -10,11 +10,11 @@ use super::response::{extract_string_field, parse_success_data, send_text};
 use super::site::fetch_site_metadata;
 pub use super::site::SiteMetadata;
 use crate::models::{
-    provider_domain::check_in as check_in_policy, AppSettings, AuthMode, Provider,
-    ProviderApiKeyEditorContext, ProviderApiKeyOption, ProviderApiKeyPatch, ProviderCapabilities,
-    ProviderCheckInMethod, ProviderCheckInRecordsResult, ProviderCheckInResult,
-    ProviderConnectionTestResult, ProviderCredentialCompletionResult, ProviderInput,
-    ProviderQuotaDisplay, ProviderRequestLogsQuery, ProviderRequestLogsResult,
+    provider_domain::{check_in as check_in_policy, failure::ProviderFailureKind},
+    AppSettings, AuthMode, Provider, ProviderApiKeyEditorContext, ProviderApiKeyOption,
+    ProviderApiKeyPatch, ProviderCapabilities, ProviderCheckInMethod, ProviderCheckInRecordsResult,
+    ProviderCheckInResult, ProviderConnectionTestResult, ProviderCredentialCompletionResult,
+    ProviderInput, ProviderQuotaDisplay, ProviderRequestLogsQuery, ProviderRequestLogsResult,
     ProviderSiteProbeResult, ProviderUsageSummary,
 };
 use reqwest::Method;
@@ -370,10 +370,15 @@ impl NewApiAdapter {
         Ok((provider, value))
     }
 
-    pub async fn refresh_provider(&self, settings: &AppSettings, provider: &Provider) -> Provider {
+    pub async fn refresh_provider(
+        &self,
+        settings: &AppSettings,
+        provider: &Provider,
+    ) -> (Provider, Option<ProviderFailureKind>) {
         match crate::adapters::transport::build_client(settings, provider).await {
             Ok(client) => {
-                let mut refreshed = super::quota::refresh_provider(&client, provider).await;
+                let (mut refreshed, mut failure) =
+                    super::quota::refresh_provider(&client, provider).await;
                 if provider.runtime.enabled {
                     // 价目是推荐与对账的价格来源，模型表现是模型广场的观测数据；
                     // 两者互不依赖，失败只记录在各自快照里，不影响余额和模型列表。
@@ -385,7 +390,7 @@ impl NewApiAdapter {
                     refreshed.capabilities.performance = performance.snapshot;
                 }
                 if !crate::models::provider_domain::model_list::action(&refreshed).can_sync {
-                    return refreshed;
+                    return (refreshed, failure);
                 }
 
                 let quota_failed = matches!(
@@ -412,6 +417,7 @@ impl NewApiAdapter {
                             refreshed.runtime.error_message = None;
                             refreshed.automation.last_synced_at =
                                 Some(crate::util::unix_secs().to_string());
+                            failure = None;
                         }
                     }
                     Err(model_error) => {
@@ -428,12 +434,16 @@ impl NewApiAdapter {
                             refreshed.runtime.status = crate::models::ProviderStatus::Warning;
                             refreshed.runtime.error_message =
                                 Some(format!("额度已更新；模型列表获取失败: {model_error}"));
+                            failure = None;
                         }
                     }
                 }
-                refreshed
+                (refreshed, failure)
             }
-            Err(message) => provider_with_error(provider, message),
+            Err(message) => (
+                provider_with_error(provider, message),
+                Some(ProviderFailureKind::Transient),
+            ),
         }
     }
 

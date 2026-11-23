@@ -6,7 +6,7 @@
 
 pub mod prompt;
 
-pub use prompt::{effective_cli_kind, effective_interval, preview_prompts};
+pub use prompt::{effective_cli_kind, effective_interval, max_interval, preview_prompts};
 
 use crate::models::{AppSettings, LivenessRecord, Provider};
 use std::sync::{Arc, OnceLock};

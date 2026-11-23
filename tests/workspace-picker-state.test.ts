@@ -205,6 +205,25 @@ test("local API Keys remain selectable when a provider has no remote key endpoin
   assert.equal(selection.workspaceApiKeyError.value, "");
 });
 
+test("a hanging API Key read releases the picker's loading state after the timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const currentProvider = ref<Provider | null>(provider("hanging", ""));
+  const selection = useWorkspaceApiKeySelection({
+    currentProvider,
+    listApiKeys: () => new Promise(() => {}),
+  });
+
+  const load = selection.loadWorkspaceApiKeys(currentProvider.value!);
+  await Promise.resolve();
+  assert.equal(selection.workspaceApiKeyLoading.value, true);
+
+  // IPC 一直不返回时启动面板会停在读取态；超时必须收口并说明原因。
+  t.mock.timers.tick(15_000);
+  await load;
+  assert.equal(selection.workspaceApiKeyLoading.value, false);
+  assert.equal(selection.workspaceApiKeyError.value, "读取 API Key 超时，请重试");
+});
+
 test("legacy token preferences normalize to the stable local API Key identity", async () => {
   const currentProvider = ref<Provider | null>(provider("remote", "sk-remote"));
   currentProvider.value!.auth.apiKeyOptions = [

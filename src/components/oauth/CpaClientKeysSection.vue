@@ -26,20 +26,29 @@ const keyDraft = ref("");
 /// readable until the section closes.
 const revealedKey = ref("");
 let keyRequest = 0;
+/// 写操作只跟随站点/凭据版本失效，不被并发的列表读取打断。
+let keysView = 0;
 let disposed = false;
 onScopeDispose(() => {
   disposed = true;
+  keysView++;
 });
+/// 只有切换站点才需要清空列表。revision 变化只说明凭据版本变了：客户端
+/// 密钥属于网关本身，后台换令牌不能把已读到的列表、刚粘贴的密钥或展开
+/// 状态清掉。写入使用的是最新 revision，冲突会显示在面板里。
 watch(
-  () => [props.provider.identity.id, props.revision],
+  () => props.provider.identity.id,
   () => {
     keyRequest++;
+    keysView++;
     clientKeys.value = null;
     keysError.value = "";
     keysOpen.value = false;
     keyDraft.value = "";
     revealedKey.value = "";
     keysLoading.value = false;
+    // 换站点后，上一次添加/删除不能再占用新列表的按钮状态。
+    keysSaving.value = false;
   },
 );
 /// The collapsed line has to answer "do I have anything to hand a client?"
@@ -79,15 +88,19 @@ async function loadKeys() {
 async function addKey() {
   if (keysSaving.value || disposed) return;
   const id = props.provider.identity.id;
+  const revision = props.revision;
+  const view = keysView;
   keysSaving.value = true;
   keysError.value = "";
   try {
     const result: CpaClientKeyAdded = await addCpaClientKey(
       id,
       keyDraft.value.trim(),
-      props.revision,
+      revision,
     );
-    if (disposed || props.provider.identity.id !== id) return;
+    if (!sameKeyView(id, view)) return;
+    // 作废可能还在途中的旧列表读取，避免它用没有新密钥的快照覆盖结果。
+    keyRequest++;
     clientKeys.value = result.list.keys;
     keyDraft.value = "";
     /// A key this app minted exists nowhere else yet, so it stays visible
@@ -95,14 +108,16 @@ async function addKey() {
     revealedKey.value = result.value;
     Message.success("客户端密钥已添加");
   } catch (cause) {
-    if (!disposed) keysError.value = String(cause);
+    if (!disposed && view === keysView) keysError.value = String(cause);
   } finally {
-    keysSaving.value = false;
+    if (view === keysView) keysSaving.value = false;
   }
 }
 async function removeKey(key: string) {
   if (keysSaving.value || disposed) return;
   const id = props.provider.identity.id;
+  const revision = props.revision;
+  const view = keysView;
   keysSaving.value = true;
   keysError.value = "";
   try {
@@ -112,17 +127,24 @@ async function removeKey(key: string) {
       "删除密钥",
       "danger",
     );
-    if (!confirmed || disposed || props.provider.identity.id !== id) return;
-    const result = await removeCpaClientKey(id, key, props.revision);
-    if (disposed || props.provider.identity.id !== id) return;
+    if (!confirmed || !sameKeyView(id, view)) return;
+    const result = await removeCpaClientKey(id, key, revision);
+    if (!sameKeyView(id, view)) return;
+    keyRequest++;
     clientKeys.value = result.keys;
     if (revealedKey.value === key) revealedKey.value = "";
     Message.success("客户端密钥已删除");
   } catch (cause) {
-    if (!disposed) keysError.value = String(cause);
+    if (!disposed && view === keysView) keysError.value = String(cause);
   } finally {
-    keysSaving.value = false;
+    if (view === keysView) keysSaving.value = false;
   }
+}
+/// 请求返回时只有仍是同一个站点、同一段列表视图才能写回；换站点或重新
+/// 打开列表会让旧结果失效。凭据版本不参与判断：密钥属于网关本身，换令牌
+/// 不会让已完成的添加结果变得无效。
+function sameKeyView(id: string, view: number) {
+  return !disposed && view === keysView && props.provider.identity.id === id;
 }
 async function copyKey(key: string) {
   try {

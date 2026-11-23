@@ -77,7 +77,7 @@ const emit = defineEmits<{
   addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
   launchTemporaryCli: [provider: Provider];
   cpaRenewAll: [provider: Provider];
-  reauthorizeOauthCard: [provider: Provider];
+  reauthorizeCard: [provider: Provider];
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
@@ -117,8 +117,8 @@ const actionListeners = {
     emit("addProviderToApp", provider, target),
   launchTemporaryCli: (provider: Provider) => emit("launchTemporaryCli", provider),
   cpaRenewAll: (provider: Provider) => emit("cpaRenewAll", provider),
-  reauthorizeOauthCard: (provider: Provider) =>
-    emit("reauthorizeOauthCard", provider),
+  reauthorizeCard: (provider: Provider) =>
+    emit("reauthorizeCard", provider),
   copyUrl: (provider: Provider) => emit("copyUrl", provider),
   copyInvite: (provider: Provider) => emit("copyInvite", provider),
   copySecret: (

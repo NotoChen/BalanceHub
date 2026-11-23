@@ -118,10 +118,14 @@ test("the toolbar overview reads every site once and a late card read cannot rep
   await settle();
   assert.equal(panel.usageProvider.value, null, "汇总视图不绑定单个中转站");
   assert.equal(panel.usageVisible.value, true);
-  assert.ok(periods.length >= 1 && periods.every((period) => period === "24h"), `读取了 ${JSON.stringify(periods)}`);
+  assert.equal(periods.length, 1, `打开汇总只应读取一次，实际 ${JSON.stringify(periods)}`);
   overview.resolve({ requestCount: 12, modelStats: [], modelHealth: [], errors: [{ providerId: "a", providerName: "A", message: "离线" }], windowMinutes: 600 });
   await settle();
   assert.equal(panel.usageOverview.value?.requestCount, 12);
+  // 已经停在汇总视图里再次点击顶栏入口，仍然要重读一次。
+  panel.openUsageSummary();
+  await settle();
+  assert.equal(periods.length, 2, "重复点击汇总入口不能停在旧结果上");
   // 打开另一张卡片的用量：汇总结果和卡片结果不能互相顶替。
   panel.openUsage(provider("a"));
   assert.equal(panel.usageOverview.value, null);
@@ -129,6 +133,46 @@ test("the toolbar overview reads every site once and a late card read cannot rep
   await settle();
   assert.equal(panel.usageSummary.value?.points[0].used, 3);
   assert.equal(panel.usageOverview.value, null);
+  assert.equal(panel.usageLoading.value, false);
+});
+
+test("switching periods in the overview drops the previous period's totals", async (t) => {
+  const reads: Array<{
+    period: string;
+    pending: {
+      promise: Promise<ProviderUsageOverview>;
+      resolve: (value: ProviderUsageOverview) => void;
+      reject: (reason: Error) => void;
+    };
+  }> = [];
+  const panel = scoped(t, () => useUsageSummary({
+    loadUsage: async () => assert.fail("汇总视图不应读取单站用量"),
+    loadOverview: (period) => {
+      const pending = deferred<ProviderUsageOverview>();
+      reads.push({ period, pending });
+      return pending.promise;
+    },
+  }));
+  panel.openUsageSummary();
+  await settle();
+  reads[0].pending.resolve({ requestCount: 12, modelStats: [], modelHealth: [], errors: [], windowMinutes: 1440 });
+  await settle();
+  assert.equal(panel.usageOverview.value?.requestCount, 12);
+
+  panel.usagePeriod.value = "7d";
+  assert.equal(
+    panel.usageOverview.value,
+    null,
+    "新时段的标题已经生效，旧时段的数字不能继续挂在下面冒充新读数",
+  );
+  assert.equal(panel.usageLoading.value, true);
+  await settle();
+  assert.deepEqual(reads.map((read) => read.period), ["24h", "7d"]);
+
+  reads[1].pending.reject(new Error("读取失败"));
+  await settle();
+  assert.equal(panel.usageOverview.value, null, "换时段读取失败不能把旧时段的汇总恢复出来");
+  assert.equal(panel.usageError.value, "读取失败");
   assert.equal(panel.usageLoading.value, false);
 });
 

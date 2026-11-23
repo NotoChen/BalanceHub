@@ -369,6 +369,68 @@ test("renewal confirmation cannot enable a replaced authorization", async (t) =>
   assert.equal(state.busy.value, false);
 });
 
+test("metadata drafts follow a background update until the user edits that field", async (t) => {
+  const props = reactive({ provider: provider() });
+  const writes: unknown[][] = [];
+  const { default: component } = loadSource<{ default: SetupComponent }>(
+    "components/oauth/OAuthAccountPanel.vue",
+    {
+      ...shared,
+      "../../api/oauth-accounts": {
+        getOAuthAccount: async () => ({ provider: props.provider }),
+        updateOAuthAccount: async (
+          id: string,
+          name: string,
+          remark: string,
+          interval: number,
+        ) => {
+          writes.push([id, name, remark, interval]);
+          return {
+            ...props.provider,
+            identity: { ...props.provider.identity, name, remark },
+            automation: { ...props.provider.automation, refreshInterval: interval },
+          };
+        },
+      },
+      "../../stores/providers": {
+        useProviderStore: () => ({ upsertProvider() {} }),
+      },
+      "./AccountQuotaBar.vue": {},
+      "../AgentCliIcon.vue": {},
+      "./OAuthExportPanel.vue": {},
+      "./OAuthCredentialEditor.vue": {},
+    },
+  );
+  const { state } = mount(t, component, props);
+  await settle();
+
+  // 检查授权或云同步替换了卡片数据：未编辑的草稿要跟随，不能停在旧值。
+  props.provider = {
+    ...provider(),
+    identity: { id: "oauth-fixture", name: "站点自报名", remark: "云端备注" },
+    automation: { refreshInterval: 1800 },
+  };
+  await nextTick();
+  assert.equal(state.name.value, "站点自报名");
+  assert.equal(state.remark.value, "云端备注");
+  assert.equal(state.interval.value, 1800);
+
+  // 用户改过的备注属于当前草稿，后台再次更新名称时不能被一起覆盖。
+  state.remark.value = "我的备注";
+  props.provider = {
+    ...props.provider,
+    identity: { ...props.provider.identity, name: "再次刷新" },
+  };
+  await nextTick();
+  assert.equal(state.name.value, "再次刷新");
+  assert.equal(state.remark.value, "我的备注");
+
+  await state.saveMetadata();
+  assert.deepEqual(writes, [
+    ["oauth-fixture", "再次刷新", "我的备注", 1800],
+  ]);
+});
+
 function oauthLauncher(store: Record<string, any>) {
   const { default: component } = loadSource<{ default: SetupComponent }>(
     "components/oauth/OAuthWorkspace.vue",
@@ -938,6 +1000,39 @@ test("CPA client key adds reveal the minted value and release state after failur
   assert.equal(failing.state.keysSaving.value, false);
 });
 
+test("a background credential change keeps the client key draft and view", async (t) => {
+  const sent: unknown[][] = [];
+  const props = reactive({ provider: provider("gateway"), revision: 3 });
+  const { state } = clientKeysPanel(
+    t,
+    {
+      listCpaClientKeys: async () => ({ keys: ["sk-existing"] }),
+      addCpaClientKey: (id: string, value: string, revision: number) => {
+        sent.push([id, value, revision]);
+        return Promise.resolve({
+          list: { keys: ["sk-existing", "sk-new"] },
+          value: "sk-new",
+        });
+      },
+    },
+    props,
+  );
+  state.toggleKeys();
+  await settle();
+  state.keyDraft.value = "sk-new";
+  props.revision = 4;
+  await settle();
+  assert.equal(state.keysOpen.value, true, "the section stays open");
+  assert.deepEqual(state.clientKeys.value, ["sk-existing"], "the list survives");
+  assert.equal(state.keyDraft.value, "sk-new", "the pasted key survives");
+
+  // 添加使用最新的凭据版本，结果仍然落在同一张列表上。
+  await state.addKey();
+  assert.deepEqual(sent, [["gateway", "sk-new", 4]]);
+  assert.deepEqual(state.clientKeys.value, ["sk-existing", "sk-new"]);
+  assert.equal(state.revealedKey.value, "sk-new");
+});
+
 test("CPA client key removal asks first and keeps the list untouched on cancel", async (t) => {
   const removed: unknown[][] = [];
   let confirmations = 0;
@@ -1134,15 +1229,25 @@ test("a model rule write that lands after the editor closed only refreshes the s
   assert.equal(state.saving.value, false);
 });
 
-test("a background card refresh collapses model rules but keeps the open draft", async (t) => {
+test("a background credential change keeps model rules open and their drafts", async (t) => {
+  const revisions: number[] = [];
   const props = reactive({ provider: provider("gateway"), revision: 1 });
   const { state } = modelRulesPanel(
     t,
     {
       getCpaModelRules: async () => ({
-        excludedModels: "{}",
+        excludedModels: '{"claude":["opus"]}',
         modelAliases: '{\n  "codex": []\n}',
       }),
+      updateCpaModelRules: (
+        _id: string,
+        kind: string,
+        content: string,
+        revision: number,
+      ) => {
+        revisions.push(revision);
+        return Promise.resolve({ excludedModels: "{}", modelAliases: content });
+      },
     },
     props,
   );
@@ -1152,13 +1257,20 @@ test("a background card refresh collapses model rules but keeps the open draft",
   state.draft.value = '{"codex":[{"name":"gpt-5","alias":"fast"}]}';
   props.revision = 2;
   await settle();
-  assert.equal(state.open.value, false, "the section follows the new revision");
-  assert.equal(state.rules.value, null);
+  assert.equal(state.open.value, true, "revision-only refresh keeps the section");
+  assert.ok(state.rules.value, "the loaded rules survive");
+  assert.equal(state.editing.value, "modelAliases", "the editor stays open");
   assert.equal(
     state.draft.value,
     '{"codex":[{"name":"gpt-5","alias":"fast"}]}',
-    "a refresh does not discard a half-written rule",
+    "a credential change does not discard a half-written rule",
   );
+  assert.equal(state.dirty(), true);
+
+  // 保存跟随最新的凭据版本，不会被后台刷新卡住。
+  await state.save();
+  assert.deepEqual(revisions, [2]);
+  assert.equal(state.dirty(), false);
 });
 
 test("the exclusion editor offers the channel catalog and writes checked models", async (t) => {
@@ -1897,6 +2009,26 @@ test("installing names the source and version, reports the restart and rereads t
   assert.deepEqual(events, [["installed"]]);
 });
 
+test("an install that fails keeps its reason instead of reading it away", async (t) => {
+  let reads = 0;
+  const { state } = pluginStore(t, {
+    listCpaPluginStore: async () => {
+      reads++;
+      return { enabled: true, plugins: [storePlugin()], sourceErrors: [] };
+    },
+    installCpaPlugin: async () => {
+      throw new Error("source returned 404");
+    },
+  });
+  await settle();
+  assert.equal(reads, 1);
+  await state.install(state.store.value.plugins[0]);
+  assert.match(state.error.value, /404/);
+  assert.equal(reads, 1, "失败后不重读：读取会先清空刚写入的失败原因");
+  assert.equal(state.installing.value, "");
+  assert.equal(state.notice.value, "");
+});
+
 test("declining the install confirmation leaves the gateway untouched", async (t) => {
   const calls: unknown[][] = [];
   const { state } = pluginStore(
@@ -1999,6 +2131,54 @@ test("removing a plugin asks first, writes the revision and rereads the list", a
   assert.deepEqual(removals, [["gateway", "oauth-login", 7]]);
   assert.equal(reads, 2, "the gateway list is read again after the removal");
   assert.equal(state.removing.value, null);
+});
+
+test("a removal that fails keeps its reason and the row", async (t) => {
+  let reads = 0;
+  const props = reactive({
+    visible: true,
+    provider: provider("gateway"),
+    revision: 3,
+  });
+  const { default: component } = loadSource<{ default: SetupComponent }>(
+    "components/oauth/CpaPluginsDialog.vue",
+    {
+      ...shared,
+      "../ContentEditor.vue": {},
+      "./CpaPluginStore.vue": {},
+      "../../api/oauth-accounts": {
+        listCpaPlugins: async () => {
+          reads++;
+          return {
+            enabled: true,
+            plugins: [
+              {
+                id: "oauth-login",
+                name: "OAuth Login",
+                version: "1.0.0",
+                enabled: true,
+                effectiveEnabled: true,
+                configured: true,
+                registered: true,
+                supportsQuota: false,
+              },
+            ],
+          };
+        },
+        removeCpaPlugin: async () => {
+          throw new Error("plugin is still loaded");
+        },
+      },
+    },
+  );
+  const { state } = mount(t, component, props);
+  await settle();
+  assert.equal(reads, 1);
+  await state.remove(state.plugins.value.plugins[0]);
+  assert.match(state.error.value, /still loaded/);
+  assert.equal(reads, 1, "失败后不重读：读取会清空失败原因");
+  assert.equal(state.removing.value, null);
+  assert.equal(state.plugins.value.plugins.length, 1);
 });
 
 test("a declined removal never reaches the gateway or drops the plugin", async (t) => {

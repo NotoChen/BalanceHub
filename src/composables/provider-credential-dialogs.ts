@@ -108,6 +108,13 @@ export function chooseSameSiteApiKeyAction(existingName: string) {
   });
 }
 
+/// 表单类弹窗关闭前的统一确认：只有 dirty 时才拦，取消则留在原窗口。
+export function confirmDiscardChanges(
+  content = "当前编辑内容还没有保存，关闭后这次修改会丢失。",
+): Promise<boolean> {
+  return confirmAction("放弃未保存的修改？", content, "放弃修改", "warning");
+}
+
 export function confirmAction(
   title: string,
   content: string,

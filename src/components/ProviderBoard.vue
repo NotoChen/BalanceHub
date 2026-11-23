@@ -36,6 +36,9 @@ const props = withDefaults(defineProps<{
   loading: boolean;
   initialized: boolean;
   loadError: string | null;
+  /// 运行期存储保护态：卡片仍可查看，但保存已暂停，只能重启恢复。
+  storageBlockedError?: string | null;
+  restoringBackup?: boolean;
   providers: Provider[];
   /// 测活目标按全局设置回落，卡片和看板使用同一份目标。
   settings?: LivenessSettings;
@@ -60,6 +63,8 @@ const props = withDefaults(defineProps<{
   showLivenessTimeline: (provider: Provider) => boolean;
 }>(), {
   searchQuery: "",
+  storageBlockedError: null,
+  restoringBackup: false,
   refreshInProgress: false,
   refreshQueuedProviderIds: () => new Set<string>(),
 });
@@ -80,7 +85,9 @@ watch([() => props.searchQuery, activeFilter], () => {
 const emit = defineEmits<{
   add: [];
   importData: [];
+  restoreBackup: [];
   retryLoad: [];
+  restartApp: [];
   cardClick: [provider: Provider];
   cardPointerdown: [provider: Provider, event: PointerEvent];
   toggle: [provider: Provider];
@@ -100,7 +107,7 @@ const emit = defineEmits<{
   openCheckInRecords: [provider: Provider];
   addProviderToApp: [provider: Provider, target: ProviderAppImportTarget];
   cpaRenewAll: [provider: Provider];
-  reauthorizeOauthCard: [provider: Provider];
+  reauthorizeCard: [provider: Provider];
   copyUrl: [provider: Provider];
   copyInvite: [provider: Provider];
   copySecret: [provider: Provider, field: "apiKey" | "accessToken" | "sessionCookie"];
@@ -168,13 +175,25 @@ function providerSwitchingCliKind(provider: Provider) {
   >
     <a-spin v-if="loading && !initialized" tip="正在加载本地配置..." />
 
-    <a-alert v-if="loadError" type="error" show-icon class="provider-load-error">
+    <a-alert v-if="loadError && !storageBlockedError" type="error" show-icon class="provider-load-error">
       <template #title>本地配置未加载</template>
       <div class="provider-load-error-content">
         <span>{{ loadError }}</span>
         <div class="provider-load-error-actions">
           <a-button type="primary" size="small" :loading="loading" @click="emit('retryLoad')">重新读取</a-button>
-          <a-button size="small" :disabled="loading" @click="emit('importData')">从备份恢复</a-button>
+          <a-button size="small" :loading="restoringBackup" :disabled="loading" @click="emit('restoreBackup')">自动备份恢复</a-button>
+          <a-button size="small" :disabled="loading || restoringBackup" @click="emit('importData')">从文件恢复</a-button>
+          <a-button size="small" :disabled="loading || restoringBackup" @click="emit('restartApp')">重启应用</a-button>
+        </div>
+      </div>
+    </a-alert>
+
+    <a-alert v-if="storageBlockedError" type="warning" show-icon class="provider-load-error">
+      <template #title>本地配置已暂停写入</template>
+      <div class="provider-load-error-content">
+        <span>{{ storageBlockedError }}</span>
+        <div class="provider-load-error-actions">
+          <a-button type="primary" size="small" @click="emit('restartApp')">重启应用恢复</a-button>
         </div>
       </div>
     </a-alert>
@@ -240,7 +259,7 @@ function providerSwitchingCliKind(provider: Provider) {
           @open-check-in-records="emit('openCheckInRecords', $event)"
           @add-provider-to-app="(provider, target) => emit('addProviderToApp', provider, target)"
           @cpa-renew-all="emit('cpaRenewAll', $event)"
-          @reauthorize-oauth-card="emit('reauthorizeOauthCard', $event)"
+          @reauthorize-card="emit('reauthorizeCard', $event)"
           @launch-temporary-cli="emit('launchTemporaryCli', $event)"
           @copy-url="emit('copyUrl', $event)"
           @copy-invite="emit('copyInvite', $event)"

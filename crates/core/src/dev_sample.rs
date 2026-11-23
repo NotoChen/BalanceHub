@@ -245,6 +245,7 @@ fn new_api_error() -> Provider {
         consecutive_failures: 0,
         cooldown_until: None,
         cooldown_reason: None,
+        credential_rejected: false,
     };
     provider
 }
@@ -262,6 +263,7 @@ fn new_api_disabled(now: i64) -> Provider {
         consecutive_failures: 0,
         cooldown_until: None,
         cooldown_reason: None,
+        credential_rejected: false,
     };
     provider
 }
@@ -286,6 +288,7 @@ fn new_api_pending() -> Provider {
         consecutive_failures: 0,
         cooldown_until: None,
         cooldown_reason: None,
+        credential_rejected: false,
     };
     provider
 }
@@ -649,6 +652,7 @@ fn cpa_gateway_offline() -> Provider {
         consecutive_failures: 0,
         cooldown_until: None,
         cooldown_reason: None,
+        credential_rejected: false,
     };
     provider
 }
@@ -917,6 +921,7 @@ fn settle(mut provider: Provider, status: ProviderStatus, now: i64) -> Provider 
         consecutive_failures: 0,
         cooldown_until: None,
         cooldown_reason: None,
+        credential_rejected: false,
     };
     provider.automation.last_synced_at = Some(now.to_string());
     provider

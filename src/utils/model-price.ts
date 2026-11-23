@@ -166,9 +166,10 @@ export function modelPriceComparison(
       : null;
   const ratio = inputRatio ?? outputRatio;
   if (ratio == null || !Number.isFinite(ratio) || ratio < 0) return null;
-  const ratios = [inputRatio, outputRatio].filter(
-    (value): value is number => value != null,
-  );
+  // 徽标同时承担标签和颜色两种信息，必须用同一个比率。此前标签取输入、
+  // 颜色取两者最差值，输入便宜而输出贵时会出现“5 折”配红色告警的
+  // 自相矛盾；逐项差异仍完整保留在悬停详情里。
+
   const details: string[] = [];
   if (inputRatio != null) {
     details.push(
@@ -187,7 +188,7 @@ export function modelPriceComparison(
   return {
     ratio,
     label: discountLabel(ratio),
-    tone: comparisonTone(Math.max(...ratios)),
+    tone: comparisonTone(ratio),
     detail: details.join("；"),
   };
 }

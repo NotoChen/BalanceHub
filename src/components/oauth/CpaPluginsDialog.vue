@@ -11,7 +11,10 @@ import {
   setCpaPluginEnabled,
   updateCpaPluginConfig,
 } from "../../api/oauth-accounts";
-import { confirmAction } from "../../composables/provider-credential-dialogs";
+import {
+  confirmAction,
+  confirmDiscardChanges,
+} from "../../composables/provider-credential-dialogs";
 import ContentEditor from "../ContentEditor.vue";
 import CpaPluginStore from "./CpaPluginStore.vue";
 
@@ -44,6 +47,9 @@ const configLoading = ref(false);
 const configSaving = ref(false);
 const configError = ref("");
 let pluginRequest = 0;
+/// 插件配置的一次打开编辑；关闭或换插件后，旧保存不能再改新会话的草稿。
+let configSession = 0;
+let closingConfig = false;
 /// Removals are guarded apart from reads: the list read that follows a
 /// successful removal must not make the finishing removal look stale.
 let removeRequest = 0;
@@ -52,6 +58,7 @@ onScopeDispose(() => {
   disposed = true;
   pluginRequest++;
   removeRequest++;
+  configSession++;
 });
 watch(
   /// Only the connection and the open state reset the dialog: a background
@@ -110,6 +117,8 @@ async function openConfig(plugin: CpaPlugin) {
   /// sequence number drops the answer that no longer matches the open row.
   if (editing.value?.id === plugin.id && configLoading.value) return;
   const sequence = ++pluginRequest;
+  configSession++;
+  configSaving.value = false;
   const id = props.provider.identity.id;
   editing.value = plugin;
   configText.value = "";
@@ -129,13 +138,40 @@ async function openConfig(plugin: CpaPlugin) {
 }
 function closeConfig() {
   pluginRequest++;
+  configSession++;
+  closingConfig = false;
   editing.value = null;
   configText.value = "";
   configOriginal.value = "";
   configError.value = "";
   configLoading.value = false;
+  configSaving.value = false;
 }
 const configDirty = () => configText.value !== configOriginal.value;
+
+async function requestCloseConfig() {
+  if (closingConfig) return;
+  if (configSaving.value || !configDirty()) {
+    closeConfig();
+    return;
+  }
+  closingConfig = true;
+  try {
+    if (await confirmDiscardChanges("插件配置还有未保存的修改，返回后需要重新读取。")) {
+      closeConfig();
+    }
+  } finally {
+    closingConfig = false;
+  }
+}
+
+async function requestClose() {
+  if (editing.value) {
+    await requestCloseConfig();
+    return;
+  }
+  emit("close");
+}
 /// Removing deletes the plugin file together with `plugins.configs.<id>`, so
 /// the credentials the plugin stored are gone as well. A plugin that is still
 /// loaded has to be unloaded by a gateway restart, which the gateway reports.
@@ -152,9 +188,11 @@ async function remove(plugin: CpaPlugin) {
   const id = props.provider.identity.id;
   removing.value = plugin.id;
   error.value = "";
+  let removed = false;
   try {
     const result = await removeCpaPlugin(id, plugin.id, props.revision);
     if (disposed || sequence !== removeRequest) return;
+    removed = true;
     Message.success(
       result.configuredRemoved ? "插件与配置已移除" : "插件文件已移除",
     );
@@ -165,12 +203,14 @@ async function remove(plugin: CpaPlugin) {
   }
   /// A removed plugin is gone from both the gateway list and the store's
   /// installed state, so the list is read again instead of patched locally.
-  if (!disposed && sequence === removeRequest) await load();
+  /// 失败时不重读：读取会清空错误提示，用户就看不到没移除成功的原因。
+  if (removed && !disposed && sequence === removeRequest) await load();
 }
 async function saveConfig() {
   const plugin = editing.value;
   if (!plugin || configSaving.value) return;
   const id = props.provider.identity.id;
+  const session = configSession;
   configSaving.value = true;
   configError.value = "";
   try {
@@ -180,17 +220,22 @@ async function saveConfig() {
       configText.value,
       props.revision,
     );
-    if (disposed || editing.value !== plugin) return;
+    if (disposed) return;
+    Message.success("插件配置已保存");
+    // 保存期间返回列表或换插件后，旧结果不能写进新会话。
+    if (session !== configSession || editing.value?.id !== plugin.id) return;
     /// The gateway may normalize the object it stored; keep the confirmed
     /// version instead of the draft so the next save starts from it.
     configText.value = result.content;
     configOriginal.value = result.content;
     plugin.configured = true;
-    Message.success("插件配置已保存");
   } catch (cause) {
-    if (!disposed) configError.value = String(cause);
+    if (disposed) return;
+    const message = String(cause);
+    if (session === configSession) configError.value = message;
+    else Message.error(`插件配置保存失败：${message}`);
   } finally {
-    configSaving.value = false;
+    if (session === configSession) configSaving.value = false;
   }
 }
 </script>
@@ -201,11 +246,11 @@ async function saveConfig() {
     width="680px"
     :footer="false"
     unmount-on-close
-    @cancel="emit('close')"
+    @cancel="requestClose"
   >
     <template v-if="editing">
       <div class="cpa-plugin-editor-head">
-        <a-button size="mini" @click="closeConfig"
+        <a-button size="mini" @click="requestCloseConfig"
           ><template #icon><ChevronLeft :size="12" /></template>返回插件列表</a-button
         >
       </div>

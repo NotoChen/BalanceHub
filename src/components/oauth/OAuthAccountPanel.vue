@@ -44,6 +44,40 @@ const credentialEditor = ref(false);
 const name = ref(props.provider.identity.name);
 const remark = ref(props.provider.identity.remark);
 const interval = ref(props.provider.automation.refreshInterval);
+/// 后台刷新和云同步会替换 Provider 对象，可能同时改写卡片名称、备注或刷新
+/// 间隔。草稿只在用户没有改过这个字段时跟随，已经输入的内容不能被覆盖；
+/// 否则一次只改备注的保存会把后台刚同步来的名称写回旧值。
+let syncedMetadata = {
+  name: props.provider.identity.name,
+  remark: props.provider.identity.remark,
+  interval: props.provider.automation.refreshInterval,
+};
+watch(
+  () => [
+    props.provider.identity.id,
+    props.provider.identity.name,
+    props.provider.identity.remark,
+    props.provider.automation.refreshInterval,
+  ] as const,
+  ([id, nextName, nextRemark, nextInterval], previous) => {
+    if (previous?.[0] !== id) {
+      // 换账号时整份草稿都属于新账号，没有需要保留的旧输入。
+      name.value = nextName;
+      remark.value = nextRemark;
+      interval.value = nextInterval;
+    } else {
+      if (name.value === syncedMetadata.name) name.value = nextName;
+      if (remark.value === syncedMetadata.remark) remark.value = nextRemark;
+      if (interval.value === syncedMetadata.interval)
+        interval.value = nextInterval;
+    }
+    syncedMetadata = {
+      name: nextName,
+      remark: nextRemark,
+      interval: nextInterval,
+    };
+  },
+);
 let request = 0;
 let disposed = false;
 const oauth = computed(() => props.provider.auth.oauth!);

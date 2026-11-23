@@ -208,3 +208,41 @@ test("switching accounts drops the loaded settings and the open state", async (t
   assert.equal(state.settingsDraft.value, null);
   assert.equal(state.settingsOpen.value, false);
 });
+
+test("a background revision change keeps the draft and the config dialog", async (t) => {
+  const writes: Array<{ patch: CpaGatewaySettingsUpdate; revision: number }> = [];
+  const props = reactive({ provider: provider(), revision: 1 });
+  const { state } = section(
+    t,
+    {
+      "../../api/oauth-accounts": {
+        getCpaGatewaySettings: async () => saved,
+        updateCpaGatewaySettings: async (
+          _id: string,
+          patch: CpaGatewaySettingsUpdate,
+          revision: number,
+        ) => {
+          writes.push({ patch, revision });
+        },
+      },
+    },
+    props,
+  );
+  await open(state);
+  state.settingsDraft.value.proxyUrl = "http://127.0.0.1:7890";
+  state.configOpen.value = true;
+
+  // 卡片在后台刷新了版本号：草稿、展开状态和完整配置窗口都还在。
+  props.revision = 2;
+  await settle();
+  assert.equal(state.settingsOpen.value, true);
+  assert.equal(state.configOpen.value, true);
+  assert.equal(state.settingsDraft.value.proxyUrl, "http://127.0.0.1:7890");
+  assert.equal(state.settingsDirty.value, true);
+
+  // 保存使用刷新后的版本号写入，不会被后台刷新卡住。
+  await state.saveSettings();
+  assert.deepEqual(writes, [
+    { patch: { proxyUrl: "http://127.0.0.1:7890" }, revision: 2 },
+  ]);
+});

@@ -62,8 +62,16 @@ export function useProviderCopyActions(options: UseProviderCopyActionsOptions) {
     try {
       const link = provider.capabilities.inviteLink || (await options.getInviteLink(provider.identity.id));
       await copyText(link);
-      await options.reload();
+      // 链接已经写进剪贴板；列表刷新只是顺带更新展示，失败不能把这次复制
+      // 说成失败，否则用户会以为没复制而重复操作。
       Message.success("已复制邀请链接");
+      try {
+        await options.reload();
+      } catch (error) {
+        Message.warning(
+          `邀请链接已复制，但列表刷新失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     } catch (error) {
       Message.error(error instanceof Error ? error.message : String(error));
     } finally {

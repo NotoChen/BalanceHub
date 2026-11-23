@@ -7,8 +7,8 @@ export interface ProviderBrowserLoginTask {
   providerId: string | null;
   providerName: string;
   loginAccountId: string;
-  operation: "import" | "account";
-  phase: "queued" | "opening" | "waitingLogin" | "saving" | "completed" | "failed" | "cancelled";
+  operation: "import" | "account" | "reauth";
+  phase: "queued" | "opening" | "running" | "waitingLogin" | "saving" | "completed" | "failed" | "cancelled";
   message: string;
   startedAt: number;
   finishedAt: number | null;

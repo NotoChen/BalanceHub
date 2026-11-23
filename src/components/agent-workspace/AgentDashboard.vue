@@ -156,7 +156,7 @@ watch(() => [props.active, model.navigation.navigationRevision, model.navigation
 const native = model.environment.assets;
 const selectedNativeOperations = computed(() => native.operations.filter((operation) => model.navigation.operationDetails?.kind === "native"
   && model.navigation.operationDetails.id === operation.id));
-const taskRecoveryError = computed(() => [...new Set([model.catalogStore.recoveryError, model.lifecycleStore.recoveryError, native.operationRecoveryError].filter(Boolean))].join("；"));
+const taskRecoveryError = computed(() => [...new Set([model.catalogStore.recoveryError, model.lifecycleStore.recoveryError, maintenance.recoveryError, native.operationRecoveryError].filter(Boolean))].join("；"));
 const operationAssetLabels = computed(() => Object.fromEntries((model.environment.inventory?.assets ?? []).map((asset) => [asset.stableId, asset.label || asset.nativeId])));
 const sourceContext = computed(() => native.selectedSource ? native.catalog.indexes.contexts.get(native.selectedSource.contextId) ?? null : null);
 const sourceInstallations = computed(() => (sourceContext.value?.compatibleInstallationIds ?? []).flatMap((id) => {
@@ -194,7 +194,7 @@ function assetError(id: string) {
   const latest = operationIndex.value.latest.get(id);
   return model.catalog.libraryErrors[id] || model.catalogStore.startErrors[id] || (latest && model.catalogStore.errors[latest.id]) || "";
 }
-function recoverTasks() { void Promise.allSettled([model.catalogStore.recover(), model.lifecycleStore.recover(), native.recoverOperations()]); }
+function recoverTasks() { void Promise.allSettled([model.catalogStore.recover(), model.lifecycleStore.recover(), maintenance.recover(), native.recoverOperations()]); }
 function openCatalogNative(id: string) { model.catalog.management.close(); model.openNative(id); }
 function selectAgent(value: unknown) { model.navigation.selectAgent(props.cliRuntime.agents.find((agent) => agent.kind === value)?.kind ?? null); }
 function openLibrary(id: string | null = null) {
@@ -232,7 +232,7 @@ defineExpose({ refresh });
       </div>
     </header>
     <div ref="content" class="agent-dashboard-content" :class="{ 'has-catalog': model.navigation.page !== 'overview' && model.navigation.page !== 'sessions', 'has-session-history': model.navigation.page === 'sessions' && model.navigation.sessionView === 'history' }" @scroll="cancelCardDrag">
-      <p v-if="taskRecoveryError" class="agent-workspace-error" role="alert">{{ taskRecoveryError }}<a-button type="text" size="small" :loading="model.catalogStore.recovering || model.lifecycleStore.recovering" @click="recoverTasks">重新读取任务状态</a-button></p>
+      <p v-if="taskRecoveryError" class="agent-workspace-error" role="alert">{{ taskRecoveryError }}<a-button type="text" size="small" :loading="model.catalogStore.recovering || model.lifecycleStore.recovering || maintenance.recovering" @click="recoverTasks">重新读取任务状态</a-button></p>
       <template v-if="model.navigation.page === 'overview'">
         <header class="agent-section-toolbar agent-overview-toolbar"><p>{{ model.cards.length }} 个 Agent</p><div class="agent-inline-actions"><WorkspaceLayoutSwitch :model-value="layout" @update:model-value="layoutStore.setBoardLayout('agents', $event)" /><a-button size="small" @click="recommendationVisible = true"><template #icon><Sparkles :size="16" /></template>中转站推荐</a-button><a-button size="small" @click="model.openSelfCheck()"><template #icon><ShieldCheck :size="16" /></template>环境自检</a-button><a-button size="small" :loading="model.lifecycleStore.checkingVersions" @click="model.lifecycleStore.refresh('force')"><template #icon><RefreshCw :size="16" /></template>检查更新</a-button></div></header>
         <p v-if="model.error || model.lifecycleStore.error" class="agent-workspace-error" role="alert">{{ model.error || model.lifecycleStore.error }}</p>

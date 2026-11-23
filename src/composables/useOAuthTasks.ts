@@ -17,6 +17,9 @@ export function useOAuthTasks() {
   const store = useOAuthAccountStore();
   const providers = useProviderStore();
   const completed = new Set<string>();
+  /// 已提示过刷新失败的授权任务。任务保留在 completed 之外，下一次轮询仍会
+  /// 安静重试；但不能每 15 秒把同一条失败再弹一次。
+  const reportedRefreshFailures = new Set<string>();
   let disposed = false;
   let unlisten: UnlistenFn | undefined;
   let recovering = false;
@@ -45,9 +48,15 @@ export function useOAuthTasks() {
       );
       if (provider && !provider.automation.lastSyncedAt)
         await providers.refreshByIds([provider.identity.id]);
+      reportedRefreshFailures.delete(task.id);
     } catch (error) {
       completed.delete(task.id);
-      if (!disposed) Message.error(String(error));
+      // 列表刷新失败时保留重试：下一次轮询会把新账号补进来。失败说明只提示
+      // 一次，重试成功则不再提；重复弹同一条错误没有新的信息。
+      if (!disposed && !reportedRefreshFailures.has(task.id)) {
+        reportedRefreshFailures.add(task.id);
+        Message.error(String(error));
+      }
     }
   }
   async function recover() {

@@ -175,3 +175,39 @@ test("进度通道按事件名接收结果，参数里不带通道对象", async
   socket.deliver("provider-batch-progress", { status: "done" });
   assert.deepEqual(events, [{ status: "running" }], "请求结束后通道即解除");
 });
+
+test("被替换连接的迟到关闭事件不会清掉新连接或重复建流", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  // 结束上一条测试遗留的连接，强制下一次订阅建立新连接。
+  FakeSocket.instances.at(-1)?.close();
+  const received: unknown[] = [];
+  const unlistenFirst = await transport.listen("providers-changed", (event) => {
+    received.push(event.payload);
+  });
+  const replaced = FakeSocket.instances.at(-1)!;
+  replaced.readyState = FakeSocket.CLOSING;
+  const unlistenSecond = await transport.listen("storage-blocked", () => {});
+  const current = FakeSocket.instances.at(-1)!;
+  assert.notEqual(current, replaced);
+
+  current.readyState = FakeSocket.OPEN;
+  // 旧连接这时才派发 close：不能把新连接的引用和心跳一起清掉。
+  replaced.onclose?.();
+  current.deliver("providers-changed", { ids: ["new"] });
+  assert.deepEqual(received, [{ ids: ["new"] }], "旧连接关闭后新连接仍能收到事件");
+
+  const before = FakeSocket.instances.length;
+  const unlistenThird = await transport.listen("balancehub-events-reconnected", () => {});
+  assert.equal(
+    FakeSocket.instances.length,
+    before,
+    "新连接仍然有效时不应再建第二条事件流",
+  );
+
+  unlistenFirst();
+  unlistenSecond();
+  unlistenThird();
+  // 关闭当前连接以清理心跳定时器，避免事件循环被测试连接拖住。
+  current.close();
+  t.mock.timers.reset();
+});

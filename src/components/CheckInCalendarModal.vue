@@ -159,49 +159,54 @@ function dayTitle(record: ProviderCheckInRecord | null) {
       <a-alert v-if="error" type="warning">{{ error }}</a-alert>
 
       <a-spin :loading="loading">
-        <div class="checkin-calendar-summary">
-          <div>
-            <span>签到天数</span>
-            <strong>{{ checkedDays }}</strong>
-          </div>
-          <div>
-            <span>累计增加</span>
-            <strong>
-              {{
-                result
-                  ? formatQuotaValue(quotaTotal, result.quotaDisplay)
-                    : formatQuotaValue(0, {
-                      quotaDisplayType: provider?.quota.displayType || "currency",
-                      currencySymbol: provider?.quota.currencySymbol || "$",
-                    })
-              }}
-            </strong>
-          </div>
-          <div>
-            <span>今日奖励</span>
-            <strong>{{ todayRecord ? quotaLabel(todayRecord) : "-" }}</strong>
-          </div>
+        <div v-if="error && !result" class="checkin-calendar-empty" role="status">
+          本月签到记录未能读取。上面的错误可能只是暂时性的，重试后再看本月的天数与奖励。
         </div>
+        <template v-else>
+          <div class="checkin-calendar-summary">
+            <div>
+              <span>签到天数</span>
+              <strong>{{ checkedDays }}</strong>
+            </div>
+            <div>
+              <span>累计增加</span>
+              <strong>
+                {{
+                  result
+                    ? formatQuotaValue(quotaTotal, result.quotaDisplay)
+                      : formatQuotaValue(0, {
+                        quotaDisplayType: provider?.quota.displayType || "currency",
+                        currencySymbol: provider?.quota.currencySymbol || "$",
+                      })
+                }}
+              </strong>
+            </div>
+            <div>
+              <span>今日奖励</span>
+              <strong>{{ todayRecord ? quotaLabel(todayRecord) : "-" }}</strong>
+            </div>
+          </div>
 
-        <div class="checkin-calendar-grid">
-          <div v-for="day in weekDays" :key="day" class="checkin-calendar-weekday">{{ day }}</div>
-          <div
-            v-for="cell in calendarDays"
-            :key="cell.key"
-            class="checkin-calendar-day"
-            :class="{
-              'checkin-calendar-day-empty': !cell.day,
-              'checkin-calendar-day-checked': Boolean(cell.record),
-              'checkin-calendar-day-today': cell.today,
-            }"
-            :title="dayTitle(cell.record)"
-          >
-            <template v-if="cell.day">
-              <span>{{ cell.day }}</span>
-              <strong v-if="cell.record">{{ quotaLabel(cell.record) }}</strong>
-            </template>
+          <div class="checkin-calendar-grid">
+            <div v-for="day in weekDays" :key="day" class="checkin-calendar-weekday">{{ day }}</div>
+            <div
+              v-for="cell in calendarDays"
+              :key="cell.key"
+              class="checkin-calendar-day"
+              :class="{
+                'checkin-calendar-day-empty': !cell.day,
+                'checkin-calendar-day-checked': Boolean(cell.record),
+                'checkin-calendar-day-today': cell.today,
+              }"
+              :title="dayTitle(cell.record)"
+            >
+              <template v-if="cell.day">
+                <span>{{ cell.day }}</span>
+                <strong v-if="cell.record">{{ quotaLabel(cell.record) }}</strong>
+              </template>
+            </div>
           </div>
-        </div>
+        </template>
       </a-spin>
     </div>
   </a-modal>

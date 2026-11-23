@@ -16,6 +16,12 @@ import type { ProtocolSelectionSource, ProviderEditorSection } from "./provider-
 export function useProviderEditorState() {
   const drawerVisible = ref(false);
   const editorSession = ref(0);
+  /// 后台同步（Key 轮换、令牌续期）也会改草稿，但那不是用户编辑；每次同步
+  /// 递增这个版本号，编辑器用来自动更新「未保存修改」基线，避免关窗误拦。
+  const editorDraftRevision = ref(0);
+  /// 同步修改草稿前的快照。编辑器据此只把后台真正改过的字段记入基线，
+  /// 用户在同一窗口里改过的其它字段仍然算未保存。
+  const editorDraftBeforeSync = ref<string | null>(null);
   const editorInitialSection = ref<ProviderEditorSection>("basics");
   const editingProviderId = ref<string | null>(null);
   const completingCredentials = ref(false);
@@ -47,6 +53,7 @@ export function useProviderEditorState() {
 
   function resetDraft() {
     managedAuthSnapshot = null;
+    editorDraftBeforeSync.value = null;
     completingCredentials.value = false;
     probingSite.value = false;
     Object.assign(draftProvider, emptyDraft());
@@ -72,6 +79,7 @@ export function useProviderEditorState() {
 
   function openEditProvider(provider: Provider, initialSection: ProviderEditorSection = "basics") {
     editorSession.value += 1;
+    editorDraftBeforeSync.value = null;
     editorInitialSection.value = initialSection;
     completingCredentials.value = false;
     probingSite.value = false;
@@ -102,6 +110,7 @@ export function useProviderEditorState() {
 
   function syncManagedApiKeys(provider: Provider) {
     if (editingProviderId.value !== provider.identity.id) return;
+    editorDraftBeforeSync.value = JSON.stringify(draftProvider);
     // Keep rotations received during Key operations without overwriting fields
     // the user has edited in the surrounding provider form.
     const mergedAuth = Object.fromEntries(
@@ -120,11 +129,14 @@ export function useProviderEditorState() {
     setApiKeyOptions(provider.auth.apiKeyOptions || []);
     managedAuthSnapshot = JSON.parse(JSON.stringify(provider.auth));
     availableModels.value = [...provider.capabilities.availableModels];
+    editorDraftRevision.value += 1;
   }
 
   return {
     drawerVisible,
     editorSession,
+    editorDraftRevision,
+    editorDraftBeforeSync,
     editorInitialSection,
     editingProviderId,
     completingCredentials,

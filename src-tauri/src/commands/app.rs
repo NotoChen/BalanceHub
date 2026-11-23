@@ -161,6 +161,12 @@ pub(crate) async fn import_app_data(
     })
 }
 
+/// 启动读取失败且 data.json 损坏时，用同目录最近的自动备份原地恢复。
+#[tauri::command]
+pub(crate) async fn restore_latest_backup() -> Result<serde_json::Value, String> {
+    dispatch_value("restore_latest_backup", json!({})).await
+}
+
 #[tauri::command]
 pub(crate) fn preview_liveness_prompts(settings: AppSettings, count: usize) -> Vec<String> {
     balancehub_core::services::liveness::preview_prompts(&settings, count)

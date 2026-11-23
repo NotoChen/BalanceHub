@@ -18,6 +18,7 @@ type Deferred = { promise: Promise<unknown>; resolve: (value?: unknown) => void;
 let server: ViteDevServer;
 let module: CenterModule;
 const listeners = new Set<(event: { payload: TaskEvent }) => void>();
+const reconnectListeners = new Set<() => void>();
 const calls: { command: string; args: Record<string, unknown> }[] = [];
 const queues = new Map<string, Deferred[]>();
 const unexpected: string[] = [];
@@ -28,7 +29,17 @@ before(async () => {
   Object.defineProperty(globalThis, "__BALANCEHUB_TASK_CENTER_TEST__", { configurable: true, value: {
     messages,
     listen(name: string, receive: (event: { payload: TaskEvent }) => void) {
-      assert.equal(name, "background-task"); listeners.add(receive); return () => listeners.delete(receive);
+      if (name === "background-task") {
+        listeners.add(receive);
+        return () => listeners.delete(receive);
+      }
+      if (name === "balancehub-events-reconnected") {
+        reconnectListeners.add(receive);
+        return () => reconnectListeners.delete(receive);
+      }
+      // 托盘入口在这组测试里不触发；订阅本身仍要能正常建立和释放。
+      if (name === "open-task-center") return () => {};
+      assert.fail("Unexpected event: " + name);
     },
   } });
   Object.defineProperty(globalThis, "__TAURI_INTERNALS__", { configurable: true, value: {
@@ -67,6 +78,7 @@ function pending(command: string): Deferred {
 }
 async function settle() { for (let index = 0; index < 24; index += 1) await Promise.resolve(); await nextTick(); }
 function emit(event: TaskEvent) { for (const receive of listeners) receive({ payload: event }); }
+function reconnect() { for (const receive of reconnectListeners) receive(); }
 function event(taskId: string, fields: Partial<TaskEvent> = {}): TaskEvent {
   return { taskId, kind: "providerLogin", status: "waiting", title: "隔离登录任务", detail: "等待用户完成登录",
     progress: null, startedAt: Date.now() - 1_000, canCancel: true, canShowWindow: true, ...fields };
@@ -92,7 +104,8 @@ function browserRuntime(fields: Partial<BrowserRuntimeStatus> = {}): BrowserRunt
 }
 
 function fresh(t: TestContext) {
-  assert.equal(listeners.size, 0); calls.length = 0; unexpected.length = 0; messages.length = 0; queues.clear();
+  assert.equal(listeners.size, 0); assert.equal(reconnectListeners.size, 0);
+  calls.length = 0; unexpected.length = 0; messages.length = 0; queues.clear();
   const opened: string[] = []; const controls: string[] = [];
   const options: CenterOptions = {
     providers: ref([]), openLoginAccount: (id) => opened.push("account:" + id), openProviderCredentials: (id) => opened.push("provider:" + id),
@@ -104,6 +117,7 @@ function fresh(t: TestContext) {
     checkingForUpdate: ref(false), updateCheckError: ref(""), installingUpdate: ref(false), updateDownloadProgress: ref(null), updateInstallStatus: ref(""), updateInstallError: ref(""),
     announcementsLoading: ref(false), announcementFatalError: ref(""), announcementErrors: ref([]), cliRuntimeLoading: ref(false),
     temporaryCliLaunchTasks: ref([]), probingCapabilitiesProviderId: ref(null), domainTasks: ref<BackgroundTask[]>([]),
+    storageBlockedError: ref<string | null>(null), restartApp: () => { controls.push("restart"); },
   };
   const renderer = createRenderer<Record<string, unknown>, Record<string, unknown>>({
     patchProp() {}, insert() {}, remove() {}, createElement: (type) => ({ type }), createText: (text) => ({ text }), createComment: (text) => ({ text }),
@@ -111,7 +125,14 @@ function fresh(t: TestContext) {
   });
   let center!: Center;
   const app = renderer.createApp(defineComponent({ setup() { center = module.useBackgroundTaskCenter(options); return () => h("div"); } }));
-  t.after(async () => { app.unmount(); await settle(); assert.equal(listeners.size, 0); assert.deepEqual(unexpected, []); queues.clear(); });
+  t.after(async () => {
+    app.unmount();
+    await settle();
+    assert.equal(listeners.size, 0);
+    assert.equal(reconnectListeners.size, 0);
+    assert.deepEqual(unexpected, []);
+    queues.clear();
+  });
   return { options, opened, controls, async mount() { app.mount({}); await settle(); return center; } };
 }
 function action(task: BackgroundTask, label: string) {
@@ -131,6 +152,20 @@ test("WebDAV waiting and failure snapshots never create a false success or mark 
   context.options.domainTasks!.value = [{ ...task, id: "cloud-sync-next", status: "running" }]; await settle();
   context.options.domainTasks!.value = []; await settle();
   assert.deepEqual(center.recentTasks.value.map((entry) => entry.status), ["failed"]);
+});
+
+test("a runtime storage block stays visible with a restart action and never becomes a completed task", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  context.options.storageBlockedError!.value = "云同步事务未完成，本地配置已暂停写入"; await settle();
+  const blocked = center.activeTasks.value.find((task) => task.id === "storage-blocked");
+  assert.ok(blocked);
+  assert.equal(blocked.attention, true);
+  assert.equal(center.attentionTaskCount.value, 1);
+  action(blocked, "重启应用").run();
+  assert.deepEqual(context.controls, ["restart"]);
+  context.options.storageBlockedError!.value = null; await settle();
+  assert.equal(center.activeTasks.value.some((task) => task.id === "storage-blocked"), false);
+  assert.equal(center.recentTasks.value.some((task) => task.id === "storage-blocked"), false, "状态提示不是一项已完成任务");
 });
 
 test("waiting login stays active and cancellable until its domain event confirms cancellation", async (t) => {
@@ -163,6 +198,26 @@ test("login recovery preserves waiting controls and cannot replace a newer termi
   emit(event("provider-login", { status: "success", providerId: "fixture-provider", loginAccountId: "fixture-account", finishedAt: Date.now(), canCancel: false, canShowWindow: false })); await settle();
   action(center.recentTasks.value.find((task) => task.id === "provider-login")!, "查看站点凭据").run();
   assert.deepEqual(context.opened, ["account:fixture-account", "provider:fixture-provider"]);
+});
+
+test("a reconnected event stream re-reads login tasks and closes runs the server lost", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  emit(event("login-running")); await settle();
+  assert.equal(center.activeTaskCount.value, 1);
+
+  // 服务端重启后后端列表里已经没有这条运行记录：不会再有任何终态事件。
+  const recovering = pending("list_provider_browser_logins");
+  reconnect();
+  await settle();
+  recovering.resolve([loginTask("login-still-there")]);
+  await settle();
+
+  assert.deepEqual(center.activeTasks.value.map((task) => task.id), ["login-still-there"]);
+  const lost = center.recentTasks.value.find((task) => task.id === "login-running");
+  assert.ok(lost, "丢失的登录任务要留下可回看的记录");
+  assert.equal(lost.status, "unconfirmed");
+  assert.equal(lost.attention, true);
+  assert.match(lost.detail, /已从后台任务列表消失/);
 });
 
 test("browser launch validation remains cancellable and records its actual terminal result", async (t) => {
@@ -242,6 +297,77 @@ test("scheduler and vanished domain tasks are not automatically recorded as succ
   emit(event("scheduler-fixture", { kind: "autoRefresh", status: "failed", detail: "自动刷新失败", finishedAt: Date.now() })); await settle();
   assert.equal(center.activeTaskCount.value, 0);
   assert.deepEqual(center.recentTasks.value.map((task) => [task.id, task.status, task.detail]), [["scheduler-fixture", "failed", "自动刷新失败"]]);
+});
+
+test("automatic maintenance stays out of the badge and only leaves a failure record", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  emit(event("auto-refresh-fixture", { kind: "autoRefresh", status: "running", title: "自动刷新", detail: "正在刷新" })); await settle();
+  assert.equal(center.activeTaskCount.value, 0);
+  assert.equal(center.ambientTaskCount.value, 1);
+  assert.equal(center.attentionTaskCount.value, 0);
+  emit(event("auto-refresh-fixture", { kind: "autoRefresh", status: "success", detail: "刷新完成", finishedAt: Date.now() })); await settle();
+  assert.deepEqual(center.recentTasks.value, []);
+  emit(event("auto-refresh-fixture", { kind: "autoRefresh", status: "failed", detail: "刷新失败", finishedAt: Date.now() })); await settle();
+  assert.deepEqual(center.recentTasks.value.map((task) => [task.id, task.status]), [["auto-refresh-fixture", "failed"]]);
+  // 自动维护失败没有可执行操作，不该把徽标一直染红。
+  assert.equal(center.attentionTaskCount.value, 0);
+});
+
+test("waiting and unconfirmed work counts as attention while plain running work does not", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  context.options.checkInTasks.value = [checkInTask()]; await settle();
+  assert.equal(center.activeTaskCount.value, 1);
+  assert.equal(center.attentionTaskCount.value, 1);
+  context.options.checkInTasks.value = [checkInTask({
+    phase: "unconfirmed", message: "签到结果未确认", finished: true, finishedAt: Date.now(),
+    canResume: false, canCancel: false, revision: 2,
+  })];
+  await settle();
+  assert.equal(center.activeTaskCount.value, 0);
+  // 已经结束、但还需要用户确认的签到会留在「需要处理」里。
+  assert.equal(center.attentionTaskCount.value, 1);
+  assert.equal(center.recentTasks.value[0].attention, true);
+});
+
+test("card refreshes stay ambient so they neither badge nor suggest unfinished work", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  context.options.refreshInProgress.value = true; await settle();
+  const refresh = center.activeTasks.value.find((task) => task.id === "provider-refresh");
+  assert.ok(refresh);
+  assert.equal(refresh.ambient, true);
+  assert.equal(center.activeTaskCount.value, 0);
+  assert.equal(center.ambientTaskCount.value, 1);
+  context.options.refreshInProgress.value = false; await settle();
+  assert.deepEqual(center.recentTasks.value, []);
+});
+
+test("a batch refresh queued behind the automatic refresh explains why it has not started", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  const waitingReason = ref("正在等待当前自动刷新结束，完成后立即开始");
+  context.options.batchOperationWaitingReason = waitingReason;
+  context.options.batchOperationRunning.value = true; await settle();
+  const batch = center.activeTasks.value.find((task) => task.id === "manual-batch-operation");
+  assert.equal(batch?.detail, "正在等待当前自动刷新结束，完成后立即开始");
+  assert.equal(center.activeTaskCount.value, 1, "manual batches still count in the badge");
+  waitingReason.value = ""; await settle();
+  assert.equal(
+    center.activeTasks.value.find((task) => task.id === "manual-batch-operation")?.detail,
+    "正在准备中转站任务",
+  );
+});
+
+test("a manual batch can be cancelled from the task center while its modal is closed", async (t) => {
+  const context = fresh(t); const center = await context.mount();
+  const cancelled: string[] = [];
+  context.options.cancelBatchRefresh = async () => { cancelled.push("batch"); };
+  context.options.batchOperationCanceling = ref(false);
+  context.options.batchOperationRunning.value = true; await settle();
+  const batch = center.activeTasks.value.find((task) => task.id === "manual-batch-operation")!;
+  action(batch, "取消刷新").run();
+  assert.deepEqual(cancelled, ["batch"]);
+  context.options.batchOperationCanceling!.value = true; await settle();
+  const canceling = center.activeTasks.value.find((task) => task.id === "manual-batch-operation")!;
+  assert.equal(action(canceling, "取消刷新").disabled, true);
 });
 
 test("check-in human waits show the existing window instead of offering another submission", async (t) => {

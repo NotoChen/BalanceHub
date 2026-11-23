@@ -18,8 +18,6 @@ interface UseProviderWorkspaceControllerOptions {
   testingConnection: Ref<boolean>;
   completingCredentials: Ref<boolean>;
   reorderProviders: (ids: string[]) => Promise<unknown>;
-  removeProvider: (id: string) => Promise<unknown>;
-  toggleProvider: (id: string, enabled: boolean) => Promise<unknown>;
   /// 卡片点击打开详情面；编辑是详情里的独立动作，签到也只由按钮触发。
   openDetail: (provider: Provider) => void;
 }
@@ -60,14 +58,6 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
     completingCredentials: options.completingCredentials,
   });
 
-  async function removeProvider(provider: Provider) {
-    await options.removeProvider(provider.identity.id);
-  }
-
-  async function toggleProvider(provider: Provider, enabled: boolean) {
-    await options.toggleProvider(provider.identity.id, enabled);
-  }
-
   async function handleProviderCardClick(provider: Provider) {
     if (dragSort.clickSuppressed.value) {
       dragSort.clickSuppressed.value = false;
@@ -99,7 +89,5 @@ export function useProviderWorkspaceController(options: UseProviderWorkspaceCont
     providerSections,
     showProviderLivenessTimeline,
     handleProviderCardClick,
-    removeProvider,
-    toggleProvider,
   };
 }

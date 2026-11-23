@@ -23,6 +23,8 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
   const running = ref(false);
   const visible = ref(false);
   const items = ref<ProviderBatchProgressItem[]>([]);
+  /// 后端已受理、但还在等自动刷新释放刷新闸门时的说明。
+  const waitingReason = ref("");
   const error = ref("");
   const startedAt = ref<number | null>(null);
   const finishedAt = ref<number | null>(null);
@@ -113,7 +115,12 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
 
   function handleEvent(event: ProviderBatchProgressEvent) {
     if (event.data.operation !== operation.value) return;
+    if (event.event === "queued") {
+      waitingReason.value = event.data.reason;
+      return;
+    }
     if (event.event === "started") {
+      waitingReason.value = "";
       items.value = event.data.items;
       return;
     }
@@ -156,6 +163,12 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
       visible.value = true;
       return;
     }
+    // 后端跳过未启用的中转站；没有任何可刷新的站点时不要弹出一个永远停在
+    // 0 / 0 的进度窗口，直接说明为什么没有开始。
+    if (!options.providers.value.some((provider) => provider.runtime.enabled)) {
+      Message.info("没有已启用的中转站可刷新");
+      return;
+    }
 
     const sequence = ++runSequence;
     operation.value = "refresh";
@@ -163,6 +176,7 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     visible.value = true;
     completed.value = false;
     error.value = "";
+    waitingReason.value = "";
     items.value = [];
     startedAt.value = Date.now();
     finishedAt.value = null;
@@ -230,6 +244,7 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
         releaseRefreshing();
         running.value = false;
         canceling.value = false;
+        waitingReason.value = "";
         finishedAt.value = Date.now();
         options.setRefreshInProgress?.(false);
       }
@@ -268,6 +283,7 @@ export function useBatchOperation(options: UseBatchOperationOptions) {
     running,
     visible,
     items,
+    waitingReason,
     error,
     startedAt,
     finishedAt,

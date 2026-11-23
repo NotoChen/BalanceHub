@@ -305,10 +305,11 @@ async fn card_refresh_retains_cached_models_and_reports_an_account_model_failure
         ));
     provider.auth.api_key.clear();
     let prior = provider.capabilities.available_models_state.clone();
-    let refreshed = NewApiAdapter
+    let (refreshed, failure) = NewApiAdapter
         .refresh_provider(&AppSettings::default(), &provider)
         .await;
     server.join().unwrap();
+    assert!(failure.is_none(), "quota succeeded, only models failed");
     assert_eq!(refreshed.capabilities.available_models, ["cached-model"]);
     assert_eq!(
         refreshed.capabilities.available_models_state.updated_at,
@@ -355,10 +356,11 @@ async fn card_refresh_records_a_successful_empty_account_list() {
         ));
     provider.capabilities.available_models_state.error = Some("old failure".into());
     provider.auth.api_key.clear();
-    let refreshed = NewApiAdapter
+    let (refreshed, failure) = NewApiAdapter
         .refresh_provider(&AppSettings::default(), &provider)
         .await;
     server.join().unwrap();
+    assert!(failure.is_none());
     assert!(refreshed.capabilities.available_models.is_empty());
     assert_eq!(
         refreshed.capabilities.available_models_state.scope,

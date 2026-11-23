@@ -199,7 +199,7 @@ function formatRate(value: number) {
         <span v-if="subscriptionNote.detail">{{ subscriptionNote.detail }}</span>
       </div>
       <a-alert v-if="error" type="error" show-icon>
-        <div class="panel-load-error"><span>{{ error }}{{ summary ? '；当前保留上次读取的结果' : '' }}</span><a-button size="small" @click="emit('refresh')">重试</a-button></div>
+        <div class="panel-load-error"><span>{{ error }}{{ summary || overview ? '；当前保留上次读取的结果' : '' }}</span><a-button size="small" @click="emit('refresh')">重试</a-button></div>
       </a-alert>
       <a-spin v-if="!provider" :loading="loading">
         <div v-if="!overview || (error && overview.requestCount === 0 && overview.errors.length === 0)" class="api-key-empty" role="status">

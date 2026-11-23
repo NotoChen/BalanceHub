@@ -83,7 +83,7 @@ const emit = defineEmits<{
   checkIn: [provider: Provider];
   remove: [provider: Provider];
   cpaRenewAll: [provider: Provider];
-  reauthorizeOauthCard: [provider: Provider];
+  reauthorizeCard: [provider: Provider];
   interaction: [active: boolean];
 }>();
 
@@ -142,10 +142,23 @@ const renewalTitle = computed(() =>
     ? `${oauth.value ? "OAuth" : "CPA 网关"} · ${renewal.value.detail}`
     : "",
 );
-const reauthRecommended = computed(() => renewal.value.label !== "");
-const reauthTitle = computed(
+const reauthRecommended = computed(
   () =>
-    `${renewal.value.label}，重新执行 ${oauth.value ? "OAuth" : "网关"} 授权`,
+    renewal.value.label !== "" ||
+    Boolean(
+      props.provider.actions.reauthenticate &&
+        // 只有站点明确拒绝凭据才推荐重新登录；网络故障和限流交给自动重试，
+        // 把「重新登录」挂在所有错误上会误导用户重走一遍登录。
+        props.provider.runtime.credentialRejected,
+    ),
+);
+const reauthTitle = computed(() =>
+  renewal.value.label
+    ? `${renewal.value.label}，重新执行 ${oauth.value ? "OAuth" : "网关"} 授权`
+    : "凭据已被站点拒绝，使用绑定账号重新登录",
+);
+const reauthLabel = computed(() =>
+  renewal.value.label ? "重新授权" : "重新登录",
 );
 /// Which agents currently point at this card. That is the one fact the card
 /// cannot show from its own data, and it is what the switch action changes.
@@ -429,8 +442,8 @@ const menuListeners = {
         v-if="reauthRecommended"
         tone="warning"
         :title="reauthTitle"
-        aria-label="重新授权"
-        @click.stop="emit('reauthorizeOauthCard', provider)"
+        :aria-label="reauthLabel"
+        @click.stop="emit('reauthorizeCard', provider)"
         @pointerdown.stop
       >
         <RotateCcw :size="15" :stroke-width="1.9" />

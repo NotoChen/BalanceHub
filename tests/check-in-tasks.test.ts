@@ -20,6 +20,51 @@ function api() {
     resume: async (_id: string) => progress(2, "queued"), cancel: async (_id: string) => {}, showWindow: async (_id: string) => {} };
 }
 
+test("a list refresh removes unfinished runs the backend no longer tracks", async () => {
+  const lists: CheckInTask[][] = [[progress(1)], []];
+  let snapshot!: CheckInSnapshot;
+  const tracker = createCheckInTracker({ ...api(), list: async () => lists.shift() ?? [] }, (state) => { snapshot = state; });
+  await tracker.start();
+  assert.equal(snapshot.items[0].phase, "waitingHuman");
+  await tracker.refresh();
+  assert.deepEqual(snapshot.items, [], "a run the backend forgot cannot stay waiting forever");
+  tracker.stop();
+});
+
+test("a list refresh keeps locally completed results for the completion watcher", async () => {
+  let receive!: (task: CheckInTask) => void;
+  const lists: CheckInTask[][] = [[progress(1)], []];
+  let snapshot!: CheckInSnapshot;
+  const tracker = createCheckInTracker({ ...api(), list: async () => lists.shift() ?? [],
+    listen: async (callback) => { receive = callback; return () => {}; },
+  }, (state) => { snapshot = state; });
+  await tracker.start();
+  receive(progress(3, "completed"));
+  await tracker.refresh();
+  assert.equal(snapshot.items.length, 1);
+  assert.equal(snapshot.items[0].phase, "completed");
+  tracker.stop();
+});
+
+test("a list requested before a new task arrived cannot delete it", async () => {
+  const list = deferred<CheckInTask[]>();
+  let receive!: (task: CheckInTask) => void;
+  let snapshot!: CheckInSnapshot;
+  const tracker = createCheckInTracker({ ...api(), list: () => list.promise,
+    listen: async (callback) => { receive = callback; return () => {}; },
+  }, (state) => { snapshot = state; });
+  const start = tracker.start();
+  // 让启动时的列表请求真正挂到 IPC 上，再模拟批量签到提交并收到任务事件。
+  await Promise.resolve();
+  receive(progress(2, "queued"));
+  // 这份列表是在新任务入队之前取的，不能把刚提交的任务当成「后端已不再跟踪」。
+  list.resolve([]);
+  await start;
+  assert.equal(snapshot.items.length, 1);
+  assert.equal(snapshot.items[0].phase, "queued");
+  tracker.stop();
+});
+
 test("a delayed list cannot revive a completed check-in", async () => {
   const list = deferred<CheckInTask[]>();
   let receive!: (task: CheckInTask) => void;

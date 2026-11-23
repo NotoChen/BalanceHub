@@ -222,6 +222,7 @@ impl Provider {
                 consecutive_failures: 0,
                 cooldown_until: None,
                 cooldown_reason: None,
+                credential_rejected: false,
             },
             request: input.request,
             quota_spec: input.quota_spec,
@@ -617,6 +618,7 @@ impl Provider {
             self.runtime.consecutive_failures = 0;
             self.runtime.cooldown_until = None;
             self.runtime.cooldown_reason = None;
+            self.runtime.credential_rejected = false;
             self.runtime.status = ProviderStatus::Warning;
             self.runtime.error_message = Some("尚未同步".to_string());
         }

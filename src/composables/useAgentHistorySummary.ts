@@ -16,6 +16,7 @@ export function useAgentHistorySummary(active: Ref<boolean>, kinds: Ref<AgentCli
   let disposed = false;
   let lastRead = 0;
   let sourcesUnlisten: UnlistenFn | null = null;
+  let reconnectUnlisten: UnlistenFn | null = null;
   let pending: { requestId: number; kinds: AgentCliKind[]; task: Promise<void> } | null = null;
 
   function cancelRequest(requestId: number) {
@@ -93,10 +94,21 @@ export function useAgentHistorySummary(active: Ref<boolean>, kinds: Ref<AgentCli
       if (disposed) unlisten();
       else sourcesUnlisten = unlisten;
     } catch { /* No native event bus in isolated component tests. */ }
+    try {
+      // 断线期间会话来源变化的事件会丢失；恢复后强制重算一次数量。
+      const unlisten = await listen("balancehub-events-reconnected", () => {
+        cancel();
+        lastRead = 0;
+        void refresh();
+      });
+      if (disposed) unlisten();
+      else reconnectUnlisten = unlisten;
+    } catch { /* No native event bus in isolated component tests. */ }
   });
   onScopeDispose(() => {
     disposed = true; cancel();
     sourcesUnlisten?.();
+    reconnectUnlisten?.();
     globalThis.removeEventListener?.("focus", revisit);
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", revisit);
   });

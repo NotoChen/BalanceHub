@@ -173,7 +173,16 @@ pub fn start() {
         let mut state = SchedulerState::load();
         tokio::time::sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
         loop {
-            run_tick(&mut state).await;
+            // 单个站点的适配器 panic 已在各自链路内收敛；这里再兜一层，
+            // 避免任何漏网异常让自动刷新/签到/测活整条调度循环静默停摆。
+            use futures_util::FutureExt;
+            if std::panic::AssertUnwindSafe(run_tick(&mut state))
+                .catch_unwind()
+                .await
+                .is_err()
+            {
+                log::error!("自动调度本轮异常退出，等待下一轮重试");
+            }
             tokio::time::sleep(Duration::from_secs(TICK_SECS)).await;
         }
     });
@@ -181,6 +190,9 @@ pub fn start() {
 
 async fn run_tick(state: &mut SchedulerState) {
     let service = ProviderService::background();
+    // 等待人工验证的签到任务不会自己收尾；每个节拍检查一次是否已跨天，
+    // 让任务中心不用等到窗口重新获得焦点才清理过期条目。
+    super::check_in_tasks::expire_waiting();
     // 配置加载失败（storage 保护态）时暂停所有自动化，避免基于残缺状态误操作。
     let Ok(data) = service.load_app_data_async().await else {
         return;
@@ -259,6 +271,7 @@ async fn run_tick(state: &mut SchedulerState) {
                         &data.providers,
                         &due,
                         &result.updated_providers,
+                        task_started_at / 1000,
                     )
                     .await;
                 }
@@ -340,7 +353,11 @@ async fn run_tick(state: &mut SchedulerState) {
         .filter(|provider| {
             liveness_available
                 && provider_domain::liveness::automatic_enabled(provider, settings)
-                && provider_domain::liveness::is_due(provider, now_millis)
+                && provider_domain::liveness::is_due(
+                    provider,
+                    now_millis,
+                    u128::from(super::liveness::max_interval(settings, provider)) * 1000,
+                )
                 && !super::liveness::waits_for_agent_update(settings, provider)
         })
         .cloned()
@@ -452,11 +469,16 @@ fn check_in_attempt_allowed(
         None => true,
         Some(state) if state.date != today => true,
         Some(state) => {
+            // 系统时钟回拨后旧尝试时间落在未来；按无退避处理，否则当天
+            // 剩余尝试会被拖到时钟追上。每日次数上限仍然生效。
+            let clock_rolled_back = state.last_attempt_secs
+                > now_secs.saturating_add(provider_domain::CLOCK_ROLLBACK_TOLERANCE_SECS);
             state.attempts < CHECK_IN_MAX_ATTEMPTS_PER_DAY
-                && now_secs
-                    >= state
-                        .last_attempt_secs
-                        .saturating_add(CHECK_IN_RETRY_BACKOFF_SECS)
+                && (clock_rolled_back
+                    || now_secs
+                        >= state
+                            .last_attempt_secs
+                            .saturating_add(CHECK_IN_RETRY_BACKOFF_SECS))
         }
     }
 }
@@ -501,6 +523,7 @@ async fn notify_refresh_failures(
     before: &[Provider],
     refreshed_ids: &[String],
     after: &[Provider],
+    batch_started_secs: u64,
 ) {
     for id in refreshed_ids {
         let was_error = before
@@ -512,6 +535,13 @@ async fn notify_refresh_failures(
         };
         let is_error = matches!(current.runtime.status, ProviderStatus::Error);
         if is_error && !was_error {
+            // 凭据被拒时刷新链路已经接手自动重新认证：成功会静默修复卡片，
+            // 失败也会由重新认证自己通知。这里再报一次“刷新失败”只会让
+            // 用户在修复已经开始后收到一条已经过时的告警。
+            if crate::services::provider_browser_login::attempted_since(id, batch_started_secs) {
+                log::debug!("自动重新认证已接手，跳过刷新失败通知（{id}）");
+                continue;
+            }
             let message = current
                 .runtime
                 .error_message
@@ -684,6 +714,24 @@ mod tests {
             Some(&state),
             "2026-07-10",
             1_000 + CHECK_IN_RETRY_BACKOFF_SECS
+        ));
+    }
+
+    #[test]
+    fn a_backward_clock_does_not_extend_the_retry_backoff() {
+        // 时钟回拨一小时，上次尝试落在未来 55 分钟，不应因此拖到时钟追上。
+        let state = attempt("2026-07-10", 1, 10_000);
+        assert!(check_in_attempt_allowed(
+            Some(&state),
+            "2026-07-10",
+            10_000 - 3_600
+        ));
+        // 每日上限不受时钟回拨影响。
+        let capped = attempt("2026-07-10", CHECK_IN_MAX_ATTEMPTS_PER_DAY, 10_000);
+        assert!(!check_in_attempt_allowed(
+            Some(&capped),
+            "2026-07-10",
+            10_000 - 3_600
         ));
     }
 

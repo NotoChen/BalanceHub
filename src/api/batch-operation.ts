@@ -41,6 +41,13 @@ export interface ProviderBatchSummary {
 
 export type ProviderBatchProgressEvent =
   | {
+      event: "queued";
+      data: {
+        operation: ProviderBatchOperation;
+        reason: string;
+      };
+    }
+  | {
       event: "started";
       data: {
         operation: ProviderBatchOperation;

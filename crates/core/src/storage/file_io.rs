@@ -7,7 +7,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-const DATA_FILE_NAME: &str = "data.json";
+pub(super) const DATA_FILE_NAME: &str = "data.json";
 const BACKUP_FILE_NAME: &str = "data.json.bak";
 const TMP_FILE_NAME: &str = "data.json.tmp";
 const LOCK_FILE_NAME: &str = "data.lock";

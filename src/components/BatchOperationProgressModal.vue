@@ -23,6 +23,8 @@ const props = withDefaults(defineProps<{
   operation: ProviderBatchOperation | "checkIn" | null;
   running: boolean;
   items: ProviderBatchProgressItem[];
+  /// 刷新已受理、正在等待自动刷新释放闸门时的说明；开始逐站执行后清空。
+  waitingReason?: string;
   error: string;
   startedAt: number | null;
   finishedAt: number | null;
@@ -40,6 +42,7 @@ const props = withDefaults(defineProps<{
   checkInPending: () => [],
   skippedCount: 0,
   submitting: false,
+  waitingReason: "",
 });
 
 const emit = defineEmits<{
@@ -92,6 +95,7 @@ const summaryTitle = computed(() => {
     if (props.cancelled) {
       return props.running ? "刷新已取消，正在等待在途请求收尾" : "刷新已取消";
     }
+    if (props.waitingReason) return props.waitingReason;
     return props.running ? "正在逐站刷新" : props.error ? "刷新中断，请查看各站点结果" : props.completed ? "刷新已完成" : "正在准备刷新";
   }
   if (props.submitting) return "正在创建签到任务";
@@ -210,7 +214,7 @@ function durationLabel() {
         <span class="surface-modal-title-icon"><component :is="icon" :size="18" :stroke-width="1.9" /></span>
         <span class="surface-modal-title-copy"><strong>{{ title }}</strong></span>
         <span class="surface-modal-title-meta" :class="{ running, completed: completed && !running && !hasIssues && !cancelledCount }">
-          {{ submitting ? "正在提交" : waitingOnly ? "等待处理" : running ? "正在执行" : error ? "提交失败" : completed ? "已结束" : "等待执行" }}
+          {{ submitting ? "正在提交" : waitingReason ? "排队中" : waitingOnly ? "等待处理" : running ? "正在执行" : error ? "提交失败" : completed ? "已结束" : "等待执行" }}
         </span>
       </div>
     </template>
@@ -222,7 +226,7 @@ function durationLabel() {
           <div>
             <strong>{{ summaryTitle }}</strong>
             <span v-if="error">{{ error }}</span>
-            <span v-else>{{ completedCount }} / {{ total }} 个中转站已结束 · 用时 {{ durationLabel() || "-" }}</span>
+            <span v-else-if="!waitingReason">{{ completedCount }} / {{ total }} 个中转站已结束 · 用时 {{ durationLabel() || "-" }}</span>
           </div>
         </div>
         <div class="batch-operation-summary-counts">
@@ -253,7 +257,7 @@ function durationLabel() {
 
       <div class="batch-operation-rows">
         <div v-if="rows.length === 0" class="batch-operation-empty">
-          {{ submitting ? "正在准备签到任务…" : extraSkipped > 0 && (rowFilter === 'all' || rowFilter === 'skipped') ? `已跳过 ${extraSkipped} 个当前无需签到的中转站` : "暂无匹配的中转站" }}
+          {{ submitting ? "正在准备签到任务…" : waitingReason ? waitingReason : extraSkipped > 0 && (rowFilter === 'all' || rowFilter === 'skipped') ? `已跳过 ${extraSkipped} 个当前无需签到的中转站` : "暂无匹配的中转站" }}
         </div>
         <article
           v-for="item in rows"

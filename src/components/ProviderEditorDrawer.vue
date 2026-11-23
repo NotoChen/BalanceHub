@@ -35,11 +35,17 @@ import type {
   CredentialCompletionStep,
 } from "../composables/useProviderCredentialCompletion";
 import { useProviderEditorSections } from "../composables/useProviderEditorSections";
+import { confirmDiscardChanges } from "../composables/provider-credential-dialogs";
+import { adoptSyncedDraftFields } from "../utils/provider-draft-baseline";
 import { providerScopeNoun } from "../utils/provider-protocol";
 
 const props = defineProps<{
   visible: boolean;
   editorSession: number;
+  /// 后台同步过草稿时递增；对应内容不是用户编辑，不需要在关闭时拦人。
+  draftRevision: number;
+  /// 那次后台同步前的草稿快照，用于只并入真正变化的字段。
+  draftBeforeSync: string | null;
   initialSection: ProviderEditorSection;
   title: string;
   draft: ProviderInput;
@@ -139,6 +145,77 @@ watch(
 
 /// 保存按钮和窗口标题用同一个称呼：正在编辑的是中转站、账号还是网关。
 const scopeNoun = computed(() => providerScopeNoun(props.draft.identity.protocol));
+
+/// 关闭保护只针对用户编辑：以打开时的草稿为基线。凭据助手刚保存过整份
+/// 草稿时重设整个基线；后台 Key 轮换、令牌续期只把真正同步过的字段并入
+/// 基线，用户在同一窗口里改过的其它字段仍然算未保存。
+const draftBaseline = ref("");
+const hasUnsavedChanges = computed(
+  () => draftBaseline.value !== "" && JSON.stringify(props.draft) !== draftBaseline.value,
+);
+let draftBaselineObject: ProviderInput | null = null;
+let confirmingClose = false;
+
+function snapshotBaseline() {
+  draftBaselineObject = JSON.parse(JSON.stringify(props.draft)) as ProviderInput;
+  draftBaseline.value = JSON.stringify(draftBaselineObject);
+}
+/// 后台同步只合并前后快照里真正变化的字段，不把整份草稿当作已保存。
+function adoptSyncedFields(beforeJson: string | null) {
+  if (!draftBaselineObject) {
+    snapshotBaseline();
+    return;
+  }
+  draftBaselineObject = adoptSyncedDraftFields(
+    draftBaselineObject,
+    beforeJson,
+    props.draft,
+  );
+  draftBaseline.value = JSON.stringify(draftBaselineObject);
+}
+
+watch(
+  [() => props.visible, () => props.editorSession],
+  () => {
+    if (props.visible) snapshotBaseline();
+  },
+  { flush: "post" },
+);
+watch(
+  () => props.draftRevision,
+  () => {
+    if (props.visible) adoptSyncedFields(props.draftBeforeSync);
+  },
+  { flush: "post" },
+);
+watch(
+  () => props.credentialAssistantSaved,
+  (saved) => {
+    if (saved && props.visible) snapshotBaseline();
+  },
+  { flush: "post" },
+);
+
+async function requestClose() {
+  if (confirmingClose) return;
+  // 保存中关闭会把结果留在后台；凭据助手和登录启动本身有取消/收口逻辑，
+  // 这些进行中的动作不需要额外的「丢弃草稿」确认。
+  if (
+    props.saving
+    || props.startingBrowserLogin
+    || props.credentialAssistantBusy
+    || !hasUnsavedChanges.value
+  ) {
+    emit("update:visible", false);
+    return;
+  }
+  confirmingClose = true;
+  try {
+    if (await confirmDiscardChanges()) emit("update:visible", false);
+  } finally {
+    confirmingClose = false;
+  }
+}
 </script>
 
 <template>
@@ -148,7 +225,7 @@ const scopeNoun = computed(() => providerScopeNoun(props.draft.identity.protocol
     modal-class="surface-modal provider-editor-modal provider-editor-modal-v3 provider-editor-unified"
     :footer="false"
     unmount-on-close
-    @update:visible="emit('update:visible', $event)"
+    @update:visible="(value) => value ? emit('update:visible', true) : requestClose()"
   >
     <template #title>
       <div class="surface-modal-title provider-editor-title">
@@ -230,7 +307,7 @@ const scopeNoun = computed(() => providerScopeNoun(props.draft.identity.protocol
                         :steps="credentialAssistantSteps"
                         :message="credentialAssistantMessage"
                         :busy="credentialAssistantBusy"
-                        :can-run="canRunCredentialAssistant"
+                        :can-run="canRunCredentialAssistant && !saving"
                         :saved="credentialAssistantSaved"
                         @run="emit('run-credential-assistant')"
                       />
@@ -298,7 +375,7 @@ const scopeNoun = computed(() => providerScopeNoun(props.draft.identity.protocol
           </a-button>
         </a-tooltip>
         <span class="provider-editor-footer-spacer" />
-        <a-button @click="emit('update:visible', false)">{{ saving ? '关闭' : '取消' }}</a-button>
+        <a-button @click="requestClose">{{ saving ? '关闭' : '取消' }}</a-button>
         <a-button
           type="primary"
           :loading="saving"

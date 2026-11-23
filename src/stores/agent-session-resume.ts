@@ -73,11 +73,27 @@ export const useAgentSessionResumeStore = defineStore("agent-session-resume", ()
         const message = failure instanceof Error ? failure.message : String(failure);
         startErrors.value[sessionRef] = message;
         if (message === SUBMIT_TIMEOUT_MESSAGE) unconfirmed.value[sessionRef] = requestId;
-        void tracking.recover();
+        void recover();
       }
       return null;
     } finally {
       starting.value[sessionRef] = false;
+    }
+  }
+
+  /**
+   * 提交超时留下的占位不能永久保留。后端任务列表是权威来源：里面没有这次
+   * 请求，就说明它没有真正开始（或已被清理），此时解除占用并提示可重新
+   * 发起；如果请求迟到后仍然被后端接受，track() 会重新接管并清除提示。
+   */
+  async function recover() {
+    if (!(await tracking.recover()) || disposed) return;
+    const known = new Set(Object.values(tracking.operations.value).map((operation) => operation.requestId));
+    for (const operation of Object.values(tracking.lostOperations.value)) known.add(operation.requestId);
+    for (const [sessionRef, requestId] of Object.entries(unconfirmed.value)) {
+      if (known.has(requestId)) continue;
+      delete unconfirmed.value[sessionRef];
+      startErrors.value[sessionRef] = "未在后台任务列表中找到这次继续操作，任务可能未开始；可重新发起";
     }
   }
 
@@ -90,5 +106,5 @@ export const useAgentSessionResumeStore = defineStore("agent-session-resume", ()
   }, { flush: "sync" });
   onScopeDispose(() => { disposed = true; });
 
-  return { ...tracking, starting, startErrors, startTimes, unconfirmed, requestIds, submit, operationFor, isReserved };
+  return { ...tracking, recover, starting, startErrors, startTimes, unconfirmed, requestIds, submit, operationFor, isReserved };
 });

@@ -1,7 +1,8 @@
 import { useOAuthTasks } from "./useOAuthTasks";
 import { computed, onMounted, reactive, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { Message } from "@arco-design/web-vue";
+import { Message, Modal } from "@arco-design/web-vue";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { useProviderStore, type Provider } from "../stores/providers";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import { useAgentConfigurationStore } from "../stores/agent-configuration";
@@ -47,6 +48,9 @@ import {
   getUsageOverview as getUsageOverviewCommand,
   openProjectRepository as openProjectRepositoryCommand,
 } from "../api/app";
+import { cancelProviderBrowserLogin, startProviderBrowserLogin } from "../api/provider-browser-login";
+import { withTimeout } from "../utils/promise-timeout";
+import { providerToInput } from "../utils/provider-input";
 import { agentCliLabel } from "../utils/cli-environment";
 
 export function useAppController() {
@@ -61,6 +65,7 @@ export function useAppController() {
   const {
     initialized,
     loadError,
+    storageBlockedError,
     loading,
     providers,
     providerProtocols,
@@ -93,6 +98,7 @@ export function useAppController() {
   const appDataTransfer = useAppDataTransfer({
     exportAppData: (path) => providerStore.exportAppData(path),
     importAppData: (path) => settingsController.replaceSettings(() => providerStore.importAppData(path)),
+    restoreLatestBackup: () => settingsController.replaceSettings(() => providerStore.restoreLatestBackup()),
     installDevSampleData: async () => {
       await providerStore.installDevSampleData();
       settingsController.syncFromSettings();
@@ -162,11 +168,59 @@ export function useAppController() {
   const providerEditor = useProviderEditor({ store: providerStore, browserRuntime, loginAccounts });
   const providerDetail = useProviderDetail(providers);
   const usageReconciliation = useUsageReconciliation();
+  /// 凭据详情里的“重新登录 / 授权”直接复用已绑定的登录账号；只有缺少绑定
+  /// 或没有浏览器组件时才退回编辑器，避免为一次重新登录先打开整个编辑抽屉。
+  async function reloginBrowserProvider(id: string) {
+    const provider = providers.value.find((item) => item.identity.id === id);
+    if (!provider) {
+      Message.error("中转站已不存在");
+      return;
+    }
+    const accountId = provider.auth.browserBinding?.accountId?.trim();
+    if (!provider.actions.reauthenticate || !accountId) {
+      // 编辑抽屉已经打开同一个站点时，不能重新初始化草稿：用户未保存的
+      // 修改会被静默还原，进行中的保存也会被作废。直接复用当前草稿。
+      if (
+        !providerEditor.drawerVisible.value
+        || providerEditor.editingProviderId.value !== id
+      ) {
+        providerEditor.openEditProvider(provider, "credentials");
+      }
+      void providerEditor.loginAndImport();
+      return;
+    }
+    if (!browserRuntime.available.value) {
+      Message.info("当前宿主没有本机浏览器，请改用账号密码、会话 Cookie 或访问令牌");
+      return;
+    }
+    await browserRuntime.refresh(true);
+    if (!browserRuntime.state.value?.ready) {
+      const error = browserRuntime.error.value;
+      browserRuntime.open();
+      Message.info(
+        error
+          ? `浏览器组件检测失败：${error}`
+          : "请先确认安装浏览器组件，完成后再次点击重新登录",
+      );
+      return;
+    }
+    try {
+      let accepted = false;
+      const starting = startProviderBrowserLogin(providerToInput(provider), accountId);
+      // 启动 IPC 卡住时任务可能稍后才真正创建；此时用户已经看到超时提示，
+      // 不能让一个晚到的登录窗口在后台自己弹出来。
+      void starting.then((task) => {
+        if (!accepted) void cancelProviderBrowserLogin(task.runId).catch(() => {});
+      }).catch(() => {});
+      await withTimeout(starting, 10_000, "登录任务启动超时，请稍后重试");
+      accepted = true;
+      Message.info("登录任务已开始，可在后台任务中查看进度或取消");
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
   const providerCredentials = useProviderCredentials((id) => {
-    const provider = providers.value.find((p) => p.identity.id === id);
-    if (!provider) { Message.error("中转站已不存在"); return; }
-    providerEditor.openEditProvider(provider, "credentials");
-    void providerEditor.loginAndImport();
+    void reloginBrowserProvider(id);
   });
   const editorApiKeyRemoteManaged = computed(() => {
     const providerId = providerEditor.editingProviderId.value;
@@ -306,6 +360,11 @@ export function useAppController() {
   const providerActions = useProviderActions({
     providers,
     refreshByIds: async (ids) => {
+      if (providerStore.refreshInProgress) {
+        // 否则这次点击没有任何反馈：全局刷新完成后所有卡片都会重读。
+        Message.info("正在刷新全部中转站，完成后这里会自动更新");
+        return;
+      }
       const error = await providerStore.refreshByIds(ids);
       if (error) {
         Message.error(`刷新失败：${error}`);
@@ -324,6 +383,7 @@ export function useAppController() {
     openPasswordChange: passwordChange.openPasswordChange,
     openAccountProfile: accountProfile.openAccountProfile,
     openCheckInRecords: checkInRecords.openCheckInRecords,
+    reloginProvider: (provider) => reloginBrowserProvider(provider.identity.id),
     toggleProvider,
     removeProvider,
   });
@@ -338,8 +398,6 @@ export function useAppController() {
     testingConnection: providerEditor.testingConnection,
     completingCredentials: providerEditor.completingCredentials,
     reorderProviders: (ids) => providerStore.reorderProviders(ids),
-    removeProvider: (id) => providerStore.removeProvider(id),
-    toggleProvider: (id, enabled) => providerStore.toggleProvider(id, enabled),
     openDetail: (provider) => providerDetail.openProviderDetail(provider),
   });
 
@@ -355,12 +413,44 @@ export function useAppController() {
     syncLaunchAtLogin: settingsController.syncLaunchAtLogin,
     autoProbeCliTools: () => cliRuntimeStore.probeCliTools(false).catch(() => {}),
     reloadProviders: () => providerStore.reloadProviders().catch(() => {}),
+    onStorageBlocked: (error) => providerStore.markStorageBlocked(error),
     applyTheme: settingsController.applyTheme,
     flushSettingsSave: settingsController.flushSettingsSave,
     resetProviderPointerDrag: workspace.resetProviderPointerDrag,
   });
 
+  /// 运行期存储保护态（云同步事务未完成）必须重启由启动恢复流程处理；
+  /// 就地导入会和磁盘上的事务日志冲突。
+  function restartApp() {
+    Modal.confirm({
+      title: "重启应用",
+      content:
+        "应用会重新启动并重新读取本地配置；尚未完成的网络任务会被中断。",
+      okText: "立即重启",
+      cancelText: "稍后",
+      onOk: async () => {
+        try {
+          await relaunch();
+        } catch (error) {
+          Message.error(
+            `自动重启失败：${error instanceof Error ? error.message : String(error)}，请手动退出后重新打开`,
+          );
+        }
+      },
+    });
+  }
+
   async function refreshAllProviders() {
+    // 启动读取未完成或失败时，providers 还是空的；直接走批量刷新会把
+    // “配置还没读出来”误报成“没有已启用的中转站”。
+    if (!initialized.value) {
+      Message.info(
+        loadError.value
+          ? "应用配置尚未成功读取，请先在提示中重试读取"
+          : "正在读取本地配置，请稍后再刷新",
+      );
+      return;
+    }
     await batchOperation.runRefresh();
   }
 
@@ -388,8 +478,11 @@ export function useAppController() {
     batchOperation: batchOperation.operation,
     batchOperationRunning: batchOperation.running,
     batchOperationItems: batchOperation.items,
+    batchOperationWaitingReason: batchOperation.waitingReason,
     batchOperationError: batchOperation.error,
     batchOperationCompleted: batchOperation.completed,
+    batchOperationCanceling: batchOperation.canceling,
+    cancelBatchRefresh: batchOperation.cancelRefresh,
     refreshInProgress,
     refreshingProviderIds: refreshingIds,
     checkInTasks: checkIn.checkInTasks,
@@ -411,9 +504,13 @@ export function useAppController() {
     cliRuntimeLoading,
     temporaryCliLaunchTasks: workspacePicker.temporaryCliLaunchTasks,
     probingCapabilitiesProviderId: providerActions.probingCapabilitiesProviderId,
+    storageBlockedError,
+    restartApp,
   });
   const appExitGuard = useAppExitGuard({
     activeTasks: backgroundTaskCenter.activeTasks,
+    pendingSettings: computed(() => settingsController.settingsSaveState.value !== "saved"),
+    flushSettings: settingsController.flushSettingsSave,
   });
   // 只有还在排队的站点才显示「排队中」。批量刷新里已经结束的卡片必须
   // 立刻回到自己的成功/失败状态，不能在整个批次结束前一直被盖住。
@@ -429,6 +526,8 @@ export function useAppController() {
   return reactive({
     initialized,
     loadError,
+    storageBlockedError,
+    restartApp,
     loading,
     providers,
     settings,
@@ -453,6 +552,7 @@ export function useAppController() {
     batchOperationRunning: batchOperation.running,
     batchOperationVisible: batchOperation.visible,
     batchOperationItems: batchOperation.items,
+    batchOperationWaitingReason: batchOperation.waitingReason,
     batchOperationError: batchOperation.error,
     batchOperationStartedAt: batchOperation.startedAt,
     batchOperationFinishedAt: batchOperation.finishedAt,
@@ -464,6 +564,8 @@ export function useAppController() {
     activeBackgroundTasks: backgroundTaskCenter.activeTasks,
     recentBackgroundTasks: backgroundTaskCenter.recentTasks,
     backgroundTaskCount: backgroundTaskCenter.activeTaskCount,
+    attentionTaskCount: backgroundTaskCenter.attentionTaskCount,
+    ambientTaskCount: backgroundTaskCenter.ambientTaskCount,
     clearRecentBackgroundTasks: backgroundTaskCenter.clearRecentTasks,
     ...appExitGuard,
     ...checkInRecords,

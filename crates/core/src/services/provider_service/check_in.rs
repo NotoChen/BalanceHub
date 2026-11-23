@@ -1,6 +1,7 @@
 use crate::services::check_in_tasks::{CheckInContext, HTTP_SLOTS};
 use crate::{
     adapters::protocol::ProtocolAdapter,
+    app_events::PROVIDERS_CHANGED_EVENT,
     models::{
         check_in_message_indicates_disabled, provider_domain, AppSettings, CheckInError,
         CheckInPhase, Provider, ProviderCheckInRecord, ProviderCheckInRecordsResult,
@@ -81,8 +82,32 @@ impl ProviderService {
             .await?;
             (authenticated, ProviderCheckInResult::confirmed_login())
         } else {
-            self.request_http_check_in(&data.settings, &provider, task)
-                .await?
+            match self
+                .request_http_check_in(&data.settings, &provider, task)
+                .await
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    // 标准签到带着已保存的会话提交；会话过期时站点只回一行
+                    // 「未登录」。绑定了登录账号的卡就地重新登录再重试一次，
+                    // 用户不必自己再走一遍「登录并导入」。重试成功仍走普通
+                    // 签到收尾：真实业务动作是重试的这次签到，额度差照常计算。
+                    let Some(account_id) =
+                        relogin_account_after_credential_failure(&provider, &error)
+                    else {
+                        return Err(error);
+                    };
+                    let authenticated = crate::services::provider_browser_login::check_in(
+                        &data.settings,
+                        &provider,
+                        account_id,
+                        task,
+                    )
+                    .await?;
+                    self.request_http_check_in(&data.settings, &authenticated, task)
+                        .await?
+                }
+            }
         };
         task.authenticated(&effective_provider);
         let browser_assisted = browser_account.is_some() || result.verification_required.is_some();
@@ -115,15 +140,34 @@ impl ProviderService {
             task.authenticated(&effective_provider);
             result = browser_operation.value;
         }
-        self.finish_check_in(
-            id,
-            &data.settings,
-            effective_provider,
-            result,
-            browser_assisted,
-            task,
-        )
-        .await
+        let refresh_id = browser_assisted.then(|| id.clone());
+        let result = self
+            .finish_check_in(
+                id,
+                &data.settings,
+                effective_provider,
+                result,
+                browser_assisted,
+                task,
+            )
+            .await?;
+        if let Some(id) = refresh_id.filter(|_| result.ok) {
+            self.refresh_after_browser_check_in(id);
+        }
+        Ok(result)
+    }
+
+    /// Browser-assisted check-ins already confirmed the business result, so the
+    /// task must not wait for another full refresh. The card still needs the
+    /// renewed session's quota and status, though; refresh once in the
+    /// background after the result is saved.
+    fn refresh_after_browser_check_in(&self, id: String) {
+        crate::runtime::spawn(async move {
+            let _ = ProviderService::new().refresh_by_ids(vec![id]).await;
+            // refresh_by_ids 不广播事件，而签到终态事件在刷新完成之前就已
+            // 发出；不在这里补一次，卡片会一直显示签到前的余额和状态。
+            crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+        });
     }
 
     async fn request_http_check_in(
@@ -200,8 +244,15 @@ impl ProviderService {
             let refresh_outcome = ProtocolAdapter
                 .refresh_provider(settings, &effective_provider)
                 .await;
+            let refresh_succeeded = refresh_outcome.failure.is_none();
             let mut refreshed = effective_provider.clone();
             refresh_outcome.apply_to(&mut refreshed);
+            if refresh_succeeded {
+                // 刷新观测会带上签到前的冷却/连续失败快照。签到已经成功，
+                // 继续把这些字段复制回去会让卡片显示“冷却中”，自动刷新也
+                // 被已经恢复的旧失败挡住。
+                provider_domain::failure::record_attempt(&mut refreshed, None, 0, 0);
+            }
             Some(refreshed)
         } else {
             None
@@ -431,6 +482,34 @@ fn non_empty<'a>(value: &'a str, fallback: &'a str) -> &'a str {
     }
 }
 
+/// 标准签到被站点明确拒绝凭据时，是否可以用绑定的浏览器账号就地重新登录。
+/// 这里只判断业务条件；浏览器运行时就绪与否由调用方检查，避免把登录窗口
+/// 开在一个根本起不来的环境里。
+fn credential_failure_relogin_account<'a>(
+    provider: &'a Provider,
+    error: &CheckInError,
+) -> Option<&'a str> {
+    let CheckInError::Failed(message) = error else {
+        return None;
+    };
+    if !provider_domain::failure::looks_like_credential_rejection(message) {
+        return None;
+    }
+    match provider_domain::check_in::fresh_login_route(provider).ok()? {
+        provider_domain::check_in::FreshLoginRoute::BrowserAccount(account_id) => Some(account_id),
+        provider_domain::check_in::FreshLoginRoute::Password => None,
+    }
+}
+
+fn relogin_account_after_credential_failure<'a>(
+    provider: &'a Provider,
+    error: &CheckInError,
+) -> Option<&'a str> {
+    credential_failure_relogin_account(provider, error).filter(|_| {
+        crate::services::browser_runtime::status(false).is_ok_and(|status| status.ready)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,6 +522,57 @@ mod tests {
         provider.quota.scope = ProviderQuotaScope::Account;
         provider.runtime.status = ProviderStatus::Ok;
         provider
+    }
+
+    fn provider_with_browser_binding() -> Provider {
+        let mut provider =
+            Provider::from_input(ProviderInput::default(), "provider-test".to_string());
+        provider.auth.api_user = "42".to_string();
+        provider.auth.browser_binding = Some(crate::models::BrowserLoginBinding {
+            account_id: Some("linux-do-1".to_string()),
+            platform: crate::models::LoginPlatform::LinuxDo,
+            mechanism: crate::models::BrowserLoginMechanism::Oauth,
+            imported_at: 0,
+        });
+        provider
+    }
+
+    #[test]
+    fn rejected_credentials_on_a_bound_card_fall_back_to_browser_relogin() {
+        let provider = provider_with_browser_binding();
+        assert_eq!(
+            credential_failure_relogin_account(
+                &provider,
+                &CheckInError::Failed("未登录".to_string())
+            ),
+            Some("linux-do-1")
+        );
+        // 网络故障不触发登录窗口，保持原有失败信息交给自动重试。
+        assert_eq!(
+            credential_failure_relogin_account(
+                &provider,
+                &CheckInError::Failed("HTTP 503: maintenance".to_string())
+            ),
+            None
+        );
+        // 结果可能已提交时不能重新登录：那会把一次未确认的签到变成两次。
+        assert_eq!(
+            credential_failure_relogin_account(
+                &provider,
+                &CheckInError::Unconfirmed("签到请求超时".to_string())
+            ),
+            None
+        );
+        // 没有绑定浏览器账号的卡只能由用户手动补全凭据。
+        let mut unbound = provider_with_browser_binding();
+        unbound.auth.browser_binding = None;
+        assert_eq!(
+            credential_failure_relogin_account(
+                &unbound,
+                &CheckInError::Failed("未登录".to_string())
+            ),
+            None
+        );
     }
 
     #[test]

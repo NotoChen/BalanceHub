@@ -51,4 +51,11 @@ impl AppState {
             core: Arc::new(CoreState::with_load_error(data, load_error)),
         }
     }
+
+    /// 启动恢复流程失败：磁盘上仍有未完成事务，必须重启重走恢复。
+    pub fn with_storage_block(error: String) -> Self {
+        Self {
+            core: Arc::new(CoreState::with_storage_block(error)),
+        }
+    }
 }

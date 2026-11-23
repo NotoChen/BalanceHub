@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { effectScope, shallowRef } from "vue";
+import { effectScope, nextTick, shallowRef } from "vue";
 import type { CheckInBatch, CheckInTask } from "../src/api/checkin.ts";
 import type { CheckInSnapshot } from "../src/utils/check-in-tasks.ts";
 import { useCheckInBatchProgress } from "../src/composables/useCheckInBatchProgress.ts";
@@ -103,6 +103,22 @@ test("frontend reload recovers the active batch with its finished rows and no ne
   controller.scope.stop();
 });
 
+test("tasks dropped from the backend task list close the batch instead of running forever", async () => {
+  const controller = harness(async () => ({ batchId: "batch-1", tasks: [task()], skipped: 0 }));
+  await controller.open();
+  assert.equal(controller.progress.value.running, true);
+  // 任务先出现在快照里，随后的列表刷新发现后端已不再跟踪它并被移除。
+  controller.snapshot.value = { items: [task({ revision: 2, phase: "checking" })], pending: [], error: "" };
+  assert.equal(controller.progress.value.running, true);
+  controller.snapshot.value = { items: [], pending: [], error: "" };
+  assert.equal(controller.progress.value.running, false);
+  assert.equal(controller.progress.value.completed, true);
+  assert.equal(controller.progress.value.tasks[0].phase, "unconfirmed");
+  assert.equal(controller.progress.value.tasks[0].finished, true);
+  assert.equal(controller.progress.value.tasks[0].canResume, false);
+  controller.scope.stop();
+});
+
 test("a successful all-skipped batch finishes without inventing provider rows", async () => {
   const controller = harness(async () => ({ batchId: "empty", tasks: [], skipped: 4 }));
   await controller.open();
@@ -133,6 +149,44 @@ test("submission failure and tracker timeout release busy state and preserve the
     assert.equal(controller.visible.value, false);
     controller.scope.stop();
   }
+});
+
+test("a timed-out batch submission adopts the batch the backend accepted", async () => {
+  const submission = deferred<CheckInBatch | undefined>();
+  const controller = harness(() => submission.promise);
+  const request = controller.open();
+  // 前端超时，但后端已经受理并开始推送任务。
+  controller.snapshot.value = {
+    items: [task({ revision: 2, phase: "checking" })],
+    pending: [],
+    error: "提交批量签到超时，可在后台任务中查看",
+  };
+  submission.resolve(undefined);
+  await request;
+  assert.equal(controller.progress.value.error, "");
+  assert.equal(controller.progress.value.running, true);
+  assert.equal(controller.progress.value.submitting, false);
+  assert.equal(controller.progress.value.tasks.length, 1);
+  controller.snapshot.value = {
+    items: [task({ revision: 3, phase: "completed", finished: true, finishedAt: 2000 })],
+    pending: [], error: "",
+  };
+  assert.equal(controller.progress.value.completed, true);
+  controller.scope.stop();
+});
+
+test("a batch that appears after a failed submission is adopted while the modal stays open", async () => {
+  const controller = harness(async () => undefined);
+  await controller.open();
+  assert.match(controller.progress.value.error, /未能提交/);
+  controller.snapshot.value = {
+    items: [task({ revision: 2, phase: "checking" })], pending: [], error: "",
+  };
+  await nextTick();
+  assert.equal(controller.progress.value.error, "");
+  assert.equal(controller.progress.value.running, true);
+  assert.equal(controller.progress.value.tasks.length, 1);
+  controller.scope.stop();
 });
 
 test("a disposed progress controller ignores a late submission result", async () => {

@@ -46,7 +46,9 @@ const props = withDefaults(defineProps<{
   backgroundTasks: BackgroundTask[];
   recentBackgroundTasks: BackgroundTask[];
   backgroundTaskCount: number;
-}>(), { workspaceView: "providers", agentAvailable: true, searchPlaceholder: "搜索名称、URL、用户或模型" });
+  backgroundTaskAttentionCount: number;
+  backgroundTaskAmbientCount: number;
+}>(), { workspaceView: "providers", agentAvailable: true, searchPlaceholder: "搜索名称、URL、用户或模型", backgroundTaskAttentionCount: 0, backgroundTaskAmbientCount: 0 });
 
 const { commandAvailable, ensure: ensureHostCapabilities } = useHostCapabilities();
 void ensureHostCapabilities();
@@ -200,6 +202,8 @@ const announcementTooltip = computed(() => {
         :tasks="backgroundTasks"
         :recent-tasks="recentBackgroundTasks"
         :active-count="backgroundTaskCount"
+        :attention-count="backgroundTaskAttentionCount"
+        :ambient-count="backgroundTaskAmbientCount"
         @clear-recent="emit('clearBackgroundTasks')"
       />
       <template v-if="activeAgentCliSummaries.length > 0">

@@ -90,6 +90,7 @@ pub async fn handle(
                 blocking(move || service.save_provider(input, options.unwrap_or_default())).await?;
             if result.saved {
                 crate::services::check_in_tasks::cancel_outdated();
+                crate::services::provider_browser_login::cancel_outdated();
                 crate::host::refresh_tray();
             }
             to_value(ProviderSaveResultView::from(result))
@@ -111,6 +112,7 @@ pub async fn handle(
             let enabled: bool = arg(args, "enabled")?;
             let provider = service.set_enabled(id, enabled).await?;
             crate::services::check_in_tasks::cancel_outdated();
+            crate::services::provider_browser_login::cancel_outdated();
             crate::host::refresh_tray();
             to_value(ProviderView::from(provider))
         }

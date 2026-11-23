@@ -58,7 +58,16 @@ pub fn start_account(id: String, authorizations: bool) -> Result<ProviderBrowser
     emit(&task);
     let run_id = task.run_id.clone();
     crate::runtime::spawn(async move {
-        let result = run_account(&run_id, account, url, cancelled).await;
+        // 与站点登录一致：后台任务异常退出时发布失败终态，而不是让账号
+        // 窗口任务永远停在「进行中」。
+        use futures_util::FutureExt;
+        let result = std::panic::AssertUnwindSafe(run_account(&run_id, account, url, cancelled))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| {
+                log::error!("账号窗口任务异常退出（{run_id}）");
+                Err("账号窗口异常退出，请重新打开".to_string())
+            });
         match result {
             Ok(()) => publish(&run_id, "completed", "账号窗口已关闭，本地登录状态已保存"),
             Err(message) => publish(

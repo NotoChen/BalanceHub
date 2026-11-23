@@ -184,22 +184,77 @@ test("submission failure releases busy state without automatically replaying the
   assert.equal(resumeCalls().length, 1);
 });
 
-test("submission timeout stays reserved without replay and accepts late acknowledgement in the persistent store", async (t) => {
+test("a failed recovery keeps the timed-out submission reserved", async (t) => {
   const context = fresh(t);
+  const listReply = pending("list_agent_session_resume_operations");
+  // 队列里的拒绝会在下一次 IPC 前短暂处于无人处理状态；先挂一个回收器，
+  // 后续调用方仍会收到同一个拒绝。
+  void listReply.promise.catch(() => {});
+  listReply.reject(new Error("fixture list unavailable"));
   const reply = pending("resume_agent_session");
   await fastTimeout(15_000, () => context.store.submit(input()));
   const request = submitted();
+  await settle();
   assert.equal(context.store.starting[request.sessionRef], false);
   assert.equal(context.store.unconfirmed[request.sessionRef], request.requestId);
   assert.match(context.store.startErrors[request.sessionRef], /不会自动重试/);
-  await context.store.submit(input());
-  assert.equal(resumeCalls().length, 1);
+  assert.equal(context.store.isReserved(request.sessionRef), true);
+  // A late acknowledgement is still accepted by the persistent store.
   reply.resolve(resumeOperation({ requestId: request.requestId, revision: 3, state: "uncertain", canCancel: false }));
   await settle();
   assert.equal(context.store.unconfirmed[request.sessionRef], undefined);
   assert.equal(context.store.operations["operation:1"].revision, 3);
   assert.equal(context.store.isReserved(request.sessionRef), true);
   assert.equal(resumeCalls().length, 1);
+});
+
+test("an authoritative empty list releases a timed-out submission for a new attempt", async (t) => {
+  const context = fresh(t);
+  const listReply = pending("list_agent_session_resume_operations");
+  listReply.resolve([]);
+  pending("resume_agent_session");
+  await fastTimeout(15_000, () => context.store.submit(input()));
+  const request = submitted();
+  await settle();
+  assert.equal(context.store.unconfirmed[request.sessionRef], undefined);
+  assert.match(context.store.startErrors[request.sessionRef], /未在后台任务列表中找到/);
+  assert.equal(context.store.isReserved(request.sessionRef), false);
+  // The launch was never acknowledged, so it must not be replayed automatically.
+  assert.equal(resumeCalls().length, 1);
+});
+
+test("recovery retires a running operation that vanished from the backend list", async (t) => {
+  const context = fresh(t);
+  context.store.track(resumeOperation({ state: "running", canCancel: true }));
+  assert.equal(context.store.isReserved("ref:session-1"), true);
+  const reply = pending("list_agent_session_resume_operations");
+  const recovering = context.store.recover();
+  reply.resolve([]);
+  await recovering;
+  await settle();
+  assert.equal(context.store.isReserved("ref:session-1"), false);
+  assert.ok(context.store.lostOperations["operation:1"]);
+  assert.match(context.store.lost["operation:1"], /后台任务已从任务列表消失/);
+  context.store.dismissLost("operation:1");
+  assert.equal(context.store.lost["operation:1"], undefined);
+  assert.equal(context.store.lostOperations["operation:1"], undefined);
+});
+
+test("concurrent CLI snapshot refreshes only let the newest result settle", async (t) => {
+  const context = fresh(t);
+  const older = pending("get_cli_runtime_snapshot");
+  const newer = pending("get_cli_runtime_snapshot");
+  const first = context.cli.refresh();
+  const second = context.cli.refresh();
+  older.resolve({ agents: [{ kind: "codex", label: "旧结果" }], configs: [] });
+  await settle();
+  assert.equal(context.cli.cliRuntimeLoading, true);
+  assert.deepEqual(context.cli.cliRuntime.agents, []);
+  newer.resolve({ agents: [{ kind: "codex", label: "新结果" }], configs: [] });
+  await second;
+  assert.equal(context.cli.cliRuntimeLoading, false);
+  assert.equal(context.cli.cliRuntime.agents[0]?.label, "新结果");
+  await first;
 });
 
 test("recovery cannot downgrade an operation or replace its native source identity", async (t) => {
@@ -298,6 +353,30 @@ test("closing during environment detection releases probe state and ignores late
   assert.equal(context.cli.cliEnvironmentProbe?.tools[0].path, "/fixture/bin/codex");
   assert.equal(context.cli.terminalEnvironmentProbe?.terminals.length, 1);
   assert.equal(ui.visible.value, false);
+});
+
+test("a WSL row never cancels the CLI probe owned by another entry", async (t) => {
+  const context = fresh(t);
+  const external = pending("probe_cli_tools");
+  const probing = context.cli.probeCliTools(true);
+  const ownedRequest = context.cli.cliEnvironmentRequestId;
+  const row = sessionRow("wsl-session", {
+    runtimeScope: { kind: "wsl", distro_id: "fixture" },
+    runtimeLabel: "WSL · fixture",
+    resumeCli: { path: "/fixture/wsl/codex", version: "1.0.0" },
+  });
+  const ui = context.ui(row);
+  ui.visible.value = true;
+  await settle();
+  assert.equal(calls.filter((call) => call.command === "probe_cli_tools").length, 1);
+  assert.equal(context.cli.cliEnvironmentLoading, true);
+  ui.visible.value = false;
+  await settle();
+  assert.equal(context.cli.cliEnvironmentRequestId, ownedRequest);
+  assert.equal(context.cli.cliEnvironmentLoading, true);
+  external.resolve(structuredClone(cliProbe));
+  await probing;
+  assert.equal(context.cli.cliEnvironmentProbe?.tools[0]?.path, "/fixture/bin/codex");
 });
 
 test("real resume modal remains closable and exposes the optional model override", async (t) => {

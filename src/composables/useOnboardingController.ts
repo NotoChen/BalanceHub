@@ -79,11 +79,18 @@ export function useOnboardingController(options: UseOnboardingControllerOptions)
     if (disposed || completing) return;
     completing = true;
     hiddenForSession.value = true;
+    const previousCompleted = options.settingsForm.onboardingCompleted;
     try {
       options.settingsForm.onboardingCompleted = true;
-      if (!await options.flushSettingsSave() && !disposed) hiddenForSession.value = false;
+      if (!await options.flushSettingsSave() && !disposed) {
+        // 保存没有确认时把草稿恢复原值：否则后续任意一次设置保存都会把这
+        // 次未完成的「进入应用」一并写盘，和「关闭只是本次隐藏」冲突。
+        options.settingsForm.onboardingCompleted = previousCompleted;
+        hiddenForSession.value = false;
+      }
     } catch (error) {
       if (!disposed) {
+        options.settingsForm.onboardingCompleted = previousCompleted;
         Message.error(error instanceof Error ? error.message : String(error));
         hiddenForSession.value = false;
       }

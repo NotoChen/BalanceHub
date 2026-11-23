@@ -1192,6 +1192,7 @@ mod tests {
             consecutive_failures: 0,
             cooldown_until: None,
             cooldown_reason: None,
+            credential_rejected: false,
         };
         let report = recommend(&[healthy, disabled], "", now());
         assert_eq!(report.recommended_provider_id.as_deref(), Some("healthy"));

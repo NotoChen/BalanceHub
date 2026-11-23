@@ -42,9 +42,14 @@ export function createBrowserRuntimeController(api: BrowserRuntimeApi, changed: 
   const refresh = (force = false) => run("detect", () => api.status(force));
   function setVisible(visible: boolean) { snapshot.visible = visible; publish(); }
   async function start() {
-    const dispose = await api.listen(apply);
-    if (!active) { dispose(); return; }
-    unlisten = dispose;
+    try {
+      const dispose = await api.listen(apply);
+      if (!active) { dispose(); return; }
+      unlisten = dispose;
+    } catch {
+      // 事件监听不可用时仍然读取一次状态。否则面板会一直停在
+      // “正在检测本机环境…”，用户只能手动点重新检测。
+    }
     await refresh();
   }
   function stop() { active = false; sequence++; unlisten?.(); unlisten = undefined; }

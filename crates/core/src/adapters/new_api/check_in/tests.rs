@@ -156,8 +156,10 @@ async fn modern_browser_session_refreshes_quota_without_legacy_cookie() {
     let client = crate::adapters::transport::build_client(&AppSettings::default(), &provider)
         .await
         .unwrap();
-    let refreshed = crate::adapters::new_api::quota::refresh_provider(&client, &provider).await;
+    let (refreshed, failure) =
+        crate::adapters::new_api::quota::refresh_provider(&client, &provider).await;
     server.join().unwrap();
+    assert!(failure.is_none());
     assert_eq!(refreshed.quota.available, 50.0);
     assert_eq!(refreshed.quota.used, 10.0);
     assert!(refreshed.runtime.error_message.is_none());

@@ -31,12 +31,13 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
 
   const checkInRecordsResult = computed(() => {
     cacheRevision.value;
-    if (!checkInRecordsProviderId.value) {
+    const provider = checkInRecordsProvider.value;
+    if (!provider) {
       return null;
     }
     return (
       checkInRecordsCache.get(
-        checkInRecordsCacheKey(checkInRecordsProviderId.value, checkInRecordsMonth.value),
+        checkInRecordsCacheKey(provider, checkInRecordsMonth.value),
       ) ?? null
     );
   });
@@ -55,8 +56,12 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
     if (!providerId || !checkInRecordsVisible.value) {
       return;
     }
+    const provider = options.providers.value.find(
+      (candidate) => candidate.identity.id === providerId,
+    );
+    if (!provider) return;
 
-    const key = checkInRecordsCacheKey(providerId, month);
+    const key = checkInRecordsCacheKey(provider, month);
     if (!loadOptions.force && touchLruEntry(checkInRecordsCache, key) !== undefined) {
       request.invalidate();
       cacheRevision.value += 1;
@@ -138,8 +143,13 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
   };
 }
 
-function checkInRecordsCacheKey(providerId: string, month: string) {
-  return JSON.stringify([providerId, month]);
+function checkInRecordsCacheKey(
+  provider: Pick<Provider, "identity" | "revision">,
+  month: string,
+) {
+  // 改站点地址或换登录账号后 id 不变、revision 会变。缓存必须跟着失效，
+  // 否则日历会把上一个站点/账号的签到记录显示在新配置下面。
+  return JSON.stringify([provider.identity.id, month, provider.revision]);
 }
 
 function providerIdFromCheckInRecordsCacheKey(key: string) {

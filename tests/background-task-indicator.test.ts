@@ -52,7 +52,17 @@ function task(id: string, status: BackgroundTask["status"]): BackgroundTask {
 }
 
 async function renderIndicator(tasks: BackgroundTask[], recentTasks: BackgroundTask[] = [], onClearRecent?: () => void) {
-  const app = createSSRApp(loadIndicator(), { tasks, recentTasks, activeCount: tasks.length, onClearRecent });
+  const attentionCount = new Set(
+    [...tasks, ...recentTasks].filter((item) => item.attention).map((item) => item.id),
+  ).size;
+  const app = createSSRApp(loadIndicator(), {
+    tasks,
+    recentTasks,
+    activeCount: tasks.filter((item) => !item.ambient).length,
+    attentionCount,
+    ambientCount: tasks.filter((item) => item.ambient).length,
+    onClearRecent,
+  });
   app.component("a-popover", defineComponent({
     emits: ["update:popupVisible", "popupVisibleChange"],
     setup(_props, { slots, emit }) {
@@ -89,4 +99,34 @@ test("running task progress renders at most two decimal places", async () => {
   const rendered = await renderIndicator([{ ...task("download", "running"), progress: 0.123456789 }]);
   assert.match(rendered, /12\.35%/);
   assert.doesNotMatch(rendered, /12\.3456789/);
+});
+
+test("actionable failures move into the needs-action section with the alert badge", async () => {
+  const recentTasks = [{
+    ...task("failed-checkin", "failed"),
+    title: "签到 · 隔离站点",
+    detail: "签到结果未确认",
+    attention: true,
+    finishedAt: 2,
+    actions: [{ label: "继续签到", run: () => {} }],
+  }];
+  const rendered = await renderIndicator([], recentTasks);
+  assert.match(rendered, /需要处理/);
+  assert.match(rendered, /topbar-task-badge is-attention/);
+  assert.match(rendered, /继续签到/);
+  assert.match(rendered, /失败 · .*\d{2}:\d{2}/);
+  // 已经放进「需要处理」的记录不再重复出现在「最近完成」。
+  assert.doesNotMatch(rendered, /最近完成/);
+});
+
+test("automatic maintenance collapses into one summary line instead of individual rows", async () => {
+  const tasks = [{
+    ...task("site-announcements", "announcement"),
+    title: "读取站点公告",
+    ambient: true,
+  }];
+  const rendered = await renderIndicator(tasks);
+  assert.match(rendered, /自动维护 · 1 项进行中/);
+  assert.doesNotMatch(rendered, /读取站点公告/);
+  assert.doesNotMatch(rendered, /当前没有进行中的任务/);
 });

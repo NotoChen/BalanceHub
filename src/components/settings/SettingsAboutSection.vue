@@ -8,7 +8,9 @@ import {
   IconRefresh,
   IconSync,
 } from "@arco-design/web-vue/es/icon";
+import { Message } from "@arco-design/web-vue";
 import { openDataDirectory, openLogDirectory, openProjectRepository } from "../../api/app";
+import { withTimeout } from "../../utils/promise-timeout";
 import type { AppSettings, LogLevel } from "../../stores/providers";
 import { formatAppVersionLabel } from "../../utils/app-version";
 import { supportsCommand } from "../../composables/useHostCapabilities";
@@ -54,16 +56,26 @@ const updateIntervalHint = computed(() => {
     : `每 ${hours} 小时检查一次`;
 });
 
+/// 系统浏览器、文件管理器或目录权限失败时，宿主只返回一个错误；设置页
+/// 不能像主界面那样吞掉它，否则按钮看起来完全没有反应。
+async function runOpener(action: () => Promise<void>, failure: string) {
+  try {
+    await withTimeout(action(), 15_000, "打开请求超时，请稍后重试");
+  } catch (error) {
+    Message.error(`${failure}：${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function openRepository() {
-  void openProjectRepository();
+  void runOpener(openProjectRepository, "无法打开 GitHub");
 }
 
 function openLogs() {
-  void openLogDirectory();
+  void runOpener(openLogDirectory, "无法打开日志目录");
 }
 
 function openData() {
-  void openDataDirectory();
+  void runOpener(openDataDirectory, "无法打开数据目录");
 }
 </script>
 

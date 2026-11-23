@@ -244,6 +244,9 @@ impl ProviderService {
                 MutationDecision::unchanged(())
             })
         })?;
+        // 删除站点后，挂起中的浏览器任务不会再有可用的配置可继续。
+        crate::services::check_in_tasks::cancel_outdated();
+        crate::services::provider_browser_login::cancel_outdated();
         Ok(ProviderRemovalResult {
             id: removed_id,
             revision,
@@ -340,24 +343,13 @@ impl ProviderService {
         &self,
         text: String,
     ) -> Result<(AppData, AppDataTransferResult), String> {
+        self.ensure_import_ready()?;
         let state = crate::host::core_state();
         let _transaction = state
             .mutation_gate
             .lock()
             .unwrap_or_else(|err| err.into_inner());
-        let mut data = storage::import_app_data_json(&text)?;
-        let revision = state.next_revision();
-        data.revision = revision;
-        for provider in &mut data.providers {
-            provider.revision = revision;
-        }
-        let previous_data = {
-            let mut current = state.data.write().unwrap_or_else(|err| err.into_inner());
-            std::mem::replace(&mut *current, data.clone())
-        };
-        state.clear_load_error();
-        crate::host::app_data_changed(&previous_data, &data);
-        drop(previous_data);
+        let data = self.install_loaded_app_data(storage::import_app_data_json(&text)?);
         let result = AppDataTransferResult {
             path: "上传的配置".to_owned(),
             schema_version: data.schema_version,
@@ -366,17 +358,12 @@ impl ProviderService {
         Ok((data, result))
     }
 
-    pub fn import_app_data(
-        &self,
-        path: String,
-    ) -> Result<(AppData, AppDataTransferResult), String> {
-        let source = PathBuf::from(path);
+    /// 把一份刚从磁盘读到或导入的完整配置接替为进程内状态。
+    ///
+    /// 调用方必须已持有 `mutation_gate`：两次安装并发执行会基于不同的
+    /// `previous_data` 广播变更，并让后写的一方覆盖前一份结果。
+    pub(super) fn install_loaded_app_data(&self, mut data: AppData) -> AppData {
         let state = crate::host::core_state();
-        let _transaction = state
-            .mutation_gate
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        let mut data = storage::import_app_data(&source)?;
         let revision = state.next_revision();
         data.revision = revision;
         for provider in &mut data.providers {
@@ -389,6 +376,51 @@ impl ProviderService {
         state.clear_load_error();
         crate::host::app_data_changed(&previous_data, &data);
         drop(previous_data);
+        // 整体替换站点集合后，旧配置上挂起的签到和登录任务必须一起结束。
+        crate::services::check_in_tasks::cancel_outdated();
+        crate::services::provider_browser_login::cancel_outdated();
+        data
+    }
+
+    /// 启动读取失败且 data.json 已损坏时，用同目录最近的自动备份恢复。
+    /// 恢复后走与导入相同的状态安装，前端可以继续使用而无需重启。
+    pub fn restore_latest_backup(&self) -> Result<(AppData, AppDataTransferResult), String> {
+        let state = crate::host::core_state();
+        if !state.can_retry_load() {
+            return Err(if state.load_error().is_some() {
+                "本地配置处于保护状态，请重启应用完成恢复后再恢复备份".to_string()
+            } else {
+                "当前不是启动读取失败状态，请通过「从备份恢复」选择要导入的备份".to_string()
+            });
+        }
+        let _transaction = state
+            .mutation_gate
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let (source, restored) = storage::restore_latest_backup()?;
+        let data = self.install_loaded_app_data(restored);
+        let result = AppDataTransferResult {
+            path: source.display().to_string(),
+            schema_version: data.schema_version,
+            provider_count: data.providers.len(),
+        };
+        // `storage::restore_latest_backup` 已经用迁移后的数据重写了正式文件，
+        // 这里只负责替换进程内状态并广播变更。
+        Ok((data, result))
+    }
+
+    pub fn import_app_data(
+        &self,
+        path: String,
+    ) -> Result<(AppData, AppDataTransferResult), String> {
+        self.ensure_import_ready()?;
+        let source = PathBuf::from(path);
+        let state = crate::host::core_state();
+        let _transaction = state
+            .mutation_gate
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let data = self.install_loaded_app_data(storage::import_app_data(&source)?);
         let result = AppDataTransferResult {
             path: source.display().to_string(),
             schema_version: data.schema_version,

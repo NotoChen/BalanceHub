@@ -325,6 +325,61 @@ test("CLI 探测刷新不会把用户手动选择的切换目标改回去", asyn
   assert.equal(state.selectedCli.value, "claudeCode");
 });
 
+test("changing the model hides the previous model's ranking before the new one arrives", async (t) => {
+  const pending = deferred<ProviderRecommendationReport>();
+  const models: string[] = [];
+  const { state } = modal(t, {
+    "../api/provider-recommendation": {
+      getProviderRecommendations: (model?: string) => {
+        models.push(model ?? "");
+        return model ? pending.promise : Promise.resolve(report());
+      },
+    },
+  });
+  await settle();
+  assert.equal(state.report.value?.model, "");
+
+  state.model.value = "gpt-5";
+  await nextTick();
+  assert.equal(
+    state.report.value,
+    null,
+    "旧模型的排序不能留在屏幕上，否则用户会按旧排名切换、却把新模型写过去",
+  );
+  assert.equal(state.loading.value, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await settle();
+  assert.deepEqual(models, ["", "gpt-5"]);
+  pending.resolve(report({ model: "gpt-5" }));
+  await settle();
+  assert.equal(state.report.value?.model, "gpt-5");
+  assert.equal(state.loading.value, false);
+});
+
+test("closing before the debounce expires does not start a read", async (t) => {
+  const models: string[] = [];
+  const props = reactive({ visible: true, providers: [provider("alpha")] });
+  const { state } = modal(t, {
+    "../api/provider-recommendation": {
+      getProviderRecommendations: async (model?: string) => {
+        models.push(model ?? "");
+        return report();
+      },
+    },
+  }, props);
+  await settle();
+  assert.deepEqual(models, [""]);
+
+  state.model.value = "gpt-5";
+  props.visible = false;
+  await settle();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await settle();
+  assert.deepEqual(models, [""], "关闭后的待命计算不能继续读取推荐");
+  assert.equal(state.loading.value, false);
+});
+
 test("changing the model re-runs the recommendation after the debounce", async (t) => {
   const models: (string | undefined)[] = [];
   const { state } = modal(t, {

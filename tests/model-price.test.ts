@@ -86,6 +86,23 @@ test("site price above the official reference is marked as a premium", () => {
   assert.equal(modelPriceComparison(expensive)?.tone, "bad");
 });
 
+test("mixed input discount and output premium keep the badge label and tone on one ratio", () => {
+  const subject = model({
+    price: { input: 2.5, output: 24, cacheRead: null, cacheWrite: null },
+    officialPrice: {
+      input: 5,
+      output: 15,
+      cacheRead: null,
+      cacheWrite: null,
+    },
+    priceSource: "site",
+  });
+  const comparison = modelPriceComparison(subject);
+  assert.equal(comparison?.label, "5 折");
+  assert.equal(comparison?.tone, "good");
+  assert.match(comparison?.detail ?? "", /输出 \$24 \/ 官方 \$15（官方 ×1\.6）/);
+});
+
 test("identical official price is neutral and per-request models skip the comparison", () => {
   const same = model({
     price: { input: 5, output: 15, cacheRead: null, cacheWrite: null },

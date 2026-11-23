@@ -979,6 +979,10 @@ pub struct ProviderRuntime {
     /// 冷却原因，直接展示在卡片上，例如「凭据被拒绝」。
     #[serde(default)]
     pub cooldown_reason: Option<String>,
+    /// 最近一次刷新被站点明确拒绝凭据。卡片据此把「重新登录」当作修复入口，
+    /// 而不是把网络故障、限流也误判成认证问题。
+    #[serde(default)]
+    pub credential_rejected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

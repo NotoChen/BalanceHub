@@ -32,6 +32,8 @@ const props = defineProps<{
   loading: boolean;
   initialized: boolean;
   loadError: string | null;
+  storageBlockedError?: string | null;
+  restoringBackup?: boolean;
   providers: Provider[];
   /// 卡片测活线回落用的全局目标；与详情、推荐使用同一套解析。
   settings?: LivenessSettings;
@@ -49,6 +51,8 @@ const props = defineProps<{
   backgroundTasks: BackgroundTask[];
   recentBackgroundTasks: BackgroundTask[];
   backgroundTaskCount: number;
+  backgroundTaskAttentionCount: number;
+  backgroundTaskAmbientCount: number;
   switchingCliConfig: { providerId: string; cliKind: AgentCliKind } | null;
   refreshInProgress: boolean;
   refreshQueuedProviderIds?: ReadonlySet<string>;
@@ -115,7 +119,9 @@ const emit = defineEmits<{
   startDrag: [event: MouseEvent];
   add: [protocol?: ProviderProtocol];
   importData: [];
+  restoreBackup: [];
   retryLoad: [];
+  restartApp: [];
   checkForUpdate: [];
   openGithub: [];
   /// 顶栏的全局用量趋势：不带中转站，面板按全部站点汇总。
@@ -134,7 +140,7 @@ const emit = defineEmits<{
     context?: TemporaryCliLaunchContext,
   ];
   cpaRenewAll: [provider: Provider];
-  reauthorizeOauthCard: [provider: Provider];
+  reauthorizeCard: [provider: Provider];
   edit: [provider: Provider];
   checkIn: [provider: Provider];
   openApiKeyManager: [provider: Provider];
@@ -182,6 +188,8 @@ const emit = defineEmits<{
     :background-tasks="backgroundTasks"
     :recent-background-tasks="recentBackgroundTasks"
     :background-task-count="backgroundTaskCount"
+    :background-task-attention-count="backgroundTaskAttentionCount"
+    :background-task-ambient-count="backgroundTaskAmbientCount"
     @start-drag="emit('startDrag', $event)"
     @set-search-query="updateSearch"
     @set-workspace-view="agentWorkspace.setView"
@@ -206,6 +214,8 @@ const emit = defineEmits<{
     :loading="loading"
     :initialized="initialized"
     :load-error="loadError"
+    :storage-blocked-error="storageBlockedError"
+    :restoring-backup="restoringBackup"
     :providers="providers"
     :settings="settings"
     :search-query="searchQuery"
@@ -226,7 +236,9 @@ const emit = defineEmits<{
     :show-liveness-timeline="showLivenessTimeline"
     @add="emit('add')"
     @import-data="emit('importData')"
+    @restore-backup="emit('restoreBackup')"
     @retry-load="emit('retryLoad')"
+    @restart-app="emit('restartApp')"
     @card-click="openProvider($event, false)"
     @card-pointerdown="(provider, event) => emit('cardPointerdown', provider, event)"
     @toggle="emit('toggle', $event)"
@@ -234,7 +246,7 @@ const emit = defineEmits<{
     @probe-capabilities="emit('probeCapabilities', $event)"
     @launch-temporary-cli="(provider, cliKind) => emit('launchTemporaryCli', provider, cliKind)"
     @cpa-renew-all="emit('cpaRenewAll', $event)"
-    @reauthorize-oauth-card="emit('reauthorizeOauthCard', $event)"
+    @reauthorize-card="emit('reauthorizeCard', $event)"
     @edit="openProvider($event, true)"
     @check-in="emit('checkIn', $event)"
     @open-api-key-manager="emit('openApiKeyManager', $event)"

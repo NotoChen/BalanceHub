@@ -214,6 +214,8 @@ export interface ProviderActions {
   editProfile: boolean;
   /** 使用兑换码补充余额。 */
   redeemCode: boolean;
+  /** 凭据失效时可以用绑定的浏览器登录账号重新认证。 */
+  reauthenticate: boolean;
   checkIn: boolean;
   checkedInToday: boolean;
   apiKeyManagement: boolean;
@@ -734,6 +736,8 @@ export interface ProviderRuntime {
   /// unix 秒；冷却结束前调度器不再刷新该卡片。
   cooldownUntil?: number | null;
   cooldownReason?: string | null;
+  /// 最近一次刷新被站点明确拒绝凭据；只有这种失败才推荐重新登录。
+  credentialRejected?: boolean;
 }
 
 export interface ProviderInput {

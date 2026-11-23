@@ -91,6 +91,7 @@ defineProps<{
   batchOperation: ProviderBatchOperation | null;
   batchOperationRunning: boolean;
   batchOperationItems: ProviderBatchProgressItem[];
+  batchOperationWaitingReason: string;
   batchOperationError: string;
   batchOperationStartedAt: number | null;
   batchOperationFinishedAt: number | null;
@@ -198,6 +199,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
     :operation="batchOperation"
     :running="batchOperationRunning"
     :items="batchOperationItems"
+    :waiting-reason="batchOperationWaitingReason"
     :error="batchOperationError"
     :started-at="batchOperationStartedAt"
     :finished-at="batchOperationFinishedAt"

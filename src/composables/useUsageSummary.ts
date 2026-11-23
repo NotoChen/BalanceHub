@@ -25,14 +25,17 @@ export function useUsageSummary(options: UseUsageSummaryOptions) {
     request.invalidate();
     usageSummary.value = null;
     usageOverview.value = null;
-    // 汇总视图没有卡片入口，只从顶栏打开、从不会被重新“切换”回来；watch 不会在
-    // 同值赋值时触发，所以每次打开都要在这里重新读取。
+    // 打开汇总或从卡片用量切回汇总时由这里发起读取；已经停在汇总视图里
+    // 再次点击不会触发 watch，由 openUsageSummary 自己补一次重读。
     if (visible && !providerId) void refreshUsageSummary();
   }, { flush: "sync" });
 
   watch(usagePeriod, () => {
     request.invalidate();
     usageSummary.value = null;
+    // 汇总视图的标题和平均 RPM 都按当前时段计算。上一个时段的汇总数字留在
+    // 屏幕上，会被当成新时段的读数，所以两个视图都要在重新读取前收起。
+    usageOverview.value = null;
     if (usageVisible.value) void refreshUsageSummary();
   }, { flush: "sync" });
 
@@ -46,11 +49,15 @@ export function useUsageSummary(options: UseUsageSummaryOptions) {
   /// 卡片打开的是单个中转站；不传中转站即打开全部站点的汇总视图，
   /// 后端在没有站点时聚合所有可读取的中转站。
   function openUsageSummary() {
+    // 从关闭状态或某张卡片的用量切回汇总时，上面的 watch 已经会发起读取；
+    // 只有本来就在汇总视图里再次点击才需要主动重读，否则每次打开都会发两次
+    // 汇总请求。
+    const rerunInPlace = usageVisible.value && usageProvider.value === null;
     usageProvider.value = null;
     usageSummary.value = null;
     usageOverview.value = null;
     usageVisible.value = true;
-    void refreshUsageSummary();
+    if (rerunInPlace) void refreshUsageSummary();
   }
 
   async function refreshUsageSummary() {

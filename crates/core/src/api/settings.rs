@@ -19,6 +19,7 @@ pub const COMMANDS: &[&str] = &[
     "preview_liveness_prompts",
     "export_app_data_json",
     "import_app_data_json",
+    "restore_latest_backup",
 ];
 
 pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
@@ -128,6 +129,15 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
             let (data, transfer) =
                 crate::api::blocking(move || ProviderService::new().import_app_data_json(text))
                     .await?;
+            crate::host::refresh_tray();
+            to_value(AppDataImportResultView {
+                data: AppDataView::from(data),
+                transfer,
+            })
+        }
+        "restore_latest_backup" => {
+            let (data, transfer) =
+                crate::api::blocking(|| ProviderService::new().restore_latest_backup()).await?;
             crate::host::refresh_tray();
             to_value(AppDataImportResultView {
                 data: AppDataView::from(data),

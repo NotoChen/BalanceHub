@@ -401,7 +401,7 @@ const priceScopeNote = computed(() =>
 
       <a-spin :loading="loading">
         <div v-if="models.length === 0" class="available-models-empty">
-          {{ loading ? '正在获取模型列表…' : error ? '模型列表未能加载' : provider?.capabilities.availableModelsState.updatedAt ? '暂无可用模型' : '暂未获取模型列表' }}
+          {{ loading ? '正在获取模型列表…' : error ? '模型列表未能加载' : hiddenCount ? `展示规则隐藏了全部 ${hiddenCount} 个模型` : provider?.capabilities.availableModelsState.updatedAt ? '暂无可用模型' : '暂未获取模型列表' }}
         </div>
         <div v-else class="available-models-body">
           <div class="available-models-summary">

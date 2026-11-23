@@ -59,19 +59,24 @@ onScopeDispose(() => {
 
 /** 浏览器版直接读文件文本；桌面版仍把路径交给 Rust 读取。 */
 function pickImportFiles(): Promise<OAuthImportFile[]> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "application/json,.json";
     input.multiple = true;
     input.onchange = async () => {
+      const chosen = Array.from(input.files ?? []);
       const files: OAuthImportFile[] = [];
-      for (const file of Array.from(input.files ?? [])) {
+      for (const file of chosen) {
         try {
           files.push({ name: file.name, content: await file.text() });
         } catch {
-          // 单个文件读不动时跳过，由预览结果统一说明。
+          // 单个文件读不动时跳过；全部失败要明确提示，不能静默无反应。
         }
+      }
+      if (chosen.length > 0 && files.length === 0) {
+        reject(new Error("读取所选文件失败，请重新选择"));
+        return;
       }
       resolve(files);
     };

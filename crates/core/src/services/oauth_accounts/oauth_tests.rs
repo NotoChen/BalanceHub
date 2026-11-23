@@ -539,3 +539,45 @@ fn cpa_login_urls_must_stay_plain_http_links() {
     let other = Provider::from_input(ProviderInput::default(), "other".into());
     assert!(cpa_login_target(&other, "https://auth.example.test/login").is_err());
 }
+
+#[test]
+fn login_tasks_are_only_reused_for_the_same_target_provider() {
+    let task = OAuthLoginTask {
+        revision: 0,
+        updated_at: 0,
+        id: "task-a".into(),
+        vendor: OAuthVendor::Claude,
+        phase: OAuthLoginPhase::Waiting,
+        authorization_url: None,
+        user_code: None,
+        accepts_callback: false,
+        expires_at: 0,
+        created_at: 0,
+        message: String::new(),
+        provider_id: Some("provider-a".into()),
+        can_cancel: true,
+        can_retry_save: false,
+    };
+
+    assert!(super::login::same_login_target(
+        &task,
+        OAuthVendor::Claude,
+        Some("provider-a")
+    ));
+    // 同 vendor 的另一张卡片必须拿到自己的任务，而不是复用 A 的。
+    assert!(!super::login::same_login_target(
+        &task,
+        OAuthVendor::Claude,
+        Some("provider-b")
+    ));
+    assert!(!super::login::same_login_target(
+        &task,
+        OAuthVendor::Claude,
+        None
+    ));
+    assert!(!super::login::same_login_target(
+        &task,
+        OAuthVendor::Codex,
+        Some("provider-a")
+    ));
+}

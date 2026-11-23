@@ -132,6 +132,7 @@ pub(crate) fn run() {
             send_app_notification,
             export_app_data,
             import_app_data,
+            restore_latest_backup,
             complete_provider_credentials,
             test_provider_connection,
             probe_cli_tools,
@@ -331,6 +332,11 @@ pub(crate) fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            // macOS 点 Dock 图标（以及部分系统通知的激活）会走 Reopen；关窗到
+            // 托盘后窗口是隐藏的，这里必须主动唤回，否则看起来像没响应。
+            if let RunEvent::Reopen { .. } = &event {
+                tray::show_main_window(app);
+            }
             // macOS 的菜单退出 / Cmd+Q 走 ExitRequested，不经过窗口关闭事件。
             // 只有用户交互（code 为 None）才拦下来询问；应用内确认退出时
             // `AppHandle::exit` 带着具体 code，不再重复拦截。
@@ -436,9 +442,14 @@ fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     balancehub_core::host::install(desktop_host.clone())?;
     balancehub_core::runtime::install(tauri::async_runtime::handle().inner().clone())?;
     let recovery = services::cloud_sync::recover(&config_root);
-    let app_state = match recovery.and_then(|_| storage::load_app_data()) {
-        Ok(data) => AppState::new(data),
-        Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
+    let app_state = match recovery {
+        Ok(()) => match storage::load_app_data() {
+            Ok(data) => AppState::new(data),
+            Err(err) => AppState::with_load_error(AppData::default(), Some(err)),
+        },
+        // 恢复事务没走完时 data.json 可能只应用了一半；此时重读或导入都会
+        // 跳过恢复流程，只能重启重试。
+        Err(err) => AppState::with_storage_block(err),
     };
     desktop_host.attach_core(app_state.core.clone());
     install_desktop_opener(app.app_handle().clone());
@@ -664,6 +675,8 @@ fn build_tray_with_linux_fallback(app: &App) -> Result<bool, Box<dyn std::error:
 fn build_tray(app: &App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
         .text("show", "显示窗口")
+        // 系统通知无法在桌面端携带点击回调；托盘菜单是回到任务中心的固定入口。
+        .text("tasks", "后台任务")
         .separator()
         .text("quit", "退出")
         .build()?;
@@ -674,6 +687,10 @@ fn build_tray(app: &App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => tray::show_main_window(app),
+            "tasks" => {
+                tray::show_main_window(app);
+                let _ = app.emit("open-task-center", ());
+            }
             "quit" => request_app_exit(app),
             _ => {}
         })

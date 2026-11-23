@@ -152,7 +152,7 @@ function launchTo(row: ModelComparisonRow) {
     <p v-if="loading && !rows.length" class="available-models-compare-state" role="status">
       正在读取各站模型资料…
     </p>
-    <a-alert v-if="error && !rows.length" type="error" show-icon>
+    <a-alert v-if="error" type="error" show-icon>
       {{ error }}
     </a-alert>
     <a-spin :loading="loading">

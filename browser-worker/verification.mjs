@@ -10,6 +10,15 @@ export function pageNeedsVerification() {
     .some((input) => typeof input.value === "string" && input.value.trim());
 }
 
+// A headless relogin cannot type credentials. Staying on the platform's own
+// login form means the bound profile no longer carries a usable session.
+export function pageNeedsIdentityLogin() {
+  const host = location.hostname;
+  if (host !== "linux.do" && host !== "github.com") return false;
+  return [...document.querySelectorAll('input[type="password"], input[name="password"]')]
+    .some((input) => input.getClientRects().length > 0);
+}
+
 // This function runs in the page. Every callback belongs to one widget instance,
 // so a late callback from a previous verification cannot supply a new token.
 export async function renderTurnstile({ siteKey, providerName, siteHost, windowTitle }) {

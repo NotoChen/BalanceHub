@@ -31,7 +31,7 @@ impl CheckInPhase {
         match self {
             Self::Queued => "已加入签到队列",
             Self::Checking => "正在检查签到方式与账号状态",
-            Self::Opening => "正在打开签到窗口",
+            Self::Opening => "正在打开站点登录页",
             Self::Verifying => "正在完成站点验证",
             Self::WaitingHuman => "需要人工验证，点击继续验证",
             Self::WaitingLogin => "需要使用绑定账号重新登录，点击继续登录",

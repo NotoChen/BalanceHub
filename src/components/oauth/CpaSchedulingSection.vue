@@ -145,8 +145,11 @@ const settingsPatch = computed<CpaGatewaySettingsUpdate>(() => {
 const settingsDirty = computed(
   () => Object.keys(settingsPatch.value).length > 0,
 );
+/// 只有切换站点才需要把整块状态清空。revision 变化只说明卡片数据刷新了，
+/// 已加载的网关设置和正在编辑的草稿都属于用户当前操作，不能随后台刷新
+/// 一起丢弃；保存时使用的是最新的 revision，冲突会以错误显示在面板里。
 watch(
-  () => [props.provider.identity.id, props.revision],
+  () => props.provider.identity.id,
   () => {
     settingsRequest++;
     settings.value = null;

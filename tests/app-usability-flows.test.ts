@@ -417,7 +417,7 @@ function transferHarness(t: TestContext, dialogs: Record<string, unknown>, overr
     "../api/app": { exportAppDataJson: async () => "", importAppDataJson: async () => ({ transfer: transfer() }) },
   });
   const operations: string[] = [];
-  const context = scoped(t, () => useAppDataTransfer({ beforeTransfer: async () => { operations.push("save settings"); return true; }, exportAppData: async () => { operations.push("export"); return transfer(); }, importAppData: async () => { operations.push("restore"); return transfer(); }, ...overrides }));
+  const context = scoped(t, () => useAppDataTransfer({ beforeTransfer: async () => { operations.push("save settings"); return true; }, exportAppData: async () => { operations.push("export"); return transfer(); }, importAppData: async () => { operations.push("restore"); return transfer(); }, restoreLatestBackup: async () => { operations.push("auto restore"); return transfer(); }, ...overrides }));
   return { ...context, feedback, operations };
 }
 
@@ -452,6 +452,39 @@ test("restoring requires confirmation and successful settings persistence before
   assert.deepEqual(failed.operations, []);
   assert.equal(failed.value.importingAppData.value, false);
   assert.match(failed.feedback.sent[0], /尚未保存/);
+});
+
+test("automatic backup restore confirms first and releases busy state", async (t) => {
+  const confirmation = deferred<boolean>();
+  const context = transferHarness(t, {}, {}, () => confirmation.promise);
+  const restoring = context.value.restoreLatestBackup();
+  await settle();
+  assert.equal(context.value.restoringBackup.value, true);
+  assert.deepEqual(context.operations, [], "确认之前不能动磁盘");
+  confirmation.resolve(true);
+  await restoring;
+  assert.equal(context.value.restoringBackup.value, false);
+  assert.deepEqual(context.operations, ["auto restore"], "保护态下不要求先保存设置");
+  assert.match(context.feedback.sent[0], /已从自动备份恢复 2 个中转站配置/);
+});
+
+test("an unsaved settings draft points at a restart instead of an impossible save", async (t) => {
+  const context = transferHarness(t, {}, { restoreLatestBackup: () => Promise.reject(new Error("应用设置尚未保存，请先重试保存")) });
+  await context.value.restoreLatestBackup();
+  assert.equal(context.value.restoringBackup.value, false);
+  assert.match(context.feedback.sent[0], /请重启应用后再试/);
+});
+
+test("automatic backup restore timeout releases busy state", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const native = deferred<AppDataTransferResult>();
+  const context = transferHarness(t, {}, { restoreLatestBackup: () => native.promise });
+  const restoring = context.value.restoreLatestBackup();
+  await settle();
+  t.mock.timers.tick(30_000);
+  await restoring;
+  assert.equal(context.value.restoringBackup.value, false);
+  assert.match(context.feedback.sent[0], /超时/);
 });
 
 test("backup timeout, native dialog failure and disposal all release busy state", async (t) => {
@@ -838,8 +871,14 @@ test("onboarding save failures retain edits and release the action for retry", a
   await panel.completeOnboarding();
   assert.equal(panel.onboardingVisible.value, true);
   assert.equal(draft.themeMode, "dark");
+  assert.equal(
+    draft.onboardingCompleted,
+    false,
+    "一次未确认的保存不能把草稿留在已完成状态，后续设置保存会把它一起写盘",
+  );
   await panel.completeOnboarding();
   assert.equal(saves, 2);
+  assert.equal(draft.onboardingCompleted, true);
   assert.equal(panel.onboardingVisible.value, false);
 });
 

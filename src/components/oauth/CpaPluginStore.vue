@@ -113,6 +113,7 @@ async function install(entry: CpaStorePlugin) {
   installing.value = entryKey;
   error.value = "";
   notice.value = "";
+  let installed = false;
   try {
     const result = await installCpaPlugin(
       id,
@@ -122,6 +123,7 @@ async function install(entry: CpaStorePlugin) {
       props.revision,
     );
     if (disposed || sequence !== installRequest) return;
+    installed = true;
     notice.value = result.restartRequired
       ? `已安装 ${entry.name || result.id} v${result.version}，重启网关后生效`
       : `已安装 ${entry.name || result.id} v${result.version}`;
@@ -134,7 +136,8 @@ async function install(entry: CpaStorePlugin) {
   }
   /// The entry's own row now describes the copy on the gateway, and a plugin
   /// the gateway just wrote is only discoverable through a fresh read.
-  if (!disposed && sequence === installRequest) await load();
+  /// 安装失败不能重读：读取会先清空 error，失败原因就再也不会显示。
+  if (installed && !disposed && sequence === installRequest) await load();
 }
 
 function sourceFailure(error: { sourceName: string; sourceId: string; message: string }) {

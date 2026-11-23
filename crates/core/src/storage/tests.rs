@@ -461,6 +461,90 @@ fn migrate_rejects_unknown_version_zero() {
 }
 
 #[test]
+fn parse_errors_list_only_existing_automated_backups_newest_first() {
+    let dir = unique_test_dir("backup-hint");
+    let target = dir.join(DATA_FILE_NAME);
+    fs::write(&target, "{").expect("corrupt data file should be writable");
+
+    let error = read_app_data_file(&target, BackupBeforeMigrate::Yes)
+        .expect_err("corrupt data file should not parse");
+    assert_eq!(
+        with_backup_hint(&target, error.clone()),
+        error,
+        "没有备份时不应附加空清单"
+    );
+
+    fs::write(dir.join("data.json.bak"), "{}").expect("generic backup");
+    fs::write(dir.join("data.json.v9.bak"), "{}").expect("v9 backup");
+    fs::write(dir.join("data.json.v11.bak"), "{}").expect("v11 backup");
+    fs::write(dir.join("unrelated.bak"), "{}").expect("unrelated backup");
+    let hinted = with_backup_hint(&target, error);
+
+    let generic = hinted.find("data.json.bak").expect("应列出通用备份");
+    let v11 = hinted.find("data.json.v11.bak").expect("应列出 v11 备份");
+    let v9 = hinted.find("data.json.v9.bak").expect("应列出 v9 备份");
+    assert!(generic < v11 && v11 < v9, "最近的一版应排在前面");
+    assert!(!hinted.contains("unrelated.bak"), "只列应用自己的备份");
+    assert!(hinted.contains("重新读取"));
+
+    // 版本过新不是旧备份能解决的问题，不能引导用户回退。
+    let newer = "配置结构版本过新：当前应用只支持 schemaVersion 12，检测到 13";
+    assert_eq!(with_backup_hint(&target, newer.into()), newer);
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn restore_latest_backup_migrates_the_backup_and_preserves_the_corrupt_file() {
+    let dir = unique_test_dir("restore-backup");
+    let target = dir.join(DATA_FILE_NAME);
+    let backup = dir.join(format!("data.json.v{}.bak", CURRENT_SCHEMA_VERSION - 1));
+    fs::write(&target, "{ broken").expect("corrupt data file should be writable");
+    let old = AppData {
+        schema_version: CURRENT_SCHEMA_VERSION - 1,
+        ..AppData::default()
+    };
+    fs::write(
+        &backup,
+        serde_json::to_string_pretty(&old).expect("old data should serialize"),
+    )
+    .expect("backup should be writable");
+
+    let (source, restored) =
+        restore_latest_backup_at(&target).expect("parse damage should restore from backup");
+    assert_eq!(source, backup);
+    assert_eq!(restored.schema_version, CURRENT_SCHEMA_VERSION);
+
+    let reloaded = read_app_data_file(&target, BackupBeforeMigrate::No)
+        .expect("restored data.json should parse");
+    assert_eq!(reloaded.data.schema_version, CURRENT_SCHEMA_VERSION);
+    let preserved = fs::read_dir(&dir)
+        .expect("test directory should be readable")
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .any(|name| name.starts_with("data.json.corrupt-"));
+    assert!(preserved, "损坏的原文件必须保留");
+
+    // 正式文件已经可读，再次恢复必须拒绝，避免用旧备份静默覆盖新数据。
+    let err = restore_latest_backup_at(&target).expect_err("readable config must not be replaced");
+    assert!(err.contains("仍可读取"));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn restore_latest_backup_reports_a_missing_backup() {
+    let dir = unique_test_dir("restore-no-backup");
+    let target = dir.join(DATA_FILE_NAME);
+    fs::write(&target, "{ broken").expect("corrupt data file should be writable");
+
+    let err = restore_latest_backup_at(&target).expect_err("no backup should fail clearly");
+    assert!(err.contains("没有可用的自动备份"));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn backup_legacy_file_does_not_overwrite_existing_backup() {
     let dir = unique_test_dir("backup-no-clobber");
     let target = dir.join(DATA_FILE_NAME);

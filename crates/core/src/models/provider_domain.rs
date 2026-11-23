@@ -1,3 +1,7 @@
+/// 系统时钟被回拨后，持久化的「上次同步 / 冷却结束 / 下次尝试」会落在
+/// 未来。超过这个容差的未来时刻只可能是时钟问题，不应按真实进度等待。
+pub(crate) const CLOCK_ROLLBACK_TOLERANCE_SECS: u64 = 10 * 60;
+
 #[path = "provider_domain/auth.rs"]
 pub mod auth;
 #[path = "provider_domain/automation.rs"]

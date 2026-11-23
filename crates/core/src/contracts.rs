@@ -60,6 +60,8 @@ pub struct ProviderActions {
     pub edit_profile: bool,
     /// 使用兑换码补充余额。
     pub redeem_code: bool,
+    /// 凭据失效时可以用绑定的浏览器登录账号重新认证。
+    pub reauthenticate: bool,
     pub check_in: bool,
     pub checked_in_today: bool,
     pub api_key_management: bool,
@@ -204,6 +206,16 @@ impl From<Provider> for ProviderView {
                 && protocol_capabilities.account_profile,
             redeem_code: provider_domain::capabilities::supports_account_management(&provider)
                 && protocol_capabilities.account_redemption,
+            reauthenticate: provider.runtime.enabled
+                && crate::models::provider_domain::auth::browser_login_supported(
+                    provider.identity.protocol,
+                )
+                && matches!(
+                    provider_domain::check_in::fresh_login_route(&provider),
+                    Ok(provider_domain::check_in::FreshLoginRoute::BrowserAccount(
+                        _
+                    ))
+                ),
             check_in: provider_domain::capabilities::supports_check_in(&provider),
             checked_in_today: provider_domain::capabilities::checked_in_today(&provider),
             api_key_management: provider_domain::capabilities::supports_api_key_management(
@@ -595,6 +607,13 @@ pub struct ProviderBatchResultView {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", content = "data")]
 pub enum ProviderBatchProgressEvent {
+    /// 手动刷新在闸门后排队时的心跳：批次已受理，只是还在等自动刷新收尾。
+    /// 等待期间周期性重发，既向界面说明状态，也续上前端的无进度超时。
+    #[serde(rename = "queued")]
+    Queued {
+        operation: ProviderBatchOperation,
+        reason: String,
+    },
     #[serde(rename = "started")]
     Started {
         operation: ProviderBatchOperation,
@@ -674,6 +693,15 @@ mod tests {
         assert_eq!(started["data"]["operation"], "refresh");
         assert_eq!(started["data"]["items"][0]["status"], "pending");
         assert_eq!(started["data"]["items"][0]["providerId"], "provider-1");
+
+        let queued = serde_json::to_value(ProviderBatchProgressEvent::Queued {
+            operation: ProviderBatchOperation::Refresh,
+            reason: "正在等待当前自动刷新结束".to_string(),
+        })
+        .unwrap();
+        assert_eq!(queued["event"], "queued");
+        assert_eq!(queued["data"]["operation"], "refresh");
+        assert_eq!(queued["data"]["reason"], "正在等待当前自动刷新结束");
 
         let view = ProviderView::from(provider);
         let finished = serde_json::to_value(ProviderBatchProgressEvent::ProviderFinished {

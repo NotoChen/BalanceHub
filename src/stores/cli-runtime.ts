@@ -33,6 +33,7 @@ const pendingProbes = new WeakMap<object, { key: string; requestId: number; prom
 export const useCliRuntimeStore = defineStore("cliRuntime", {
   state: () => ({
     cliRuntimeLoading: false,
+    cliRuntimeRequestId: 0,
     cliRuntime: emptyCliRuntimeSnapshot(),
     agentRuntimeSnapshot: emptyAgentRuntimeSnapshot(),
     agentRuntimeLoading: false,
@@ -46,6 +47,8 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
   }),
   actions: {
     resetRuntime() {
+      this.cliRuntimeRequestId += 1;
+      this.cliRuntimeLoading = false;
       this.cliRuntime = emptyCliRuntimeSnapshot();
       this.agentRuntimeSnapshot = emptyAgentRuntimeSnapshot();
     },
@@ -94,7 +97,9 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
       const requestId = ++this.terminalEnvironmentRequestId;
       this.terminalEnvironmentLoading = true;
       try {
-        const result = await probeTerminalsCommand();
+        // 探测依赖外部终端程序，可能长时间不返回；没有上限时设置页和继续
+        // 弹窗的“检测中”会一直转下去。
+        const result = await withTimeout(probeTerminalsCommand(), 20_000, "检测终端超时");
         if (requestId === this.terminalEnvironmentRequestId) this.terminalEnvironmentProbe = result;
         return result;
       } finally {
@@ -156,12 +161,16 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
       return previewCliConfigCommand(id, cliKind, apiKeyLocalId, model);
     },
     async refresh(): Promise<CliRuntimeSnapshot> {
+      // 多个入口会同时刷新（页面挂载、事件补偿、用户重试）。只允许最新一次
+      // 写入状态与结束加载态，避免旧响应覆盖新快照或提前解除 loading。
+      const requestId = ++this.cliRuntimeRequestId;
       this.cliRuntimeLoading = true;
       try {
-        this.cliRuntime = await withTimeout(getCliRuntimeSnapshotCommand(), 15_000, "读取 CLI 配置状态超时");
-        return this.cliRuntime;
+        const snapshot = await withTimeout(getCliRuntimeSnapshotCommand(), 15_000, "读取 CLI 配置状态超时");
+        if (this.cliRuntimeRequestId === requestId) this.cliRuntime = snapshot;
+        return snapshot;
       } finally {
-        this.cliRuntimeLoading = false;
+        if (this.cliRuntimeRequestId === requestId) this.cliRuntimeLoading = false;
       }
     },
   },

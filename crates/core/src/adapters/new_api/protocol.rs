@@ -72,10 +72,8 @@ impl ConnectionCapability for NewApiAdapter {
         settings: &AppSettings,
         provider: &Provider,
     ) -> ProviderOperationOutcome<()> {
-        ProviderOperationOutcome::refreshed(
-            provider,
-            NewApiAdapter::refresh_provider(self, settings, provider).await,
-        )
+        let (refreshed, failure) = NewApiAdapter::refresh_provider(self, settings, provider).await;
+        ProviderOperationOutcome::refreshed(provider, refreshed).with_failure(failure)
     }
 }
 

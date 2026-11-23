@@ -169,3 +169,61 @@ test("closing a login window cancels without importing credentials", {
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test("headless relogin keeps a window.open OAuth flow inside the controlled profile", {
+  skip: process.env.BALANCEHUB_BROWSER_SMOKE !== "1", timeout: 40_000,
+}, async () => {
+  const profile = await mkdtemp(join(tmpdir(), "balancehub-headless-oauth-"));
+  let port;
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    const html = (body) => { response.setHeader("content-type", "text/html; charset=utf-8"); response.end(body); };
+    const json = (data) => { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ success: true, data })); };
+    if (url.hostname === "idp.localhost" && url.pathname === "/authorize") {
+      response.writeHead(302, { location: url.searchParams.get("redirect_uri") });
+      return response.end();
+    }
+    if (url.pathname === "/login") {
+      return html(`<button id="oauth">使用 LinuxDO 继续</button><script>
+        document.getElementById('oauth').onclick=()=>window.open(
+          'http://idp.localhost:${port}/authorize?redirect_uri=' + encodeURIComponent(location.origin + '/oauth/oidc'));
+      </script>`);
+    }
+    if (url.pathname === "/oauth/oidc") {
+      return html(`<script>fetch('/api/oauth/linuxdo?code=fixture').then(r=>r.json()).then(r=>localStorage.setItem('user',JSON.stringify(r.data)))</script>正在完成登录`);
+    }
+    if (url.pathname === "/api/oauth/linuxdo") {
+      response.setHeader("set-cookie", "session=relay-session; Path=/; HttpOnly; SameSite=Lax");
+      return json({ id: 42, username: "fixture" });
+    }
+    if (url.pathname === "/api/user/self") return json({ id: 42, username: "fixture" });
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "0.0.0.0", resolve));
+  port = server.address().port;
+  const browser = new LoginBrowser();
+  let extraPages = 0;
+  try {
+    const running = browser.run({
+      url: `http://127.0.0.1:${port}`, providerName: "本地无窗口登录样例", profileDir: profile,
+      executablePath: process.env.BALANCEHUB_BROWSER_EXECUTABLE, proxy: { direct: true },
+      expectedPlatform: "linuxDo", expectedUserId: "42", requireFreshLogin: true, headless: true, timeoutMs: 20_000,
+    });
+    running.catch(() => {});
+    for (let attempt = 0; !browser.context; attempt++) {
+      if (attempt > 200) throw new Error("browser launch timed out");
+      await Promise.race([new Promise((resolve) => setTimeout(resolve, 50)), running]);
+    }
+    browser.context.on("page", () => { extraPages++; });
+    const result = await running;
+    assert.equal(result.user.id, "42");
+    assert.equal(result.platform, "linuxDo");
+    assert.match(result.cookieHeader, /session=relay-session/);
+    assert.equal(extraPages, 0, "window.open must not create or hand off a second window");
+  } finally {
+    await browser.close();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    await rm(profile, { recursive: true, force: true });
+  }
+});

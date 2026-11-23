@@ -25,6 +25,13 @@ export function useAgentLifecycleEvents() {
     const results = await Promise.allSettled([
       subscribe<AgentLifecycleCatalog>("agent-lifecycle-catalog-updated", (value) => store.acceptCatalog(value)),
       subscribe<AgentLifecycleOperation>("agent-lifecycle-operation-updated", (value) => { if (value.origin === "automatic") store.track(value); }),
+      // 事件通道断开期间的通知会丢失；恢复后重新读取一次，避免升级状态
+      // 和自动更新策略长期停在断线前的快照上。
+      subscribe("balancehub-events-reconnected", () => {
+        void store.recover();
+        void store.refresh("cached");
+        void connect();
+      }),
     ]);
     if (!disposed) {
       const failed = results.some((result) => result.status === "rejected");

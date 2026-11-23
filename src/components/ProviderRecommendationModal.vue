@@ -84,6 +84,9 @@ function priceAmount(value: number, digits = 2) {
 let contextModelChange = false;
 
 async function load() {
+  // 关闭后仍在排队的防抖计算不能落到下一次会话，也不能为已关闭的窗口
+  // 发起一次无人接收的请求。
+  if (!props.visible) return;
   const id = ++request;
   loading.value = true;
   error.value = "";
@@ -177,17 +180,37 @@ watch(
       contextModelChange = true;
       model.value = agent.model;
     }
+    // 关闭期间 Agent 绑定可能已经换了模型；重新打开时不能把旧模型的
+    // 排名留在新模型下面。
+    const requestedModel = model.value.trim();
+    const shownModel = report.value?.model ?? null;
+    if (shownModel !== null && shownModel !== requestedModel) {
+      report.value = null;
+    }
     void load();
   },
   { immediate: true },
 );
 watch(model, () => {
+  // 模型一变，旧模型的排名立即失效：已经显示的报告和仍在读取的请求
+  // 都要作废。否则用户会在新模型下按旧排名点「切换」，把新模型写到
+  // 为旧模型选出的站点上。
+  request += 1;
+  const requestedModel = model.value.trim();
+  const shownModel = report.value?.model ?? null;
+  if (shownModel !== null && shownModel !== requestedModel) {
+    report.value = null;
+  }
   if (contextModelChange) {
+    // Agent 上下文带入的模型由打开流程负责发起读取。
     contextModelChange = false;
     return;
   }
-  scheduleLoad();
-});
+  if (props.visible) {
+    loading.value = true;
+    scheduleLoad();
+  }
+}, { flush: "sync" });
 onBeforeUnmount(() => {
   request += 1;
   if (debounce) clearTimeout(debounce);

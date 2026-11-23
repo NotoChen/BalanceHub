@@ -29,6 +29,7 @@ import {
   removeProvider as removeProviderCommand,
   reorderProviders as reorderProvidersCommand,
   removeLocalProviderApiKey as removeLocalProviderApiKeyCommand,
+  restoreLatestBackup as restoreLatestBackupCommand,
   setLocalProviderApiKeyRemark as setLocalProviderApiKeyRemarkCommand,
   saveProvider as saveProviderCommand,
   setProviderEnabled,
@@ -67,6 +68,8 @@ export const useProviderStore = defineStore("providers", {
     initialized: false,
     loading: false,
     loadError: null as string | null,
+    /// 运行期进入存储保护态（例如云同步应用失败）：保存已暂停，只能重启恢复。
+    storageBlockedError: null as string | null,
     refreshInProgress: false,
     refreshingIds: new Set<string>(),
     providerReloadPending: false,
@@ -99,7 +102,11 @@ export const useProviderStore = defineStore("providers", {
       useSettingsStore().hydrate(data.settings);
       useWorkspaceStore().hydrate(data.workspaces, data.temporaryCliPreferences);
       this.loadError = null;
+      this.storageBlockedError = null;
       return true;
+    },
+    markStorageBlocked(error: string) {
+      this.storageBlockedError = error;
     },
     upsertProvider(provider: Provider) {
       this.upsertProviders([provider]);
@@ -157,7 +164,11 @@ export const useProviderStore = defineStore("providers", {
       return result;
     },
     async removeProvider(id: string) {
-      const result = await removeProviderCommand(id);
+      const result = await withTimeout(
+        removeProviderCommand(id),
+        15_000,
+        "删除中转站超时，请刷新列表核对",
+      );
       this.providerTombstones[result.id] = Math.max(
         this.providerTombstones[result.id] ?? 0,
         result.revision,
@@ -191,6 +202,10 @@ export const useProviderStore = defineStore("providers", {
     },
     async importAppData(path: string) {
       return this.applyImportedData(() => importAppDataCommand(path));
+    },
+    /** 启动读取失败后，用同目录最近的自动备份原地恢复。 */
+    async restoreLatestBackup() {
+      return this.applyImportedData(() => restoreLatestBackupCommand());
     },
     /** 开发版演示数据与导入走同一条水合路径，避免两种写法各自维护状态合并。 */
     async installDevSampleData() {
@@ -369,7 +384,11 @@ export const useProviderStore = defineStore("providers", {
       return getProviderCheckInRecordsCommand(id, month);
     },
     async probeCapabilities(id: string) {
-      const result = await probeProviderCapabilitiesCommand(id);
+      const result = await withTimeout(
+        probeProviderCapabilitiesCommand(id),
+        120_000,
+        "站点能力探测超时，请稍后重试",
+      );
       this.upsertProvider(result.provider);
       return result;
     },
@@ -379,13 +398,20 @@ export const useProviderStore = defineStore("providers", {
       return result;
     },
     async getInviteLink(id: string) {
-      const link = await getProviderInviteLinkCommand(id);
+      const link = await withTimeout(
+        getProviderInviteLinkCommand(id),
+        30_000,
+        "读取邀请链接超时，请重试",
+      );
       await this.reloadProvider(id).catch(() => {});
       return link;
     },
     /** 按 id 刷新。返回错误信息（成功为 null），由调用方决定如何向用户呈现。 */
     async refreshByIds(ids: string[]): Promise<string | null> {
-      if (this.refreshInProgress || this.refreshingIds.size > 0) {
+      if (this.refreshInProgress) {
+        // 全局刷新本身就覆盖所有卡片；单卡刷新不再排第二个批次，
+        // 标记一次重读，让这轮结果写回后再刷新界面。
+        this.providerReloadPending = true;
         return null;
       }
       const todo = ids.filter((id) => !this.refreshingIds.has(id));
@@ -401,11 +427,25 @@ export const useProviderStore = defineStore("providers", {
           : provider,
       );
 
+      const request = refreshProviders(todo);
       try {
-        const result = await refreshProviders(todo);
+        const result = await withTimeout(
+          request,
+          180_000,
+          "刷新等待超时，后台完成后会自动更新",
+        );
         this.upsertProviders(result.updatedProviders);
         return null;
       } catch (error) {
+        // 前端等待窗口到期不等于后端放弃：刷新可能只是在排队等自动刷新
+        // 释放闸门，请求仍会在后台完成。完成后再重读一次，避免卡片一直
+        // 停在「刷新超时」而真实结果其实早已写回。
+        void request
+          .then(() => {
+            this.providerReloadPending = true;
+            void this.flushPendingProviderReload();
+          })
+          .catch(() => {});
         this.providers = this.providers.map((provider) =>
           provider.runtime.enabled && idSet.has(provider.identity.id)
             ? {

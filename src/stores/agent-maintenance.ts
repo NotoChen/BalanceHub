@@ -112,11 +112,31 @@ export const useAgentMaintenanceStore = defineStore("agent-maintenance", () => {
       if (submissions.value[plan.token])
         submissions.value[plan.token].error =
           agentEnvironmentErrorMessage(error);
-      void tracking.recover();
+      void recover();
     } finally {
       if (submissions.value[plan.token])
         submissions.value[plan.token].pending = false;
     }
+  }
+  /**
+   * 提交失败或超时后，记录会一直留在任务中心等待确认。后端任务列表是权威
+   * 来源：列表里没有这次提交，就说明它没有真正开始，给出可关闭的明确提示，
+   * 而不是让用户反复点「刷新状态」。
+   */
+  async function recover() {
+    if (!(await tracking.recover())) return;
+    const known = new Set(Object.values(tracking.operations.value).map((operation) => operation.planToken));
+    for (const operation of Object.values(tracking.lostOperations.value)) known.add(operation.planToken);
+    for (const [token, submission] of Object.entries(submissions.value)) {
+      if (submission.pending || known.has(token) || submission.error) continue;
+      submissions.value[token].error = "后台任务列表中没有这次提交，任务可能未开始；可重新生成预览再提交";
+    }
+  }
+  function dismissSubmission(token: string) {
+    if (submissions.value[token]?.pending) return;
+    const next = { ...submissions.value };
+    delete next[token];
+    submissions.value = next;
   }
   return {
     preview,
@@ -128,5 +148,7 @@ export const useAgentMaintenanceStore = defineStore("agent-maintenance", () => {
     closePreview,
     submit,
     ...tracking,
+    recover,
+    dismissSubmission,
   };
 });

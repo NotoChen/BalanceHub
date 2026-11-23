@@ -1,6 +1,6 @@
 use crate::models::{
-    AuthMode, Provider, ProviderQuotaDisplay, ProviderQuotaScope, ProviderQuotaWindow,
-    ProviderStatus,
+    provider_domain::failure::ProviderFailureKind, AuthMode, Provider, ProviderQuotaDisplay,
+    ProviderQuotaScope, ProviderQuotaWindow, ProviderStatus,
 };
 use reqwest::header::{ACCEPT, CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use serde::Deserialize;
@@ -62,11 +62,14 @@ struct QuotaProfile {
     group: String,
 }
 
-pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -> Provider {
+pub async fn refresh_provider(
+    client: &ProviderTransport,
+    provider: &Provider,
+) -> (Provider, Option<ProviderFailureKind>) {
     let mut next = provider.clone();
 
     if !provider.runtime.enabled {
-        return next;
+        return (next, None);
     }
 
     let using_cached_password_session = provider.auth.new_api_session.is_none()
@@ -76,11 +79,13 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
     let mut effective_provider = match authenticate_password_provider(client, provider).await {
         Ok(provider) => provider,
         Err(message) => {
+            let failure = classify_refresh_failure(&message);
             next.runtime.status = ProviderStatus::Error;
             next.runtime.error_message = Some(message);
-            return next;
+            return (next, failure);
         }
     };
+    let mut failure = None;
 
     let mut quota_result =
         fetch_quota_with_access_token_fallback(client, &effective_provider).await;
@@ -155,6 +160,7 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
             next.runtime.error_message = None;
         }
         Err(message) => {
+            failure = classify_refresh_failure(&message);
             next.quota.scope = if matches!(provider.auth.mode, AuthMode::ApiKey) {
                 ProviderQuotaScope::Token
             } else {
@@ -166,7 +172,18 @@ pub async fn refresh_provider(client: &ProviderTransport, provider: &Provider) -
         }
     }
 
-    next
+    (next, failure)
+}
+
+/// NewAPI reports authentication failures as text, not a typed transport
+/// error. Only messages that clearly mean "these credentials were rejected"
+/// become a credential failure; everything else stays transient so a network
+/// outage cannot pause automatic refresh for six hours. The message set is
+/// shared with the check-in relogin fallback so both paths agree on what
+/// counts as an expired credential.
+fn classify_refresh_failure(message: &str) -> Option<ProviderFailureKind> {
+    crate::models::provider_domain::failure::looks_like_credential_rejection(message)
+        .then_some(ProviderFailureKind::Credential)
 }
 
 async fn fetch_quota_with_access_token_fallback(
@@ -477,5 +494,24 @@ mod tests {
             preferred_login_username(Some("  "), Some("alice@example.com")),
             "alice@example.com"
         );
+    }
+
+    #[test]
+    fn refresh_failures_map_rejected_credentials_to_the_credential_kind() {
+        // 文案集合本身由 provider_domain::failure 的测试覆盖；这里确认刷新
+        // 路径把它映射成会进入长冷却的凭据失败，其余错误保持瞬时失败。
+        assert_eq!(
+            classify_refresh_failure("登录会话已过期或已撤销，请重新登录并导入"),
+            Some(ProviderFailureKind::Credential)
+        );
+        assert_eq!(
+            classify_refresh_failure("HTTP 401: unauthorized"),
+            Some(ProviderFailureKind::Credential)
+        );
+        assert_eq!(
+            classify_refresh_failure("请求余额失败: connection refused"),
+            None
+        );
+        assert_eq!(classify_refresh_failure("HTTP 503: maintenance"), None);
     }
 }

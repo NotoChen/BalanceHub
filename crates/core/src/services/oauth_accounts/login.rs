@@ -30,6 +30,16 @@ fn sessions() -> &'static Mutex<HashMap<String, Session>> {
     SESSIONS.get_or_init(Mutex::default)
 }
 
+/// 同一授权服务可以有多个站点：只有目标站点也相同才能复用正在进行的
+/// 登录任务，否则 B 卡片会拿到 A 的任务，B 的授权永远不会开始。
+pub(super) fn same_login_target(
+    task: &OAuthLoginTask,
+    vendor: OAuthVendor,
+    provider_id: Option<&str>,
+) -> bool {
+    task.vendor == vendor && task.provider_id.as_deref() == provider_id
+}
+
 fn update(id: &str, apply: impl FnOnce(&mut OAuthLoginTask)) {
     let task = {
         let mut sessions = sessions().lock().unwrap_or_else(|e| e.into_inner());
@@ -106,8 +116,9 @@ pub async fn start(
     };
     {
         let mut sessions = sessions().lock().map_err(|_| "授权任务状态不可用")?;
+        let target_id = target.as_ref().map(|(id, _)| id.as_str());
         if let Some(existing) = sessions.values().find(|s| {
-            s.task.vendor == vendor
+            same_login_target(&s.task, vendor, target_id)
                 && matches!(
                     s.task.phase,
                     OAuthLoginPhase::Starting
@@ -148,7 +159,10 @@ pub async fn start(
                 provider.proxy = existing.proxy.clone();
             }
         }
-        let result = async {
+        // 授权流程内部的解析或浏览器回调异常不能让任务停在「等待授权」：
+        // 收敛为失败终态，用户可以直接重新发起。
+        use futures_util::FutureExt;
+        let result = std::panic::AssertUnwindSafe(async {
             let client = tokio::select! {
                 result = http::client(&snapshot.settings, &provider) => result?,
                 _ = cancel.changed() => return Err("授权已取消".into()),
@@ -166,8 +180,13 @@ pub async fn start(
                 )
                 .await
             }
-        }
-        .await;
+        })
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|_| {
+            log::error!("授权任务异常退出（{id}）");
+            Err("授权过程异常退出，请重新发起".to_string())
+        });
         match result {
             Ok(auth) => save_result(&id, auth, target).await,
             Err(error) => update(&id, |task| {
@@ -381,10 +400,18 @@ async fn save_result(id: &str, auth: ProviderAuth, target: Option<(String, u64)>
             session.pending = Some(auth.clone());
         }
     }
-    match ProviderService::new()
-        .accept_oauth_login(auth, target)
-        .await
-    {
+    // 保存发生在授权成功之后，异常退出同样不能把任务留在「正在确认授权」：
+    // 已取得的令牌还在 pending 里，收敛为可重试保存的失败终态。
+    use futures_util::FutureExt;
+    let saved =
+        std::panic::AssertUnwindSafe(ProviderService::new().accept_oauth_login(auth, target))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| {
+                log::error!("保存授权账号时异常退出（{id}）");
+                Err("保存账号时异常退出".to_string())
+            });
+    match saved {
         Ok(provider) => {
             if let Ok(mut sessions) = sessions().lock() {
                 if let Some(session) = sessions.get_mut(id) {

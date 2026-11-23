@@ -22,6 +22,7 @@ import {
   summarizeExclusion,
   toggleExcludedRule,
 } from "../../utils/cpa-excluded-models";
+import { confirmDiscardChanges } from "../../composables/provider-credential-dialogs";
 import ContentEditor from "../ContentEditor.vue";
 
 const props = defineProps<{ provider: Provider; revision: number }>();
@@ -64,29 +65,31 @@ const catalogError = ref("");
 const customText = ref("");
 let rulesRequest = 0;
 let catalogRequest = 0;
+/// 一次打开编辑器的会话；关闭或重新打开后，旧保存不能再写回新草稿。
+let editorSession = 0;
+/// 保存顺序：只有最后一次发出的写入可以更新已保存规则，避免旧结果覆盖新结果。
+let saveSequence = 0;
+let closingEditor = false;
 let disposed = false;
 onScopeDispose(() => {
   disposed = true;
   rulesRequest++;
   catalogRequest++;
+  editorSession++;
 });
+/// 切换站点才丢弃已读到的规则。revision 只说明凭据版本变了，后台换令牌
+/// 不能把展开状态、已读规则或正在编辑的排除清单一起清掉；保存时使用的是
+/// 最新 revision，冲突会显示在编辑器里。
 watch(
-  () => [props.provider.identity.id, props.revision],
+  () => props.provider.identity.id,
   () => {
     rulesRequest++;
-    catalogRequest++;
+    /// 换站点时编辑器属于上一张卡片的网关，不能留在新站点上继续编辑。
+    closeEditor();
     rules.value = null;
     open.value = false;
     loading.value = false;
     error.value = "";
-    /// A half-written rule survives the refresh; only the transient channel
-    /// catalog, which belongs to the gateway that just went away, is dropped.
-    catalog.value = [];
-    catalogLoading.value = false;
-    catalogError.value = "";
-    drafts.value = {};
-    customText.value = "";
-    editorError.value = "";
   },
 );
 
@@ -236,6 +239,8 @@ async function save() {
   else await saveExcluded();
 }
 function openExcluded() {
+  editorSession++;
+  saving.value = false;
   editing.value = "excludedModels";
   editorError.value = "";
   drafts.value = {};
@@ -246,22 +251,43 @@ function openExcluded() {
   chooseChannel(saved[0] ?? DEFAULT_CHANNELS[0]);
 }
 function openAliases() {
+  editorSession++;
+  saving.value = false;
   editing.value = "modelAliases";
   editorError.value = "";
   draft.value = rules.value?.modelAliases ?? "{}";
   original.value = draft.value;
 }
 function closeEditor() {
+  editorSession++;
+  closingEditor = false;
   editing.value = null;
   draft.value = "";
   original.value = "";
   editorError.value = "";
+  saving.value = false;
   catalogRequest++;
   catalog.value = [];
   catalogLoading.value = false;
   catalogError.value = "";
   drafts.value = {};
   customText.value = "";
+}
+
+async function requestCloseEditor() {
+  if (closingEditor) return;
+  if (saving.value || !dirty()) {
+    closeEditor();
+    return;
+  }
+  closingEditor = true;
+  try {
+    if (await confirmDiscardChanges("模型规则还有未保存的修改，关闭后这次修改会丢失。")) {
+      closeEditor();
+    }
+  } finally {
+    closingEditor = false;
+  }
 }
 function chooseChannel(raw: unknown) {
   const name = typeof raw === "string" ? raw.trim() : "";
@@ -341,6 +367,8 @@ async function saveExcluded() {
   }
   const body = JSON.stringify(merged, null, 2);
   const name = channel.value;
+  const session = editorSession;
+  const token = ++saveSequence;
   saving.value = true;
   editorError.value = "";
   try {
@@ -351,10 +379,12 @@ async function saveExcluded() {
       props.revision,
     );
     if (disposed) return;
-    /// The gateway normalizes what it stores, so the confirmed rules replace
-    /// both the saved copy and the drafts the next save starts from — even
-    /// when the dialog was closed while the write was out.
-    rules.value = result;
+    Message.success("模型排除已保存");
+    /// The gateway normalizes what it stores; the latest confirmed write feeds
+    /// the section even when its editor was closed while the write was out.
+    if (token === saveSequence) rules.value = result;
+    // 保存期间关闭又打开新编辑器时，不能把旧结果灌进新草稿。
+    if (session !== editorSession) return;
     drafts.value = {};
     if (editing.value === "excludedModels" && name) {
       channel.value = name;
@@ -363,15 +393,19 @@ async function saveExcluded() {
         catalogIds.value,
       ).customRules.join("\n");
     }
-    Message.success("模型排除已保存");
   } catch (cause) {
-    if (!disposed) editorError.value = String(cause);
+    if (disposed) return;
+    const message = String(cause);
+    if (session === editorSession) editorError.value = message;
+    else Message.error(`模型排除保存失败：${message}`);
   } finally {
-    saving.value = false;
+    if (token === saveSequence) saving.value = false;
   }
 }
 async function saveAliases() {
   if (saving.value || !aliasDirty.value) return;
+  const session = editorSession;
+  const token = ++saveSequence;
   saving.value = true;
   editorError.value = "";
   try {
@@ -382,16 +416,20 @@ async function saveAliases() {
       props.revision,
     );
     if (disposed) return;
-    rules.value = result;
+    Message.success("模型别名已保存");
+    if (token === saveSequence) rules.value = result;
+    if (session !== editorSession) return;
     if (editing.value === "modelAliases") {
       draft.value = result.modelAliases;
       original.value = draft.value;
     }
-    Message.success("模型别名已保存");
   } catch (cause) {
-    if (!disposed) editorError.value = String(cause);
+    if (disposed) return;
+    const message = String(cause);
+    if (session === editorSession) editorError.value = message;
+    else Message.error(`模型别名保存失败：${message}`);
   } finally {
-    saving.value = false;
+    if (token === saveSequence) saving.value = false;
   }
 }
 </script>
@@ -455,7 +493,7 @@ async function saveAliases() {
       width="860px"
       :footer="false"
       unmount-on-close
-      @cancel="closeEditor"
+      @cancel="requestCloseEditor"
     >
       <a-alert v-if="editorError" type="warning">{{ editorError }}</a-alert>
       <div class="cpa-model-excluded">
@@ -534,7 +572,7 @@ async function saveAliases() {
       width="680px"
       :footer="false"
       unmount-on-close
-      @cancel="closeEditor"
+      @cancel="requestCloseEditor"
     >
       <a-alert v-if="editorError" type="warning">{{ editorError }}</a-alert>
       <div class="cpa-model-rule-editor">

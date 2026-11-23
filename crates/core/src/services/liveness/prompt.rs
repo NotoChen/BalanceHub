@@ -9,8 +9,11 @@ use crate::{
 
 const MIN_LIVENESS_INTERVAL_SECS: u64 = 1;
 
-pub fn effective_interval(settings: &AppSettings, provider: &Provider) -> u64 {
-    let (mode, fixed, min, max) = if provider.liveness.use_global {
+fn interval_settings(
+    settings: &AppSettings,
+    provider: &Provider,
+) -> (LivenessIntervalMode, u64, u64, u64) {
+    if provider.liveness.use_global {
         (
             settings.liveness_interval_mode,
             settings.liveness_interval,
@@ -24,7 +27,11 @@ pub fn effective_interval(settings: &AppSettings, provider: &Provider) -> u64 {
             provider.liveness.random_min_interval,
             provider.liveness.random_max_interval,
         )
-    };
+    }
+}
+
+pub fn effective_interval(settings: &AppSettings, provider: &Provider) -> u64 {
+    let (mode, fixed, min, max) = interval_settings(settings, provider);
 
     match mode {
         LivenessIntervalMode::Fixed => fixed.max(MIN_LIVENESS_INTERVAL_SECS),
@@ -33,6 +40,16 @@ pub fn effective_interval(settings: &AppSettings, provider: &Provider) -> u64 {
             let max = max.max(min);
             min + (mix_seed(now_millis()) as u64 % (max - min + 1))
         }
+    }
+}
+
+/// 配置允许的最大测活间隔。正常的 `next_at` 不会比「现在 + 最大间隔」
+/// 更远；更远的未来时间只可能是系统时钟回拨后留下的旧时间戳。
+pub fn max_interval(settings: &AppSettings, provider: &Provider) -> u64 {
+    let (mode, fixed, min, max) = interval_settings(settings, provider);
+    match mode {
+        LivenessIntervalMode::Fixed => fixed.max(MIN_LIVENESS_INTERVAL_SECS),
+        LivenessIntervalMode::Random => max.max(min).max(MIN_LIVENESS_INTERVAL_SECS),
     }
 }
 
