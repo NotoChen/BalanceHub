@@ -334,6 +334,8 @@ pub(crate) fn run() {
         .run(|app, event| {
             // macOS 点 Dock 图标（以及部分系统通知的激活）会走 Reopen；关窗到
             // 托盘后窗口是隐藏的，这里必须主动唤回，否则看起来像没响应。
+            // 该事件变体只在 macOS 的 Tauri 构建里存在，其它平台没有。
+            #[cfg(target_os = "macos")]
             if let RunEvent::Reopen { .. } = &event {
                 tray::show_main_window(app);
             }
