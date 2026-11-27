@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { AgentNativeSetting } from "../stores/agent-settings-types";
 import { computed, ref, toRef, watch } from "vue";
+import { Tabs as ATabs, TabPane as ATabPane } from "@arco-design/web-vue";
+import "@arco-design/web-vue/es/tabs/style/css.js";
 import { IconRefresh, IconSave, IconUndo } from "@arco-design/web-vue/es/icon";
 import type {
   AgentCliKind,

@@ -1,10 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BrowserWorker, sameOriginUrl } from "./worker.mjs";
+
+function waitFor(predicate, timeout, detail) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (predicate()) { clearInterval(timer); resolve(); }
+      else if (Date.now() - started > timeout) { clearInterval(timer); reject(new Error(detail())); }
+    }, 50);
+  });
+}
+
+function exitWithin(child, timeout) {
+  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("worker did not exit after stdin closed")), timeout);
+    child.once("exit", (code) => { clearTimeout(timer); resolve(code); });
+  });
+}
 
 test("credentials are confined to the exact original origin", () => {
   assert.equal(sameOriginUrl("https://example.test", "/api/user/checkin"), "https://example.test/api/user/checkin");
@@ -36,6 +57,46 @@ test("browser startup probe uses a disposable blank profile and returns the actu
     await rm(profileDir, { recursive: true, force: true });
   }
   assert.equal(worker.context, null);
+});
+
+test("the child process contract Rust drives stays intact: startup event, reply, EOF shutdown", {
+  skip: process.env.BALANCEHUB_BROWSER_SMOKE !== "1", timeout: 60_000,
+}, async () => {
+  // Rust spawns `node worker.mjs` and speaks private JSONL over stdin/stdout.
+  // The dispatcher tests call the worker in-process, so entry-point detection,
+  // event ordering and stdin-EOF shutdown are only covered here.
+  const profileDir = await mkdtemp(join(tmpdir(), "balancehub-worker-process-"));
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./worker.mjs", import.meta.url))], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const messages = [];
+  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  lines.on("line", (line) => messages.push(JSON.parse(line)));
+  let stderr = "";
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  try {
+    child.stdin.write(JSON.stringify({ id: 1, op: "probe", params: {
+      profileDir, executablePath: process.env.BALANCEHUB_BROWSER_EXECUTABLE,
+    } }) + "\n");
+    await waitFor(() => messages.some((message) => message.id === 1), 45_000,
+      () => "worker never answered the probe request: " + stderr);
+    const reply = messages.find((message) => message.id === 1);
+    assert.equal(reply.ok, true, JSON.stringify(reply));
+    assert.match(reply.data.version, /^\d+\.\d+\./);
+    const started = messages.find((message) => message.event === "browserStarted");
+    assert.ok(started?.browserPid > 1, "the browser pid must reach Rust for process-tree cleanup");
+    assert.ok(messages.indexOf(started) < messages.indexOf(reply), "the startup event must precede the reply");
+    // Dropping a Rust session closes stdin; the worker must close the browser
+    // and exit on its own within the same six seconds Rust waits before kill.
+    child.stdin.end();
+    assert.equal(await exitWithin(child, 6_000), 0);
+    assert.equal(messages.filter((message) => message.id === 1).length, 1, "one request gets exactly one reply");
+  } finally {
+    child.kill("SIGKILL");
+    lines.close();
+    await rm(profileDir, { recursive: true, force: true });
+  }
 });
 
 test("disabled protection keeps Turnstile usable without page challenges or shield cookies", {
@@ -129,7 +190,7 @@ test("compact verification window fits Chinese content and preserves authenticat
     assert.equal(worker.context.pages().length, 1, "app mode must not leave an extra browser tab");
     const initialSize = await worker.page.evaluate(() => ({ width: outerWidth, height: outerHeight, frameHeight: outerHeight - innerHeight }));
     assert.ok(initialSize.width <= 440 && initialSize.height <= 400, JSON.stringify(initialSize));
-    assert.ok(initialSize.frameHeight < 80, "only window decorations should remain, without tab/address/infobars");
+    assert.ok(initialSize.frameHeight < 80, `only window decorations should remain, without tab/address/infobars: ${JSON.stringify(initialSize)}`);
     assert.equal(await worker.page.title(), windowTitle);
     await worker.page.evaluate(() => { document.title = "Just a moment..."; });
     await worker.page.waitForFunction((title) => document.title === title

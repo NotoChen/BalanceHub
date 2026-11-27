@@ -58,17 +58,21 @@ export function quotaPercent(value: number | null | undefined) {
 }
 /// 账号侧时间戳只在数据放旧时才显示，可能跨年显示；年份和时区让用户能
 /// 把它和本机时间对上，而不是猜“09/28”是今年还是去年。
+const accountTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const accountZoneFormat = new Intl.DateTimeFormat("zh-CN", {
+  timeZoneName: "shortOffset",
+});
 export function accountTimestamp(value: number | null | undefined) {
   if (!value) return "未提供";
   const date = new Date(value * 1000);
-  const time = date.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const zone = new Intl.DateTimeFormat("zh-CN", { timeZoneName: "shortOffset" })
+  const time = accountTimeFormat.format(date);
+  const zone = accountZoneFormat
     .formatToParts(date)
     .find((part) => part.type === "timeZoneName")
     ?.value.replace(/^GMT/, "UTC");

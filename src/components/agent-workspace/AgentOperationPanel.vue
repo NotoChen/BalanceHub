@@ -3,7 +3,7 @@ import AgentUpgradeDiagnostics from "./AgentUpgradeDiagnostics.vue";
 import { computed } from "vue";
 import { useAgentCatalogStore } from "../../stores/agent-catalog";
 import { useAgentLifecycleStore } from "../../stores/agent-lifecycle";
-import { agentAssetOperationOutcomeLabels, agentAssetOperationPhaseLabels } from "../../composables/useAgentAssetConsole";
+import { agentAssetOperationPhaseLabels, agentAssetOperationOutcomeLabels } from "../../utils/agent-asset-labels";
 import { agentCatalogActionLabels, agentCatalogDefinitionChangeDetail } from "../../utils/agent-catalog-display";
 import type { AgentCliKind } from "../../stores/provider-types";
 import type { AgentOperationSelection } from "../../stores/agent-workspace";

@@ -219,6 +219,22 @@ pub(crate) async fn open_agent_configuration_source(
     .await
 }
 
+/// 配置编辑器的「格式化」按钮：TOML 交给原生格式化器，前端不必下载内嵌
+/// WASM 的 `@taplo/lib`（单文件 34MB）。选项与旧前端实现保持一致：不重排
+/// 键、两空格缩进、100 列换行、保留末尾换行。
+pub(crate) fn format_agent_toml_text(text: String) -> Result<String, String> {
+    Ok(taplo::formatter::format(
+        &text,
+        taplo::formatter::Options {
+            reorder_keys: false,
+            indent_string: "  ".to_owned(),
+            column_width: 100,
+            trailing_newline: true,
+            ..Default::default()
+        },
+    ))
+}
+
 fn internal() -> AgentConfigurationError {
     AgentConfigurationError::new(AgentConfigurationErrorKind::InternalFailure)
 }

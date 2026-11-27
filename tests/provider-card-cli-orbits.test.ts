@@ -5,6 +5,7 @@ import {
   advanceProviderCardCliOrbitMotion,
   createProviderCardCliOrbitMotion,
   layoutProviderCardCliOrbits,
+  subscribeProviderCardCliOrbitFrames,
   PROVIDER_CARD_CLI_ORBIT_MAX_CYCLE_MS,
   PROVIDER_CARD_CLI_ORBIT_MAX_SPEED_PROGRESS_PER_SECOND,
   PROVIDER_CARD_CLI_ORBIT_MIN_CYCLE_MS,
@@ -72,6 +73,42 @@ test("adding an agent appends to the tail without moving existing icons", () => 
   assert.equal(three[0].phaseProgress, two[0].phaseProgress);
   assert.equal(three[1].phaseProgress, two[1].phaseProgress);
   assert.notEqual(three[2].phaseProgress, three[1].phaseProgress);
+});
+
+test("orbit frame callbacks are throttled while deltas still accumulate", () => {
+  const pending: FrameRequestCallback[] = [];
+  const globals = globalThis as {
+    requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+    cancelAnimationFrame?: (handle: number) => void;
+  };
+  const originalRequest = globals.requestAnimationFrame;
+  const originalCancel = globals.cancelAnimationFrame;
+  let handle = 0;
+  globals.requestAnimationFrame = (callback) => {
+    pending.push(callback);
+    return ++handle;
+  };
+  globals.cancelAnimationFrame = () => {};
+
+  try {
+    let frames = 0;
+    const unsubscribe = subscribeProviderCardCliOrbitFrames(() => {
+      frames += 1;
+    });
+    // 模拟一秒的 60fps 显示器帧；回调应按 30fps 收口。
+    let now = 0;
+    for (let index = 0; index < 60; index += 1) {
+      now += 1000 / 60;
+      pending.shift()?.(now);
+    }
+    unsubscribe();
+    assert.ok(frames >= 28 && frames <= 31, `expected ~30 callbacks, got ${frames}`);
+  } finally {
+    if (originalRequest) globals.requestAnimationFrame = originalRequest;
+    else delete globals.requestAnimationFrame;
+    if (originalCancel) globals.cancelAnimationFrame = originalCancel;
+    else delete globals.cancelAnimationFrame;
+  }
 });
 
 test("each motion cycle re-rolls bounded duration and speed", () => {

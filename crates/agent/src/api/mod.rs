@@ -58,6 +58,7 @@ pub const COMMANDS: &[&str] = &[
     "list_agent_configuration_operations",
     "cancel_agent_configuration_operation",
     "open_agent_configuration_source",
+    "format_agent_toml_text",
     // 共享指令
     "list_agent_instruction_sets",
     "save_agent_instruction_set",
@@ -246,6 +247,7 @@ async fn dispatch_inner(
         "open_agent_configuration_source" => {
             obj(configuration::open_agent_configuration_source(client, arg(args, "request")?).await)
         }
+        "format_agent_toml_text" => text(configuration::format_agent_toml_text(arg(args, "text")?)),
 
         // ── 共享指令 ────────────────────────────────────────────
         "list_agent_instruction_sets" => text(instructions::list_agent_instruction_sets().await),

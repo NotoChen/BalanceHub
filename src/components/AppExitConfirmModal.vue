@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { CircleAlert, LogOut, X } from "@lucide/vue";
 import type { BackgroundTask } from "../composables/useBackgroundTaskCenter";
 import { exitTaskSummary } from "../utils/app-exit";
+import "../styles/modules/app-exit-confirm.css";
 
 const props = withDefaults(
   defineProps<{

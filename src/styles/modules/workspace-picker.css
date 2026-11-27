@@ -733,3 +733,13 @@
     grid-template-columns: minmax(0, 1fr) minmax(130px, 0.85fr);
   }
 }
+
+/* 弹窗底色原先写在 surfaces/dialogs.css、surfaces/dark.css；工作台选择器
+   改为按需加载后，底色跟随窗口样式一起加载。 */
+.workspace-picker-modal .arco-modal-body {
+  background: var(--surface-canvas);
+}
+
+:root.theme-dark .workspace-picker-modal .arco-modal-body {
+  background: var(--surface-canvas);
+}

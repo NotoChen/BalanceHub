@@ -1,10 +1,15 @@
-import { h } from "vue";
+import { defineAsyncComponent, h } from "vue";
 import { Modal } from "@arco-design/web-vue";
-import ProviderApiKeyEditorForm from "../components/provider-editor/ProviderApiKeyEditorForm.vue";
 import type {
   ProviderApiKeyEditorContext,
   ProviderApiKeyPatch,
 } from "../stores/provider-types";
+
+// 表单只在用户打开 Key 编辑窗口时才需要；按需加载，启动期不为一处
+// 低频入口带上整个编辑器。
+const ProviderApiKeyEditorForm = defineAsyncComponent(
+  () => import("../components/provider-editor/ProviderApiKeyEditorForm.vue"),
+);
 
 export function openApiKeyEditor<T>(options: {
   editing: boolean;

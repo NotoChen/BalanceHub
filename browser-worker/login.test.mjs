@@ -11,6 +11,88 @@ test("only a concrete relay user can be imported", () => {
   assert.deepEqual(loginUser({ id: 42, username: "fixture" }), { id: "42", username: "fixture", displayName: "" });
 });
 
+test("consent is only approved for a flow that started from the relay login page", async () => {
+  const fixture = (initial) => {
+    let href = initial;
+    let navigated;
+    let evaluated = 0;
+    const main = {};
+    const page = {
+      url: () => href,
+      mainFrame: () => main,
+      isClosed: () => false,
+      on: (event, handler) => { if (event === "framenavigated") navigated = handler; },
+      evaluate: async () => { evaluated += 1; return true; },
+    };
+    const browser = new LoginBrowser();
+    browser.origin = "https://relay.test";
+    browser.watchConsentNavigation(page);
+    return {
+      browser,
+      page,
+      go: (next) => { href = next; navigated(main); },
+      evaluated: () => evaluated,
+    };
+  };
+
+  // The relay itself navigates to the identity provider: its own consent flow.
+  const relayFlow = fixture("https://relay.test/login");
+  relayFlow.go("https://github.com/login/oauth/authorize?client_id=fixture");
+  assert.equal(await relayFlow.browser.approveConsent(relayFlow.page), true);
+  assert.equal(relayFlow.evaluated(), 1);
+
+  // The platform login page in the same navigation chain stays approved.
+  const chain = fixture("https://relay.test/login");
+  chain.go("https://github.com/login?return_to=%2Flogin%2Foauth%2Fauthorize");
+  chain.go("https://github.com/login/oauth/authorize?client_id=fixture");
+  assert.equal(await chain.browser.approveConsent(chain.page), true);
+
+  // Linux DO renders both the authorization and approval pages on its own
+  // hosts; the family chain must survive that hop.
+  const linuxDo = fixture("https://relay.test/login");
+  linuxDo.go("https://connect.linux.do/oauth2/authorize?client_id=fixture");
+  linuxDo.go("https://connect.linux.do/oauth2/approve/fixture");
+  assert.equal(await linuxDo.browser.approveConsent(linuxDo.page), true);
+
+  // A page that was not navigated by the relay cannot get its OAuth app
+  // approved, even though the profile holds a platform session.
+  const thirdParty = fixture("https://news.test/article");
+  thirdParty.go("https://github.com/login/oauth/authorize?client_id=attacker");
+  assert.equal(await thirdParty.browser.approveConsent(thirdParty.page), false);
+  assert.equal(thirdParty.evaluated(), 0);
+
+  // Leaving the identity-provider family ends the trusted chain.
+  const crossRealm = fixture("https://relay.test/login");
+  crossRealm.go("https://connect.linux.do/oauth2/authorize?client_id=fixture");
+  crossRealm.go("https://github.com/login/oauth/authorize?client_id=attacker");
+  assert.equal(await crossRealm.browser.approveConsent(crossRealm.page), false);
+  assert.equal(crossRealm.evaluated(), 0);
+});
+
+test("prefixed relay deployments only treat endpoints under their base path as logins", () => {
+  const browser = new LoginBrowser();
+  browser.origin = "https://relay.test";
+  browser.basePath = "/relay";
+  assert.equal(browser.relativePath("https://relay.test/relay/api/user/login"), "/api/user/login");
+  assert.equal(browser.isAuth("https://relay.test/relay/api/user/login"), true);
+  assert.equal(browser.isAuth("https://relay.test/relay/api/user/auth/refresh"), true);
+  assert.equal(browser.isAuth("https://relay.test/relay/api/oauth/github"), true);
+  assert.equal(browser.isAuth("https://relay.test/relay/api/user/self"), false);
+  assert.equal(browser.loginMechanism("https://relay.test/relay/api/user/login", "POST"), "password");
+  assert.equal(browser.loginMechanism("https://relay.test/relay/api/oauth/github", "GET"), "oauth");
+  assert.equal(browser.loginMechanism("https://relay.test/relay/api/oauth/state", "GET"), "unknown");
+  // 同源但不在中转站前缀下的路径，即使切片后长度刚好对上，也不是登录接口。
+  assert.equal(browser.isAuth("https://relay.test/other/api/user/login"), false);
+  assert.equal(browser.isAuth("https://relay.test/relayx/api/user/login"), false);
+  assert.equal(browser.loginMechanism("https://relay.test/other/api/user/login", "POST"), "unknown");
+
+  const root = new LoginBrowser();
+  root.origin = "https://relay.test";
+  assert.equal(root.relativePath("https://relay.test/api/user/self"), "/api/user/self");
+  assert.equal(root.isAuth("https://relay.test/api/user/login"), true);
+  assert.equal(root.loginMechanism("https://relay.test/api/oauth/linuxdo", "GET"), "oauth");
+});
+
 test("two relay sites reuse a session-only OAuth cookie across browser restarts and preserve separate rotating sessions", {
   skip: process.env.BALANCEHUB_BROWSER_SMOKE !== "1", timeout: 80_000,
 }, async () => {

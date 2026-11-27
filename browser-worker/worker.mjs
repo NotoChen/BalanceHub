@@ -1,4 +1,4 @@
-import { launchBrowser, showBrowserWindow, bootstrapHtml, WorkerError, NeedsHuman, WorkerCancelled } from "./launch.mjs";
+import { bootstrapHtml, describeBrowserError, launchBrowser, NeedsHuman, showBrowserWindow, WorkerCancelled, WorkerError } from "./launch.mjs";
 import { LoginBrowser } from "./login.mjs";
 import { AccountBrowser } from "./accounts.mjs";
 import { pageNeedsVerification, renderTurnstile, verificationFailure } from "./verification.mjs";
@@ -36,6 +36,15 @@ export function sameOriginUrl(origin, target) {
     throw new WorkerError("页面已离开目标站点，已停止发送账号凭据");
   }
   return url.href;
+}
+
+/// Playwright reports these once the page or its renderer can no longer run an
+/// evaluation. Retrying the same page only burns the remaining timeout, so the
+/// task stops with the actual reason instead of a generic "verification timed
+/// out" three minutes later.
+function pageGone(error) {
+  return /Target (?:page, context or browser has been closed|crashed)|Page crashed|browser has been closed/i
+    .test(String(error));
 }
 
 export class BrowserWorker {
@@ -171,7 +180,10 @@ export class BrowserWorker {
       let challenged;
       try {
         challenged = await this.page.evaluate(pageNeedsVerification);
-      } catch {
+      } catch (error) {
+        if (this.page.isClosed() || this.closing) throw new WorkerCancelled("验证窗口已关闭，签到已取消");
+        if (pageGone(error)) throw new WorkerError("验证页面已崩溃，请稍后重新签到");
+        // Navigation destroys the execution context briefly; poll again.
         await this.pause(500);
         continue;
       }
@@ -210,7 +222,14 @@ export class BrowserWorker {
     while (Date.now() - started < VERIFY_TIMEOUT_MS) {
       this.assertOrigin();
       await this.fitVerificationWindow();
-      const state = await this.page.evaluate(() => window.__balancehubVerification);
+      let state;
+      try {
+        state = await this.page.evaluate(() => window.__balancehubVerification);
+      } catch (error) {
+        if (this.page.isClosed() || this.closing) throw new WorkerCancelled("验证窗口已关闭，签到已取消");
+        if (pageGone(error)) throw new WorkerError("验证页面已崩溃，请稍后重新签到");
+        throw error;
+      }
       const failure = verificationFailure(state);
       if (failure) throw new WorkerError(failure);
       const token = state.token;
@@ -356,11 +375,16 @@ export function createWorkerRequestDispatcher(worker, emit) {
     } catch (error) { fail(reference, error); }
   };
   function fail(reference, error) {
-    emit({ ...reference, ok: false, code: error instanceof NeedsHuman ? "needsHuman" : error instanceof WorkerCancelled ? "cancelled" : "failed",
-      error: error instanceof WorkerError ? error.message
-        : String(error).match(/net::ERR_[A-Z_]+/)?.[0]
-          ? "浏览器连接失败：" + String(error).match(/net::ERR_[A-Z_]+/)[0]
-          : "浏览器操作失败，窗口可能已关闭或站点没有响应" });
+    // Control-flow classes first; ordinary failures carry their own stable
+    // code so callers never have to inspect the localized message.
+    const code = error instanceof NeedsHuman
+      ? "needsHuman"
+      : error instanceof WorkerCancelled
+        ? "cancelled"
+        : error instanceof WorkerError
+          ? error.code
+          : "failed";
+    emit({ ...reference, ok: false, code, error: describeBrowserError(error) });
   }
   return (line) => {
     let message;

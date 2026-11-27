@@ -85,6 +85,15 @@ pub struct ProviderAccountMutationView {
     pub message: String,
 }
 
+/// 定点刷新若干张卡片：只回传需要的站点视图和当前快照版本，补一次单卡
+/// 动作不必再走整份配置（设置、工作区、登录账号和其余站点都不参与）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderViewsView {
+    pub revision: u64,
+    pub providers: Vec<ProviderView>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthAccountDetails {

@@ -1,6 +1,5 @@
 import type { CliSessionSummary } from "../stores/provider-types";
 import type {
-  AgentSessionResumeState,
   AgentSessionRole,
   AgentSessionRow,
   AgentSessionSourceStatus,
@@ -22,38 +21,32 @@ export const agentSessionSourceLabels: Record<
   unsupported: "暂不支持",
   cancelled: "查询已取消",
 };
-export const agentSessionResumeLabels: Record<AgentSessionResumeState, string> =
-  {
-    queued: "等待启动",
-    running: "正在继续",
-    succeeded: "已启动",
-    failed: "继续失败",
-    cancelled: "已取消",
-    uncertain: "结果待确认",
-  };
+
+/// 会话列表和时间线会反复格式化同一批时间；格式化器只构造一次。
+const timeOnlyFormat = new Intl.DateTimeFormat("zh-CN", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const dateTimeFormat = new Intl.DateTimeFormat();
+const dayFormat = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  weekday: "short",
+});
 
 export function sessionTime(value: string | null, timeOnly = false) {
   if (!value) return "时间未知";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return timeOnly
-    ? date.toLocaleTimeString("zh-CN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      })
-    : date.toLocaleString();
+  return (timeOnly ? timeOnlyFormat : dateTimeFormat).format(date);
 }
 
 export function sessionDayLabel(value: string | null) {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) return "更新时间未记录";
-  return date.toLocaleDateString("zh-CN", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  });
+  return dayFormat.format(date);
 }
 
 export function sessionModelLabel(session: CliSessionSummary) {

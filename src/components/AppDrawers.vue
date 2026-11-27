@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import ProviderEditorDrawer from "./ProviderEditorDrawer.vue";
-import SettingsDrawer from "./SettingsDrawer.vue";
+import { defineAsyncComponent } from "vue";
+import { useFirstOpenLatch } from "../composables/useFirstOpenLatch";
 import type {
   AppSettings,
   Provider,
@@ -102,6 +102,13 @@ const emit = defineEmits<{
 
 const settingsVisible = defineModel<boolean>("settingsVisible", { required: true });
 const providerEditorVisible = defineModel<boolean>("providerEditorVisible", { required: true });
+
+// 设置和中转站编辑器是两套大表单，只在第一次打开时加载模块；打开后保持挂载，
+// 关闭再打开不会丢草稿和分区位置。
+const SettingsDrawer = defineAsyncComponent(() => import("./SettingsDrawer.vue"));
+const ProviderEditorDrawer = defineAsyncComponent(() => import("./ProviderEditorDrawer.vue"));
+const settingsOpened = useFirstOpenLatch(() => settingsVisible.value);
+const providerEditorOpened = useFirstOpenLatch(() => providerEditorVisible.value);
 const apiKeyAddVisible = defineModel<boolean>("apiKeyAddVisible", { required: true });
 const apiKeyAddRemark = defineModel<string>("apiKeyAddRemark", { required: true });
 const apiKeyAddValue = defineModel<string>("apiKeyAddValue", { required: true });
@@ -111,6 +118,7 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
 
 <template>
   <SettingsDrawer
+    v-if="settingsOpened"
     v-model:visible="settingsVisible"
     :settings="settings"
     :settings-save-state="settingsSaveState"
@@ -134,6 +142,7 @@ const apiKeyRemarkValue = defineModel<string>("apiKeyRemarkValue", { required: t
   />
 
   <ProviderEditorDrawer
+    v-if="providerEditorOpened"
     v-model:visible="providerEditorVisible"
     :title="providerEditorTitle"
     :editor-session="providerEditorSession"

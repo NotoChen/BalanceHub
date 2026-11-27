@@ -15,6 +15,8 @@ export function currentSettingValue(
   };
 }
 
+const numberFormat = new Intl.NumberFormat("zh-CN");
+
 export function settingValueLabel(
   value: AgentSettingValueSummary,
   field?: AgentNativeSetting,
@@ -27,7 +29,7 @@ export function settingValueLabel(
       value.value.trim() &&
       Number.isFinite(Number(value.value))
     )
-      return `${Number(value.value).toLocaleString("zh-CN")} ${field.unit}`.trim();
+      return `${numberFormat.format(Number(value.value))} ${field.unit}`.trim();
   }
   return value.label;
 }

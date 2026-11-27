@@ -17,7 +17,13 @@ pub(super) async fn run(
     mut needs_token: bool,
 ) -> Result<ProviderCheckInResult, CheckInError> {
     if normalize_session_cookie(&provider.auth.session_cookie).is_empty() {
-        return Err("会话签到需要 session Cookie".into());
+        // 账号密码登录也可能换回访问令牌会话；此时在发出任何签到请求前
+        // 停下来，并给出可执行的下一步。
+        return Err(if provider.auth.new_api_session.is_some() {
+            "站点使用访问令牌会话，会话签到需要 session Cookie；请改用标准签到".into()
+        } else {
+            "会话签到需要 session Cookie".into()
+        });
     }
     let public_url = build_url(&provider.identity.base_url, "/api/status")?;
     for attempt in 0..3 {

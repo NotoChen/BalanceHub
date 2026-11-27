@@ -5,8 +5,8 @@ import AgentCliIcon from "../AgentCliIcon.vue";
 import AgentConfigurationEditorBody from "./AgentConfigurationEditorBody.vue";
 import FileEditorModal from "../FileEditorModal.vue";
 import type { AgentConfigurationSource } from "../../stores/agent-configuration-types";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import { agentConfigurationFileLabel } from "../../utils/agent-configuration-display";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{
   model: UnwrapNestedRefs<ReturnType<typeof useAgentConfigurationEditor>>;

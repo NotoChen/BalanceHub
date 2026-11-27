@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ProviderEditorSection } from "../../composables/provider-editor-shared";
 import type { ProviderEditorNavItem } from "../../composables/useProviderEditorSections";
+import "../../styles/modules/surfaces/nav-rail.css";
 
 defineProps<{
   items: ProviderEditorNavItem[];

@@ -72,9 +72,10 @@ test("a failing provider refresh reports once but keeps retrying quietly", async
   };
   const providers = {
     providers: [provider],
-    reloadProviders: async () => {
+    reloadProvider: async (id: string) => {
       reloads += 1;
       if (failing) throw new Error("读取配置失败");
+      return id === provider.identity.id ? provider : null;
     },
     refreshByIds: async () => null,
   };
@@ -119,4 +120,59 @@ test("a failing provider refresh reports once but keeps retrying quietly", async
   t.mock.timers.tick(15_000);
   await settle();
   assert.equal(reloads, 3);
+});
+
+test("a backend restart releases waiting OAuth tasks instead of polling forever", async (t) => {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const stale = {
+    id: "stale",
+    phase: "waiting",
+    providerId: null,
+    vendor: "linuxdo",
+    message: "等待授权",
+    revision: 3,
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    canCancel: true,
+    canRetrySave: false,
+  };
+  const fresh = {
+    ...stale,
+    id: "fresh",
+    createdAt: nowSeconds,
+    updatedAt: nowSeconds,
+  };
+  const store = reactive<Record<string, any>>({
+    tasks: { stale, fresh },
+    visible: false,
+    eventError: "",
+    accept(task: typeof stale) {
+      const previous = this.tasks[task.id];
+      if (!previous || previous.revision <= task.revision) this.tasks[task.id] = task;
+    },
+    openAccount() {},
+    openTask() {},
+  });
+  const { useOAuthTasks } = loadSource<{
+    useOAuthTasks: () => SetupState;
+  }>("composables/useOAuthTasks.ts", {
+    "../api/transport.ts": { listen: async () => () => {} },
+    "@arco-design/web-vue": { Message: { error() {} } },
+    "../stores/oauth-accounts": { useOAuthAccountStore: () => store },
+    "../stores/providers": { useProviderStore: () => ({ providers: [], reloadProvider: async () => null, refreshByIds: async () => null }) },
+    "../api/oauth-accounts": {
+      // 重启后的后端只返回内存里现存的授权任务。
+      listOAuthLogins: async () => [],
+      cancelOAuthLogin: async () => {},
+      retryOAuthSave: async () => {},
+    },
+    "../utils/promise-timeout": { withTimeout: (promise: Promise<unknown>) => promise },
+    "../utils/oauth-display": { oauthVendorLabel: () => "Linux DO" },
+  });
+  mount(t, () => useOAuthTasks());
+  await settle();
+  assert.equal(store.tasks.stale.phase, "failed");
+  assert.match(store.tasks.stale.message, /后台列表消失/);
+  assert.equal(store.tasks.stale.canCancel, false);
+  assert.equal(store.tasks.fresh.phase, "waiting", "刚发起的授权不会被误判为已消失");
 });

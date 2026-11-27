@@ -13,9 +13,6 @@ const ruleKey = (value: string): string => value.trim().toLowerCase();
 /** 规则里含 `*` 才按通配符匹配，否则是精确的模型 ID。 */
 export const isWildcardRule = (rule: string): boolean => rule.includes("*");
 
-/// 网关用 `*` 单独一条表示「停用整个通道」，面板不主动产出它。
-export const DISABLE_ALL_RULE = "*";
-
 export function normalizeExcludedRules(values: Iterable<string>): string[] {
   const seen = new Set<string>();
   const rules: string[] = [];
@@ -44,14 +41,6 @@ export function matchesExcludedRule(rule: string, modelId: string): boolean {
     .join(".*");
   return new RegExp(`^${escaped}$`, "i").test(normalizedModel);
 }
-
-export const isMatchedByWildcardRule = (
-  rules: Iterable<string>,
-  modelId: string,
-): boolean =>
-  Array.from(rules).some(
-    (rule) => isWildcardRule(rule) && matchesExcludedRule(rule, modelId),
-  );
 
 /** 一条规则在原列表里的字面位置（忽略大小写），用于增删精确规则。 */
 const sameRule = (left: string, right: string): boolean =>

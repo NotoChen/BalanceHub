@@ -4,10 +4,10 @@ mod check_in;
 mod reauth;
 use crate::{
     adapters::browser::{BrowserSession, BrowserWindowControl},
-    app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
+    app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT},
     models::{
-        provider_domain::auth::browser_login_supported, BrowserLoginMechanism, CheckInPhase,
-        LoginAccount, LoginPlatform, Provider, ProviderInput,
+        provider_domain::auth::browser_login_supported, BrowserLoginMechanism, CheckInError,
+        CheckInPhase, LoginAccount, LoginPlatform, Provider, ProviderInput,
     },
     network,
     services::{
@@ -23,7 +23,7 @@ pub(crate) use reauth::{after_credential_failure, attempted_since};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, OnceLock,
@@ -102,6 +102,55 @@ struct LoginRun {
     task: ProviderBrowserLoginTask,
     cancel: watch::Sender<bool>,
     window: Option<BrowserWindowControl>,
+}
+
+/// 登录、账号窗口和自动重新认证共用的失败类型。是否属于取消由错误来源
+/// 决定；界面状态和通知策略不再从提示文案里推断。
+#[derive(Debug)]
+enum LoginError {
+    Cancelled(String),
+    Failed(String),
+}
+
+impl LoginError {
+    fn cancelled(message: impl Into<String>) -> Self {
+        Self::Cancelled(message.into())
+    }
+
+    fn failed(message: impl Into<String>) -> Self {
+        Self::Failed(message.into())
+    }
+
+    fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled(_))
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            Self::Cancelled(message) | Self::Failed(message) => message,
+        }
+    }
+}
+
+impl From<String> for LoginError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
+impl From<&str> for LoginError {
+    fn from(message: &str) -> Self {
+        Self::Failed(message.to_string())
+    }
+}
+
+impl From<CheckInError> for LoginError {
+    fn from(error: CheckInError) -> Self {
+        match error {
+            CheckInError::Cancelled(message) => Self::Cancelled(message),
+            error => Self::Failed(error.to_string()),
+        }
+    }
 }
 
 fn runs() -> &'static Mutex<HashMap<String, LoginRun>> {
@@ -274,19 +323,45 @@ fn cancel_with_message(run_id: &str, message: &str) -> Result<(), String> {
 }
 
 /// 站点被删除或停用后，指向它的登录窗口和自动重新认证不会再有可写入的
-/// 卡片；与签到任务一样主动收口，避免一个已失效的窗口一直留在任务中心。
+/// 卡片；登录账号被配置导入、云同步或手动编辑移除后，账号窗口也没有可
+/// 保存的目标。与签到任务一样主动收口，避免已失效的窗口一直留在任务中心，
+/// 或让用户在窗口里登录完才在保存时失败。
 pub fn cancel_outdated() {
-    let providers = match crate::host::core_state().data.read() {
-        Ok(data) => data.providers.clone(),
+    let (providers, accounts) = match crate::host::core_state().data.read() {
+        Ok(data) => (
+            data.providers.clone(),
+            data.login_accounts
+                .iter()
+                .map(|account| account.id.clone())
+                .collect::<HashSet<String>>(),
+        ),
         Err(_) => return,
     };
-    let outdated = {
+    let (removed_accounts, outdated_providers) = {
         let runs = runs().lock().unwrap_or_else(|err| err.into_inner());
-        outdated_run_ids(&runs, &providers)
+        (
+            runs_with_removed_accounts(&runs, &accounts),
+            outdated_run_ids(&runs, &providers),
+        )
     };
-    for run_id in outdated {
+    for run_id in removed_accounts {
+        let _ = cancel_with_message(&run_id, "登录账号已删除，登录已取消");
+    }
+    for run_id in outdated_providers {
         let _ = cancel_with_message(&run_id, "中转站已删除或停用，登录已取消");
     }
+}
+
+fn runs_with_removed_accounts(
+    runs: &HashMap<String, LoginRun>,
+    accounts: &HashSet<String>,
+) -> Vec<String> {
+    runs.values()
+        .filter(|run| {
+            run.task.finished_at.is_none() && !accounts.contains(&run.task.login_account_id)
+        })
+        .map(|run| run.task.run_id.clone())
+        .collect()
 }
 
 fn outdated_run_ids(runs: &HashMap<String, LoginRun>, providers: &[Provider]) -> Vec<String> {
@@ -427,7 +502,7 @@ async fn execute(
             .await
             .unwrap_or_else(|_| {
                 log::error!("登录任务异常退出（{run_id}）");
-                Err("登录过程异常退出，请重新登录".to_string())
+                Err(LoginError::failed("登录过程异常退出，请重新登录"))
             });
     match result {
         Ok(provider) => {
@@ -437,23 +512,22 @@ async fn execute(
                 }
             }
             publish(&run_id, "completed", "账号已导入，登录窗口已关闭");
-            crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+            let provider_id = provider.identity.id.clone();
+            crate::app_events::emit_providers_changed(std::slice::from_ref(&provider_id));
             let service = ProviderService::new();
-            let _ = service
-                .refresh_by_ids(vec![provider.identity.id.clone()])
-                .await;
-            let _ = service.probe_capabilities(provider.identity.id).await;
-            crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+            let _ = service.refresh_by_ids(vec![provider_id.clone()]).await;
+            let _ = service.probe_capabilities(provider_id.clone()).await;
+            crate::app_events::emit_providers_changed(std::slice::from_ref(&provider_id));
         }
-        Err(message) => {
-            let phase =
-                if *cancelled.borrow() || message.contains("已关闭") || message.contains("已取消")
-                {
-                    "cancelled"
-                } else {
-                    "failed"
-                };
-            publish(&run_id, phase, &message);
+        Err(error) => {
+            // 取消信号可能比错误先到（例如运行时获取失败在前、取消在后），
+            // 保留这个兜底；除此之外只认类型，不看文案。
+            let phase = if *cancelled.borrow() || error.is_cancelled() {
+                "cancelled"
+            } else {
+                "failed"
+            };
+            publish(&run_id, phase, error.message());
         }
     }
 }
@@ -464,14 +538,14 @@ async fn run(
     expected: Option<Provider>,
     account: LoginAccount,
     cancelled: &mut watch::Receiver<bool>,
-) -> Result<Provider, String> {
+) -> Result<Provider, LoginError> {
     let _slot = tokio::select! {
         biased;
-        _ = cancelled.changed() => return Err("登录已取消".into()),
+        _ = cancelled.changed() => return Err(LoginError::cancelled("登录已取消")),
         slot = browser_profiles::acquire(ProfileKey::Account(account.id.clone())) => slot?,
     };
     if *cancelled.borrow() {
-        return Err("登录已取消".into());
+        return Err(LoginError::cancelled("登录已取消"));
     }
     let account = ProviderService::new().check_login_account(&account)?;
     let runtime = browser_runtime::acquire().await?;
@@ -509,24 +583,23 @@ async fn run(
     };
     let result = tokio::select! {
         biased;
-        _ = cancelled.changed() => Err("登录已取消".to_string()),
+        _ = cancelled.changed() => Err(LoginError::cancelled("登录已取消")),
         result = session.request("login", json!({
             "url": input.identity.base_url, "providerName": provider.display_label(), "profileDir": profile,
             "proxy": proxy, "executablePath": runtime.browser, "loginPath": login_path, "timeoutMs": 600_000,
             "accountName": account.name, "expectedPlatform": account.platform, "expectedIdentity": account.identity,
-        })) => result.map_err(|error| error.to_string()),
+        })) => result.map_err(LoginError::from),
     };
     let result = match result {
         Ok(value) if begin_saving(run_id) => match LoginCredentials::parse(value) {
-            Ok(credentials) => {
-                ProviderService::new()
-                    .import_browser_login(input, expected, credentials, account)
-                    .await
-            }
-            Err(message) => Err(message),
+            Ok(credentials) => ProviderService::new()
+                .import_browser_login(input, expected, credentials, account)
+                .await
+                .map_err(LoginError::from),
+            Err(message) => Err(LoginError::failed(message)),
         },
-        Ok(_) => Err("登录已取消".to_string()),
-        Err(message) => Err(message),
+        Ok(_) => Err(LoginError::cancelled("登录已取消")),
+        Err(error) => Err(error),
     };
     session.close().await;
     result
@@ -607,6 +680,24 @@ mod tests {
         let mut outdated = outdated_run_ids(&runs, &[live, renamed, disabled]);
         outdated.sort();
         assert_eq!(outdated, ["disabled", "removed"]);
+    }
+
+    #[test]
+    fn login_windows_close_when_their_account_is_removed_from_the_configuration() {
+        let runs = HashMap::from([
+            ("live".to_string(), login_run("live", None, false, true)),
+            (
+                "finished".to_string(),
+                login_run("finished", None, true, false),
+            ),
+        ]);
+        assert!(
+            runs_with_removed_accounts(&runs, &HashSet::from(["account-fixture".to_string()]))
+                .is_empty()
+        );
+        // 账号被配置导入、云同步或手动编辑移除后，窗口里再完成登录也没有
+        // 可保存的目标；只取消仍在进行的窗口。
+        assert_eq!(runs_with_removed_accounts(&runs, &HashSet::new()), ["live"]);
     }
 
     #[test]

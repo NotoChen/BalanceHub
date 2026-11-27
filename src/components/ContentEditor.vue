@@ -163,8 +163,8 @@ defineExpose({ reveal });
         }}</a-button>
       </div>
     </div>
-    <p v-if="copyError" class="agent-workspace-error">{{ copyError }}</p>
-    <p v-if="formatError" class="agent-workspace-error" role="alert">
+    <p v-if="copyError" class="content-editor-notice">{{ copyError }}</p>
+    <p v-if="formatError" class="content-editor-notice" role="alert">
       {{ formatError }}
     </p>
     <CodeEditor
@@ -185,3 +185,18 @@ defineExpose({ reveal });
     />
   </div>
 </template>
+
+<style scoped>
+/* 编辑器在 CPA 配置窗口里也会打开，不能依赖 Agent 工作台按需加载的错误样式。 */
+.content-editor-notice {
+  margin: 10px 0;
+  border-left: 3px solid rgb(var(--danger-6));
+  border-radius: 5px;
+  padding: 10px 12px;
+  background: rgb(var(--danger-1));
+  color: rgb(var(--danger-7));
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+</style>

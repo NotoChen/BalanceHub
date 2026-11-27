@@ -47,6 +47,8 @@ pub struct LoginCookieSummary {
 
 impl ProviderService {
     pub fn list_login_accounts(&self) -> Result<Vec<LoginAccountSummary>, String> {
+        // 打开账号管理时顺带清理已不在配置里的旧登录环境（每天最多一次）。
+        login_profiles::schedule_orphan_prune();
         // Preserve the actual pre-management profile without inventing an identity
         // or assigning any previously imported station to it.
         let existing = login_profiles::directory("profile")?;
@@ -239,6 +241,25 @@ impl ProviderService {
         }
         let _profile = crate::services::browser_profiles::idle_account(&id)?;
         let account = self.login_account(&id)?;
+        // 移除账号只会解开绑定到它的站点；把这次变化限制在受影响的卡片上。
+        let bound_providers = if remove_entry {
+            let state = crate::host::core_state();
+            let data = state.data.read().unwrap_or_else(|err| err.into_inner());
+            data.providers
+                .iter()
+                .filter(|provider| {
+                    provider
+                        .auth
+                        .browser_binding
+                        .as_ref()
+                        .and_then(|binding| binding.account_id.as_deref())
+                        == Some(id.as_str())
+                })
+                .map(|provider| provider.identity.id.clone())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let directory = login_profiles::directory(&id)?;
         let removed = directory.with_file_name(format!("removed-{id}-{}", unix_millis()));
         let existed = directory.exists();
@@ -256,7 +277,11 @@ impl ProviderService {
         if existed {
             std::fs::remove_dir_all(&removed).map_err(|_| "账号已移除，但本地登录目录清理失败")?;
         }
-        crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+        if bound_providers.is_empty() {
+            crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+        } else {
+            crate::app_events::emit_providers_changed(&bound_providers);
+        }
         Ok(())
     }
 }

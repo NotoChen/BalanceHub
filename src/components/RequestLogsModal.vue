@@ -13,6 +13,7 @@ import RequestLogDetailsModal from "./RequestLogDetailsModal.vue";
 import { logIdentity, logTokenTotal, rawValue, logHasUsageData, logDuration, logDetails, logRequestId, logChannel, logTypeLabel, logStatusTone, formatLogQuotaValue, logPreview, requestLogRateHint } from "../utils/request-log-display";
 import { formatNumberCompact, providerDisplayLabel } from "../utils/provider-display";
 import { providerProtocolDescriptor } from "../utils/provider-protocol";
+import "../styles/modules/request-logs.css";
 
 const props = defineProps<{
   visible: boolean;
@@ -109,7 +110,7 @@ const statCards = computed(() => {
   if (stats?.avgDurationMs != null) {
     cards.splice(3, 0, {
       label: "平均耗时",
-      value: formatDuration(stats.avgDurationMs),
+      value: formatLatency(stats.avgDurationMs),
       tone: "duration",
       hint: rateHint.value,
     });
@@ -149,12 +150,12 @@ const pageAggregates = computed(() => {
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
   if (durations.length) {
     const average = durations.reduce((total, value) => total + value, 0) / durations.length;
-    items.push({ label: "本页平均耗时", value: formatDuration(average) });
+    items.push({ label: "本页平均耗时", value: formatLatency(average) });
   }
   return items;
 });
 
-function formatDuration(value: number) {
+function formatLatency(value: number) {
   return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`;
 }
 

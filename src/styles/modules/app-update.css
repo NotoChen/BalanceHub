@@ -8,8 +8,10 @@
 }
 
 .app-update-modal .arco-modal-body {
+  box-sizing: border-box;
   min-height: 0;
   overflow: hidden;
+  background: var(--surface-canvas);
 }
 
 .app-update-modal .arco-modal-footer {
@@ -48,6 +50,7 @@
   display: grid;
   min-height: 0;
   gap: 18px;
+  padding: 0;
 }
 
 .app-update-version-summary {
@@ -273,4 +276,33 @@
   .app-update-actions {
     justify-content: flex-end;
   }
+}
+
+/* 更新窗口专属收口原先在 surfaces/dialogs.css、surfaces/dark.css 里；
+   随窗口懒加载后必须和窗口样式一起加载，保持相同优先级与最终结果。 */
+.app-update-modal .app-update-version-summary {
+  border-color: var(--surface-line);
+  border-radius: 11px;
+  background: var(--surface-panel);
+  box-shadow: none;
+}
+
+.app-update-modal .app-update-release-scroll {
+  border: 1px solid var(--surface-line);
+  border-radius: 11px;
+  background: var(--surface-panel);
+  padding: 13px 15px;
+}
+
+.app-update-modal .app-update-footer {
+  padding-top: 0;
+}
+
+:root.theme-dark .app-update-modal .app-update-version-summary,
+:root.theme-dark .app-update-modal .app-update-release-scroll {
+  background: var(--surface-panel);
+}
+
+:root.theme-dark .app-update-modal .arco-modal-body {
+  background: var(--surface-canvas);
 }

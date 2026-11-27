@@ -23,6 +23,7 @@ import {
   settingValueDescription,
   settingValueLabel,
 } from "../utils/agent-setting-display";
+import "../styles/modules/temporary-cli-preview.css";
 
 const props = defineProps<{
   visible: boolean;

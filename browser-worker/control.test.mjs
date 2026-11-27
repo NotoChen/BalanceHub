@@ -52,6 +52,19 @@ test("closing a verification sends a typed cancellation rather than a failed che
   assert.equal(replies[1].code, "failed", "a disabled feature is not a user-cancelled window");
 });
 
+test("login waits time out with a typed code instead of a message match", async () => {
+  const replies = [];
+  const dispatch = createWorkerRequestDispatcher({
+    login: async () => { throw new WorkerError("登录等待超时，请重新点击登录并导入", "loginTimeout"); },
+    fetch: async () => { throw new TypeError("unexpected runtime error"); },
+  }, (reply) => replies.push(reply));
+  await dispatch(JSON.stringify({ id: 11, op: "login" }));
+  await dispatch(JSON.stringify({ id: 12, op: "fetch" }));
+  assert.equal(replies[0].code, "loginTimeout");
+  assert.match(replies[0].error, /超时/);
+  assert.equal(replies[1].code, "failed", "unexpected exceptions stay ordinary failures");
+});
+
 test("showing a real browser restores its existing minimized window and does not reopen a closed page", {
   skip: process.env.BALANCEHUB_BROWSER_SMOKE !== "1", timeout: 20_000,
 }, async () => {

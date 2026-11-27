@@ -116,6 +116,9 @@ pub enum CheckInError {
     WaitingHuman,
     WaitingLogin,
     WaitingBrowser(String),
+    /// 登录窗口在时限内没有完成登录。是否转为等待人工由调用方决定：
+    /// 无头重新认证可以停在 WaitingLogin，手动登录则按失败提示。
+    LoginTimeout(String),
     Cancelled(String),
     Unconfirmed(String),
     Failed(String),
@@ -139,6 +142,7 @@ impl std::fmt::Display for CheckInError {
             Self::WaitingHuman => f.write_str(CheckInPhase::WaitingHuman.message()),
             Self::WaitingLogin => f.write_str(CheckInPhase::WaitingLogin.message()),
             Self::WaitingBrowser(message)
+            | Self::LoginTimeout(message)
             | Self::Cancelled(message)
             | Self::Unconfirmed(message)
             | Self::Failed(message) => f.write_str(message),

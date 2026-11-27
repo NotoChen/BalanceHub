@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { toRaw } from "vue";
 import {
   changeProviderPassword as changeProviderPasswordCommand,
   changeProviderProfile as changeProviderProfileCommand,
@@ -23,6 +24,7 @@ import {
   listLocalProviderApiKeys as listLocalProviderApiKeysCommand,
   listProviderApiKeys as listProviderApiKeysCommand,
   loadAppData,
+  loadProviderViews,
   probeProviderSite as probeProviderSiteCommand,
   previewProviderCheckInPolicy as previewProviderCheckInPolicyCommand,
   refreshProviders,
@@ -45,6 +47,7 @@ import { withTimeout } from "../utils/promise-timeout";
 import {
   mergeProvidersByRevision,
   pruneProviderTombstones,
+  sameActiveEndpoint,
   type ProviderRevisionTombstones,
 } from "../utils/provider-revision";
 import { useCliRuntimeStore } from "./cli-runtime";
@@ -62,6 +65,11 @@ import type {
 
 export { defaultSettings } from "./provider-defaults";
 export type * from "./provider-types";
+
+/// 一次完整快照读取当时在飞的去向。后台一轮批量变更（例如逐个站点完成的
+/// 签到）会连发多条 providers-changed；同一时刻只允许一个快照在飞，期间
+/// 到达的请求合并成一次补拉，避免 WebView 反复解析、替换整份看板数据。
+const pendingProviderReloads = new WeakMap<object, Promise<void>>();
 
 export const useProviderStore = defineStore("providers", {
   state: () => ({
@@ -88,8 +96,46 @@ export const useProviderStore = defineStore("providers", {
       this.providers = providers;
     },
     replaceProviderSnapshot(providers: Provider[], revision: number) {
-      if (revision < this.providerSnapshotRevision) return false;
-      this.providers = providers;
+      // 定向读取可能已经把个别站点推进到比上次完整快照更新的版本。比它更旧
+      // 的完整快照既不能覆盖这些结果，也不能据此判定刚新增的站点已被删除。
+      const newestKnown = this.providers.reduce(
+        (newest, provider) => Math.max(newest, provider.revision ?? 0),
+        this.providerSnapshotRevision,
+      );
+      if (revision < newestKnown) return false;
+      // 后端每次快照都会重新序列化整份数据；内容没变的中转站复用旧对象，
+      // 卡片才能跳过重渲染（对象身份是 Vue 子组件更新的边界）。revision 是
+      // 进程内的全局版本戳，每次持久化都会推进到同一值，比较前先归一化，
+      // 否则它会把「内容其实没变」全部掩盖掉。
+      //
+      // 版本号没变说明上次快照之后没有任何持久化：整份内容相同，只有进程内
+      // 的备用地址读数可能变化。这时逐个站点比这一个字段即可，不再为整份
+      // 快照做两遍全量序列化。
+      const sameRevision = revision === this.providerSnapshotRevision;
+      const previous = new Map(
+        this.providers.map((provider) => [provider.identity.id, toRaw(provider)] as const),
+      );
+      const next = providers.map((provider) => {
+        const current = previous.get(provider.identity.id);
+        if (!current) return provider;
+        const unchanged = sameRevision
+          ? sameActiveEndpoint(current, provider)
+          : JSON.stringify({ ...current, revision: 0 })
+            === JSON.stringify({ ...provider, revision: 0 });
+        if (!unchanged) return provider;
+        // 旧对象要带上本轮快照的版本号，后续按 revision 合并时才不会把
+        // 晚到的旧响应误判成更新。
+        current.revision = provider.revision;
+        return current;
+      });
+      // 整份快照一块都没变时连数组也不换：重连、外部配置无实质变化这类
+      // 补拉不会再触发整块看板重渲染。
+      if (
+        next.length !== this.providers.length
+        || next.some((provider, index) => provider !== toRaw(this.providers[index]))
+      ) {
+        this.providers = next;
+      }
       this.providerSnapshotRevision = revision;
       this.providerTombstones = pruneProviderTombstones(this.providerTombstones, revision);
       return true;
@@ -233,11 +279,32 @@ export const useProviderStore = defineStore("providers", {
         this.providerReloadPending = true;
         return;
       }
-      try {
-        const data = await loadAppData();
-        if (!this.hydrateAppData(data)) {
-          return;
+      const inFlight = pendingProviderReloads.get(this);
+      if (inFlight) {
+        // 本轮读取开始得比这次请求早；等它连同随后的补拉一起完成再返回，
+        // 调用方拿到的快照不会落后于自己刚看到的变更。
+        this.providerReloadPending = true;
+        await inFlight.catch(() => {});
+        return;
+      }
+      const run = (async () => {
+        do {
+          this.providerReloadPending = false;
+          const data = await loadAppData();
+          this.hydrateAppData(data);
+        } while (
+          this.providerReloadPending
+          && !this.refreshInProgress
+          && this.refreshingIds.size === 0
+        );
+        if (this.providerReloadPending) {
+          // 期间进入了批量/手动刷新：补拉留给它们结束后的 flush。
+          void this.flushPendingProviderReload();
         }
+      })();
+      pendingProviderReloads.set(this, run);
+      try {
+        await run;
       } catch (error) {
         // 看板已有数据时，后台 tick 的一次瞬时失败不值得把整个界面切到全屏错误态；
         // 只有从未成功加载过才进入错误态。调用方可自行 catch 决定是否提示。
@@ -245,6 +312,8 @@ export const useProviderStore = defineStore("providers", {
           this.loadError = errorToMessage(error);
         }
         throw error;
+      } finally {
+        pendingProviderReloads.delete(this);
       }
     },
     /**
@@ -253,12 +322,6 @@ export const useProviderStore = defineStore("providers", {
      * operation returns the authoritative provider view when it completes.
      */
     async reloadProviders() {
-      if (
-        this.refreshInProgress || this.refreshingIds.size > 0
-      ) {
-        this.providerReloadPending = true;
-        return;
-      }
       await this.reload();
     },
     async flushPendingProviderReload() {
@@ -271,19 +334,37 @@ export const useProviderStore = defineStore("providers", {
       this.providerReloadPending = false;
       await this.reload().catch(() => {});
     },
-    async reloadProvider(id: string) {
-      const data = await loadAppData();
-      this.providerProtocols = data.providerProtocols;
-      const provider = data.providers.find((candidate) => candidate.identity.id === id);
-      if (provider) {
-        this.upsertProvider(provider);
-      } else {
-        this.providerTombstones[id] = Math.max(
-          this.providerTombstones[id] ?? 0,
-          data.revision,
-        );
-        this.removeProviderById(id);
+    async reloadProviderViews(ids: string[]) {
+      // 单卡或一组卡片动作后只补这些站点的最新视图；邀请链接、Key 列表、
+      // 签到完成这类操作不必再让后端序列化、让 WebView 解析整份配置。
+      const unique = [...new Set(ids)];
+      if (unique.length === 0) return [];
+      const data = await loadProviderViews(unique);
+      // 一次合并整组视图：逐张调用会反复复制整个 providers 数组，
+      // 批量签到完成时这个成本随站点数量平方增长。
+      if (data.providers.length > 0) this.upsertProviders(data.providers);
+      const returned = new Set(data.providers.map((provider) => provider.identity.id));
+      // 只有这份响应不早于最近一次完整快照时，缺失才能证明站点已删除；
+      // 否则可能把完整快照里刚恢复的站点误删。
+      if (data.revision >= this.providerSnapshotRevision) {
+        const missing = unique.filter((id) => !returned.has(id));
+        if (missing.length > 0) {
+          const removed = new Set(missing);
+          for (const id of missing) {
+            this.providerTombstones[id] = Math.max(
+              this.providerTombstones[id] ?? 0,
+              data.revision,
+            );
+          }
+          this.providers = this.providers.filter(
+            (provider) => !removed.has(provider.identity.id),
+          );
+        }
       }
+      return data.providers;
+    },
+    async reloadProvider(id: string) {
+      const [provider] = await this.reloadProviderViews([id]);
       return provider ?? null;
     },
     async probeProviderSite(input: ProviderInput) {

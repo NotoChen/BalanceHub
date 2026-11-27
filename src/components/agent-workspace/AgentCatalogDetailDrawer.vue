@@ -12,7 +12,8 @@ import type { useAgentResourceContent } from "../../composables/useAgentResource
 import "../../styles/modules/agent-resource-content.css";
 import type { AgentAssetCatalog, AgentCatalogAsset, AgentCatalogAction, AgentCatalogRelationIntent } from "../../stores/agent-catalog-types";
 import type { AgentCliDescriptor } from "../../stores/provider-types";
-import { agentAssetCategoryLabels, agentAssetScopeLabels, agentAssetStateLabels, agentAssetTrustLabels } from "../../composables/useAgentAssetCatalog";
+import { agentAssetCategoryLabels, agentAssetStateLabels, agentAssetTrustLabels } from "../../composables/useAgentAssetCatalog";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 import { agentCatalogActionLabels, agentCatalogDriftLabels, agentCatalogSyncLabels, agentCatalogUnresolvedLabel } from "../../utils/agent-catalog-display";
 import { agentAssetFeatureMatches, agentAssetProvenanceEntries, agentAssetProvenanceLabel } from "../../utils/agent-asset-provenance";
 import { revealInScrollContainer } from "../../utils/scroll-container";

@@ -157,6 +157,7 @@ function modal(
       "../../api/agent-usage": { getAgentUsageReport: async () => report() },
       "../../api/agent-sessions": { cancelAgentSessionQuery: async () => {} },
       "../../styles/modules/usage-reconciliation.css": {},
+      "../../styles/modules/usage.css": {},
       "../../utils/promise-timeout": {
         withTimeout: (promise: Promise<unknown>) => promise,
       },

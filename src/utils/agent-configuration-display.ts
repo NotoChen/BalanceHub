@@ -1,8 +1,5 @@
 import type { AgentConfigurationActionKind, AgentConfigurationDiagnostic, AgentConfigurationErrorKind, AgentConfigurationSource } from "../stores/agent-configuration-types";
 
-export const agentConfigurationActionLabels: Record<AgentConfigurationActionKind, string> = {
-  read: "只读查看", edit: "编辑", create: "创建", open: "使用系统应用打开", reveal: "在文件管理器中显示",
-};
 export function agentConfigurationFileName(source: Pick<AgentConfigurationSource, "path" | "label">): string {
   return source.path.split(/[\\/]/).filter(Boolean).pop() || source.label;
 }

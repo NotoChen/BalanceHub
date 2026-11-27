@@ -358,7 +358,9 @@ export function useCardDragSort<T>(options: DragSortOptions<T>) {
     commitTimer = null;
   }
 
-  const dragStyle = () => cardDragStyleFromState(state);
+  /// 拖拽样式按状态计算并保持对象身份；父组件重渲染时不再每次生成新对象，
+  /// 拖拽预览卡和其他子组件不会因为无关更新收到新的 style。
+  const dragStyle = computed(() => cardDragStyleFromState(state));
 
   onBeforeUnmount(() => {
     disposed = true;

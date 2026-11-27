@@ -8,8 +8,14 @@ pub fn has_access_token(provider: &Provider) -> bool {
     !provider.auth.access_token.trim().is_empty()
 }
 
-pub fn has_session(provider: &Provider) -> bool {
+/// 浏览器会话 Cookie。NewAPI 的访问令牌会话是另一套凭据，不能当作 Cookie
+/// 发给只接受 `session=` 的接口。
+pub fn has_session_cookie(provider: &Provider) -> bool {
     !provider.auth.session_cookie.trim().is_empty()
+}
+
+pub fn has_session(provider: &Provider) -> bool {
+    has_session_cookie(provider)
         || provider
             .auth
             .new_api_session

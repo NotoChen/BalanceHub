@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { IconCalendarClock, IconClockCircle, IconHistory, IconRefresh } from "@arco-design/web-vue/es/icon";
 import { computed } from "vue";
+// 定时签到只在设置抽屉里用，和抽屉一起按需加载。
+import { TimePicker as ATimePicker } from "@arco-design/web-vue";
+import "@arco-design/web-vue/es/time-picker/style/css.js";
 import DurationInput from "../DurationInput.vue";
 import SettingsLivenessSection from "./SettingsLivenessSection.vue";
 import { useHostCapabilities } from "../../composables/useHostCapabilities";

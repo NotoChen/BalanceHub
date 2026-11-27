@@ -23,7 +23,8 @@ interface UseProviderActionsOptions {
   ) => void;
   probeCapabilities: (id: string) => Promise<{ provider: Provider; message: string }>;
   getInviteLink: (id: string) => Promise<string>;
-  reload: () => Promise<unknown>;
+  /// 单卡动作后只补这张卡片的视图，不重读整份配置。
+  reloadProvider: (id: string) => Promise<unknown>;
   openEditProvider: (provider: Provider) => void;
   checkInProviderAction: (provider: Provider) => Promise<void>;
   openApiKeyManager: (provider: Provider) => void;
@@ -62,7 +63,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
     copyInviteLink: copyInviteLinkValue,
   } = useProviderCopyActions({
     getInviteLink: options.getInviteLink,
-    reload: options.reload,
+    reload: (providerId) => options.reloadProvider(providerId),
     setBusyProviderId: (id) => {
       inviteCopyingProviderId.value = id;
     },
@@ -142,7 +143,7 @@ export function useProviderActions(options: UseProviderActionsOptions) {
         }
         Message.success("已向 CPA 请求全部续期，稍后刷新核对");
         try {
-          await options.reload();
+          await options.reloadProvider(provider.identity.id);
         } catch (error) {
           Message.warning(
             `已请求续期，但面板刷新失败：${error instanceof Error ? error.message : String(error)}`,

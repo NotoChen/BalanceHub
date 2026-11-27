@@ -40,9 +40,14 @@ impl CoreState {
     }
 
     pub fn with_load_error(mut data: AppData, load_error: Option<String>) -> Self {
-        data.revision = 1;
+        // revision 只服务于进程内 IPC 排序，但浏览器版前端会跨后端重启一直
+        // 开着：从固定 1 重新计数会让重启后的快照和定向视图都小于前端记下的
+        // 高水位，被当成晚到的旧响应丢掉。起始值改用墙钟毫秒，重启后的版本号
+        // 自然大于上一进程发出去的任何值。
+        let base = crate::util::unix_millis().min(u64::MAX as u128) as u64;
+        data.revision = base;
         for provider in &mut data.providers {
-            provider.revision = 1;
+            provider.revision = base;
         }
         let retry_load = load_error.is_some();
         Self {
@@ -52,7 +57,7 @@ impl CoreState {
             refresh_generation: AtomicU64::new(0),
             refresh_cancel_generation: AtomicU64::new(0),
             model_catalog: OnceLock::new(),
-            revision: AtomicU64::new(1),
+            revision: AtomicU64::new(base),
             load_error: RwLock::new(load_error),
             retry_load: AtomicBool::new(retry_load),
         }
@@ -151,9 +156,22 @@ mod tests {
     fn revisions_are_monotonic_within_the_process() {
         crate::host::testing::install();
         let state = CoreState::new(AppData::default());
-        assert_eq!(state.next_revision(), 2);
-        assert_eq!(state.next_revision(), 3);
-        assert_eq!(state.current_revision(), 3);
+        let first = state.next_revision();
+        assert!(first > 1, "版本号从墙钟时间起步，不再从 1 开始");
+        assert_eq!(state.next_revision(), first + 1);
+        assert_eq!(state.current_revision(), first + 1);
+    }
+
+    #[test]
+    fn a_restart_does_not_restart_revision_counting() {
+        crate::host::testing::install();
+        let first = CoreState::new(AppData::default());
+        let high = first.next_revision();
+        // 真实重启至少跨越一个毫秒；这里等一小会儿复现同样的墙钟前进。
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let second = CoreState::new(AppData::default());
+        assert!(second.current_revision() >= high);
+        assert!(second.next_revision() > high);
     }
 
     #[test]

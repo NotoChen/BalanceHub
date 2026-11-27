@@ -6,7 +6,8 @@ import AgentCatalogConfigurationSelector from "./AgentCatalogConfigurationSelect
 import type { AgentAssetCatalog, AgentCatalogAction, AgentCatalogConfigurationSelection, AgentCatalogPlan, AgentCatalogRelationIntent } from "../../stores/agent-catalog-types";
 import type { AgentCatalogTargetChoice } from "../../composables/useAgentCatalogConsole";
 import { agentCatalogActionLabels } from "../../utils/agent-catalog-display";
-import { agentAssetCategoryLabels, agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
+import { agentAssetCategoryLabels } from "../../composables/useAgentAssetCatalog";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{
   visible: boolean;

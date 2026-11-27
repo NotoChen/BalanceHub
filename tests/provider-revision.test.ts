@@ -31,6 +31,35 @@ test("a full snapshot blocks absent providers from older incremental responses",
   assert.deepEqual(mergeProvidersByRevision([current], [stale], 5, {}), [current]);
 });
 
+test("a response that changes nothing keeps the current array identity", () => {
+  const current = provider("provider", 6);
+  const providers = [current];
+  // 同一全局 revision 的重复视图没有新内容，不应让看板重渲染。
+  assert.equal(
+    mergeProvidersByRevision(providers, [provider("provider", 6)], 6, {}),
+    providers,
+  );
+  assert.equal(
+    mergeProvidersByRevision(providers, [provider("provider", 5)], 4, {}),
+    providers,
+  );
+});
+
+test("an equal revision still publishes a changed active endpoint reading", () => {
+  const current = {
+    ...provider("provider", 6),
+    activeEndpoint: { backupUrl: "https://backup.example", backupIndex: 1, switchedAt: 10 },
+  } as unknown as Provider;
+  const providers = [current];
+  const switched = {
+    ...provider("provider", 6),
+    activeEndpoint: { backupUrl: "https://backup.example", backupIndex: 1, switchedAt: 20 },
+  } as unknown as Provider;
+  const merged = mergeProvidersByRevision(providers, [switched], 6, {});
+  assert.notEqual(merged, providers);
+  assert.equal(merged[0], switched);
+});
+
 test("newer current cards are not overwritten and covered tombstones are pruned", () => {
   const current = provider("provider", 6, "current");
   const stale = provider("provider", 5, "stale");

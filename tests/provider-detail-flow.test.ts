@@ -56,7 +56,11 @@ test("详情面收口状态、绑定、能力台账和自动化事实", () => {
 test("App 挂载详情面并把动作接回现有控制器", () => {
   const app = source("src/App.vue");
 
-  assert.match(app, /import ProviderDetailModal from "\.\/components\/ProviderDetailModal\.vue"/);
+  assert.match(
+    app,
+    /const ProviderDetailModal = defineAsyncComponent\(\s*\(\) => import\("\.\/components\/ProviderDetailModal\.vue"\)\s*\)/,
+  );
+  assert.match(app, /<ProviderDetailModal\s+v-if="providerDetailOpened"/);
   assert.match(app, /<ProviderDetailModal/);
   assert.match(app, /v-model:visible="app\.providerDetailVisible"/);
   assert.match(app, /:provider="app\.providerDetailProvider"/);
@@ -79,9 +83,13 @@ test("详情覆盖从应用控制器导出，卡片点击接到同一份实例",
   assert.match(controller, /\n    settings,\n/);
 });
 
-test("详情样式随应用样式表加载", () => {
+test("详情样式随详情弹窗加载", () => {
   const styles = source("src/styles/app.css");
-  assert.match(styles, /@import "\.\/modules\/provider-detail\.css";/);
+  assert.doesNotMatch(styles, /@import "\.\/modules\/provider-detail\.css";/);
+  assert.match(
+    source("src/components/ProviderDetailModal.vue"),
+    /styles\/modules\/provider-detail\.css/,
+  );
 });
 
 test("能力探测弹窗与详情共用同一份能力名称", () => {

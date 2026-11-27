@@ -1,16 +1,18 @@
-.arco-drawer,
-.arco-drawer-body,
-.arco-drawer-footer,
-.arco-drawer-header,
-.arco-modal,
-.arco-modal-header,
-.arco-modal-body {
+/* Arco 的抽屉样式随组件异步加载，会比应用样式后进入文档；
+ * 这里统一加 `body` 前缀，保持覆盖顺序不受样式表加载先后影响。 */
+body .arco-drawer,
+body .arco-drawer-body,
+body .arco-drawer-footer,
+body .arco-drawer-header,
+body .arco-modal,
+body .arco-modal-header,
+body .arco-modal-body {
   background: var(--glass-panel);
 }
 
-.arco-drawer-header,
-.arco-drawer-footer,
-.arco-modal-header {
+body .arco-drawer-header,
+body .arco-drawer-footer,
+body .arco-modal-header {
   border-color: var(--glass-border);
 }
 
@@ -34,36 +36,36 @@
 }
 
 /* Shared surface language for drawers, dialogs, and editable work surfaces. */
-.arco-drawer,
-.arco-modal {
+body .arco-drawer,
+body .arco-modal {
   border: 1px solid var(--glass-border);
   box-shadow: 0 18px 48px rgba(29, 33, 41, 0.14);
 }
 
-.arco-drawer {
+body .arco-drawer {
   overflow: hidden;
 }
 
-.arco-drawer-header,
-.arco-modal-header {
+body .arco-drawer-header,
+body .arco-modal-header {
   min-height: 68px;
   padding: 16px 20px;
 }
 
-.arco-drawer-title,
-.arco-modal-title {
+body .arco-drawer-title,
+body .arco-modal-title {
   color: var(--surface-ink);
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0;
 }
 
-.arco-drawer-body,
-.arco-modal-body {
+body .arco-drawer-body,
+body .arco-modal-body {
   scrollbar-gutter: stable;
 }
 
-.arco-drawer-footer,
-.arco-modal-footer {
+body .arco-drawer-footer,
+body .arco-modal-footer {
   padding: 12px 20px;
 }

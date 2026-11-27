@@ -14,6 +14,7 @@ import {
   siteAnnouncementLevelLabel,
 } from "../utils/site-announcements";
 import SiteAnnouncementContent from "./SiteAnnouncementContent.vue";
+import "../styles/modules/site-announcements.css";
 
 const props = defineProps<{
   visible: boolean;

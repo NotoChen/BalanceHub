@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { IconSearch, IconSettings } from "@arco-design/web-vue/es/icon";
-import SettingsAboutSection from "./settings/SettingsAboutSection.vue";
-import SettingsAccountsSection from "./settings/SettingsAccountsSection.vue";
-import SettingsAppearanceSection from "./settings/SettingsAppearanceSection.vue";
-import SettingsAutomationSection from "./settings/SettingsAutomationSection.vue";
-import SettingsDataSection from "./settings/SettingsDataSection.vue";
-import SettingsNetworkSection from "./settings/SettingsNetworkSection.vue";
-import SettingsNotificationSection from "./settings/SettingsNotificationSection.vue";
-import SettingsTerminalSection from "./settings/SettingsTerminalSection.vue";
+
+// 设置分区互不依赖，只加载当前打开的那一段；搜索一次命中多段时，
+// 命中的分区各自加载，未命中的不会因为打开设置就一起下载。
+const SettingsAboutSection = defineAsyncComponent(() => import("./settings/SettingsAboutSection.vue"));
+const SettingsAccountsSection = defineAsyncComponent(() => import("./settings/SettingsAccountsSection.vue"));
+const SettingsAppearanceSection = defineAsyncComponent(() => import("./settings/SettingsAppearanceSection.vue"));
+const SettingsAutomationSection = defineAsyncComponent(() => import("./settings/SettingsAutomationSection.vue"));
+const SettingsDataSection = defineAsyncComponent(() => import("./settings/SettingsDataSection.vue"));
+const SettingsNetworkSection = defineAsyncComponent(() => import("./settings/SettingsNetworkSection.vue"));
+const SettingsNotificationSection = defineAsyncComponent(() => import("./settings/SettingsNotificationSection.vue"));
+const SettingsTerminalSection = defineAsyncComponent(() => import("./settings/SettingsTerminalSection.vue"));
 import type { SettingsSaveState } from "../composables/useSettingsController";
 import { supportsCommand } from "../composables/useHostCapabilities";
 import { isWebHost } from "../api/transport.ts";
 import type { AppSettings } from "../stores/providers";
 import type { NotificationSendResult } from "../api/app";
+import "../styles/modules/surfaces/nav-rail.css";
 
 const emit = defineEmits<{
   "update:visible": [visible: boolean];
@@ -137,6 +141,17 @@ function activate(sectionId: (typeof sections)[number]["id"]) {
   searchQuery.value = "";
 }
 
+/// 已经显示过的分区保持加载：切回来时组件模块就绪，不再等一次下载。
+const loadedSections = ref<ReadonlySet<string>>(new Set());
+watch(visibleSections, (list) => {
+  const missing = list.filter((section) => !loadedSections.value.has(section.id));
+  if (!missing.length) return;
+  loadedSections.value = new Set([...loadedSections.value, ...missing.map((section) => section.id)]);
+}, { immediate: true, flush: "sync" });
+function sectionLoaded(id: string) {
+  return loadedSections.value.has(id);
+}
+
 watch(() => props.visible, (visible) => {
   if (visible) searchQuery.value = "";
 });
@@ -236,29 +251,29 @@ function saveStateLabel(state: SettingsSaveState) {
                   <p>{{ sectionDescription(section) }}</p>
                 </header>
                 <SettingsAppearanceSection
-                  v-if="section.id === 'appearance'"
+                  v-if="section.id === 'appearance' && sectionLoaded('appearance')"
                   :settings="settings"
                   :disabled="importingAppData"
                 />
                 <SettingsAutomationSection
-                  v-else-if="section.id === 'automation'"
+                  v-else-if="section.id === 'automation' && sectionLoaded('automation')"
                   :settings="settings"
                   :liveness-model-options="livenessModelOptions"
                   :selected-liveness-model-providers="selectedLivenessModelProviders"
                 />
                 <SettingsNotificationSection
-                  v-else-if="section.id === 'notification'"
+                  v-else-if="section.id === 'notification' && sectionLoaded('notification')"
                   :settings="settings"
                   :testing="testingNotification"
                   :test-result="notificationTestResult"
                   :test-error="notificationTestError"
                   @test-notification="emit('test-notification')"
                 />
-                <SettingsTerminalSection v-else-if="section.id === 'terminal'" :settings="settings" />
-                <SettingsNetworkSection v-else-if="section.id === 'network'" :settings="settings" />
-                <SettingsAccountsSection v-else-if="section.id === 'accounts'" />
+                <SettingsTerminalSection v-else-if="section.id === 'terminal' && sectionLoaded('terminal')" :settings="settings" />
+                <SettingsNetworkSection v-else-if="section.id === 'network' && sectionLoaded('network')" :settings="settings" />
+                <SettingsAccountsSection v-else-if="section.id === 'accounts' && sectionLoaded('accounts')" />
                 <SettingsDataSection
-                  v-else-if="section.id === 'data'"
+                  v-else-if="section.id === 'data' && sectionLoaded('data')"
                   :exporting-app-data="exportingAppData"
                   :importing-app-data="importingAppData"
                   :installing-dev-sample="installingDevSample"
@@ -267,7 +282,7 @@ function saveStateLabel(state: SettingsSaveState) {
                   @install-dev-sample-data="emit('install-dev-sample-data')"
                 />
                 <SettingsAboutSection
-                  v-else-if="section.id === 'about'"
+                  v-else-if="section.id === 'about' && sectionLoaded('about')"
                   :settings="settings"
                   :app-version="appVersion"
                   :checking-for-update="checkingForUpdate"

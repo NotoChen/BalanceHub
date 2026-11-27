@@ -22,7 +22,14 @@ export function createBrowserRuntimeController(api: BrowserRuntimeApi, changed: 
   let unlisten: (() => void) | undefined;
   const publish = () => { if (active) changed({ ...snapshot }); };
   function apply(status: BrowserRuntimeStatus) {
-    if (active && status.revision > (snapshot.status?.revision ?? -1)) { snapshot.status = status; publish(); }
+    if (!active) return;
+    const held = snapshot.status;
+    // revision 是后端进程内的计数器：服务端重启后会从头计数，而 detectedAt
+    // 是后端的墙钟时间，跨进程仍然前进。任一前进就接受，否则重启前留下的
+    // 高水位会把新进程的状态全部挡掉。
+    if (held && status.revision <= held.revision && status.detectedAt <= held.detectedAt) return;
+    snapshot.status = status;
+    publish();
   }
   async function run(label: string, request: () => Promise<BrowserRuntimeStatus | void>) {
     if (snapshot.pending) return;

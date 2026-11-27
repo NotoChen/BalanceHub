@@ -1,7 +1,7 @@
 {
   "name": "balancehub",
   "private": true,
-  "version": "0.6.15",
+  "version": "0.6.16",
   "description": "用于集中管理 AI 中转站账号的跨平台桌面应用。",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -14,7 +14,7 @@
     "dev": "vite",
     "dev:session": "bash scripts/dev-session.sh",
     "build": "vue-tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts browser-worker/*.test.mjs",
     "cargo": "node scripts/cargo.mjs",
     "doctor": "node scripts/doctor.mjs",
     "doctor:platform": "node scripts/doctor.mjs --static-only",
@@ -37,7 +37,6 @@
     "@lezer/highlight": "^1.2.5",
     "@lucide/vue": "^1.25.0",
     "@tanstack/vue-virtual": "^3.13.40",
-    "@taplo/lib": "^0.5.0",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",

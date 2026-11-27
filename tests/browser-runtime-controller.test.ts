@@ -9,9 +9,9 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function status(revision: number): BrowserRuntimeStatus {
+function status(revision: number, detectedAt = 0): BrowserRuntimeStatus {
   return { phase: "notInstalled", message: "待安装", ready: false, installed: false, browser: null, systemBrowsers: [], selection: { mode: "managed" }, runtimeReady: false,
-    expectedVersion: "fixture", installedVersion: null, progress: null, revision, detectedAt: 0, canInstall: true,
+    expectedVersion: "fixture", installedVersion: null, progress: null, revision, detectedAt, canInstall: true,
     canUninstall: false, runtimeDownloadBytes: 1, browserDownloadBytes: 1 };
 }
 function api() {
@@ -66,6 +66,26 @@ test("late install acknowledgements cannot replace newer backend progress", asyn
   await pending;
   assert.equal(snapshot.status?.phase, "ready");
   assert.equal(snapshot.pending, "");
+  controller.stop();
+});
+
+test("a backend restart cannot be masked by the previous process's revision high-water mark", async () => {
+  let receive!: (status: BrowserRuntimeStatus) => void;
+  let snapshot!: BrowserRuntimeSnapshot;
+  const controller = createBrowserRuntimeController({ ...api(),
+    listen: async (callback) => { receive = callback; return () => {}; },
+  }, (next) => { snapshot = next; });
+  await controller.start();
+  receive(status(20, 1_000));
+  assert.equal(snapshot.status?.revision, 20);
+  // 服务端重启后 revision 从 1 重新计数，但 detectedAt 是后端的墙钟时间，仍然前进。
+  receive(status(1, 2_000));
+  assert.equal(snapshot.status?.revision, 1, "重启后的新状态不能被旧 revision 挡住");
+  receive(status(2, 2_000));
+  assert.equal(snapshot.status?.revision, 2);
+  // 同一进程内仍然按 revision 拒绝过期状态，包括重启后较早的一条。
+  receive(status(1, 2_000));
+  assert.equal(snapshot.status?.revision, 2);
   controller.stop();
 });
 

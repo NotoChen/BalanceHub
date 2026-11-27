@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { CircleCheck, CircleAlert, LoaderCircle } from "@lucide/vue";
-import {
-  agentAssetOperationOutcomeLabels,
-  agentAssetOperationPhaseLabels,
-} from "../../composables/useAgentAssetConsole";
+import { agentAssetOperationPhaseLabels, agentAssetOperationOutcomeLabels } from "../../utils/agent-asset-labels";
 import { agentConfigurationFileName } from "../../utils/agent-configuration-display";
 import AgentConfigurationDiagnostics from "./AgentConfigurationDiagnostics.vue";
 import type {

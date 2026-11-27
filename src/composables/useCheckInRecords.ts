@@ -1,9 +1,15 @@
 import { computed, ref, watch, type Ref } from "vue";
 import type { Provider, ProviderCheckInRecordsResult } from "../stores/providers";
-import { pruneLruEntries, setLruEntry, touchLruEntry } from "../utils/lru-map.ts";
+import { setLruEntry, touchLruEntry } from "../utils/lru-map.ts";
 import { useLatestRequest } from "./useLatestRequest.ts";
 
 const CHECK_IN_RECORDS_CACHE_CAPACITY = 48;
+
+interface CheckInRecordsCacheEntry {
+  /// 站点地址、协议和当前登录账号的指纹；只有这些变化才会影响签到记录。
+  scope: string;
+  result: ProviderCheckInRecordsResult;
+}
 
 interface UseCheckInRecordsOptions {
   providers: Ref<Provider[]>;
@@ -21,7 +27,7 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
   const checkInRecordsMonth = ref(currentMonthValue());
   const request = useLatestRequest({ timeoutMessage: "读取签到记录超时，请重试" });
   const cacheRevision = ref(0);
-  const checkInRecordsCache = new Map<string, ProviderCheckInRecordsResult>();
+  const checkInRecordsCache = new Map<string, CheckInRecordsCacheEntry>();
 
   const checkInRecordsProvider = computed(() =>
     options.providers.value.find(
@@ -35,11 +41,12 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
     if (!provider) {
       return null;
     }
-    return (
-      checkInRecordsCache.get(
-        checkInRecordsCacheKey(provider, checkInRecordsMonth.value),
-      ) ?? null
+    const entry = checkInRecordsCache.get(
+      checkInRecordsCacheKey(provider.identity.id, checkInRecordsMonth.value),
     );
+    // 缓存跟着站点和登录账号走：额度刷新、无关卡片启停只推进全局 revision，
+    // 不应该让已经读到的记录失效重读。
+    return entry && entry.scope === checkInRecordsScope(provider) ? entry.result : null;
   });
 
   function openCheckInRecords(provider: Provider) {
@@ -61,36 +68,55 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
     );
     if (!provider) return;
 
-    const key = checkInRecordsCacheKey(provider, month);
-    if (!loadOptions.force && touchLruEntry(checkInRecordsCache, key) !== undefined) {
-      request.invalidate();
-      cacheRevision.value += 1;
-      return;
+    const scope = checkInRecordsScope(provider);
+    const key = checkInRecordsCacheKey(providerId, month);
+    if (!loadOptions.force) {
+      const cached = touchLruEntry(checkInRecordsCache, key);
+      if (cached && cached.scope === scope) {
+        request.invalidate();
+        cacheRevision.value += 1;
+        return;
+      }
+      // 站点或登录账号已经变了：旧记录属于另一个账号，直接丢弃。
+      if (cached) checkInRecordsCache.delete(key);
     }
 
     await request.run(() => options.loadRecords(providerId, month), (result) => {
-      if (options.providers.value.some((provider) => provider.identity.id === providerId)) {
-        setLruEntry(checkInRecordsCache, key, result, CHECK_IN_RECORDS_CACHE_CAPACITY);
-        cacheRevision.value += 1;
-      }
+      const current = options.providers.value.find(
+        (candidate) => candidate.identity.id === providerId,
+      );
+      // 请求期间站点被删除或换了账号：这份记录不属于当前配置，不能写进缓存。
+      if (!current || checkInRecordsScope(current) !== scope) return;
+      setLruEntry(
+        checkInRecordsCache,
+        key,
+        { scope, result },
+        CHECK_IN_RECORDS_CACHE_CAPACITY,
+      );
+      cacheRevision.value += 1;
     });
   }
 
   watch(
     options.providers,
     (providers) => {
-      const providerIds = new Set(providers.map((provider) => provider.identity.id));
+      const scopes = new Map(
+        providers.map((provider) => [provider.identity.id, checkInRecordsScope(provider)] as const),
+      );
       const previousSize = checkInRecordsCache.size;
-      pruneLruEntries(checkInRecordsCache, (key) => {
+      for (const [key, entry] of checkInRecordsCache) {
         const providerId = providerIdFromCheckInRecordsCacheKey(key);
-        return providerId !== null && providerIds.has(providerId);
-      });
+        // 站点已删除，或地址、协议、登录账号变了：旧记录不再适用。
+        if (providerId === null || scopes.get(providerId) !== entry.scope) {
+          checkInRecordsCache.delete(key);
+        }
+      }
       if (checkInRecordsCache.size !== previousSize) {
         cacheRevision.value += 1;
       }
       if (
         checkInRecordsProviderId.value &&
-        !providerIds.has(checkInRecordsProviderId.value)
+        !scopes.has(checkInRecordsProviderId.value)
       ) {
         checkInRecordsVisible.value = false;
         checkInRecordsProviderId.value = null;
@@ -143,13 +169,23 @@ export function useCheckInRecords(options: UseCheckInRecordsOptions) {
   };
 }
 
-function checkInRecordsCacheKey(
-  provider: Pick<Provider, "identity" | "revision">,
-  month: string,
-) {
-  // 改站点地址或换登录账号后 id 不变、revision 会变。缓存必须跟着失效，
-  // 否则日历会把上一个站点/账号的签到记录显示在新配置下面。
-  return JSON.stringify([provider.identity.id, month, provider.revision]);
+function checkInRecordsCacheKey(providerId: string, month: string) {
+  return JSON.stringify([providerId, month]);
+}
+
+/// 签到记录跟着站点和登录账号走。这里只取会改变记录归属的字段：额度、
+/// 运行状态和全局 revision 的更新不该让日历缓存失效。
+function checkInRecordsScope(provider: Provider) {
+  const auth = provider.auth;
+  return JSON.stringify([
+    provider.identity.baseUrl ?? "",
+    provider.identity.protocol ?? "",
+    auth?.mode ?? "",
+    auth?.loginUsername ?? "",
+    auth?.apiUser ?? "",
+    auth?.apiKeyTokenId ?? "",
+    auth?.browserBinding?.accountId ?? "",
+  ]);
 }
 
 function providerIdFromCheckInRecordsCacheKey(key: string) {

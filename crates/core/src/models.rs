@@ -129,7 +129,10 @@ pub use temporary_cli_settings::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
-    /// 仅用于当前进程内 IPC 快照排序，不写入本地配置或导出文件。
+    /// 仅用于 IPC 快照排序，不写入本地配置或导出文件。
+    ///
+    /// 进程启动时以墙钟毫秒为起点（见 `CoreState`），浏览器版前端一直开着、
+    /// 后端重启之后，新快照的版本号仍然大于前端记下的高水位。
     #[serde(skip)]
     pub revision: u64,
     #[serde(default)]

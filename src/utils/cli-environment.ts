@@ -12,13 +12,6 @@ import type {
 import { hasAgentCliVisual } from "../agent-cli/visuals.ts";
 import type { SelectOption } from "./liveness-options";
 
-export function providerAgentBaseUrl(
-  provider: { identity: { baseUrl: string }; liveness: { agentBaseUrls?: Partial<Record<AgentCliKind, string>> } },
-  cliKind: AgentCliKind,
-) {
-  return provider.liveness.agentBaseUrls?.[cliKind]?.trim() || provider.identity.baseUrl.trim();
-}
-
 export function isAgentCliKind(value: string | null | undefined): value is AgentCliKind {
   return Boolean(value && hasAgentCliVisual(value));
 }

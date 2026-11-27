@@ -422,6 +422,12 @@ pub(crate) async fn refresh_providers(ids: Vec<String>) -> Result<serde_json::Va
     dispatch_value("refresh_providers", json!({ "ids": ids })).await
 }
 
+/// 单卡动作后的定向刷新：只回传请求的站点视图，不重新下发整份配置。
+#[tauri::command]
+pub(crate) async fn load_provider_views(ids: Vec<String>) -> Result<serde_json::Value, String> {
+    dispatch_value("load_provider_views", json!({ "ids": ids })).await
+}
+
 #[tauri::command]
 pub(crate) async fn check_in_provider(id: String) -> Result<serde_json::Value, String> {
     dispatch_value("check_in_provider", json!({ "id": id })).await

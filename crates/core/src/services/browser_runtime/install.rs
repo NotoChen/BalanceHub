@@ -32,6 +32,10 @@ pub(super) async fn run(
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
             .map_err(|_| "无法设置组件目录权限")?;
     }
+    // 被强制退出的旧安装可能留下完整的下载/解压目录；每日清理不一定已经
+    // 跑过。安装持有组件独占写锁，此时不存在其他安装，可以先把旧半成品
+    // 删掉，再下载新的一份，避免安装期间同时占着两份完整组件。
+    remove_stale_staging(&root);
     let stamp = crate::util::unix_millis();
     let staging = root.join(format!(".staging-{stamp}"));
     fs::create_dir_all(&staging).map_err(|_| "无法准备组件下载目录")?;
@@ -219,6 +223,23 @@ async fn prepare(
     publish("installing", "正在验证浏览器启动", Some(0.96));
     let browser = selected_browser(selection, staging)?;
     super::probe::run(staging, &browser, cancelled).await
+}
+
+/// 只处理真实目录：散落的文件与符号链接不动；Windows 上仍被占用的文件会让
+/// 删除失败，后续的每日清理会再试。
+fn remove_stale_staging(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.starts_with(".staging-") && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 fn clone_component(
@@ -499,6 +520,23 @@ mod tests {
             Path::new("a/link"),
             Path::new("../../outside")
         ));
+    }
+
+    #[test]
+    fn a_new_install_clears_leftover_staging_before_downloading_again() {
+        let root = tempfile::tempdir().unwrap();
+        let stale = root.path().join(".staging-1");
+        fs::create_dir_all(stale.join("chromium")).unwrap();
+        fs::write(stale.join("chromium/browser"), "fixture").unwrap();
+        fs::create_dir_all(root.path().join("runtime-active")).unwrap();
+        fs::write(root.path().join(".staging-file"), b"keep").unwrap();
+        remove_stale_staging(root.path());
+        assert!(
+            !stale.exists(),
+            "a crashed install's staging copy must not double disk use"
+        );
+        assert!(root.path().join("runtime-active").is_dir());
+        assert!(root.path().join(".staging-file").is_file());
     }
 
     #[test]

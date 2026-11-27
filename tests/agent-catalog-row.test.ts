@@ -27,6 +27,8 @@ before(async () => {
   server = await createServer({
     optimizeDeps: { noDiscovery: true, include: [] },
     configFile: false, server: { middlewareMode: true, hmr: false }, appType: "custom", logLevel: "silent",
+    // 组件按需引入 Arco 的 style/css.js；交给 Vite 处理，避免 Node 原生加载 CSS。
+    ssr: { noExternal: ["@arco-design/web-vue"] },
     resolve: { alias: [{ find: /^@arco-design\/web-vue\/es\/icon$/, replacement: "virtual:catalog-row-icons" }] },
     plugins: [{
       name: "catalog-row-components",

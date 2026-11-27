@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT, PROVIDERS_CHANGED_EVENT},
+    app_events::{BackgroundTaskEvent, BACKGROUND_TASK_EVENT},
     models::{provider_domain, AppSettings, NotificationEvent, Provider, ProviderStatus},
     services::{notifications, provider_service::ProviderService},
     util::{unix_millis, unix_secs},
@@ -155,10 +155,12 @@ impl SchedulerState {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 struct AutomationBatchResult {
     changed: bool,
     failed: usize,
+    /// 实际写入了结果的站点；前端据此只补这些卡片。
+    changed_ids: Vec<String>,
 }
 
 /// 启动后台调度任务。
@@ -193,6 +195,17 @@ async fn run_tick(state: &mut SchedulerState) {
     // 等待人工验证的签到任务不会自己收尾；每个节拍检查一次是否已跨天，
     // 让任务中心不用等到窗口重新获得焦点才清理过期条目。
     super::check_in_tasks::expire_waiting();
+    // 浏览器组件、会话桶和登录环境的孤儿目录不能只靠在用功能顺手清理：
+    // 用户不再签到、不打开账号管理或组件面板时，失效目录会一直留在磁盘上。
+    // 每日维护放在自动化开关判断之前，三个自动化入口全部关闭也照常执行。
+    super::browser_runtime::schedule_orphan_prune();
+    super::browser_check_in::schedule_profile_prune();
+    super::login_profiles::schedule_orphan_prune();
+    // 三个自动化入口全部关闭时，本 tick 没有可做的事；不必为一次空转克隆
+    // 整份配置。启动读取失败时仍走完整加载流程，由它负责重试恢复。
+    if !any_automation_enabled() {
+        return;
+    }
     // 配置加载失败（storage 保护态）时暂停所有自动化，避免基于残缺状态误操作。
     let Ok(data) = service.load_app_data_async().await else {
         return;
@@ -205,6 +218,7 @@ async fn run_tick(state: &mut SchedulerState) {
         save_check_in_attempts(&state.check_in_attempts);
     }
     let mut changed = false;
+    let mut changed_ids: Vec<String> = Vec::new();
 
     // ---- 自动刷新余额 ----
     if settings.auto_refresh_enabled {
@@ -252,7 +266,17 @@ async fn run_tick(state: &mut SchedulerState) {
                         .map(|provider| provider.identity.id.clone())
                         .collect::<Vec<_>>();
                     record_refresh_outcome(state, settings, &data.providers, &due, now_secs);
-                    changed = true;
+                    // 没有任何站点被写回时只是记了本轮的尝试时间，前端没有
+                    // 需要重读的状态，不必为一条空变更重新拉取整份配置。
+                    if !result.updated_providers.is_empty() {
+                        changed = true;
+                        changed_ids.extend(
+                            result
+                                .updated_providers
+                                .iter()
+                                .map(|provider| provider.identity.id.clone()),
+                        );
+                    }
                     let failed = failed_ids.len();
                     emit_background_task(
                         &AUTO_REFRESH_TASK,
@@ -376,6 +400,7 @@ async fn run_tick(state: &mut SchedulerState) {
         if liveness_summary.changed {
             changed = true;
         }
+        changed_ids.extend(liveness_summary.changed_ids);
         emit_background_task(
             &AUTO_LIVENESS_TASK,
             if liveness_summary.failed > 0 {
@@ -397,7 +422,9 @@ async fn run_tick(state: &mut SchedulerState) {
 
     if changed {
         crate::host::refresh_tray();
-        crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+        // 本轮只改了这些站点的运行状态；设置与账号列表没有变化，前端补齐
+        // 对应卡片即可。没有可用的定向信息时 helper 自动回落为完整快照。
+        crate::app_events::emit_providers_changed(&changed_ids);
     }
 }
 
@@ -583,6 +610,7 @@ async fn run_due_liveness(settings: &AppSettings, due: Vec<Provider>) -> Automat
         match handle.await {
             Ok(Ok(result)) => {
                 summary.changed = true;
+                summary.changed_ids.push(provider.identity.id.clone());
                 if !result.ok {
                     summary.failed += 1;
                 }
@@ -638,6 +666,26 @@ async fn notify_provider_event(
             delivery.message
         );
     }
+}
+
+/// 自动刷新、自动签到和自动测活是否至少有一个可能执行。只读取内存中的
+/// settings 做快速判断，不克隆中转站；启动读取失败时返回 true，让完整
+/// 加载流程保留重试机会。
+fn any_automation_enabled() -> bool {
+    let state = crate::host::core_state();
+    if state.load_error().is_some() {
+        return true;
+    }
+    let data = state.data.read().unwrap_or_else(|err| err.into_inner());
+    let settings = &data.settings;
+    if settings.auto_refresh_enabled || settings.auto_check_in_enabled {
+        return true;
+    }
+    super::liveness::executor().is_some()
+        && data.providers.iter().any(|provider| {
+            provider_domain::liveness::automatic_enabled(provider, settings)
+                && !super::liveness::waits_for_agent_update(settings, provider)
+        })
 }
 
 fn local_date_today() -> String {

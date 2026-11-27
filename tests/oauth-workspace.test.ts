@@ -12,6 +12,7 @@ import {
 } from "../src/utils/oauth-display.ts";
 import { providerBoardSection } from "../src/utils/provider-board-sections.ts";
 import { quotaLevel } from "../src/utils/quota-level.ts";
+import { useFirstOpenLatch } from "../src/composables/useFirstOpenLatch.ts";
 import * as excludedModelRules from "../src/utils/cpa-excluded-models.ts";
 import type { Provider } from "../src/stores/provider-types.ts";
 import type {
@@ -148,6 +149,8 @@ const shared = {
   "../../composables/provider-credential-dialogs": {
     confirmAction: async () => true,
   },
+  /// 首次打开闸门只依赖 vue 的 watch，直接用真实实现即可。
+  "../../composables/useFirstOpenLatch": { useFirstOpenLatch },
   /// Line parsing has its own suite; these tests only need the raw text back
   /// so a filter and the level list still have something to work with.
   "../../utils/cpa-log": {

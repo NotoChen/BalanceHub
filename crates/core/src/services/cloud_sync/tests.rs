@@ -779,3 +779,33 @@ async fn real_dav_rejects_ignored_conditions_and_honors_cas_and_unicode_director
         .await
         .unwrap());
 }
+
+#[test]
+fn a_restart_never_reuses_the_previous_processs_sync_status_revision() {
+    let root = tempfile::tempdir().unwrap();
+    // 上一次进程在同步中途退出：进度版本号只在内存里递增，status.json
+    // 停在任务开始时的 7，而前端已经收到过更大的进度版本号。
+    files::write_json(
+        &root.path().join("status.json"),
+        &CloudSyncStatus {
+            revision: 7,
+            task_id: "cloud-sync-fixture".to_owned(),
+            phase: CloudSyncPhase::Checking,
+            running: true,
+            can_cancel: true,
+            ..CloudSyncStatus::default()
+        },
+    )
+    .unwrap();
+    let before = format::now();
+    let service = super::CloudSyncService::new(root.path().to_path_buf());
+    let status = service.snapshot().status;
+    assert!(
+        status.revision >= before,
+        "重启后的版本号必须大于上一进程可能发出的任何值"
+    );
+    assert!(status.revision > 7);
+    assert!(!status.running);
+    assert!(status.phase == CloudSyncPhase::Cancelled);
+    assert!(status.message.contains("中断"));
+}

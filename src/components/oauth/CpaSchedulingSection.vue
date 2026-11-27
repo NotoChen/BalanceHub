@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onScopeDispose, ref, watch } from "vue";
 import { ChevronDown } from "@lucide/vue";
 import { Message } from "@arco-design/web-vue";
 import type { Provider } from "../../stores/provider-types";
@@ -11,7 +11,9 @@ import {
   getCpaGatewaySettings,
   updateCpaGatewaySettings,
 } from "../../api/oauth-accounts";
-import CpaConfigDialog from "./CpaConfigDialog.vue";
+import { useFirstOpenLatch } from "../../composables/useFirstOpenLatch";
+// 调度配置编辑器带 CodeMirror，只在打开配置窗口时加载。
+const CpaConfigDialog = defineAsyncComponent(() => import("./CpaConfigDialog.vue"));
 
 const props = defineProps<{ provider: Provider; revision: number }>();
 
@@ -20,6 +22,7 @@ const settingsOpen = ref(false);
 /// The document editor is the escape hatch for values this section does not
 /// model, so it is opened from here rather than from a separate page.
 const configOpen = ref(false);
+const configOpened = useFirstOpenLatch(() => configOpen.value);
 const settingsLoading = ref(false);
 const settingsSaving = ref(false);
 const settingsError = ref("");
@@ -452,6 +455,7 @@ async function saveSettings() {
       </div>
     </div>
     <CpaConfigDialog
+      v-if="configOpened"
       :visible="configOpen"
       :provider="provider"
       :revision="revision"

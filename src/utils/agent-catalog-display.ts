@@ -4,8 +4,7 @@ import type { AgentWorkspacePage } from "../stores/agent-workspace";
 import type { AgentLifecycleVersionState } from "../stores/agent-lifecycle-types";
 import { formatAgentAssetDiagnostics } from "./agent-environment-diagnostics";
 import { agentAssetProvenanceLabel, type AgentAssetProvenanceEntry } from "./agent-asset-provenance";
-import { agentAssetScopeLabels } from "../composables/useAgentAssetCatalog";
-import { agentAssetOperationOutcomeLabels, agentAssetOperationPhaseLabels } from "../composables/useAgentAssetConsole";
+import { agentAssetOperationOutcomeLabels, agentAssetOperationPhaseLabels, agentAssetScopeLabels } from "./agent-asset-labels";
 
 export const agentCatalogDriftLabels: Record<AgentCatalogDrift, string> = {
   observed: "原生配置", inSync: "已应用当前版本", updateAvailable: "共享定义有新版",
@@ -41,11 +40,6 @@ export const agentLifecycleVersionLabels: Record<AgentLifecycleVersionState, str
 
 export function agentCatalogCategoryMatches(category: AgentAssetCategory, page: AgentWorkspacePage) {
   return page === "extension" ? category === "plugin" || category === "extension" : category === page;
-}
-
-export function agentCatalogHasAgent(asset: AgentCatalogAsset, agent: AgentCliKind) {
-  return asset.bindings.some((binding) => binding.native.agentKind === agent)
-    || asset.unresolvedTargets.some((target) => target.agentKind === agent);
 }
 
 export function agentCatalogUnresolvedLabel(target: AgentCatalogUnresolvedTarget) {

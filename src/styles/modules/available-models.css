@@ -1,6 +1,12 @@
+.available-models-modal .arco-modal-body {
+  box-sizing: border-box;
+  background: var(--surface-canvas);
+}
+
 .available-models-panel {
   display: grid;
   gap: 14px;
+  padding: 0;
 }
 
 .available-models-toolbar {
@@ -815,4 +821,17 @@
 
 :root.theme-dark .available-models-compare-card.is-current {
   background: rgba(64, 128, 255, 0.12);
+}
+
+/* 弹窗外壳原先由 surfaces/dialogs.css、surfaces/dark.css 统一收口；
+   改为按需加载后随窗口样式一起进入，保持优先级与最终结果不变。 */
+.available-models-summary {
+  border-color: var(--surface-line);
+  border-radius: 11px;
+  background: var(--surface-panel);
+  box-shadow: none;
+}
+
+:root.theme-dark .available-models-modal .arco-modal-body {
+  background: var(--surface-canvas);
 }

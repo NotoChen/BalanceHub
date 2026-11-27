@@ -111,6 +111,16 @@ export function loadAppData() {
   return invoke<AppData>("load_app_data");
 }
 
+/// 定点刷新若干张卡片：只带站点视图和当前快照版本，不含设置、工作区等整份配置。
+export interface ProviderViewsSnapshot {
+  revision: number;
+  providers: Provider[];
+}
+
+export function loadProviderViews(ids: string[]) {
+  return invoke<ProviderViewsSnapshot>("load_provider_views", { ids });
+}
+
 export function hostPlatform() {
   return invoke<string>("host_platform");
 }

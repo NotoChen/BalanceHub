@@ -5,8 +5,8 @@ import AgentCliIcon from "../AgentCliIcon.vue";
 import type { AgentAssetScope } from "../../stores/provider-types";
 import type { AgentCatalogConfigurationChoice, AgentCatalogConfigurationSelection } from "../../stores/agent-catalog-types";
 import { agentCatalogSyncLabels } from "../../utils/agent-catalog-display";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import { revealInScrollContainer } from "../../utils/scroll-container";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{ selection: AgentCatalogConfigurationSelection; selected: string[]; canCompare: boolean }>();
 const emit = defineEmits<{ select: [ids: string[]]; compare: [assetId: string] }>();

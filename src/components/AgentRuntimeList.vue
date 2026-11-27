@@ -9,6 +9,7 @@ import type {
 } from "../stores/providers";
 import { isConfirmedAgentRuntimeSession } from "../utils/agent-runtime";
 import AgentRuntimeCard from "./AgentRuntimeCard.vue";
+import "../styles/modules/agent-runtime.css";
 
 const props = defineProps<{
   provider: Provider | null;

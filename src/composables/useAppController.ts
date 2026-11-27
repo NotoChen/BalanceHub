@@ -52,6 +52,7 @@ import { cancelProviderBrowserLogin, startProviderBrowserLogin } from "../api/pr
 import { withTimeout } from "../utils/promise-timeout";
 import { providerToInput } from "../utils/provider-input";
 import { agentCliLabel } from "../utils/cli-environment";
+import { runWhenIdle } from "../utils/idle";
 
 export function useAppController() {
   useAgentLifecycleEvents();
@@ -61,7 +62,13 @@ export function useAppController() {
   const agentWorkspaceStore = useAgentWorkspaceStore();
   const cliRuntimeStore = useCliRuntimeStore();
   const configurationTasks = useAgentConfigurationStore();
-  onMounted(() => { void configurationTasks.recover(); });
+  onMounted(() => {
+    // 恢复上次未完成的 Agent 配置任务会扫描历史和任务目录；先让首屏可交互，
+    // 再在空闲时补上，不阻塞中转站看板。
+    runWhenIdle(() => {
+      void configurationTasks.recover();
+    });
+  });
   const {
     initialized,
     loadError,
@@ -122,7 +129,8 @@ export function useAppController() {
     reload: async (providerIds) => {
       // 签到成功会改变当月的记录；缓存不失效的话，再次打开日历读到的还是旧值。
       checkInRecords.invalidateCheckInRecords(providerIds);
-      await providerStore.reload();
+      // 完成的站点各自只补自己的卡片视图；签到不改设置和工作区。
+      await providerStore.reloadProviderViews(providerIds);
     },
     browserRuntime,
   });
@@ -143,6 +151,7 @@ export function useAppController() {
   });
 
   const usage = useUsageSummary({
+    providers,
     loadUsage: (providerId, period) => providerStore.getUsage(providerId, period),
     loadOverview: (period) => getUsageOverviewCommand(period),
   });
@@ -373,7 +382,7 @@ export function useAppController() {
     openWorkspacePicker: workspacePicker.openWorkspacePicker,
     probeCapabilities: (id) => providerStore.probeCapabilities(id),
     getInviteLink: (id) => providerStore.getInviteLink(id),
-    reload: () => providerStore.reload(),
+    reloadProvider: (id) => providerStore.reloadProvider(id),
     openEditProvider: providerEditor.openEditProvider,
     checkInProviderAction: checkIn.checkInProviderAction,
     openApiKeyManager: openProviderApiKeys,
@@ -411,15 +420,26 @@ export function useAppController() {
     setupThemeListener: settingsController.setupThemeListener,
     cleanupThemeListener: settingsController.cleanupThemeListener,
     syncLaunchAtLogin: settingsController.syncLaunchAtLogin,
-    autoProbeCliTools: () => cliRuntimeStore.probeCliTools(false).catch(() => {}),
+    autoProbeCliTools: async () => {
+      // 先用上次探测结果点亮卡片；完整探测等首屏空闲后再跑。
+      await cliRuntimeStore.hydrateCachedCliTools();
+      runWhenIdle(() => {
+        void cliRuntimeStore.probeCliTools(false).catch(() => {});
+      });
+    },
     reloadProviders: () => providerStore.reloadProviders().catch(() => {}),
+    reloadProviderViews: (ids) => providerStore.reloadProviderViews(ids).catch(() => {}),
     onStorageBlocked: (error) => providerStore.markStorageBlocked(error),
     onConfigReloaded: (result) => {
-      Message.success(
-        result.providerCount === null
-          ? "已从 config.json 重新读取配置"
-          : `已从 config.json 重新读取 ${result.providerCount} 个中转站`,
-      );
+      // 编辑器自动保存会连续触发重载；成功和失败共用固定 id，后一次替换
+      // 前一条提示，不在角落里叠一摞消息，也不会让旧错误盖住新结果。
+      Message.success({
+        id: "config-reload-status",
+        content:
+          result.providerCount === null
+            ? "已从 config.json 重新读取配置"
+            : `已从 config.json 重新读取 ${result.providerCount} 个中转站`,
+      });
       if (result.settingsChanged) {
         // 配置可能改了开机启动。等 providers-changed 快照水合后，再把系统
         // 登录项改成新配置，而不是用宿主旧状态反向覆盖配置。
@@ -427,7 +447,12 @@ export function useAppController() {
       }
     },
     onConfigReloadFailed: (result) => {
-      Message.error(`config.json 修改未生效：${result.error}`);
+      // 同一份损坏文件只会在后端去重一次；编辑器再改坏一次时替换旧提示，
+      // 让最新错误始终可见。
+      Message.error({
+        id: "config-reload-status",
+        content: `config.json 修改未生效：${result.error}`,
+      });
     },
     applyTheme: settingsController.applyTheme,
     flushSettingsSave: settingsController.flushSettingsSave,
@@ -601,6 +626,13 @@ export function useAppController() {
     selectManagedApiKeyForCard,
     ...providerActions,
     ...workspace,
+    // 这几个弹窗靠注入的控制器状态驱动，自身不接收 visible prop；导出可见性
+    // 供 App 层做首次打开闸门，按需加载对应模块。
+    browserRuntimeVisible: browserRuntime.visible,
+    loginAccountsVisible: loginAccounts.visible,
+    loginAccountsChoosing: loginAccounts.choosing,
+    providerCredentialsVisible: providerCredentials.visible,
+    cloudSyncReviewVisible: cloudSync.reviewVisible,
     refreshAllProviders,
     checkInAllProviders,
     openProjectRepository,

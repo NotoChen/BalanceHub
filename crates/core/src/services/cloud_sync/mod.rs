@@ -128,7 +128,15 @@ impl CloudSyncService {
             .ok()
             .flatten()
             .unwrap_or_default();
-        status.revision = status.revision.saturating_add(1);
+        // 同步进度只递增内存里的版本号，中途退出时 status.json 可能停在
+        // 任务开始时的值。浏览器版前端会跨后端重启一直开着：只从持久值
+        // 继续递增会让重启后的状态小于前端记下的高水位，被当成旧响应丢弃
+        // （同步中途退出后任务中心会一直停在「运行中」）。与配置版本号一致，
+        // 起始值改用墙钟毫秒，重启后自然大于上一进程发出去的任何值。
+        status.revision = status
+            .revision
+            .saturating_add(1)
+            .max(crate::util::unix_millis().min(u64::MAX as u128) as u64);
         if status.running || status.review.is_some() {
             status.phase = CloudSyncPhase::Cancelled;
             status.message = "上次任务在应用退出时中断，请重新同步".to_owned();

@@ -257,6 +257,29 @@ async fn session_check_in_works_on_unknown_host_without_api_user_or_bearer_token
 }
 
 #[tokio::test]
+async fn session_check_in_stops_before_submitting_when_password_login_returns_a_token_session() {
+    let (mut provider, requests, server) = serve(vec![Some(Reply {
+        body: r#"{"success":true,"data":{"access_token":"fixture-jwt","access_expires_at":4102444800,"user":{"id":42},"session":{"sid":"fixture-sid"}}}"#,
+        headers: "Set-Cookie: new_api_refresh=fixture-refresh; Path=/api/user/auth; HttpOnly\r\n",
+    })]);
+    provider.automation.check_in_method = ProviderCheckInMethod::SessionSignIn;
+    provider.auth.mode = AuthMode::Password;
+    provider.auth.session_cookie.clear();
+    provider.auth.new_api_session = None;
+    provider.auth.login_username = "fixture".into();
+    provider.auth.login_password = "fixture-password".into();
+    let error = run(&provider).await.unwrap_err();
+    server.join().unwrap();
+    assert!(error.contains("标准签到"), "{error}");
+    let requests = requests.try_iter().collect::<Vec<_>>();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].starts_with("POST /relay/api/user/login "));
+    assert!(!requests
+        .iter()
+        .any(|request| request.contains("/api/user/sign_in")));
+}
+
+#[tokio::test]
 async fn fresh_login_check_in_ignores_cached_session_and_confirms_account() {
     let (mut provider, requests, server) = serve(vec![
         Some(Reply {

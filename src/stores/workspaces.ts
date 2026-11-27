@@ -15,8 +15,14 @@ export const useWorkspaceStore = defineStore("workspaces", {
   }),
   actions: {
     hydrate(workspaces: Workspace[], preferences: TemporaryCliPreference[]) {
-      this.workspaces = workspaces;
-      this.temporaryCliPreferences = preferences;
+      // 后台快照每次都会重建这两个数组；内容没变时保留引用，
+      // 整个工作区外壳才不会跟着无关的中转站刷新一起重渲染。
+      if (JSON.stringify(workspaces) !== JSON.stringify(this.workspaces)) {
+        this.workspaces = workspaces;
+      }
+      if (JSON.stringify(preferences) !== JSON.stringify(this.temporaryCliPreferences)) {
+        this.temporaryCliPreferences = preferences;
+      }
     },
     recordLaunch(result: { workspaces: Workspace[]; preference?: TemporaryCliPreference | null }) {
       this.workspaces = result.workspaces;

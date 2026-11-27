@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   CalendarCheck2,
   ChartLine,
@@ -81,6 +81,53 @@ function updateSearchQuery(event: Event) {
   emit("setSearchQuery", (event.target as HTMLInputElement | null)?.value ?? "");
 }
 
+const searchInput = ref<HTMLInputElement | null>(null);
+
+/// 搜索框里按 Esc 清空筛选，空状态下再按一次离开输入框；type=search 的
+/// 原生清空行为在 WebView 里并不一致，这里自己收口。
+function handleSearchEscape(event: KeyboardEvent) {
+  if (props.searchQuery) emit("setSearchQuery", "");
+  else (event.target as HTMLInputElement | null)?.blur();
+}
+
+/// 有可见弹窗或抽屉时，查找快捷键留给当前界面，不去抢被遮住的搜索框。
+function hasOpenOverlay() {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(".arco-modal-wrapper, .arco-drawer-wrapper"),
+  ).some((node) => node.getClientRects().length > 0);
+}
+
+/// 普通可编辑控件有自己的查找/输入语义；按钮、卡片等只是「焦点停在那」，
+/// 不该因此让 Cmd/Ctrl+F 失效。
+function isEditableElement(element: HTMLElement | null) {
+  if (!element) return false;
+  if (element.isContentEditable) return true;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName)) return true;
+  return Boolean(element.closest("[contenteditable='true'], [contenteditable='']"));
+}
+
+/// 桌面应用习惯用 Cmd/Ctrl+F 直接定位搜索。焦点已在输入框、编辑器、
+/// 弹窗或抽屉里时交给它们自己的查找行为，不抢焦点。
+function handleGlobalSearchShortcut(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+  const active = document.activeElement as HTMLElement | null;
+  if (active === searchInput.value) {
+    event.preventDefault();
+    searchInput.value?.select();
+    return;
+  }
+  // 弹窗或抽屉里可能正在编辑，查找行为留给它们自己。
+  if (active?.closest(".arco-modal-wrapper, .arco-drawer-wrapper")) return;
+  if (isEditableElement(active)) return;
+  if (hasOpenOverlay()) return;
+  event.preventDefault();
+  searchInput.value?.focus();
+  searchInput.value?.select();
+}
+
+onMounted(() => window.addEventListener("keydown", handleGlobalSearchShortcut));
+onBeforeUnmount(() => window.removeEventListener("keydown", handleGlobalSearchShortcut));
+
 const activeAgentCliSummaries = computed(() => {
   const activeInstances = activeAgentRuntimeSessions(props.agentRuntimeSnapshot).filter(isConfirmedAgentRuntimeSession);
   return props.cliRuntime.agents
@@ -127,12 +174,14 @@ const announcementTooltip = computed(() => {
       <label class="topbar-search-shell">
         <Search :size="16" :stroke-width="1.9" aria-hidden="true" />
         <input
+          ref="searchInput"
           :value="searchQuery"
           type="search"
           :placeholder="searchPlaceholder"
           :aria-label="workspaceView === 'agents' ? searchPlaceholder : '搜索中转站名称、URL、用户信息或模型'"
           autocomplete="off"
           @input="updateSearchQuery"
+          @keydown.esc.prevent.stop="handleSearchEscape"
         />
         <button
           v-if="searchQuery"

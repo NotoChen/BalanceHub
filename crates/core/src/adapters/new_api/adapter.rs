@@ -610,7 +610,8 @@ pub async fn probe_capabilities(
         }
     } else if check_in_policy::effective_method(provider) == ProviderCheckInMethod::SessionSignIn {
         capabilities.check_in_known = true;
-        capabilities.check_in_supported = !provider.auth.session_cookie.trim().is_empty();
+        capabilities.check_in_supported =
+            crate::models::provider_domain::auth::has_session_cookie(provider);
         if capabilities.check_in_supported {
             capabilities.check_in_auth_modes.push(AuthMode::Session);
         }

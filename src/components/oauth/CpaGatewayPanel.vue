@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onScopeDispose, ref, watch } from "vue";
 import {
   Activity,
   ChevronDown,
@@ -47,12 +47,15 @@ import {
   confirmAction,
   confirmDiscardChanges,
 } from "../../composables/provider-credential-dialogs";
-import ContentEditor from "../ContentEditor.vue";
+import { useFirstOpenLatch } from "../../composables/useFirstOpenLatch";
+// 网关面板里的原文编辑器和插件配置只在对应窗口打开时才需要；
+// 它们带整套 CodeMirror，不该跟着面板一起下载。
+const ContentEditor = defineAsyncComponent(() => import("../ContentEditor.vue"));
 import FileEditorModal from "../FileEditorModal.vue";
 import CpaSchedulingSection from "./CpaSchedulingSection.vue";
 import CpaModelRulesSection from "./CpaModelRulesSection.vue";
 import CpaClientKeysSection from "./CpaClientKeysSection.vue";
-import CpaPluginsDialog from "./CpaPluginsDialog.vue";
+const CpaPluginsDialog = defineAsyncComponent(() => import("./CpaPluginsDialog.vue"));
 import CpaLoginDialog from "./CpaLoginDialog.vue";
 import CpaAccountQuota from "./CpaAccountQuota.vue";
 import CpaRequestLogDialog from "./CpaRequestLogDialog.vue";
@@ -81,6 +84,8 @@ const loginOpen = ref(false);
 const versionChecking = ref(false);
 const requestLogsOpen = ref(false);
 const usageOpen = ref(false);
+const viewerEditorOpened = useFirstOpenLatch(() => viewerOpen.value);
+const pluginsOpened = useFirstOpenLatch(() => pluginsOpen.value);
 interface FieldDraft {
   name: string;
   authIndex: string;
@@ -840,6 +845,7 @@ function cooling(account: CpaAccountSummary) {
       @close="usageOpen = false"
     />
     <CpaPluginsDialog
+      v-if="pluginsOpened"
       :visible="pluginsOpen"
       :provider="provider"
       :revision="revision"
@@ -864,6 +870,7 @@ function cooling(account: CpaAccountSummary) {
             viewer.reason
           }}</a-alert
           ><ContentEditor
+            v-if="viewerEditorOpened"
             :model-value="viewer.content"
             :original-text="viewer.content"
             format="json"

@@ -7,6 +7,7 @@ import { agentCliLabel, isAgentCliKind } from "../utils/cli-environment";
 import AgentCliIcon from "./AgentCliIcon.vue";
 import { providerDisplayLabel } from "../utils/provider-display";
 import { livenessTimestamp, parseLivenessTimestamp } from "../utils/provider-liveness";
+import "../styles/modules/liveness-details.css";
 
 const props = defineProps<{
   visible: boolean;

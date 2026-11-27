@@ -1,20 +1,4 @@
 /* Frequently opened dialogs use one safe inset at the modal body boundary. */
-.app-update-modal .arco-modal-body,
-.available-models-modal .arco-modal-body {
-  box-sizing: border-box;
-  background: var(--surface-canvas);
-}
-
-.app-update-modal .app-update-panel,
-.available-models-modal .available-models-panel {
-  padding: 0;
-}
-
-.app-update-modal .app-update-version-summary,
-.available-models-summary { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); box-shadow: none; }
-.app-update-modal .app-update-release-scroll { border: 1px solid var(--surface-line); border-radius: 11px; background: var(--surface-panel); padding: 13px 15px; }
-.app-update-modal .app-update-footer { padding-top: 0; }
-.workspace-picker-modal .arco-modal-body { background: var(--surface-canvas); }
 
 @media (max-width: 760px) {
   .surface-modal.arco-modal {

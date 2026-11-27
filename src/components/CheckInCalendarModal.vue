@@ -8,6 +8,7 @@ import {
   checkInRecordDays,
   checkInTodayRecord,
 } from "../utils/check-in-records";
+import "../styles/modules/checkin-calendar.css";
 
 const props = defineProps<{
   visible: boolean;

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { InputTag as AInputTag } from "@arco-design/web-vue";
+import "@arco-design/web-vue/es/input-tag/style/css.js";
 import { IconDelete, IconPlus } from "@arco-design/web-vue/es/icon";
 import type {
   ProviderInput,

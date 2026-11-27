@@ -85,6 +85,7 @@ bridge!(get_agent_configuration_operation { "operationId": operation_id: String 
 bridge!(list_agent_configuration_operations {});
 bridge!(cancel_agent_configuration_operation { "operationId": operation_id: String });
 bridge!(open_agent_configuration_source { "request": request: AgentConfigurationOpenRequest });
+bridge!(format_agent_toml_text { "text": text: String });
 bridge!(list_agent_instruction_sets {});
 bridge!(save_agent_instruction_set { "request": request: AgentInstructionSaveRequest });
 bridge!(delete_agent_instruction_set { "id": id: String, "expectedRevision": expected_revision: String });

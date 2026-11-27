@@ -15,12 +15,12 @@ import type {
   AgentNativeSetting,
   AgentSettingSourceReference,
 } from "../../stores/agent-settings-types";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import {
   useAgentSettingsEditor,
   type AgentSettingsEditorDraft,
   type AgentSettingsEditorProps,
 } from "../../composables/useAgentSettingsEditor";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 import "../../styles/modules/agent-settings-editor.css";
 
 const props = defineProps<AgentSettingsEditorProps>();

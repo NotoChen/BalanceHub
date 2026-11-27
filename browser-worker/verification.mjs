@@ -80,6 +80,11 @@ export async function renderTurnstile({ siteKey, providerName, siteHost, windowT
 
 export function verificationFailure(state) {
   if (!state) return "验证码组件未能初始化，请重试";
+  // An expired or timed-out widget can be recovered with its manual refresh
+  // button; the fresh token arrives through the normal success callback without
+  // clearing the old flags. Expiry/timeout/error callbacks always clear the
+  // token, so a live token is newer than those flags and must win.
+  if (typeof state.token === "string" && state.token.length > 0) return null;
   if (state.unsupported || state.error === "110500") return "当前浏览器不受验证码服务支持，请换用其他浏览器或在站点原页面完成验证（110500）";
   if (state.expired) return "验证码已过期，请重新验证";
   if (state.timedOut || state.error === "110600" || state.error === "110620") return "人工验证超时，请重新验证";

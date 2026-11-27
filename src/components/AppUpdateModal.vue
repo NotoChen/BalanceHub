@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { IconDownload, IconRight } from "@arco-design/web-vue/es/icon";
 import { parseReleaseNotes } from "../utils/release-notes";
 import { formatProgress } from "../utils/progress-display";
+import "../styles/modules/app-update.css";
 
 const props = defineProps<{
   visible: boolean;

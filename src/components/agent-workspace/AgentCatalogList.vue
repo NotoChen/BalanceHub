@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { List } from "@arco-design/web-vue";
+import "@arco-design/web-vue/es/list/style/css.js";
 import type { AgentCatalogAsset } from "../../stores/agent-catalog-types";
 
 const props = defineProps<{

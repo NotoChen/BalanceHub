@@ -21,6 +21,7 @@ import {
   usagePeriodOptions,
   type UsagePeriod,
 } from "../utils/usage-trend";
+import "../styles/modules/usage.css";
 
 const props = defineProps<{
   visible: boolean;

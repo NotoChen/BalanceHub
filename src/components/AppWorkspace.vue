@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch, type CSSProperties } from "vue";
+import { computed, defineAsyncComponent, ref, watch, type CSSProperties } from "vue";
 import OAuthWorkspace from "./oauth/OAuthWorkspace.vue";
 import { useOAuthAccountStore } from "../stores/oauth-accounts";
 import type { ProviderProtocol } from "../stores/provider-types";
 import AppTopbar from "./AppTopbar.vue";
 import ProviderBoard from "./ProviderBoard.vue";
-import AgentDashboard from "./agent-workspace/AgentDashboard.vue";
 import { useAgentWorkspaceStore } from "../stores/agent-workspace";
+import { useFirstOpenLatch } from "../composables/useFirstOpenLatch";
 import { useHostCapabilities } from "../composables/useHostCapabilities";
 import type {
   CliRuntimeSnapshot,
@@ -78,10 +78,12 @@ void ensureHostCapabilities();
 watch(agentAvailable, (available) => {
   if (!available) agentWorkspace.setView("providers");
 }, { immediate: true });
-const agentOpened = ref(agentWorkspace.view === "agents");
+const agentOpened = useFirstOpenLatch(() => agentWorkspace.view === "agents");
 const agentRefreshing = ref(false);
-const dashboard = ref<InstanceType<typeof AgentDashboard> | null>(null);
-watch(() => agentWorkspace.view, (view) => { if (view === "agents") agentOpened.value = true; });
+// Agent 工作台只在第一次切到该视角时加载：它带着会话、目录和编辑器等
+// 一整套面板，没必要压进中转站看板的首屏脚本里。
+const AgentDashboard = defineAsyncComponent(() => import("./agent-workspace/AgentDashboard.vue"));
+const dashboard = ref<{ refresh: () => unknown } | null>(null);
 const currentSearch = computed(() => agentWorkspace.view === "agents" ? agentWorkspace.query : searchQuery.value);
 
 function updateSearch(value: string) {

@@ -24,6 +24,7 @@ import {
   usageTokenTotal as tokenTotal,
 } from "../../utils/session-usage-display";
 import "../../styles/modules/usage-reconciliation.css";
+import "../../styles/modules/usage.css";
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ close: [] }>();

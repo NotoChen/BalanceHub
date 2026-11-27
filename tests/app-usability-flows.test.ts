@@ -11,6 +11,7 @@ import { emptyDraft, providerToInput } from "../src/utils/provider-input.ts";
 import { normalizeProviderBaseUrl } from "../src/composables/provider-editor-shared.ts";
 import * as providerDisplay from "../src/utils/provider-display.ts";
 import * as providerProtocol from "../src/utils/provider-protocol.ts";
+import * as durationFormat from "../src/utils/duration.ts";
 import * as apiKeySettings from "../src/utils/provider-api-key-settings.ts";
 import * as apiKeyOptions from "../src/utils/provider-api-key-options.ts";
 import * as credentialRules from "../src/composables/provider-credential-rules.ts";
@@ -58,6 +59,7 @@ test("authentication sections stay visible and retain credentials across support
     "./ProviderApiKeyVault.vue": {},
     "../../composables/useHostCapabilities": { supportsCommand: () => true },
     "../../composables/provider-credential-rules": credentialRules,
+    "../../styles/modules/surfaces/provider-auth.css": {},
   }).default;
   for (const protocol of ["newApi", "sub2Api", "api"] as const) {
     const draft = reactive(emptyDraft());
@@ -129,9 +131,13 @@ function setupKeyForm(t: TestContext, overrides: Record<string, unknown> = {}) {
     save: () => Promise<void>;
   } } }>("components/provider-editor/ProviderApiKeyEditorForm.vue", {
     vue: { ...require("vue"), onMounted: (callback: () => void) => { mounted = callback; } },
+    // 日期选择器是组件内注册的，表单挂载时不渲染；样式入口只要模块可解析。
+    "@arco-design/web-vue": { DatePicker: {} },
+    "@arco-design/web-vue/es/date-picker/style/css.js": {},
     "@arco-design/web-vue/es/icon": {},
     "../../composables/useLatestRequest": { useLatestRequest },
     "../../utils/provider-api-key-settings": apiKeySettings,
+    "../../styles/modules/api-key-manager.css": {},
   }).default;
   const emitted: unknown[][] = [];
   const props = { editing: true, isActive: () => true, loadContext: async () => keyEditorContext(), submit: async () => "saved", ...overrides };
@@ -618,6 +624,7 @@ test("provider order times out, ignores late success, and allows an immediate re
 test("large model lists expose every page and searching resets to the first matching page", async (t) => {
   const component = loadSource<{ default: { setup: (props: object, context: object) => { keyword: Ref<string>; page: Ref<number>; displayedModels: Ref<string[]>; filteredModels: Ref<string[]>; canRefresh: Ref<boolean>; modalTitle: Ref<string> } } }>("components/AvailableModelsModal.vue", {
     "@arco-design/web-vue/es/icon": {}, "../utils/provider-display": providerDisplay,
+    "../styles/modules/available-models.css": {},
     "../composables/useModelMetadata": { useModelMetadata: () => ({
       models: ref(new Map()), snapshot: ref(null), loading: ref(false), error: ref(""), refresh: async () => {},
     }) },
@@ -780,9 +787,11 @@ test("model probe failures stay in their own step and a successful empty list cl
     "@arco-design/web-vue/es/icon": {},
     "../utils/provider-display": providerDisplay,
     "../utils/provider-protocol": providerProtocol,
+    "../utils/duration": durationFormat,
     "../utils/provider-capabilities": {
       providerOptionalCapabilityLabel: (capability: string) => capability,
     },
+    "../styles/modules/capability-probe.css": {},
   }).default;
   const value = modelProvider("a");
   value.capabilities.availableModelsState = { scope: "account", updatedAt: "123", error: "HTTP 503" };
@@ -809,6 +818,7 @@ test("reopening request logs clears an unsubmitted filter and the previously sel
     "@arco-design/web-vue/es/icon": {}, "../utils/provider-display": providerDisplay,
     "../utils/provider-protocol": providerProtocol,
     "../utils/request-log-display": display, "./RequestLogDetailsModal.vue": {},
+    "../styles/modules/request-logs.css": {},
   }).default;
   const emitted: unknown[][] = [];
   const filters = { model: "", tokenName: "", group: "", requestId: "", logType: null, range: "30d" };

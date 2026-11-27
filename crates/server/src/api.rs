@@ -851,6 +851,9 @@ mod tests {
                 "error": "站点不可达"
             }),
         );
+        // 版本号从进程启动时的墙钟毫秒起算，不再固定从 1 开始；这里核对接口
+        // 报告的是同一份实时状态，而不是某个常数。
+        let revision = state.host.data_revision();
         let app = state_router(state, None);
         let response = app
             .oneshot(
@@ -868,7 +871,8 @@ mod tests {
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["ok"], true);
         assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(value["dataRevision"], 1);
+        assert_eq!(value["dataRevision"].as_u64(), Some(revision));
+        assert!(revision > 1);
         assert_eq!(value["clients"], 0);
         assert_eq!(value["tasks"][0]["taskId"], "scheduler-refresh");
         assert_eq!(value["tasks"][0]["status"], "failed");

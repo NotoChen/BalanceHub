@@ -220,8 +220,21 @@ export function providerAuthModeDescription(provider: Provider) {
   }
 }
 
+/// 数字与时间格式器按参数缓存：卡片一次渲染会调用几十次格式化，
+/// 每次新建 Intl 实例（含 locale 初始化）是纯浪费。
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+function numberFormat(key: string, options: Intl.NumberFormatOptions) {
+  let formatter = numberFormats.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("en-US", options);
+    numberFormats.set(key, formatter);
+  }
+  return formatter;
+}
+
 export function formatNumberCompact(value: number, fractionDigits = 2) {
-  return new Intl.NumberFormat("en-US", {
+  return numberFormat(`compact:${fractionDigits}`, {
     maximumFractionDigits: fractionDigits,
     minimumFractionDigits: fractionDigits,
   }).format(value);
@@ -232,7 +245,7 @@ export function formatQuotaValue(value: number, quotaDisplay: ProviderQuotaDispl
   const displayType = quotaDisplay.quotaDisplayType || "currency";
   const formatted = precision === undefined
     ? formatNumberCompact(value, displayType.toLowerCase() === "tokens" ? 0 : 2)
-    : new Intl.NumberFormat("en-US", { maximumFractionDigits: precision }).format(value);
+    : numberFormat(`max:${precision}`, { maximumFractionDigits: precision }).format(value);
   if (displayType.toLowerCase() === "tokens") {
     return formatted;
   }
@@ -277,6 +290,18 @@ export function formatProviderQuota(provider: Provider, value: number) {
   });
 }
 
+const syncTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const timeZoneFormat = new Intl.DateTimeFormat("zh-CN", {
+  timeZoneName: "shortOffset",
+});
+
 /// 同步时间只在数据已经放旧时才展示，此刻可能跨年、跨时区对着看；只写
 /// “09/28 03:06:40” 既不知道是哪一年，也不知道是本地还是服务器时间，所以带上
 /// 年份并显式标注本地时区。
@@ -285,20 +310,13 @@ export function formatProviderSyncTime(
 ) {
   const date = providerSyncInstant(value);
   if (!date) return "";
-  const time = new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
+  const time = syncTimeFormat.format(date);
   const zone = timeZoneLabel(date);
   return zone ? `${time} ${zone}` : time;
 }
 
 function timeZoneLabel(date: Date) {
-  const part = new Intl.DateTimeFormat("zh-CN", { timeZoneName: "shortOffset" })
+  const part = timeZoneFormat
     .formatToParts(date)
     .find((item) => item.type === "timeZoneName");
   return part?.value.replace(/^GMT/, "UTC") ?? "";
@@ -669,16 +687,6 @@ export function providerApiKeyLocalRemark(option: ProviderApiKeyOption) {
 
 export function providerApiKeyRemoteName(option: ProviderApiKeyOption) {
   return option.name?.trim() || "";
-}
-
-export function providerApiKeyCardName(option: ProviderApiKeyOption) {
-  const localRemark = providerApiKeyLocalRemark(option);
-  if (localRemark) return localRemark;
-
-  const remoteName = providerApiKeyRemoteName(option);
-  return remoteName === "当前 API Key" || remoteName === "当前配置 API Key"
-    ? ""
-    : remoteName;
 }
 
 export function providerApiKeyDisplayName(option: ProviderApiKeyOption) {

@@ -7,6 +7,7 @@ import type {
 } from "../stores/agent-session-types";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import AgentSessionList from "./agent-workspace/AgentSessionList.vue";
+import "../styles/modules/agent-sessions.css";
 
 const props = defineProps<{
   query: string;

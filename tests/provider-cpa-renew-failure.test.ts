@@ -78,7 +78,7 @@ function setup(
     openWorkspacePicker: () => undefined,
     probeCapabilities: async () => ({ provider: cpaProvider(), message: "" }),
     getInviteLink: async () => "",
-    reload: behavior.reload ?? (async () => undefined),
+    reloadProvider: behavior.reload ?? (async () => undefined),
     openEditProvider: () => undefined,
     checkInProviderAction: async () => undefined,
     openApiKeyManager: () => undefined,

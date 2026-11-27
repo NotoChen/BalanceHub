@@ -33,6 +33,7 @@ import { useModelComparison } from "../composables/useModelComparison";
 import { useModelMetadata } from "../composables/useModelMetadata";
 import ModelComparisonPanel from "./ModelComparisonPanel.vue";
 import ModelMetadataLine from "./ModelMetadataLine.vue";
+import "../styles/modules/available-models.css";
 
 const MODELS_PER_PAGE = 100;
 type ModelSort = "name" | "availability" | "tps" | "latency";

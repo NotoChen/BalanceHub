@@ -16,7 +16,19 @@ import type {
 } from "../api/batch-operation";
 import type { CheckInTask } from "../api/checkin";
 import { checkInResumeLabel } from "../utils/check-in-tasks";
+import { formatDurationMs } from "../utils/duration";
 import { formatQuotaValue } from "../utils/provider-display";
+import "../styles/modules/batch-operation.css";
+
+/// 每个批次条目都会渲染开始/完成时间；格式化器在模块级复用。
+const batchTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
 
 const props = withDefaults(defineProps<{
   visible: boolean;
@@ -182,21 +194,13 @@ function formatTime(value: string | null | undefined) {
     ? new Date(raw < 1_000_000_000_000 ? raw * 1000 : raw)
     : new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
+  return batchTimeFormat.format(date);
 }
 
 function durationLabel() {
   if (!props.startedAt) return "";
   const end = props.finishedAt ?? Date.now();
-  const duration = Math.max(0, end - props.startedAt);
-  return duration < 1000 ? duration + " ms" : (duration / 1000).toFixed(1) + " s";
+  return formatDurationMs(end - props.startedAt);
 }
 </script>
 

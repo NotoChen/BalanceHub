@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { DatePicker as ADatePicker } from "@arco-design/web-vue";
+import "@arco-design/web-vue/es/date-picker/style/css.js";
 import { IconRefresh } from "@arco-design/web-vue/es/icon";
 import type {
   ProviderApiKeyEditorContext,
@@ -12,6 +14,7 @@ import {
   apiKeyRestrictionLines,
   apiKeySettingsPatch,
 } from "../../utils/provider-api-key-settings";
+import "../../styles/modules/api-key-manager.css";
 
 const props = defineProps<{
   editing: boolean;

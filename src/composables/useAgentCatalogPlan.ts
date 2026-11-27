@@ -3,8 +3,8 @@ import type { AgentCliKind } from "../stores/provider-types";
 import type { AgentAssetCatalog, AgentCatalogAction, AgentCatalogConfigurationSelection, AgentCatalogPlan, AgentCatalogPlanSource, AgentCatalogTargetPlan } from "../stores/agent-catalog-types";
 import { useAgentCatalogStore } from "../stores/agent-catalog";
 import { agentEnvironmentErrorMessage } from "../stores/agent-environment";
-import { agentAssetScopeLabels } from "./useAgentAssetCatalog";
 import { cancelAgentCatalogRead } from "../api/agent-catalog";
+import { agentAssetScopeLabels } from "../utils/agent-asset-labels";
 
 export interface AgentCatalogTargetChoice {
   id: string; label: string; agentKind: AgentCliKind; detail: string; available: boolean; reason: string;

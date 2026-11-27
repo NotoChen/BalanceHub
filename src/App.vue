@@ -1,38 +1,78 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from "vue";
 import zhCN from "@arco-design/web-vue/es/locale/lang/zh-cn";
 import AppDrawers from "./components/AppDrawers.vue";
-import AppOverlays from "./components/AppOverlays.vue";
 import AppWorkspace from "./components/AppWorkspace.vue";
-import BrowserRuntimeModal from "./components/BrowserRuntimeModal.vue";
-import CloudSyncReviewModal from "./components/CloudSyncReviewModal.vue";
-import LoginAccountsModal from "./components/LoginAccountsModal.vue";
-import LoginAccountPicker from "./components/LoginAccountPicker.vue";
-import ProviderCredentialsModal from "./components/ProviderCredentialsModal.vue";
-import ProviderDetailModal from "./components/ProviderDetailModal.vue";
-import AppExitConfirmModal from "./components/AppExitConfirmModal.vue";
-import UsageReconciliationModal from "./components/agent-workspace/UsageReconciliationModal.vue";
-import CliConfigKeyPickerModal from "./components/CliConfigKeyPickerModal.vue";
-import AgentConfigurationEditorModal from "./components/agent-workspace/AgentConfigurationEditorModal.vue";
-import CliSessionDetailModal from "./components/CliSessionDetailModal.vue";
-import TemporaryCliLaunchPreviewModal from "./components/TemporaryCliLaunchPreviewModal.vue";
-import WorkspacePickerModal from "./components/WorkspacePickerModal.vue";
 import { useAppController } from "./composables/useAppController";
+import { useFirstOpenLatch } from "./composables/useFirstOpenLatch";
 import { useWindowGridSnap } from "./composables/useWindowGridSnap";
 
 const app = useAppController();
 useWindowGridSnap();
+
+// 面板和弹窗只在第一次打开时加载对应模块，之后保持挂载，关闭再打开不丢
+// 草稿和分区位置；首屏只保留中转站看板真正需要的东西。
+const configurationEditorOpened = useFirstOpenLatch(() => app.cliConfigurationEditor.visible);
+const launchPreviewOpened = useFirstOpenLatch(() => app.workspaceLaunchPreviewVisible);
+const providerDetailOpened = useFirstOpenLatch(() => app.providerDetailVisible);
+const usageReconciliationOpened = useFirstOpenLatch(() => app.usageReconciliationVisible);
+const exitConfirmOpened = useFirstOpenLatch(() => app.exitConfirmVisible);
+const workspacePickerOpened = useFirstOpenLatch(() => app.workspacePickerVisible);
+const sessionDetailOpened = useFirstOpenLatch(() => app.workspaceSessionDetailVisible);
+const cliConfigKeyPickerOpened = useFirstOpenLatch(() => app.cliConfigKeyPickerVisible);
+const browserRuntimeOpened = useFirstOpenLatch(() => app.browserRuntimeVisible);
+const loginAccountsOpened = useFirstOpenLatch(
+  () => app.loginAccountsVisible || app.loginAccountsChoosing,
+);
+const providerCredentialsOpened = useFirstOpenLatch(() => app.providerCredentialsVisible);
+const cloudSyncReviewOpened = useFirstOpenLatch(() => app.cloudSyncReviewVisible);
+const overlaysOpened = useFirstOpenLatch(() => Boolean(
+  app.availableModelsVisible
+  || app.usageVisible
+  || app.requestLogsVisible
+  || app.passwordChangeVisible
+  || app.accountProfileVisible
+  || app.livenessDetailsVisible
+  || app.cliInstancesVisible
+  || app.checkInRecordsVisible
+  || app.capabilityProbeVisible
+  || app.batchOperationVisible
+  || app.checkInBatchVisible
+  || app.siteAnnouncementsVisible
+  || app.onboardingVisible
+  || app.updateDialogVisible
+));
+const AppOverlays = defineAsyncComponent(() => import("./components/AppOverlays.vue"));
+const ProviderDetailModal = defineAsyncComponent(() => import("./components/ProviderDetailModal.vue"));
+const UsageReconciliationModal = defineAsyncComponent(() => import("./components/agent-workspace/UsageReconciliationModal.vue"));
+const AppExitConfirmModal = defineAsyncComponent(() => import("./components/AppExitConfirmModal.vue"));
+const WorkspacePickerModal = defineAsyncComponent(() => import("./components/WorkspacePickerModal.vue"));
+const CliSessionDetailModal = defineAsyncComponent(() => import("./components/CliSessionDetailModal.vue"));
+const CliConfigKeyPickerModal = defineAsyncComponent(() => import("./components/CliConfigKeyPickerModal.vue"));
+const BrowserRuntimeModal = defineAsyncComponent(() => import("./components/BrowserRuntimeModal.vue"));
+const CloudSyncReviewModal = defineAsyncComponent(() => import("./components/CloudSyncReviewModal.vue"));
+const LoginAccountsModal = defineAsyncComponent(() => import("./components/LoginAccountsModal.vue"));
+const LoginAccountPicker = defineAsyncComponent(() => import("./components/LoginAccountPicker.vue"));
+const ProviderCredentialsModal = defineAsyncComponent(() => import("./components/ProviderCredentialsModal.vue"));
+const AgentConfigurationEditorModal = defineAsyncComponent(
+  () => import("./components/agent-workspace/AgentConfigurationEditorModal.vue"),
+);
+const TemporaryCliLaunchPreviewModal = defineAsyncComponent(
+  () => import("./components/TemporaryCliLaunchPreviewModal.vue"),
+);
 </script>
 
 <template>
   <a-config-provider :locale="zhCN">
     <!-- 桌面界面不显示 WebView 原生右键菜单，卡片操作统一在卡片内完成。 -->
     <div class="app-shell" @contextmenu.prevent>
-      <BrowserRuntimeModal />
-      <CloudSyncReviewModal />
-      <LoginAccountsModal />
-      <LoginAccountPicker />
-      <ProviderCredentialsModal />
+      <BrowserRuntimeModal v-if="browserRuntimeOpened" />
+      <CloudSyncReviewModal v-if="cloudSyncReviewOpened" />
+      <LoginAccountsModal v-if="loginAccountsOpened" />
+      <LoginAccountPicker v-if="loginAccountsOpened" />
+      <ProviderCredentialsModal v-if="providerCredentialsOpened" />
       <ProviderDetailModal
+        v-if="providerDetailOpened"
         v-model:visible="app.providerDetailVisible"
         :provider="app.providerDetailProvider"
         :settings="app.settings"
@@ -51,10 +91,12 @@ useWindowGridSnap();
         @launch-temporary-cli="app.launchTemporaryCli"
       />
       <UsageReconciliationModal
+        v-if="usageReconciliationOpened"
         :visible="app.usageReconciliationVisible"
         @close="app.closeUsageReconciliation"
       />
       <AppExitConfirmModal
+        v-if="exitConfirmOpened"
         v-model:visible="app.exitConfirmVisible"
         :tasks="app.exitConfirmTasks"
         :settings-pending="app.exitConfirmSettingsPending"
@@ -96,7 +138,7 @@ useWindowGridSnap();
         :provider-drag="app.providerDrag"
         :drag-over-provider-id="app.dragOverProviderId"
         :dragged-provider="app.draggedProvider"
-        :drag-style="app.providerDragStyle()"
+        :drag-style="app.providerDragStyle"
         :provider-card-tone="app.providerCardTone"
         :card-status-tooltip="app.cardStatusTooltip"
         :show-liveness-timeline="app.showProviderLivenessTimeline"
@@ -146,6 +188,7 @@ useWindowGridSnap();
       />
 
     <WorkspacePickerModal
+      v-if="workspacePickerOpened"
       v-model:visible="app.workspacePickerVisible"
       v-model:path-draft="app.workspacePathDraft"
       v-model:cli-kind="app.workspacePickerCliKind"
@@ -193,6 +236,7 @@ useWindowGridSnap();
     />
 
     <CliSessionDetailModal
+      v-if="sessionDetailOpened"
       v-model:visible="app.workspaceSessionDetailVisible"
       :loading="app.workspaceSessionDetailLoading"
       :error="app.workspaceSessionDetailError"
@@ -214,14 +258,19 @@ useWindowGridSnap();
     />
 
     <TemporaryCliLaunchPreviewModal
+      v-if="launchPreviewOpened"
       v-model:visible="app.workspaceLaunchPreviewVisible"
       :preview="app.workspaceLaunchPreview"
       @confirm="app.confirmWorkspaceLaunch"
     />
 
-    <AgentConfigurationEditorModal :model="app.cliConfigurationEditor" />
+    <AgentConfigurationEditorModal
+      v-if="configurationEditorOpened"
+      :model="app.cliConfigurationEditor"
+    />
 
     <CliConfigKeyPickerModal
+      v-if="cliConfigKeyPickerOpened"
       v-model:visible="app.cliConfigKeyPickerVisible"
       :provider="app.cliConfigKeyPickerProvider"
       :cli-kind="app.cliConfigKeyPickerKind"
@@ -232,6 +281,7 @@ useWindowGridSnap();
     />
 
     <AppOverlays
+      v-if="overlaysOpened"
       v-model:available-models-visible="app.availableModelsVisible"
       v-model:usage-visible="app.usageVisible"
       v-model:usage-period="app.usagePeriod"
@@ -335,10 +385,10 @@ useWindowGridSnap();
       @refresh-available-models="app.refreshAvailableModels"
       @copy-available-model="app.copyAvailableModel"
       @copy-available-models="app.copyAvailableModels"
-      @refresh-usage-summary="app.refreshUsageSummary"
+      @refresh-usage-summary="() => app.refreshUsageSummary({ force: true })"
       @search-request-logs="app.searchRequestLogs"
       @reset-request-log-filters="app.resetRequestLogFilters"
-      @load-request-logs="app.loadRequestLogs"
+      @load-request-logs="() => app.loadRequestLogs({ force: true })"
       @set-request-logs-page="app.setRequestLogsPage"
       @set-request-logs-page-size="app.setRequestLogsPageSize"
       @submit-password-change="app.submitPasswordChange"

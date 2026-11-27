@@ -3,8 +3,9 @@ import { computed } from "vue";
 import AgentCatalogConfigurationActions from "./AgentCatalogConfigurationActions.vue";
 import { X, RefreshCw } from "@lucide/vue";
 import type { AgentCatalogAction, AgentCatalogAgentPanel } from "../../stores/agent-catalog-types";
-import { agentAssetScopeLabels, agentAssetStateLabels } from "../../composables/useAgentAssetCatalog";
+import { agentAssetStateLabels } from "../../composables/useAgentAssetCatalog";
 import { formatAgentAssetDiagnostics } from "../../utils/agent-environment-diagnostics";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{ panel: AgentCatalogAgentPanel | null; label: string; name: string; loading: boolean; error: string; busy: boolean }>();
 const emit = defineEmits<{ close: []; retry: []; detail: [targetId?: string]; native: [id: string]; action: [action: AgentCatalogAction, targets: string[]] }>();

@@ -37,8 +37,18 @@ pub fn start(core: Arc<CoreState>) {
 fn watch(core: Arc<CoreState>) {
     let mut last_error: Option<String> = None;
     let mut failed_signature: Option<String> = None;
+    let mut announced = false;
     loop {
         thread::sleep(POLL_INTERVAL);
+        // 桌面版在日志初始化之前启动监听；等第一轮再记录，日志里才有
+        // 「热重载确实在工作」的锚点。
+        if !announced {
+            announced = true;
+            log::info!(
+                "config.json 热重载监听已启动（{}ms 轮询）",
+                POLL_INTERVAL.as_millis()
+            );
+        }
         if core.load_error().is_some() {
             if !core.can_retry_load() {
                 // 云同步事务未完成等保护态只能重启恢复，热重载不能绕过。

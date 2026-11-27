@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { TagData } from "@arco-design/web-vue";
+import { InputTag as AInputTag, type TagData } from "@arco-design/web-vue";
+import "@arco-design/web-vue/es/input-tag/style/css.js";
 import { toggleExactModelRule } from "../../utils/model-rule-input";
 
 const props = defineProps<{

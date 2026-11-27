@@ -635,3 +635,18 @@
 :root.theme-dark .password-change-form small {
   color: #a9aeb8;
 }
+
+@media (max-width: 720px) {
+  .request-logs-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .request-logs-page-size {
+    width: 100%;
+  }
+
+  .request-logs-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

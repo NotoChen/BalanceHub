@@ -8,7 +8,7 @@ use crate::{
     contracts::{
         provider_views, ProgressSink, ProviderAccountMutationView, ProviderBatchProgressEvent,
         ProviderBatchResultView, ProviderCapabilityProbeResultView, ProviderModelSyncResultView,
-        ProviderSaveResultView, ProviderView, RefreshResultView,
+        ProviderSaveResultView, ProviderView, ProviderViewsView, RefreshResultView,
     },
     models::{ProviderApiKeyPatch, ProviderInput, ProviderRequestLogsQuery, ProviderSaveOptions},
     services::provider_service::ProviderService,
@@ -17,6 +17,7 @@ use crate::{
 pub const COMMANDS: &[&str] = &[
     "save_provider",
     "get_provider_site_url",
+    "load_provider_views",
     "remove_provider",
     "reorder_providers",
     "set_provider_enabled",
@@ -82,6 +83,19 @@ pub async fn handle(
                 return Err("仅支持不含账号凭据的 HTTP 或 HTTPS 站点地址".to_string());
             }
             to_value(url.as_str())
+        }
+        "load_provider_views" => {
+            let ids: Vec<String> = arg(args, "ids")?;
+            if ids.len() > 512 {
+                return Err("一次最多读取 512 个中转站".to_string());
+            }
+            let wanted: std::collections::HashSet<String> = ids.into_iter().collect();
+            let (revision, providers) =
+                blocking(move || ProviderService::new().provider_views_by_ids(&wanted)).await?;
+            to_value(ProviderViewsView {
+                revision,
+                providers: provider_views(providers),
+            })
         }
         "save_provider" => {
             let input: ProviderInput = arg(args, "input")?;

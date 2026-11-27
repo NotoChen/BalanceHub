@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { createRenderer, nextTick, reactive } from "vue";
 import { loadSource } from "./helpers/load-source.ts";
+import { useFirstOpenLatch } from "../src/composables/useFirstOpenLatch.ts";
 import type { Provider } from "../src/stores/provider-types.ts";
 import type {
   CpaGatewaySettings,
@@ -83,6 +84,7 @@ function section(
       "@lucide/vue": { ChevronDown: {} },
       "@arco-design/web-vue": { Message: { success() {} } },
       "./CpaConfigDialog.vue": {},
+      "../../composables/useFirstOpenLatch": { useFirstOpenLatch },
       "../../api/oauth-accounts": {
         getCpaGatewaySettings: async () => saved,
         updateCpaGatewaySettings: async () => undefined,

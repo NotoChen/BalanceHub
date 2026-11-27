@@ -92,6 +92,8 @@ function loadGuard(): Component {
       };
     }
     if (specifier === "../utils/app-exit") return { exitTaskSummary };
+    // 组件按需引入的样式表在测试环境没有样式语义，直接视为空模块。
+    if (specifier.endsWith(".css")) return {};
     return require(specifier);
   }, exports);
   assert.ok(exports.default);

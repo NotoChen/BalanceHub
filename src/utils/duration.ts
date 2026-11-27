@@ -12,10 +12,6 @@ export function durationUnitSeconds(unit: DurationUnit) {
   return 1;
 }
 
-export function secondsToDurationValue(seconds: number, unit: DurationUnit) {
-  return Number((seconds / durationUnitSeconds(unit)).toFixed(2));
-}
-
 export function durationValueToSeconds(value: number | undefined, unit: DurationUnit) {
   return Math.max(0, Math.round(Number(value || 0) * durationUnitSeconds(unit)));
 }
@@ -30,4 +26,10 @@ export function formatDuration(seconds: number) {
     minutes ? `${minutes} 分钟` : "",
     remainingSeconds ? `${remainingSeconds} 秒` : "",
   ].filter(Boolean).join(" ") || "0 秒";
+}
+
+/// 毫秒级耗时（探测步骤、批量任务）：1 秒以内显示毫秒，超过后保留一位小数。
+export function formatDurationMs(milliseconds: number) {
+  const value = Math.max(0, milliseconds);
+  return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s`;
 }

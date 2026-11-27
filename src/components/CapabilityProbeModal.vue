@@ -31,6 +31,16 @@ import {
   providerCapabilitySourceLabel,
   providerOptionalCapabilityLabel,
 } from "../utils/provider-capabilities";
+import { formatDurationMs } from "../utils/duration";
+import "../styles/modules/capability-probe.css";
+
+/// 探测结果每个步骤都会渲染一次时间；格式化器在模块级复用，避免每次新建。
+const probeTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
 
 type ProbeStepKey =
   | "checkIn"
@@ -365,18 +375,12 @@ function modelMethod() {
 
 function formatTime(value: number | null) {
   if (!value) return "-";
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
+  return probeTimeFormat.format(new Date(value));
 }
 
 function durationLabel() {
   if (!props.startedAt || !props.finishedAt) return "";
-  const duration = Math.max(0, props.finishedAt - props.startedAt);
-  return duration < 1000 ? `${duration} ms` : `${(duration / 1000).toFixed(1)} s`;
+  return formatDurationMs(props.finishedAt - props.startedAt);
 }
 </script>
 

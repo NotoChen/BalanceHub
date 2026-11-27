@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { IconLoading } from "@arco-design/web-vue/es/icon";
 import type { AgentAssetOperation } from "../../../stores/provider-types";
-import { agentAssetOperationOutcomeLabels, agentAssetOperationPhaseLabels } from "../../../composables/useAgentAssetConsole";
+import { agentAssetOperationPhaseLabels, agentAssetOperationOutcomeLabels } from "../../../utils/agent-asset-labels";
 import { agentAssetActionLabels } from "../../../composables/useAgentAssetCatalog";
 
 defineProps<{

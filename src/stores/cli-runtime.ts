@@ -59,6 +59,14 @@ export const useCliRuntimeStore = defineStore("cliRuntime", {
       if (index < 0) tools.push(tool); else tools[index] = tool;
       this.cliEnvironmentProbe = { tools };
     },
+    async hydrateCachedCliTools() {
+      // 启动时先展示上次的探测结果；真正的探测推迟到首屏空闲后执行，
+      // 不抢占启动阶段的 CPU 和子进程。
+      if (this.cliEnvironmentProbe) return this.cliEnvironmentProbe;
+      const cached = await withTimeout(getCachedCliTools(), 5_000, "读取 CLI 摘要超时").catch(() => null);
+      if (cached && !this.cliEnvironmentProbe) this.cliEnvironmentProbe = cached;
+      return this.cliEnvironmentProbe;
+    },
     probeCliTools(deep = false): Promise<CliEnvironmentProbeResult> {
       const key = JSON.stringify([deep, useSettingsStore().settings.agentCliPaths]);
       const pending = pendingProbes.get(this);

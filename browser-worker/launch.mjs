@@ -1,7 +1,14 @@
 import { chromium } from "playwright-core";
 import { mkdir, chmod } from "node:fs/promises";
 
-export class WorkerError extends Error {}
+export class WorkerError extends Error {
+  /// `code` crosses the JSONL pipe so Rust can map failures to typed errors
+  /// instead of matching the localized message text.
+  constructor(message, code = "failed") {
+    super(message);
+    this.code = code;
+  }
+}
 export class NeedsHuman extends WorkerError {}
 export class WorkerCancelled extends WorkerError {}
 
@@ -75,6 +82,22 @@ export function bootstrapHtml(title, message = "正在准备签到验证…") {
   return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escape(title)}</title><body style="font:14px/1.6 system-ui;padding:20px">${escape(message)}</body></html>`;
 }
 
+/// 启动参数单独成函数便于检查组合。共享内存、后台节流等容器相关开关由
+/// Playwright 的 Chromium 默认参数提供（`chromiumSwitches`），这里不重复；
+/// 只保留本项目特有的引导页、窗口尺寸和代理约定。
+export function chromiumArgs({ headless, proxy, title, message, width, height }) {
+  return [
+    ...(!headless ? [
+      `--app=data:text/html;charset=utf-8,${encodeURIComponent(bootstrapHtml(title, message))}`,
+      `--window-size=${width},${height}`,
+    ] : []),
+    "--test-type",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-session-crashed-bubble",
+    ...(proxy?.direct ? ["--no-proxy-server"] : []),
+  ];
+}
+
 export async function launchBrowser({ profileDir, executablePath, proxy, title, message, width = 420, height = 360, headless = false }, emit) {
   if (!executablePath) throw new WorkerError("没有可用的浏览器，请在 App 中安装组件");
   await mkdir(profileDir, { recursive: true, mode: 0o700 });
@@ -85,16 +108,7 @@ export async function launchBrowser({ profileDir, executablePath, proxy, title, 
     viewport: null,
     timeout: 30_000,
     ignoreDefaultArgs: headless ? [] : ["--enable-automation", "about:blank"],
-    args: [
-      ...(!headless ? [
-        `--app=data:text/html;charset=utf-8,${encodeURIComponent(bootstrapHtml(title, message))}`,
-        `--window-size=${width},${height}`,
-      ] : []),
-      "--test-type",
-      "--disable-blink-features=AutomationControlled",
-      "--disable-session-crashed-bubble",
-      ...(proxy?.direct ? ["--no-proxy-server"] : []),
-    ],
+    args: chromiumArgs({ headless, proxy, title, message, width, height }),
     proxy: proxy?.server ? {
       server: proxy.server,
       bypass: proxy.bypass || undefined,
@@ -124,4 +138,20 @@ export function browserLaunchFailure(error) {
   if (/timeout/i.test(message)) return "浏览器启动超时，请检查系统限制或换用其他浏览器";
   if (/not a valid Win32|Bad CPU|Exec format|incompatible.*architecture/i.test(message)) return "浏览器架构与当前系统不兼容，请选择适合此系统的浏览器";
   return "浏览器启动失败，请检查浏览器能否正常打开，或选择其他 Chromium 浏览器后重新验证";
+}
+
+/// Runtime failures after launch rarely reach the user in a usable form: raw
+/// Playwright errors are English and may carry request details. Classify the
+/// common causes here so the task center explains the failure instead of
+/// always saying the window may have been closed.
+export function describeBrowserError(error) {
+  if (error instanceof WorkerError) return error.message;
+  const message = String(error);
+  const network = message.match(/net::ERR_[A-Z_]+/)?.[0];
+  if (network) return "浏览器连接失败：" + network;
+  if (/Failed to fetch|NetworkError|Load failed/i.test(message)) return "站点连接失败，请检查网络或代理后重试";
+  if (/Timeout \d+ms exceeded|TimeoutError/i.test(message)) return "站点响应超时，请稍后重试";
+  if (/Target crashed|Page crashed|SIGSEGV/i.test(message)) return "验证页面已崩溃，请稍后重新签到";
+  if (/Target page, context or browser has been closed|browser has been closed/i.test(message)) return "验证窗口或浏览器已关闭";
+  return "浏览器操作失败，窗口可能已关闭或站点没有响应";
 }

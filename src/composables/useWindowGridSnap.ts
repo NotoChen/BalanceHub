@@ -7,6 +7,7 @@ const FALLBACK_CARD_HEIGHT = 350;
 const FALLBACK_GRID_GAP = 16;
 const MAX_GRID_GAP = 36;
 const RESIZE_SETTLE_DELAY_MS = 520;
+const MIN_GEOMETRY_REFRESH_INTERVAL_MS = 120;
 const DEFAULT_MINIMUM_SIZE = {
   width: appConfig.app.windows[0].minWidth,
   height: appConfig.app.windows[0].minHeight,
@@ -143,6 +144,8 @@ export function useWindowGridSnap() {
   let unlistenWindowEvent: (() => void) | null = null;
   let unlistenBrowserResize: (() => void) | null = null;
   let geometryFrame: number | null = null;
+  let geometryRefreshTimer: number | null = null;
+  let geometryRefreshAt = 0;
   let resizeSettleTimer: number | null = null;
   let applySizeReleaseTimer: number | null = null;
   let scaleFactor = 1;
@@ -165,6 +168,10 @@ export function useWindowGridSnap() {
     if (geometryFrame !== null) {
       window.cancelAnimationFrame(geometryFrame);
       geometryFrame = null;
+    }
+    if (geometryRefreshTimer !== null) {
+      window.clearTimeout(geometryRefreshTimer);
+      geometryRefreshTimer = null;
     }
   };
 
@@ -422,17 +429,42 @@ export function useWindowGridSnap() {
     updateResponsiveSpacing(geometry);
   };
 
-  const scheduleGeometryRefresh = () => {
-    if (disposed || geometryFrame !== null) {
+  const performGeometryRefresh = () => {
+    geometryRefreshAt = performance.now();
+    const geometry = readCurrentGeometry();
+    void setConstraints(geometry);
+    updateResponsiveSpacing(geometry);
+  };
+
+  /// 卡片内部的状态、进度和提示音更新也会触发观察器。几何量只在空闲时
+  /// 立即测一次；持续变更期间最多每 120ms 量一次，并补上最后一次，
+  /// 避免一边刷卡片一边每帧同步读取整块看板的布局。
+  const scheduleGeometryRefresh = (throttle = false) => {
+    if (disposed) return;
+    const wait = throttle
+      ? Math.max(
+        0,
+        MIN_GEOMETRY_REFRESH_INTERVAL_MS - (performance.now() - geometryRefreshAt),
+      )
+      : 0;
+    if (wait === 0) {
+      if (geometryFrame !== null) return;
+      if (geometryRefreshTimer !== null) {
+        window.clearTimeout(geometryRefreshTimer);
+        geometryRefreshTimer = null;
+      }
+      geometryFrame = window.requestAnimationFrame(() => {
+        geometryFrame = null;
+        if (disposed) return;
+        performGeometryRefresh();
+      });
       return;
     }
-    geometryFrame = window.requestAnimationFrame(() => {
-      geometryFrame = null;
-      if (disposed) return;
-      const geometry = readCurrentGeometry();
-      void setConstraints(geometry);
-      updateResponsiveSpacing(geometry);
-    });
+    if (geometryFrame !== null || geometryRefreshTimer !== null) return;
+    geometryRefreshTimer = window.setTimeout(() => {
+      geometryRefreshTimer = null;
+      scheduleGeometryRefresh();
+    }, wait);
   };
 
   onMounted(async () => {
@@ -496,15 +528,25 @@ export function useWindowGridSnap() {
       unlistenBrowserResize = () => window.removeEventListener("resize", updateForBrowserResize);
 
       mutationObserver = new MutationObserver((mutations) => {
-        const contentChanged = mutations.some((mutation) => mutation.type === "childList");
+        // 只有两个工作台的显示状态变化才需要重新约束窗口。这里必须先确认
+        // 视角真的切换了：自身写入的样式同样会落在观察范围内，无条件安排
+        // 下一帧会形成持久 RAF 循环。v-show 切换很稀疏，同步读一次可以接受。
         const visibilityChanged = mutations.some((mutation) => mutation.type === "attributes"
           && (mutation.target as Element).matches(".provider-board, .agent-dashboard"));
-        if (!contentChanged && !visibilityChanged) return;
-        const previousRevision = layoutRevision;
-        readCurrentGeometry();
-        // v-show keeps both workspaces mounted. Only visibility transitions need
-        // a refresh; our own spacing style writes must not create an RAF loop.
-        if (contentChanged || previousRevision !== layoutRevision) scheduleGeometryRefresh();
+        if (visibilityChanged) {
+          const previousView = layoutView;
+          readCurrentGeometry();
+          if (previousView !== layoutView) {
+            // 切换视角立刻按新布局重算约束，不被密集的卡片更新节流拖后。
+            scheduleGeometryRefresh();
+            return;
+          }
+        }
+        // 卡片状态、进度和提示音的 DOM 变更很密，内容变化统一节流后再量
+        // 布局，避免逐批同步读取 getBoundingClientRect 造成布局抖动。
+        if (mutations.some((mutation) => mutation.type === "childList")) {
+          scheduleGeometryRefresh(true);
+        }
       });
       mutationObserver.observe(document.body, {
         childList: true,

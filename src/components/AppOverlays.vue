@@ -1,17 +1,6 @@
 <script setup lang="ts">
-import AppOnboardingModal from "./AppOnboardingModal.vue";
-import AppUpdateModal from "./AppUpdateModal.vue";
-import AvailableModelsModal from "./AvailableModelsModal.vue";
-import BatchOperationProgressModal from "./BatchOperationProgressModal.vue";
-import CheckInCalendarModal from "./CheckInCalendarModal.vue";
-import CapabilityProbeModal from "./CapabilityProbeModal.vue";
-import LivenessDetailsModal from "./LivenessDetailsModal.vue";
-import AccountProfileModal from "./AccountProfileModal.vue";
-import PasswordChangeModal from "./PasswordChangeModal.vue";
-import RequestLogsModal from "./RequestLogsModal.vue";
-import SiteAnnouncementsModal from "./SiteAnnouncementsModal.vue";
-import AgentRuntimeModal from "./AgentRuntimeModal.vue";
-import UsageTrendModal from "./UsageTrendModal.vue";
+import { defineAsyncComponent } from "vue";
+import { useFirstOpenLatch } from "../composables/useFirstOpenLatch";
 import type {
   AgentCliKind,
   CliRuntimeSnapshot,
@@ -31,7 +20,7 @@ import type { CheckInTask } from "../api/checkin";
 import type { CheckInBatchProgress } from "../composables/useCheckInBatchProgress";
 import type { UsagePeriod } from "../utils/usage-trend";
 
-defineProps<{
+const props = defineProps<{
   onboardingVisible: boolean;
   onboardingProviderCount: number;
   onboardingCliConfigured: boolean;
@@ -162,10 +151,41 @@ const capabilityProbeVisible = defineModel<boolean>("capabilityProbeVisible", { 
 const batchOperationVisible = defineModel<boolean>("batchOperationVisible", { required: true });
 const checkInBatchVisible = defineModel<boolean>("checkInBatchVisible", { required: true });
 const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible", { required: true });
+
+// 每个弹窗首次打开时再加载对应代码；打开过之后保持挂载，保留窗口内的
+// 草稿、筛选和滚动状态，也避免每次开关都重新请求资源。
+const AppOnboardingModal = defineAsyncComponent(() => import("./AppOnboardingModal.vue"));
+const AppUpdateModal = defineAsyncComponent(() => import("./AppUpdateModal.vue"));
+const AvailableModelsModal = defineAsyncComponent(() => import("./AvailableModelsModal.vue"));
+const BatchOperationProgressModal = defineAsyncComponent(() => import("./BatchOperationProgressModal.vue"));
+const CheckInCalendarModal = defineAsyncComponent(() => import("./CheckInCalendarModal.vue"));
+const CapabilityProbeModal = defineAsyncComponent(() => import("./CapabilityProbeModal.vue"));
+const LivenessDetailsModal = defineAsyncComponent(() => import("./LivenessDetailsModal.vue"));
+const AccountProfileModal = defineAsyncComponent(() => import("./AccountProfileModal.vue"));
+const PasswordChangeModal = defineAsyncComponent(() => import("./PasswordChangeModal.vue"));
+const RequestLogsModal = defineAsyncComponent(() => import("./RequestLogsModal.vue"));
+const SiteAnnouncementsModal = defineAsyncComponent(() => import("./SiteAnnouncementsModal.vue"));
+const AgentRuntimeModal = defineAsyncComponent(() => import("./AgentRuntimeModal.vue"));
+const UsageTrendModal = defineAsyncComponent(() => import("./UsageTrendModal.vue"));
+
+const onboardingOpened = useFirstOpenLatch(() => props.onboardingVisible);
+const updateOpened = useFirstOpenLatch(() => props.updateDialogVisible);
+const availableModelsOpened = useFirstOpenLatch(() => availableModelsVisible.value);
+const batchProgressOpened = useFirstOpenLatch(() => batchOperationVisible.value || checkInBatchVisible.value);
+const usageOpened = useFirstOpenLatch(() => usageVisible.value);
+const requestLogsOpened = useFirstOpenLatch(() => requestLogsVisible.value);
+const passwordChangeOpened = useFirstOpenLatch(() => passwordChangeVisible.value);
+const accountProfileOpened = useFirstOpenLatch(() => accountProfileVisible.value);
+const livenessDetailsOpened = useFirstOpenLatch(() => livenessDetailsVisible.value);
+const agentRuntimeOpened = useFirstOpenLatch(() => cliInstancesVisible.value);
+const siteAnnouncementsOpened = useFirstOpenLatch(() => siteAnnouncementsVisible.value);
+const checkInCalendarOpened = useFirstOpenLatch(() => checkInRecordsVisible.value);
+const capabilityProbeOpened = useFirstOpenLatch(() => capabilityProbeVisible.value);
 </script>
 
 <template>
   <AppOnboardingModal
+    v-if="onboardingOpened"
     :visible="onboardingVisible"
     :provider-count="onboardingProviderCount"
     :cli-configured="onboardingCliConfigured"
@@ -180,6 +200,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <AppUpdateModal
+    v-if="updateOpened"
     :visible="updateDialogVisible"
     :current-version="availableUpdateCurrentVersion"
     :version="availableUpdateVersion"
@@ -195,6 +216,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <BatchOperationProgressModal
+    v-if="batchProgressOpened"
     v-model:visible="batchOperationVisible"
     :operation="batchOperation"
     :running="batchOperationRunning"
@@ -210,6 +232,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <BatchOperationProgressModal
+    v-if="batchProgressOpened"
     v-model:visible="checkInBatchVisible"
     operation="checkIn"
     :running="checkInBatchProgress.running"
@@ -228,6 +251,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <UsageTrendModal
+    v-if="usageOpened"
     v-model:visible="usageVisible"
     v-model:period="usagePeriod"
     :provider="usageProvider"
@@ -239,6 +263,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <AvailableModelsModal
+    v-if="availableModelsOpened"
     v-model:visible="availableModelsVisible"
     :provider="availableModelsProvider"
     :providers="providers"
@@ -252,6 +277,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <RequestLogsModal
+    v-if="requestLogsOpened"
     v-model:visible="requestLogsVisible"
     :provider="requestLogsProvider"
     :loading="requestLogsLoading"
@@ -270,6 +296,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <PasswordChangeModal
+    v-if="passwordChangeOpened"
     v-model:visible="passwordChangeVisible"
     :provider="passwordChangeProvider"
     :loading="passwordChangeLoading"
@@ -278,6 +305,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <AccountProfileModal
+    v-if="accountProfileOpened"
     v-model:visible="accountProfileVisible"
     :provider="accountProfileProvider"
     :loading="accountProfileLoading"
@@ -289,11 +317,13 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <LivenessDetailsModal
+    v-if="livenessDetailsOpened"
     v-model:visible="livenessDetailsVisible"
     :provider="livenessDetailsProvider"
   />
 
   <AgentRuntimeModal
+    v-if="agentRuntimeOpened"
     v-model:visible="cliInstancesVisible"
     :provider="cliInstancesProvider"
     :cli-kind="cliInstancesKind"
@@ -306,6 +336,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <SiteAnnouncementsModal
+    v-if="siteAnnouncementsOpened"
     v-model:visible="siteAnnouncementsVisible"
     :loading="siteAnnouncementsLoading"
     :fatal-error="siteAnnouncementsFatalError"
@@ -322,6 +353,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <CheckInCalendarModal
+    v-if="checkInCalendarOpened"
     v-model:visible="checkInRecordsVisible"
     v-model:month="checkInRecordsMonth"
     :provider="checkInRecordsProvider"
@@ -332,6 +364,7 @@ const siteAnnouncementsVisible = defineModel<boolean>("siteAnnouncementsVisible"
   />
 
   <CapabilityProbeModal
+    v-if="capabilityProbeOpened"
     v-model:visible="capabilityProbeVisible"
     :provider-protocols="providerProtocols"
     :provider="capabilityProbeProvider"

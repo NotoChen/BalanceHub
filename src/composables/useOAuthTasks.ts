@@ -38,13 +38,11 @@ export function useOAuthTasks() {
       return;
     completed.add(task.id);
     try {
-      await withTimeout(
-        providers.reloadProviders(),
+      // 授权只影响这一张卡片；补拉整份配置会把其他站点的视图也重新解析。
+      const provider = await withTimeout(
+        providers.reloadProvider(task.providerId),
         15_000,
         "账号已保存，面板刷新超时",
-      );
-      const provider = providers.providers.find(
-        (provider) => provider.identity.id === task.providerId,
       );
       if (provider && !provider.automation.lastSyncedAt)
         await providers.refreshByIds([provider.identity.id]);
@@ -62,8 +60,30 @@ export function useOAuthTasks() {
   async function recover() {
     if (recovering || disposed) return;
     recovering = true;
+    const requestedAt = Date.now();
     try {
-      for (const task of await listOAuthLogins()) void accept(task);
+      const listed = await listOAuthLogins();
+      if (disposed) return;
+      const present = new Set(listed.map((task) => task.id));
+      for (const task of listed) void accept(task);
+      // 授权任务只存在于后端内存里：应用重启后，未结束的任务不会再有终态
+      // 事件，列表里也不会再出现。不收口的话任务中心会一直停在等待中，并
+      // 每 15 秒轮询一份永远不含它的列表。只处理创建时间早于本次请求的
+      // 任务，避免把列表请求期间刚发起的授权误判为已消失。
+      for (const task of Object.values(store.tasks)) {
+        if (present.has(task.id)) continue;
+        if (!["starting", "waiting", "exchanging"].includes(task.phase)) continue;
+        if (task.createdAt * 1000 + 1_000 >= requestedAt) continue;
+        store.accept({
+          ...task,
+          revision: task.revision + 1,
+          updatedAt: Math.floor(Date.now() / 1000),
+          phase: "failed",
+          message: "授权任务已从后台列表消失（应用可能已重启），请重新发起授权",
+          canCancel: false,
+          canRetrySave: false,
+        });
+      }
       if (!disposed && unlisten) store.eventError = "";
     } catch {
       if (!disposed) store.eventError = "授权状态暂时未连接，后台任务仍在继续";

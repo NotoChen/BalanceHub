@@ -1,6 +1,6 @@
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { keepOAuthInWindow, launchBrowser, WorkerError } from "./launch.mjs";
+import { keepOAuthInWindow, launchBrowser, WorkerCancelled, WorkerError } from "./launch.mjs";
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const key = (cookie) => JSON.stringify([cookie.domain, cookie.path, cookie.name]);
@@ -34,6 +34,7 @@ export class IdentityProfile {
     this.entryPlatform = "unknown";
     this.identities = new Map();
     this.saving = Promise.resolve();
+    this.savedCookies = null;
   }
 
   snapshot() { return { platform: this.platform, identity: this.identity, observedAt: this.observedAt }; }
@@ -127,7 +128,13 @@ export class IdentityProfile {
   save(context, excluded = new Set()) {
     const next = this.saving.catch(() => {}).then(async () => {
       const cookies = (await context.cookies()).filter((cookie) => !excluded.has(key(cookie)));
-      await writePrivate(this.cookieFile, cookies);
+      // The account window polls while it is open. An unchanged jar must not
+      // rewrite the whole snapshot on every poll.
+      const snapshot = JSON.stringify(cookies);
+      if (snapshot !== this.savedCookies) {
+        await writePrivate(this.cookieFile, cookies);
+        this.savedCookies = snapshot;
+      }
       // An unobserved navigation must not erase the last confirmed first-party
       // identity. Its original timestamp remains explicitly a past observation.
       if (this.platform !== "unknown" || this.identity) await writePrivate(this.stateFile, this.snapshot());
@@ -154,7 +161,7 @@ export class AccountBrowser {
     this.profile = new IdentityProfile(profileDir, expectedPlatform, expectedIdentity);
     this.context = await this.launch({ profileDir, executablePath, proxy, title: `${accountName} · 登录账号 | BalanceHub`, message: "正在打开独立账号窗口…", width: 650, height: 760 }, this.emit);
     this.context.on("close", () => { this.closed = true; });
-    if (this.closing) { await this.context.close(); throw new WorkerError("账号窗口已取消"); }
+    if (this.closing) { await this.context.close(); throw new WorkerCancelled("账号窗口已取消"); }
     await this.profile.restore(this.context);
     await this.context.addInitScript(keepOAuthInWindow);
     this.profile.attach(this.context);
@@ -170,9 +177,16 @@ export class AccountBrowser {
     if (this.hasOpenWindow()) await page.bringToFront().catch(() => {});
     if (this.hasOpenWindow()) this.emit({ event: "progress", phase: "waitingHuman" });
     const deadline = Date.now() + Math.min(Math.max(timeoutMs, 1_000), 600_000);
+    // Identity observation stays at the fast cadence so a login is noticed
+    // immediately; persistence follows the same five-second bound as the login
+    // window, and unchanged cookies are skipped entirely.
+    let nextSave = 0;
     while (this.hasOpenWindow() && Date.now() < deadline) {
       await Promise.all(this.context.pages().map((item) => this.profile.observePage(item)));
-      await this.profile.save(this.context).catch((error) => { if (!this.closed) throw error; });
+      if (Date.now() >= nextSave) {
+        await this.profile.save(this.context).catch((error) => { if (!this.closed) throw error; });
+        nextSave = Date.now() + 5_000;
+      }
       this.profile.assertIdentity();
       await pause(700);
     }

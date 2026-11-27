@@ -5,6 +5,19 @@ import { pageNeedsIdentityLogin, pageNeedsVerification } from "./verification.mj
 const AUTH_COOKIES = new Set(["session", "new_api_refresh"]);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/// Identity-provider host families. A consent screen may only be approved when
+/// the navigation into this platform started from the relay's own login page;
+/// a page reached from anywhere else must not get its OAuth application
+/// approved by the platform session kept in this profile.
+function consentRealm(value) {
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  if (url.protocol !== "https:") return null;
+  if (url.hostname === "github.com") return "github";
+  if (url.hostname === "connect.linux.do" || url.hostname === "linux.do") return "linuxdo";
+  return null;
+}
+
 /// The relay opens Linux DO / GitHub authorization in a popup. Only the exact
 /// consent button on those two official hosts is clicked automatically; the
 /// platform login form and any CAPTCHA stay under the user's control.
@@ -82,6 +95,9 @@ export class LoginBrowser {
     this.context = null;
     this.closing = false;
     this.closed = false;
+    this.origin = null;
+    this.base = "";
+    this.basePath = "";
     this.auth = null;
     this.user = null;
     this.inFlightAuth = new Set();
@@ -100,8 +116,34 @@ export class LoginBrowser {
     this.lastPhase = null;
     this.headless = false;
     this.consentAttempts = new Set();
+    this.pageRealm = new WeakMap();
     this.verificationWaitSince = null;
     this.identityWaitSince = null;
+  }
+
+  /// Follow each main-frame navigation so a consent page can be tied back to
+  /// the relay login page that started it. A consent page opened by any other
+  /// page (or reached after leaving the identity provider) stays manual.
+  watchConsentNavigation(page) {
+    const record = () => {
+      let url;
+      try { url = page.url(); } catch { return; }
+      const previous = this.pageRealm.get(page);
+      const realm = consentRealm(url);
+      const trusted = realm && (
+        (previous?.url && this.isTarget(previous.url))
+        || previous?.realm === realm
+      ) ? realm : null;
+      this.pageRealm.set(page, { url, realm: trusted });
+    };
+    page.on("framenavigated", (frame) => {
+      // A close racing a navigation must not surface as an unhandled event
+      // listener error and take the whole worker down.
+      try {
+        if (frame === page.mainFrame()) record();
+      } catch { /* page or context closed */ }
+    });
+    record();
   }
 
   progress(phase) {
@@ -114,15 +156,25 @@ export class LoginBrowser {
     try { return new URL(url).origin === this.origin; } catch { return false; }
   }
 
+  /// Relay endpoints live under the configured base path. Sharing a prefix
+  /// length with that path is not enough: `/other/api/user/login` must never be
+  /// treated as this relay's login just because the slice lines up.
+  relativePath(url) {
+    if (!this.isTarget(url)) return null;
+    const path = new URL(url).pathname;
+    if (this.basePath && path !== this.basePath && !path.startsWith(this.basePath + "/")) return null;
+    return path.slice(this.basePath.length) || "/";
+  }
+
   isAuth(url) {
-    if (!this.isTarget(url)) return false;
-    const path = new URL(url).pathname.slice(this.basePath.length);
-    return path === "/api/user/login" || path.startsWith("/api/user/auth/") || path.startsWith("/api/oauth/");
+    const path = this.relativePath(url);
+    return path !== null
+      && (path === "/api/user/login" || path.startsWith("/api/user/auth/") || path.startsWith("/api/oauth/"));
   }
 
   loginMechanism(url, method) {
-    if (!this.isTarget(url)) return "unknown";
-    const path = new URL(url).pathname.slice(this.basePath.length);
+    const path = this.relativePath(url);
+    if (path === null) return "unknown";
     if (method === "POST" && path === "/api/user/login") return "password";
     // State, session refresh, binding and user/self are not a fresh login.
     const callback = /^\/api\/oauth\/([^/]+)\/?$/.exec(path);
@@ -154,13 +206,16 @@ export class LoginBrowser {
 
   async observe(response, sequence) {
     const url = response.url();
-    if (!this.isTarget(url) || (!this.isAuth(url) && new URL(url).pathname !== this.basePath + "/api/user/self")) return;
+    const authPath = this.relativePath(url);
+    if (authPath === null) return;
+    const auth = authPath === "/api/user/login"
+      || authPath.startsWith("/api/user/auth/") || authPath.startsWith("/api/oauth/");
+    if (!auth && authPath !== "/api/user/self") return;
     if (!response.ok() || !response.headers()["content-type"]?.includes("json")) return;
     const body = await response.body();
     if (body.length > 1024 * 1024) return;
     const payload = JSON.parse(body.toString("utf8"));
     if (payload.success !== true || !payload.data) return;
-    const authPath = new URL(url).pathname.slice(this.basePath.length);
     const mechanism = this.loginMechanism(url, response.request().method());
     const data = payload.data;
     const user = loginUser(data.user || data);
@@ -173,7 +228,7 @@ export class LoginBrowser {
       if (/\/linux_?do(?:\/|$)/i.test(authPath)) this.authPlatform = "linuxDo";
     }
     if (user) this.user = user;
-    if (this.isAuth(url) && typeof data.access_token === "string" && data.access_token && data.session?.sid && user) {
+    if (auth && typeof data.access_token === "string" && data.access_token && data.session?.sid && user) {
       if (sequence < this.authSequence) return;
       this.authSequence = sequence;
       this.auth = {
@@ -233,7 +288,8 @@ export class LoginBrowser {
     if (page.isClosed()) return false;
     let href;
     try { href = page.url(); } catch { return false; }
-    if (!consentPage(href) || this.consentAttempts.has(href)) return false;
+    const realm = consentRealm(href);
+    if (!consentPage(href) || this.pageRealm.get(page)?.realm !== realm || this.consentAttempts.has(href)) return false;
     const clicked = await page.evaluate(approveConsentButton).catch(() => false);
     if (!clicked) return false;
     this.consentAttempts.add(href);
@@ -295,6 +351,12 @@ export class LoginBrowser {
     this.context = await launchBrowser({ profileDir, executablePath, proxy, title: this.title,
       message: "正在打开站点登录页…", width: 520, height: 680, headless: this.headless }, this.emit);
     this.context.on("close", () => { this.closed = true; });
+    for (const page of this.context.pages()) {
+      try { this.watchConsentNavigation(page); } catch { /* closed immediately */ }
+    }
+    this.context.on("page", (page) => {
+      try { this.watchConsentNavigation(page); } catch { /* closed immediately */ }
+    });
     if (this.closing) {
       await this.context.close();
       throw new WorkerCancelled("登录已取消");
@@ -305,7 +367,15 @@ export class LoginBrowser {
     await this.context.addInitScript(keepOAuthInWindow);
     // Crash-restored relay pages must never run a previous refresh chain.
     for (const page of this.context.pages()) {
-      if (!page.url().startsWith("data:")) await page.goto("about:blank");
+      if (page.url().startsWith("data:")) continue;
+      try {
+        await page.goto("about:blank");
+      } catch (error) {
+        // The user may close the window while restored pages are cleared;
+        // that is a cancellation, not a login failure.
+        this.assertOpen();
+        if (!page.isClosed()) throw error;
+      }
     }
     const page = await this.parkedPage(this.requireFreshLogin ? "正在打开站点，使用绑定账号重新登录后自动确认签到。" : "请在站点页面登录，完成后自动导入。");
     this.profile.attach(this.context);
@@ -368,7 +438,10 @@ export class LoginBrowser {
       }
       await pause(400);
     }
-    throw new WorkerError(this.requireFreshLogin ? "重新登录等待超时" : "登录等待超时，请重新点击登录并导入");
+    throw new WorkerError(
+      this.requireFreshLogin ? "重新登录等待超时" : "登录等待超时，请重新点击登录并导入",
+      "loginTimeout",
+    );
   }
 
   async handoff() {

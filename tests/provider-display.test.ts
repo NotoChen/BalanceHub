@@ -4,7 +4,6 @@ import test from "node:test";
 import type { Provider, ProviderApiKeyOption } from "../src/stores/provider-types.ts";
 import {
   providerApiKeyDisplayName,
-  providerApiKeyCardName,
   providerApiKeySecondaryName,
   providerApiKeyRemark,
   providerCardTitle,
@@ -125,15 +124,10 @@ test("API Key display keeps local remarks separate from remote names", () => {
   const unnamed = apiKeyOption({ localName: "", name: "" });
 
   assert.equal(providerApiKeyDisplayName(remarked), "Claude 主用");
-  assert.equal(providerApiKeyCardName(remarked), "Claude 主用");
   assert.equal(providerApiKeySecondaryName(remarked), "token-prod");
   assert.equal(providerApiKeyDisplayName(remoteOnly), "token-backup");
-  assert.equal(providerApiKeyCardName(remoteOnly), "token-backup");
   assert.equal(providerApiKeySecondaryName(remoteOnly), "");
   assert.equal(providerApiKeyDisplayName(unnamed), "未命名 API Key");
-  assert.equal(providerApiKeyCardName(unnamed), "");
-  assert.equal(providerApiKeyCardName(apiKeyOption({ name: "当前 API Key" })), "");
-  assert.equal(providerApiKeyCardName(apiKeyOption({ name: "当前配置 API Key" })), "");
 });
 
 test("default API Key resolution prefers the selected key value then token id fallback", () => {

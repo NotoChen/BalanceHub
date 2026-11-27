@@ -121,13 +121,23 @@ export function advanceProviderCardCliOrbitMotion(
 
 type OrbitFrameSubscriber = (now: number) => void;
 
+/// 轨道是 5–11 秒一轮的慢速位移，30fps 已经足够平滑；把逐帧回调减半，
+/// 卡片较多时持续写入 CSS 变量的开销也随之减半。
+const ORBIT_FRAME_MIN_INTERVAL_MS = 1000 / 30;
+
 const orbitFrameSubscribers = new Set<OrbitFrameSubscriber>();
 let orbitFrameHandle: number | null = null;
+let lastOrbitDispatchAt = 0;
 
 function dispatchOrbitFrame(now: number) {
   orbitFrameHandle = null;
-  for (const subscriber of [...orbitFrameSubscribers]) {
-    subscriber(now);
+  // 半毫秒容差：60Hz 的帧间隔是 16.67ms，正好卡在两帧阈值上时浮点误差
+  // 会让本该触发的帧被跳过，实际降到 20fps。
+  if (now - lastOrbitDispatchAt >= ORBIT_FRAME_MIN_INTERVAL_MS - 0.5) {
+    lastOrbitDispatchAt = now;
+    for (const subscriber of [...orbitFrameSubscribers]) {
+      subscriber(now);
+    }
   }
   scheduleOrbitFrame();
 }

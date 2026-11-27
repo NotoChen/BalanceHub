@@ -6,13 +6,13 @@ import type { AgentConfigurationSource } from "../../stores/agent-configuration-
 import { useAgentConfigurationSourcesStore } from "../../stores/agent-configuration-sources";
 import { useAgentWslStore } from "../../stores/agent-wsl";
 import { useAgentConfiguration } from "../../composables/useAgentConfiguration";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import { agentConfigurationFileName, agentConfigurationReadOnlyReason, agentConfigurationSourceStatus } from "../../utils/agent-configuration-display";
 import AgentCliIcon from "../AgentCliIcon.vue";
 import AgentConfigurationEditorModal from "./AgentConfigurationEditorModal.vue";
 import AgentConfigurationPreviewModal from "./AgentConfigurationPreviewModal.vue";
 import AgentConfigurationFileActions from "./AgentConfigurationFileActions.vue";
 import AgentAssetAccessModal from "../settings/agent-environment/AgentAssetAccessModal.vue";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{
   agents: AgentCliDescriptor[];

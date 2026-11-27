@@ -3,6 +3,35 @@ use serde::{Deserialize, Serialize};
 /// 前端收到后重新读取 Provider 视图，包括运行状态和内存中的挑战状态。
 pub const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
 
+/// `providers-changed` 的定向载荷：只有中转站自身状态变化时携带受影响的
+/// 站点 id，前端补这些卡片即可。设置、登录账号或整份配置变化仍然发空载荷，
+/// 由前端重读完整快照。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvidersChangedEvent {
+    pub provider_ids: Vec<String>,
+}
+
+/// 只改动了若干中转站的运行状态（额度、签到、测活、凭据、刷新）。
+pub fn emit_providers_changed(ids: &[String]) {
+    let mut seen = std::collections::HashSet::new();
+    let unique: Vec<String> = ids
+        .iter()
+        .filter(|id| seen.insert(id.as_str()))
+        .cloned()
+        .collect();
+    if unique.is_empty() {
+        crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+    } else {
+        crate::host::emit(
+            PROVIDERS_CHANGED_EVENT,
+            ProvidersChangedEvent {
+                provider_ids: unique,
+            },
+        );
+    }
+}
+
 /// 后台调度器向面板报告当前自动任务，避免网络请求期间看起来像应用卡死。
 pub const BACKGROUND_TASK_EVENT: &str = "background-task";
 
@@ -61,5 +90,16 @@ mod tests {
         assert_eq!(value["taskId"], "scheduler-refresh");
         assert_eq!(value["startedAt"], 1);
         assert!(value.get("task_id").is_none());
+    }
+
+    #[test]
+    fn providers_changed_event_uses_frontend_field_names() {
+        let value = serde_json::to_value(ProvidersChangedEvent {
+            provider_ids: vec!["fixture-provider".to_string()],
+        })
+        .expect("providers changed event should serialize");
+
+        assert_eq!(value["providerIds"][0], "fixture-provider");
+        assert!(value.get("provider_ids").is_none());
     }
 }

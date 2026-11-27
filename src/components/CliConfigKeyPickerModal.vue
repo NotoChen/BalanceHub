@@ -17,6 +17,7 @@ import {
   providerUsesApiKeyOption,
 } from "../utils/provider-display";
 import AgentCliIcon from "./AgentCliIcon.vue";
+import "../styles/modules/cli-config-key-picker.css";
 
 const props = defineProps<{
   visible: boolean;

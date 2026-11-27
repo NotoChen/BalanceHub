@@ -180,6 +180,34 @@ impl ProviderService {
             .map_err(|err| format!("配置事务任务异常: {err}"))?
     }
 
+    /// 定向读取若干站点的数据：只克隆命中的站点，单卡刷新不必复制整份配置。
+    /// 启动读取失败时回落到完整加载流程，保留「重新读取」的重试语义。
+    pub(crate) fn provider_views_by_ids(
+        &self,
+        ids: &std::collections::HashSet<String>,
+    ) -> Result<(u64, Vec<Provider>), String> {
+        let state = crate::host::core_state();
+        if state.load_error().is_some() {
+            let data = self.load_app_data()?;
+            return Ok((
+                data.revision,
+                data.providers
+                    .into_iter()
+                    .filter(|provider| ids.contains(&provider.identity.id))
+                    .collect(),
+            ));
+        }
+        let data = state.data.read().unwrap_or_else(|err| err.into_inner());
+        Ok((
+            data.revision,
+            data.providers
+                .iter()
+                .filter(|provider| ids.contains(&provider.identity.id))
+                .cloned()
+                .collect(),
+        ))
+    }
+
     pub fn load_app_data(&self) -> Result<AppData, String> {
         let state = crate::host::core_state();
         if state.load_error().is_none() {

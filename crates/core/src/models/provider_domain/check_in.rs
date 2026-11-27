@@ -68,8 +68,19 @@ pub fn validate_credentials(provider: &Provider) -> Result<(), String> {
     let has_password = has_password(provider);
     match effective_method(provider) {
         ProviderCheckInMethod::FreshLogin => fresh_login_route(provider).map(|_| ()),
-        ProviderCheckInMethod::SessionSignIn if !auth::has_session(provider) && !has_password => {
-            Err("会话签到需要 session Cookie，或使用账号密码取得会话".to_string())
+        // 会话签到只发送字面量 `session=` Cookie；访问令牌会话不能替代它，
+        // 与适配器的能力探测保持一致，避免编辑器判定可用、实际每次都在
+        // 发出请求前失败。已保存访问令牌会话时执行器会跳过密码预登录，
+        // 因此仅有账号密码也救不回来，必须让用户改选标准签到。
+        ProviderCheckInMethod::SessionSignIn
+            if !auth::has_session_cookie(provider)
+                && (provider.auth.new_api_session.is_some() || !has_password) =>
+        {
+            Err(if provider.auth.new_api_session.is_some() {
+                "站点使用访问令牌会话，会话签到需要 session Cookie；请改用标准签到".to_string()
+            } else {
+                "会话签到需要 session Cookie，或使用账号密码取得会话".to_string()
+            })
         }
         ProviderCheckInMethod::Auto | ProviderCheckInMethod::Standard => {
             let authenticated = match provider.auth.mode {
@@ -183,6 +194,38 @@ mod tests {
             preset_for_url("https://api.agentrouter.org"),
             Some(ProviderCheckInMethod::FreshLogin)
         );
+    }
+
+    #[test]
+    fn session_sign_in_needs_a_literal_cookie_unless_password_can_replace_it() {
+        use crate::models::NewApiSession;
+
+        let mut provider = Provider::from_input(ProviderInput::default(), "fixture".into());
+        provider.automation.check_in_method = ProviderCheckInMethod::SessionSignIn;
+        provider.auth.mode = AuthMode::Session;
+        provider.auth.new_api_session = Some(NewApiSession {
+            refresh_cookie: "fixture-refresh".into(),
+            session_id: "fixture-session".into(),
+            access_token: "fixture-token".into(),
+            access_expires_at: Some(0),
+        });
+        // 访问令牌会话不是 session Cookie；直接拒绝，并在提示里指向标准签到。
+        let error = validate_credentials(&provider).unwrap_err();
+        assert!(error.contains("标准签到"), "{error}");
+        assert!(!preview(&provider).supported);
+
+        // 已保存访问令牌会话时不会执行密码预登录，账号密码也不能让会话签到成立。
+        provider.auth.login_username = "fixture".into();
+        provider.auth.login_password = "fixture-password".into();
+        provider.auth.mode = AuthMode::Password;
+        assert!(validate_credentials(&provider).is_err());
+        // 没有访问令牌会话时，密码登录仍可能换回经典 Cookie，保留可用；
+        // 字面量 Cookie 则始终可用。
+        provider.auth.new_api_session = None;
+        assert!(validate_credentials(&provider).is_ok());
+        provider.auth.mode = AuthMode::Session;
+        provider.auth.session_cookie = "session=fixture-cookie".into();
+        assert!(validate_credentials(&provider).is_ok());
     }
 
     #[test]

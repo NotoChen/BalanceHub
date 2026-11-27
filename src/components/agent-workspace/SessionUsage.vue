@@ -7,6 +7,7 @@ import type {
   SessionUsageSummary,
 } from "../../stores/session-usage-types";
 import { withTimeout } from "../../utils/promise-timeout";
+import "../../styles/modules/usage.css";
 const props = defineProps<{ usage: SessionUsageSummary }>();
 const estimate = ref<SessionUsageSummary | null>(null);
 const estimating = ref(false);

@@ -1,4 +1,5 @@
 import type { AgentConfigurationFormat } from "../stores/agent-configuration-types";
+import { invoke } from "../api/transport.ts";
 
 /** Normalize assignment spacing without rewriting values, comments, or multiline strings. */
 function formatDotenv(text: string): string {
@@ -31,9 +32,8 @@ function formatDotenv(text: string): string {
 export async function formatConfigurationText(format: AgentConfigurationFormat | "yaml", text: string): Promise<string> {
   if (format === "dotenv") return formatDotenv(text);
   if (format === "toml") {
-    const { Taplo } = await import("@taplo/lib");
-    const taplo = await Taplo.initialize();
-    return taplo.format(text, { options: { reorderKeys: false, indentString: "  ", columnWidth: 100, trailingNewline: true } });
+    // 原生侧使用同一套 taplo 规则；前端不再打包内嵌 WASM 的 34MB JS 包。
+    return invoke<string>("format_agent_toml_text", { text });
   }
   const { format: formatText } = await import("prettier/standalone");
   if (format === "yaml") {

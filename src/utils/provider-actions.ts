@@ -12,10 +12,6 @@ export function providerCheckedInToday(provider: Provider) {
   return provider.actions.checkedInToday;
 }
 
-export function supportsApiKeyManagement(provider: Provider) {
-  return provider.actions.apiKeyManagement;
-}
-
 /** 站点级用量趋势；能力探测确认不支持时为 false。 */
 export function supportsUsage(provider: Provider) {
   return provider.actions.usage;

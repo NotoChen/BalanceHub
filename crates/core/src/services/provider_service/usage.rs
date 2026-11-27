@@ -1,3 +1,5 @@
+use futures_util::StreamExt;
+
 use crate::{
     adapters::protocol::ProtocolAdapter,
     models::{
@@ -205,7 +207,14 @@ impl ProviderService {
             })
             .cloned()
             .collect::<Vec<_>>();
-        let entries = futures_util::future::join_all(targets.iter().map(|provider| {
+        // 与批量刷新保持同样的并发上限：站点多时不要一次建立几十条连接，
+        // 也不要让并发结果同时争用凭据持久化的事务锁。
+        const USAGE_SOURCE_CONCURRENCY: usize = 6;
+        // 按下标取站点而不是 `iter().enumerate()`：闭包参数里带引用的元组无法
+        // 对任意生命周期实现 `FnOnce`，会让整个 future 被判为 `!Send`，进而
+        // 使所有命令桥接失败。下标闭包只捕获 `targets` 本身。
+        let mut entries = futures_util::stream::iter((0..targets.len()).map(|index| {
+            let provider = &targets[index];
             let settings = &data.settings;
             async move {
                 let name = provider.display_label();
@@ -222,13 +231,17 @@ impl ProviderService {
                         .map(|_| operation.value),
                     Err(error) => Err(error),
                 };
-                (provider, name, outcome)
+                (index, provider, name, outcome)
             }
         }))
+        .buffer_unordered(USAGE_SOURCE_CONCURRENCY)
+        .collect::<Vec<_>>()
         .await;
+        // 并发完成顺序不稳定；按配置里的站点顺序收口，错误列表和日志保持确定。
+        entries.sort_by_key(|(index, _, _, _)| *index);
 
         let mut sources = Vec::with_capacity(entries.len());
-        for (provider, name, outcome) in entries {
+        for (_, provider, name, outcome) in entries {
             let mut source = ProviderUsageSource {
                 provider_id: provider.identity.id.clone(),
                 provider_name: name,

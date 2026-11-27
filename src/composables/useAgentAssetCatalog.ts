@@ -9,7 +9,6 @@ import type {
   AgentAssetMechanismRecord,
   AgentAssetRecord,
   AgentAssetResolutionRelation,
-  AgentAssetScope,
   AgentAssetSource,
   AgentAssetState,
   AgentConfigurationContext,
@@ -24,9 +23,6 @@ export const agentAssetCategoryLabels: Record<AgentAssetCategory, string> = {
 };
 export const agentAssetStateLabels: Record<AgentAssetState, string> = {
   enabled: "已启用", disabled: "已停用", notInstalled: "未安装", shadowed: "已被替换", blocked: "被阻止", invalid: "无效", unknown: "状态待核对",
-};
-export const agentAssetScopeLabels: Record<AgentAssetScope, string> = {
-  user: "用户", workspace: "工作区", local: "本机", system: "系统", managed: "托管",
 };
 export const agentAssetTrustLabels: Record<AgentTrustState, string> = {
   trusted: "已信任", untrusted: "未信任", required: "需要信任", unknown: "信任未知",

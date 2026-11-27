@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, toRef, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, reactive, ref, toRef, watch } from "vue";
 import { RefreshCw, History, ShieldCheck, Sparkles } from "@lucide/vue";
 import { useAgentMaintenanceStore } from "../../stores/agent-maintenance";
 import { useWorkspaceLayoutStore } from "../../stores/workspace-layout";
 import WorkspaceLayoutSwitch from "../WorkspaceLayoutSwitch.vue";
-import AgentHistoryDrawer from "./AgentHistoryDrawer.vue";
-import AgentMaintenancePlanModal from "./AgentMaintenancePlanModal.vue";
 import AgentMaintenanceOperation from "./AgentMaintenanceOperation.vue";
 import { Message } from "@arco-design/web-vue";
 import { useAgentDashboard } from "../../composables/useAgentDashboard";
 import { useCardDragSort } from "../../composables/useCardDragSort";
+import { useFirstOpenLatch } from "../../composables/useFirstOpenLatch";
 import { agentWorkspacePages, type AgentWorkspacePage } from "../../stores/agent-workspace";
 import { useAgentWslStore } from "../../stores/agent-wsl";
 import type { AgentCatalogOperation } from "../../stores/agent-catalog-types";
@@ -20,30 +19,41 @@ import { latestAgentLivenessRecord } from "../../utils/provider-liveness";
 import AgentOverviewCard from "./AgentOverviewCard.vue";
 import AgentWorkspaceIcon from "./AgentWorkspaceIcon.vue";
 import AgentCliIcon from "../AgentCliIcon.vue";
-import AgentConfigurationEditorModal from "./AgentConfigurationEditorModal.vue";
-import AgentConfigurationPreviewModal from "./AgentConfigurationPreviewModal.vue";
-import AgentCatalogPanel from "./AgentCatalogPanel.vue";
-import AgentCatalogDetailDrawer from "./AgentCatalogDetailDrawer.vue";
-import AgentCatalogDefinitionModal from "./AgentCatalogDefinitionModal.vue";
-import AgentCatalogDefinitionForm from "./AgentCatalogDefinitionForm.vue";
-import AgentCatalogPlanModal from "./AgentCatalogPlanModal.vue";
-import AgentCatalogRelationModal from "./AgentCatalogRelationModal.vue";
-import AgentInstallationModal from "./AgentInstallationModal.vue";
 import AgentConfigurationFileActions from "./AgentConfigurationFileActions.vue";
 import AgentOperationPanel from "./AgentOperationPanel.vue";
 import AgentHookPanel from "./AgentHookPanel.vue";
-import AgentLaunchProviderModal from "./AgentLaunchProviderModal.vue";
-import AgentSessionPanel from "./AgentSessionPanel.vue";
-import AgentInstructionsPanel from "./AgentInstructionsPanel.vue";
-import AgentWslPanel from "./AgentWslPanel.vue";
 import AgentWorkspaceScopeSelect from "../settings/agent-environment/AgentWorkspaceScopeSelect.vue";
-import AgentAssetDetailDrawer from "../settings/agent-environment/AgentAssetDetailDrawer.vue";
-import AgentAssetPlanModal from "../settings/agent-environment/AgentAssetPlanModal.vue";
-import AgentAssetAccessModal from "../settings/agent-environment/AgentAssetAccessModal.vue";
 import AgentAssetOperationList from "../settings/agent-environment/AgentAssetOperationList.vue";
-import AgentHookPlanModal from "../settings/agent-environment/AgentHookPlanModal.vue";
-import AgentSelfCheckModal from "./AgentSelfCheckModal.vue";
-import ProviderRecommendationModal from "../ProviderRecommendationModal.vue";
+// 工作台专属样式随页面加载，不进入首屏 CSS；顺序保持原先 app.css 的层叠关系。
+import "../../styles/modules/agent-environment.css";
+import "../../styles/modules/agent-workspace.css";
+import "../../styles/modules/agent-sessions.css";
+
+// 工作台各页面只在第一次进入时加载；总览页不下载会话、指令或环境面板。
+const AgentCatalogPanel = defineAsyncComponent(() => import("./AgentCatalogPanel.vue"));
+const AgentSessionPanel = defineAsyncComponent(() => import("./AgentSessionPanel.vue"));
+const AgentInstructionsPanel = defineAsyncComponent(() => import("./AgentInstructionsPanel.vue"));
+const AgentWslPanel = defineAsyncComponent(() => import("./AgentWslPanel.vue"));
+const ProviderRecommendationModal = defineAsyncComponent(() => import("../ProviderRecommendationModal.vue"));
+
+// 这些窗口只在具体操作后打开。工作台先到就能用；配置编辑器带整套
+// CodeMirror，只有真的编辑原生配置时才值得下载。
+const AgentHistoryDrawer = defineAsyncComponent(() => import("./AgentHistoryDrawer.vue"));
+const AgentConfigurationEditorModal = defineAsyncComponent(() => import("./AgentConfigurationEditorModal.vue"));
+const AgentConfigurationPreviewModal = defineAsyncComponent(() => import("./AgentConfigurationPreviewModal.vue"));
+const AgentCatalogDetailDrawer = defineAsyncComponent(() => import("./AgentCatalogDetailDrawer.vue"));
+const AgentCatalogDefinitionModal = defineAsyncComponent(() => import("./AgentCatalogDefinitionModal.vue"));
+const AgentCatalogDefinitionForm = defineAsyncComponent(() => import("./AgentCatalogDefinitionForm.vue"));
+const AgentCatalogPlanModal = defineAsyncComponent(() => import("./AgentCatalogPlanModal.vue"));
+const AgentCatalogRelationModal = defineAsyncComponent(() => import("./AgentCatalogRelationModal.vue"));
+const AgentInstallationModal = defineAsyncComponent(() => import("./AgentInstallationModal.vue"));
+const AgentLaunchProviderModal = defineAsyncComponent(() => import("./AgentLaunchProviderModal.vue"));
+const AgentAssetDetailDrawer = defineAsyncComponent(() => import("../settings/agent-environment/AgentAssetDetailDrawer.vue"));
+const AgentAssetPlanModal = defineAsyncComponent(() => import("../settings/agent-environment/AgentAssetPlanModal.vue"));
+const AgentAssetAccessModal = defineAsyncComponent(() => import("../settings/agent-environment/AgentAssetAccessModal.vue"));
+const AgentHookPlanModal = defineAsyncComponent(() => import("../settings/agent-environment/AgentHookPlanModal.vue"));
+const AgentSelfCheckModal = defineAsyncComponent(() => import("./AgentSelfCheckModal.vue"));
+const AgentMaintenancePlanModal = defineAsyncComponent(() => import("./AgentMaintenancePlanModal.vue"));
 
 const props = defineProps<{
   active: boolean; providers: Provider[]; cliRuntime: CliRuntimeSnapshot; runtimeSnapshot: AgentRuntimeSnapshot;
@@ -117,6 +127,8 @@ const environmentsOpened = ref(model.navigation.page === "environments");
 watch(() => model.navigation.page, (page) => { if (page === "instructions") instructionsOpened.value = true; if (page === "environments") environmentsOpened.value = true; });
 const sessionOpened = ref(model.navigation.page === "sessions");
 watch(() => model.navigation.page, (page) => { if (page === "sessions") sessionOpened.value = true; });
+const catalogOpened = useFirstOpenLatch(() => !["overview", "sessions", "instructions", "environments"].includes(model.navigation.page));
+const recommendationOpened = useFirstOpenLatch(() => recommendationVisible.value);
 const drag = reactive(useCardDragSort({
   items: computed(() => model.cards),
   getId: (card) => card.agent.kind,
@@ -154,6 +166,26 @@ async function moveCard(kind: AgentCliKind, event: KeyboardEvent) {
 }
 watch(() => [props.active, model.navigation.navigationRevision, model.navigation.query], cancelCardDrag, { flush: "sync" });
 const native = model.environment.assets;
+// 每个窗口一个闸门：首次可见后保持挂载，关闭再打开不丢草稿。
+const historyOpened = useFirstOpenLatch(() => historyVisible.value);
+const configurationEditorOpened = useFirstOpenLatch(() => model.configuration.editor.visible);
+const configurationPreviewOpened = useFirstOpenLatch(() => model.configuration.previewVisible);
+const configurationAccessOpened = useFirstOpenLatch(() => Boolean(model.configuration.accessConfirmation));
+const catalogDetailOpened = useFirstOpenLatch(() => model.catalog.detailVisible);
+const catalogDefinitionOpened = useFirstOpenLatch(() => model.catalog.editorVisible);
+// 定义编辑器带 CodeMirror，只在真正编辑/查看定义时才加载。
+const catalogDefinitionFormOpened = useFirstOpenLatch(() => model.resource.definitionVisible);
+const catalogPlanOpened = useFirstOpenLatch(() => model.catalog.planVisible);
+const catalogRelationsOpened = useFirstOpenLatch(() => model.catalog.relations.visible);
+const installationOpened = useFirstOpenLatch(() => model.installation.lifecycle.visible);
+const assetDetailOpened = useFirstOpenLatch(() => native.drawerVisible);
+const assetPlanOpened = useFirstOpenLatch(() => native.planVisible);
+const assetAccessOpened = useFirstOpenLatch(() => Boolean(native.accessConfirmation));
+const hookPlanOpened = useFirstOpenLatch(() => model.hooks.planVisible);
+const launchProviderOpened = useFirstOpenLatch(() => Boolean(model.launchKind));
+const selfCheckOpened = useFirstOpenLatch(() => model.selfCheck.visible);
+// 维护计划的差异对照带虚拟列表，只在真的有计划时才加载。
+const maintenancePlanOpened = useFirstOpenLatch(() => Boolean(maintenance.preview));
 const selectedNativeOperations = computed(() => native.operations.filter((operation) => model.navigation.operationDetails?.kind === "native"
   && model.navigation.operationDetails.id === operation.id));
 const taskRecoveryError = computed(() => [...new Set([model.catalogStore.recoveryError, model.lifecycleStore.recoveryError, maintenance.recoveryError, native.operationRecoveryError].filter(Boolean))].join("；"));
@@ -250,10 +282,10 @@ defineExpose({ refresh });
           @installation="model.installation.open(card.agent.kind)" @installation-guide="model.openDocumentation(card.agent.kind, 'installation')"
           @history="model.navigation.openSessions('history', card.agent.kind)" @runtime="model.navigation.openSessions('active', card.agent.kind)" @launch="model.launchKind = card.agent.kind" /></TransitionGroup>
         <span class="agent-card-sort-announcement" role="status">{{ sortAnnouncement }}</span>
-        <Teleport to="body"><AgentOverviewCard v-if="drag.draggedItem" v-bind="drag.draggedItem" :loading="model.loading" :list="layout === 'list'" class="agent-card-sort-preview" :style="drag.dragStyle()" aria-hidden="true" inert /></Teleport>
+        <Teleport to="body"><AgentOverviewCard v-if="drag.draggedItem" v-bind="drag.draggedItem" :loading="model.loading" :list="layout === 'list'" class="agent-card-sort-preview" :style="drag.dragStyle" aria-hidden="true" inert /></Teleport>
       </template>
       <AgentHookPanel v-else-if="model.navigation.page === 'hook'" :catalog="model.catalog.catalog" :agents="cliRuntime.agents" :agent-filter="model.navigation.agentFilter" :query="model.navigation.query" :focused-asset-id="model.focusedHookId" :center="model.environment" :hooks="model.hooks" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @installation="openHookInstallation" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
-      <AgentCatalogPanel v-else-if="!['sessions', 'instructions', 'environments'].includes(model.navigation.page)" ref="catalogPanel" :focused-asset-id="model.navigation.page === 'library' ? model.navigation.libraryAssetId : null" @edit="editLibraryDefinition" :catalog="model.catalog.catalog" :page="model.navigation.page" :query="model.navigation.query" :agent-filter="model.navigation.agentFilter" :agents="cliRuntime.agents" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
+      <AgentCatalogPanel v-else-if="catalogOpened && !['sessions', 'instructions', 'environments'].includes(model.navigation.page)" ref="catalogPanel" :focused-asset-id="model.navigation.page === 'library' ? model.navigation.libraryAssetId : null" @edit="editLibraryDefinition" :catalog="model.catalog.catalog" :page="model.navigation.page" :query="model.navigation.query" :agent-filter="model.navigation.agentFilter" :agents="cliRuntime.agents" :loading="model.loading" :error="model.error" :busy="busyAsset" :row-error="assetError" @detail="model.catalog.openDetail" @create="model.catalog.openEditor(null, $event)" @action="model.catalog.openPlan" :agent-selection="model.catalog.management.selection" :agent-panel="model.catalog.management.panel" :agent-loading="model.catalog.management.loading" :agent-error="model.catalog.management.error" @manage="model.catalog.openAgentPanel" @retry="model.catalog.management.retry" @native="openCatalogNative" />
       <AgentInstructionsPanel v-if="instructionsOpened" v-show="model.navigation.page === 'instructions'" ref="instructionsPanel" :active="active && model.navigation.page === 'instructions'" :agents="cliRuntime.agents" :workspace="model.navigation.workspacePath" :query="model.navigation.queries.instructions ?? ''" />
       <AgentWslPanel v-if="wsl.supported === true && environmentsOpened" v-show="model.navigation.page === 'environments'" ref="wslPanel" :active="active && model.navigation.page === 'environments'" :agents="cliRuntime.agents" :query="model.navigation.queries.environments ?? ''" />
       <AgentSessionPanel v-if="sessionOpened" v-show="model.navigation.page === 'sessions'" ref="sessionPanel" :active="active" :providers="providers" :installations="model.installations" :cli-runtime="cliRuntime" :runtime-snapshot="runtimeSnapshot" :runtime-sessions="model.runtimeSessions" :runtime-loading="runtimeLoading" :activating-id="activatingId" @refresh-runtime="emit('refreshRuntime')" @activate-runtime="emit('activateRuntime', $event)" @launch="(provider, kind, context) => emit('launch', provider, kind, context)" />
@@ -265,26 +297,26 @@ defineExpose({ refresh });
         <AgentOperationPanel v-else :selection="model.navigation.operationDetails" :selected-paths="model.installation.selectedPaths" :saving-path="model.installation.savingPath" :path-errors="model.installation.pathErrors" @use-path="model.installation.savePath" />
       </div>
     </a-drawer>
-    <AgentHistoryDrawer :visible="historyVisible" @close="historyVisible = false" />
-    <AgentMaintenancePlanModal />
-    <AgentConfigurationEditorModal :model="model.configuration.editor" :sources="model.configuration.sources" @open-source="model.configuration.openFile">
+    <AgentHistoryDrawer v-if="historyOpened" :visible="historyVisible" @close="historyVisible = false" />
+    <AgentMaintenancePlanModal v-if="maintenancePlanOpened" />
+    <AgentConfigurationEditorModal v-if="configurationEditorOpened" :model="model.configuration.editor" :sources="model.configuration.sources" @open-source="model.configuration.openFile">
       <template #file-actions="{ sourceId }"><AgentConfigurationFileActions :source="model.configuration.editorSource(sourceId)" :busy="model.configuration.opening[sourceId]" @action="(source, action) => model.configuration.action(source.sourceId, action, source)" /></template>
     </AgentConfigurationEditorModal>
-    <AgentConfigurationPreviewModal :model="model.configuration" />
-    <AgentAssetAccessModal :confirmation="model.configuration.accessConfirmation" @close="model.configuration.closeAccessConfirmation" @confirm="model.configuration.confirmAccess" />
-    <AgentCatalogDetailDrawer :busy="Boolean(model.resource.asset && busyAsset(model.resource.asset.id))" :visible="model.catalog.detailVisible" :asset="model.resource.asset" :catalog="model.catalog.catalog" :resource="model.resource" :agents="cliRuntime.agents" :library-busy="model.catalog.libraryBusy" :library-errors="model.catalog.libraryErrors" :focused-feature="model.catalog.selectedFeature" @close="model.resource.close" @native="model.openNative" @library="openLibrary" @adopt="model.catalog.adoptBinding" @delete="model.catalog.deleteDefinition" @relation="model.catalog.relations.open" @detail="model.catalog.openDetail" @action="(action, targets) => model.resource.asset && model.catalog.openPlan(model.resource.asset.id, action, targets)">
-      <template #definition><AgentCatalogDefinitionForm v-if="model.resource.definitionVisible" :visible="model.catalog.editorVisible" :editing-asset-id="model.catalog.editorAssetId" :definition="model.catalog.editorDefinition" :initial-draft="model.catalog.editorDraft" :category="model.catalog.editorCategory" :agents="cliRuntime.agents" :preferred-agent-kind="model.resource.sharedAgentKind ?? model.navigation.agentFilter" :loading="model.catalog.editorLoading" :saving="model.catalog.editorSaving" :error="model.catalog.editorError" embedded @retry="model.resource.reloadShared" @close="model.resource.close" @save="model.resource.saveShared" @apply="model.resource.applyShared" /></template>
+    <AgentConfigurationPreviewModal v-if="configurationPreviewOpened" :model="model.configuration" />
+    <AgentAssetAccessModal v-if="configurationAccessOpened" :confirmation="model.configuration.accessConfirmation" @close="model.configuration.closeAccessConfirmation" @confirm="model.configuration.confirmAccess" />
+    <AgentCatalogDetailDrawer v-if="catalogDetailOpened" :busy="Boolean(model.resource.asset && busyAsset(model.resource.asset.id))" :visible="model.catalog.detailVisible" :asset="model.resource.asset" :catalog="model.catalog.catalog" :resource="model.resource" :agents="cliRuntime.agents" :library-busy="model.catalog.libraryBusy" :library-errors="model.catalog.libraryErrors" :focused-feature="model.catalog.selectedFeature" @close="model.resource.close" @native="model.openNative" @library="openLibrary" @adopt="model.catalog.adoptBinding" @delete="model.catalog.deleteDefinition" @relation="model.catalog.relations.open" @detail="model.catalog.openDetail" @action="(action, targets) => model.resource.asset && model.catalog.openPlan(model.resource.asset.id, action, targets)">
+      <template #definition><AgentCatalogDefinitionForm v-if="catalogDefinitionFormOpened" :visible="model.catalog.editorVisible" :editing-asset-id="model.catalog.editorAssetId" :definition="model.catalog.editorDefinition" :initial-draft="model.catalog.editorDraft" :category="model.catalog.editorCategory" :agents="cliRuntime.agents" :preferred-agent-kind="model.resource.sharedAgentKind ?? model.navigation.agentFilter" :loading="model.catalog.editorLoading" :saving="model.catalog.editorSaving" :error="model.catalog.editorError" embedded @retry="model.resource.reloadShared" @close="model.resource.close" @save="model.resource.saveShared" @apply="model.resource.applyShared" /></template>
     </AgentCatalogDetailDrawer>
-    <AgentCatalogDefinitionModal v-if="!model.catalog.detailVisible || !model.catalog.editorAssetId" :visible="model.catalog.editorVisible" :editing-asset-id="model.catalog.editorAssetId" :definition="model.catalog.editorDefinition" :initial-draft="model.catalog.editorDraft" :category="model.catalog.editorCategory" :agents="cliRuntime.agents" :preferred-agent-kind="model.navigation.agentFilter" :loading="model.catalog.editorLoading" :saving="model.catalog.editorSaving" :error="model.catalog.editorError" @close="model.catalog.closeEditor" @retry="model.catalog.retryEditor" @save="model.catalog.saveDefinition" @apply="model.catalog.saveAndApply" />
-    <AgentCatalogPlanModal :can-return-to-editor="model.catalog.canReturnToEditor" :comparison-asset-id="model.catalog.comparisonAssetId" :name="model.catalog.planName" :visible="model.catalog.planVisible" :catalog="model.catalog.catalog" :action="model.catalog.planAction" :choices="model.catalog.targetChoices" :selection="model.catalog.configurationSelection" :selected="model.catalog.selectedTargets" :plan="model.catalog.pendingPlan" :preparing="model.catalog.preparing" :error="model.catalog.planError" :expired="model.catalog.planExpired" :can-confirm="model.catalog.canConfirm" @close="model.catalog.closePlan" @select="model.catalog.setTargets" @prepare="model.catalog.preparePlan" @confirm="model.catalog.confirmPlan" @compare="model.catalog.relations.open" />
-    <AgentCatalogRelationModal :visible="model.catalog.relations.visible" :preview="model.catalog.relations.preview" :intent="model.catalog.relations.intent" :agents="cliRuntime.agents" :loading="model.catalog.relations.loading" :error="model.catalog.relations.error" :expired="model.catalog.relations.expired" :can-confirm="model.catalog.relations.canConfirm" :can-back="model.catalog.relations.canBack" @close="model.catalog.relations.close" @retry="model.catalog.relations.retry" @back="model.catalog.relations.back" @choose="model.catalog.relations.choose" @confirm="model.catalog.relations.confirm" />
-    <AgentInstallationModal :model="model.installation" :center="model.environment" :hooks="model.hooks" @hooks="model.navigation.openPage('hook', $event)" @installation-guide="model.openDocumentation($event, 'installation')" />
-    <AgentAssetDetailDrawer :visible="native.drawerVisible && !model.catalog.detailVisible" :detail="native.selectedDetail" :source="native.selectedSource" :source-context="sourceContext" :source-installations="sourceInstallations" :preview="native.preview" :preview-state="native.previewState" :preview-error="native.previewError" :copied-path-id="native.copiedPathId" :busy="native.rowBusy" :error="native.rowError" @close="native.closeDetail" @detail="model.openNative" @source="native.openSourceDetail" @action="native.action" @copy="native.copyPath" @hook="model.showHook" />
-    <AgentAssetPlanModal :visible="native.planVisible" :plan="native.pendingPlan" :preparing="Boolean(native.planningAssetId)" :error="native.planError" :expired="native.planExpired" :can-apply="native.canApplyPlan" :affected-assets="affectedAssets" :affected-installations="affectedInstallations" @close="native.closePlan" @retry="native.retryPlan" @confirm="native.confirmPlan" />
-    <AgentAssetAccessModal :confirmation="native.accessConfirmation" @close="native.closeAccessConfirmation" @confirm="native.confirmAccess" />
-    <AgentHookPlanModal :visible="model.hooks.planVisible" :plan="model.hooks.pendingPlan" :can-apply="model.hooks.canApplyPlan" @close="model.hooks.closePlan" @confirm="model.confirmHookPlan" />
-    <AgentLaunchProviderModal :visible="Boolean(model.launchKind)" :agent-label="launchLabel" :providers="providers" @close="model.launchKind = null" @select="launch" />
-    <AgentSelfCheckModal :visible="model.selfCheck.visible" :loading="model.selfCheck.loading" :error="model.selfCheck.error" :report="model.selfCheck.report" @close="model.closeSelfCheck()" @refresh="model.refreshSelfCheck()" />
-    <ProviderRecommendationModal :visible="recommendationVisible" :providers="providers" :agent="recommendationAgent" @close="recommendationVisible = false" @switch="(provider, cliKind, model) => emit('switchCliConfig', provider, cliKind, model)" />
+    <AgentCatalogDefinitionModal v-if="catalogDefinitionOpened && (!model.catalog.detailVisible || !model.catalog.editorAssetId)" :visible="model.catalog.editorVisible" :editing-asset-id="model.catalog.editorAssetId" :definition="model.catalog.editorDefinition" :initial-draft="model.catalog.editorDraft" :category="model.catalog.editorCategory" :agents="cliRuntime.agents" :preferred-agent-kind="model.navigation.agentFilter" :loading="model.catalog.editorLoading" :saving="model.catalog.editorSaving" :error="model.catalog.editorError" @close="model.catalog.closeEditor" @retry="model.catalog.retryEditor" @save="model.catalog.saveDefinition" @apply="model.catalog.saveAndApply" />
+    <AgentCatalogPlanModal v-if="catalogPlanOpened" :can-return-to-editor="model.catalog.canReturnToEditor" :comparison-asset-id="model.catalog.comparisonAssetId" :name="model.catalog.planName" :visible="model.catalog.planVisible" :catalog="model.catalog.catalog" :action="model.catalog.planAction" :choices="model.catalog.targetChoices" :selection="model.catalog.configurationSelection" :selected="model.catalog.selectedTargets" :plan="model.catalog.pendingPlan" :preparing="model.catalog.preparing" :error="model.catalog.planError" :expired="model.catalog.planExpired" :can-confirm="model.catalog.canConfirm" @close="model.catalog.closePlan" @select="model.catalog.setTargets" @prepare="model.catalog.preparePlan" @confirm="model.catalog.confirmPlan" @compare="model.catalog.relations.open" />
+    <AgentCatalogRelationModal v-if="catalogRelationsOpened" :visible="model.catalog.relations.visible" :preview="model.catalog.relations.preview" :intent="model.catalog.relations.intent" :agents="cliRuntime.agents" :loading="model.catalog.relations.loading" :error="model.catalog.relations.error" :expired="model.catalog.relations.expired" :can-confirm="model.catalog.relations.canConfirm" :can-back="model.catalog.relations.canBack" @close="model.catalog.relations.close" @retry="model.catalog.relations.retry" @back="model.catalog.relations.back" @choose="model.catalog.relations.choose" @confirm="model.catalog.relations.confirm" />
+    <AgentInstallationModal v-if="installationOpened" :model="model.installation" :center="model.environment" :hooks="model.hooks" @hooks="model.navigation.openPage('hook', $event)" @installation-guide="model.openDocumentation($event, 'installation')" />
+    <AgentAssetDetailDrawer v-if="assetDetailOpened" :visible="native.drawerVisible && !model.catalog.detailVisible" :detail="native.selectedDetail" :source="native.selectedSource" :source-context="sourceContext" :source-installations="sourceInstallations" :preview="native.preview" :preview-state="native.previewState" :preview-error="native.previewError" :copied-path-id="native.copiedPathId" :busy="native.rowBusy" :error="native.rowError" @close="native.closeDetail" @detail="model.openNative" @source="native.openSourceDetail" @action="native.action" @copy="native.copyPath" @hook="model.showHook" />
+    <AgentAssetPlanModal v-if="assetPlanOpened" :visible="native.planVisible" :plan="native.pendingPlan" :preparing="Boolean(native.planningAssetId)" :error="native.planError" :expired="native.planExpired" :can-apply="native.canApplyPlan" :affected-assets="affectedAssets" :affected-installations="affectedInstallations" @close="native.closePlan" @retry="native.retryPlan" @confirm="native.confirmPlan" />
+    <AgentAssetAccessModal v-if="assetAccessOpened" :confirmation="native.accessConfirmation" @close="native.closeAccessConfirmation" @confirm="native.confirmAccess" />
+    <AgentHookPlanModal v-if="hookPlanOpened" :visible="model.hooks.planVisible" :plan="model.hooks.pendingPlan" :can-apply="model.hooks.canApplyPlan" @close="model.hooks.closePlan" @confirm="model.confirmHookPlan" />
+    <AgentLaunchProviderModal v-if="launchProviderOpened" :visible="Boolean(model.launchKind)" :agent-label="launchLabel" :providers="providers" @close="model.launchKind = null" @select="launch" />
+    <AgentSelfCheckModal v-if="selfCheckOpened" :visible="model.selfCheck.visible" :loading="model.selfCheck.loading" :error="model.selfCheck.error" :report="model.selfCheck.report" @close="model.closeSelfCheck()" @refresh="model.refreshSelfCheck()" />
+    <ProviderRecommendationModal v-if="recommendationOpened" :visible="recommendationVisible" :providers="providers" :agent="recommendationAgent" @close="recommendationVisible = false" @switch="(provider, cliKind, model) => emit('switchCliConfig', provider, cliKind, model)" />
   </main>
 </template>

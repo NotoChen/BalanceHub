@@ -190,10 +190,11 @@ body,
   border-radius: 7px;
 }
 
-.arco-input-wrapper,
-.arco-select-view,
-.arco-textarea-wrapper,
-.arco-input-number {
+/* 输入类组件的 Arco 样式异步加载，用 `body` 前缀保证覆盖顺序稳定。 */
+body .arco-input-wrapper,
+body .arco-select-view,
+body .arco-textarea-wrapper,
+body .arco-input-number {
   border-radius: 7px;
 }
 

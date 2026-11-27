@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onScopeDispose, ref, watch } from "vue";
 import { ChevronDown } from "@lucide/vue";
 import { Message } from "@arco-design/web-vue";
 import type { Provider } from "../../stores/provider-types";
@@ -23,7 +23,9 @@ import {
   toggleExcludedRule,
 } from "../../utils/cpa-excluded-models";
 import { confirmDiscardChanges } from "../../composables/provider-credential-dialogs";
-import ContentEditor from "../ContentEditor.vue";
+import { useFirstOpenLatch } from "../../composables/useFirstOpenLatch";
+// 模型别名编辑器只在打开窗口时加载，规则列表本身不需要 CodeMirror。
+const ContentEditor = defineAsyncComponent(() => import("../ContentEditor.vue"));
 
 const props = defineProps<{ provider: Provider; revision: number }>();
 
@@ -47,6 +49,7 @@ const open = ref(false);
 const loading = ref(false);
 const error = ref("");
 const editing = ref<CpaModelRuleKind | null>(null);
+const aliasEditorOpened = useFirstOpenLatch(() => editing.value === "modelAliases");
 const draft = ref("");
 const original = ref("");
 const saving = ref(false);
@@ -577,6 +580,7 @@ async function saveAliases() {
       <a-alert v-if="editorError" type="warning">{{ editorError }}</a-alert>
       <div class="cpa-model-rule-editor">
         <ContentEditor
+          v-if="aliasEditorOpened"
           :model-value="draft"
           :original-text="original"
           format="json"

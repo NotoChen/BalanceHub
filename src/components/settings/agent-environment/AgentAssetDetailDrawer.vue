@@ -15,12 +15,12 @@ import {
   agentAssetActionLabels,
   agentAssetActionReason,
   agentAssetCategoryLabels,
-  agentAssetScopeLabels,
   agentAssetStateLabels,
   agentAssetTrustLabels,
   type AgentAssetDetailView,
 } from "../../../composables/useAgentAssetCatalog";
-import { agentAssetAccessRiskLabels, type AgentAssetDetailTarget, type AgentAssetPreviewState } from "../../../composables/useAgentAssetConsole";
+import { type AgentAssetDetailTarget, type AgentAssetPreviewState } from "../../../composables/useAgentAssetConsole";
+import { agentAssetAccessRiskLabels, agentAssetScopeLabels } from "../../../utils/agent-asset-labels";
 import { formatAgentAssetDiagnostics } from "../../../utils/agent-environment-diagnostics";
 import { agentAssetInstallationLabels, agentAssetProvenanceEntries, agentAssetProvenanceLabel } from "../../../utils/agent-asset-provenance";
 

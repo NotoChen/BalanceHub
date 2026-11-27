@@ -3,11 +3,11 @@ import { computed, ref, watch } from "vue";
 import { ChevronRight } from "@lucide/vue";
 import type { AgentCatalogContent, AgentCatalogContentFile, AgentCatalogContentGroup, AgentCatalogContentSource } from "../../stores/agent-catalog-types";
 import type { AgentCliDescriptor } from "../../stores/provider-types";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import AgentMarkdownContent from "./AgentMarkdownContent.vue";
 import ContentEditor from "../ContentEditor.vue";
 import AgentMcpSummary from "./AgentMcpSummary.vue";
 import AgentCatalogContentDiff from "./AgentCatalogContentDiff.vue";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{ content: AgentCatalogContent | null; loading: boolean; error: string; agents: AgentCliDescriptor[]; workspace?: string }>();
 const emit = defineEmits<{ edit: [source: AgentCatalogContentSource, file: AgentCatalogContentFile]; retry: [] }>();

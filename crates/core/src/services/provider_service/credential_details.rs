@@ -1,6 +1,5 @@
 use super::{find_provider, MutationDecision, ProviderService};
 use crate::{
-    app_events::PROVIDERS_CHANGED_EVENT,
     models::{
         AuthMode, BrowserLoginBinding, BrowserLoginMechanism, Provider, ProviderProtocol,
         ProviderStatus,
@@ -126,6 +125,7 @@ impl ProviderService {
         let state = crate::host::core_state();
         let _refresh = state.refresh_gate.lock().await;
         let _gate = super::credentials::AUTH_GATE.lock().await;
+        let provider_id = id.clone();
         self.mutate_decided_async(move |data| {
             let provider = data
                 .providers
@@ -139,7 +139,7 @@ impl ProviderService {
             Ok(MutationDecision::changed(()))
         })
         .await?;
-        crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+        crate::app_events::emit_providers_changed(std::slice::from_ref(&provider_id));
         Ok(())
     }
 
@@ -157,7 +157,7 @@ impl ProviderService {
         )
         .await
         .map_err(|_| "验证超时，可稍后刷新查看结果")??;
-        crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+        crate::app_events::emit_providers_changed(std::slice::from_ref(&id));
         self.credential_details(&id)
     }
 }

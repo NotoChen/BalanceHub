@@ -43,6 +43,7 @@ import { providerCapabilitySourceLabel, providerOptionalCapabilityLabel } from "
 import { providerScopeNoun } from "../utils/provider-protocol";
 import { agentCliLabel } from "../utils/cli-environment";
 import { formatDuration } from "../utils/duration";
+import "../styles/modules/provider-detail.css";
 
 /// 卡片点击后的只读详情面：把分散在额度、模型、测活、能力台账和 Agent
 /// 配置里的同一份事实收进一页。编辑和签到仍是独立动作。

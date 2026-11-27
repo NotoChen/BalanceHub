@@ -156,7 +156,7 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
             let message = message.trim();
             if !message.is_empty() {
                 let message: String = message.chars().take(4000).collect();
-                log::error!("前端启动失败：{message}");
+                log::error!("前端错误：{message}");
             }
             Ok(Value::Null)
         }
@@ -164,8 +164,10 @@ pub async fn handle(command: &str, args: &Value) -> Result<Value, String> {
     }
 }
 
-/// 站点浏览器登录需要可交互的浏览器窗口；无显示环境里命令仍然存在，但入口
-/// 应当隐藏，避免用户点开一个必然失败的任务。
+/// 只有需要可见窗口的站点浏览器登录入口依赖桌面会话：登录导入、账号窗口和
+/// 把已有窗口带到前台。无显示环境里这些入口应当隐藏，避免用户点开一个必然
+/// 失败的任务。登录任务列表与取消不依赖窗口：无头服务器同样会执行自动重新
+/// 认证，事件流重连或页面晚打开时任务中心仍要能校准并停止这些任务。
 fn visible_commands(desktop_session: bool) -> Vec<&'static str> {
     super::commands()
         .into_iter()
@@ -174,8 +176,6 @@ fn visible_commands(desktop_session: bool) -> Vec<&'static str> {
                 || !matches!(
                     *command,
                     "start_provider_browser_login"
-                        | "list_provider_browser_logins"
-                        | "cancel_provider_browser_login"
                         | "show_provider_login_window"
                         | "open_login_account"
                 )
@@ -188,11 +188,30 @@ mod tests {
     use super::visible_commands;
 
     #[test]
-    fn browser_login_is_hidden_without_a_desktop_session() {
+    fn only_interactive_browser_login_entries_need_a_desktop_session() {
         let headless = visible_commands(false);
-        assert!(!headless.contains(&"start_provider_browser_login"));
-        assert!(!headless.contains(&"open_login_account"));
+        for command in [
+            "start_provider_browser_login",
+            "show_provider_login_window",
+            "open_login_account",
+        ] {
+            assert!(
+                !headless.contains(&command),
+                "{command} 需要可见窗口，无显示环境不应提供入口"
+            );
+        }
+        // 自动重新认证在无头服务器上照常运行；列表和取消不依赖窗口，不能被
+        // 一并隐藏，否则事件流重连后任务中心只能停在一个永远不结束的任务上。
+        assert!(headless.contains(&"list_provider_browser_logins"));
+        assert!(headless.contains(&"cancel_provider_browser_login"));
         assert!(headless.contains(&"list_login_accounts"));
-        assert!(visible_commands(true).contains(&"start_provider_browser_login"));
+        let desktop = visible_commands(true);
+        for command in [
+            "start_provider_browser_login",
+            "show_provider_login_window",
+            "open_login_account",
+        ] {
+            assert!(desktop.contains(&command));
+        }
     }
 }

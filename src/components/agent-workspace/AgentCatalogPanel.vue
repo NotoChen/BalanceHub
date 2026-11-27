@@ -10,7 +10,8 @@ import type { AgentAssetCatalog, AgentCatalogAction, AgentCatalogAgentPanel } fr
 import type { AgentCatalogAgentSelection } from "../../composables/useAgentCatalogAgentPanel";
 import type { AgentAssetCategory, AgentCliDescriptor, AgentCliKind } from "../../stores/provider-types";
 import type { AgentWorkspacePage } from "../../stores/agent-workspace";
-import { agentAssetCategoryLabels, agentAssetStateLabels, agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
+import { agentAssetCategoryLabels, agentAssetStateLabels } from "../../composables/useAgentAssetCatalog";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 import { agentAssetProvisionLabels, agentAssetInstallationLabels } from "../../utils/agent-asset-provenance";
 
 const props = defineProps<{

@@ -30,7 +30,9 @@ watch(
     displayNameDraft.value = props.provider?.identity.displayName ?? "";
     codeDraft.value = "";
   },
-  { flush: "sync" },
+  // 首次打开时组件才按需挂载（visible 已经是 true），必须立即按当前
+  // 中转站预填草稿，否则第一次打开会看到空表单。
+  { flush: "sync", immediate: true },
 );
 
 const modalTitle = computed(() => {

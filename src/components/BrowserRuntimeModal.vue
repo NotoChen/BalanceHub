@@ -173,7 +173,7 @@ function remove() {
         <p>复用所选浏览器程序时只安装 Node.js 和 Playwright 辅助组件；独立模式额外安装 Chromium。下载使用 App 的网络代理。</p>
         <p>各账号使用独立登录环境。普通账号密码或 API Key 的接口请求无需此组件。</p>
         <p>支持 Chromium 系浏览器。Windows 会检查注册表和常见安装路径；macOS 检查应用目录；Linux 检查 PATH 和常见目录。非默认位置可手动指定。</p>
-        <p>Linux 需要图形桌面及 Chromium 系统依赖；Windows ARM64 的独立浏览器依赖系统的 x64 兼容支持。</p>
+        <p>Linux 需要 Chromium 系统依赖，无桌面环境时以无头模式运行；Windows ARM64 的独立浏览器依赖系统的 x64 兼容支持。</p>
         <p>安装和切换均通过启动验证后生效，失败或取消保留原有选择。验证码要求人工操作时由你完成，App 会显示验证错误原因。</p>
       </ContextDetails>
     </div>

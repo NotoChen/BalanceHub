@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+// 静默时段只在设置抽屉里用，和抽屉一起按需加载。
+import { TimePicker as ATimePicker } from "@arco-design/web-vue";
+import "@arco-design/web-vue/es/time-picker/style/css.js";
 import type { NotificationSendResult } from "../../api/app";
 import {
   IconDelete,

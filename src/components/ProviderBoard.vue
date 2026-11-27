@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch, type CSSProperties } from "vue";
+import { computed, defineAsyncComponent, ref, watch, type CSSProperties } from "vue";
 import { storeToRefs } from "pinia";
 import { SearchX, ServerPlus } from "@lucide/vue";
 import ProviderCard from "./ProviderCard.vue";
 import ProviderBoardToolbar from "./ProviderBoardToolbar.vue";
-import ProviderRecommendationModal from "./ProviderRecommendationModal.vue";
+import { useFirstOpenLatch } from "../composables/useFirstOpenLatch";
 import ProviderSectionCards from "./ProviderSectionCards.vue";
 import type {
   CliRuntimeSnapshot,
@@ -74,6 +74,9 @@ const { layout } = storeToRefs(layoutStore);
 const boardRef = ref<HTMLElement | null>(null);
 const activeFilter = ref<ProviderFilter>("all");
 const recommendationVisible = ref(false);
+// 推荐窗口只在用户主动打开时才有用，首次打开后再保持挂载。
+const ProviderRecommendationModal = defineAsyncComponent(() => import("./ProviderRecommendationModal.vue"));
+const recommendationOpened = useFirstOpenLatch(() => recommendationVisible.value);
 const hasSearch = computed(() => Boolean(props.searchQuery.trim()));
 const selectedFilterLabel = computed(() =>
   providerFilters.find((option) => option.value === activeFilter.value)!.label,
@@ -133,8 +136,24 @@ function clearFilters() {
   emit("clearSearch");
 }
 
+/// 卡片按中转站对象挂缓存：后台快照里内容没变的中转站会复用旧对象，
+/// 这里返回同一份数组/计数，子组件的 props 身份不变，整排卡片才会跳过重渲染。
+const providerOrbitCache = new WeakMap<Provider, {
+  cliRuntime: CliRuntimeSnapshot;
+  probe: unknown;
+  orbits: ProviderCardCliOrbitSpec[];
+}>();
+const EMPTY_CLI_COUNTS: Partial<Record<AgentCliKind, number>> = Object.freeze({});
+let activeCliCountsSnapshot: AgentRuntimeSnapshot | null = null;
+let activeCliCountsByProvider = new Map<string, Partial<Record<AgentCliKind, number>>>();
+
 function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
-  return props.cliRuntime.configs
+  const probe = cliStore.cliEnvironmentProbe;
+  const cached = providerOrbitCache.get(provider);
+  if (cached && cached.cliRuntime === props.cliRuntime && cached.probe === probe) {
+    return cached.orbits;
+  }
+  const orbits = props.cliRuntime.configs
     .filter((snapshot) => snapshot.providerId === provider.identity.id)
     .map((snapshot) => {
       const localId = snapshot.apiKeyLocalId?.trim() || "";
@@ -146,18 +165,30 @@ function providerCliOrbits(provider: Provider): ProviderCardCliOrbitSpec[] {
         title: `${agentCliLabel(cliStore.cliEnvironmentProbe, snapshot.cliKind)} 默认：${keyLabel}`,
       });
     });
+  providerOrbitCache.set(provider, { cliRuntime: props.cliRuntime, probe, orbits });
+  return orbits;
+}
+
+// 快照变化时只在整份会话列表上扫一遍，按站点聚合成一次索引；卡片渲染
+// 只做一次 Map 查询，不再为每张卡片重复过滤全部会话。
+function activeCliCountsIndex(snapshot: AgentRuntimeSnapshot) {
+  if (activeCliCountsSnapshot === snapshot) return activeCliCountsByProvider;
+  const index = new Map<string, Partial<Record<AgentCliKind, number>>>();
+  for (const session of activeAgentRuntimeSessions(snapshot)) {
+    if (!isConfirmedAgentRuntimeSession(session)) continue;
+    const providerId = session.provider?.providerId;
+    if (!providerId) continue;
+    const counts = index.get(providerId) ?? {};
+    counts[session.agentKind] = (counts[session.agentKind] || 0) + 1;
+    index.set(providerId, counts);
+  }
+  activeCliCountsSnapshot = snapshot;
+  activeCliCountsByProvider = index;
+  return index;
 }
 
 function providerActiveCliCounts(provider: Provider) {
-  return activeAgentRuntimeSessions(props.agentRuntimeSnapshot).filter(isConfirmedAgentRuntimeSession).reduce<Partial<Record<AgentCliKind, number>>>(
-    (counts, session) => {
-      if (session.provider?.providerId === provider.identity.id) {
-        counts[session.agentKind] = (counts[session.agentKind] || 0) + 1;
-      }
-      return counts;
-    },
-    {},
-  );
+  return activeCliCountsIndex(props.agentRuntimeSnapshot).get(provider.identity.id) ?? EMPTY_CLI_COUNTS;
 }
 
 function providerSwitchingCliKind(provider: Provider) {
@@ -310,6 +341,7 @@ function providerSwitchingCliKind(provider: Provider) {
     />
 
     <ProviderRecommendationModal
+      v-if="recommendationOpened"
       :visible="recommendationVisible"
       :providers="providers"
       @close="recommendationVisible = false"

@@ -23,6 +23,7 @@ import {
   providerUsesApiKeyOption,
 } from "../../utils/provider-display";
 import AgentCliIcon from "../AgentCliIcon.vue";
+import "../../styles/modules/api-key-manager.css";
 
 const props = defineProps<{
   addVisible: boolean;

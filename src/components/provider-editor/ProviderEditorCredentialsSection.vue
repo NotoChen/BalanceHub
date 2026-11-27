@@ -17,6 +17,7 @@ import ProviderAuthIcon from "../ProviderAuthIcon.vue";
 import ProviderCredentialFields from "./ProviderCredentialFields.vue";
 import ProviderApiKeyVault from "./ProviderApiKeyVault.vue";
 import { supportsCommand } from "../../composables/useHostCapabilities";
+import "../../styles/modules/surfaces/provider-auth.css";
 
 const loginAccounts = inject(LOGIN_ACCOUNTS_CONTEXT);
 /// 浏览器登录需要本机浏览器组件；没有它的宿主不展示这条入口。

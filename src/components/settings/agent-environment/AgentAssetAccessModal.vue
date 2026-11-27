@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { agentAssetAccessRiskLabels, type AgentAssetAccessConfirmation } from "../../../composables/useAgentAssetConsole";
+import { type AgentAssetAccessConfirmation } from "../../../composables/useAgentAssetConsole";
+import { agentAssetAccessRiskLabels } from "../../../utils/agent-asset-labels";
 
 defineProps<{ confirmation: AgentAssetAccessConfirmation | null }>();
 const emit = defineEmits<{ close: []; confirm: [] }>();

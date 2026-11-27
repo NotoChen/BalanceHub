@@ -10,6 +10,19 @@ import type {
 import { getCpaAccountQuota } from "../../api/oauth-accounts";
 import { quotaNumber, quotaPercent, quotaResetLabel } from "../../utils/oauth-display";
 
+/// 额度行可能很多，币种只有配置里出现的几种；同一币种复用格式化器。
+const currencyFormats = new Map<string, Intl.NumberFormat>();
+
+function currencyFormat(currency: string) {
+  const cached = currencyFormats.get(currency);
+  if (cached) return cached;
+  const formatter = new Intl.NumberFormat("zh-CN", { style: "currency", currency });
+  // 币种字符串来自站点配置；超出常见范围时整体清空，异常配置不会无限占用内存。
+  if (currencyFormats.size >= 8) currencyFormats.clear();
+  currencyFormats.set(currency, formatter);
+  return formatter;
+}
+
 const props = defineProps<{
   provider: Provider;
   account: CpaAccountSummary;
@@ -78,10 +91,7 @@ function bucketLabel(bucket: CpaQuotaBucket) {
 function metricValue(value: number, unit: string, format: string, currency: string) {
   if (format === "currency" && currency) {
     try {
-      return new Intl.NumberFormat("zh-CN", {
-        style: "currency",
-        currency,
-      }).format(value);
+      return currencyFormat(currency).format(value);
     } catch {
       return quotaNumber(value);
     }

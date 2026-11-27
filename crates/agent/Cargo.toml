@@ -1,6 +1,6 @@
 [package]
 name = "balancehub-agent"
-version = "0.6.15"
+version = "0.6.16"
 description = "BalanceHub 的 Agent CLI、会话与本机工具能力；桌面与无界面后端共用。"
 authors = ["NotoChen <46807914+NotoChen@users.noreply.github.com>"]
 edition = "2021"
@@ -18,6 +18,9 @@ yaml-edit = "0.3"
 rusqlite = { version = "0.32", features = ["bundled", "hooks"] }
 toml = "0.8"
 toml_edit = "0.20"
+# 配置编辑器的格式化在原生侧完成：`@taplo/lib` 把 WASM 内嵌成 34MB 的 JS，
+# 只为格式化一次 TOML 就拖慢整套前端资源。
+taplo = { version = "0.14", default-features = false }
 getrandom = "0.3"
 semver = "1"
 regex = "1"

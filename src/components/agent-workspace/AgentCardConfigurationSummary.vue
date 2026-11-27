@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IconFile } from "@arco-design/web-vue/es/icon";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import { agentConfigurationFileLabel, agentConfigurationOpenAction, agentConfigurationReadOnlyReason, agentConfigurationSourceStatus } from "../../utils/agent-configuration-display";
 import type { AgentConfigurationSnapshot, AgentConfigurationSource } from "../../stores/agent-configuration-types";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = withDefaults(defineProps<{
   label: string;

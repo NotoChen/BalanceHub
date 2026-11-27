@@ -2,7 +2,7 @@
 use super::LoginCredentials;
 use crate::{
     adapters::browser::BrowserSession,
-    models::{AppSettings, CheckInError, CheckInPhase, Provider},
+    models::{AppSettings, CheckInError, CheckInPhase, LoginAccount, Provider},
     network,
     services::{
         browser_profiles::{self, ProfileKey},
@@ -38,7 +38,7 @@ pub async fn run(
     }
     let progress_task = task.clone();
     let progress = Arc::new(move |phase: CheckInPhase| progress_task.phase(phase));
-    let attempt = relogin(
+    let attempt = login(
         settings,
         provider,
         account_id,
@@ -47,22 +47,27 @@ pub async fn run(
         progress,
         interactive.then_some(task),
     );
-    if interactive {
-        attempt.await
+    let pending = if interactive {
+        attempt.await?
     } else {
         // Scheduled work must not sit behind another task's browser profile
         // forever. The browser request itself is bounded to 90s; this outer
         // bound also covers the profile lease and runtime acquisition.
         tokio::time::timeout(Duration::from_secs(150), attempt)
             .await
-            .unwrap_or(Err(CheckInError::WaitingLogin))
-    }
+            .unwrap_or(Err(CheckInError::WaitingLogin))?
+    };
+    // Saving stays outside the browser timeout: the local transaction cannot
+    // be interrupted, and dropping the future mid-save would persist new
+    // credentials while the task reports that nothing was confirmed.
+    task.phase(CheckInPhase::Saving);
+    pending.save().await
 }
 
-/// The one place that turns a browser profile back into a saved relay session.
-/// Check-in and refresh-triggered reauthentication only differ in whether they
-/// keep a window and how they report progress; data and safety rules stay here.
-pub(super) async fn relogin(
+/// The browser half of the login flow. It returns the fresh session without
+/// writing it, so callers can keep cancellation and timeouts on the browser
+/// phase only and let `PendingLogin::save` finish unopposed.
+pub(super) async fn login(
     settings: &AppSettings,
     provider: &Provider,
     account_id: &str,
@@ -70,7 +75,7 @@ pub(super) async fn relogin(
     timeout_ms: u64,
     progress: Arc<dyn Fn(CheckInPhase) + Send + Sync>,
     attach: Option<&CheckInContext>,
-) -> Result<Provider, CheckInError> {
+) -> Result<PendingLogin, CheckInError> {
     let service = ProviderService::new();
     let account = service.login_account(account_id)?;
     let _profile = browser_profiles::acquire(ProfileKey::Account(account_id.into())).await?;
@@ -105,7 +110,6 @@ pub(super) async fn relogin(
     let submitted = Arc::new(AtomicBool::new(false));
     let progress_submitted = submitted.clone();
     let progress_session = progress.clone();
-    let _progress_app = crate::host::current();
     let mut session = BrowserSession::spawn(
         &runtime.directory,
         Arc::new(move |phase| {
@@ -138,15 +142,35 @@ pub(super) async fn relogin(
     let credentials =
         LoginCredentials::parse(value).map_err(|error| login_error(error.into(), true))?;
     ensure_current().map_err(|error| login_error(error.into(), true))?;
-    progress(CheckInPhase::Saving);
-    service
-        .save_check_in_login(provider.clone(), credentials, account)
-        .await
-        .map_err(|error| {
-            CheckInError::Unconfirmed(format!(
-                "重新登录已返回，但结果未保存：{error}；请查看站点记录，已停止自动重试"
-            ))
-        })
+    Ok(PendingLogin {
+        service,
+        provider: provider.clone(),
+        account,
+        credentials,
+    })
+}
+
+/// A confirmed fresh session that only remains to be written to the card.
+/// Saving is deliberately a separate step: once the browser returned the
+/// credentials, no cancellation or timeout may drop the transaction.
+pub(super) struct PendingLogin {
+    service: ProviderService,
+    provider: Provider,
+    account: LoginAccount,
+    credentials: LoginCredentials,
+}
+
+impl PendingLogin {
+    pub(super) async fn save(self) -> Result<Provider, CheckInError> {
+        self.service
+            .save_check_in_login(self.provider, self.credentials, self.account)
+            .await
+            .map_err(|error| {
+                CheckInError::Unconfirmed(format!(
+                    "重新登录已返回，但结果未保存：{error}；请查看站点记录，已停止自动重试"
+                ))
+            })
+    }
 }
 
 fn login_error(error: CheckInError, submitted: bool) -> CheckInError {
@@ -168,9 +192,9 @@ fn automatic_login_error(error: CheckInError, submitted: bool, interactive: bool
     }
     match error {
         CheckInError::WaitingHuman | CheckInError::WaitingLogin => CheckInError::WaitingLogin,
-        CheckInError::Failed(message) if message.contains("等待超时") => {
-            CheckInError::WaitingLogin
-        }
+        // 无头重新登录在时限内没等到登录会话：站点没有失败，只是需要人工
+        // 完成一次登录或验证。停回可继续的状态，不消耗自动重试预算。
+        CheckInError::LoginTimeout(_) => CheckInError::WaitingLogin,
         other => other,
     }
 }
@@ -207,8 +231,30 @@ mod tests {
             CheckInError::WaitingLogin
         ));
         assert!(matches!(
-            automatic_login_error("重新登录等待超时".into(), false, false),
+            automatic_login_error(
+                CheckInError::LoginTimeout("重新登录等待超时".into()),
+                false,
+                false
+            ),
             CheckInError::WaitingLogin
+        ));
+        // 文案里出现「等待超时」的普通失败不再被当成可继续的登录等待。
+        assert!(matches!(
+            automatic_login_error(
+                CheckInError::Failed("站点返回：请求等待超时，请稍后重试".into()),
+                false,
+                false
+            ),
+            CheckInError::Failed(_)
+        ));
+        // 手动登录的等待超时是失败提示，不改成等待人工。
+        assert!(matches!(
+            automatic_login_error(
+                CheckInError::LoginTimeout("登录等待超时".into()),
+                false,
+                true
+            ),
+            CheckInError::LoginTimeout(_)
         ));
         assert!(matches!(
             automatic_login_error(CheckInError::WaitingHuman, true, false),

@@ -3,7 +3,6 @@
 mod window;
 use crate::{
     adapters::browser::BrowserWindowControl,
-    app_events::PROVIDERS_CHANGED_EVENT,
     models::{
         provider_domain, CheckInBatch, CheckInError, CheckInPhase, CheckInSource, CheckInTask,
         NotificationEvent, Provider,
@@ -14,8 +13,10 @@ use crate::{
     },
     util::unix_millis,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex, OnceLock,
@@ -27,6 +28,12 @@ use tokio::sync::{watch, Semaphore};
 const EVENT: &str = "balancehub://check-in-task";
 static REVISION: AtomicU64 = AtomicU64::new(0);
 static RUNS: OnceLock<Mutex<HashMap<String, Run>>> = OnceLock::new();
+/// 结果未确认的提交必须跨重启保留：任务表只在内存里，用户看到“已停止自动
+/// 重试”后退出再打开，调度器不能把可能已经发出的登录/签到再提交一次。
+const UNCERTAIN_FILE: &str = "check-in-uncertain.json";
+const UNCERTAIN_MAX_BYTES: usize = 512 * 1024;
+const UNCERTAIN_MAX_ENTRIES: usize = 128;
+static UNCERTAIN: OnceLock<Mutex<Vec<UncertainSubmission>>> = OnceLock::new();
 pub(super) static HTTP_SLOTS: Semaphore = Semaphore::const_new(6);
 pub use window::show as show_window;
 
@@ -39,6 +46,17 @@ struct Run {
     context: ProviderRequestContext,
     automatic_attempt: u32,
     window: Option<BrowserWindowControl>,
+}
+
+/// 一次可能已提交、但结果未确认的签到。按站点 ID 和登录账号双重匹配，
+/// 与进程内的 `blocks_automatic` 保持同一判断口径。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UncertainSubmission {
+    provider_id: String,
+    account_key: String,
+    /// 本地日期（YYYY-MM-DD）。跨天后不再阻止新一天的自动签到。
+    date: String,
 }
 
 #[derive(Clone)]
@@ -101,6 +119,81 @@ fn account_key(provider: &Provider) -> String {
     )
 }
 
+fn uncertain_path() -> Option<std::path::PathBuf> {
+    crate::host::data_dir_optional().map(|directory| directory.join(UNCERTAIN_FILE))
+}
+
+fn load_uncertain(path: Option<&Path>, date: &str) -> Vec<UncertainSubmission> {
+    let Some(path) = path else {
+        return Vec::new();
+    };
+    if !path.exists() {
+        return Vec::new();
+    }
+    match crate::util::read_text_file_limited(path, UNCERTAIN_MAX_BYTES, "读取未确认的签到提交")
+        .and_then(|text| {
+            serde_json::from_str::<Vec<UncertainSubmission>>(&text)
+                .map_err(|error| format!("解析未确认的签到提交失败：{error}"))
+        }) {
+        Ok(mut entries) => {
+            entries.retain(|entry| entry.date == date);
+            entries.truncate(UNCERTAIN_MAX_ENTRIES);
+            entries
+        }
+        Err(error) => {
+            log::warn!("{error}；本次启动按无未确认提交处理");
+            Vec::new()
+        }
+    }
+}
+
+fn save_uncertain(path: Option<&Path>, entries: &[UncertainSubmission]) {
+    let Some(path) = path else {
+        return;
+    };
+    // cache::write 只接收 Sized 值；当天最多几条未确认记录，复制一次
+    // 不构成负担。
+    if let Err(error) = crate::util::cache::write(path, &entries.to_vec()) {
+        log::warn!("保存未确认的签到提交失败：{error}");
+    }
+}
+
+fn uncertain_store() -> &'static Mutex<Vec<UncertainSubmission>> {
+    UNCERTAIN.get_or_init(|| Mutex::new(load_uncertain(uncertain_path().as_deref(), &today())))
+}
+
+fn remember_uncertain_submission(provider_id: &str, account_key: &str, date: &str) {
+    let Ok(mut entries) = uncertain_store().lock() else {
+        return;
+    };
+    entries.retain(|entry| entry.date == date);
+    let recorded = entries
+        .iter()
+        .any(|entry| entry.provider_id == provider_id && entry.account_key == account_key);
+    if !recorded {
+        if entries.len() >= UNCERTAIN_MAX_ENTRIES {
+            entries.remove(0);
+        }
+        entries.push(UncertainSubmission {
+            provider_id: provider_id.to_string(),
+            account_key: account_key.to_string(),
+            date: date.to_string(),
+        });
+    }
+    save_uncertain(uncertain_path().as_deref(), &entries);
+}
+
+fn uncertain_blocks(
+    entries: &[UncertainSubmission],
+    provider_id: &str,
+    account_key: &str,
+    date: &str,
+) -> bool {
+    entries.iter().any(|entry| {
+        entry.date == date && (entry.provider_id == provider_id || entry.account_key == account_key)
+    })
+}
+
 fn blocks_automatic(run: &Run, provider: &Provider, date: &str) -> bool {
     run.date == date
         && (run.task.provider_id == provider.identity.id
@@ -113,11 +206,28 @@ fn blocks_automatic(run: &Run, provider: &Provider, date: &str) -> bool {
 }
 
 pub fn automatic_pending(provider: &Provider) -> bool {
-    runs()
+    let date = today();
+    let blocked_in_process = runs()
         .lock()
         .map(|runs| {
             runs.values()
-                .any(|run| blocks_automatic(run, provider, &today()))
+                .any(|run| blocks_automatic(run, provider, &date))
+        })
+        .unwrap_or(true);
+    if blocked_in_process {
+        return true;
+    }
+    // 进程重启后任务表为空，但“可能已提交”的事实仍在：持久记录继续挡住
+    // 当天的自动重试。用户手动签到不受影响。
+    uncertain_store()
+        .lock()
+        .map(|entries| {
+            uncertain_blocks(
+                &entries,
+                &provider.identity.id,
+                &account_key(provider),
+                &date,
+            )
         })
         .unwrap_or(true)
 }
@@ -364,7 +474,7 @@ fn set_phase(task: &mut CheckInTask, phase: CheckInPhase, message: String, execu
 }
 
 fn publish(id: &str, phase: CheckInPhase, message: String, executing: bool) {
-    let task = {
+    let (task, uncertain) = {
         let Ok(mut runs) = runs().lock() else {
             return;
         };
@@ -380,8 +490,19 @@ fn publish(id: &str, phase: CheckInPhase, message: String, executing: bool) {
         if !executing {
             run.window = None;
         }
-        run.task.clone()
+        // 文件写入放在任务表锁之外，避免一次磁盘操作拖住其他任务的状态。
+        let uncertain = (phase == CheckInPhase::Unconfirmed).then(|| {
+            (
+                run.task.provider_id.clone(),
+                run.account_key.clone(),
+                run.date.clone(),
+            )
+        });
+        (run.task.clone(), uncertain)
     };
+    if let Some((provider_id, account_key, date)) = uncertain {
+        remember_uncertain_submission(&provider_id, &account_key, &date);
+    }
     crate::host::emit(EVENT, task);
 }
 
@@ -465,12 +586,15 @@ fn spawn(task: CheckInTask, mut cancelled: watch::Receiver<bool>, interactive: b
                 CheckInPhase::WaitingLogin.message().to_string(),
             ),
             Err(CheckInError::WaitingBrowser(message)) => (CheckInPhase::WaitingBrowser, message),
+            Err(CheckInError::LoginTimeout(message)) => (CheckInPhase::Failed, message),
             Err(CheckInError::Cancelled(message)) => (CheckInPhase::Cancelled, message),
             Err(CheckInError::Unconfirmed(message)) => (CheckInPhase::Unconfirmed, message),
             Err(CheckInError::Failed(message)) => (CheckInPhase::Failed, message),
         };
         publish(&task.run_id, phase, message.clone(), false);
-        crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+        // 一次签到只影响这一个站点：带上 id 让前端只补这张卡片，批量签到
+        // 时不必每完成一个站点就重读整份配置。
+        crate::app_events::emit_providers_changed(std::slice::from_ref(&task.provider_id));
         crate::host::refresh_tray();
         // 定时签到停在等待阶段时，界面上的任务中心可能在托盘或后台，
         // 用户不会主动发现。只在无窗口的自动尝试上提醒一次；用户继续
@@ -682,5 +806,74 @@ mod tests {
         assert!(CheckInSource::Manual.allows_interaction());
         assert!(CheckInSource::Batch.allows_interaction());
         assert!(!CheckInSource::Automatic.allows_interaction());
+    }
+
+    #[test]
+    fn an_uncertain_submission_blocks_the_same_site_and_account_after_a_restart() {
+        let mut first = Provider::from_input(ProviderInput::default(), "first".to_string());
+        first.auth.api_user = "42".to_string();
+        let mut duplicate = first.clone();
+        duplicate.identity.id = "duplicate".to_string();
+        let date = "2026-07-10";
+        let entries = vec![UncertainSubmission {
+            provider_id: first.identity.id.clone(),
+            account_key: account_key(&first),
+            date: date.to_string(),
+        }];
+        // 重启后内存任务已清空，持久记录仍按站点 ID 或同一登录账号挡住自动重试。
+        assert!(uncertain_blocks(
+            &entries,
+            &first.identity.id,
+            "rewritten-key",
+            date
+        ));
+        assert!(uncertain_blocks(
+            &entries,
+            &duplicate.identity.id,
+            &account_key(&duplicate),
+            date
+        ));
+        assert!(!uncertain_blocks(
+            &entries,
+            &duplicate.identity.id,
+            &account_key(&duplicate),
+            "2026-07-11"
+        ));
+        let mut other = duplicate.clone();
+        other.identity.id = "other".to_string();
+        other.auth.api_user = "43".to_string();
+        assert!(!uncertain_blocks(
+            &entries,
+            &other.identity.id,
+            &account_key(&other),
+            date
+        ));
+    }
+
+    #[test]
+    fn uncertain_submissions_round_trip_and_expire_with_the_local_date() {
+        let directory = std::env::temp_dir().join(format!(
+            "balancehub-uncertain-{}-{}",
+            std::process::id(),
+            unix_millis()
+        ));
+        let path = directory.join(UNCERTAIN_FILE);
+        let entry = UncertainSubmission {
+            provider_id: "fixture".to_string(),
+            account_key: "fixture-key".to_string(),
+            date: "2026-07-10".to_string(),
+        };
+        save_uncertain(Some(&path), std::slice::from_ref(&entry));
+        let restored = load_uncertain(Some(&path), "2026-07-10");
+        assert_eq!(restored, vec![entry.clone()]);
+        assert!(uncertain_blocks(
+            &restored,
+            &entry.provider_id,
+            &entry.account_key,
+            "2026-07-10"
+        ));
+        // 新的一天不能继承昨天的抑制；加载时顺手丢掉过期记录。
+        assert!(load_uncertain(Some(&path), "2026-07-11").is_empty());
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }

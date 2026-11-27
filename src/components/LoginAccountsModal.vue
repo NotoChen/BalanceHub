@@ -29,7 +29,8 @@ watch(current, (value) => {
   cookiesOpen.value = false; cookieScope.value++;
 });
 watch(() => accounts?.visible.value, () => { adding.value = false; cookiesOpen.value = false; cookieScope.value++; });
-const formatTime = (value: number | null) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "尚无记录";
+const timeFormat = new Intl.DateTimeFormat("zh-CN", { hour12: false });
+const formatTime = (value: number | null) => value ? timeFormat.format(new Date(value)) : "尚无记录";
 
 function add() { if (!accounts) return; accounts.selectedId.value = ""; name.value = ""; platform.value = "linuxDo"; adding.value = true; }
 function remove(removeEntry: boolean) {

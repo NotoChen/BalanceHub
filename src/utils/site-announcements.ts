@@ -136,17 +136,19 @@ function buildSections(
     }));
 }
 
+const announcementTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 export function formatSiteAnnouncementDateTime(value: string | null) {
   const timestamp = siteAnnouncementTimestamp(value);
   if (!timestamp) return value || "时间未提供";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(timestamp));
+  return announcementTimeFormat.format(new Date(timestamp));
 }
 
 /**

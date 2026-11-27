@@ -15,7 +15,14 @@
   }, BOOT_TIMEOUT_MS);
 
   function bootShell() {
-    return document.getElementById("boot-shell");
+    var shell = document.getElementById("boot-shell");
+    if (shell) return shell;
+    // index.html 被替换或占位节点缺失时也要能显示错误，不能退回白屏。
+    if (!document.body) return null;
+    shell = document.createElement("div");
+    shell.id = "boot-shell";
+    document.body.insertBefore(shell, document.body.firstChild);
+    return shell;
   }
 
   function clearTimer() {
@@ -84,6 +91,18 @@
       if (internals && typeof internals.invoke === "function") {
         internals
           .invoke("log_frontend_error", { message: title + "：" + detail })
+          .catch(function () {});
+      } else if (typeof window.fetch === "function") {
+        // 浏览器版由服务端提供页面；同样把启动失败写进服务端日志。
+        window
+          .fetch("/rpc", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              command: "log_frontend_error",
+              args: { message: title + "：" + detail },
+            }),
+          })
           .catch(function () {});
       }
     } catch (error) {

@@ -4,10 +4,10 @@ import type { AgentInstructionSet } from "../../api/agent-instructions";
 import type { WslDistribution } from "../../api/agent-wsl";
 import type { AgentCliDescriptor, AgentCliKind } from "../../stores/provider-types";
 import type { AgentConfigurationSource } from "../../stores/agent-configuration-types";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import { agentConfigurationSourceStatus } from "../../utils/agent-configuration-display";
 import AgentCliIcon from "../AgentCliIcon.vue";
 import ContextDetails from "../ContextDetails.vue";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{
   set: AgentInstructionSet | null;

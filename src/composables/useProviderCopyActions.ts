@@ -4,7 +4,8 @@ import { copyText } from "./useClipboard";
 
 interface UseProviderCopyActionsOptions {
   getInviteLink: (id: string) => Promise<string>;
-  reload: () => Promise<unknown>;
+  /// 只补这张卡片的视图；邀请链接落在中转站视图上，不需要重读整份配置。
+  reload: (providerId: string) => Promise<unknown>;
   setBusyProviderId: (id: string | null) => void;
 }
 
@@ -66,7 +67,7 @@ export function useProviderCopyActions(options: UseProviderCopyActionsOptions) {
       // 说成失败，否则用户会以为没复制而重复操作。
       Message.success("已复制邀请链接");
       try {
-        await options.reload();
+        await options.reload(provider.identity.id);
       } catch (error) {
         Message.warning(
           `邀请链接已复制，但列表刷新失败：${error instanceof Error ? error.message : String(error)}`,

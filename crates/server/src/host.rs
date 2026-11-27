@@ -163,8 +163,14 @@ impl Host for ServerHost {
     }
 
     fn app_data_changed(&self, previous: &AppData, next: &AppData) {
+        // 未启用自动同步时没有 worker 消费变更：跳过两份完整投影比较，
+        // 避免每次落盘都在配置写锁内做一次无意义的全量序列化。
+        let signal = balancehub_core::services::cloud_sync::signal();
+        if !signal.enabled() {
+            return;
+        }
         if balancehub_core::services::cloud_sync::app_changed(previous, next) {
-            balancehub_core::services::cloud_sync::signal().changed();
+            signal.changed();
         }
     }
 

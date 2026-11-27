@@ -5,6 +5,8 @@ import type {
 } from "../api/model-catalog";
 import type { ProviderGroupPricing } from "../stores/provider-types";
 
+const tokenCountFormat = new Intl.NumberFormat("zh-CN");
+
 /** 金额按量级保留有效位，避免 $0.04 被显示成 $0.0400 或 $0.0000。 */
 export function formatModelPrice(value: number): string {
   if (!Number.isFinite(value)) return "—";
@@ -195,9 +197,9 @@ export function modelPriceComparison(
 
 function tierRange(tier: ModelPriceTier): string {
   if (tier.label) return tier.label;
-  const min = tier.minTokens.toLocaleString();
+  const min = tokenCountFormat.format(tier.minTokens);
   return tier.maxTokens != null
-    ? `${min}–${tier.maxTokens.toLocaleString()} token`
+    ? `${min}–${tokenCountFormat.format(tier.maxTokens)} token`
     : `>${min} token`;
 }
 

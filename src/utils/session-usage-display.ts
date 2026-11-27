@@ -1,7 +1,10 @@
 import type { SessionUsageSummary } from "../stores/session-usage-types";
 
+const countFormat = new Intl.NumberFormat("zh-CN");
+const costFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
+
 export function usageCount(value: number | null | undefined) {
-  return value == null ? "未知" : value.toLocaleString("zh-CN");
+  return value == null ? "未知" : countFormat.format(value);
 }
 
 export function usageTokenTotal(tokens: SessionUsageSummary["tokens"]) {
@@ -28,7 +31,7 @@ export function usageCostValue(
 ) {
   if (micros == null) return records ? "价格未知" : "无用量";
   const value = micros / 1_000_000;
-  return `$${value.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
+  return `$${costFormat.format(value)}`;
 }
 
 export function usageCostLabel(usage: SessionUsageSummary) {

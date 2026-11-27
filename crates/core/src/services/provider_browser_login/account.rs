@@ -66,18 +66,18 @@ pub fn start_account(id: String, authorizations: bool) -> Result<ProviderBrowser
             .await
             .unwrap_or_else(|_| {
                 log::error!("账号窗口任务异常退出（{run_id}）");
-                Err("账号窗口异常退出，请重新打开".to_string())
+                Err(LoginError::failed("账号窗口异常退出，请重新打开"))
             });
         match result {
             Ok(()) => publish(&run_id, "completed", "账号窗口已关闭，本地登录状态已保存"),
-            Err(message) => publish(
+            Err(error) => publish(
                 &run_id,
-                if message.contains("取消") {
+                if error.is_cancelled() {
                     "cancelled"
                 } else {
                     "failed"
                 },
-                &message,
+                error.message(),
             ),
         }
     });
@@ -89,14 +89,14 @@ async fn run_account(
     account: LoginAccount,
     url: &str,
     mut cancelled: watch::Receiver<bool>,
-) -> Result<(), String> {
+) -> Result<(), LoginError> {
     let _slot = tokio::select! {
         biased;
-        _ = cancelled.changed() => return Err("账号窗口已取消".into()),
+        _ = cancelled.changed() => return Err(LoginError::cancelled("账号窗口已取消")),
         slot = browser_profiles::acquire(ProfileKey::Account(account.id.clone())) => slot?,
     };
     if *cancelled.borrow() {
-        return Err("账号窗口已取消".into());
+        return Err(LoginError::cancelled("账号窗口已取消"));
     }
     let account = ProviderService::new().check_login_account(&account)?;
     let runtime = browser_runtime::acquire().await?;
@@ -111,7 +111,6 @@ async fn run_account(
         .browser(&reqwest::Url::parse(url).map_err(|_| "平台地址无效")?)?;
     let profile = crate::services::login_profiles::directory(&account.id)?;
     publish(run_id, "opening", "正在打开所选账号的独立窗口");
-    let _progress_app = crate::host::current();
     let progress_id = run_id.to_string();
     let mut session = BrowserSession::spawn(
         &runtime.directory,
@@ -128,9 +127,9 @@ async fn run_account(
     attach_window(run_id, session.window_control())?;
     let result = tokio::select! {
         biased;
-        _ = cancelled.changed() => Err("账号窗口已取消，本地登录状态已保留".to_string()),
+        _ = cancelled.changed() => Err(LoginError::cancelled("账号窗口已取消，本地登录状态已保留")),
         result = session.request("account", json!({ "url": url, "accountName": account.name, "profileDir": profile,
-            "proxy": proxy, "executablePath": runtime.browser, "expectedPlatform": account.platform, "expectedIdentity": account.identity, "timeoutMs": 600_000 })) => result.map(|_| ()).map_err(|e| e.to_string()),
+            "proxy": proxy, "executablePath": runtime.browser, "expectedPlatform": account.platform, "expectedIdentity": account.identity, "timeoutMs": 600_000 })) => result.map(|_| ()).map_err(LoginError::from),
     };
     session.close().await;
     ProviderService::new().record_login_account(&account)?;

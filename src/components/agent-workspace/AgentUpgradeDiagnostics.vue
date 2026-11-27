@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref } from "vue";
 import type { AgentLifecycleOperation } from "../../stores/agent-lifecycle-types";
-import { agentAssetOperationPhaseLabels } from "../../composables/useAgentAssetConsole";
+import { agentAssetOperationPhaseLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{ operation: AgentLifecycleOperation }>();
 const now = ref(Date.now());

@@ -125,6 +125,9 @@ before(async () => {
     server.ssrLoadModule("/src/stores/agent-environment.ts"), server.ssrLoadModule("/src/stores/agent-lifecycle.ts"),
     server.ssrLoadModule("/src/stores/workspaces.ts"), server.ssrLoadModule("/src/stores/cli-runtime.ts"),
   ]) as [NavigationModule, CatalogModule, EnvironmentModule, LifecycleModule, WorkspaceModule, CliModule];
+  // 工作台面板是首次进入时动态 import 的；先预热模块图，避免首个断言
+  // 与 Vite 的异步转换竞速，测试只关心面板挂载后的请求行为。
+  await Promise.all([...componentFiles].filter((file) => file !== dashboardFile).map((file) => server.ssrLoadModule(file)));
   Dashboard = (await server.ssrLoadModule(dashboardFile)).default as Component;
 });
 
@@ -179,7 +182,9 @@ function deferred<T>(): Deferred<T> {
   const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
   return { promise, resolve, reject };
 }
-async function settle() { for (let index = 0; index < 24; index += 1) { await Promise.resolve(); await nextTick(); } }
+/// 会话面板是首次进入时才加载的异步组件：动态 import 要经过 Vite 的
+/// 模块转换（真实文件 I/O），只让出微任务不够，必须给事件循环机会。
+async function settle() { for (let index = 0; index < 24; index += 1) { await Promise.resolve(); await new Promise((resolve) => setImmediate(resolve)); await nextTick(); } }
 
 function mountDashboard(t: TestContext, options: { visible?: boolean; firstReply?: Deferred<AgentSessionCounts> } = {}) {
   queries.length = 0; scopeRequests.length = 0; countRequests.length = 0; cancellations.length = 0; replies.length = 0; unexpected.length = 0; listeners.clear();

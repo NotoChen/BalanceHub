@@ -19,7 +19,9 @@ impl BackgroundState {
             wake: tokio::sync::Notify::new(),
             catalog: Mutex::default(),
             catalog_gate: tokio::sync::Mutex::new(()),
-            revision: AtomicU64::new(0),
+            // 浏览器版前端会跨后端重启一直开着：目录版本号从墙钟毫秒起步，
+            // 重启后发布的目录才大于前端记下的高水位，不会被当成旧快照丢弃。
+            revision: AtomicU64::new(crate::util::unix_millis().min(u64::MAX as u128) as u64),
             installation_dirty: AtomicBool::new(false),
             attached: std::sync::atomic::AtomicBool::new(false),
         }

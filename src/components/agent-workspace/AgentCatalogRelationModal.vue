@@ -7,9 +7,9 @@ import ContentChange from "../ContentChange.vue";
 import ContextDetails from "../ContextDetails.vue";
 import type { AgentCatalogRelationPreview, AgentCatalogRelationCapability, AgentCatalogRelationIntent } from "../../stores/agent-catalog-types";
 import type { AgentCliDescriptor } from "../../stores/provider-types";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import { agentAssetProvenanceLabel } from "../../utils/agent-asset-provenance";
 import { agentCatalogRelationActionLabels } from "../../utils/agent-catalog-display";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{ visible: boolean; preview: AgentCatalogRelationPreview | null; intent: AgentCatalogRelationIntent | null; agents: AgentCliDescriptor[]; loading: boolean; error: string; expired: boolean; canConfirm: boolean; canBack: boolean }>();
 const emit = defineEmits<{ close: []; retry: []; back: []; choose: [capability: AgentCatalogRelationCapability]; confirm: [] }>();

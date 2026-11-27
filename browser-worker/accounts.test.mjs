@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountBrowser, IdentityProfile, identityPlatform } from "./accounts.mjs";
@@ -49,6 +49,29 @@ test("restoring session-only cookies never overwrites a more recent Chromium coo
     await profile.restore({ cookies: async () => [{ ...cookie, value: "rotated" }], addCookies: async (value) => { restored = value; } });
     assert.equal(restored.length, 1);
     assert.equal(restored[0].name, "session-only");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("an unchanged identity cookie jar is not rewritten on every account poll", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "balancehub-profile-save-"));
+  try {
+    const cookie = { name: "user_session", value: "fixture", domain: "idp.test", path: "/", expires: -1 };
+    let cookies = [cookie];
+    const context = { cookies: async () => cookies };
+    const profile = new IdentityProfile(directory);
+    const file = join(directory, "identity-cookies.json");
+    await profile.save(context);
+    const before = await stat(file, { bigint: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await profile.save(context);
+    const unchanged = await stat(file, { bigint: true });
+    assert.equal(unchanged.mtimeNs, before.mtimeNs, "an unchanged jar must not be rewritten");
+
+    cookies = [{ ...cookie, value: "rotated" }];
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await profile.save(context);
+    const saved = JSON.parse(await readFile(file, "utf8"));
+    assert.equal(saved[0].value, "rotated", "a rotated cookie must still be persisted");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

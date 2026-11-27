@@ -1,7 +1,6 @@
 use crate::services::check_in_tasks::{CheckInContext, HTTP_SLOTS};
 use crate::{
     adapters::protocol::ProtocolAdapter,
-    app_events::PROVIDERS_CHANGED_EVENT,
     models::{
         check_in_message_indicates_disabled, provider_domain, AppSettings, CheckInError,
         CheckInPhase, Provider, ProviderCheckInRecord, ProviderCheckInRecordsResult,
@@ -181,10 +180,12 @@ impl ProviderService {
     /// background after the result is saved.
     fn refresh_after_browser_check_in(&self, id: String) {
         crate::runtime::spawn(async move {
-            let _ = ProviderService::new().refresh_by_ids(vec![id]).await;
+            let _ = ProviderService::new()
+                .refresh_by_ids(vec![id.clone()])
+                .await;
             // refresh_by_ids 不广播事件，而签到终态事件在刷新完成之前就已
             // 发出；不在这里补一次，卡片会一直显示签到前的余额和状态。
-            crate::host::emit(PROVIDERS_CHANGED_EVENT, ());
+            crate::app_events::emit_providers_changed(std::slice::from_ref(&id));
         });
     }
 

@@ -7,7 +7,7 @@ import { useAgentConfigurationStore } from "../stores/agent-configuration";
 import { useAgentMaintenanceStore } from "../stores/agent-maintenance";
 import { useCliRuntimeStore } from "../stores/cli-runtime";
 import { useAgentWorkspaceStore } from "../stores/agent-workspace";
-import { agentAssetOperationOutcomeLabels, agentAssetOperationPhaseLabels } from "./useAgentAssetConsole";
+import { agentAssetOperationPhaseLabels, agentAssetOperationOutcomeLabels } from "../utils/agent-asset-labels";
 import type { BackgroundTask, BackgroundTaskStatus } from "./useBackgroundTaskCenter";
 import type { AgentAssetOperationOutcome } from "../stores/provider-types";
 import { agentCatalogActionLabels, agentCatalogOperationDetail, agentCatalogRelationActionLabels } from "../utils/agent-catalog-display";

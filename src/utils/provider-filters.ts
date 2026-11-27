@@ -85,13 +85,15 @@ export function countProviderFilters(
 }
 
 /** Search only user-visible provider metadata; credentials are intentionally excluded. */
-export function providerMatchesSearch(provider: Provider, query: string) {
-  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) {
-    return true;
-  }
+/// 搜索字段的规范化结果按 provider 对象缓存。输入每个字符都会重新过滤全部
+/// 卡片，模型列表动辄上百项；逐键重新 trim + 小写所有字段是纯浪费。运行期
+/// 更新会整体替换 provider 对象，WeakMap 不会留下过期副本，也不阻止回收。
+const searchableFieldCache = new WeakMap<Provider, string[]>();
 
-  const searchableFields = [
+function searchableProviderFields(provider: Provider): string[] {
+  const cached = searchableFieldCache.get(provider);
+  if (cached) return cached;
+  const fields = [
     provider.identity.name,
     provider.identity.remark,
     provider.identity.displayName,
@@ -120,7 +122,17 @@ export function providerMatchesSearch(provider: Provider, query: string) {
   ]
     .map((value) => value?.trim().toLocaleLowerCase())
     .filter((value): value is string => Boolean(value));
+  searchableFieldCache.set(provider, fields);
+  return fields;
+}
 
+export function providerMatchesSearch(provider: Provider, query: string) {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return true;
+  }
+
+  const searchableFields = searchableProviderFields(provider);
   return terms.every((term) =>
     searchableFields.some((field) => field.includes(term)),
   );

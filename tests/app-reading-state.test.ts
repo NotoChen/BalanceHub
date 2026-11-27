@@ -29,6 +29,198 @@ const logs = (id: string, page = 0): ProviderRequestLogsResult => ({ providerId:
 const usage = (id: string, used = 0.005): ProviderUsageSummary => ({ providerId: id, providerName: id, quotaDisplay, points: [{ date: "2026-09-26", used, requestCount: 1, tokenUsed: 2 }], modelStats: [], modelPoints: [], modelHealth: [], requestCount: 1, windowMinutes: 30 * 24 * 60 });
 const record = (month: string): ProviderCheckInRecordsResult => ({ providerId: "a", month, records: [], quotaDisplay, message: "" });
 
+test("reopening the same request log query reuses the recent result until an explicit refresh", async (t) => {
+  let calls = 0;
+  const panel = scoped(t, () => useRequestLogs({
+    providers: ref([provider("a")]),
+    loadLogs: async (id, query) => { calls++; return logs(id, query.page); },
+  }));
+  panel.openRequestLogs(provider("a"));
+  await settle();
+  assert.equal(calls, 1);
+  assert.ok(panel.requestLogsResult.value);
+
+  // 短时间内重复打开同一查询：直接复用上次结果，不再请求站点。
+  panel.requestLogsVisible.value = false;
+  panel.openRequestLogs(provider("a"));
+  await settle();
+  assert.equal(calls, 1);
+  assert.ok(panel.requestLogsResult.value);
+
+  // 面板上的「刷新」绕过缓存，必须真正重新读取。
+  panel.requestLogsVisible.value = false;
+  panel.openRequestLogs(provider("a"));
+  await settle();
+  await panel.loadRequestLogs({ force: true });
+  assert.equal(calls, 2);
+});
+
+test("usage reopened within the cache window renders immediately and refresh re-reads", async (t) => {
+  let calls = 0;
+  const periods: string[] = [];
+  const panel = scoped(t, () => useUsageSummary({
+    providers: ref([]),
+    loadUsage: async (id, period) => { calls++; periods.push(period); return usage(id); },
+    loadOverview: async () => { throw new Error("未预期的汇总读取"); },
+  }));
+  panel.openUsage(provider("a"));
+  await settle();
+  assert.equal(calls, 1);
+  assert.ok(panel.usageSummary.value);
+
+  panel.usageVisible.value = false;
+  panel.openUsage(provider("a"));
+  await settle();
+  assert.equal(calls, 1);
+  assert.ok(panel.usageSummary.value);
+
+  // 换时段是另一份数据，必须重新读取；切回原时段命中缓存。
+  panel.usagePeriod.value = "7d";
+  await settle();
+  assert.equal(calls, 2);
+  panel.usagePeriod.value = "24h";
+  await settle();
+  assert.equal(calls, 2);
+  assert.ok(panel.usageSummary.value);
+
+  await panel.refreshUsageSummary({ force: true });
+  assert.equal(calls, 3);
+  assert.deepEqual(periods, ["24h", "7d", "24h"]);
+});
+
+test("request log caches do not survive a credential or protocol change", async (t) => {
+  let calls = 0;
+  const providers = ref<Provider[]>([{
+    identity: { id: "a", baseUrl: "https://a.example" },
+    auth: { credentialRevision: 1 },
+  } as unknown as Provider]);
+  const panel = scoped(t, () => useRequestLogs({
+    providers,
+    loadLogs: async (id, query) => { calls++; return logs(id, query.page); },
+  }));
+  panel.openRequestLogs(providers.value[0]!);
+  await settle();
+  assert.equal(calls, 1);
+
+  // 同一站点换了 Key：旧凭据下的日志不能再当成本次查询的结果。
+  const rotated = {
+    ...providers.value[0]!,
+    auth: { credentialRevision: 2 },
+  } as Provider;
+  providers.value = [rotated];
+  panel.requestLogsVisible.value = false;
+  panel.openRequestLogs(rotated);
+  await settle();
+  assert.equal(calls, 2);
+
+  // 同一站点换了协议：日志的读取方式和字段含义都不同，旧结果同样失效。
+  const reprotocoled = {
+    identity: { id: "a", baseUrl: "https://a.example", protocol: "sub2Api" },
+    auth: { credentialRevision: 2 },
+  } as unknown as Provider;
+  providers.value = [reprotocoled];
+  panel.requestLogsVisible.value = false;
+  panel.openRequestLogs(reprotocoled);
+  await settle();
+  assert.equal(calls, 3);
+});
+
+test("usage caches do not survive a credential or protocol change", async (t) => {
+  let calls = 0;
+  const panel = scoped(t, () => useUsageSummary({
+    providers: ref([]),
+    loadUsage: async (id) => { calls++; return usage(id); },
+    loadOverview: async () => { throw new Error("未预期的汇总读取"); },
+  }));
+  const first = {
+    identity: { id: "a", baseUrl: "https://a.example" },
+    auth: { credentialRevision: 1 },
+  } as unknown as Provider;
+  const rotated = {
+    identity: { id: "a", baseUrl: "https://a.example" },
+    auth: { credentialRevision: 2 },
+  } as unknown as Provider;
+  panel.openUsage(first);
+  await settle();
+  assert.equal(calls, 1);
+  panel.usageVisible.value = false;
+  panel.openUsage(first);
+  await settle();
+  assert.equal(calls, 1);
+
+  panel.usageVisible.value = false;
+  panel.openUsage(rotated);
+  await settle();
+  assert.equal(calls, 2);
+
+  // 同一站点换了协议：协议决定了用量接口和字段，旧读数不能继续复用。
+  const reprotocoled = {
+    identity: { id: "a", baseUrl: "https://a.example", protocol: "sub2Api" },
+    auth: { credentialRevision: 2 },
+  } as unknown as Provider;
+  panel.usageVisible.value = false;
+  panel.openUsage(reprotocoled);
+  await settle();
+  assert.equal(calls, 3);
+});
+
+test("usage overview caches do not survive a provider or credential change", async (t) => {
+  let calls = 0;
+  const providers = ref<Provider[]>([
+    {
+      identity: { id: "a", baseUrl: "https://a.example", protocol: "newApi" },
+      auth: { mode: "password", credentialRevision: 1 },
+    } as unknown as Provider,
+  ]);
+  const overview = (requestCount: number): ProviderUsageOverview => ({
+    requestCount,
+    modelStats: [],
+    modelCount: 0,
+    modelHealth: [],
+    errors: [],
+    windowMinutes: 1440,
+  });
+  const panel = scoped(t, () => useUsageSummary({
+    providers,
+    loadUsage: async () => assert.fail("汇总视图不应读取单站用量"),
+    loadOverview: async () => { calls += 1; return overview(calls * 10); },
+  }));
+  panel.openUsageSummary();
+  await settle();
+  assert.equal(calls, 1);
+  assert.equal(panel.usageOverview.value?.requestCount, 10);
+
+  // 站点没有变化时，短时间重复打开仍然复用上次合计。
+  panel.usageVisible.value = false;
+  panel.openUsageSummary();
+  await settle();
+  assert.equal(calls, 1);
+
+  // 换 Key 后汇总必须重读，不能把上一个凭据下的合计当成本次读数。
+  providers.value = [{
+    ...providers.value[0]!,
+    auth: { mode: "password", credentialRevision: 2 },
+  } as unknown as Provider];
+  panel.usageVisible.value = false;
+  panel.openUsageSummary();
+  await settle();
+  assert.equal(calls, 2);
+  assert.equal(panel.usageOverview.value?.requestCount, 20);
+
+  // 新增站点同样会改变合计口径。
+  providers.value = [
+    ...providers.value,
+    {
+      identity: { id: "b", baseUrl: "https://b.example", protocol: "sub2Api" },
+      auth: { mode: "password", credentialRevision: 1 },
+    } as unknown as Provider,
+  ];
+  panel.usageVisible.value = false;
+  panel.openUsageSummary();
+  await settle();
+  assert.equal(calls, 3);
+});
+
 test("closing a view releases its busy state before the IPC settles and old work cannot finish a new request", async (t) => {
   const old = deferred<string>();
   const fresh = deferred<string>();
@@ -93,6 +285,7 @@ test("changing usage periods cannot label a late 24-hour response as seven-day d
   const old = deferred<ProviderUsageSummary>();
   const fresh = deferred<ProviderUsageSummary>();
   const panel = scoped(t, () => useUsageSummary({
+    providers: ref([]),
     loadUsage: (_id, period) => period === "24h" ? old.promise : fresh.promise,
     loadOverview: async () => assert.fail("卡片入口不应读取全部站点汇总"),
   }));
@@ -111,6 +304,7 @@ test("the toolbar overview reads every site once and a late card read cannot rep
   const cardRead = deferred<ProviderUsageSummary>();
   const periods: string[] = [];
   const panel = scoped(t, () => useUsageSummary({
+    providers: ref([]),
     loadUsage: () => cardRead.promise,
     loadOverview: (period) => { periods.push(period); return overview.promise; },
   }));
@@ -146,6 +340,7 @@ test("switching periods in the overview drops the previous period's totals", asy
     };
   }> = [];
   const panel = scoped(t, () => useUsageSummary({
+    providers: ref([]),
     loadUsage: async () => assert.fail("汇总视图不应读取单站用量"),
     loadOverview: (period) => {
       const pending = deferred<ProviderUsageOverview>();
@@ -195,6 +390,43 @@ test("returning to a cached check-in month releases another month's loading stat
   await panel.loadCheckInRecords({ force: true });
   assert.equal(calls, 3);
   assert.equal(panel.checkInRecordsResult.value?.month, month);
+});
+
+test("unrelated revisions keep a cached check-in month; switching accounts invalidates it", async (t) => {
+  const checkInProvider = (overrides: Record<string, unknown> = {}) => ({
+    identity: { id: "a", baseUrl: "https://fixture.invalid", protocol: "newApi" },
+    auth: { mode: "account", loginUsername: "alice" },
+    revision: 1,
+    ...overrides,
+  }) as unknown as Provider;
+  let calls = 0;
+  const providers = ref([checkInProvider()]);
+  const panel = scoped(t, () => useCheckInRecords({
+    providers,
+    loadRecords: async (_id, month) => { calls++; return record(month); },
+  }));
+  panel.openCheckInRecords(providers.value[0]);
+  await settle();
+  assert.equal(calls, 1);
+
+  // 后台刷新只推进全局 revision：签到记录没变，不能重读。
+  providers.value = [checkInProvider({ revision: 9 })];
+  await settle();
+  assert.ok(panel.checkInRecordsResult.value);
+  panel.checkInRecordsVisible.value = false;
+  panel.openCheckInRecords(providers.value[0]);
+  await settle();
+  assert.equal(calls, 1);
+
+  // 换登录账号后旧记录不再适用：立即失效，重新打开读新账号的数据。
+  providers.value = [
+    checkInProvider({ revision: 10, auth: { mode: "account", loginUsername: "bob" } }),
+  ];
+  await settle();
+  assert.equal(panel.checkInRecordsResult.value, null);
+  panel.openCheckInRecords(providers.value[0]);
+  await settle();
+  assert.equal(calls, 2);
 });
 
 test("a successful check-in invalidates the cached month and refreshes an open calendar", async (t) => {

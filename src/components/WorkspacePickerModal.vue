@@ -55,6 +55,7 @@ import {
   providerQuotaHeadline,
 } from "../utils/provider-display";
 import { latestAgentLivenessRecord } from "../utils/provider-liveness";
+import "../styles/modules/workspace-picker.css";
 
 const props = defineProps<{
   visible: boolean;

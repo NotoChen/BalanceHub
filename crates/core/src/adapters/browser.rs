@@ -10,13 +10,23 @@ use crate::{
 pub use control::BrowserWindowControl;
 use reqwest::{header::HeaderMap, StatusCode, Url};
 use serde_json::{json, Value};
-use std::{path::Path, process::Stdio, sync::Arc, time::Duration};
+use std::{
+    collections::VecDeque,
+    path::Path,
+    process::Stdio,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    process::{Child, ChildStdout, Command},
+    process::{Child, ChildStderr, ChildStdout, Command},
 };
 
 const MAX_REPLY_BYTES: usize = 7 * 1024 * 1024;
+/// Worker 退出时只把最后几行 stderr 带进错误提示，足够解释原因又不至于
+/// 把整段堆栈塞进任务中心。
+const STDERR_TAIL_LINES: usize = 8;
+const STDERR_LINE_LIMIT: usize = 400;
 pub type ProgressSink = Arc<dyn Fn(CheckInPhase) + Send + Sync>;
 
 /// Private JSONL pipe to the optional browser executor. Credentials never enter
@@ -28,6 +38,7 @@ pub struct BrowserSession {
     browser_pid: Option<u32>,
     sequence: u64,
     progress: ProgressSink,
+    stderr_tail: Arc<Mutex<VecDeque<String>>>,
 }
 
 impl BrowserSession {
@@ -44,7 +55,7 @@ impl BrowserSession {
             .env_remove("NODE_PATH")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         configure_process_group(&mut command);
         let mut child = Command::from(command)
             .kill_on_drop(true)
@@ -52,6 +63,12 @@ impl BrowserSession {
             .map_err(|error| format!("无法启动浏览器辅助组件：{error}"))?;
         let input = child.stdin.take().ok_or("无法连接浏览器输入通道")?;
         let output = child.stdout.take().ok_or("无法连接浏览器输出通道")?;
+        // Keep the last stderr lines so an unexpected exit explains itself.
+        // The pipe must be drained continuously or a chatty worker could block.
+        let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
+        if let Some(stderr) = child.stderr.take() {
+            spawn_stderr_reader(stderr, Arc::clone(&stderr_tail));
+        }
         Ok(Self {
             child,
             control: BrowserWindowControl::new(input),
@@ -59,6 +76,7 @@ impl BrowserSession {
             browser_pid: None,
             sequence: 0,
             progress,
+            stderr_tail,
         })
     }
 
@@ -80,12 +98,17 @@ impl BrowserSession {
                     .into_owned();
             }
         }
+        // 外层超时只是最后的安全网：必须晚于 worker 自己的启动、导航和验证
+        // 预算（启动 30s + 页面/验证 30s + 180s），否则用户看到的是笼统的
+        // “浏览器操作超时”，而不是 worker 给出的具体原因。
         let seconds = if matches!(op, "login" | "account") {
-            620
-        } else if matches!(op, "open" | "navigate" | "verify") {
-            220
+            700
+        } else if matches!(op, "open") {
+            260
+        } else if matches!(op, "navigate" | "verify") {
+            230
         } else {
-            35
+            60
         };
         tokio::time::timeout(Duration::from_secs(seconds), self.exchange(op, params))
             .await
@@ -130,6 +153,15 @@ impl BrowserSession {
             if value.get("code").and_then(Value::as_str) == Some("needsHuman") {
                 return Err(CheckInError::WaitingHuman);
             }
+            if value.get("code").and_then(Value::as_str) == Some("loginTimeout") {
+                return Err(CheckInError::LoginTimeout(
+                    value
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("登录等待超时，请重新点击登录并导入")
+                        .to_string(),
+                ));
+            }
             if value.get("code").and_then(Value::as_str) == Some("cancelled") {
                 return Err(CheckInError::Cancelled(
                     value
@@ -157,7 +189,7 @@ impl BrowserSession {
                 .await
                 .map_err(|_| "读取浏览器响应失败")?;
             if available.is_empty() {
-                return Err("验证窗口或浏览器进程已关闭".to_string());
+                return Err(self.exit_reason());
             }
             let end = available.iter().position(|byte| *byte == b'\n');
             let count = end.map_or(available.len(), |index| index + 1);
@@ -225,14 +257,40 @@ impl BrowserSession {
     pub async fn close(&mut self) {
         // EOF is handled independently of a pending verification by the worker.
         self.control.close().await;
+        let child_pid = self.child.id();
         if tokio::time::timeout(Duration::from_secs(6), self.child.wait())
             .await
             .is_err()
         {
             self.kill();
             let _ = self.child.wait().await;
+            return;
         }
-        self.browser_pid = None;
+        // The worker exits on its own after closing Chromium, but its 5 s
+        // shutdown watchdog and unexpected crashes exit while Playwright may
+        // still own a live browser. Once node is gone nothing else will release
+        // the persistent profile, so stop both recorded process trees; killing
+        // an already-exited pid or group is a no-op.
+        if let Some(pid) = self.browser_pid.take() {
+            kill_process_tree(pid);
+        }
+        if let Some(pid) = child_pid {
+            kill_process_tree(pid);
+        }
+    }
+
+    /// 进程管道关闭时说明原因。stderr 只摘录最近几行并去掉 userinfo，
+    /// 代理凭据不会随错误进入事件或日志。
+    fn exit_reason(&self) -> String {
+        let detail = self
+            .stderr_tail
+            .lock()
+            .ok()
+            .and_then(|tail| stderr_reason(&tail));
+        match detail {
+            Some(detail) => format!("验证窗口或浏览器进程已关闭：{detail}"),
+            None => "验证窗口或浏览器进程已关闭".to_string(),
+        }
     }
 
     fn kill(&mut self) {
@@ -250,5 +308,174 @@ impl Drop for BrowserSession {
     fn drop(&mut self) {
         self.control.abort();
         self.kill();
+    }
+}
+
+fn spawn_stderr_reader(stderr: ChildStderr, tail: Arc<Mutex<VecDeque<String>>>) {
+    crate::runtime::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Some(line) = stderr_excerpt(&line) else {
+                continue;
+            };
+            if let Ok(mut tail) = tail.lock() {
+                if tail.len() == STDERR_TAIL_LINES {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
+            }
+        }
+    });
+}
+
+fn stderr_reason(tail: &VecDeque<String>) -> Option<String> {
+    // Node 的版本尾巴和堆栈帧比错误本身更靠近文件末尾，优先取最近的
+    // 错误行，找不到时退回最后一行。
+    tail.iter()
+        .rev()
+        .find(|line| {
+            ["Error", "error", "failed", "Failed"]
+                .iter()
+                .any(|needle| line.contains(needle))
+        })
+        .or_else(|| tail.back())
+        .cloned()
+}
+
+fn stderr_excerpt(line: &str) -> Option<String> {
+    let line = redact_userinfo(line.trim());
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    Some(line.chars().take(STDERR_LINE_LIMIT).collect())
+}
+
+/// 代理地址可能以 `http://user:password@host` 出现在 worker 的参数和
+/// 报错里。URL 的 userinfo 部分只存在于 `://` 之后、第一个 `/` 或空白
+/// 之前的 `@`，按这个范围删除，正常路径里的 `@` 保持不变。
+fn redact_userinfo(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(start) = rest.find("://") {
+        let after = start + 3;
+        output.push_str(&rest[..after]);
+        let tail = &rest[after..];
+        match tail.find(|character: char| {
+            character == '@'
+                || character == '/'
+                || character.is_whitespace()
+                || character == '"'
+                || character == '\''
+        }) {
+            Some(index) if tail[index..].starts_with('@') => {
+                output.push_str("***@");
+                rest = &tail[index + 1..];
+            }
+            _ => rest = tail,
+        }
+    }
+    output.push_str(rest);
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_exit_reports_the_error_line_instead_of_the_node_version_footer() {
+        let tail = VecDeque::from([
+            "node:internal/modules/cjs/loader:1147".to_string(),
+            "Error: Cannot find module 'playwright-core'".to_string(),
+            "    at Module._resolveFilename (node:internal/modules/cjs/loader:1147:15)".to_string(),
+            "Node.js v22.14.0".to_string(),
+        ]);
+        assert_eq!(
+            stderr_reason(&tail).unwrap(),
+            "Error: Cannot find module 'playwright-core'"
+        );
+        let quiet = VecDeque::from(["Target page, context or browser has been closed".to_string()]);
+        assert_eq!(
+            stderr_reason(&quiet).unwrap(),
+            "Target page, context or browser has been closed"
+        );
+        assert_eq!(stderr_reason(&VecDeque::new()), None);
+    }
+
+    #[test]
+    fn worker_stderr_excerpts_never_leak_proxy_credentials() {
+        let line =
+            stderr_excerpt("Error: --proxy-server=http://user:secret@127.0.0.1:7890 refused")
+                .unwrap();
+        assert!(!line.contains("secret"));
+        assert!(!line.contains("user:"));
+        assert!(line.contains("http://***@127.0.0.1:7890"));
+        assert!(line.contains("refused"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn closing_after_the_worker_exits_still_stops_its_browser_process_tree() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let runtime = tempfile::tempdir().unwrap();
+        // Like Chromium after Playwright detaches it, the fake browser leads
+        // its own process group.
+        let mut command = std::process::Command::new("sleep");
+        command.arg("60");
+        configure_process_group(&mut command);
+        let mut browser = command.spawn().unwrap();
+        let browser_pid = browser.id();
+        std::fs::write(runtime.path().join("browser.pid"), browser_pid.to_string()).unwrap();
+        // Exit like the shutdown watchdog or a crash: report the browser pid,
+        // answer the request, then exit without stopping the browser.
+        let worker = runtime.path().join("node");
+        std::fs::write(
+            &worker,
+            r#"#!/bin/sh
+bh_browser_pid=$(cat "$(dirname "$0")/browser.pid")
+read bh_line
+printf '%s\n' "{\"event\":\"browserStarted\",\"browserPid\":${bh_browser_pid}}"
+printf '%s\n' '{"id":1,"ok":true,"data":null}'
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(runtime.path().join("worker.mjs"), b"").unwrap();
+
+        let mut session = BrowserSession::spawn(runtime.path(), Arc::new(|_| {})).unwrap();
+        session.request("probe", json!({})).await.unwrap();
+        assert_eq!(session.browser_pid, Some(browser_pid));
+        session.close().await;
+
+        let mut stopped = false;
+        for _ in 0..100 {
+            if browser.try_wait().unwrap().is_some() {
+                stopped = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            stopped,
+            "a browser left behind by the worker must be stopped"
+        );
+    }
+
+    #[test]
+    fn worker_stderr_excerpts_keep_ordinary_diagnostics() {
+        assert_eq!(
+            stderr_excerpt("  Error: listen EADDRINUSE: address already in use  ").unwrap(),
+            "Error: listen EADDRINUSE: address already in use"
+        );
+        assert_eq!(stderr_excerpt("   "), None);
+        // 路径中的 @ 不是 userinfo，保持原样。
+        assert_eq!(
+            stderr_excerpt("open /tmp/a@b/cache").unwrap(),
+            "open /tmp/a@b/cache"
+        );
+        let long = stderr_excerpt(&"x".repeat(STDERR_LINE_LIMIT + 50)).unwrap();
+        assert_eq!(long.chars().count(), STDERR_LINE_LIMIT);
     }
 }

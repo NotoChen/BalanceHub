@@ -7,6 +7,7 @@ import {
   IconUpload,
 } from "@arco-design/web-vue/es/icon";
 import { useHostCapabilities } from "../composables/useHostCapabilities";
+import "../styles/modules/onboarding.css";
 
 const { agentAvailable, ensure } = useHostCapabilities();
 void ensure();

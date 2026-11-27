@@ -34,19 +34,20 @@
   --provider-grid-gap: 16px;
 }
 
-/* Form boundaries also apply to page toolbars and teleported controls. */
-.arco-input-wrapper,
-.arco-input-number,
-.arco-select-view,
-.arco-picker,
-.arco-textarea-wrapper {
+/* Form boundaries also apply to page toolbars and teleported controls.
+ * Arco 的输入类组件样式随组件异步加载，`body` 前缀用于固定覆盖顺序。 */
+body .arco-input-wrapper,
+body .arco-input-number,
+body .arco-select-view,
+body .arco-picker,
+body .arco-textarea-wrapper {
   border-color: var(--surface-control-line);
 }
 
 /* Arco focuses an absolute, zero-width input before opening a single select.
  * Give it a local focus rectangle so WebKit does not scroll an ancestor modal
  * to reveal the input. Keep it focusable for keyboard navigation and search. */
-.arco-select-view-single {
+body .arco-select-view-single {
   position: relative;
 }
 
@@ -80,7 +81,7 @@
   background: var(--surface-control-line);
 }
 
-.arco-switch:focus-visible {
+body .arco-switch:focus-visible {
   outline: 2px solid var(--surface-accent);
   outline-offset: 3px;
 }

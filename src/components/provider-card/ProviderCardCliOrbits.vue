@@ -41,8 +41,12 @@ const orbitPath = ref("path(\"M 8 0 H 92 Q 100 0 100 8 V 92 Q 100 100 92 100 H 8
 const orbitMotions = new Map<string, ProviderCardCliOrbitMotion>();
 const orbitNodes = new Map<string, HTMLElement>();
 let resizeObserver: ResizeObserver | null = null;
+let intersectionObserver: IntersectionObserver | null = null;
 let unsubscribeOrbitFrames: (() => void) | null = null;
 let lastFrameAt: number | null = null;
+/// 滚动离开视口或切到 Agent 工作台（卡片只是 v-show 隐藏）时暂停逐帧
+/// 写入；卡片重新可见时从当前进度继续，不做一次性追帧。
+let hostVisible = true;
 let mounted = false;
 
 function roundedRectPath(width: number, height: number) {
@@ -139,7 +143,9 @@ function prefersReducedMotion() {
 
 function updateOrbitFrameSubscription() {
   if (!mounted) return;
-  const shouldAnimate = renderedOrbits.value.length > 0 && !prefersReducedMotion();
+  const shouldAnimate = hostVisible
+    && renderedOrbits.value.length > 0
+    && !prefersReducedMotion();
   if (shouldAnimate && !unsubscribeOrbitFrames) {
     lastFrameAt = null;
     unsubscribeOrbitFrames = subscribeProviderCardCliOrbitFrames(renderOrbitFrame);
@@ -167,6 +173,11 @@ async function observeHost() {
   syncOrbitMotions();
   syncOrbitPath();
 
+  if (intersectionObserver && host.value) {
+    intersectionObserver.disconnect();
+    intersectionObserver.observe(host.value);
+  }
+
   if (!resizeObserver || !host.value) return;
   resizeObserver.disconnect();
   resizeObserver.observe(host.value);
@@ -188,6 +199,18 @@ onMounted(() => {
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(syncOrbitPath);
   }
+  if (typeof IntersectionObserver !== "undefined") {
+    // 提前一屏恢复：卡片滚回视口时图标已经在既定进度上继续移动。
+    intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        if (!entry) return;
+        hostVisible = entry.isIntersecting;
+        updateOrbitFrameSubscription();
+      },
+      { rootMargin: "120px" },
+    );
+  }
   updateOrbitFrameSubscription();
   void observeHost();
 });
@@ -197,6 +220,7 @@ onBeforeUnmount(() => {
   unsubscribeOrbitFrames?.();
   unsubscribeOrbitFrames = null;
   resizeObserver?.disconnect();
+  intersectionObserver?.disconnect();
   orbitMotions.clear();
   orbitNodes.clear();
 });

@@ -2,10 +2,10 @@
 import { computed, ref, watch } from "vue";
 import type { AgentCatalogComparisonDocument, AgentCatalogComparisonSide } from "../../stores/agent-catalog-types";
 import type { AgentCliDescriptor } from "../../stores/provider-types";
-import { agentAssetScopeLabels } from "../../composables/useAgentAssetCatalog";
 import ContentDiff from "../ContentDiff.vue";
 import ContentChange from "../ContentChange.vue";
 import AgentCatalogComparisonDocuments from "./AgentCatalogComparisonDocuments.vue";
+import { agentAssetScopeLabels } from "../../utils/agent-asset-labels";
 
 const props = defineProps<{ sides: AgentCatalogComparisonSide[]; agents: AgentCliDescriptor[] }>();
 const selectedIds = ref<string[]>([]);
